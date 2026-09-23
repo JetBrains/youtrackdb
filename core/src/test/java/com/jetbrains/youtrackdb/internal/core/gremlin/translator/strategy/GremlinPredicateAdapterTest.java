@@ -782,6 +782,36 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
+   * When the schema gate reports the property's declared type already sits in the literal's
+   * comparability block, the per-row {@code type() IN [...]} guard is compile-time redundant and
+   * must not appear — LDBC {@code Message.creationDate DATETIME} against a {@code Date} literal.
+   */
+  @Test
+  public void guardedRange_skipsTypeGuardWhenSchemaDeclaresMatchingType() {
+    GremlinPredicateAdapter.PropertyTypeGate dateGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "creationDate".equals(key) && typeNames.contains("DATETIME");
+          }
+        };
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("creationDate", P.lt(new java.util.Date(0))),
+        dateGate,
+        null,
+        /* rangeTypeGuard= */ true);
+    assertThat(renderWithLiterals(expr))
+        .as("declared DATETIME must emit a bare comparison like SQL IC2")
+        .doesNotContainIgnoringCase("type()")
+        .contains("creationDate <");
+  }
+
+  /**
    * The guard is confined to the four order comparisons. {@code eq} does not route through the
    * comparator at all, and {@code neq} is defined as {@code !eq} — it answers <em>true</em> for the
    * operand pairs the order predicates reject, so guarding it would invert the answer instead of

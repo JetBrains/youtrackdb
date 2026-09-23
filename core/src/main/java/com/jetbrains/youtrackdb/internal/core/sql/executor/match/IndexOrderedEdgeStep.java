@@ -23,12 +23,16 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
@@ -112,11 +116,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private final int downstreamEdgeCount;
 
   /**
-   * When true, the plan's ORDER BY carries a trailing record identifier item on the target alias and
-   * the planner accepted it as already produced by this scan (see
-   * {@code IndexOrderedPlanner.acceptsRidTieBreak}). The pre-sorted signal then holds only where
-   * equal keys really come back in scan-direction identifier order, which is the index scan itself
-   * and only while the transaction holds no pending change for the index.
+   * When true, ORDER BY already ends in {@code @rid} and equal property keys must keep
+   * index RID order. See {@link #hasPendingIndexChanges}.
    */
   private final boolean ridTieBreakAccepted;
 
@@ -126,6 +127,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * PROFILE / post-query {@link #prettyPrint} will.
    */
   @Nullable private volatile RuntimePath chosenRuntimePath;
+
+  /**
+   * Entry budget the last budgeted scan was given, or {@code -1} when none ran.
+   * Exposed for testing through {@link #lastScanBudget()}.
+   */
+  private volatile long lastScanBudget = -1;
+
+  /**
+   * Index entries the last budgeted scan consumed, or {@code -1} when none ran.
+   * Exposed for testing through {@link #lastScanConsumedEntries()}.
+   */
+  private volatile long lastScanConsumedEntries = -1;
 
   /**
    * Which physical strategy {@link IndexOrderedEdgeStep} actually ran.
@@ -145,7 +158,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     /** Multi-source global index scan (no RidSet filter). */
     GLOBAL_SCAN("global-scan"),
     /** Multi-source / unbound fallback: stream LinkBags, OrderByStep sorts. */
-    LOAD_UNSORTED_MULTI("load-unsorted-multi");
+    LOAD_UNSORTED_MULTI("load-unsorted-multi"),
+    /**
+     * Ordered scan spent its runtime budget without enough rows and fell back
+     * to unsorted load + sort. Distinct from {@link #LOAD_UNSORTED_MULTI},
+     * which is chosen before any scanning.
+     */
+    SCAN_BUDGET_BAILOUT("scan-budget-bailout");
 
     private final String label;
 
@@ -161,6 +180,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Last runtime path chosen by this step, or null if not started yet. */
   @Nullable public RuntimePath getChosenRuntimePath() {
     return chosenRuntimePath;
+  }
+
+  /** Entry budget given to the last budgeted scan, or {@code -1} when none ran. */
+  public long lastScanBudget() {
+    return lastScanBudget;
+  }
+
+  /** Index entries the last budgeted scan consumed, or {@code -1} when none ran. */
+  public long lastScanConsumedEntries() {
+    return lastScanConsumedEntries;
+  }
+
+  /** Clears observations before this step runs again. */
+  @Override
+  public void reset() {
+    lastScanBudget = -1;
+    lastScanConsumedEntries = -1;
   }
 
   public IndexOrderedEdgeStep(
@@ -299,7 +335,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       // directly, so they skip the RidSet allocation.
       chosenRuntimePath = RuntimePath.INDEX_SCAN;
       signalIndexOrderedOutput(ctx);
-      return indexScanFiltered(ridSetFromLinkBag(linkBag), ctx, upstreamRow);
+      return indexScanFiltered(ridSetFromLinkBag(linkBag), linkBag, ctx, upstreamRow);
     } else if (downstreamEdgeCount > 0 && limit > 0) {
       // Low density but downstream edges + LIMIT: load all, sort locally,
       // and mark PRE_SORTED=true. This enables LIMIT to short-circuit the
@@ -335,29 +371,56 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /**
    * Single-source index scan: filtered by RidSet, only matching records loaded.
    * Output is sorted by the ORDER BY property (pre-sorted).
+   *
+   * <p>Runs under {@link #scanUnderBudget}: the membership filter hides dropped
+   * entries, so the budget is pushed into {@link RidFilteredIndexValuesStep}.
    */
   private ExecutionStream indexScanFiltered(
-      RidSet ridSet, CommandContext ctx, Result upstreamRow) {
+      RidSet ridSet, LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
     var indexDesc = new IndexSearchDescriptor(index);
+    var entryBudget =
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBag.size());
+    if (entryBudget <= 0) {
+      if (downstreamEdgeCount > 0 && limit > 0) {
+        chosenRuntimePath = RuntimePath.LOAD_SORT;
+        signalLoadSortedOutput(ctx);
+        return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
+      }
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromLinkBag(linkBag, ctx, upstreamRow);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
-        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, ridSet);
+        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, ridSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
 
-    return indexStream.map((indexResult, mapCtx) -> {
-      var rid = (RID) indexResult.getProperty("rid");
-      var targetRecord = loadRecord(rid, session);
-      if (targetRecord == null) {
-        return null;
-      }
-      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
-        return null;
-      }
-      if (isAlreadyBoundAndDifferent(upstreamRow, targetRecord, session)) {
-        return null;
-      }
-      return new MatchResultRow(session, upstreamRow, targetAlias, targetRecord);
-    }).filter(ExecutionStream.IDENTITY_FILTER);
+    return scanUnderBudget(
+        filteredStep, indexStream, ctx, entryBudget,
+        (indexResult, mapCtx) -> {
+          var rid = (RID) indexResult.getProperty("rid");
+          var targetRecord = loadRecord(rid, session);
+          if (targetRecord == null) {
+            return ExecutionStream.empty();
+          }
+          if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
+            return ExecutionStream.empty();
+          }
+          if (isAlreadyBoundAndDifferent(upstreamRow, targetRecord, session)) {
+            return ExecutionStream.empty();
+          }
+          return ExecutionStream.singleton(
+              new MatchResultRow(session, upstreamRow, targetAlias, targetRecord));
+        },
+        () -> {
+          // Mirror the non-scan branch: with downstream edges + LIMIT, sort
+          // locally and keep PRE_SORTED so only k rows cross those edges.
+          if (downstreamEdgeCount > 0 && limit > 0) {
+            signalLoadSortedOutput(ctx);
+            return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
+          }
+          return loadFromLinkBag(linkBag, ctx, upstreamRow);
+        });
   }
 
   /**
@@ -445,13 +508,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   // =====================================================================
 
   /**
-   * Sorts records by the ORDER BY property from the index definition. When the planner accepted a
-   * trailing record identifier item, equal property values are also ordered by identifier. This
-   * reproduces a forward index scan's {@code (property ASC, rid ASC)} order and reverses both keys
-   * for a backward scan. A one-item ORDER BY keeps its existing unspecified tie order.
-   *
-   * <p>Used by loadSortFromLinkBag to produce pre-sorted output that enables LIMIT-based early
-   * termination through downstream MATCH edges.
+   * Sorts records by the ORDER BY property (from the index definition).
+   * Used by loadSortFromLinkBag to produce pre-sorted output that enables
+   * LIMIT-based early termination through downstream MATCH edges.
    *
    * <p>The planner resolves null placement once and stores it in this step. The shared ORDER BY
    * comparison then applies explicit clauses and direction-specific defaults consistently.
@@ -533,9 +592,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
-    int estimatedTotalEdges = estimateTotalEdges(sourceMap, session);
+    var edgeEstimate = estimateTotalEdges(sourceMap, session, indexSize);
     var strategy = pickMultiSourceStrategy(
-        estimatedTotalEdges, indexSize, histogram);
+        edgeEstimate.totalEdges(), indexSize, histogram, edgeEstimate.capped());
 
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
@@ -561,6 +620,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /**
    * Builds union RidSet from filtered upstream LinkBags. No sourceMap needed
    * — just bitmap check per entry. Source alias is NOT bound in results.
+   *
+   * <p>Not binding the source alias does not license collapsing the row
+   * multiplicity: a MATCH pattern emits one row per (source, target) binding
+   * whether or not RETURN reads the source. The union scan below therefore
+   * counts, per target, how many upstream source occurrences reach it, and
+   * emits that many rows. Only the source <em>values</em> are omitted.
    */
   private ExecutionStream filteredUnbound(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
@@ -579,6 +644,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
     var sourceRids = new ArrayList<RID>();
     var unionRidSet = new RidSet();
+    // Occurrences per source RID, not distinct sources: two upstream rows for
+    // one source produce two rows per reachable target, which is what the
+    // loadFromSourcesUnbound fallback below also produces.
+    var sourceOccurrences = new HashMap<RID, Integer>();
     boolean ridSetOverflow = false;
     boolean sourceOverflow = false;
     var upstream = prev.start(ctx);
@@ -587,6 +656,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var sourceRid = extractSourceRid(row);
       if (sourceRid != null) {
         sourceRids.add(sourceRid);
+        sourceOccurrences.merge(sourceRid, 1, Integer::sum);
         if (!sourceOverflow && sourceRids.size() > maxSources) {
           sourceOverflow = true;
           ridSetOverflow = true;
@@ -626,23 +696,46 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     chosenRuntimePath = RuntimePath.UNION_SCAN;
     signalIndexOrderedOutput(ctx);
     var indexDesc = new IndexSearchDescriptor(index);
+    var entryBudget =
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    if (entryBudget <= 0) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnbound(sourceRids, ctx);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
-        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet);
+        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
 
     // Shared empty upstream — safe because MatchResultRow never writes to parent
     var emptyUpstream = new ResultInternal(session);
-    return indexStream.map((indexResult, mapCtx) -> {
-      var rid = (RID) indexResult.getProperty("rid");
-      var targetRecord = loadRecord(rid, session);
-      if (targetRecord == null) {
-        return null;
-      }
-      if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
-        return null;
-      }
-      return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    }).filter(ExecutionStream.IDENTITY_FILTER);
+    return scanUnderBudget(
+        filteredStep, indexStream, ctx, entryBudget,
+        (indexResult, mapCtx) -> {
+          var rid = (RID) indexResult.getProperty("rid");
+          var targetRecord = loadRecord(rid, session);
+          if (targetRecord == null) {
+            return ExecutionStream.empty();
+          }
+          if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
+            return ExecutionStream.empty();
+          }
+          // Reverse edges give the multiplicity the bitmap check cannot: a target
+          // reached from several upstream sources binds the pattern once per source.
+          var rowCount = 0;
+          for (var sourceRid : resolveReverseEdges(targetRecord)) {
+            rowCount += sourceOccurrences.getOrDefault(sourceRid, 0);
+          }
+          if (rowCount == 0) {
+            return ExecutionStream.empty();
+          }
+          var results = new ArrayList<Result>(rowCount);
+          for (var i = 0; i < rowCount; i++) {
+            results.add(new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord));
+          }
+          return ExecutionStream.resultIterator(results.iterator());
+        },
+        () -> loadFromSourcesUnbound(sourceRids, ctx));
   }
 
   /**
@@ -753,8 +846,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   // ---- Mode D: UNFILTERED_UNBOUND (class check, no source load) ----
 
   /**
-   * Lightest mode: scan index, per hit verify reverse edge points to correct
-   * source class (no load of source, no binding). Only target alias bound.
+   * Lightest mode: scan index, per hit count the reverse edges that point to a
+   * vertex of the source class (no load of source, no binding). Only the target
+   * alias is bound, but one row is emitted per matching reverse edge, because
+   * the pattern binds once per (source, target) pair even when RETURN never
+   * reads the source.
    */
   private ExecutionStream unfilteredUnbound(CommandContext ctx) {
     var session = ctx.getDatabaseSession();
@@ -777,33 +873,35 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexStream = fullScan.internalStart(ctx);
 
     var emptyUpstream = new ResultInternal(session);
-    return indexStream.map((indexResult, mapCtx) -> {
+    return indexStream.flatMap((indexResult, mapCtx) -> {
       var rid = (RID) indexResult.getProperty("rid");
       var targetRecord = loadRecord(rid, session);
       if (targetRecord == null) {
-        return null;
+        return ExecutionStream.empty();
       }
       if (!matchesTargetFilter(targetRecord, rid, mapCtx)) {
-        return null;
+        return ExecutionStream.empty();
       }
 
-      // Source is not bound — just verify ANY reverse edge points to a
-      // source of the correct class. Check all because the first might
-      // point to a wrong-class vertex while a later one is valid.
-      var reverseRids = resolveReverseEdges(targetRecord);
-      boolean anyValid = false;
-      for (var sourceRid : reverseRids) {
+      // The source values are not bound, but every reverse edge from a
+      // source-class vertex is one pattern binding, so count them all rather
+      // than stopping at the first valid one.
+      var rowCount = 0;
+      for (var sourceRid : resolveReverseEdges(targetRecord)) {
         if (srcClass.hasPolymorphicCollectionId(sourceRid.getCollectionId())) {
-          anyValid = true;
-          break;
+          rowCount++;
         }
       }
-      if (!anyValid) {
-        return null;
+      if (rowCount == 0) {
+        return ExecutionStream.empty();
       }
 
-      return new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord);
-    }).filter(ExecutionStream.IDENTITY_FILTER);
+      var results = new ArrayList<Result>(rowCount);
+      for (var i = 0; i < rowCount; i++) {
+        results.add(new MatchResultRow(session, emptyUpstream, targetAlias, targetRecord));
+      }
+      return ExecutionStream.resultIterator(results.iterator());
+    });
   }
 
   /**
@@ -847,32 +945,48 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    // Scan index filtered by union RidSet (seqRead per entry, bitmap check)
+    // Scan index filtered by union RidSet (seqRead per entry, bitmap check).
+    // Budget = entriesWorthTheLoadAlternative: filtered cursor advances are cheap.
     var indexDesc = new IndexSearchDescriptor(index);
+    var entryBudget =
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    if (entryBudget <= 0) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+      ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return loadFromSourcesUnsorted(sourceMap, ctx);
+    }
     var filteredStep = new RidFilteredIndexValuesStep(
-        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet);
+        indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, unionRidSet, entryBudget);
     var indexStream = filteredStep.internalStart(ctx);
 
-    // Per match: load record, reverse edge → find upstream row(s).
-    // flatMap handles shared targets (one target linked to multiple sources).
-    return indexStream.flatMap(
-        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx));
+    return scanUnderBudget(
+        filteredStep, indexStream, ctx, entryBudget,
+        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx),
+        () -> loadFromSourcesUnsorted(sourceMap, ctx));
   }
 
   /**
    * Strategy 2: Scan index without filter, load every entry, check reverse
    * edge against sourceMap. Cheaper than union when density is high and LIMIT
    * is small (avoids union build cost).
+   *
+   * <p>Each index entry loads a record, so the runtime budget is the real
+   * source-edge count — one entry costs about one fallback record, not the
+   * cheap filtered-cursor conversion used by union scans.
    */
   private ExecutionStream indexScanGlobal(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
+    var realEdgeCount = countTotalEdges(sourceMap, session);
     var indexDesc = new IndexSearchDescriptor(index);
     var fullScan = new RidFilteredIndexValuesStep(
         indexDesc, orderAsc, nullsFirst(), ctx, profilingEnabled, null);
     var indexStream = fullScan.internalStart(ctx);
 
-    return indexStream.flatMap(
-        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx));
+    return scanUnderBudget(
+        fullScan, indexStream, ctx, realEdgeCount,
+        (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx),
+        () -> loadFromSourcesUnsorted(sourceMap, ctx));
   }
 
   /**
@@ -910,6 +1024,109 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   // =====================================================================
+  // Runtime scan budget
+  // =====================================================================
+
+  /**
+   * Runs an ordered index scan under a RUNTIME SCAN BUDGET, with a PRE-EMISSION
+   * BAIL-OUT.
+   *
+   * <p>Plan-time density assumes reachable targets are spread evenly. Clustered
+   * membership breaks that. This method counts index entries the scan consumes
+   * (including ones a RidSet filter drops) and abandons the scan for
+   * load-from-sources once spend reaches {@code entryBudget}, before any row is
+   * emitted.
+   *
+   * <p>When the prefill collects enough rows, the in-pipeline budget is removed before chaining
+   * the buffered prefix and remaining scan. A later graph-pattern filter can reject prefetched
+   * rows. The continuation remains unbounded so the query can still satisfy its requested row
+   * count. A post-emission bail-out cannot preserve index order.
+   *
+   * <p>Callers choose the budget units:
+   * <ul>
+   *   <li>UNION / single-source filtered: {@link
+   *       IndexOrderedCostModel#entriesWorthTheLoadAlternative} — cursor advances
+   *       are cheap relative to record loads</li>
+   *   <li>GLOBAL: the real source-edge count — each entry already loads a
+   *       record</li>
+   * </ul>
+   */
+  private ExecutionStream scanUnderBudget(
+      RidFilteredIndexValuesStep scanStep,
+      ExecutionStream indexStream,
+      CommandContext ctx,
+      long entryBudget,
+      BiFunction<Result, CommandContext, ExecutionStream> rowsForEntry,
+      Supplier<ExecutionStream> bailOut) {
+    var rowTarget = limit;
+    lastScanBudget = entryBudget;
+    lastScanConsumedEntries = 0;
+    if (rowTarget <= 0) {
+      // No LIMIT means the scan has to reach the end of the reachable set
+      // either way — abandoning it cannot save work.
+      return indexStream.flatMap(rowsForEntry::apply);
+    }
+    if (entryBudget <= 0) {
+      // Filtered callers reject this budget before constructing a scan. Keep this guard so a
+      // future caller cannot reinterpret an invalid initial budget as an unbounded scan.
+      return bailOutTo(indexStream, ctx, bailOut);
+    }
+
+    var maxBuffered = maxBufferedRows(rowTarget);
+    var buffered = new ArrayList<Result>();
+    long delivered = 0;
+    while (buffered.size() < maxBuffered && indexStream.hasNext(ctx)) {
+      // Unfiltered scan: every entry reaches here, so delivered is exact.
+      // Filtered scan: RidFilteredIndexValuesStep stops itself; see below.
+      if (delivered >= entryBudget) {
+        lastScanConsumedEntries = Math.max(delivered, scanStep.consumedEntryCount());
+        return bailOutTo(indexStream, ctx, bailOut);
+      }
+      delivered++;
+      var rows = rowsForEntry.apply(indexStream.next(ctx), ctx);
+      while (rows.hasNext(ctx)) {
+        buffered.add(rows.next(ctx));
+      }
+      rows.close(ctx);
+    }
+    lastScanConsumedEntries = Math.max(delivered, scanStep.consumedEntryCount());
+    if (buffered.size() < maxBuffered && scanStep.scanBudgetExhausted()) {
+      return bailOutTo(indexStream, ctx, bailOut);
+    }
+
+    // A full prefill closes the bail-out path. Remove the gate because later graph-pattern
+    // filters can reject buffered rows and force the query to continue scanning for its limit.
+    if (buffered.size() >= maxBuffered) {
+      scanStep.liftScanBudget();
+    }
+
+    List<Supplier<ExecutionStream>> parts = List.of(
+        () -> ExecutionStream.resultIterator(buffered.iterator()),
+        () -> indexStream.flatMap(rowsForEntry::apply));
+    return batchedStream(parts.iterator(), Supplier::get)
+        .onClose(indexStream::close);
+  }
+
+  /** Abandons the scan and hands over the fallback. Never after a row was emitted. */
+  private ExecutionStream bailOutTo(
+      ExecutionStream indexStream, CommandContext ctx, Supplier<ExecutionStream> bailOut) {
+    indexStream.close(ctx);
+    chosenRuntimePath = RuntimePath.SCAN_BUDGET_BAILOUT;
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+    return bailOut.get();
+  }
+
+  /**
+   * Rows the pre-emission buffer may hold: the row target, capped by
+   * {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}.
+   */
+  private static long maxBufferedRows(long rowTarget) {
+    var maxElements =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    return maxElements > 0 ? Math.min(rowTarget, maxElements) : rowTarget;
+  }
+
+  // =====================================================================
   // Cost-based heuristic
   // =====================================================================
 
@@ -920,6 +1137,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private boolean shouldUseIndexScan(
       int linkBagSize, long indexSize,
       @Nullable EquiDepthHistogram histogram) {
+    if (IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBagSize) <= 0) {
+      // A cached plan may outlive a configuration change. Reach the pre-cursor fallback below.
+      return true;
+    }
     var costs = IndexOrderedCostModel.computeCosts(
         linkBagSize, indexSize, limit, histogram, orderAsc,
         downstreamEdgeCount);
@@ -945,9 +1166,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private IndexOrderedCostModel.MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize,
-      @Nullable EquiDepthHistogram histogram) {
+      @Nullable EquiDepthHistogram histogram,
+      boolean estimateCapped) {
     return IndexOrderedCostModel.pickMultiSourceStrategy(
-        totalEdges, indexSize, limit, histogram, orderAsc);
+        totalEdges, indexSize, limit, histogram, orderAsc, estimateCapped);
   }
 
   // Cost model logic lives in IndexOrderedCostModel.
@@ -1074,14 +1296,44 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Estimate total edges for multi-source cost model by sampling up to 5
-   * source vertices' LinkBag sizes, then extrapolating to all sources.
-   * Falls back to {@code sourceCount × defaultFanOut} if sampling fails.
+   * Exact sum of LinkBag sizes for every source. Used as the GLOBAL_SCAN
+   * runtime budget: that path loads one record per index entry, so the
+   * fallback's record count is the entry allowance (not
+   * {@link IndexOrderedCostModel#entriesWorthTheLoadAlternative}).
    */
-  private int estimateTotalEdges(
+  private int countTotalEdges(
       Map<RID, ?> sourceMap, DatabaseSessionEmbedded session) {
+    long total = 0;
+    for (var sourceRid : sourceMap.keySet()) {
+      var linkBag = loadLinkBag(sourceRid, session);
+      if (linkBag != null) {
+        total += linkBag.size();
+      }
+    }
+    return (int) Math.min(total, Integer.MAX_VALUE);
+  }
+
+  private record TotalEdgesEstimate(int totalEdges, boolean capped) {
+  }
+
+  /**
+   * Estimate total edges for multi-source cost model by sampling up to 5 source vertices'
+   * LinkBag sizes, then extrapolating to all sources. Falls back to
+   * {@code sourceCount × defaultFanOut} if sampling fails.
+   *
+   * <p>Uses the <em>median</em> of the sample, not the mean. A hub in a small sample pulls the
+   * mean far above the typical source; the mean then extrapolates past the index size and the
+   * cap would report density {@code 1.0}. Median keeps one hub from rewriting the density.
+   *
+   * <p>The result is still CAPPED AT THE INDEX SIZE. No more distinct targets can exist than
+   * the index holds entries. When the cap fires, {@code capped} is true and
+   * {@link IndexOrderedCostModel#pickMultiSourceStrategy} loads from LinkBags rather than
+   * trusting density {@code 1.0} for {@code GLOBAL_SCAN}.
+   */
+  private TotalEdgesEstimate estimateTotalEdges(
+      Map<RID, ?> sourceMap, DatabaseSessionEmbedded session, long indexSize) {
     int sampleSize = Math.min(sourceMap.size(), 5);
-    int totalSampled = 0;
+    var sampleSizes = new int[sampleSize];
     int sampled = 0;
     for (var sourceRid : sourceMap.keySet()) {
       if (sampled >= sampleSize) {
@@ -1089,18 +1341,24 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
       var linkBag = loadLinkBag(sourceRid, session);
       if (linkBag != null) {
-        totalSampled += linkBag.size();
-        sampled++;
+        sampleSizes[sampled++] = linkBag.size();
       }
     }
-    // Round rather than truncate: integer division would systematically
-    // undercount the fan-out (e.g. an average of 9.8 edges/source read as 9),
-    // biasing the cost model toward load-all-and-sort.
-    long avgPerSource = sampled > 0
-        ? Math.round((double) totalSampled / sampled)
-        : GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
-    return (int) Math.min(
-        (long) sourceMap.size() * avgPerSource, Integer.MAX_VALUE);
+    long perSource;
+    if (sampled == 0) {
+      perSource = GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
+    } else {
+      Arrays.sort(sampleSizes, 0, sampled);
+      perSource = sampleSizes[sampled / 2];
+    }
+    var extrapolated = (long) sourceMap.size() * perSource;
+    var capped = false;
+    if (indexSize > 0 && extrapolated >= indexSize) {
+      extrapolated = indexSize;
+      capped = true;
+    }
+    return new TotalEdgesEstimate(
+        (int) Math.min(extrapolated, Integer.MAX_VALUE), capped);
   }
 
   /**
@@ -1249,8 +1507,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var mode = multiSourceMode != null ? " (" + multiSourceMode + ")" : "";
     var edgeSuffix = edgeTraversal ? "E" : "";
     var path = chosenRuntimePath != null ? " [" + chosenRuntimePath.label() + "]" : "";
-    // The marker is the only plan-visible sign that the trailing record identifier item was
-    // accepted, so a test can tell an accepted shape from a refused one without inferring it from
+    // Surface whether the planner accepted a trailing @rid ORDER BY item so
+    // EXPLAIN can tell an accepted shape from a refused one without inferring it from
     // whether the query buffered.
     var tieBreak = ridTieBreakAccepted ? " " + RID_TIE_BREAK_MARKER : "";
     return spaces + "+ INDEX ORDERED MATCH" + edgeSuffix + " " + direction + mode + path

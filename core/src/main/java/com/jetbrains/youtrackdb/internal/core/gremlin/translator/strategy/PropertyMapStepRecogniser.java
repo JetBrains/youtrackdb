@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import java.util.Arrays;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 
@@ -33,6 +34,14 @@ final class PropertyMapStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     if (mapStep.getPropertyTraversal() != null || mapStep.getValueTraversal() != null) {
+      return Outcome.DECLINE;
+    }
+    // Element-only steps cast the map natively. Select reads a map cell before a same-named label.
+    // Filter children arm the same gate without a local slice.
+    if (ctx.needsMapElementProjectionContainment()
+        && (SelectStepRecogniser.trailingElementProjection(cursor.peek())
+            || SelectStepRecogniser.trailingSelectOverlaps(
+                cursor.peek(), Arrays.asList(mapStep.getPropertyKeys())))) {
       return Outcome.DECLINE;
     }
     return GremlinProjectionAssembler.configurePropertyMap(

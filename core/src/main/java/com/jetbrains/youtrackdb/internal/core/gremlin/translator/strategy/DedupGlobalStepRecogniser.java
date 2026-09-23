@@ -50,6 +50,12 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
     if (!scopeKeysNameOnlyBoundary(ctx, dedup)) {
       return Outcome.DECLINE;
     }
+    // FilterRankingStrategy can move as("t") onto DedupGlobalStep; without binding here,
+    // a following select("t") sees an unbound label and the whole walk declines.
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null || !ctx.bindStepLabels(dedup, boundary)) {
+      return Outcome.DECLINE;
+    }
     ctx.setReturnDistinct(true);
     return Outcome.ACCEPTED;
   }
@@ -66,6 +72,10 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       }
     }
     if (!scopeKeysNameOnlyBoundary(ctx, dedup)) {
+      return Outcome.DECLINE;
+    }
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null || !ctx.bindStepLabels(dedup, boundary)) {
       return Outcome.DECLINE;
     }
     ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);

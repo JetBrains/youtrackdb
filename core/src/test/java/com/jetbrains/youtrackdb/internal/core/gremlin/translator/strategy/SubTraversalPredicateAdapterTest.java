@@ -10,7 +10,9 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +87,37 @@ public class SubTraversalPredicateAdapterTest {
     assertThat(adapter.isVertexClass("Person")).isTrue();
     assertThat(adapter.nextAnonVertexAlias()).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(adapter.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
+  }
+
+  /**
+   * Order capture and the ordered-slice gate are swallowed on a sub-walk: a child's {@code order()}
+   * must not let a slice inside a combinator ride a sort the parent captured, and the adapter never
+   * forwards the parent's affirmative answer.
+   */
+  @Test
+  public void orderCaptureAndSliceGate_areSwallowedAndAlwaysFalse() {
+    var parent = new WalkerContext(true, false);
+    parent.addNode(BOUNDARY_ALIAS, "V");
+    parent.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    parent.setSingleReturnColumn(BOUNDARY_ALIAS);
+    parent.setOrderBy(
+        MatchProjectionBuilder.orderBy(
+            List.of(ProjectionExpressionFactories.orderByProperty(BOUNDARY_ALIAS, "name", true))));
+    parent.recordOrderByCapture(BOUNDARY_ALIAS, true);
+    assertThat(parent.orderAllowsSliceOnCurrentBoundary())
+        .as("fixture premise: parent would allow a slice on its captured order")
+        .isTrue();
+
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    adapter.recordOrderByCapture(FIRST_ANON_ALIAS, false);
+    adapter.markReturnReadsForeignAlias();
+
+    assertThat(adapter.orderAllowsSliceOnCurrentBoundary())
+        .as("sub-walk must never license an ordered slice")
+        .isFalse();
+    assertThat(parent.orderAllowsSliceOnCurrentBoundary())
+        .as("child calls must not mutate the parent's capture")
+        .isTrue();
   }
 
   /**
@@ -580,6 +613,54 @@ public class SubTraversalPredicateAdapterTest {
   // ---------------------------------------------------------------------------
   // Helpers.
   // ---------------------------------------------------------------------------
+
+  /**
+   * A child's {@code limit} arms local cardinality containment without writing the parent's
+   * statement-level {@code LIMIT}. The parent's cut stays null, and the child's
+   * {@link RecognitionContext#cardinalityClauseCaptured()} becomes true so map/select guards can
+   * fire inside {@code where}/{@code and} children.
+   */
+  @Test
+  public void setLimit_armsLocalCardinality_withoutTouchingParent() {
+    var parent = new WalkerContext(true, false);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    var limit = ProjectionExpressionFactories.limit(1);
+
+    adapter.setLimit(limit);
+
+    assertThat(adapter.limit())
+        .as("the child keeps the limit it captured")
+        .isSameAs(limit);
+    assertThat(adapter.cardinalityClauseCaptured())
+        .as("local capture arms containment gates inside the child")
+        .isTrue();
+    assertThat(parent.limit())
+        .as("the parent statement never receives the child's cut")
+        .isNull();
+    assertThat(parent.cardinalityClauseCaptured())
+        .as("the parent walks without a phantom cardinality clause")
+        .isFalse();
+  }
+
+  /**
+   * The parent's statement-level {@code LIMIT} must not arm a filter child's containment gates. The
+   * child never received that cut, so forwarding it would decline sound child shapes that share an
+   * outer sliced walk.
+   */
+  @Test
+  public void limit_doesNotInheritParentCardinality() {
+    var parent = new WalkerContext(true, false);
+    parent.setLimit(ProjectionExpressionFactories.limit(1));
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    assertThat(parent.cardinalityClauseCaptured()).isTrue();
+    assertThat(adapter.limit())
+        .as("the child does not read the parent's statement-level LIMIT")
+        .isNull();
+    assertThat(adapter.cardinalityClauseCaptured())
+        .as("filter-child containment is not armed by an outer slice alone")
+        .isFalse();
+  }
 
   /**
    * Builds a registry-bearing {@link WalkerContext} pre-seeded as the start step would leave it: a

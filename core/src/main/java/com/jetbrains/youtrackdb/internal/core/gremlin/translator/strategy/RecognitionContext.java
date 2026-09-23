@@ -202,6 +202,17 @@ interface RecognitionContext extends ParamSink {
   boolean isDeclaredStringProperty(@Nullable String className, String propertyKey);
 
   /**
+   * Whether {@code className}.{@code propertyKey} is a declared property whose schema type name
+   * appears in {@code typeNames} (e.g. {@code DATE}/{@code DATETIME} for a {@link java.util.Date}
+   * literal). Used to drop the per-row {@code key.type() IN [...]} guard on order comparisons when
+   * the schema already guarantees the stored type matches the literal's Gremlin comparability
+   * block — same answer as the guard, without the hot-path cost. Returns {@code false} when the
+   * class, property, or schema is unavailable.
+   */
+  boolean isDeclaredPropertyTypeIn(
+      @Nullable String className, String propertyKey, java.util.Collection<String> typeNames);
+
+  /**
    * Whether {@code className} is a declared vertex class in the resolved schema. The {@code
    * hasLabel(L)} recogniser re-types the boundary node to {@code L}, which builds a {@code SELECT
    * FROM L} scan; a non-existent class (a typo'd or never-used label) or an edge class would make
@@ -250,6 +261,18 @@ interface RecognitionContext extends ParamSink {
    * entry on the same alias.
    */
   void putAliasFilter(String alias, SQLWhereClause where);
+
+  /**
+   * Records that the walk already wrote {@code key IS DEFINED} for {@code alias} as a pattern
+   * conjunct. Lets a later {@code values(key)} skip a redundant {@code dropOnAbsent} check when
+   * the same presence was already filtered on the pattern.
+   */
+  void recordPresenceConjunct(String alias, String key);
+
+  /**
+   * Whether {@link #recordPresenceConjunct} already recorded {@code (alias, key)}.
+   */
+  boolean hasPresenceConjunct(String alias, String key);
 
   /** Records the accumulated edge {@code WHERE} under an edge alias, so the edge filter is
    *  observable on the walk state. The filter also travels on the edge path item via
@@ -326,6 +349,41 @@ interface RecognitionContext extends ParamSink {
   /** Sets the {@code ORDER BY} clause for {@code order()} terminators. */
   void setOrderBy(@Nullable SQLOrderBy orderBy);
 
+  /**
+   * Records the alias the just-captured {@code ORDER BY} was keyed on, and whether every sort item
+   * keys that alias (no foreign-alias comparator). {@link OrderGlobalStepRecogniser} writes this
+   * next to {@link #setOrderBy}; a {@code null} {@code ORDER BY} clears it. Used by
+   * {@link #orderAllowsSliceOnCurrentBoundary()}.
+   */
+  void recordOrderByCapture(@Nullable String alias, boolean keysOnlyBoundary);
+
+  /**
+   * Marks that a RETURN column reads an alias other than the current boundary. {@link
+   * SelectStepRecogniser} and {@link SelectOneStepRecogniser} write this when a {@code select}
+   * projects a labelled hop source (or any other non-boundary alias). If a projection cannot be
+   * proven boundary-only, treat it as foreign.
+   */
+  void markReturnReadsForeignAlias();
+
+  /**
+   * Marks the RETURN as foreign when {@code internalAlias} is missing or is not the current
+   * boundary. Select recognisers call this for each projected label.
+   */
+  default void markReturnAliasIfForeign(String internalAlias) {
+    var boundary = boundaryAlias();
+    if (boundary == null || internalAlias == null || !boundary.equals(internalAlias)) {
+      markReturnReadsForeignAlias();
+    }
+  }
+
+  /**
+   * Whether a following slice may sit behind the captured {@code ORDER BY}: the current boundary is
+   * still the alias the sort was captured on. Equal-key ties follow MATCH {@code OrderByStep}
+   * (implementation-defined, as in YQL {@code ORDER BY} + {@code LIMIT}). A hop between
+   * {@code order()} and the slice still declines. See {@link RangeGlobalStepRecogniser}.
+   */
+  boolean orderAllowsSliceOnCurrentBoundary();
+
   /** Sets the {@code LIMIT} clause for {@code limit()} / {@code range()} terminators. */
   void setLimit(@Nullable SQLLimit limit);
 
@@ -347,6 +405,26 @@ interface RecognitionContext extends ParamSink {
 
   /** The {@code SKIP} set so far, or {@code null} — lets a recogniser refuse a second skip/range. */
   @Nullable SQLSkip skip();
+
+  /**
+   * Whether the walk already captured a statement-level cardinality clause — {@code SKIP},
+   * {@code LIMIT}, or {@code RETURN DISTINCT}. Select after such a clause must not contribute
+   * pattern {@code IS DEFINED} filters that would run before the cut.
+   */
+  default boolean cardinalityClauseCaptured() {
+    return limit() != null || skip() != null || returnDistinct();
+  }
+
+  /**
+   * Whether map / modulated-select containment must decline a trailing element projection or
+   * overlapping select. Armed after a captured cardinality clause on the main line, and always
+   * inside a filter child ({@link #projectsReturnedPayload()} is false): the child cannot apply
+   * statement-level {@code LIMIT}/{@code DISTINCT}, so the same cast / alias collision would
+   * otherwise translate as a pure-filter existence test.
+   */
+  default boolean needsMapElementProjectionContainment() {
+    return cardinalityClauseCaptured() || !projectsReturnedPayload();
+  }
 
   /**
    * Whether {@code RETURN DISTINCT} has been set so far ({@code dedup()}). A reducing/grouping
@@ -407,12 +485,13 @@ interface RecognitionContext extends ParamSink {
   void setPresenceDropAlias(@Nullable String alias);
 
   /**
-   * Promotes a pinned {@code dropOnAbsent} into {@code key IS DEFINED} alias conjuncts so a
-   * following slice counts survivors rather than pre-drop rows. Returns {@code true} when there is
-   * nothing to promote, or when the conjuncts were written. Returns {@code false} when this context
-   * cannot express the promotion — a combinator child whose shaping is swallowed, or a drop whose
-   * alias was never recorded — in which case the caller declines. See {@link
-   * #dropsRowsOnAbsentProperty()} for why the slice needs the conjunct at all.
+   * Promotes each presence that drops an absent row into a {@code key IS DEFINED} alias conjunct.
+   * Productive presences stay projections and may emit {@code null}. This lets a following slice
+   * count survivors rather than pre-drop rows. Returns {@code true} when there is nothing to
+   * promote, or when the conjuncts were written. Returns {@code false} when this context cannot
+   * express the promotion. A combinator child may swallow its shaping. A drop may lack a recorded
+   * alias. The caller declines in either case. See {@link #dropsRowsOnAbsentProperty()} for why the
+   * slice needs the conjunct.
    */
   boolean promotePresenceDropToPatternFilter();
 

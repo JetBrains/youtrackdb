@@ -17,8 +17,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * {@code inE(L).has(...).outV()} analogue). A {@code has(...)} between the edge step and its closing
  * vertex hop stops {@code IncidentToAdjacentStrategy} from folding the chain to a bare {@code
  * out(L)}, so it arrives as an edge-returning {@link VertexStep} ({@code returnsEdge() == true}), one
- * or more {@link HasStep}s, and a closing {@link EdgeVertexStep}. This shape is common — LDBC IC2
- * filters {@code knows} edges by creation date.
+ * or more {@link HasStep}s, and a closing {@link EdgeVertexStep}. Typical when a hop filters the
+ * edge (e.g. {@code outE("knows").has("creationDate", …).inV()}) so the adjacent fold cannot
+ * collapse it to a bare {@code out(L)}.
  *
  * <h2>Reached by delegation, not registered directly</h2>
  *
@@ -170,7 +171,7 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // full-scan form. A label-less edge (null label) has no known class, so all its keys route
     // to strict.
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        key -> ctx.isDeclaredStringProperty(edgeLabel, key);
+        GremlinPredicateAdapter.schemaGate(ctx, edgeLabel);
     ParamSink paramSink = ctx::bindParam;
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {

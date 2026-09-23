@@ -1,10 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedCostModel.MultiSourceStrategy;
@@ -40,6 +43,43 @@ public class IndexOrderedEdgeStepCostTest {
     assertNull("Should return null when indexSize <= 0", result);
   }
 
+  /** Invalid scan factors reject both a cost estimate and every multi-source scan strategy. */
+  @Test
+  public void testInvalidFactorRejectsCostsAndMultiSourceStrategy() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    try (var ignored = GlobalConfigurationScope.set(configuration, Double.NaN)) {
+      assertNull(
+          "NaN must reject the cost estimate",
+          IndexOrderedCostModel.computeCosts(100, 1000, 10, null, true));
+      assertEquals(
+          "NaN must select the ordinary multi-source strategy",
+          MultiSourceStrategy.LOAD_ALL_SORT,
+          IndexOrderedCostModel.pickMultiSourceStrategy(100, 1000, 10, null, true));
+    }
+  }
+
+  /** Configuration scopes restore default and explicitly changed states exactly. */
+  @Test
+  public void testConfigurationScopeRestoresExplicitState() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    try (var original = GlobalConfigurationScope.capture(configuration)) {
+      configuration.resetToDefault();
+      var defaultValue = configuration.getValue();
+      try (var ignored = GlobalConfigurationScope.set(configuration, 123.0)) {
+        assertTrue(configuration.isChanged());
+      }
+      assertFalse(configuration.isChanged());
+      assertEquals(defaultValue, configuration.getValue());
+
+      configuration.setValue(456.0);
+      try (var ignored = GlobalConfigurationScope.set(configuration, 789.0)) {
+        assertEquals(789.0, configuration.getValueAsDouble(), 0.0);
+      }
+      assertTrue(configuration.isChanged());
+      assertEquals(456.0, configuration.getValueAsDouble(), 0.0);
+    }
+  }
+
   // ---- computeCostsStatic: basic cost computation ----
 
   // With linkBag=100, indexSize=1000, limit=10: should produce valid costs
@@ -66,11 +106,12 @@ public class IndexOrderedEdgeStepCostTest {
     assertTrue("costLoadSort should be positive", result.costLoadSort() > 0);
   }
 
-  // No LIMIT (limit=-1): k should equal linkBagSize
+  // No LIMIT makes k equal linkBagSize. The expected scan length stays below maxScan,
+  // so computeCosts returns the estimate whose k this test verifies.
   @Test
   public void testComputeCostsNoLimit() {
     var result = IndexOrderedCostModel.computeCosts(
-        100, 1000, -1, null, true);
+        100, 100, -1, null, true);
     assertNotNull(result);
     assertEquals("k should equal linkBagSize when no limit", 100, result.k());
   }
@@ -91,7 +132,11 @@ public class IndexOrderedEdgeStepCostTest {
         costs.costUnionScan() < costs.costLoadSort());
   }
 
-  // Low density + no LIMIT → loadAll wins because index scan must scan many entries
+  // Low density + no LIMIT → loadAll wins because the index scan must walk many entries.
+  // The scan asks to read 100,000 index entries where the alternative reads 50 records, and the
+  // cost comparison is what says so: 6860 against 203 in cost units. No gate refuses this shape
+  // ahead of the comparison, so the estimate comes back non-null and every caller reads the
+  // verdict off the two costs.
   @Test
   public void testLowDensityNoLimitFavorsLoadAll() {
     // linkBag=50, index=100000, limit=-1 → density=0.0005, scanLength=100000
@@ -99,9 +144,13 @@ public class IndexOrderedEdgeStepCostTest {
         50, 100_000, -1, null, true);
     assertNotNull(costs);
     assertTrue(
-        "With low density and no limit, loadAll should be cheaper."
+        "A scan of 100000 entries against 50 loadable records must lose to load-and-sort;"
             + " unionScan=" + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
-        costs.costUnionScan() > costs.costLoadSort());
+        costs.costLoadSort() < costs.costUnionScan());
+    assertEquals(
+        "and the strategy picker must load and sort",
+        MultiSourceStrategy.LOAD_ALL_SORT,
+        IndexOrderedCostModel.pickMultiSourceStrategy(50, 100_000, -1, null, true));
   }
 
   // ---- Multi-source strategy selection ----
@@ -119,19 +168,92 @@ public class IndexOrderedEdgeStepCostTest {
         MultiSourceStrategy.LOAD_ALL_SORT, strategy);
   }
 
-  // High density + small limit → UNION_RIDSET_SCAN or GLOBAL_SCAN
-  // (both are cheaper than full load+sort for large data)
+  // A multi-source estimate marked capped hit the index-size ceiling — not proof that every
+  // entry is reachable. Density 1.0 would price GLOBAL_SCAN as a LIMIT-sized walk.
   @Test
-  public void testHighDensitySmallLimitPicksIndexStrategy() {
+  public void testCappedEstimateRefusesGlobalScanRegardlessOfIndexSize() {
+    var large = IndexOrderedCostModel.pickMultiSourceStrategy(
+        3_600_000, // totalEdges == indexSize
+        3_600_000,
+        20,
+        null,
+        false,
+        true); // capped
+    assertEquals(
+        "Capped estimate must load from sources, not GLOBAL_SCAN",
+        MultiSourceStrategy.LOAD_ALL_SORT, large);
+
+    // Same rule below any magic index-size floor.
+    var small = IndexOrderedCostModel.pickMultiSourceStrategy(
+        50_000, 50_000, 20, null, true, true);
+    assertEquals(
+        "Capped estimate refuses GLOBAL_SCAN on a mid-size index too",
+        MultiSourceStrategy.LOAD_ALL_SORT, small);
+  }
+
+  // Legitimate density=1.0 on a small index (every entry reachable, not a capped estimate)
+  // may still scan.
+  @Test
+  public void testFullDensityOnSmallIndexStillAllowsIndexStrategy() {
     var strategy = IndexOrderedCostModel.pickMultiSourceStrategy(
         500, // totalEdges
-        500, // indexSize (density=1.0)
-        5, // small limit
+        500, // small index, true density=1.0
+        5,
         null,
-        true);
+        true,
+        false); // not capped
     assertTrue(
-        "High density + small limit should not pick LOAD_ALL_SORT, got: " + strategy,
+        "True density=1.0 on a small index should keep an index strategy, got: " + strategy,
         strategy != MultiSourceStrategy.LOAD_ALL_SORT);
+  }
+
+  /** A negative scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testNegativeScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(-1.0));
+  }
+
+  /** A zero scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testZeroScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(0.0));
+  }
+
+  /** A not-a-number scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testNanScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(Double.NaN));
+  }
+
+  /** An infinite scan central processing unit factor disables the initial index scan. */
+  @Test
+  public void testInfiniteScanCpuFactorProducesZeroBudget() {
+    assertEquals(0, entriesWithScanCpuFactor(Double.POSITIVE_INFINITY));
+  }
+
+  /** A normal positive scan central processing unit factor preserves a useful finite budget. */
+  @Test
+  public void testPositiveScanCpuFactorProducesFiniteBudget() {
+    var entries = entriesWithScanCpuFactor(5.0);
+    assertTrue("20 records should produce a positive entry budget, got: " + entries, entries > 0);
+    assertTrue("the entry budget must remain finite", entries < Long.MAX_VALUE);
+  }
+
+  /** A huge finite positive factor is valid even when its economic budget truncates to zero. */
+  @Test
+  public void testHugeValidScanCpuFactorProducesZeroEconomicBudget() {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    try (var ignored = GlobalConfigurationScope.set(configuration, 1.0e9)) {
+      assertTrue(IndexOrderedCostModel.hasValidScanCpuFactor());
+      assertEquals(0, IndexOrderedCostModel.entriesWorthTheLoadAlternative(20));
+    }
+  }
+
+  private static long entriesWithScanCpuFactor(double factor) {
+    var configuration = GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR;
+    try (var ignored = GlobalConfigurationScope.set(configuration, factor)) {
+      return IndexOrderedCostModel.entriesWorthTheLoadAlternative(20);
+    }
   }
 
   // Low density + no limit → LOAD_ALL_SORT (index scan too expensive)
@@ -166,12 +288,13 @@ public class IndexOrderedEdgeStepCostTest {
         MultiSourceStrategy.UNION_RIDSET_SCAN, strategy);
   }
 
-  // computeCosts with limit > linkBagSize: k should be clamped to linkBagSize
+  // A limit above linkBagSize makes k equal linkBagSize. Full density keeps the expected
+  // scan length below maxScan, so computeCosts returns the estimate this test verifies.
   @Test
   public void testComputeCostsLimitGreaterThanLinkBag() {
     var result = IndexOrderedCostModel.computeCosts(
         50, // linkBagSize
-        1000, // indexSize
+        50, // indexSize
         200, // limit > linkBagSize
         null,
         true);
@@ -261,9 +384,11 @@ public class IndexOrderedEdgeStepCostTest {
     var histogram = new EquiDepthHistogram(
         2, boundaries, frequencies, distinctCounts, 100, null, 0);
 
+    // Full density keeps the histogram-corrected scan length below maxScan.
+    // The returned estimate confirms that computeCosts exercised the histogram path.
     var result = IndexOrderedCostModel.computeCosts(
         100, // linkBagSize
-        1000, // indexSize
+        100, // indexSize
         10, // limit
         histogram,
         true);
@@ -296,12 +421,8 @@ public class IndexOrderedEdgeStepCostTest {
   // k=100, expectedScanLength=100 > maxScan(10) → null.
   @Test
   public void testComputeCostsExceedsMaxScan() {
-    var oldMaxScan =
-        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-            .getValue();
-    com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-        .setValue(10L);
-    try {
+    try (var ignored =
+        GlobalConfigurationScope.set(GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN, 10L)) {
       var result = IndexOrderedCostModel.computeCosts(
           100, // linkBagSize
           100, // indexSize → density = 1.0
@@ -312,9 +433,6 @@ public class IndexOrderedEdgeStepCostTest {
       assertNull(
           "Should return null when expectedScanLength exceeds maxScan",
           result);
-    } finally {
-      com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN
-          .setValue(oldMaxScan);
     }
   }
 
@@ -410,11 +528,11 @@ public class IndexOrderedEdgeStepCostTest {
   }
 
   // computeCosts with limit=0: treated same as no limit (limit > 0 is false).
-  // k should equal linkBagSize.
+  // k should equal linkBagSize. Density 1.0 keeps the scan admissible.
   @Test
   public void testComputeCostsLimitZero() {
     var result = IndexOrderedCostModel.computeCosts(
-        100, 1000, 0, null, true);
+        100, 100, 0, null, true);
     assertNotNull("limit=0 should still produce valid costs", result);
     assertEquals("k should equal linkBagSize when limit=0", 100, result.k());
   }
@@ -430,7 +548,7 @@ public class IndexOrderedEdgeStepCostTest {
         2, boundaries, frequencies, distinctCounts, 100, null, 0);
 
     var result = IndexOrderedCostModel.computeCosts(
-        100, 1000, 10, histogram, false); // DESC
+        100, 100, 10, histogram, false); // DESC, density 1.0 so the scan stays admissible
     assertNotNull("Should produce cost estimate with histogram + DESC", result);
     assertTrue("costUnionScan should be positive", result.costUnionScan() > 0);
   }
@@ -452,35 +570,33 @@ public class IndexOrderedEdgeStepCostTest {
   }
 
   /**
-   * LDBC SF1 IS2 shape: small person LinkBag vs huge Message.creationDate
-   * index, LIMIT 10, downstream REPLY_OF. Index scan must lose to loadSort —
-   * choosing scan would walk O(indexSize × LIMIT / N) entries. Not a model
-   * bug that benches stay on loadSort.
+   * Small source LinkBag vs a huge ordered index and a small LIMIT: the scan would walk
+   * far more index entries than the LinkBag has records. The cost comparison must refuse
+   * that plan on its own, without a gate ahead of {@link IndexOrderedCostModel#computeCosts}.
    */
   @Test
-  public void testSf1Is2LikeShapePrefersLoadSortOverIndexScan() {
-    // SF1: ~2.4M messages; curated persons often have ~50–200 posts/comments.
+  public void testSf1Is2LikeShapeRefusesTheIndexScan() {
+    // ~2.4M indexed rows; source LinkBag ~50–200.
     int linkBag = 100;
     long indexSize = 2_400_000L;
     long limit = 10;
-    int downstreamEdges = 2; // REPLY_OF (+ HAS_CREATOR on original)
+    int downstreamEdges = 2;
 
+    // expectedScanLength = 10 / (100/2.4e6) = 240_000, against 100 loadable records.
     var costs = IndexOrderedCostModel.computeCosts(
         linkBag, indexSize, limit, null, false, downstreamEdges);
-    assertNotNull(
-        "Costs should be defined (expectedScanLength under MAX_SCAN)", costs);
-    // expectedScanLength = 10 / (100/2.4e6) = 240_000
+    assertNotNull(costs);
     assertEquals(240_000.0, costs.expectedScanLength(), 1.0);
     assertTrue(
-        "IS2-like sparse LinkBag must prefer loadSort; unionScan="
+        "Sparse LinkBag vs huge index must lose to load-and-sort by a wide margin; unionScan="
             + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
-        costs.costUnionScan() > costs.costLoadSort());
+        costs.costLoadSort() * 10 < costs.costUnionScan());
   }
 
   /**
-   * Opposite of IS2: person owns most of the indexed rows. Index scan must
-   * win — this is the regime integration tests force with large single-source
-   * data and no artificial MAX_SCAN=1.
+   * Opposite of the sparse-LinkBag case: the source owns most of the indexed rows. Index
+   * scan must win — the regime integration tests force with large single-source data and
+   * no artificial MAX_SCAN=1.
    */
   @Test
   public void testHighDensityWithLimitPrefersIndexScan() {
@@ -493,4 +609,209 @@ public class IndexOrderedEdgeStepCostTest {
         costs.costUnionScan() < costs.costLoadSort());
   }
 
+  // =====================================================================
+  // The cost comparison is the whole admission decision
+  // =====================================================================
+
+  /**
+   * THE CASE A DOMINANCE GATE WRONGLY REFUSED. A LinkBag of 1000 against a million-entry index
+   * with {@code LIMIT 10} walks 10,000 entries. Charging an entry the cost of a record refused
+   * that against 1000 records, while this model prices the scan at 739 against 4043 for
+   * load-and-sort, a five-fold win it threw away.
+   *
+   * <p>Admitted now, and priced as a winner by both the cost comparison and the strategy picker,
+   * which is the point: the estimates alone reach this verdict.
+   */
+  @Test
+  public void testScanTheOldRuleWronglyRefusedIsAdmittedAndPreferred() {
+    var costs = IndexOrderedCostModel.computeCosts(1000, 1_000_000L, 10, null, true);
+    assertNotNull("a 10000-entry scan against 1000 loadable records must be admitted", costs);
+    assertEquals(10_000.0, costs.expectedScanLength(), 1.0);
+    assertTrue(
+        "the model prices this scan below load-and-sort: unionScan="
+            + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
+        costs.costUnionScan() < costs.costLoadSort());
+    assertEquals(
+        "and the strategy picker takes a scan",
+        MultiSourceStrategy.UNION_RIDSET_SCAN,
+        IndexOrderedCostModel.pickMultiSourceStrategy(1000, 1_000_000L, 10, null, true));
+  }
+
+  /**
+   * Catastrophic sparse membership still loses without a dominance gate: 240,000 entries to
+   * find ten rows where the alternative reads 100 records. Removing the gate must not hand
+   * that shape back to the scan — the two cost estimates already separate by a wide margin.
+   */
+  @Test
+  public void testCatastrophicScanStaysRefusedWithoutADominanceGate() {
+    assertEquals(
+        "240000 entries against 100 loadable records must load and sort",
+        MultiSourceStrategy.LOAD_ALL_SORT,
+        IndexOrderedCostModel.pickMultiSourceStrategy(100, 2_400_000L, 10, null, false));
+
+    var costs = IndexOrderedCostModel.computeCosts(100, 2_400_000L, 10, null, false, 2);
+    assertNotNull(costs);
+    assertTrue(
+        "the estimates alone separate by more than an order of magnitude; unionScan="
+            + costs.costUnionScan() + " loadSort=" + costs.costLoadSort(),
+        costs.costUnionScan() / costs.costLoadSort() > 10);
+  }
+
+  /**
+   * Whether the model prefers load-and-sort over the ordered scan for one set of inputs. A null
+   * estimate counts as a preference for loading, because every caller reads null that way.
+   *
+   * <p>Read off the two cost estimates rather than off an admission gate, which is where the
+   * verdict now lives: the three monotonicity tests below pin the SHAPE of that verdict across a
+   * sweep, so they keep holding when the constants move.
+   */
+  private static boolean prefersLoadAndSort(
+      int reachableEdges, long indexSize, long limit) {
+    var costs = IndexOrderedCostModel.computeCosts(
+        reachableEdges, indexSize, limit, null, true);
+    return costs == null || costs.costLoadSort() <= costs.costUnionScan();
+  }
+
+  /**
+   * MONOTONIC IN INDEX SIZE. Holding the reachable edge count and the LIMIT fixed, a larger
+   * index means a sparser reachable set and a longer scan per row, so the scan must never win
+   * again once it has lost. The sweep below crosses the boundary between 10,000 and 100,000
+   * entries and stays on the loading side.
+   */
+  @Test
+  public void testTheVerdictIsMonotonicInIndexSize() {
+    var edges = 100;
+    var limit = 10L;
+    var loadingFrom = -1L;
+    for (long indexSize = 100; indexSize <= 100_000_000L; indexSize *= 10) {
+      var loading = prefersLoadAndSort(edges, indexSize, limit);
+      if (loading && loadingFrom < 0) {
+        loadingFrom = indexSize;
+      }
+      if (loadingFrom >= 0) {
+        assertTrue(
+            "once loading wins at index size " + loadingFrom + ", size " + indexSize
+                + " must keep loading",
+            loading);
+      }
+    }
+    assertTrue("a large enough index must eventually prefer loading", loadingFrom > 0);
+  }
+
+  /**
+   * MONOTONIC IN REACHABLE EDGES. Holding the index size and the LIMIT fixed, more reachable
+   * targets mean a denser scan region, so the scan must never lose again once it has won. Over a
+   * 10,000-entry index with {@code LIMIT 10} the boundary sits near 50 edges; the sweep steps
+   * across it with room on either side, so the test states the ordering and not the constants.
+   */
+  @Test
+  public void testTheVerdictIsMonotonicInReachableEdges() {
+    long indexSize = 10_000;
+    long limit = 10;
+    var scanningFrom = -1;
+    for (var edges = 10; edges <= 5120; edges *= 2) {
+      var scanning = !prefersLoadAndSort(edges, indexSize, limit);
+      if (scanning && scanningFrom < 0) {
+        scanningFrom = edges;
+      }
+      if (scanningFrom >= 0) {
+        assertTrue(
+            "once the scan wins at " + scanningFrom + " edges, " + edges
+                + " edges must keep scanning",
+            scanning);
+      }
+    }
+    assertTrue("a dense enough reachable set must eventually scan", scanningFrom > 0);
+    assertTrue("and 10 edges over a 10000-entry index are far too sparse to scan",
+        prefersLoadAndSort(10, indexSize, limit));
+  }
+
+  /**
+   * MONOTONIC IN LIMIT. A larger LIMIT lengthens the expected scan while leaving the loadable
+   * record count untouched, so the scan must only ever lose ground as the LIMIT grows. With 100
+   * edges over a 100,000-entry index the boundary sits between {@code LIMIT 5} and
+   * {@code LIMIT 8}.
+   */
+  @Test
+  public void testTheVerdictIsMonotonicInLimit() {
+    var edges = 100;
+    long indexSize = 100_000;
+    assertTrue("LIMIT 1 is short enough to scan",
+        !prefersLoadAndSort(edges, indexSize, 1));
+    assertTrue("LIMIT 5 still scans",
+        !prefersLoadAndSort(edges, indexSize, 5));
+    assertTrue("LIMIT 8 has crossed over to loading",
+        prefersLoadAndSort(edges, indexSize, 8));
+    assertTrue("and a larger LIMIT keeps loading",
+        prefersLoadAndSort(edges, indexSize, 50));
+    assertTrue("as does a LIMIT past the reachable set",
+        prefersLoadAndSort(edges, indexSize, 100));
+  }
+
+  /**
+   * Single- and multi-source estimates share {@link IndexOrderedCostModel#scanCostPerEntry()}.
+   * The default factor is 5 (page amort + 5×cpu for lock, bitmap, filter, compare, advance).
+   * Changing it moves the scan-vs-load boundary for every ordered top-N plan.
+   */
+  @Test
+  public void testPerEntryCursorTermsShareScanCostPerEntry() {
+    var perEntry = IndexOrderedCostModel.scanCostPerEntry();
+    assertEquals(1.0 / 200 + 5 * 0.01, perEntry, 1e-9);
+    assertEquals(
+        5.0,
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR.getValueAsDouble(),
+        1e-9);
+
+    var costs = IndexOrderedCostModel.computeCosts(100, 2_400_000L, 10, null, true);
+    assertNotNull(costs);
+    assertTrue(
+        "computeCosts union estimate carries scanCostPerEntry",
+        costs.costUnionScan() > costs.expectedScanLength() * perEntry);
+
+    // True density=1.0 + small LIMIT still prefers an index strategy at default factor.
+    assertEquals(
+        "a dense small-LIMIT shape scans rather than sorts",
+        MultiSourceStrategy.GLOBAL_SCAN,
+        IndexOrderedCostModel.pickMultiSourceStrategy(500, 500, 5, null, true));
+  }
+
+  /**
+   * Fan-out for FILTERED admission may lift toward {@code indexSize/sourceEstimate}, but only up to
+   * {@code defaultFanOut × 10}. Unbound {@code max(default, indexSize/source)} saturated density at
+   * 1.0 on large indexes and collapsed expected scan length to ~LIMIT. On a multi-million index the
+   * cap keeps the effective estimate at default fan-out, so a small source stays sparse and loses to
+   * load-and-sort.
+   */
+  @Test
+  public void testDefaultFanOutDoesNotSaturateDensityOnLargeIndex() {
+    int defaultFanOut =
+        GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
+    // Large-index case (2.4M): effective fan-out stays at default (lift capped at default×10 still
+    // leaves indexSize/source >> cap), so edges = source × defaultFanOut.
+    int estimatedEdges = 10 * defaultFanOut;
+    long indexSize = 2_400_000L;
+    var costs = IndexOrderedCostModel.computeCosts(
+        estimatedEdges, indexSize, 20, null, false);
+    // Either refused (null / load wins) — must not look like density 1.0 (scan length ≈ LIMIT).
+    if (costs != null) {
+      assertTrue(
+          "unsaturated fan-out must not collapse expected scan to ~LIMIT; got "
+              + costs.expectedScanLength(),
+          costs.expectedScanLength() > 100);
+      assertTrue(
+          "sparse product should prefer load-and-sort",
+          costs.costLoadSort() <= costs.costUnionScan());
+    }
+  }
+
+  /**
+   * The strategy picker reaches the same verdict as the cost comparison on a sparse shape: both
+   * put load-and-sort ahead of either scan, with no gate involved.
+   */
+  @Test
+  public void testStrategyPickerAgreesOnASparseShape() {
+    assertEquals(
+        MultiSourceStrategy.LOAD_ALL_SORT,
+        IndexOrderedCostModel.pickMultiSourceStrategy(100, 2_400_000L, 10, null, true));
+  }
 }
