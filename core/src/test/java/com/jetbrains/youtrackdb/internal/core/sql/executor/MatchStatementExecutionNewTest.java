@@ -3909,8 +3909,8 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
   /**
    * Multi-hop: start -out KNOWS→ friend -in HAS_CREATOR→ msg, RETURN only msg columns. Friend
    * is constrained by an earlier edge even when absent from RETURN, so the planner must choose
-   * FILTERED_BOUND (GLOBAL_SCAN-capable) rather than FILTERED_UNBOUND — otherwise a wide
-   * fan-out materialises every friend's message before LIMIT can cut.
+   * FILTERED_BOUND rather than FILTERED_UNBOUND — otherwise a wide fan-out materialises every
+   * friend's message before LIMIT can cut.
    */
   @Test
   public void testIndexOrderedMatchEarlierEdgeForcesFilteredBoundWithoutSourceInReturn()
@@ -3958,11 +3958,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
             "Their days follow the same descending sequence: " + days,
             java.util.List.of(20, 19, 18, 17, 16),
             days);
-        // Density saturates the index (every message is reachable). The cost model still
-        // compares strategies when the edge estimate is clamped to indexSize, so a small
-        // LIMIT keeps GLOBAL_SCAN. FILTERED_BOUND is the mode that made the membership
-        // check and the ordered page possible; sparse walks are cut by the runtime budget.
-        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.GLOBAL_SCAN);
+        // Extrapolated edge count clamps to indexSize, so the cost model marks the estimate
+        // capped and refuses GLOBAL_SCAN (density 1.0 from the clamp is not proof every entry
+        // is reachable). FILTERED_BOUND still admits the step; runtime falls back to loading
+        // the source LinkBags and sorting.
+        assertRuntimePath(result, IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
       }
       session.commit();
     }
