@@ -529,7 +529,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   /**
    * A real slice behind a captured {@code ORDER BY} on the same boundary is accepted and writes
    * {@code LIMIT}. Direct recogniser invocation — end-to-end coverage is in the ordered-slice
-   * section below. Equal-key ties are implementation-defined (YQL-equivalent).
+   * section below. Element-stream equal-key ties are RID-total-ordered on both arms.
    */
   @Test
   public void sliceAfterCapturedOrderBy_acceptsAndSetsLimit() {
@@ -1012,8 +1012,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * <p>The decline of the first two is keyed on the captured {@code ORDER BY}: after the drop-on-absent
    * promotion a slice behind {@code values(k)} would otherwise translate, so stripping the slice
    * (rather than the sort) is still the control that proves the fixture can engage a boundary step.
-   * {@code order().by(name).range().values(name)} translates — same boundary, no hop, ties
-   * implementation-defined like YQL.
+   * {@code order().by(name).range().values(name)} translates — same boundary, no hop; equal names
+   * are RID-total-ordered on both arms.
    */
   @Test
   public void sortedSliceOverValues_declines_orderThenRangeTranslates() {
@@ -1096,14 +1096,14 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Ordered slice behind a captured ORDER BY on the current boundary (ties like YQL).
+  // Ordered slice behind a captured ORDER BY on the current boundary (RID ties).
   // ---------------------------------------------------------------------------
 
   /**
    * {@code order().by(creationDate, desc).by(id, asc).limit(3)} translates. UNIQUE {@code id} makes
    * on/off sequences agree even when {@code creationDate} ties across the cut. LDBC multi-key
    * spelling; non-unique single-key twin:
-   * {@link #orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset}.
+   * {@link #orderByNonUniqueFirstNameThenLimit_translatesAndMatchesNativeOrder}.
    */
   @Test
   public void orderByTiedDateThenUniqueIdThenLimit_translatesAndMatchesNativeOrder() {
@@ -1142,24 +1142,23 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * NOTUNIQUE {@code firstName} + {@code LIMIT 2} translates (YQL-equivalent ties). Four Anns share
-   * the key across the cut, so on/off may keep different ids — only engagement, size, and subset of
-   * the Ann id set are asserted. Twin with UNIQUE {@code id}:
-   * {@link #orderByUniqueIdThenLimit_translates}.
+   * NOTUNIQUE {@code firstName} + {@code LIMIT 2} translates. Four Anns share the key across the
+   * cut; {@code YTDBOrderRidTieBreakStrategy} pins which two survive, so on/off sequences agree.
+   * Twin with UNIQUE {@code id}: {@link #orderByUniqueIdThenLimit_translates}.
    */
   @Test
-  public void orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset() {
+  public void orderByNonUniqueFirstNameThenLimit_translatesAndMatchesNativeOrder() {
     seedPeopleWithTiedCreationDateAndUniqueId();
-    assertBareSliceSizeAndSubset(
-        "g.V().hasLabel(Person).order().by(firstName).limit(2)",
-        () -> graph.traversal().V().hasLabel("Person").order().by("firstName").limit(2),
-        () -> graph.traversal().V().hasLabel("Person").has("firstName", "Ann"),
-        2);
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().hasLabel(Person).order().by(firstName).limit(2).values(id)",
+        () -> graph.traversal().V().hasLabel("Person").order().by("firstName").limit(2)
+            .values("id"));
   }
 
   /**
-   * Discriminating twin of {@link #orderByNonUniqueFirstNameThenLimit_translatesWithSizeAndSubset}:
-   * UNIQUE {@code id} makes on/off sequences agree.
+   * Discriminating twin of
+   * {@link #orderByNonUniqueFirstNameThenLimit_translatesAndMatchesNativeOrder}: UNIQUE {@code id}
+   * makes the primary key alone separate rows before the RID secondary key runs.
    */
   @Test
   public void orderByUniqueIdThenLimit_translates() {
