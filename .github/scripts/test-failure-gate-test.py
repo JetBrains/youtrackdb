@@ -458,6 +458,59 @@ def test_root_controls_scan_from_different_working_directory():
         check("root-controlled scan output matches", from_root.stdout == from_other.stdout)
 
 
+def test_selected_modules_require_each_report():
+    """A selected module without a report fails despite a dependency and peer reporting."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "dependency")
+        mark_module_built(root, "dependency")
+        write_report(root, "failsafe", module_path="selected-a")
+        result = run_gate(root, "--require", "failsafe",
+                          "--expected-modules", "selected-a,selected-b")
+        check("missing selected module fails", result.returncode != 0)
+        check("missing selected module named", "expected module(s): selected-b" in result.stdout)
+        check("dependency is not expected", "dependency" not in result.stdout)
+        write_report(root, "failsafe", module_path="selected-b")
+        result = run_gate(root, "--require", "failsafe",
+                          "--expected-modules", "selected-a,selected-b")
+        check("both selected modules pass", result.returncode == 0)
+
+
+def test_selected_modules_preserve_failure_checks():
+    """A selected list never masks failure, malformed XML or a zero-test report set."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        report = write_report(root, "failsafe", module_path="selected", failures=1)
+        args = ("--require", "failsafe", "--expected-modules", "selected")
+        result = run_gate(root, *args)
+        check("selected suite failure fails", result.returncode != 0)
+        report.write_text("invalid xml", encoding="utf-8")
+        result = run_gate(root, *args)
+        check("selected malformed report fails", result.returncode != 0)
+        write_report(root, "failsafe", module_path="selected", tests=0)
+        result = run_gate(root, *args)
+        check("selected zero-test report fails", result.returncode != 0)
+        write_report(root, "surefire", module_path="dependency", errors=1)
+        write_report(root, "failsafe", module_path="selected")
+        result = run_gate(root, *args)
+        check("optional report failure still fails", result.returncode != 0)
+
+
+def test_selected_modules_invalid_arguments():
+    """Empty, malformed and irrelevant module overrides fail before scanning reports."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_report(root, "failsafe", module_path="selected")
+        for value in ("", ",selected", "selected,", "selected,,other",
+                      "selected,selected", " selected"):
+            result = run_gate(root, "--require", "failsafe", "--expected-modules", value)
+            check(f"reject override {value!r}", result.returncode != 0)
+        result = run_gate(root, "--require", "surefire", "--expected-modules", "selected")
+        check("reject override without failsafe", result.returncode != 0)
+        result = run_gate(root, "--require", "failsafe", "--expected-modules")
+        check("reject missing override value", result.returncode != 0)
+
+
 def main():
     tests = sorted(
         (

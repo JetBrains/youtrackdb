@@ -30,6 +30,8 @@ jobs:
       should_build: ${{ steps.filter.outputs.should_build }}
       run_integration_tests: ${{ steps.filter.outputs.run_integration_tests }}
       integration_skip_reason: ${{ steps.filter.outputs.integration_skip_reason }}
+      integration_scope: ${{ steps.filter.outputs.integration_scope }}
+      integration_modules: ${{ steps.filter.outputs.integration_modules }}
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v7
@@ -84,10 +86,12 @@ jobs:
             echo "should_build=$1" >> "$GITHUB_OUTPUT"
             echo "run_integration_tests=$RUN_INTEGRATION_TESTS" >> "$GITHUB_OUTPUT"
             echo "integration_skip_reason=$INTEGRATION_SKIP_REASON" >> "$GITHUB_OUTPUT"
+            echo "integration_scope=$INTEGRATION_SCOPE" >> "$GITHUB_OUTPUT"
           }
 
           RUN_INTEGRATION_TESTS=true
           INTEGRATION_SKIP_REASON=
+          INTEGRATION_SCOPE=full
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "Manual trigger — always build and run integration tests"
@@ -133,31 +137,55 @@ jobs:
           fi
 
           # The three-dot diff compares the selected pull request, push, or merge-group base with HEAD.
-          CHANGED_FILES=$(git diff --no-renames --name-only "$BASE_SHA...HEAD")
+          # -z keeps spaces, newlines and other unusual path bytes intact.
+          CHANGES_FILE="$RUNNER_TEMP/changed-files.z"
+          git diff --no-renames --name-only -z "$BASE_SHA...HEAD" > "$CHANGES_FILE"
+          mapfile -d '' -t CHANGED_FILES < "$CHANGES_FILE"
 
-          if [[ -z "$CHANGED_FILES" ]]; then
+          if (( ${#CHANGED_FILES[@]} == 0 )); then
             echo "No changed files detected — skipping build"
+            if [[ "$EVENT_NAME" == "pull_request" && "$RUN_INTEGRATION_TESTS" == "true" ]]; then
+              RUN_INTEGRATION_TESTS=false
+              INTEGRATION_SKIP_REASON=no-java-changes
+            fi
             emit_decision false
             exit 0
           fi
 
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
+          echo "Changed files (shell-escaped for logging):"
+          printf '%q\n' "${CHANGED_FILES[@]}"
           echo ""
 
           # One changed-file list controls both Markdown and build decisions.
           ONLY_MARKDOWN=true
-          while IFS= read -r file; do
+          for file in "${CHANGED_FILES[@]}"; do
             if [[ "$file" != *.md ]]; then
               ONLY_MARKDOWN=false
               break
             fi
-          done <<< "$CHANGED_FILES"
+          done
           if [[ "$EVENT_NAME" == "pull_request" && "$RUN_INTEGRATION_TESTS" == "true" \
             && "$ONLY_MARKDOWN" == "true" ]]; then
             RUN_INTEGRATION_TESTS=false
             INTEGRATION_SKIP_REASON=markdown-only
             echo "Every changed file ends in .md. Integration tests will be skipped."
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request" && "$RUN_INTEGRATION_TESTS" == "true" ]]; then
+            python3 .github/scripts/select-it-modules.py --root . \
+              --changes "$CHANGES_FILE" --output "$GITHUB_OUTPUT"
+            # The selector writes only validated reactor module paths to Actions outputs.
+            if [[ "$(grep '^has_java_changes=' "$GITHUB_OUTPUT" | tail -1)" == \
+              'has_java_changes=false' ]]; then
+              RUN_INTEGRATION_TESTS=false
+              INTEGRATION_SKIP_REASON=no-java-changes
+            elif [[ -z "$(grep '^integration_modules=' "$GITHUB_OUTPUT" | tail -1 \
+              | cut -d= -f2-)" ]]; then
+              RUN_INTEGRATION_TESTS=false
+              INTEGRATION_SKIP_REASON=no-it-modules
+            else
+              INTEGRATION_SCOPE=selected
+            fi
           fi
 
           # Extract Maven module directories using Maven itself.
@@ -179,8 +207,7 @@ jobs:
           echo ""
 
           SHOULD_BUILD=false
-          while IFS= read -r file; do
-            [[ -z "$file" ]] && continue
+          for file in "${CHANGED_FILES[@]}"; do
             if [[ "$file" == *.md ]]; then
               continue
             fi
@@ -202,7 +229,7 @@ jobs:
                 break 2
               fi
             done <<< "$MODULES"
-          done <<< "$CHANGED_FILES"
+          done
 
           if [[ "$SHOULD_BUILD" == "false" ]]; then
             echo "No build-relevant changes — skipping build"
@@ -479,13 +506,49 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Only PRs with a known changed-module list use the narrowed path.
+      # Build upstream artifacts first, then run Failsafe only in selected modules.
+      - name: Install selected PR dependencies without tests
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.integration_scope == 'selected'
+        run: |
+          if [[ -z "$IT_MODULES" ]]; then
+            echo 'Selected PR modules are empty'
+            exit 1
+          fi
+          ./mvnw $MAVEN_SETTINGS -pl "$IT_MODULES" -am clean install -B \
+            -DskipTests -P ci-integration-tests
+        env:
+          IT_MODULES: ${{ needs.detect-changes.outputs.integration_modules }}
+          MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
+          MAVEN_MIRROR_USERNAME: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_USERNAME || '' }}
+          MAVEN_MIRROR_PASSWORD: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_PASSWORD || '' }}
+
+      - name: Run selected PR integration tests
+        if: github.event_name == 'pull_request' && needs.detect-changes.outputs.integration_scope == 'selected'
+        id: selected_tests
+        run: |
+          if [[ -z "$IT_MODULES" ]]; then
+            echo 'Selected PR modules are empty'
+            exit 1
+          fi
+          ./mvnw $MAVEN_SETTINGS -pl "$IT_MODULES" clean verify -B \
+            -Dmaven.test.failure.ignore=true -P ci-integration-tests
+        env:
+          IT_MODULES: ${{ needs.detect-changes.outputs.integration_modules }}
+          MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
+          MAVEN_MIRROR_USERNAME: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_USERNAME || '' }}
+          MAVEN_MIRROR_PASSWORD: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_PASSWORD || '' }}
+
+      # Unknown PR change lists run the full reactor without Docker images.
+      # Manual runs keep the full reactor and Docker profile.
       - name: Run Maven Test
+        if: github.event_name != 'pull_request' || needs.detect-changes.outputs.integration_scope == 'full'
         id: tests
         run: >-
           ./mvnw $MAVEN_SETTINGS clean verify -B
-          -Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images
-          -Ddocker.platforms=linux/amd64
+          -Dmaven.test.failure.ignore=true -P ci-integration-tests $DOCKER_OPTIONS
         env:
+          DOCKER_OPTIONS: ${{ github.event_name != 'pull_request' && '-P docker-images -Ddocker.platforms=linux/amd64' || '' }}
           MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
           MAVEN_MIRROR_USERNAME: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_USERNAME || '' }}
           MAVEN_MIRROR_PASSWORD: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_PASSWORD || '' }}
@@ -493,13 +556,23 @@ jobs:
       # The gate verifies that every expected module produced required reports.
       # The gate verifies that the required report kinds ran tests.
       # The gate also checks every report for a failure or an error.
-      # Use --allow-missing-module when a module produces no integration test report by design.
-      # The option affects integration test reports only, because the gate derives expected modules only for those reports.
+      # Selected PRs require each selected module's report, not reports from build-only modules.
+      # Full runs keep the gate's default inference and still check all discovered reports.
       - name: Gate Integration Test Results
         if: success()
-        run: >-
-          python3 .github/scripts/test-failure-gate.py
-          --root '${{ github.workspace }}' --require failsafe
+        run: |
+          args=(--root "$GITHUB_WORKSPACE" --require failsafe)
+          if [[ "$INTEGRATION_SCOPE" == 'selected' ]]; then
+            if [[ -z "$IT_MODULES" ]]; then
+              echo 'Selected PR modules are empty'
+              exit 1
+            fi
+            args+=(--expected-modules "$IT_MODULES")
+          fi
+          python3 .github/scripts/test-failure-gate.py "${args[@]}"
+        env:
+          INTEGRATION_SCOPE: ${{ needs.detect-changes.outputs.integration_scope }}
+          IT_MODULES: ${{ needs.detect-changes.outputs.integration_modules }}
 
       - name: Print VMLens Data Race Report
         if: always()
@@ -1008,7 +1081,7 @@ jobs:
           elif [[ "$RUN_INTEGRATION_TESTS" == "false" \
             && "$INTEGRATION_RESULT" == "skipped" ]]; then
             case "$INTEGRATION_SKIP_REASON" in
-              no-it-tests|markdown-only|push|merge-group)
+              no-it-tests|markdown-only|no-java-changes|no-it-modules|push|merge-group)
                 echo "Integration tests skipped for permitted reason: $INTEGRATION_SKIP_REASON"
                 ;;
               *)

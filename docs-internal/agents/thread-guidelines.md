@@ -106,7 +106,9 @@ This rule covers unit, integration, and coverage runs. Separate worktrees may ru
 Maven concurrently. Mid-track tests remain optional. Concurrent runs can also report false
 failures.
 
-Never run the full integration suite locally. The pull request pipeline runs it instead.
+Never run the full integration suite locally.
+The pull request pipeline runs integration tests for changed IT modules.
+Develop runs the full suite after merge.
 `docs-internal/dev-workflow/track-development.md` owns integration scope.
 
 ### Test Modules at a Glance

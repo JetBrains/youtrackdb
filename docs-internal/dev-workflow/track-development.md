@@ -206,11 +206,19 @@ full verification runs:
 The full local integration suite is not a gate for any proved focus area. The full integration
 test suite usually takes several hours.
 
+The local integration-gate set above selects classes that cover changed behavior. The pull
+request pipeline uses a different rule. It runs all integration tests in each reactor module
+with both a changed `.java` file and integration test sources. It does not add dependent modules.
+
+A Java path outside the reactor selects no module. Other file types do not start the pull request
+integration job. If the changed-file list is unknown, the pull request runs the full suite.
+Manual runs stay full. Develop runs the full suite after merge.
+
 Integration tests do not run for a draft pull request or when every changed file is a Markdown
 file. A merge queue orders approved pull requests for merging. A merge group temporarily
 combines changes GitHub tests before a merge queue writes them to the target branch. Merge groups
-do not rerun integration tests because the pull request head already ran the full suite.
-Worker threads do most work during the draft phase.
+do not rerun integration tests because the pull request ran them for its changed modules.
+Develop runs the full suite after merge. Worker threads do most work during the draft phase.
 
 The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first
 line of the head commit message. The marker comparison respects letter case and works only for a

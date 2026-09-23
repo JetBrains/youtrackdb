@@ -9,11 +9,15 @@ on:
     paths:
       - '.github/scripts/test-failure-gate.py'
       - '.github/scripts/test-failure-gate-test.py'
+      - '.github/scripts/select-it-modules.py'
+      - '.github/scripts/select-it-modules-test.py'
       - '.github/workflows/test-failure-gate-tests.yml'
   pull_request:
     paths:
       - '.github/scripts/test-failure-gate.py'
       - '.github/scripts/test-failure-gate-test.py'
+      - '.github/scripts/select-it-modules.py'
+      - '.github/scripts/select-it-modules-test.py'
       - '.github/workflows/test-failure-gate-tests.yml'
   # Allow manual runs after a transient GitHub Actions outage.
   workflow_dispatch: {}
@@ -33,4 +37,6 @@ jobs:
           python-version: '3.11'
 
       - name: Run unit tests
-        run: python3 .github/scripts/test-failure-gate-test.py
+        run: |
+          python3 .github/scripts/test-failure-gate-test.py
+          python3 .github/scripts/select-it-modules-test.py

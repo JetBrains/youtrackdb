@@ -27,7 +27,9 @@ Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 
 Verification rules live in `docs-internal/dev-workflow/track-development.md`.
 Integration command syntax lives in `docs-internal/agents/thread-guidelines.md`.
-Never run the full integration suite locally. The pull request pipeline runs it instead.
+Never run the full integration suite locally.
+The pull request pipeline runs integration tests for changed IT modules.
+Develop runs the full suite after merge.
 `docs-internal/dev-workflow/track-development.md` owns integration scope.
 If in doubt, run the full unit test suite.
 
@@ -68,11 +70,16 @@ failures make concurrent runs unsafe. Execution details live in
 - Pull request synchronization rules live in `pr-publishing.md` from the `ytdb-slate` package.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 - **Integration test conditions**: Integration tests do not run for drafts or Markdown-only changes.
+  A pull request runs integration tests only for reactor modules that contain both a changed `.java` file and integration test sources.
+  It does not run dependent modules. Other changes do not start the integration job.
+  If the changed-file list is unknown, the pull request runs the full suite.
+  Manual runs stay full. Develop runs the full suite after merge.
   A merge queue orders approved pull requests for merging.
   A merge group temporarily combines changes GitHub tests before a merge queue writes them to the target branch.
-  Merge groups do not rerun integration tests because the pull request head already ran the full suite.
+  Merge groups do not rerun integration tests because the pull request ran its changed modules. Develop runs the full suite after merge.
 - **Integration test marker**: The exact lowercase marker `[no-it-tests]` skips them on same-repository pull requests.
   It must appear in the first line of the head commit message.
+  The marker has no effect in the pull request title.
   The marker comparison respects letter case.
   Use the marker only when the change cannot affect integration tests.
 - **Fork workflow approval**: GitHub applies required fork approval before any workflow job starts.
