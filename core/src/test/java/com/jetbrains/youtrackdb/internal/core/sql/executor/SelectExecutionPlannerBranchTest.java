@@ -1070,6 +1070,48 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
+   * IC1-shaped: per-record LET subquery plus ORDER BY on upstream columns and LIMIT.
+   * Sort keys do not reference the LET, but {@code LetQueryStep} still runs before the
+   * projections block. Deferral would sort pre-projection LET rows and regress throughput,
+   * so the planner must project before ORDER BY (develop order).
+   *
+   * <p>Expected outcome: {@link ProjectionCalculationStep} precedes {@link OrderByStep};
+   * the two alphabetically first names come back with their correlated LET payload.
+   */
+  @Test
+  public void orderByUpstreamFieldWithLetQueryAndLimit_projectsBeforeSort() {
+    var className = "DeferLetQuery_" + uniqueSuffix();
+    session.getMetadata().getSchema().createClass(className);
+
+    session.begin();
+    for (var name : new String[] {"zoe", "amy", "mia", "bea"}) {
+      var doc = session.newInstance(className);
+      doc.setProperty("name", name);
+      doc.setProperty("tag", "t-" + name);
+    }
+    session.commit();
+
+    // Correlated LET stays per-record (not promoted to global); mirrors IC1 $universities.
+    var sql =
+        "select name, $detail as detail from " + className
+            + " let $detail = (select tag from " + className
+            + " where name = $parent.$current.name)"
+            + " order by name asc limit 2";
+    try (var result = session.query(sql)) {
+      var rows = result.stream().toList();
+      assertPlanStepOrder(
+          result,
+          ProjectionCalculationStep.class,
+          OrderByStep.class,
+          "per-record LET subquery must force project-before-sort; plan was:\n"
+              + result.getExecutionPlan());
+      Assert.assertEquals(2, rows.size());
+      Assert.assertEquals("amy", rows.get(0).getProperty("name"));
+      Assert.assertEquals("bea", rows.get(1).getProperty("name"));
+    }
+  }
+
+  /**
    * {@code SELECT * FROM Person ORDER BY name ASC LIMIT 2}.
    * A plain field reads the source record.
    * The select-all projection may wait for the slice.

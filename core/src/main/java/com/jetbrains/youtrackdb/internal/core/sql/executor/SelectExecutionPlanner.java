@@ -608,6 +608,13 @@ public class SelectExecutionPlanner {
         || info.aggregateProjection != null) {
       return false;
     }
+    // Deferral only moves CALCULATE PROJECTIONS past ORDER BY/LIMIT; handleLet still
+    // runs earlier. Per-record LET subqueries then execute for every candidate and
+    // OrderBy sorts pre-projection rows — the IC1-shaped regression. Refuse deferral
+    // until LetQueryStep can move past LIMIT with the projection.
+    if (hasPerRecordLetQuery(info)) {
+      return false;
+    }
 
     var projectionAliases = info.projection.getAllAliases();
     var passThroughAliases = passThroughProjectionAliases(info.projection);
@@ -619,6 +626,22 @@ public class SelectExecutionPlanner {
       }
     }
     return true;
+  }
+
+  /**
+   * Returns whether any per-record LET item is a subquery ({@code LET $x = (SELECT …)}).
+   * Expression-only LETs are ignored.
+   */
+  private static boolean hasPerRecordLetQuery(QueryPlanningInfo info) {
+    if (info.perRecordLetClause == null || info.perRecordLetClause.getItems() == null) {
+      return false;
+    }
+    for (var item : info.perRecordLetClause.getItems()) {
+      if (item.getQuery() != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Returns whether one ORDER BY item resolves identically before and after projection. */
