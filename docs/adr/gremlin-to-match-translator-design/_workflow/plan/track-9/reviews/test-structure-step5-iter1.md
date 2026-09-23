@@ -77,8 +77,6 @@ The omitted spelling is the one nearest the defect. `with(WithOptions.tokens)` i
 
 The `order()` arm of `productiveByStrategy_keepsTheNullBucket` (line 583) has to stay unordered, because null-valued rows survive there and null placement in `ORDER BY` is a known divergence between MATCH and the native pipeline. Nothing in the test records that, so the next reader is as likely to "fix" that arm as this one.
 
-> **Superseded (composition-equivalence branch):** `YTDBOrderNullsStrategy` / YTDB-1198 aligned null placement; the order arm now uses `assertEquivalentOrdered`.
-
 **Suggestion**: Switch line 500 to `assertEquivalentOrdered`, and add one clause to the ProductiveBy Javadoc recording why its order arm stays on the multiset comparison.
 
 ### TS7 [suggestion] The multi-label select fixture cannot tell the two aliases apart
