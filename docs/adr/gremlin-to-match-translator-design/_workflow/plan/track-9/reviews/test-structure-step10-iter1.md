@@ -136,8 +136,6 @@ In the other ordering the exemption does not hold either. `g.V().order().by(k).v
 
 The fixture's name-less vertex has a second, quieter dependency. Its discriminating power runs entirely through native `order().by("name")`'s handling of an absent property: if native drops that vertex, both arms agree for a reason unrelated to the conjunct. The test does not pin which behaviour it is relying on, and this project already tracks null-ordering as a known divergence area between the two pipelines.
 
-> **Superseded (composition-equivalence branch):** default Gremlin `order()` keeps missing keys and places nulls like YQL (`YTDBOrderNullsStrategy` / YTDB-1198); ON/OFF sequence parity is pinned in living equivalence tests.
-
 **Suggestion**: Rewrite the javadoc to say what the case shows — that `values(k)` is allow-listed after a captured slice, and that a slice recognised before any projection never sees shaping. If the `IS DEFINED` exemption is meant to be real, it needs a production change (have `configureSingleKeyValues` skip `dropOnAbsent` when a presence conjunct already covers the key) plus a case in the `values`-then-slice order; if it is not, the sentence should come out of `RangeGlobalStepRecogniser`'s javadoc too. Either way, add one assertion pinning what native does with the name-less vertex, so the case does not rest on unstated ordering behaviour.
 
 ### TS21 [should-fix] Four more copies of the house equivalence harness, all missing its off-arm pin
