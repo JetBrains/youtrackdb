@@ -298,6 +298,10 @@ final class GremlinPlanFingerprint {
     for (var key : shaping.recordIdMapKeys()) {
       appendToken(sb, key);
     }
+    sb.append(";EK:");
+    for (var key : shaping.edgeMapKeys()) {
+      appendToken(sb, key);
+    }
     sb.append(";RD:");
     if (shaping.rowDedupAlias() != null) {
       appendToken(sb, shaping.rowDedupAlias());

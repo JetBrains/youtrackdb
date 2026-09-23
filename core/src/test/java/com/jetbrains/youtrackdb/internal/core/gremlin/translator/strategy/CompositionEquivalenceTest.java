@@ -47,7 +47,8 @@ import org.junit.Test;
  *       {@code count}/{@code sum}/… declines.
  *   <li><b>{@code bothE(L).has(...).otherV()}</b> — declines (self-loop RID rewrite is wrong); directed
  *       {@code outE.has.inV} / {@code inE.has.outV} translate. Edge {@code as(k)} + {@code select(k)}
- *       emits an {@code Edge}.
+ *       or bare multi-label {@code select(e, v)} emit an {@code Edge} for the edge alias
+ *       ({@code ResultShaping.edgeMapKeys}).
  *   <li><b>Edge-bearing combinator child</b> — {@code and}/{@code or}/{@code where}/{@code filter}
  *       with a hop inside declines (existence would join-fan-out); pure property children translate.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
@@ -58,8 +59,11 @@ import org.junit.Test;
  *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — declines (schema keys alone
  *       under-project vs native schemaless enumeration); keyed forms translate.
  *   <li><b>Post-union hop/filter/positional slice</b> — declines; union+{@code count}/early
- *       {@code dedup}/{@code order} translate.
+ *       {@code dedup}/{@code order} translate. {@code union(...).order().by(k).limit(n)} still
+ *       declines (slice after post-concat sort is not yet on the allow path).
  *   <li><b>{@code Order.shuffle}</b> / second {@code order()} / order after {@code group} — decline.
+ *   <li><b>Nested {@code by(__.order().by(Column.values|keys))}</b> after {@code groupCount().unfold()}
+ *       — declines; direct {@code by(Column.values)} / {@code by(Column.keys)} translate.
  * </ul>
  */
 public class CompositionEquivalenceTest extends GraphBaseTest {
@@ -836,6 +840,23 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .unfold()
             .order().by(Column.values, Order.desc).by(Column.keys, Order.asc)
             .limit(2));
+  }
+
+  /**
+   * Nested {@code by(__.order().by(Column.values))} after groupCount unfold declines. Direct
+   * {@code by(Column.values)} stays translated; walking into the nested order would sort by value
+   * alone while native compares whole map entries.
+   */
+  @Test
+  public void groupCount_unfold_order_byNestedColumnOrder_declines() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().hasLabel(Person).groupCount().by(name).unfold()"
+            + ".order().by(__.order().by(Column.values))",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").groupCount().by("name")
+            .unfold()
+            .order().by(__.order().by(Column.values)));
   }
 
   /** groupCount().unfold() alone emits entry multiset (no fold to one map). */

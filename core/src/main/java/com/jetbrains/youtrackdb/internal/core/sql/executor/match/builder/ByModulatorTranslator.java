@@ -15,7 +15,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.Mutating;
-import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
@@ -180,26 +179,16 @@ public final class ByModulatorTranslator {
                 column == Column.values ? "value" : "key", ascending));
   }
 
-  /** Whether {@code modulator} selects {@link Column#values} or {@link Column#keys} on a map entry. */
+  /**
+   * Whether {@code modulator} is a direct {@link ColumnTraversal} for {@link Column#values} or
+   * {@link Column#keys}. Nested shapes such as {@code by(__.order().by(Column.values))} are refused
+   * — walking into them would sort by the column alone while native compares whole map entries.
+   */
   public static Optional<Column> groupEntryColumn(Traversal.Admin<?, ?> modulator) {
     if (modulator instanceof ColumnTraversal columnTraversal) {
       var column = columnTraversal.getColumn();
       if (Column.values.equals(column) || Column.keys.equals(column)) {
         return Optional.of(column);
-      }
-      return Optional.empty();
-    }
-    if (modulator == null) {
-      return Optional.empty();
-    }
-    for (var step : modulator.getSteps()) {
-      if (step instanceof TraversalParent parent) {
-        for (var child : parent.getLocalChildren()) {
-          var nested = groupEntryColumn(child.asAdmin());
-          if (nested.isPresent()) {
-            return nested;
-          }
-        }
       }
     }
     return Optional.empty();

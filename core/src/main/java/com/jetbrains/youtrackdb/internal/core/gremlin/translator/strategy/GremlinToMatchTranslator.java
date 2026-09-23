@@ -97,8 +97,8 @@ final class GremlinToMatchTranslator {
    *     GremlinPlanCache}; the multi-plan carrier itself is never cached as one entry ({@code
    *     cacheEligible} is always {@code false} for multi-plan)
    * @param postConcatOps the ordered reductions applied after the children concatenate ({@code
-   *     count}/{@code limit}/{@code dedup}); empty for a single-plan translation, which folds its
-   *     reductions into the MATCH statement instead
+   *     count}/{@code limit}/{@code dedup}/{@code order}); empty for a single-plan translation,
+   *     which folds its reductions into the MATCH statement instead
    * @param boundaryAlias the alias under which the matched element appears in each result
    *     row (the boundary step projects rows onto traversers by this alias)
    * @param outputType how each row is projected onto a traverser payload
@@ -173,7 +173,8 @@ final class GremlinToMatchTranslator {
     /**
      * Single-plan carrier: one set of MATCH plan inputs with the walk's positional parameters on
      * the boundary step itself. No child plans and no post-concat reductions — a single-plan walk
-     * folds its {@code count} / {@code limit} / {@code dedup} into the MATCH statement.
+     * folds its {@code count} / {@code limit} / {@code dedup} / {@code order} into the MATCH
+     * statement.
      */
     static TranslationResult singlePlan(
         @Nonnull MatchPlanInputs inputs,
@@ -216,7 +217,8 @@ final class GremlinToMatchTranslator {
     /**
      * Multi-plan carrier: ordered children each with their own positional parameters and plan-cache
      * eligibility, plus the ordered post-concatenation reductions ({@code count}/{@code
-     * limit}/{@code dedup}). The carrier's own {@code cacheEligible} is always {@code false}.
+     * limit}/{@code dedup}/{@code order}). The carrier's own {@code cacheEligible} is always
+     * {@code false}.
      */
     static TranslationResult multiPlan(
         @Nonnull List<ChildPlan> childPlans,

@@ -1172,6 +1172,14 @@ recognized shape lands in one file, not five.
   modulators than labels — extras cycle. The translator declines on
   cycle: each label must have its own explicit `by(...)` slot. This is
   a deliberate Phase 1 restriction; equivalence is tested per-label.
+- *Group-entry `Column` modulators*. After `groupCount().unfold()`,
+  direct `by(Column.values)` / `by(Column.keys)` sort entry rows.
+  Nested shapes such as `by(__.order().by(Column.values))` decline —
+  walking into them would sort by the column alone while native compares
+  whole map entries.
+- *Multi-label select over an edge alias*. MATCH stores edge cells as
+  RIDs. Bare `select(e, v)` marks edge labels in `ResultShaping.edgeMapKeys`
+  so projection wraps a TinkerPop `Edge` rather than a vertex.
 - *Sub-traversal carrying side-effects*. Any `by(__.aggregate(...))`,
   `by(__.sack(...))`, or `by(...)` whose sub-traversal contains a
   side-effect step declines whole — side effects have no MATCH
@@ -1348,6 +1356,13 @@ holds N plans and iterates them in order), and emit the concatenation. All
 children must agree on output type; if any child fails to translate or
 disagrees on type, the union step is unrecognized and under D3
 all-or-nothing the entire enclosing traversal declines.
+
+After a recognised union the walker may continue for post-concatenation
+reductions on the combined multiset: `count`, `limit`/`range`/`skip` (only
+when immediately followed by `count`, because arm arrival order is not
+native's), `dedup`, and `order` (in-memory sort of the drained concatenation).
+Other suffixes decline. Nested `union` inside a child declines the whole
+union.
 
 The decision to keep union as concatenation rather than cartesian is
 strict: violating it would silently change result semantics, and that
@@ -1944,10 +1959,16 @@ index into the list:
   `plans[0].start()`; subsequent calls drive that stream until exhausted,
   then advance to `plans[1].start()`, and so on. Plan N+1 is only
   started after plan N is fully drained — never both alive simultaneously.
+- **Post-concatenation reductions.** Optional `PostConcatOp` stages
+  (`count`, `limit`/`range`/`skip`, `dedup`, `order`) run once over the
+  concatenated stream after the child plans combine. `order` sorts the
+  drained multiset in memory; a positional slice still requires an
+  immediate following `count()` (see `RangeGlobalStepRecogniser`).
 - **Memory.** Only the *currently-iterating* `ExecutionStream` is alive;
   the list of compiled plans (one per child traversal) is alive for the
   boundary step's lifetime. Memory cost = number of compiled plans, not
-  number of in-flight streams.
+  number of in-flight streams. Post-concat `order` additionally buffers
+  the full concatenation before emitting.
 - **Exception propagation.** If `plans[N]` throws mid-iteration, the
   current stream closes, the boundary re-throws, and `plans[N+1..]` are
   never started. The native fallback was already foregone at translation

@@ -184,6 +184,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /** {@link ResultShaping#recordIdMapKeys()} as a set, for the RID-versus-vertex decision. */
   private final Set<String> recordIdMapKeySet;
 
+  /** {@link ResultShaping#edgeMapKeys()} as a set — RID cells that wrap as edges, not vertices. */
+  private final Set<String> edgeMapKeySet;
+
   /**
    * Entity columns already resolved for the row being projected, cleared once per row. Holds at
    * most one entry per distinct entity column, so it is bounded by the projection width rather
@@ -316,6 +319,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.presenceEntityColumnSet = Set.copyOf(entityColumns);
     this.aliasPresenceByMapKey = Map.copyOf(byMapKey);
     this.recordIdMapKeySet = Set.copyOf(shaping.recordIdMapKeys());
+    this.edgeMapKeySet = Set.copyOf(shaping.edgeMapKeys());
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -951,6 +955,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (raw instanceof RID rid) {
       if (holdsRecordIdToken(columnName)) {
         return rid;
+      }
+      // Multi-label select over an edge as(...) alias: MATCH stores a RID, native emits an Edge.
+      if (edgeMapKeySet.contains(columnName)) {
+        return new YTDBEdgeImpl(armingGraph, rid);
       }
       return new YTDBVertexImpl(armingGraph, rid);
     }

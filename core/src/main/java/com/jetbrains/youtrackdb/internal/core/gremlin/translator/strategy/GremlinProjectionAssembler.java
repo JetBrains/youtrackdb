@@ -95,6 +95,7 @@ final class GremlinProjectionAssembler {
       }
     }
     ctx.clearReturnProjection();
+    var edgeMapKeys = new ArrayList<String>();
     for (String userLabel : userLabels) {
       var internalAlias = ctx.resolveUserLabel(userLabel);
       if (internalAlias == null) {
@@ -107,12 +108,19 @@ final class GremlinProjectionAssembler {
       }
       ctx.markReturnAliasIfForeign(internalAlias);
       ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), userLabel);
+      // Bare multi-label select stores edge aliases as RIDs; mark them so projection wraps Edge.
+      if (ctx.isEdgeAlias(internalAlias)) {
+        edgeMapKeys.add(userLabel);
+      }
     }
     // A single-label select emits the column value directly (native SelectOneStep shape).
     var shaping = ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1);
     if (userLabels.size() > 1) {
       // Result content is a HashMap — pin select-label order for LinkedHashMap emission.
       shaping = shaping.withMapEmitColumnOrder(List.copyOf(userLabels));
+    }
+    if (!edgeMapKeys.isEmpty()) {
+      shaping = shaping.withEdgeMapKeys(List.copyOf(edgeMapKeys));
     }
     ctx.setResultShaping(shaping);
     repinMap(ctx, boundary);

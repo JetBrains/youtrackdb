@@ -87,6 +87,49 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
             .select("k", "friend").by("since").by("name"));
   }
 
+  /**
+   * Bare multi-label {@code select(e, v)} must keep the edge alias as a TinkerPop {@code Edge}.
+   * MATCH stores edge cells as RIDs; without {@code edgeMapKeys} the map wrapped them as vertices.
+   */
+  @Test
+  public void edgeAlias_bareSelectTwoLabels_emitsEdgeInstance() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    support.withTranslatorRestored(
+        () -> {
+          support.setTranslatorEnabled(true);
+          @SuppressWarnings("unchecked")
+          var result =
+              (Map<String, Object>) graph.traversal().V(alice.id())
+                  .outE("knows").as("e")
+                  .inV().as("v")
+                  .select("e", "v")
+                  .next();
+          assertThat(result.get("e"))
+              .as("select(e,v) map cell e must be a TinkerPop Edge under translator-on")
+              .isInstanceOf(org.apache.tinkerpop.gremlin.structure.Edge.class);
+          assertThat(result.get("v"))
+              .as("select(e,v) map cell v must remain a Vertex")
+              .isInstanceOf(Vertex.class);
+        });
+  }
+
+  /** Bare multi-label select of edge + vertex aliases matches native on/off. */
+  @Test
+  public void edgeAlias_bareSelectTwoLabels_matchesNative() {
+    var ids = seedKnowsWithSinceAndNames();
+    assertEquivalent(
+        "…outE(k).inV().as(friend).select(k,friend)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(ids.alice())
+            .outE("knows").as("k")
+            .inV().as("friend")
+            .select("k", "friend"));
+  }
+
   /** {@code order().by(name)} on the hop target after edge alias bind. */
   @Test
   public void edgeAlias_orderByFriendName_matchesNative() {

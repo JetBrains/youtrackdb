@@ -142,12 +142,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * has()} keeps index-backed access either way, since {@code YTDBGraphStepStrategy} folds it into
  * {@code YTDBGraphStep}, so the loss is confined to non-leading filters and wide unions.
  *
- * <p>Post-concat {@code order()} is the exit, not a wider accept surface: a slice after a total
- * sort picks the same rows whichever order the arms arrived in, so {@code
- * union(...).order().by(k).limit(n)} becomes translatable once post-concat sort exists, with a
- * unique key or an explicit tie-break to pin the ties. Trimming the decline to recover compile
- * coverage in the meantime would re-admit shapes whose answer depends on arrival order, which is
- * the defect this gate exists to close.
+ * <p>Post-concat {@code order()} already sorts the concatenated multiset in memory, but a real
+ * post-union slice still declines unless the next step is {@code count()}. {@code
+ * union(...).order().by(k).limit(n)} stays declined until this gate accepts a slice after a total
+ * sort (unique key or an explicit tie-break to pin ties). Widening the accept surface earlier would
+ * re-admit shapes whose answer depends on arrival order — the defect this gate exists to close.
  */
 final class RangeGlobalStepRecogniser implements StepRecogniser {
 

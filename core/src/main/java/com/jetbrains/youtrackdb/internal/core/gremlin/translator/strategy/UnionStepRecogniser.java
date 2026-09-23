@@ -23,16 +23,16 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * union inside a child declines the whole walk.
  *
  * <p>After the union the walk may continue for two kinds of suffix step. {@code count()}, {@code
- * limit()} / {@code range()} / {@code skip()} and {@code dedup()} each become a {@link
- * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} applied by {@code
- * MultiPlanMatchStep} over the concatenation; {@code unfold()} and {@code reverse()} each append a
+ * limit()} / {@code range()} / {@code skip()}, {@code dedup()}, and {@code order()} each become a
+ * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} applied by
+ * {@code MultiPlanMatchStep} over the concatenation ({@code order()} sorts the drained multiset in
+ * memory). {@code unfold()} and {@code reverse()} each append a
  * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp} the boundary
  * base applies once over that same concatenation, which is sound because both treat each payload
- * alone. {@code order()} after a union declines (no post-concat sort in this cut). The two other
- * terminators decline through different conditions and the difference is worth keeping straight:
- * {@code tail(n)} is on the allow-list and declines through the positional gate, while {@code
- * fold()} is off the allow-list and so declines on membership, before the positional question is
- * asked of it at all. Every other step class declines too. {@code
+ * alone. The two other terminators decline through different conditions and the difference is worth
+ * keeping straight: {@code tail(n)} is on the allow-list and declines through the positional gate,
+ * while {@code fold()} is off the allow-list and so declines on membership, before the positional
+ * question is asked of it at all. Every other step class declines too. {@code
  * GremlinStepWalker.POST_UNION_RECOGNISERS} argues each membership and the one recorded exclusion.
  *
  * <p>That suffix check runs twice, against one allow-list. {@link
@@ -176,8 +176,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     ctx.pinBoundary(canonicalAlias, agreedOutputType, agreedReturnClass);
     ctx.setResultShaping(agreedShaping);
     host.stashAcceptedChildren(childInputs, childParams, childCacheEligible);
-    // Post-concat barriers (count / limit / dedup) may follow; every other suffix step declines
-    // through the walker's post-union suffix gate.
+    // Post-concat barriers (count / limit / dedup / order) may follow; every other suffix step
+    // declines through the walker's post-union suffix gate.
     return Outcome.ACCEPTED;
   }
 
