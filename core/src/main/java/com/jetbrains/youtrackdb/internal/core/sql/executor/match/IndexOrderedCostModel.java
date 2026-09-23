@@ -225,14 +225,37 @@ final class IndexOrderedCostModel {
    * Picks the cheapest multi-source strategy among three options:
    * union RidSet scan, global scan, or load-all-sort.
    *
-   * <p>{@code totalEdges} may already be clamped to {@code indexSize}. The comparison still
-   * runs: true dense top-N with a small LIMIT can keep {@link MultiSourceStrategy#GLOBAL_SCAN}.
-   * When density {@code 1.0} is a false ceiling and hits are sparse in key order, the runtime
-   * scan budget on GLOBAL abandons the walk after roughly one entry per source edge.
+   * <p>Delegates to {@link #pickMultiSourceStrategy(int, long, long, EquiDepthHistogram, boolean,
+   * boolean)} with {@code estimateCapped=false}.
    */
   static MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize, long limit,
       @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    return pickMultiSourceStrategy(
+        totalEdges, indexSize, limit, histogram, orderAsc, false);
+  }
+
+  /**
+   * Picks the cheapest multi-source strategy among three options:
+   * union RidSet scan, global scan, or load-all-sort.
+   *
+   * <p>When {@code estimateCapped} is true, the caller hit the structural ceiling
+   * (extrapolated edges clamped to {@code indexSize}). That is not evidence every index
+   * entry is reachable. Under density {@code 1.0}, {@link MultiSourceStrategy#GLOBAL_SCAN}
+   * would price a LIMIT-sized walk and can degrade to a near-full index scan when hits are
+   * sparse in key order. Refuse the capped estimate and load from the real source LinkBags
+   * instead. A runtime scan budget still covers plausible but wrong densities that were not
+   * capped.
+   *
+   * @param estimateCapped {@code true} when {@code totalEdges} came from a capped estimate
+   */
+  static MultiSourceStrategy pickMultiSourceStrategy(
+      int totalEdges, long indexSize, long limit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc,
+      boolean estimateCapped) {
+    if (limit > 0 && estimateCapped) {
+      return MultiSourceStrategy.LOAD_ALL_SORT;
+    }
     if (!hasValidScanCpuFactor()) {
       return MultiSourceStrategy.LOAD_ALL_SORT;
     }

@@ -592,8 +592,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
-    int estimatedTotalEdges = estimateTotalEdges(sourceMap, session, indexSize);
-    var strategy = pickMultiSourceStrategy(estimatedTotalEdges, indexSize, histogram);
+    var edgeEstimate = estimateTotalEdges(sourceMap, session, indexSize);
+    var strategy = pickMultiSourceStrategy(
+        edgeEstimate.totalEdges(), indexSize, histogram, edgeEstimate.capped());
 
     return switch (strategy) {
       case UNION_RIDSET_SCAN -> {
@@ -1165,9 +1166,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private IndexOrderedCostModel.MultiSourceStrategy pickMultiSourceStrategy(
       int totalEdges, long indexSize,
-      @Nullable EquiDepthHistogram histogram) {
+      @Nullable EquiDepthHistogram histogram,
+      boolean estimateCapped) {
     return IndexOrderedCostModel.pickMultiSourceStrategy(
-        totalEdges, indexSize, limit, histogram, orderAsc);
+        totalEdges, indexSize, limit, histogram, orderAsc, estimateCapped);
   }
 
   // Cost model logic lives in IndexOrderedCostModel.
@@ -1311,20 +1313,24 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return (int) Math.min(total, Integer.MAX_VALUE);
   }
 
+  private record TotalEdgesEstimate(int totalEdges, boolean capped) {
+  }
+
   /**
    * Estimate total edges for multi-source cost model by sampling up to 5 source vertices'
    * LinkBag sizes, then extrapolating to all sources. Falls back to
    * {@code sourceCount × defaultFanOut} if sampling fails.
    *
    * <p>Uses the <em>median</em> of the sample, not the mean. A hub in a small sample pulls the
-   * mean far above the typical source; the mean then extrapolates past the index size and would
-   * report density {@code 1.0}. Median keeps one hub from rewriting the density.
+   * mean far above the typical source; the mean then extrapolates past the index size and the
+   * cap would report density {@code 1.0}. Median keeps one hub from rewriting the density.
    *
    * <p>The result is still CAPPED AT THE INDEX SIZE. No more distinct targets can exist than
-   * the index holds entries. A false density {@code 1.0} from that clamp can still prefer
-   * {@code GLOBAL_SCAN} at plan time; the runtime scan budget abandons a sparse walk.
+   * the index holds entries. When the cap fires, {@code capped} is true and
+   * {@link IndexOrderedCostModel#pickMultiSourceStrategy} loads from LinkBags rather than
+   * trusting density {@code 1.0} for {@code GLOBAL_SCAN}.
    */
-  private int estimateTotalEdges(
+  private TotalEdgesEstimate estimateTotalEdges(
       Map<RID, ?> sourceMap, DatabaseSessionEmbedded session, long indexSize) {
     int sampleSize = Math.min(sourceMap.size(), 5);
     var sampleSizes = new int[sampleSize];
@@ -1346,10 +1352,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       perSource = sampleSizes[sampled / 2];
     }
     var extrapolated = (long) sourceMap.size() * perSource;
-    if (indexSize > 0) {
-      extrapolated = Math.min(extrapolated, indexSize);
+    var capped = false;
+    if (indexSize > 0 && extrapolated >= indexSize) {
+      extrapolated = indexSize;
+      capped = true;
     }
-    return (int) Math.min(extrapolated, Integer.MAX_VALUE);
+    return new TotalEdgesEstimate(
+        (int) Math.min(extrapolated, Integer.MAX_VALUE), capped);
   }
 
   /**
