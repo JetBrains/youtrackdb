@@ -27,9 +27,14 @@ An attestation is a signed statement that identifies the trusted validator.
 #### Integration test run conditions:
 
 - Integration tests do not run for a draft pull request or when every changed file is a Markdown file.
+- A pull request runs integration tests only when a changed file ends in `.java` and belongs to a reactor module with integration test source files.
+- The pull request runs the full integration suite in each matching module, not in modules that depend on it.
+- A Java change outside the reactor or in a module without integration tests does not start the integration job.
+- If the changed-file list is unknown, the pull request runs the full integration suite.
+- Manual runs stay full. Develop runs the full integration suite after the merge.
 - A merge queue orders approved pull requests for merging.
 - A merge group temporarily combines changes GitHub tests before a merge queue writes them to the target branch.
-- Merge groups do not rerun integration tests because the pull request head already ran the full suite.
+- Merge groups do not rerun integration tests because the pull request ran them for its changed modules. Develop runs the full suite after merge.
 - The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first line of the head commit message.
 - The `[no-it-tests]` marker has no effect in the pull request title.
 - The marker comparison respects letter case and works only for a pull request from the same repository.

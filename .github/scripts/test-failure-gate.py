@@ -139,6 +139,11 @@ def main(argv=None):
         help="Required report kind. Repeat it or use commas for failsafe and surefire.",
     )
     parser.add_argument(
+        "--expected-modules",
+        metavar="MODULES",
+        help="Comma-separated required Failsafe modules instead of inferred built modules.",
+    )
+    parser.add_argument(
         "--allow-missing-module",
         action="append",
         default=[],
@@ -155,6 +160,14 @@ def main(argv=None):
         kinds = required_kinds(args.require)
     except argparse.ArgumentTypeError as error:
         parser.error(str(error))
+    if args.expected_modules is not None:
+        if "failsafe" not in kinds:
+            parser.error("--expected-modules requires failsafe")
+        selected = args.expected_modules.split(",")
+        if any(not name or name.strip() != name for name in selected):
+            parser.error("--expected-modules requires nonempty module names")
+        if len(selected) != len(set(selected)):
+            parser.error("--expected-modules contains duplicate module names")
 
     totals = {attribute: 0 for attribute in COUNT_ATTRIBUTES}
     report_total = 0
@@ -211,11 +224,14 @@ def main(argv=None):
         reporting_modules = {
             report_module(path, root) for path in reports_by_kind[kind]
         }
-        missing_modules = sorted(
-            expected_modules(root, kind)
-            - reporting_modules
-            - allowed_missing_modules
+        # Selected PR runs must not expect reports from dependency-only installs.
+        # Default inference stays unchanged for nightly and other callers.
+        expected = (
+            set(selected)
+            if kind == "failsafe" and args.expected_modules is not None
+            else expected_modules(root, kind)
         )
+        missing_modules = sorted(expected - reporting_modules - allowed_missing_modules)
         if missing_modules:
             workflow_error(
                 f"Required {kind} reports are missing for expected module(s): "
