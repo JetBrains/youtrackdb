@@ -181,6 +181,13 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     var result = op.commitChanges(42L, wal);
 
+    // Every dependent page must retain the exact atomic-unit start position. A later wal.end()
+    // value could cross a segment boundary under concurrent WAL appends.
+    verify(readCache)
+        .loadOrAddForWrite(
+            eq(fileId), eq(0L), eq(writeCache), anyBoolean(),
+            eq(new LogSequenceNumber(0, 1)));
+
     // start placeholder, PageOperation (from flush), FileCreated (from commit), End
     assertThat(loggedRecords).hasSize(4);
     assertThat(loggedRecords.get(0)).isNull(); // start record placeholder

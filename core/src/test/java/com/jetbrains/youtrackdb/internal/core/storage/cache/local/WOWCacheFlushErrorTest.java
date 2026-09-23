@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -35,9 +34,10 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * Tests that WOWCache methods return early when a prior flush error has been recorded. Once
- * {@code flushError} is set (by a failed background flush), all subsequent flush and dirty-segment
- * operations must log the error and return immediately rather than proceeding with I/O.
+ * Tests WOWCache behavior after a background flush records a write failure.
+ * A recorded failure skips background page writes while periodic callbacks continue.
+ * Dirty-segment lookup still exposes the retained protection boundary.
+ * Flush-to-segment progress is rejected when the recorded failure prevents page writes.
  *
  * <p>Also tests that null-file guards in {@code getFilledUpTo()} and
  * {@code flushWriteCacheFromMinLSN()} correctly handle concurrent file deletion without NPE or
@@ -59,28 +59,71 @@ public class WOWCacheFlushErrorTest {
     field.set(cache, error);
   }
 
-  /**
-   * Verifies that {@code executeFindDirtySegment()} returns null immediately when a flush error
-   * is recorded, without attempting to access dirty pages or the write cache.
-   */
-  @Test
-  public void testExecuteFindDirtySegmentReturnsNullOnFlushError() throws Exception {
-    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
-    setFlushError(cache, new java.io.IOException("disk full"));
-
-    assertNull(cache.executeFindDirtySegment());
+  /** Initializes the tracker skipped by Mockito's constructor-free real-method mock. */
+  private static void initializePageWriteTracker(WOWCache cache) throws Exception {
+    Field field = WOWCache.class.getDeclaredField("pageWriteTracker");
+    field.setAccessible(true);
+    field.set(cache, new PageWriteTracker());
   }
 
-  /**
-   * Verifies that {@code executeFileFlush()} returns null immediately when a flush error
-   * is recorded, preventing further I/O on a storage with a known write failure.
-   */
+  /** A latched flush error stops writes but still exposes failed-page WAL protection. */
   @Test
-  public void testExecuteFileFlushReturnsNullOnFlushError() throws Exception {
+  public void testExecuteFindDirtySegmentReportsProtectionOnFlushError() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
+    setField(cache, "dirtyPages", new ConcurrentHashMap<PageKey, LogSequenceNumber>());
+    setField(cache, "localDirtyPages", new HashMap<PageKey, LogSequenceNumber>());
+    setField(cache, "localDirtyPagesBySegment", new TreeMap<Long, TreeSet<PageKey>>());
+    setField(cache, "localDirtyPageCountsByLsn", new TreeMap<LogSequenceNumber, Integer>());
+
+    final var pointer = mock(CachePointer.class);
+    Mockito.when(pointer.getFileId()).thenReturn(7L);
+    Mockito.when(pointer.getPageIndex()).thenReturn(1);
+    final var trackerField = WOWCache.class.getDeclaredField("pageWriteTracker");
+    trackerField.setAccessible(true);
+    final var tracker = (PageWriteTracker) trackerField.get(cache);
+    tracker.pageCopyStarted(pointer, new LogSequenceNumber(4, 10));
     setFlushError(cache, new java.io.IOException("disk full"));
 
-    assertNull(cache.executeFileFlush(new IntOpenHashSet()));
+    assertEquals(Long.valueOf(4), cache.executeFindDirtySegment());
+  }
+
+  /** A file-flush task reports a latched write failure instead of claiming durable completion. */
+  @Test
+  public void testFileFlushTaskThrowsOnFlushError() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
+    var failure = new java.io.IOException("disk full");
+    setFlushError(cache, failure);
+
+    try {
+      new FileFlushTask(cache, new IntOpenHashSet()).call();
+      fail("Expected the latched write failure to stop the file-flush task");
+    } catch (java.io.IOException expected) {
+      assertEquals(failure, expected.getCause());
+    }
+  }
+
+  /** Public whole-cache flush propagates the failure reported by its file-flush future. */
+  @Test
+  public void testPublicFlushThrowsOnFlushError() throws Exception {
+    var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
+    var failure = new java.io.IOException("disk full");
+    setFlushError(cache, failure);
+    setField(cache, "nameIdMap", new ConcurrentHashMap<String, Integer>());
+    setField(cache, "storageName", "test");
+
+    try {
+      cache.flush();
+      fail("Expected public flush to report the latched write failure");
+    } catch (WriteCacheException expected) {
+      var cause = expected.getCause();
+      while (cause != null && cause != failure) {
+        cause = cause.getCause();
+      }
+      assertEquals(failure, cause);
+    }
   }
 
   /**
@@ -90,6 +133,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testExecutePeriodicFlushReturnsOnFlushError() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
     setFlushError(cache, new java.io.IOException("disk full"));
 
     // Should return without exception — the flushError guard prevents further processing
@@ -103,22 +147,27 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testExecuteFlushReturnsOnFlushError() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
     setFlushError(cache, new java.io.IOException("disk full"));
 
     // Pass null latches to avoid NPE in the mock — the guard clause returns before using them
     cache.executeFlush(null, null);
   }
 
-  /**
-   * Verifies that {@code executeFlushTillSegment()} returns null immediately when a flush
-   * error is recorded.
-   */
+  /** A flush-to-segment request reports a latched write failure instead of claiming progress. */
   @Test
-  public void testExecuteFlushTillSegmentReturnsNullOnFlushError() throws Exception {
+  public void testExecuteFlushTillSegmentThrowsOnFlushError() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
-    setFlushError(cache, new java.io.IOException("disk full"));
+    initializePageWriteTracker(cache);
+    var failure = new java.io.IOException("disk full");
+    setFlushError(cache, failure);
 
-    assertNull(cache.executeFlushTillSegment(42L));
+    try {
+      cache.executeFlushTillSegment(42L);
+      fail("Expected the latched write failure to stop the flush-to-segment request");
+    } catch (java.io.IOException expected) {
+      assertEquals(failure, expected.getCause());
+    }
   }
 
   /**
@@ -887,6 +936,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testExecuteFileFlushSkipsWALFlushForNonDurableOnlyFiles() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
     var nonDurable = new IntOpenHashSet();
     nonDurable.add(5);
     var mockWal = setupCacheForFileFlush(cache, nonDurable);
@@ -905,6 +955,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testExecuteFileFlushFlushesWALForDurableFiles() throws Exception {
     var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    initializePageWriteTracker(cache);
     var nonDurable = new IntOpenHashSet();
     nonDurable.add(5);
     var mockWal = setupCacheForFileFlush(cache, nonDurable);

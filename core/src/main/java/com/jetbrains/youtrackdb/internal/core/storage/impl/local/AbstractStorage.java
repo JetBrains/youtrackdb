@@ -6290,6 +6290,12 @@ public abstract class AbstractStorage
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
+      // Sample operation ownership first. A committing operation publishes its page
+      // requirements before WAL completion can remove operation-table protection. The following
+      // cache sample therefore observes either the old owner or the new owner.
+      atomicOperationsTable.compactTable();
+      final var minAtomicOperationSegment =
+          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var minLSNSegment = writeCache.getMinimalNotFlushedSegment();
 
       long fuzzySegment;
@@ -6304,9 +6310,6 @@ public abstract class AbstractStorage
         fuzzySegment = endLSN.getSegment();
       }
 
-      atomicOperationsTable.compactTable();
-      final var minAtomicOperationSegment =
-          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
       }
@@ -6482,6 +6485,7 @@ public abstract class AbstractStorage
       writeAheadLog.appendNewSegment();
 
       final var lastLSN = writeAheadLog.log(new EmptyWALRecord());
+
       writeCache.flush();
 
       atomicOperationsTable.compactTable();
@@ -6493,9 +6497,28 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      writeAheadLog.cutTill(lastLSN);
+      // Operation protection is sampled before cache protection. Page publication happens
+      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      final var notPersistedSegment =
+          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
+      var protectedSegment = notPersistedSegment;
+      if (cacheSegment != null && (protectedSegment < 0 || cacheSegment < protectedSegment)) {
+        protectedSegment = cacheSegment;
+      }
 
-      clearStorageDirty();
+      if (protectedSegment >= 0) {
+        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
+        // Unresolved recovery requirements keep the dirty marker for the next open.
+        LogManager.instance()
+            .warn(
+                this,
+                "Storage %s keeps write ahead log starting from protected segment %d",
+                (Throwable) null, name, protectedSegment);
+      } else {
+        writeAheadLog.cutTill(lastLSN);
+        clearStorageDirty();
+      }
 
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
@@ -8488,20 +8511,34 @@ public abstract class AbstractStorage
             (nonActiveSegments[0] + nonActiveSegments[nonActiveSegments.length - 1]) / 2;
       }
 
+      var previousCacheSegment = writeCache.getMinimalNotFlushedSegment();
       long minDirtySegment;
       do {
         writeCache.flushTillSegment(flushTillSegmentId);
 
-        // we should take active segment BEFORE min write cache LSN call
-        // to avoid case when new data are changed before call
+        // Take the active segment before the cache boundary. New changes published between
+        // these samples must remain visible through the cache boundary.
         final var activeSegment = writeAheadLog.activeSegment();
-        final var minLSNSegment = writeCache.getMinimalNotFlushedSegment();
+        final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
 
-        minDirtySegment = Objects.requireNonNullElse(minLSNSegment, activeSegment);
+        minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+        if (minDirtySegment < flushTillSegmentId
+            && Objects.equals(cacheSegment, previousCacheSegment)) {
+          // flushTillSegment drains every dirty-map entry below the target in one call. An
+          // unchanged older boundary is therefore tracker-only or concurrently replaced. It
+          // cannot be advanced by repeating the same flush, so retain its WAL and defer cleanup.
+          return;
+        }
+        previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
+      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
+      // disappear from operation tracking before its cache requirement becomes visible.
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      final var activeSegment = writeAheadLog.activeSegment();
+      final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
+      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
       }

@@ -8,9 +8,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -28,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.junit.After;
@@ -929,6 +932,171 @@ public class AsyncFileTest {
     closeFuture.get(5, TimeUnit.SECONDS);
     verify(channel).close();
     Assert.assertFalse(file.isOpen());
+  }
+
+  /** A checked callback failure is wrapped in a storage exception. */
+  @Test
+  public void testAwaitWrapsCheckedCallbackFailure() throws Exception {
+    final var failure = new java.io.IOException("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** A runtime callback failure is wrapped instead of being rethrown directly. */
+  @Test
+  public void testAwaitWrapsRuntimeCallbackFailure() throws Exception {
+    final var failure = new IllegalStateException("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** An error callback failure is wrapped instead of being rethrown directly. */
+  @Test
+  public void testAwaitWrapsErrorCallbackFailure() throws Exception {
+    final var failure = new AssertionError("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** A high-level callback failure keeps its original identity through exception wrapping. */
+  @Test
+  public void testAwaitPreservesHighLevelCallbackFailure() throws Exception {
+    final var failure =
+        new RecordNotFoundException(STORAGE_NAME, new RecordId(7, 42));
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertSame(failure, thrown);
+  }
+
+  /** Partial submission returns an awaitable result which drains every issued write. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testPartialSubmissionWaitsForIssuedWrite() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var writtenBuffer = new AtomicReference<ByteBuffer>();
+    final var submissions = new AtomicInteger();
+    final var submissionFailure =
+        new StorageException(STORAGE_NAME, "injected submission failure");
+    doAnswer(
+        invocation -> {
+          if (submissions.getAndIncrement() == 1) {
+            throw submissionFailure;
+          }
+          writtenBuffer.set(invocation.getArgument(0));
+          attachment.set(invocation.getArgument(2));
+          handler.set(invocation.getArgument(3));
+          return null;
+        })
+        .when(channel)
+        .write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+
+    file.allocateSpace(2);
+    final var result =
+        file.write(
+            List.of(
+                new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {1})),
+                new RawPairLongObject<>(1L, ByteBuffer.wrap(new byte[] {2}))));
+    final var awaitStarted = new CountDownLatch(1);
+    final var awaitingThread = new AtomicReference<Thread>();
+    final var awaitFuture =
+        executor.submit(
+            () -> {
+              awaitingThread.set(Thread.currentThread());
+              awaitStarted.countDown();
+              result.await();
+            });
+
+    try {
+      try {
+        Assert.assertTrue("await task must start", awaitStarted.await(5, TimeUnit.SECONDS));
+        awaitCountDownLatchWait(awaitingThread.get());
+        Assert.assertFalse(
+            "await must retain the first buffer until completion", awaitFuture.isDone());
+      } finally {
+        writtenBuffer.get().position(writtenBuffer.get().limit());
+        handler.get().completed(1, attachment.get());
+      }
+
+      try {
+        awaitFuture.get(5, TimeUnit.SECONDS);
+        Assert.fail("the partial submission failure must be reported after draining");
+      } catch (final java.util.concurrent.ExecutionException expected) {
+        Assert.assertEquals(StorageException.class, expected.getCause().getClass());
+        Assert.assertSame(submissionFailure, expected.getCause().getCause());
+      }
+    } finally {
+      file.close();
+    }
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private Throwable awaitCallbackFailure(final Throwable failure) throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    doAnswer(
+        invocation -> {
+          attachment.set(invocation.getArgument(2));
+          handler.set(invocation.getArgument(3));
+          return null;
+        })
+        .when(channel)
+        .write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+
+    file.allocateSpace(1);
+    final var result =
+        file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {1}))));
+    handler.get().failed(failure, attachment.get());
+
+    try {
+      try {
+        result.await();
+      } catch (final Throwable thrown) {
+        return thrown;
+      }
+      Assert.fail("the callback failure must be reported");
+      return null;
+    } finally {
+      file.close();
+    }
+  }
+
+  private static void awaitCountDownLatchWait(Thread thread) {
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      final var waitingInLatch =
+          java.util.Arrays.stream(thread.getStackTrace())
+              .anyMatch(
+                  frame -> frame.getClassName().equals("java.util.concurrent.CountDownLatch")
+                      && frame.getMethodName().equals("await"));
+      if (thread.getState() == Thread.State.WAITING && waitingInLatch) {
+        return;
+      }
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    Assert.fail("await thread did not block in CountDownLatch.await");
   }
 
   private static void awaitSemaphoreWait(Thread thread) {

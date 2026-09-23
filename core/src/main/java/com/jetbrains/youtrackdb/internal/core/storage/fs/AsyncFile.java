@@ -244,25 +244,38 @@ public final class AsyncFile implements File {
     final var latch = new CountDownLatch(buffers.size());
     final var asyncIOResult = new AsyncIOResult(latch, dbName);
 
+    lock.sharedLock();
+    var submitted = 0;
     syncSemaphore.acquireUninterruptibly(buffers.size());
-    for (final var pair : buffers) {
-      final var byteBuffer = pair.second;
-      byteBuffer.rewind();
-      lock.sharedLock();
-      try {
-        checkForClose();
+    try {
+      checkForClose();
+      for (final var pair : buffers) {
         checkPosition(pair.first);
         checkPosition(pair.first + pair.second.limit() - 1);
+      }
 
+      for (final var pair : buffers) {
+        final var byteBuffer = pair.second;
+        byteBuffer.rewind();
         final var position = pair.first + HEADER_SIZE;
         fileChannel.write(
             byteBuffer,
             position,
             latch,
             new WriteHandler(byteBuffer, asyncIOResult, position, syncSemaphore));
-      } finally {
-        lock.sharedUnlock();
+        submitted++;
       }
+    } catch (final Throwable failure) {
+      // Return an awaitable result even after partial submission. The caller must retain every
+      // source buffer until the issued writes finish, while permits for unissued writes return
+      // immediately.
+      asyncIOResult.recordFailure(failure);
+      for (var i = submitted; i < buffers.size(); i++) {
+        latch.countDown();
+        syncSemaphore.release();
+      }
+    } finally {
+      lock.sharedUnlock();
     }
 
     return asyncIOResult;
@@ -522,7 +535,7 @@ public final class AsyncFile implements File {
 
     @Override
     public void failed(Throwable exc, CountDownLatch attachment) {
-      ioResult.exc = exc;
+      ioResult.recordFailure(exc);
       LogManager.instance().error(this, "Error during write operation to the file " + osFile, exc);
 
       dirtyCounter.incrementAndGet();
@@ -534,12 +547,18 @@ public final class AsyncFile implements File {
   private static final class AsyncIOResult implements IOResult {
 
     private final CountDownLatch latch;
-    private Throwable exc;
+    private volatile Throwable exc;
     private final String dbName;
 
     private AsyncIOResult(CountDownLatch latch, String dbName) {
       this.latch = latch;
       this.dbName = dbName;
+    }
+
+    private void recordFailure(final Throwable failure) {
+      if (exc == null) {
+        exc = failure;
+      }
     }
 
     @Override
