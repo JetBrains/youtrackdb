@@ -45,26 +45,27 @@ Explain WHY this change was made — the problem, context, and trade-offs.
 Not a restatement of the diff. This section is **MANDATORY**.
 
 #### Planned changes:
-<!-- MANDATORY for non-trivial changes. Written when the draft PR is created (before
-implementation); updated as reality diverges; brought to the final, as-implemented state
-before the PR is flipped ready for review. High design level using the main domain
-entities from the code — no file paths, no method signatures. Include the subsections that
-apply: Current state · What changes (contract/behavior) · How (design level) ·
-Key decisions (chosen vs rejected alternatives) · Out of scope · Risks & accepted
-trade-offs · Suggestions · Verification approach.
-Guidance: pr-publishing.md (shipped with the ytdb-slate package) for the writing rules;
-docs-internal/dev-workflow/track-development.md for YTDB deltas. -->
+<!-- Required for every change. Write it when creating the draft PR. Update it as the change
+progresses. Before the PR becomes ready for review, make it match the delivered result.
+Use a high design level and the main domain entities. Do not include file paths or method
+signatures. Include only subsections with content: Current state, What changes, How,
+Key decisions, Out of scope, Risks & accepted trade-offs, Ignored findings,
+Delivery accounting, and Verification approach. See the ytdb-slate package's
+pr-publishing.md and docs-internal/dev-workflow/track-development.md. -->
 
-##### Suggestions:
-<!-- MANDATORY. Add one line per suggestion with its identifier, location, and summary.
-Write "None." when no suggestions remain. Put the standalone text in the final user report.
-When workflow.followUpIssues enables its prompt, a tracker issue may hold that text instead. -->
+##### Ignored findings:
+<!-- List each ignored finding with its identifier, location, and one-line summary.
+Remove this subsection if no finding was ignored. -->
+
+##### Delivery accounting:
+<!-- Copy the required conclusions from the research log before each package.
+See the ytdb-slate package's delivery-packages.md. -->
 
 #### Tracks:
-<!-- Multi-track changes only — display index; the source of truth is the marker commits
-(`git log --oneline --grep '^Track [0-9]* complete:'`). Write "N/A (single-track)" otherwise.
-Branch-life only: this table is stripped from the description before the PR is flipped ready
-for review. -->
+<!-- Multi-track changes only. This table is a display index, not a boundary authority.
+Umbrella mode uses marker commits. Per-track mode uses reviewed branch ranges and
+user-merged commits. Write "N/A (single-track)" otherwise. Remove this whole section
+before the PR becomes ready for review. -->
 
 | # | Track | Scope | Status |
 |---|-------|-------|--------|

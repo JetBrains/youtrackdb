@@ -1,8 +1,9 @@
 # YTDB review perspectives
 
-Project-supplied review charters, composed per change exactly like the
-built-in perspectives (shipped review rules §3). Each charter declares
-its own stable finding-ID prefix (§4).
+Slate loads these project review charters through `reviewPerspectivesPath`.
+The installed package's `review-rules.md` § Reviewer sets, merge rule and charters
+explains how they join the built-in perspectives. Each charter declares its own
+stable finding identifier prefix under § Findings and output.
 
 - **Crash safety / durability** (prefix `CS`) — any change touching
   WAL, storage engine, page cache, recovery, or atomic operations;

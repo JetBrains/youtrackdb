@@ -13,10 +13,11 @@ targets it, and track 01's base is the merge-base with it.
 
 ## Branch, title, and template conventions
 
-- Branch names carry the YTDB issue number; CI auto-prefixes the PR title from the branch
-  name. Title rules — multi-issue bracket lists, the `[no-test-number-check]` gate marker,
-  per-push title/description sync — live in
-  `docs-internal/agents/orchestrator-guidelines.md` § Git Conventions.
+- Before naming a branch, ask the user whether this change has a YTDB issue. Reuse an
+  applicable prior answer. An issue number is optional. With an issue, start the branch name
+  with the issue ID in the form `YTDB-<number>`, as in `YTDB-123-short-name`. CI adds the
+  issue prefix to the PR title. Without an issue, CI leaves the title unchanged. Other title
+  rules live in `docs-internal/agents/orchestrator-guidelines.md` § Git Conventions.
 - The PR description uses `.github/pull_request_template.md`.
   This template instantiates the rules in `pr-publishing.md`.
   YTDB per-push synchronization makes the package measurements recur.
@@ -26,7 +27,8 @@ targets it, and track 01's base is the merge-base with it.
 
 ## Peer review
 
-YTDB peer-review rules live in `docs-internal/agents/slate-doctrine-extra.md`.
+The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
+Slate loads it through `reviewPerspectivesPath`.
 
 ## Verification integration
 
@@ -201,7 +203,7 @@ full verification runs:
    not be reported as one: its report-set assertion is what separates a measured pass from a
    vacuous one, and nothing in this section can tell them apart.
 
-The full local integration suite is no longer a gate for any change class. The full integration
+The full local integration suite is not a gate for any proved focus area. The full integration
 test suite usually takes several hours.
 
 Integration tests do not run for a draft pull request or when every changed file is a Markdown
@@ -242,14 +244,17 @@ Gating only at the track's closing event would have reviewers reviewing unverifi
 only before the review would let review-fix commits land unverified. Both holes are closed by
 this pre-review placement plus the re-run rule below.
 
-**This applies to every change class, including single-track changes.** A single-track change
-has no marker commit. It still runs the gate before any required agent code review.
+**This applies regardless of proved focus areas, including single-track changes.** A
+single-track change has no marker commit. It still runs the gate before any required agent
+code review.
 
 ### Re-running the gate before the track's closing event
 
-Every track has a **closing event**: the marker commit for a track inside a multi-track change,
-and the ready-for-review flip for a single-track change, which has no marker commit. Keying the
-obligation to the closing event gives a single-track change a verification trigger.
+Every track has a **closing event**. A multi-track change in umbrella mode or without draft
+publishing closes a track at its marker commit. Per-track mode closes at the ready-for-review
+flip. A single-track change with a draft pull request closes at the ready-for-review flip.
+Without draft publishing, a single-track change closes at final acceptance. This boundary
+gives each track a verification trigger.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
@@ -257,17 +262,18 @@ an allowlist of safe paths, so build-affecting non-source files (module POMs, `.
 formatter configuration) are covered by construction. If you cannot show that the only thing
 that changed was prose, re-run.
 
-**Approval reopening.** The approval in question is the MANDATORY user review of the track
-(`.pi/npm/node_modules/ytdb-slate/docs/track-workflow.md`). This workflow
-has no separate "gate approval" event. Any commit landing after that review reopens it for those
-commits, before the closing event — neither a marker commit nor a ready-for-review flip ever
-certifies code the user has not seen.
+**Approval reopening.** Every track package reaches the user. Blocking track acceptance applies
+only when a track proves a DESIGN-TRIGGERING focus area. Final change acceptance always blocks.
+User-requested fixes use separate commits and a dedicated range gate. Present commits that land
+after a required user approval before the closing event. Neither a marker commit nor a
+ready-for-review flip certifies unseen work.
 
 ### Deferred test authorship
 
-When test work becomes substantial, the orchestrator may split it into its own track without a
-user approval gate. The test track lands before review of the affected behavior. Test work
-cannot move to a follow-up issue or pull request. The coverage gate has no bypass for that debt.
+When test work becomes substantial, the orchestrator may propose a separate test track. The
+new track needs its own eleven-line risk record and applicable user approval before work starts.
+The test track lands before review of the affected behavior. Test work cannot move to a
+follow-up issue or pull request. The coverage gate has no bypass for that debt.
 
 ### Committing, and landing red
 
@@ -287,11 +293,10 @@ while it is being implemented.
 
 ### Encouraged, never required
 
-Running the single closest test class mid-track for a risky change. It is cheap, it catches the
-obvious break early, and no gate depends on it.
+Run the single closest test class mid-track when a proved focus area warrants it. This can
+catch a failure early. No gate depends on it.
 
-## MCP server configuration
+## Package and feedback references
 
-The `pi-mcp-adapter` package needs a machine-local server configuration, in the same way that
-model routing needs a machine-local `models.json`. Setup, credential handling, and the current
-worker-thread limitation live in `mcp-server-configuration.md` in this directory.
+Read `delivery-packages.md` from the installed `ytdb-slate` package before preparing a track
+or change package. Read `user-notes.md` at its feedback and note-accounting triggers.

@@ -14,31 +14,24 @@ Compare `docs-internal/dev-workflow/track-development.md` with the new package d
 Also compare `docs-internal/agents/slate-doctrine-extra.md` with them. Fix every resulting
 mismatch.
 
-## Worker-extension reconciliation
-
-Before enabling workers, confirm the upgraded package fixes `JetBrains/ytdb-slate` issue 50,
-tracked in `docs-internal/dev-workflow/mcp-server-configuration.md`.
-Then add `^npm:pi-mcp-adapter(@|$)` to `workerExtensions` and recheck the security property below.
-
-The scripting tool does not fully contain its sandbox. A script can reach the file system and
-network. A worker with the shell tool gains no new reach. A narrowed tool list retains that
-reach. Therefore, narrowed tools do not form a security boundary after worker enablement.
-
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.10.0**.
+Last reconciled against **ytdb-slate 0.11.0**.
 
 This reconciliation read these package documents:
 
 - `track-workflow.md`
+- `blast-radius.md`
+- `review-rules.md`
+- `delivery-packages.md`
+- `user-notes.md`
 - `pr-publishing.md`
 - `model-routing.md`
-- `model-failover.md`
-- `review-rules.md`
 - `writing-guidance.md`
-- `thread-cache-cost.md`
 - `context-budget.md`
 - `design-principles.md`
 
-The check covered configured `router`, `writing`, `threadChoice`, `modelFailover`, and `workflow`
-behavior.
+The check covered configured `router` (the logical-model `models` object and `compressor`),
+`workflow`, `workerExtensions`, `orchestratorPromptDocs`, `workerPromptDocs`,
+`doctrineExtraPath`, and `reviewPerspectivesPath`. It also covered the `thread` tool contract.
+Every call starts a new thread and needs `type`, a logical `model`, and `reason`.
