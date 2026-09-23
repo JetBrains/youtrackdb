@@ -282,12 +282,12 @@ final class GremlinStepWalker {
 
   /**
    * The only recognisers allowed to claim a step <em>after</em> {@link UnionStepRecogniser} has
-   * stashed a multi-plan carrier. Two kinds sit here. Three map their step onto a {@link
+   * stashed a multi-plan carrier. Two kinds sit here. Four map their step onto a {@link
    * com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp} the concatenation
-   * can absorb ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}); two more
-   * append a per-payload {@link ListShapingOp} the boundary base applies once over the whole
-   * concatenation ({@code unfold}, {@code reverse}), and one appends a window that the positional
-   * rule below then refuses in every spelling but one ({@code tail}).
+   * can absorb ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup},
+   * {@code order}); two more append a per-payload {@link ListShapingOp} the boundary base applies
+   * once over the whole concatenation ({@code unfold}, {@code reverse}), and one appends a window
+   * that the positional rule below then refuses in every spelling but one ({@code tail}).
    *
    * <p>The gate has to be here rather than left to each recogniser because {@link #buildResult}'s
    * multi-plan branch reads only the boundary metadata, the shaping, and the post-concat ops: a

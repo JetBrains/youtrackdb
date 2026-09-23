@@ -648,8 +648,8 @@ interface RecognitionContext extends ParamSink {
 
   /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union
-   * barriers ({@code count}/{@code limit}/{@code dedup}) branch on this instead of mutating a
-   * single-plan {@code MatchPlanInputs}.
+   * barriers ({@code count}/{@code limit}/{@code dedup}/{@code order}) branch on this instead of
+   * mutating a single-plan {@code MatchPlanInputs}.
    */
   default boolean hasUnionCarrier() {
     return false;

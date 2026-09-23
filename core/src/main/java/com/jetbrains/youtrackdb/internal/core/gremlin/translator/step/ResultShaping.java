@@ -34,6 +34,9 @@ import javax.annotation.Nullable;
  * @param recordIdMapKeys map emit keys that must stay a {@code RID} rather than wrap as a vertex —
  *     {@code select(label).by(T.id)} columns, beside {@code elementMap}'s {@code id} under
  *     {@code T.id}
+ * @param edgeMapKeys map emit keys that wrap a bare {@code RID} as a TinkerPop {@code Edge} —
+ *     multi-label {@code select} over an edge {@code as(...)} alias (MATCH normalizes edge cells
+ *     to RIDs; without this flag they become vertices)
  * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists (native
  *     TinkerPop {@code valueMap} shape; {@code elementMap} leaves them unwrapped)
  * @param accumulateMap drain every GROUP BY row into one accumulated map and emit a single
@@ -59,6 +62,7 @@ public record ResultShaping(
     @Nonnull List<AliasPropertyPresence> aliasPropertyPresences,
     @Nonnull List<String> mapEmitColumnOrder,
     @Nonnull List<String> recordIdMapKeys,
+    @Nonnull List<String> edgeMapKeys,
     boolean wrapMapValuesInLists,
     boolean accumulateMap,
     boolean unwrapSingletonMap,
@@ -75,6 +79,7 @@ public record ResultShaping(
       new ResultShaping(
           false,
           false,
+          List.of(),
           List.of(),
           List.of(),
           List.of(),
@@ -101,6 +106,7 @@ public record ResultShaping(
     aliasPropertyPresences = List.copyOf(aliasPropertyPresences);
     mapEmitColumnOrder = List.copyOf(mapEmitColumnOrder);
     recordIdMapKeys = List.copyOf(recordIdMapKeys);
+    edgeMapKeys = List.copyOf(edgeMapKeys);
     listShapingOps = List.copyOf(listShapingOps);
   }
 
@@ -113,6 +119,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -131,6 +138,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -149,6 +157,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -168,6 +177,7 @@ public record ResultShaping(
         presences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -189,6 +199,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         columns,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -210,6 +221,29 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         keys,
+        edgeMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code edgeMapKeys} replaced by {@code keys} — select labels whose RID cells
+   * must wrap as edges.
+   */
+  public ResultShaping withEdgeMapKeys(@Nonnull List<String> keys) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        keys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -228,6 +262,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         value,
         accumulateMap,
         unwrapSingletonMap,
@@ -246,6 +281,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         value,
         unwrapSingletonMap,
@@ -264,6 +300,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         value,
@@ -282,6 +319,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -303,6 +341,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         value ? false : accumulateMap,
         unwrapSingletonMap,
@@ -324,6 +363,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
@@ -345,6 +385,7 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,

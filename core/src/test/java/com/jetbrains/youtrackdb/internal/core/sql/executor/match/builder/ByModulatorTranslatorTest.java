@@ -295,11 +295,11 @@ public class ByModulatorTranslatorTest extends GraphBaseTest {
     assertThat(ByModulatorTranslator.groupEntryColumn(null)).isEmpty();
     assertThat(ByModulatorTranslator.groupEntryColumn(__.values("name").asAdmin())).isEmpty();
 
-    // OrderGlobalStep is a TraversalParent: groupEntryColumn walks into by(Column.values).
+    // Nested Column under order() must not resolve — native sorts whole entries, not the column.
     var nestedOrder = __.order().by(org.apache.tinkerpop.gremlin.structure.Column.values).asAdmin();
     assertThat(ByModulatorTranslator.groupEntryColumn(nestedOrder))
-        .as("Column.values nested under OrderGlobalStep still resolves")
-        .contains(org.apache.tinkerpop.gremlin.structure.Column.values);
+        .as("Column.values nested under OrderGlobalStep declines")
+        .isEmpty();
   }
 
   private Traversal.Admin<?, ?> columnModulator(

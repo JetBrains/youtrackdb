@@ -368,6 +368,23 @@ public class GremlinPlanFingerprintTest {
   }
 
   /**
+   * {@code ;EK:} encodes edge map keys. A multi-label select that wraps one label as an edge must
+   * not share a plan-cache fingerprint with a vertex-only map of the same labels.
+   */
+  @Test
+  public void edgeMapKeys_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var withEdge = ResultShaping.NONE
+        .withMapEmitColumnOrder(List.of("e", "v"))
+        .withEdgeMapKeys(List.of("e"));
+    var vertexOnly = ResultShaping.NONE.withMapEmitColumnOrder(List.of("e", "v"));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, withEdge))
+        .as(";EK: must encode edgeMapKeys")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, vertexOnly));
+  }
+
+  /**
    * {@code ;RD:} encodes a prior-label row-dedup alias. Two shapings that differ only in that alias
    * must not share a plan-cache fingerprint.
    */

@@ -250,7 +250,10 @@ final class WalkerContext implements RecognitionContext {
    */
   @Nullable private List<Boolean> unionChildCacheEligible;
 
-  /** Ordered post-concat reductions ({@code count}/{@code limit}/{@code dedup}) after a union. */
+  /**
+   * Ordered post-concat reductions ({@code count}/{@code limit}/{@code dedup}/{@code order}) after a
+   * union.
+   */
   private final List<PostConcatOp> postConcatOps = new ArrayList<>();
 
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link

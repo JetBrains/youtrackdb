@@ -123,8 +123,8 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
 
   /**
    * Canonical constructor: ordered child plans, row-projection shaping, and the ordered
-   * post-concatenation reductions ({@code count}/{@code limit}/{@code dedup}) the recogniser
-   * accepted after the union.
+   * post-concatenation reductions ({@code count}/{@code limit}/{@code dedup}/{@code order}) the
+   * recogniser accepted after the union.
    */
   public MultiPlanMatchStep(
       @Nonnull Traversal.Admin<S, E> traversal,
