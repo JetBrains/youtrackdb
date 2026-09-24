@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "allowInstall": false,
+    "hostConfigDiscovery": "off",
+    "deferWithMissingMetadata": true,
+    "directTools": false,
+    "namespaceProxyTools": false,
+    "scriptMode": false,
+    "jev": false
+  }
+}
