@@ -57,7 +57,8 @@ public class StorageStartupMetadata {
   }
 
   private static final int VERSION_WITHOUT_DB_OPEN_VERSION = 3;
-  private static final int VERSION = 4;
+  private static final int VERSION_WITH_DB_OPEN_VERSION = 4;
+  static final int VERSION = 5;
 
   private final Path filePath;
   private final Path backupPath;
@@ -70,8 +71,10 @@ public class StorageStartupMetadata {
   private volatile boolean dirtyFlag;
   // A failed update can change dirtyFlag without writing a complete main copy.
   private volatile boolean confirmedDirtyFlag;
-  // A complete synced backup also protects writers while a dirty main is being rewritten.
+  // A synced dirty backup protects rewrites only after the main has reached the current format.
   private volatile boolean backupKnownGoodDirty;
+  // The format of the last complete main copy read or synced, not of a protective backup.
+  private volatile int persistedVersion;
   private volatile long lastTxId;
   // Unlike lastTxId, this value advances only after a complete main-file write.
   private long confirmedLastTxId = -1;
@@ -178,7 +181,8 @@ public class StorageStartupMetadata {
       IOUtils.writeByteBuffer(buffer, backupChannel, 0);
     }
 
-    // Publish backup validity only after its synced write completes.
+    // Publish backup validity only after its synced write completes. An old-format main
+    // must not admit writers until its replacement completes, even with a current-format backup.
     backupKnownGoodDirty = buffer.get(12) > 0;
     // The completed backup protects the state until the main write completes.
     mainKnownGood = false;
@@ -187,6 +191,7 @@ public class StorageStartupMetadata {
     IOUtils.writeByteBuffer(buffer, channel, 0);
     confirmedDirtyFlag = buffer.get(12) > 0;
     confirmedLastTxId = buffer.getLong(13);
+    persistedVersion = buffer.getInt(8);
     mainKnownGood = true;
     backupKnownGoodDirty = false;
 
@@ -201,6 +206,7 @@ public class StorageStartupMetadata {
     // A failed clear can leave a clean backup and a stale dirty confirmation.
     confirmedDirtyFlag = backup.get(12) > 0;
     confirmedLastTxId = backup.getLong(13);
+    persistedVersion = backup.getInt(8);
     mainKnownGood = true;
     backupKnownGoodDirty = false;
   }
@@ -227,12 +233,22 @@ public class StorageStartupMetadata {
       return null;
     }
     final var version = buffer.getInt(8);
-    if (version != VERSION && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
+    if (version != VERSION
+        && version != VERSION_WITH_DB_OPEN_VERSION
+        && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
+      if (version > VERSION) {
+        throw new IllegalStateException(
+            "Startup metadata version mismatch for database '"
+                + filePath.getParent().getFileName()
+                + "': found version " + version
+                + ". A newer build wrote the startup metadata.");
+      }
       throw new IllegalStateException(
           "Invalid version of the binary format of startup metadata file found "
-              + version + " but expected " + VERSION + " or " + VERSION_WITHOUT_DB_OPEN_VERSION);
+              + version + " but expected " + VERSION + " or " + VERSION_WITH_DB_OPEN_VERSION
+              + " or " + VERSION_WITHOUT_DB_OPEN_VERSION);
     }
-    // Version 3 has a fixed size. Version 4 has a signed version-string length at byte 25.
+    // Version 3 has a fixed size. Versions 4 and 5 have a signed string length at byte 25.
     if (version == VERSION_WITHOUT_DB_OPEN_VERSION) {
       return size == 25 ? buffer : null;
     }
@@ -244,12 +260,13 @@ public class StorageStartupMetadata {
   }
 
   private void readState(ByteBuffer buffer) {
+    persistedVersion = buffer.getInt(8);
     buffer.position(12);
     dirtyFlag = buffer.get() > 0;
     confirmedDirtyFlag = dirtyFlag;
     lastTxId = buffer.getLong();
     openedAtVersion = null;
-    if (buffer.getInt(8) == VERSION) {
+    if (persistedVersion >= VERSION_WITH_DB_OPEN_VERSION) {
       final var length = buffer.getInt(25);
       if (length > 0) {
         final var raw = new byte[length];
@@ -285,6 +302,8 @@ public class StorageStartupMetadata {
   public void open(final String createdAtVersion) throws IOException {
     lock.lock();
     try {
+      // Legacy copies have no format field and must not inherit a previous open's format.
+      persistedVersion = 0;
       final var missing = !Files.exists(filePath);
       channel = FileChannel.open(filePath, StandardOpenOption.SYNC, StandardOpenOption.WRITE,
           StandardOpenOption.READ, StandardOpenOption.CREATE);
@@ -433,9 +452,10 @@ public class StorageStartupMetadata {
     }
   }
 
-  /** True only after a complete dirty main copy has been written. */
+  /** True only after a current-format main completes and a complete dirty copy protects writers. */
   public boolean isDurablyDirty() {
-    return dirtyFlag && confirmedDirtyFlag && (mainKnownGood || backupKnownGoodDirty);
+    return persistedVersion == VERSION
+        && dirtyFlag && confirmedDirtyFlag && (mainKnownGood || backupKnownGoodDirty);
   }
 
   public void clearDirty() throws IOException {
@@ -473,11 +493,11 @@ public class StorageStartupMetadata {
     }
   }
 
-  /** Saves a checkpoint floor only if a complete main copy already on disk does not cover it. */
+  /** Saves the floor unless a complete current-format main already covers it. */
   public void publishLastTxIdFloor(long floor) throws IOException {
     lock.lock();
     try {
-      if (mainKnownGood && confirmedLastTxId >= floor) {
+      if (persistedVersion == VERSION && mainKnownGood && confirmedLastTxId >= floor) {
         return;
       }
       lastTxId = Math.max(lastTxId, Math.max(confirmedLastTxId, floor));
