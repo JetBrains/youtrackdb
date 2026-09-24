@@ -97,8 +97,8 @@ public abstract class SchemaShared implements CloseableInStorage {
   public static final int ABSTRACT_COLLECTION_ID = -1;
 
   /**
-   * The highest (closest to zero) id a provisional collection can carry. A class created inside a
-   * schema transaction does not allocate a real storage collection during the transaction; it
+   * The highest (closest to zero) id a provisional collection can carry. A class created or made
+   * concrete inside a schema transaction does not allocate a real storage collection yet; it
    * carries a provisional id drawn from the sub-range {@code <= -2}, resolved to a real id at commit
    * (mirroring temp RIDs). The sub-range starts at {@code -2} rather than {@code -1} so it cannot
    * collide with {@link #ABSTRACT_COLLECTION_ID}: the schema layer tests {@code collectionId < 0} to
@@ -109,7 +109,7 @@ public abstract class SchemaShared implements CloseableInStorage {
   public static final int PROVISIONAL_COLLECTION_ID_CEILING = -2;
 
   /**
-   * Whether {@code collectionId} is a provisional id allocated for a transaction-local create
+   * Whether {@code collectionId} is a provisional id allocated for a transaction-local class change
    * (drawn from the {@code <= -2} sub-range), as distinct from the abstract-class marker
    * {@link #ABSTRACT_COLLECTION_ID} ({@code -1}) and from a real (non-negative) collection id.
    */
@@ -617,9 +617,9 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   /**
    * The set of provisional collection ids ({@code <= -2}) this (tx-local) schema's classes still
-   * own. Read directly from each class's collection-id array rather than from the
-   * {@code collectionsToClasses} reverse map, because not every provisional-id producer enters the
-   * id into the map (the abstract&rarr;concrete alter re-points the class's arrays in place). The
+   * own. Every provisional-id producer registers its id in the tx-local
+   * {@code collectionsToClasses} reverse map. Read the class arrays here to identify ownership
+   * directly, including classes altered or dropped later in the transaction. The
    * commit-time reconciliation intersects the transaction's allocated provisional ids with this
    * set: an allocated id absent from it belongs to a class that was dropped (or made abstract
    * again) later in the same transaction, and no real collection must be created for it.

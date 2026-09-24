@@ -243,8 +243,8 @@ public final class TxSchemaState {
   }
 
   /**
-   * Allocates the next provisional collection id for a class created inside this transaction,
-   * carrying the counter-only ({@code c_<counter>}) name the commit creates the real collection
+   * Allocates the next provisional collection id for a class created or made concrete in this
+   * transaction, carrying the counter-only ({@code c_<counter>}) name the commit creates the real collection
    * under. The
    * ids run {@code -2, -3, -4, ...} down to {@link Short#MIN_VALUE}: each is unique within the
    * transaction (the counter never repeats) and is disjoint from the abstract-class marker
@@ -256,7 +256,8 @@ public final class TxSchemaState {
    * as a short, and the record id carries the provisional id while the transaction is open.
    * Allocation past that floor throws here, naming the real cause (too many collections created in
    * one transaction); without this check the exhaustion would only surface at record insert as a
-   * misleading record-id serialization error.
+   * misleading record-id serialization error. Each caller registers the allocated id in the
+   * transaction-local schema's reverse map when assigning it to a class.
    *
    * <p>The name must be carried here because the producer computes it from the tx-local collection
    * counter, which has already advanced by commit time, so the commit cannot regenerate it.

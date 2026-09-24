@@ -25,7 +25,8 @@ import javax.annotation.Nullable;
  * {@link GremlinStepWalker#extractShape}. The plan map stores a deep-copied closed plan per
  * entry; {@link #template(String, DatabaseSessionEmbedded)} returns that stored instance without
  * copying so the boundary step can copy on first open. The translation map skips the walker on a
- * hit. Schema changes invalidate both maps through the same {@link MetadataUpdateListener} hook as
+ * hit. An open schema transaction bypasses both shared maps without recording hits or misses.
+ * Schema changes invalidate both maps through the same {@link MetadataUpdateListener} hook as
  * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
  *
  * <p>Hit/miss counters ({@link #getHits()} / {@link #getMisses()}) are lifetime totals on the
@@ -120,11 +121,12 @@ public final class GremlinPlanCache
     if (db == null || shapeKey == null || template == null) {
       return;
     }
-    instance(db).putTranslationInternal(shapeKey, template);
+    instance(db).putTranslationInternal(shapeKey, template, db);
   }
 
   void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (fingerprint == null || !cacheEnabled()) {
+    // A tx-local schema must never publish a plan into the storage-wide cache.
+    if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()) {
       return;
     }
     var internal = (InternalExecutionPlan) plan;
@@ -150,6 +152,9 @@ public final class GremlinPlanCache
   }
 
   @Nullable InternalExecutionPlan templateInternal(String fingerprint, DatabaseSessionEmbedded db) {
+    if (db.getTxSchemaState() != null) {
+      return null;
+    }
     invalidateIfTimeoutChanged(db);
     if (fingerprint == null || !cacheEnabled()) {
       return null;
@@ -175,6 +180,9 @@ public final class GremlinPlanCache
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
       String shapeKey, DatabaseSessionEmbedded db) {
+    if (db.getTxSchemaState() != null) {
+      return null;
+    }
     invalidateIfTimeoutChanged(db);
     if (shapeKey == null || translationCache == null) {
       return null;
@@ -188,8 +196,9 @@ public final class GremlinPlanCache
     return null;
   }
 
-  void putTranslationInternal(String shapeKey, GremlinTranslationTemplate template) {
-    if (shapeKey == null || translationCache == null) {
+  void putTranslationInternal(
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
+    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
       return;
     }
     translationCache.put(shapeKey, template);

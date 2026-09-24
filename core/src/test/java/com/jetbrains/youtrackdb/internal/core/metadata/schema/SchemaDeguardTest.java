@@ -766,6 +766,77 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
+   * An abstract child made concrete in a schema transaction must expose its provisional
+   * collection to every ancestor's polymorphic scan before commit, including the root.
+   */
+  @Test
+  public void concreteChildProvisionalCollectionReachesAllAncestorsInTransaction() {
+    var schema = session.getMetadata().getSchema();
+    var grandparent = schema.createAbstractClass("TxGrandparent");
+    var parent = schema.createAbstractClass("TxParent", grandparent);
+    schema.createAbstractClass("TxChild", parent);
+
+    session.begin();
+    try {
+      var child = schema.getClass("TxChild");
+      child.setAbstract(false);
+      var id = child.getCollectionIds()[0];
+      assertTrue("the child must own a provisional collection",
+          SchemaShared.isProvisionalCollectionId(id));
+      assertTrue("parent must include the provisional child collection",
+          java.util.Arrays.stream(schema.getClass("TxParent").getPolymorphicCollectionIds())
+              .anyMatch(value -> value == id));
+      assertTrue("grandparent must include the provisional child collection",
+          java.util.Arrays.stream(schema.getClass("TxGrandparent").getPolymorphicCollectionIds())
+              .anyMatch(value -> value == id));
+      session.newEntity("TxChild").setProperty("name", "found");
+      try (var result = session.query("SELECT FROM TxGrandparent WHERE name = 'found'")) {
+        assertTrue("a polymorphic ancestor query must find the child row", result.hasNext());
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A provisional id from abstract-to-concrete must resolve in the mutable tx-local reverse map.
+   * Reverting to abstract removes the entry, and a second concrete switch registers a new id.
+   */
+  @Test
+  public void abstractConcreteAbstractCycleUpdatesTxLocalReverseMap() {
+    var schema = session.getMetadata().getSchema();
+    schema.createAbstractClass("ReverseMapAlter");
+
+    session.begin();
+    try {
+      var cls = schema.getClass("ReverseMapAlter");
+      cls.setAbstract(false);
+      var firstId = cls.getCollectionIds()[0];
+      assertTrue("the first id must be provisional",
+          SchemaShared.isProvisionalCollectionId(firstId));
+      var txLocal = session.getTxSchemaState().getTxLocalSchema();
+      assertNotNull("the tx-local reverse map must resolve the altered class",
+          txLocal.getClassByCollectionId(firstId));
+      assertEquals("ReverseMapAlter", txLocal.getClassByCollectionId(firstId).getName());
+
+      cls.setAbstract(true);
+      assertNull("making the class abstract again must remove its old reverse-map entry",
+          txLocal.getClassByCollectionId(firstId));
+
+      cls.setAbstract(false);
+      var secondId = cls.getCollectionIds()[0];
+      assertNotEquals("a second allocation must get a new provisional id", firstId, secondId);
+      assertNotNull("the new provisional id must resolve in the reverse map",
+          txLocal.getClassByCollectionId(secondId));
+      assertEquals("ReverseMapAlter", txLocal.getClassByCollectionId(secondId).getName());
+      assertNull("the old id must remain absent after another concrete switch",
+          txLocal.getClassByCollectionId(firstId));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
    * The commit half of the abstract&rarr;concrete alter provisional-id path: making an abstract
    * class concrete inside a transaction and then COMMITTING must resolve the provisional collection
    * id the alter allocated to a real (non-negative) collection that exists in storage and survives a

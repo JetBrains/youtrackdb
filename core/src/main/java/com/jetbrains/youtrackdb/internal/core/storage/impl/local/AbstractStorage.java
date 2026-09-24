@@ -2992,8 +2992,8 @@ public abstract class AbstractStorage
           // allocates, and serializes against real collections only and no provisional id can
           // reach durable bytes. Runs after the pinned-snapshot rebuild so the record ids and
           // the snapshot agree on the reconciled ids. Guarded on the allocation map (not the
-          // resolution map): only a class create allocates a provisional id, so a schema commit
-          // that created no class skips the O(record-operations) copy-and-scan entirely, while
+          // resolution map): class creation and abstract-to-concrete changes allocate provisional
+          // ids, so a schema commit without either skips the O(record-operations) scan, while
           // a create-then-drop-with-rows transaction (allocated but unresolved) still reaches
           // the rewrite's loud data-loss failure.
           if (!schemaContext.txSchemaState().getProvisionalCollectionNames().isEmpty()) {

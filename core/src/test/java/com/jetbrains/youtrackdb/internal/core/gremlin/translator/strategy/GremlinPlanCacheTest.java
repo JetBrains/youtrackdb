@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -346,6 +348,310 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         .as("a translation-cache hit must not look up the plan cache")
         .isEqualTo(hitsBefore);
     assertThat(cache.getMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /**
+   * A committed control traversal populates both caches. After a schema write in the same graph
+   * session, a previously cached plan must not be served, and a new traversal must not populate
+   * either shared cache or change its counters. Outside the transaction the new shape caches again.
+   */
+  @Test
+  public void schemaTransactionSkipsExistingAndNewPlanAndTranslationEntries() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var oldFp = fingerprint(walk(() -> graph.traversal().V().has("age", 30)));
+    var newFp = fingerprint(walk(() -> graph.traversal().V().has("name", "Alice")
+        .has("age", 30)));
+    var oldShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("age", 30).asAdmin(), session).key();
+    var newShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("name", "Alice").has("age", 30).asAdmin(), session).key();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("age", 30))))
+        .containsExactly("Alice");
+    assertThat(cache.contains(oldFp)).as("the committed traversal must cache its plan").isTrue();
+    assertThat(cache.containsTranslation(oldShape))
+        .as("the committed traversal must cache its translation").isTrue();
+    assertThat(cache.contains(newFp)).isFalse();
+    assertThat(cache.containsTranslation(newShape)).isFalse();
+    var oldTemplate = cache.peekStored(oldFp);
+    var hits = cache.getHits();
+    var misses = cache.getMisses();
+    var translationHits = cache.getTranslationHits();
+    var translationMisses = cache.getTranslationMisses();
+
+    session.getMetadata().getSchema().createClass("TxGremlinOnly");
+    assertThat(session.getTxSchemaState()).isNotNull();
+    var inTx = graph.traversal().V().has("age", 30).asAdmin();
+    GremlinToMatchStrategy.instance().apply(inTx);
+    assertThat(inTx.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+    var txStep = (YTDBMatchPlanStep<?, ?>) inTx.getStartStep();
+    var txPlan = txStep.getPlan();
+    assertThat(txPlan)
+        .as("the tx-local traversal must own a fresh plan, not the shared template")
+        .isNotSameAs(oldTemplate);
+    assertThat(sortedNames(inTx.toList())).containsExactly("Alice");
+    assertThat(txStep.getPlan())
+        .as("a fresh tx plan must be owned by the step, not copied as a shared template on open")
+        .isSameAs(txPlan);
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Alice")
+        .has("age", 30)))).containsExactly("Alice");
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses);
+    assertThat(cache.contains(newFp)).as("the tx-built plan must not leak").isFalse();
+    assertThat(cache.containsTranslation(newShape))
+        .as("the tx-built translation must not leak").isFalse();
+
+    graph.tx().rollback();
+    assertThat(cache.contains(newFp)).isFalse();
+    assertThat(cache.containsTranslation(newShape)).isFalse();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Alice")
+        .has("age", 30)))).containsExactly("Alice");
+    assertThat(cache.contains(newFp)).as("outside the schema tx the plan caches again").isTrue();
+    assertThat(cache.containsTranslation(newShape))
+        .as("outside the schema tx the translation caches again").isTrue();
+  }
+
+  /**
+   * Direct plan lookups must not return a committed template or record a hit during schema DDL.
+   * Direct plan publication must not leave a new entry behind after the transaction rolls back.
+   */
+  @Test
+  public void schemaTransactionSkipsDirectPlanReadsAndWrites() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var fp = fingerprint(walk(() -> graph.traversal().V().has("age", 30)));
+    var newFp = fingerprint(walk(() -> graph.traversal().V().has("name", "Alice")));
+    apply(() -> graph.traversal().V().has("age", 30));
+    var stored = cache.peekStored(fp);
+    assertThat(stored).as("committed control supplies a real plan template").isNotNull();
+    assertThat(newFp).isNotEqualTo(fp);
+    assertThat(cache.contains(newFp)).isFalse();
+    var hits = cache.getHits();
+    var misses = cache.getMisses();
+
+    session.getMetadata().getSchema().createClass("TxDirectPlanOnly");
+    assertThat(session.getTxSchemaState()).isNotNull();
+    assertThat(GremlinPlanCache.template(fp, session)).isNull();
+    var ctx = new BasicCommandContext(session);
+    assertThat(GremlinPlanCache.get(fp, ctx, session)).isNull();
+    GremlinPlanCache.put(newFp, stored, session);
+    assertThat(cache.contains(newFp)).as("direct tx publication must be refused").isFalse();
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    graph.tx().rollback();
+    var resumed = graphSession(); // rollback replaces the graph's active session
+    assertThat(cache.contains(newFp)).isFalse();
+    assertThat(GremlinPlanCache.template(fp, resumed)).isSameAs(stored);
+  }
+
+  /**
+   * Direct translation reads and writes must bypass the shared map during schema DDL, including
+   * decline templates that would otherwise skip the walker altogether.
+   */
+  @Test
+  public void schemaTransactionSkipsDirectTranslationReadsAndWrites() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var shape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("age", 30).asAdmin(), session).key();
+    var newShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("name", "Alice").asAdmin(), session).key();
+    apply(() -> graph.traversal().V().has("age", 30));
+    assertThat(cache.containsTranslation(shape)).isTrue();
+    assertThat(newShape).isNotEqualTo(shape);
+    assertThat(cache.containsTranslation(newShape)).isFalse();
+    var translationHits = cache.getTranslationHits();
+    var translationMisses = cache.getTranslationMisses();
+
+    session.getMetadata().getSchema().createClass("TxDirectTranslationOnly");
+    assertThat(session.getTxSchemaState()).isNotNull();
+    assertThat(GremlinPlanCache.getTranslation(shape, session)).isNull();
+    GremlinPlanCache.putTranslation(newShape, GremlinTranslationTemplate.DECLINE, session);
+    assertThat(cache.containsTranslation(newShape))
+        .as("direct tx publication must not write a decline template")
+        .isFalse();
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses);
+    graph.tx().rollback();
+    var resumed = graphSession(); // rollback replaces the graph's active session
+    assertThat(cache.containsTranslation(newShape)).isFalse();
+    assertThat(GremlinPlanCache.getTranslation(shape, resumed)).isNotNull();
+  }
+
+  /**
+   * Even if the counted lookup refuses a stored template, the uncounted peek after planning must
+   * not replace a tx-built plan with the stale stored instance of the same fingerprint.
+   */
+  @Test
+  public void schemaTransactionBuildPlanDoesNotPeekStoredTemplate() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var translation = walk(() -> graph.traversal().V().has("age", 30));
+    var fp = fingerprint(translation);
+    apply(() -> graph.traversal().V().has("age", 30));
+    var stored = cache.peekStored(fp);
+    assertThat(stored).isNotNull();
+    var hits = cache.getHits();
+    var misses = cache.getMisses();
+
+    session.getMetadata().getSchema().createClass("TxPeekOnly");
+    var txPlan = GremlinToMatchStrategy.buildPlan(session, translation, System.nanoTime());
+    assertThat(txPlan).as("the tx builder must not return the uncounted stored plan")
+        .isNotSameAs(stored);
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    txPlan.close();
+    graph.tx().rollback();
+  }
+
+  /**
+   * A committed union stores each child under its own fingerprint. Compiling a union with a new
+   * child during schema DDL must neither publish that child nor evict or replace the committed
+   * children. The tx-local subclass test below pins that committed children are not served.
+   */
+  @Test
+  public void schemaTransactionSkipsCachedUnionChildPlans() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var translation = walk(() -> graph.traversal().V()
+        .union(__.out("knows"), __.in("knows")));
+    assertThat(translation.isMultiPlan()).isTrue();
+    assertThat(translation.childPlans()).hasSize(2);
+    var childFingerprints = translation.childPlans().stream()
+        .map(child -> GremlinPlanFingerprint.fingerprint(child.inputs(), translation.shaping()))
+        .toList();
+    assertThat(childFingerprints).doesNotHaveDuplicates();
+    for (var fp : childFingerprints) {
+      assertThat(cache.contains(fp)).isFalse();
+    }
+    var committed = graph.traversal().V().union(__.out("knows"), __.in("knows")).asAdmin();
+    GremlinToMatchStrategy.instance().apply(committed);
+    assertThat(committed.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    assertThat(sortedNames(committed.toList())).containsExactly("Alice", "Bob");
+    var misses = cache.getMisses();
+    assertThat(misses).as("the committed union must cache child plans").isGreaterThan(0);
+    var storedChildren = childFingerprints.stream().map(cache::peekStored).toList();
+    for (var stored : storedChildren) {
+      assertThat(stored)
+          .as("the committed union must actually store each child, not merely look it up")
+          .isNotNull();
+    }
+    var hits = cache.getHits();
+    var translationHits = cache.getTranslationHits();
+    var translationMisses = cache.getTranslationMisses();
+
+    graphSession().getMetadata().getSchema().createClass("TxUnionOnly");
+    var newTranslation = walk(() -> graph.traversal().V()
+        .union(__.out("knows"), __.in("knows"), __.out("likes")));
+    var newChild = newTranslation.childPlans().get(2);
+    var newChildFp = GremlinPlanFingerprint.fingerprint(
+        newChild.inputs(), newTranslation.shaping());
+    assertThat(childFingerprints).doesNotContain(newChildFp);
+    assertThat(cache.contains(newChildFp)).isFalse();
+    var inTx = graph.traversal().V().union(__.out("knows"), __.in("knows"),
+        __.out("likes")).asAdmin();
+    GremlinToMatchStrategy.instance().apply(inTx);
+    assertThat(inTx.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    var txChildren = ((MultiPlanMatchStep<?, ?>) inTx.getStartStep()).getPlans();
+    assertThat(txChildren).hasSize(3);
+    assertThat(sortedNames(inTx.toList())).containsExactly("Alice", "Bob");
+    for (var i = 0; i < childFingerprints.size(); i++) {
+      assertThat(cache.peekStored(childFingerprints.get(i)))
+          .as("tx compilation must neither evict nor replace committed child " + i)
+          .isSameAs(storedChildren.get(i));
+    }
+    assertThat(cache.contains(newChildFp))
+        .as("a new tx-only union child must not publish its plan")
+        .isFalse();
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses);
+    graph.tx().rollback();
+  }
+
+  /**
+   * A committed union caches child plans with the current polymorphic scan set. A tx-local Person
+   * subclass adds a provisional collection to that set. Each fresh child must see its new vertex,
+   * while a stored child served through any number of copies would miss it. Both the query result
+   * and the unchanged stored templates pin the schema-transaction cache boundary.
+   */
+  @Test
+  public void schemaTransactionUnionChildrenScanTxLocalSubclassRecords() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var translation = walk(() -> graph.traversal().V()
+        .union(__.has("name", "Alice"), __.has("age", 40)));
+    assertThat(translation.isMultiPlan()).isTrue();
+    var childFingerprints = translation.childPlans().stream()
+        .map(child -> GremlinPlanFingerprint.fingerprint(child.inputs(), translation.shaping()))
+        .toList();
+    assertThat(childFingerprints).hasSize(2).doesNotHaveDuplicates();
+    var committed = graph.traversal().V()
+        .union(__.has("name", "Alice"), __.has("age", 40)).asAdmin();
+    GremlinToMatchStrategy.instance().apply(committed);
+    assertThat(committed.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    assertThat(sortedNames(committed.toList())).containsExactly("Alice", "Bob");
+    var storedChildren = childFingerprints.stream().map(cache::peekStored).toList();
+    assertThat(storedChildren).doesNotContainNull();
+    var hits = cache.getHits();
+    var misses = cache.getMisses();
+
+    var session = graphSession();
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxUnionPerson", schema.getClass("Person"));
+    assertThat(session.getTxSchemaState()).isNotNull();
+    // graph.addVertex would resolve the label through a separate session, which cannot see the
+    // tx-local class. Create the vertex through this session's transaction instead.
+    var txVertex = session.getActiveTransaction().newVertex("TxUnionPerson");
+    txVertex.setProperty("name", "Alice");
+    txVertex.setProperty("age", 40);
+    for (var i = 0; i < childFingerprints.size(); i++) {
+      assertThat(cache.peekStored(childFingerprints.get(i)))
+          .as("the stored child " + i + " must survive the tx setup, or nothing could be served")
+          .isSameAs(storedChildren.get(i));
+    }
+
+    var inTx = graph.traversal().V()
+        .union(__.has("name", "Alice"), __.has("age", 40)).asAdmin();
+    GremlinToMatchStrategy.instance().apply(inTx);
+    assertThat(inTx.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    var rows = inTx.toList();
+    var txRows = rows.stream()
+        .map(Vertex.class::cast)
+        .filter(v -> "Alice".equals(v.value("name")) && Integer.valueOf(40).equals(v.value("age")))
+        .count();
+    assertThat(txRows)
+        .as("each union child must scan the tx-local subclass collection; a miss means a stored"
+            + " pre-transaction child plan was served")
+        .isEqualTo(2);
+    assertThat(sortedNames(rows)).containsExactly("Alice", "Alice", "Alice", "Bob");
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    for (var i = 0; i < childFingerprints.size(); i++) {
+      assertThat(cache.peekStored(childFingerprints.get(i)))
+          .as("tx compilation must neither evict nor replace committed child " + i)
+          .isSameAs(storedChildren.get(i));
+    }
+    graph.tx().rollback();
   }
 
   /**

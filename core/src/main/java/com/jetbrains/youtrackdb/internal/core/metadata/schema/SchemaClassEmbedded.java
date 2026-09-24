@@ -614,6 +614,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           // Carry the generated name with the provisional id: the commit creates the real
           // collection under this name (the tx-local counter has advanced past it by commit time).
           collectionId = txState.allocateProvisionalCollectionId(collectionName);
+          // Match the create path: provisional ids are pending-real entries in the tx-local
+          // reverse map. The switch back to abstract removes this entry through the usual path.
+          ((SchemaEmbedded) owner).addCollectionForClass(database, collectionId, this);
           // Record the altered class so the commit writes its per-class record and reconciles the
           // provisional id to a real collection. The create path records the same way after a
           // tx-local createClass.
@@ -625,6 +628,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         this.defaultCollectionId = collectionId;
         this.collectionIds[0] = this.defaultCollectionId;
         this.polymorphicCollectionIds = Arrays.copyOf(collectionIds, collectionIds.length);
+        // Unlike the descendant update below, this step walks upward through every superclass.
+        // It is needed for polymorphic parent scans and inherited index membership.
+        for (var superClass : superClasses) {
+          ((SchemaClassEmbedded) superClass).addPolymorphicCollectionId(database, collectionId);
+        }
         for (var clazz : getAllSubclasses()) {
           if (clazz instanceof SchemaClassImpl) {
             addPolymorphicCollectionIds(database, clazz, true);
