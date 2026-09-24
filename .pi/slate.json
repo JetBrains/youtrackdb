@@ -20,5 +20,5 @@
       "models": [{ "model": "claude-sonnet-5", "effort": "medium" }]
     }
   },
-  "workerExtensions": ["pi-smart-fetch", "pi-web-search"]
+  "workerExtensions": ["pi-smart-fetch", "pi-web-search", "pi-mcp-adapter"]
 }

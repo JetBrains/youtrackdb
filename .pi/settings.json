@@ -4,6 +4,7 @@
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "packages": [
+    "npm:pi-mcp-adapter@2.37.0",
     "npm:ytdb-slate@0.11.0",
     "npm:pi-smart-fetch@0.3.17",
     "npm:pi-web-search@1.6.0"
