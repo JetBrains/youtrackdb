@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.fs;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
@@ -26,6 +28,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,6 +41,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 public class AsyncFileTest {
 
@@ -882,6 +886,150 @@ public class AsyncFileTest {
     file.close();
 
     verify(channel).force(true);
+  }
+
+  /** An open that cannot read the file size closes its new channel and permits a clean retry. */
+  @Test
+  public void failedOpenClosesChannelAndAllowsRetry() throws Exception {
+    Files.createFile(buildDirectoryPath);
+    final var realChannel = AsynchronousFileChannel.open(buildDirectoryPath,
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor);
+    final var channel = mock(AsynchronousFileChannel.class, delegatesTo(realChannel));
+    final var sizeFailure = new java.io.IOException("injected size failure");
+    org.mockito.Mockito.doThrow(sizeFailure).when(channel).size();
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(buildDirectoryPath,
+          Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor))
+          .thenReturn(channel);
+      final var failure = Assert.assertThrows(StorageException.class, file::open);
+      Assert.assertSame(sizeFailure, failure.getCause());
+      verify(channel).close();
+      Assert.assertFalse("failed open must not retain its channel", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+    file.open();
+    Assert.assertTrue("another open can initialize the file", file.isOpen());
+    file.close();
+  }
+
+  /** A failed cleanup preserves both the original open error and the close error. */
+  @Test
+  public void failedOpenAndClosePreservesOriginalFailureWithSuppressedClose() throws Exception {
+    Files.createFile(buildDirectoryPath);
+    final var realChannel = AsynchronousFileChannel.open(buildDirectoryPath,
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor);
+    final var channel = mock(AsynchronousFileChannel.class, delegatesTo(realChannel));
+    final var sizeFailure = new java.io.IOException("injected size failure");
+    final var closeFailure = new java.io.IOException("injected close failure");
+    final var closeAttempts = new AtomicInteger();
+    org.mockito.Mockito.doThrow(sizeFailure).when(channel).size();
+    doAnswer(invocation -> {
+      if (closeAttempts.incrementAndGet() == 1) {
+        throw closeFailure;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(buildDirectoryPath,
+          Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor))
+          .thenReturn(channel);
+      final var failure = Assert.assertThrows(StorageException.class, file::open);
+      Assert.assertSame("the size error remains primary", sizeFailure, failure.getCause());
+      Assert.assertArrayEquals(new Throwable[] {closeFailure},
+          sizeFailure.getSuppressed());
+      Assert.assertTrue("failed close retains the handle for cleanup", file.isOpen());
+    } finally {
+      file.closeAfterFailedCreate();
+      realChannel.close();
+    }
+    Assert.assertFalse(file.isOpen());
+  }
+
+  /** A failed force reaches the caller and leaves the dirty file pending for another force. */
+  @Test
+  public void failedForceRetainsPendingSynchronizationUntilRetrySucceeds() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+    final var forces = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (forces.incrementAndGet() == 1) {
+        throw new java.io.IOException("injected force failure");
+      }
+      return null;
+    }).when(channel).force(true);
+
+    try {
+      Assert.assertThrows(StorageException.class, file::synch);
+      Assert.assertTrue(file.isOpen());
+      file.synch();
+      Assert.assertEquals("retry must force the same dirty file", 2, forces.get());
+    } finally {
+      file.close();
+    }
+  }
+
+  /** A failed creation force closes a real AsyncFile without forcing again on cleanup. */
+  @Test
+  public void failedCreationForceClosesUnregisteredAsyncFileHandle() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    org.mockito.Mockito.doThrow(new java.io.IOException("injected initial force failure"))
+        .when(channel).force(true);
+    final var createFile = com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache.class
+        .getDeclaredMethod("createFile",
+            com.jetbrains.youtrackdb.internal.core.storage.fs.File.class,
+            boolean.class);
+    createFile.setAccessible(true);
+    try {
+      final var failure = Assert.assertThrows(java.lang.reflect.InvocationTargetException.class,
+          () -> createFile.invoke(null, file, true));
+      Assert.assertTrue(failure.getCause() instanceof StorageException);
+      Assert.assertFalse("unregistered AsyncFile channel must be closed", file.isOpen());
+      verify(channel).close();
+    } finally {
+      if (file.isOpen()) {
+        file.closeAfterFailedCreate();
+      }
+    }
+  }
+
+  /** A failed close reports the force error without losing ownership of the open channel. */
+  @Test
+  public void failedCloseLeavesChannelOpenForSynchronizationRetry() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+    final var forces = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (forces.incrementAndGet() == 1) {
+        throw new java.io.IOException("injected force failure");
+      }
+      return null;
+    }).when(channel).force(true);
+
+    try {
+      Assert.assertThrows(StorageException.class, file::close);
+      Assert.assertTrue("failed close keeps its channel", file.isOpen());
+      file.close();
+      Assert.assertEquals(2, forces.get());
+      verify(channel).close();
+    } finally {
+      if (file.isOpen()) {
+        file.close();
+      }
+    }
   }
 
   /**

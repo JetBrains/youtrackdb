@@ -7224,8 +7224,6 @@ public abstract class AbstractStorage
         return;
       }
 
-      stopStaleTransactionMonitor();
-
       if (status != STATUS.OPEN && !isInError()) {
         throw BaseException.wrapException(
             new StorageException(name, "Storage " + name + " was not opened, so can not be closed"),
@@ -7235,13 +7233,46 @@ public abstract class AbstractStorage
       status = STATUS.CLOSING;
 
       if (!isInError()) {
-        // Cancel in-progress histogram rebalances, flush dirty data, and
-        // block future rebalances — must happen before flushAllData so
-        // that no background thread holds page references.
-        cancelHistogramRebalances();
-        flushAllData();
+        // Block background page readers before the checkpoint, but do not discard the
+        // histogram file or snapshot until the checkpoint has succeeded.
+        final var blocked = new ArrayList<IndexHistogramManager>();
+        try {
+          for (var engine : indexEngines) {
+            if (engine instanceof BTreeIndexEngine btreeEngine) {
+              var mgr = btreeEngine.getHistogramManager();
+              if (mgr != null) {
+                mgr.blockRebalancesForStorageShutdown();
+                blocked.add(mgr);
+                // Keep histogram writes ahead of the checkpoint, as on normal shutdown.
+                try {
+                  mgr.flushIfDirty();
+                } catch (Exception e) {
+                  LogManager.instance().error(this,
+                      "Failed to flush histogram stats for engine %s", e, mgr.getName());
+                }
+              }
+            }
+          }
+          flushAllData();
+        } catch (RuntimeException | Error failure) {
+          // Neither the monitor nor any index resources have been torn down yet.
+          for (var mgr : blocked) {
+            mgr.resumeRebalancesAfterFailedStorageShutdown();
+          }
+          status = STATUS.OPEN;
+          throw failure;
+        }
+        for (var mgr : blocked) {
+          try {
+            mgr.closeStatsFileAfterStorageCheckpoint();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to close histogram stats for engine %s", e, mgr.getName());
+          }
+        }
       }
 
+      stopStaleTransactionMonitor();
       preCloseSteps();
 
       if (!isInError()) {
@@ -7292,12 +7323,22 @@ public abstract class AbstractStorage
 
       writeAheadLog.removeCheckpointListener(this);
 
+      Exception cacheCloseFailure = null;
       try {
         if (readCache != null) {
           readCache.closeStorage(writeCache);
         }
       } catch (Exception e) {
+        cacheCloseFailure = e;
         LogManager.instance().error(this, "Error during closing of disk cache", e);
+        // The checkpoint may have cleared the marker. Restore it before final metadata close.
+        // If this write fails, the marker cannot be guaranteed, but postCloseSteps must not
+        // clear it again. Preserve the cache error and continue closing WAL and metadata.
+        try {
+          makeStorageDirty();
+        } catch (Exception dirtyFailure) {
+          e.addSuppressed(dirtyFailure);
+        }
       }
 
       try {
@@ -7306,10 +7347,23 @@ public abstract class AbstractStorage
         LogManager.instance().error(this, "Error during closing of write ahead log", e);
       }
 
-      postCloseSteps(false, isInError(), idGen.getLastId());
+      if (cacheCloseFailure != null) {
+        try {
+          postCloseSteps(false, true, idGen.getLastId());
+        } catch (Exception metadataFailure) {
+          cacheCloseFailure.addSuppressed(metadataFailure);
+        }
+      } else {
+        postCloseSteps(false, isInError(), idGen.getLastId());
+      }
 
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
+      if (cacheCloseFailure != null) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during closing of disk cache"),
+            cacheCloseFailure, name);
+      }
     });
   }
 

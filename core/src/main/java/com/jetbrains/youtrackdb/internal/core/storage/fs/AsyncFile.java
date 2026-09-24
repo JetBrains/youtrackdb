@@ -169,8 +169,16 @@ public final class AsyncFile implements File {
       throw new StorageException(dbName, "File " + osFile + " is already opened.");
     }
     fileChannel = AsynchronousFileChannel.open(osFile, options, executor);
-
-    initSize();
+    try {
+      initSize();
+    } catch (IOException | RuntimeException | Error failure) {
+      try {
+        doClose();
+      } catch (IOException closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
+    }
   }
 
   @Override
@@ -397,12 +405,9 @@ public final class AsyncFile implements File {
             try {
               fileChannel.force(true);
             } catch (final IOException e) {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Error during flush of file %s. Data may be lost in case of power failure",
-                      e,
-                      getName());
+              // Keep the dirty count so the next synchronization tries this file again.
+              throw BaseException.wrapException(
+                  new StorageException(dbName, "Error synchronizing file " + osFile), e, dbName);
             }
 
             dirtyCounter.addAndGet(-dirtyCounterValue);
@@ -423,6 +428,16 @@ public final class AsyncFile implements File {
     } catch (IOException e) {
       throw BaseException.wrapException(
           new StorageException(dbName, "Error during closing the file " + osFile), e, dbName);
+    } finally {
+      lock.exclusiveUnlock();
+    }
+  }
+
+  /** Releases a newly opened but unregistered file after its initial synchronization fails. */
+  public void closeAfterFailedCreate() throws IOException {
+    lock.exclusiveLock();
+    try {
+      doClose();
     } finally {
       lock.exclusiveUnlock();
     }

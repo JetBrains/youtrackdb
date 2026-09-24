@@ -365,9 +365,9 @@ public class IndexHistogramManager extends StorageComponent {
    *
    * <p><b>Not called during normal storage-level close.</b> The storage
    * close path in {@code AbstractStorage} skips B-tree engine close calls
-   * (the write cache closes all files), but calls
-   * {@link #flushIfDirty()} via {@code flushDirtyHistograms()} to persist
-   * dirty histogram data before shutdown.
+   * (the write cache closes all files). It blocks rebalances, flushes dirty
+   * histogram data before the checkpoint, and calls
+   * {@link #closeStatsFileAfterStorageCheckpoint()} only after success.
    *
    * <p>Waits for any in-progress background rebalance to finish before
    * cleanup, then permanently blocks future rebalances by leaving
@@ -378,6 +378,25 @@ public class IndexHistogramManager extends StorageComponent {
     // Acquire exclusive rebalance guard — wait for any in-progress
     // background rebalance to finish, then block future ones.
     waitForAndBlockRebalance();
+    closeBlockedStatsFile();
+  }
+
+  /** Blocks background rebalances without discarding statistics before a fallible checkpoint. */
+  public void blockRebalancesForStorageShutdown() {
+    waitForAndBlockRebalance();
+  }
+
+  /** Restores normal histogram use when the shutdown checkpoint fails. */
+  public void resumeRebalancesAfterFailedStorageShutdown() {
+    rebalanceInProgress.set(false);
+  }
+
+  /** Closes a statistics file whose rebalance guard was acquired before the checkpoint. */
+  public void closeStatsFileAfterStorageCheckpoint() {
+    closeBlockedStatsFile();
+  }
+
+  private void closeBlockedStatsFile() {
     try {
       if (fileId != -1 && (long) DIRTY_MUTATIONS.getAcquire(this) > 0) {
         flushSnapshotToPage();

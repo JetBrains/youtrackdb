@@ -14,6 +14,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
@@ -21,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,6 +126,190 @@ public class AbstractStorageWALCutTest {
     verify(storage, never()).clearStorageDirty();
     verify(atomicOperationsTable, never()).getSegmentEarliestNotPersistedOperation();
     verify(writeCache, never()).getMinimalNotFlushedSegment();
+  }
+
+  /** A failed data-file force in the full flush cannot delete WAL or clear the dirty marker. */
+  @Test
+  public void fullCheckpointSyncFailurePreventsEveryWalCut() throws Exception {
+    doThrow(new RuntimeException("injected file force failure")).when(writeCache).flush();
+
+    assertThatThrownBy(storage::flushAllData)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("injected file force failure");
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(writeAheadLog, never())
+        .cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+    verify(storage, never()).clearStorageDirty();
+  }
+
+  /** A vacuum force failure ends the attempt before WAL cleanup. */
+  @Test
+  public void vacuumSyncFailurePreventsFurtherCleanup() throws Exception {
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    storage.status = Storage.STATUS.OPEN;
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(writeAheadLog.activeSegment()).thenReturn(4L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    doThrow(new IOException("injected file force failure")).when(writeCache).syncDataFiles(4L);
+
+    storage.runWALVacuum();
+
+    verify(writeCache).syncDataFiles(4L);
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(writeAheadLog, never())
+        .cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+  }
+
+  /** A failed initial shutdown checkpoint leaves OPEN so a later shutdown can retry. */
+  @Test
+  public void shutdownCheckpointFailureReturnsToOpenForRetry() throws Exception {
+    setPrivateField(storage, "shutdownDuration",
+        com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch.NOOP);
+    doAnswer(invocation -> false).when(storage).isInError();
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>());
+    storage.status = Storage.STATUS.OPEN;
+    doThrow(new RuntimeException("injected initial force failure"))
+        .when(storage).flushAllData();
+
+    assertThatThrownBy(storage::doShutdown)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("injected initial force failure");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    // The retry reaches the next checkpoint rather than failing its status guard.
+    assertThatThrownBy(storage::doShutdown)
+        .hasMessageContaining("injected initial force failure");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    verify(storage, times(2)).flushAllData();
+  }
+
+  /** A histogram-bearing storage remains usable after a failed checkpoint and closes on retry. */
+  @Test(timeout = 10_000)
+  public void shutdownCheckpointFailureRestoresHistogramAndCompletesRetry() throws Exception {
+    prepareShutdownTeardown();
+    doAnswer(invocation -> false).when(storage).isInError();
+    final var monitor = mock(StaleTransactionMonitor.class);
+    setPrivateField(storage, "staleTransactionMonitor", monitor);
+    final var histogramCache = new ConcurrentHashMap<Integer,
+        com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot>();
+    final var manager = new IndexHistogramManager(storage, "test-index", 1, true,
+        histogramCache, IntegerSerializer.INSTANCE,
+        BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION),
+        IntegerSerializer.ID);
+    final var fileId = IndexHistogramManager.class.getDeclaredField("fileId");
+    fileId.setAccessible(true);
+    fileId.setLong(manager, 42L);
+    final var rebalanceGuard = IndexHistogramManager.class.getDeclaredField("rebalanceInProgress");
+    rebalanceGuard.setAccessible(true);
+    final var guard = (AtomicBoolean) rebalanceGuard.get(manager);
+    final var engine = mock(BTreeSingleValueIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(manager);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
+    doThrow(new RuntimeException("injected initial force failure"))
+        .doNothing().when(storage).flushAllData();
+
+    assertThatThrownBy(storage::doShutdown)
+        .hasMessageContaining("injected initial force failure");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    assertThat(guard.get()).isFalse();
+    assertThat(fileId.getLong(manager)).isEqualTo(42L);
+    verify(monitor, never()).stop();
+    storage.doShutdown();
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+    assertThat(guard.get()).isTrue();
+    assertThat(fileId.getLong(manager)).isEqualTo(-1L);
+    verify(monitor).stop();
+    verify(storage, times(2)).flushAllData();
+  }
+
+  /** A histogram-statistics flush error is logged without skipping the checkpoint or shutdown. */
+  @Test
+  public void shutdownContinuesAfterHistogramStatisticsFlushFailure() throws Exception {
+    prepareShutdownTeardown();
+    doAnswer(invocation -> false).when(storage).isInError();
+    final var manager = mock(IndexHistogramManager.class);
+    when(manager.getName()).thenReturn("failing-stats");
+    doThrow(new RuntimeException("injected statistics flush failure"))
+        .when(manager).flushIfDirty();
+    final var engine = mock(BTreeSingleValueIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(manager);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
+
+    storage.doShutdown();
+
+    verify(manager).blockRebalancesForStorageShutdown();
+    verify(manager).flushIfDirty();
+    verify(storage).flushAllData();
+    verify(manager).closeStatsFileAfterStorageCheckpoint();
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+  }
+
+  /** A histogram file close error does not undo a successful checkpoint or halt shutdown. */
+  @Test
+  public void shutdownContinuesAfterHistogramStatisticsCloseFailure() throws Exception {
+    prepareShutdownTeardown();
+    doAnswer(invocation -> false).when(storage).isInError();
+    final var manager = mock(IndexHistogramManager.class);
+    when(manager.getName()).thenReturn("failing-stats");
+    doThrow(new RuntimeException("injected statistics close failure"))
+        .when(manager).closeStatsFileAfterStorageCheckpoint();
+    final var engine = mock(BTreeSingleValueIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(manager);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
+
+    storage.doShutdown();
+
+    verify(manager).flushIfDirty();
+    verify(storage).flushAllData();
+    verify(manager).closeStatsFileAfterStorageCheckpoint();
+    verify(writeAheadLog).close();
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+  }
+
+  /** A failed final file force preserves dirty metadata and reports after teardown. */
+  @Test
+  public void shutdownFinalCacheForceFailureMarksDirtyAndReports() throws Exception {
+    prepareShutdownTeardown();
+    // The last pre-close branch skips configuration teardown in this minimal mock fixture.
+    doAnswer(invocation -> true).when(storage).isInError();
+    storage.status = Storage.STATUS.OPEN;
+    storage.readCache = mock(com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class);
+    doThrow(new IOException("injected final force failure"))
+        .when(storage.readCache).closeStorage(writeCache);
+    assertThatThrownBy(storage::doShutdown)
+        .hasMessageContaining("Error during closing of disk cache");
+    verify(storage).makeStorageDirty();
+    verify(storage).postCloseSteps(false, true, 0L);
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+  }
+
+  /** A failed dirty-marker write cannot mask the cache error or skip remaining teardown. */
+  @Test
+  public void shutdownDirtyMarkerFailurePreservesOriginalCacheError() throws Exception {
+    prepareShutdownTeardown();
+    // Even without another storage error, metadata teardown must see the failed cache close.
+    doAnswer(invocation -> false).when(storage).isInError();
+    storage.status = Storage.STATUS.OPEN;
+    storage.readCache = mock(com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class);
+    final var cacheFailure = new IOException("injected final force failure");
+    final var dirtyFailure = new IOException("injected metadata write failure");
+    final var metadataCloseFailure = new IOException("injected metadata close failure");
+    doThrow(cacheFailure).when(storage.readCache).closeStorage(writeCache);
+    doThrow(dirtyFailure).when(storage).makeStorageDirty();
+    doThrow(metadataCloseFailure).when(storage).postCloseSteps(false, true, 0L);
+
+    assertThatThrownBy(storage::doShutdown)
+        .hasMessageContaining("Error during closing of disk cache")
+        .satisfies(failure -> {
+          assertThat(failure.getCause()).isSameAs(cacheFailure);
+          assertThat(cacheFailure.getSuppressed())
+              .containsExactly(dirtyFailure, metadataCloseFailure);
+        });
+    verify(writeAheadLog).close();
+    verify(storage).postCloseSteps(false, true, 0L);
+    verify(storage, never()).postCloseSteps(false, false, 0L);
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
   }
 
   /** A full checkpoint rejects in-progress operations before making any deletion decision. */
@@ -246,6 +435,23 @@ public class AbstractStorageWALCutTest {
     verify(writeAheadLog).cutAllSegmentsSmallerThan(6);
     verify(writeAheadLog, never()).cutTill(any());
     verify(storage, never()).clearStorageDirty();
+  }
+
+  /** Installs the fields needed to run shutdown through metadata teardown in this mock fixture. */
+  private void prepareShutdownTeardown() throws Exception {
+    setPrivateField(storage, "shutdownDuration",
+        com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch.NOOP);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>());
+    for (final var field : new String[] {"linkCollectionsBTreeManager", "collections",
+        "collectionMap", "indexEngineNameMap", "sharedSnapshotIndex", "visibilityIndex",
+        "snapshotIndexSize", "sharedEdgeSnapshotIndex", "edgeVisibilityIndex",
+        "edgeSnapshotIndexSize", "sharedIndexesSnapshot", "indexesSnapshotVisibilityIndex",
+        "sharedNullIndexesSnapshot", "nullIndexSnapshotVisibilityIndex",
+        "indexesSnapshotEntriesCount", "idGen", "atomicOperationsManager"}) {
+      final var declared = AbstractStorage.class.getDeclaredField(field);
+      setPrivateField(storage, field, mock(declared.getType()));
+    }
+    storage.status = Storage.STATUS.OPEN;
   }
 
   /** Sets a constructor-initialized field on a Mockito real-method mock. */

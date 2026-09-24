@@ -2,6 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
@@ -13,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
@@ -39,6 +46,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.mockito.AdditionalAnswers;
 
 /**
  * Regression test for the chunk-boundary case of write ahead log protection (YTDB-475, review
@@ -298,6 +306,41 @@ public class WOWCacheChunkBoundaryProtectionTest {
       flushExecutor.shutdownNow();
       assertThat(flushExecutor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
     }
+  }
+
+  /** A force failure releases temporary page copies but keeps the page and DWL for retry. */
+  @Test
+  public void failedBatchSynchronizationReleasesTemporaryPageBuffer() throws Exception {
+    final var fileId = wowCache.addFile(FILE_NAME);
+    final var trackedPool = mock(ByteBufferPool.class, AdditionalAnswers.delegatesTo(bufferPool));
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    poolField.set(wowCache, trackedPool);
+    dirtyPage(fileId, 0, FIRST_PAGE_LSN);
+
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    when(doubleWriteLog.write(any(), any(), any())).thenReturn(true);
+    final var logField = WOWCache.class.getDeclaredField("doubleWriteLog");
+    logField.setAccessible(true);
+    logField.set(wowCache, doubleWriteLog);
+    final var fsyncField = WOWCache.class.getDeclaredField("callFsync");
+    fsyncField.setAccessible(true);
+    fsyncField.setBoolean(wowCache, true);
+
+    final var realFile = files.remove(fileId);
+    final var failingFile = mock(File.class, AdditionalAnswers.delegatesTo(realFile));
+    doThrow(new StorageException(STORAGE_NAME, "injected batch force failure"))
+        .when(failingFile).synch();
+    files.add(fileId, failingFile);
+
+    final var ids = new IntOpenHashSet();
+    ids.add(WOWCache.extractFileId(fileId));
+    assertThatThrownBy(() -> wowCache.executeFileFlush(ids))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("injected batch force failure");
+    verify(trackedPool).release(any());
+    verify(doubleWriteLog, never()).truncate();
+    assertThat(wowCache.getMinimalNotFlushedSegment()).isEqualTo(FIRST_PAGE_LSN.getSegment());
   }
 
   /** A later explicit flush satisfies and releases a requirement retained after failure. */

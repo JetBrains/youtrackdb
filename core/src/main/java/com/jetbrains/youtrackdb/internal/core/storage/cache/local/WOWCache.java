@@ -2432,8 +2432,6 @@ public final class WOWCache extends AbstractWriteCache
         return new long[0];
       }
 
-      closed = true;
-
       final var fileIds = nameIdMap.values();
 
       final var closedIds = new LongArrayList(1_000);
@@ -2442,10 +2440,14 @@ public final class WOWCache extends AbstractWriteCache
       for (final var intId : fileIds) {
         if (intId >= 0) {
           final var extId = composeFileId(id, intId);
-          final var fileClassic = files.remove(extId);
+          final var fileClassic = files.get(extId);
 
           idFileNameMap.put(intId.intValue(), fileClassic.getName());
-          fileClassic.close();
+          // Transition the container entry as well as its channel. Closed entries remain
+          // registered until the registry and DWL close, so any failure can be retried.
+          if (!files.close(extId)) {
+            throw new StorageException(storageName, "File is still in use: " + extId);
+          }
           closedIds.add(extId);
         }
       }
@@ -2491,6 +2493,10 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.close();
 
+      for (final var closedId : closedIds) {
+        files.remove(closedId);
+      }
+
       // Non-durable side files are intentionally preserved on clean shutdown so that
       // crash recovery can identify and delete non-durable files if the next startup
       // follows a crash. On clean open, initNameIdMapping() reads the side files to
@@ -2509,6 +2515,7 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.clear();
       idNameMap.clear();
       nonDurableFileIds = new IntOpenHashSet();
+      closed = true;
 
       return closedIds.toLongArray();
     } finally {
@@ -2817,17 +2824,33 @@ public final class WOWCache extends AbstractWriteCache
 
   private static void createFile(final File fileClassic, final boolean callFsync)
       throws IOException {
-    if (!fileClassic.exists()) {
-      fileClassic.create();
-    } else {
-      if (!fileClassic.isOpen()) {
-        fileClassic.open();
+    try {
+      if (!fileClassic.exists()) {
+        fileClassic.create();
+      } else {
+        if (!fileClassic.isOpen()) {
+          fileClassic.open();
+        }
+        fileClassic.shrink(0);
       }
-      fileClassic.shrink(0);
-    }
 
-    if (callFsync) {
-      fileClassic.synch();
+      if (callFsync) {
+        fileClassic.synch();
+      }
+    } catch (IOException | RuntimeException | Error failure) {
+      // The caller registers the file only after this method returns. Do not orphan its handle.
+      try {
+        if (fileClassic.isOpen()) {
+          if (fileClassic instanceof AsyncFile asyncFile) {
+            asyncFile.closeAfterFailedCreate();
+          } else {
+            fileClassic.close();
+          }
+        }
+      } catch (IOException | RuntimeException | Error closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
     }
   }
 
@@ -4642,6 +4665,10 @@ public final class WOWCache extends AbstractWriteCache
               chunkFileIds);
       fsyncFiles = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
       writePageChunksToFiles(buffersByFileId);
+      if (fsyncFiles) {
+        // The copies remain owned here until synchronization has completed or failed.
+        fsyncFiles();
+      }
     } catch (final Exception | Error e) {
       // Release per-page copy buffers on error to prevent direct memory leak.
       // Each WritePageContainer holds a pageCopyDirectMemoryPointer allocated by
@@ -4661,10 +4688,6 @@ public final class WOWCache extends AbstractWriteCache
           DirectMemoryAllocator.instance().deallocate(containerPointer);
         }
       }
-    }
-
-    if (fsyncFiles) {
-      fsyncFiles();
     }
 
     removeWrittenPagesFromCache(chunks);
