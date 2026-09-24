@@ -52,6 +52,31 @@ public class SchemaClassImplTest extends BaseMemoryInternalDatabase {
     assertEquals(oClass.getCollectionIds()[0], session.getCollectionIdByName(collectionName));
   }
 
+  /**
+   * Making an abstract child concrete outside a transaction must add its real collection to
+   * every ancestor's polymorphic scan, so a parent query sees a newly inserted child row.
+   */
+  @Test
+  public void concreteChildCollectionReachesAllAncestorsOutsideTransaction() {
+    var schema = session.getMetadata().getSchema();
+    var grandparent = schema.createAbstractClass("EagerGrandparent");
+    var parent = schema.createAbstractClass("EagerParent", grandparent);
+    var child = schema.createAbstractClass("EagerChild", parent);
+
+    child.setAbstract(false);
+    var id = child.getCollectionIds()[0];
+    assertTrue("parent must include the new child collection",
+        java.util.Arrays.stream(parent.getPolymorphicCollectionIds())
+            .anyMatch(value -> value == id));
+    assertTrue("grandparent must include the new child collection",
+        java.util.Arrays.stream(grandparent.getPolymorphicCollectionIds())
+            .anyMatch(value -> value == id));
+    session.executeInTx(tx -> session.newEntity("EagerChild").setProperty("name", "found"));
+    try (var result = session.query("SELECT FROM EagerGrandparent WHERE name = 'found'")) {
+      assertTrue("a polymorphic ancestor query must find the child row", result.hasNext());
+    }
+  }
+
   @Test
   public void testCreateNoLinkedClass() {
     final Schema oSchema = session.getMetadata().getSchema();

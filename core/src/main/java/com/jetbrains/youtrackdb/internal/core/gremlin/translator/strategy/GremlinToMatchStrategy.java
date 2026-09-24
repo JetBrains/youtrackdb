@@ -560,7 +560,9 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       InternalExecutionPlan plan) {
-    if (!translation.cacheEligible() || !plan.canBeCached()) {
+    // A fresh tx-local plan belongs to the boundary, even if the shared cache has the same key.
+    if (session.getTxSchemaState() != null || !translation.cacheEligible()
+        || !plan.canBeCached()) {
       return false;
     }
     var inputs = translation.inputs();
@@ -590,7 +592,9 @@ public final class GremlinToMatchStrategy
       long planningStart) {
     assert !translation.isMultiPlan()
         : "single-plan buildPlan helper cannot build a multi-plan translation";
-    if (!translation.cacheEligible()) {
+    // The direct stored-plan read below has no session parameter. Skip this entire cache path
+    // for tx-local schema views so an existing template cannot replace the fresh plan.
+    if (session.getTxSchemaState() != null || !translation.cacheEligible()) {
       return buildPlanUncached(
           session, requireInputs(translation), translation.inputParameters());
     }
@@ -649,8 +653,8 @@ public final class GremlinToMatchStrategy
                 child.cacheEligible(),
                 translation.shaping());
         var childPlan = planBuilder.buildPlan(session, childTranslation, planningStart);
-        // buildPlan returns the shared closed template for cache-eligible children. Copy now so
-        // MultiPlanMatchStep owns (and later closes) a unique plan rather than the cache entry.
+        // Outside schema transactions buildPlan can return a shared closed template. Copying also
+        // isolates freshly built tx-local children for MultiPlanMatchStep to own and close.
         if (child.cacheEligible() && childPlan.canBeCached()) {
           var isolatedCtx = new BasicCommandContext();
           isolatedCtx.setParentWithoutOverridingChild(childPlan.getContext());
