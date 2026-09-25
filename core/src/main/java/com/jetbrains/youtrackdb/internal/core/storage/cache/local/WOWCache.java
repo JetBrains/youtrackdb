@@ -92,7 +92,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -4819,66 +4818,105 @@ public final class WOWCache extends AbstractWriteCache
     final List<ClosableEntry<Long, File>> acquiredFiles = new ArrayList<>(buffersByFileId.size());
     final List<IOResult> ioResults = new ArrayList<>(buffersByFileId.size());
 
-    Long2ObjectOpenHashMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry;
-    Iterator<Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>>> filesIterator;
-
-    filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
-    entry = null;
-    // acquire as much files as possible and flush data
-    while (true) {
-      if (entry == null) {
-        if (filesIterator.hasNext()) {
-          entry = filesIterator.next();
-        } else {
-          break;
-        }
-      }
-
-      final var fileEntry = files.tryAcquire(entry.getLongKey());
-      if (fileEntry != null) {
-        final var file = fileEntry.get();
-
-        var bufferList = entry.getValue();
-
-        ioResults.add(file.write(bufferList));
-        acquiredFiles.add(fileEntry);
-
-        entry = null;
-      } else {
-        if (ioResults.size() != acquiredFiles.size()) {
-          throw new IllegalStateException("Not all data are written to the files.");
+    Throwable failure = null;
+    try {
+      final var filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
+      Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry = null;
+      // Acquire as many files as possible before waiting, without changing write order.
+      while (true) {
+        if (entry == null) {
+          if (filesIterator.hasNext()) {
+            entry = filesIterator.next();
+          } else {
+            break;
+          }
         }
 
-        if (!ioResults.isEmpty()) {
-          for (final var ioResult : ioResults) {
-            ioResult.await();
+        final var fileEntry = files.tryAcquire(entry.getLongKey());
+        if (fileEntry != null) {
+          // Retain the file even if starting its write throws synchronously.
+          acquiredFiles.add(fileEntry);
+          ioResults.add(fileEntry.get().write(entry.getValue()));
+          entry = null;
+        } else if (!ioResults.isEmpty()) {
+          final var batchFailure = drainPageWrites(ioResults, acquiredFiles);
+          if (batchFailure != null) {
+            failure = batchFailure;
+            break;
           }
-
-          for (final var closableEntry : acquiredFiles) {
-            files.release(closableEntry);
-          }
-
-          ioResults.clear();
-          acquiredFiles.clear();
         } else {
           Thread.yield();
         }
       }
+    } catch (Throwable t) {
+      failure = t;
+    } finally {
+      final var drainFailure = drainPageWrites(ioResults, acquiredFiles);
+      if (failure == null) {
+        failure = drainFailure;
+      } else if (drainFailure != null && drainFailure != failure) {
+        failure.addSuppressed(drainFailure);
+      }
     }
 
-    if (ioResults.size() != acquiredFiles.size()) {
-      throw new IllegalStateException("Not all data are written to the files.");
+    if (failure instanceof java.lang.InterruptedException e) {
+      throw e;
     }
+    if (failure instanceof IOException e) {
+      throw e;
+    }
+    if (failure instanceof Error e) {
+      throw e;
+    }
+    if (failure instanceof RuntimeException e) {
+      throw e;
+    }
+    if (failure != null) {
+      throw new IOException(failure);
+    }
+  }
 
-    if (!ioResults.isEmpty()) {
+  /** Wait for all submitted writes before releasing file handles and their page buffers. */
+  private Throwable drainPageWrites(
+      List<IOResult> ioResults, List<ClosableEntry<Long, File>> acquiredFiles) {
+    boolean interrupted = Thread.interrupted();
+    // Clearing the flag makes later waits possible, but must not turn an already
+    // interrupted flush into an apparent success.
+    Throwable failure = interrupted
+        ? new ThreadInterruptedException("File write was interrupted") : null;
+    try {
       for (final var ioResult : ioResults) {
-        ioResult.await();
+        try {
+          ioResult.await();
+        } catch (Throwable t) {
+          if (failure == null) {
+            failure = t;
+          } else if (failure != t) {
+            failure.addSuppressed(t);
+          }
+          // A prior interrupt must not skip later waits, even for interruptible IOResult types.
+          interrupted |= Thread.interrupted();
+        }
       }
-
-      for (final var closableEntry : acquiredFiles) {
-        files.release(closableEntry);
+      for (final var fileEntry : acquiredFiles) {
+        try {
+          files.release(fileEntry);
+        } catch (Throwable t) {
+          if (failure == null) {
+            failure = t;
+          } else if (failure != t) {
+            failure.addSuppressed(t);
+          }
+        }
+      }
+    } finally {
+      ioResults.clear();
+      acquiredFiles.clear();
+      if (interrupted) {
+        Thread.currentThread().interrupt();
       }
     }
+    return failure;
   }
 
   private void flushExclusiveWriteCache(final CountDownLatch latch, long pagesToFlushLimit)
