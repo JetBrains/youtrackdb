@@ -74,7 +74,6 @@ public class WOWCacheFlushErrorTest {
     setField(cache, "dirtyPages", new ConcurrentHashMap<PageKey, LogSequenceNumber>());
     setField(cache, "localDirtyPages", new HashMap<PageKey, LogSequenceNumber>());
     setField(cache, "localDirtyPagesBySegment", new TreeMap<Long, TreeSet<PageKey>>());
-    setField(cache, "localDirtyPageCountsByLsn", new TreeMap<LogSequenceNumber, Integer>());
 
     final var pointer = mock(CachePointer.class);
     Mockito.when(pointer.getFileId()).thenReturn(7L);

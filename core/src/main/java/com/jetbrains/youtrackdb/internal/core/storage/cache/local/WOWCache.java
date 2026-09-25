@@ -368,9 +368,6 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final TreeMap<Long, TreeSet<PageKey>> localDirtyPagesBySegment = new TreeMap<>();
 
-  /** Number of locally tracked dirty pages for each exact WAL position. */
-  private final TreeMap<LogSequenceNumber, Integer> localDirtyPageCountsByLsn = new TreeMap<>();
-
   /**
    * Tracks copied and failed pages until a write of the same or newer contents succeeds.
    * Only the {@link #commitExecutor} thread accesses this state.
@@ -4173,8 +4170,7 @@ public final class WOWCache extends AbstractWriteCache
 
   @Nullable public Long executeFindDirtySegment() {
     // A latched write failure stops further writes, but it must not hide recovery protection.
-    final var earliestNotWritten = earliestNotWrittenLsn();
-    return earliestNotWritten == null ? null : earliestNotWritten.getSegment();
+    return earliestNotWrittenSegment();
   }
 
   private void convertSharedDirtyPagesToLocal() {
@@ -4202,7 +4198,6 @@ public final class WOWCache extends AbstractWriteCache
     localDirtyPages.put(pageKey, lsn);
     localDirtyPagesBySegment.computeIfAbsent(lsn.getSegment(), ignored -> new TreeSet<>())
         .add(pageKey);
-    localDirtyPageCountsByLsn.merge(lsn, 1, Integer::sum);
   }
 
   private void removeLocalDirtyPage(
@@ -4216,14 +4211,6 @@ public final class WOWCache extends AbstractWriteCache
       localDirtyPagesBySegment.remove(lsn.getSegment());
     }
     assert removed;
-
-    final var count = localDirtyPageCountsByLsn.get(lsn);
-    assert count != null && count > 0;
-    if (count == 1) {
-      localDirtyPageCountsByLsn.remove(lsn);
-    } else {
-      localDirtyPageCountsByLsn.put(lsn, count - 1);
-    }
   }
 
   /**
@@ -4231,7 +4218,7 @@ public final class WOWCache extends AbstractWriteCache
    * remembers the page until the write result is known.
    *
    * <p>Call this instead of {@link #removeFromDirtyPages(PageKey)} from every copy phase of a
-   * write round. The remembered LSN keeps {@link #earliestNotWrittenLsn()} honest when the
+   * write round. The remembered LSN keeps {@link #earliestNotWrittenSegment()} honest when the
    * write fails afterwards.
    */
   @Nullable private PageWriteTracker.PageWriteAttempt removeFromDirtyPagesForWrite(
@@ -4269,19 +4256,25 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * Returns the earliest WAL segment that still holds page changes which did not reach the
-   * data files, or {@link Long#MAX_VALUE} when every known page change was written.
+   * data files, or {@code null} when every known page change was written.
    *
    * <p>The result covers dirty pages waiting for a write and pages whose write failed. It must
    * be called from the {@link #commitExecutor} thread, because it reads the executor-confined
    * dirty page tables.
    */
-  @Nullable private LogSequenceNumber earliestNotWrittenLsn() {
+  @Nullable private Long earliestNotWrittenSegment() {
     convertSharedDirtyPagesToLocal();
 
     final var trackedLsn = pageWriteTracker.earliestNotWrittenLsn();
-    final var dirtyLsn =
-        localDirtyPageCountsByLsn.isEmpty() ? null : localDirtyPageCountsByLsn.firstKey();
-    return LogSequenceNumberUtils.earliest(trackedLsn, dirtyLsn);
+    final var dirtySegment =
+        localDirtyPagesBySegment.isEmpty() ? null : localDirtyPagesBySegment.firstKey();
+    if (trackedLsn == null) {
+      return dirtySegment;
+    }
+
+    // WAL positions compare by segment first. Only the segment is needed to protect a cut.
+    final var trackedSegment = trackedLsn.getSegment();
+    return dirtySegment == null ? trackedSegment : Math.min(trackedSegment, dirtySegment);
   }
 
   private void removeFromDirtyPages(final PageKey pageKey) {

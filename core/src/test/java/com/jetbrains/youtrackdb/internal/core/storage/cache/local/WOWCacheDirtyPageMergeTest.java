@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -53,6 +55,72 @@ public class WOWCacheDirtyPageMergeTest {
     assertMergedRequirement(local, shared, local, true);
   }
 
+  /** An earlier position in the same segment replaces the local page LSN. */
+  @Test
+  public void earlierSharedPositionInSameSegmentReplacesLocalRequirement() throws Exception {
+    final var local = new LogSequenceNumber(3, 40);
+    final var shared = new LogSequenceNumber(3, 30);
+
+    assertMergedRequirement(local, shared, shared, false);
+  }
+
+  /** No dirty pages and no outstanding writes leave the boundary unset. */
+  @Test
+  public void emptyCacheHasNoDirtySegment() throws Exception {
+    assertDirtySegment(null, null, null);
+  }
+
+  /** A shared dirty page alone protects its WAL segment after merging. */
+  @Test
+  public void onlyLocalDirtyPageProtectsItsSegment() throws Exception {
+    assertDirtySegment(new LogSequenceNumber(4, 40), null, 4L);
+  }
+
+  /** A copied page alone protects its WAL segment until its write succeeds. */
+  @Test
+  public void onlyTrackedWriteProtectsItsSegment() throws Exception {
+    assertDirtySegment(null, new LogSequenceNumber(5, 50), 5L);
+  }
+
+  /** An earlier copied page bounds a later local dirty page. */
+  @Test
+  public void trackerEarlierThanLocalDeterminesBoundary() throws Exception {
+    assertDirtySegment(new LogSequenceNumber(4, 40), new LogSequenceNumber(3, 90), 3L);
+  }
+
+  /** An earlier local dirty page bounds a later copied page. */
+  @Test
+  public void localEarlierThanTrackerDeterminesBoundary() throws Exception {
+    assertDirtySegment(new LogSequenceNumber(3, 90), new LogSequenceNumber(4, 10), 3L);
+  }
+
+  /** Different WAL positions in one segment still protect that same segment. */
+  @Test
+  public void equalSegmentsWithDifferentPositionsProtectSameBoundary() throws Exception {
+    assertDirtySegment(new LogSequenceNumber(3, 90), new LogSequenceNumber(3, 10), 3L);
+  }
+
+  private static void assertDirtySegment(
+      final LogSequenceNumber dirty,
+      final LogSequenceNumber tracked,
+      final Long expectedSegment) throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var dirtyPages = new ConcurrentHashMap<PageKey, LogSequenceNumber>();
+    if (dirty != null) {
+      dirtyPages.put(new PageKey(7, 1), dirty);
+    }
+    setField(cache, "dirtyPages", dirtyPages);
+    setField(cache, "localDirtyPages", new HashMap<PageKey, LogSequenceNumber>());
+    setField(cache, "localDirtyPagesBySegment", new TreeMap<Long, TreeSet<PageKey>>());
+    final var tracker = new PageWriteTracker();
+    setField(cache, "pageWriteTracker", tracker);
+    if (tracked != null) {
+      tracker.pageCopyStarted(mock(CachePointer.class), tracked);
+    }
+
+    assertEquals(expectedSegment, cache.executeFindDirtySegment());
+  }
+
   private static void assertMergedRequirement(
       final LogSequenceNumber local,
       final LogSequenceNumber shared,
@@ -63,19 +131,17 @@ public class WOWCacheDirtyPageMergeTest {
     final var dirtyPages = new ConcurrentHashMap<PageKey, LogSequenceNumber>();
     final var localDirtyPages = new HashMap<PageKey, LogSequenceNumber>();
     final var localDirtyPagesBySegment = new TreeMap<Long, TreeSet<PageKey>>();
-    final var localDirtyPageCountsByLsn = new TreeMap<LogSequenceNumber, Integer>();
 
     dirtyPages.put(pageKey, shared);
     if (local != null) {
       localDirtyPages.put(pageKey, local);
       localDirtyPagesBySegment.put(local.getSegment(), new TreeSet<>(java.util.Set.of(pageKey)));
-      localDirtyPageCountsByLsn.put(local, 1);
     }
 
     setField(cache, "dirtyPages", dirtyPages);
     setField(cache, "localDirtyPages", localDirtyPages);
     setField(cache, "localDirtyPagesBySegment", localDirtyPagesBySegment);
-    setField(cache, "localDirtyPageCountsByLsn", localDirtyPageCountsByLsn);
+    setField(cache, "pageWriteTracker", new PageWriteTracker());
 
     final Method convert = WOWCache.class.getDeclaredMethod("convertSharedDirtyPagesToLocal");
     convert.setAccessible(true);
@@ -90,9 +156,7 @@ public class WOWCacheDirtyPageMergeTest {
     assertSame(expected, localDirtyPages.get(pageKey));
     assertEquals(java.util.Set.of(expected.getSegment()), localDirtyPagesBySegment.keySet());
     assertEquals(java.util.Set.of(pageKey), localDirtyPagesBySegment.get(expected.getSegment()));
-    assertEquals(1, localDirtyPageCountsByLsn.size());
-    assertSame(expected, localDirtyPageCountsByLsn.firstKey());
-    assertEquals(Integer.valueOf(1), localDirtyPageCountsByLsn.get(expected));
+    assertEquals(Long.valueOf(expected.getSegment()), cache.executeFindDirtySegment());
   }
 
   private static void setField(final WOWCache cache, final String name, final Object value)
