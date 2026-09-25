@@ -57,7 +57,8 @@ public class StorageStartupMetadata {
   }
 
   private static final int VERSION_WITHOUT_DB_OPEN_VERSION = 3;
-  private static final int VERSION = 4;
+  private static final int VERSION_WITH_DB_OPEN_VERSION = 4;
+  private static final int VERSION = 5;
 
   private final Path filePath;
   private final Path backupPath;
@@ -227,12 +228,24 @@ public class StorageStartupMetadata {
 
           buffer.position(8);
           final var version = buffer.getInt();
-          if (version != VERSION && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
+          if (version != VERSION
+              && version != VERSION_WITH_DB_OPEN_VERSION
+              && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
+            if (version > VERSION) {
+              throw new IllegalStateException(
+                  "Startup metadata version mismatch for database '"
+                      + filePath.getParent().getFileName()
+                      + "': found version "
+                      + version
+                      + ". A newer build wrote the startup metadata.");
+            }
             throw new IllegalStateException(
                 "Invalid version of the binary format of startup metadata file found "
                     + version
                     + " but expected "
                     + VERSION
+                    + " or "
+                    + VERSION_WITH_DB_OPEN_VERSION
                     + " or "
                     + VERSION_WITHOUT_DB_OPEN_VERSION);
           }
@@ -243,7 +256,8 @@ public class StorageStartupMetadata {
           final var metadataLen = buffer.getInt();
           assert metadataLen < 0;
 
-          if (version == VERSION) {
+          // Versions 4 and 5 both store the version string after the transaction metadata.
+          if (version >= VERSION_WITH_DB_OPEN_VERSION) {
             final var openedAtVersionLen = buffer.getInt();
 
             if (openedAtVersionLen > 0) {
