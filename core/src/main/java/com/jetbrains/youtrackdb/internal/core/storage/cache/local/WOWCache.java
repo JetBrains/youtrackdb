@@ -4951,7 +4951,13 @@ public final class WOWCache extends AbstractWriteCache
           submittedWrites
               .add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue())));
         } catch (final Throwable t) {
-          files.release(fileEntry);
+          try {
+            files.release(fileEntry);
+          } catch (final Throwable releaseFailure) {
+            if (releaseFailure != t) {
+              t.addSuppressed(releaseFailure);
+            }
+          }
           throw t;
         }
         entry = null;
@@ -4966,7 +4972,9 @@ public final class WOWCache extends AbstractWriteCache
         drainSubmittedWrites(submittedWrites);
       } catch (final Throwable drainFailure) {
         if (failure != null) {
-          failure.addSuppressed(drainFailure);
+          if (failure != drainFailure) {
+            failure.addSuppressed(drainFailure);
+          }
         } else {
           rethrowWriteFailure(drainFailure);
         }
@@ -5021,13 +5029,23 @@ public final class WOWCache extends AbstractWriteCache
       } catch (final Throwable t) {
         if (failure == null) {
           failure = t;
-        } else {
+        } else if (failure != t) {
           failure.addSuppressed(t);
         }
       }
     }
+    // Release all acquired files even if one release fails. No page buffer may be freed
+    // before the wait loop above has seen every started write finish.
     for (final var write : writes) {
-      files.release(write.fileEntry);
+      try {
+        files.release(write.fileEntry);
+      } catch (final Throwable t) {
+        if (failure == null) {
+          failure = t;
+        } else if (failure != t) {
+          failure.addSuppressed(t);
+        }
+      }
     }
 
     if (failure != null) {
