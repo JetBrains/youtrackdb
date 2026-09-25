@@ -32,6 +32,68 @@ public class ClosableLinkedContainerTest {
     CItem.maxDeltaLimit.set(0);
   }
 
+  /** Eviction logs a failed close but keeps its owner while closing another idle entry. */
+  @Test
+  public void failedEvictionPreservesOwnedEntryAndExplicitCloseReportsFailure() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    final var failing = org.mockito.Mockito.mock(ClosableItem.class);
+    final var open = new AtomicBoolean(true);
+    org.mockito.Mockito.when(failing.isOpen()).thenAnswer(invocation -> open.get());
+    org.mockito.Mockito.doAnswer(invocation -> {
+      throw new IllegalStateException("injected force failure");
+    }).when(failing).close();
+    dictionary.add(1L, failing);
+    dictionary.add(2L, new CItem(1));
+
+    Assert.assertSame("failed eviction keeps the file registered", failing, dictionary.get(1L));
+    Assert.assertTrue("failed eviction leaves the handle open", open.get());
+    Assert.assertEquals("another idle file can be evicted", 1, dictionary.openFilesCount());
+    Assert.assertThrows(IllegalStateException.class, () -> dictionary.close(1L));
+    Assert.assertEquals("explicit failure cannot claim closure", 1, dictionary.openFilesCount());
+    final var acquired = dictionary.acquire(1L);
+    Assert.assertNotNull(acquired);
+    dictionary.release(acquired);
+  }
+
+  /** Each eviction pass skips a failed close while closing two other idle handles. */
+  @Test
+  public void failedEvictionSkipsSameEntryWhenSeveralOtherFilesCanClose() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    final var failing = org.mockito.Mockito.mock(ClosableItem.class);
+    final var attempts = new AtomicInteger();
+    org.mockito.Mockito.when(failing.isOpen()).thenReturn(true);
+    org.mockito.Mockito.doAnswer(invocation -> {
+      attempts.incrementAndGet();
+      throw new IllegalStateException("injected close failure");
+    }).when(failing).close();
+    dictionary.add(1L, failing);
+    final var heldFailure = dictionary.acquire(1L);
+    dictionary.add(2L, new CItem(2));
+    // Entry 2 closes on add while entry 1 is held. Reopening it while 1 is held
+    // creates an overflow of two acquired handles that cannot be evicted yet.
+    final var heldSecond = dictionary.acquire(2L);
+    Assert.assertNotNull(heldSecond);
+    // Add 3 with both other handles acquired. It is closed by inline eviction,
+    // then reopening it creates three acquired handles over a limit of one.
+    dictionary.add(3L, new CItem(3));
+    final var heldThird = dictionary.acquire(3L);
+    Assert.assertNotNull(heldThird);
+    dictionary.release(heldFailure);
+    dictionary.release(heldSecond);
+    dictionary.release(heldThird);
+    // One pass must close both 2 and 3. It must not retry 1 after closing 2.
+    dictionary.emptyBuffers();
+
+    Assert.assertSame(failing, dictionary.get(1L));
+    Assert.assertTrue(failing.isOpen());
+    Assert.assertEquals("the failing owner is attempted only once in this eviction pass", 1,
+        attempts.get());
+    Assert.assertEquals("other idle handles restore the soft limit", 1,
+        dictionary.openFilesCount());
+    Assert.assertFalse(dictionary.get(2L).isOpen());
+    Assert.assertFalse(dictionary.get(3L).isOpen());
+  }
+
   @Test
   public void testSingleItemAddRemove() throws Exception {
     final ClosableItem closableItem = new CItem(10);

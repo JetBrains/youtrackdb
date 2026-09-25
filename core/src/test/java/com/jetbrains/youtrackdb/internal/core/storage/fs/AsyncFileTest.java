@@ -3,14 +3,18 @@ package com.jetbrains.youtrackdb.internal.core.storage.fs;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -24,10 +28,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import org.junit.After;
@@ -35,6 +41,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 public class AsyncFileTest {
 
@@ -881,6 +888,281 @@ public class AsyncFileTest {
     verify(channel).force(true);
   }
 
+  /** An open that cannot read the file size closes its new channel and permits a clean retry. */
+  @Test
+  public void failedOpenClosesChannelAndAllowsRetry() throws Exception {
+    Files.createFile(buildDirectoryPath);
+    final var realChannel = AsynchronousFileChannel.open(buildDirectoryPath,
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor);
+    final var channel = mock(AsynchronousFileChannel.class, delegatesTo(realChannel));
+    final var sizeFailure = new java.io.IOException("injected size failure");
+    org.mockito.Mockito.doThrow(sizeFailure).when(channel).size();
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(buildDirectoryPath,
+          Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor))
+          .thenReturn(channel);
+      final var failure = Assert.assertThrows(StorageException.class, file::open);
+      Assert.assertSame(sizeFailure, failure.getCause());
+      verify(channel).close();
+      Assert.assertFalse("failed open must not retain its channel", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+    file.open();
+    Assert.assertTrue("another open can initialize the file", file.isOpen());
+    file.close();
+  }
+
+  /** A failed cleanup preserves both the original open error and the close error. */
+  @Test
+  public void failedOpenAndClosePreservesOriginalFailureWithSuppressedClose() throws Exception {
+    Files.createFile(buildDirectoryPath);
+    final var realChannel = AsynchronousFileChannel.open(buildDirectoryPath,
+        Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor);
+    final var channel = mock(AsynchronousFileChannel.class, delegatesTo(realChannel));
+    final var sizeFailure = new java.io.IOException("injected size failure");
+    final var closeFailure = new java.io.IOException("injected close failure");
+    final var closeAttempts = new AtomicInteger();
+    org.mockito.Mockito.doThrow(sizeFailure).when(channel).size();
+    doAnswer(invocation -> {
+      if (closeAttempts.incrementAndGet() == 1) {
+        throw closeFailure;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(buildDirectoryPath,
+          Set.of(StandardOpenOption.READ, StandardOpenOption.WRITE), executor))
+          .thenReturn(channel);
+      final var failure = Assert.assertThrows(StorageException.class, file::open);
+      Assert.assertSame("the size error remains primary", sizeFailure, failure.getCause());
+      Assert.assertArrayEquals(new Throwable[] {closeFailure},
+          sizeFailure.getSuppressed());
+      Assert.assertTrue("failed close retains the handle for cleanup", file.isOpen());
+    } finally {
+      file.closeAfterFailedCreate();
+      realChannel.close();
+    }
+    Assert.assertFalse(file.isOpen());
+  }
+
+  /** A failed force reaches the caller and leaves the dirty file pending for another force. */
+  @Test
+  public void failedForceRetainsPendingSynchronizationUntilRetrySucceeds() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+    final var forces = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (forces.incrementAndGet() == 1) {
+        throw new java.io.IOException("injected force failure");
+      }
+      return null;
+    }).when(channel).force(true);
+
+    try {
+      Assert.assertThrows(StorageException.class, file::synch);
+      Assert.assertTrue(file.isOpen());
+      file.synch();
+      Assert.assertEquals("retry must force the same dirty file", 2, forces.get());
+    } finally {
+      file.close();
+    }
+  }
+
+  /** Both failed cleanup closes preserve the first error and leave the channel available. */
+  @Test
+  public void failedCreationCleanupRetriesOnceAndSuppressesSecondCloseFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var second = new java.io.IOException("second cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals("cleanup must not force the channel", 0,
+          countInvocations(channel, "force"));
+      Assert.assertTrue("both failed closes retain the channel reference", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** A successful second cleanup close clears the channel but still reports the first error. */
+  @Test
+  public void failedCreationCleanupSecondCloseSucceedsAndReportsFirstFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var calls = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw first;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, calls.get());
+      Assert.assertEquals("cleanup must not force the channel", 0,
+          countInvocations(channel, "force"));
+      Assert.assertFalse("successful retry must clear the channel reference", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An unchecked retry failure is suppressed under the first cleanup IOException. */
+  @Test
+  public void failedCreationCleanupSuppressesUncheckedRetryFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var second = new IllegalStateException("retry cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An unchecked first close failure is reported after a successful retry clears the handle. */
+  @Test
+  public void failedCreationCleanupRetriesUncheckedFailureAndReportsIt() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new IllegalStateException("first cleanup close failed");
+    final var calls = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw first;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(IllegalStateException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, calls.get());
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertFalse("successful retry must clear the channel reference", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** A retry that throws the same exception instance keeps that instance primary. */
+  @Test
+  public void failedCreationCleanupDoesNotSuppressFirstFailureOnItself() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("both cleanup closes failed");
+    org.mockito.Mockito.doThrow(first, first).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An Error from the first close stays primary when the retry fails with IOException. */
+  @Test
+  public void failedCreationCleanupRetriesErrorAndSuppressesCheckedRetryFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new AssertionError("first cleanup close failed");
+    final var second = new java.io.IOException("retry cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(AssertionError.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** A failed close reports the force error without losing ownership of the open channel. */
+  @Test
+  public void failedCloseLeavesChannelOpenForSynchronizationRetry() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var channel = installDelegatingChannelSpy(file);
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+    final var forces = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (forces.incrementAndGet() == 1) {
+        throw new java.io.IOException("injected force failure");
+      }
+      return null;
+    }).when(channel).force(true);
+
+    try {
+      Assert.assertThrows(StorageException.class, file::close);
+      Assert.assertTrue("failed close keeps its channel", file.isOpen());
+      file.close();
+      Assert.assertEquals(2, forces.get());
+      verify(channel).close();
+    } finally {
+      if (file.isOpen()) {
+        file.close();
+      }
+    }
+  }
+
   /**
    * Closing without fsync still waits for an asynchronous write completion callback.
    */
@@ -929,6 +1211,171 @@ public class AsyncFileTest {
     closeFuture.get(5, TimeUnit.SECONDS);
     verify(channel).close();
     Assert.assertFalse(file.isOpen());
+  }
+
+  /** A checked callback failure is wrapped in a storage exception. */
+  @Test
+  public void testAwaitWrapsCheckedCallbackFailure() throws Exception {
+    final var failure = new java.io.IOException("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** A runtime callback failure is wrapped instead of being rethrown directly. */
+  @Test
+  public void testAwaitWrapsRuntimeCallbackFailure() throws Exception {
+    final var failure = new IllegalStateException("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** An error callback failure is wrapped instead of being rethrown directly. */
+  @Test
+  public void testAwaitWrapsErrorCallbackFailure() throws Exception {
+    final var failure = new AssertionError("injected callback failure");
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertEquals(StorageException.class, thrown.getClass());
+    Assert.assertSame(failure, thrown.getCause());
+  }
+
+  /** A high-level callback failure keeps its original identity through exception wrapping. */
+  @Test
+  public void testAwaitPreservesHighLevelCallbackFailure() throws Exception {
+    final var failure =
+        new RecordNotFoundException(STORAGE_NAME, new RecordId(7, 42));
+
+    final var thrown = awaitCallbackFailure(failure);
+
+    Assert.assertSame(failure, thrown);
+  }
+
+  /** Partial submission returns an awaitable result which drains every issued write. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testPartialSubmissionWaitsForIssuedWrite() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var writtenBuffer = new AtomicReference<ByteBuffer>();
+    final var submissions = new AtomicInteger();
+    final var submissionFailure =
+        new StorageException(STORAGE_NAME, "injected submission failure");
+    doAnswer(
+        invocation -> {
+          if (submissions.getAndIncrement() == 1) {
+            throw submissionFailure;
+          }
+          writtenBuffer.set(invocation.getArgument(0));
+          attachment.set(invocation.getArgument(2));
+          handler.set(invocation.getArgument(3));
+          return null;
+        })
+        .when(channel)
+        .write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+
+    file.allocateSpace(2);
+    final var result =
+        file.write(
+            List.of(
+                new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {1})),
+                new RawPairLongObject<>(1L, ByteBuffer.wrap(new byte[] {2}))));
+    final var awaitStarted = new CountDownLatch(1);
+    final var awaitingThread = new AtomicReference<Thread>();
+    final var awaitFuture =
+        executor.submit(
+            () -> {
+              awaitingThread.set(Thread.currentThread());
+              awaitStarted.countDown();
+              result.await();
+            });
+
+    try {
+      try {
+        Assert.assertTrue("await task must start", awaitStarted.await(5, TimeUnit.SECONDS));
+        awaitCountDownLatchWait(awaitingThread.get());
+        Assert.assertFalse(
+            "await must retain the first buffer until completion", awaitFuture.isDone());
+      } finally {
+        writtenBuffer.get().position(writtenBuffer.get().limit());
+        handler.get().completed(1, attachment.get());
+      }
+
+      try {
+        awaitFuture.get(5, TimeUnit.SECONDS);
+        Assert.fail("the partial submission failure must be reported after draining");
+      } catch (final java.util.concurrent.ExecutionException expected) {
+        Assert.assertEquals(StorageException.class, expected.getCause().getClass());
+        Assert.assertSame(submissionFailure, expected.getCause().getCause());
+      }
+    } finally {
+      file.close();
+    }
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private Throwable awaitCallbackFailure(final Throwable failure) throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    doAnswer(
+        invocation -> {
+          attachment.set(invocation.getArgument(2));
+          handler.set(invocation.getArgument(3));
+          return null;
+        })
+        .when(channel)
+        .write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+
+    file.allocateSpace(1);
+    final var result =
+        file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {1}))));
+    handler.get().failed(failure, attachment.get());
+
+    try {
+      try {
+        result.await();
+      } catch (final Throwable thrown) {
+        return thrown;
+      }
+      Assert.fail("the callback failure must be reported");
+      return null;
+    } finally {
+      file.close();
+    }
+  }
+
+  private static void awaitCountDownLatchWait(Thread thread) {
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      final var waitingInLatch =
+          java.util.Arrays.stream(thread.getStackTrace())
+              .anyMatch(
+                  frame -> frame.getClassName().equals("java.util.concurrent.CountDownLatch")
+                      && frame.getMethodName().equals("await"));
+      if (thread.getState() == Thread.State.WAITING && waitingInLatch) {
+        return;
+      }
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    Assert.fail("await thread did not block in CountDownLatch.await");
   }
 
   private static void awaitSemaphoreWait(Thread thread) {

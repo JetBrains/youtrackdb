@@ -1437,15 +1437,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
   }
 
-  /**
-   * Emits the WAL atomic operation start record and returns the startLSN
-   * (captured immediately after the start record, pointing into the same
-   * segment).
-   */
+  /** Emits the WAL atomic operation start record and returns its exact position. */
   private static LogSequenceNumber emitWalUnitStart(
       WriteAheadLog writeAheadLog, long commitTs) throws IOException {
-    writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
-    return writeAheadLog.end();
+    return writeAheadLog.logAtomicOperationStartRecord(true, commitTs);
   }
 
   @Override

@@ -528,13 +528,21 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       return true;
     }
 
-    if (entry.makeClosed()) {
-      countClosedFiles();
-
-      return true;
+    entry.acquireStateLock();
+    try {
+      // Keep the state test and transition together, or concurrent closes could each
+      // subtract the same open-file contribution.
+      if (entry.isClosed()) {
+        return true;
+      }
+      if (entry.makeClosed()) {
+        countClosedFiles();
+        return true;
+      }
+      return false;
+    } finally {
+      entry.releaseStateLock();
     }
-
-    return false;
   }
 
   /** Package-private accessor for tests that assert soft-limit overflow. */
@@ -898,15 +906,27 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     final int initialSize = lruList.size();
     int closedFiles = 0;
 
+    // Do not retry a failed close repeatedly in this pass. Other idle entries can still
+    // bring the container under its soft limit without losing the failing entry.
+    final var failedEntries = new java.util.HashSet<ClosableEntry<K, V>>();
     while (lruList.size() > openLimit) {
-      // we may only close items in open state so we "peek" them first
       var iterator = lruList.iterator();
-
       var entryClosed = false;
 
       while (iterator.hasNext()) {
         var entry = iterator.next();
-        if (entry.makeClosed()) {
+        if (failedEntries.contains(entry)) {
+          continue;
+        }
+        final boolean closed;
+        try {
+          closed = entry.makeClosed();
+        } catch (RuntimeException e) {
+          LogManager.instance().error(this, "Failed to close idle file during eviction", e);
+          failedEntries.add(entry);
+          continue;
+        }
+        if (closed) {
           closedFiles++;
           iterator.remove();
           entryClosed = true;

@@ -5,9 +5,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -40,6 +42,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,7 +51,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -656,6 +663,321 @@ public class WOWCacheNonDurableFileTrackingTest {
       verify(file, never()).synch();
     }
     verify(doubleWriteLog).truncate();
+  }
+
+  /** A partial two-file synchronization failure prevents WAL and recovery-copy cleanup. */
+  @Test
+  public void testSyncDataFilesStopsCleanupAfterPartialForceFailure() throws Exception {
+    wowCache.delete();
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    createNewCache(true, doubleWriteLog);
+
+    final var firstId = wowCache.addFile("syncFirst.tst");
+    final var secondId = wowCache.addFile("syncSecond.tst");
+    final var firstReal = files.remove(firstId);
+    final var secondReal = files.remove(secondId);
+    firstReal.close();
+    secondReal.close();
+    final var attempts = new AtomicInteger();
+    final var first = mock(File.class);
+    final var second = mock(File.class);
+    when(first.isOpen()).thenReturn(true);
+    when(second.isOpen()).thenReturn(true);
+    doAnswer(invocation -> {
+      if (attempts.incrementAndGet() == 2) {
+        throw new StorageException(storageName, "injected second force failure");
+      }
+      return null;
+    }).when(first).synch();
+    doAnswer(invocation -> {
+      if (attempts.incrementAndGet() == 2) {
+        throw new StorageException(storageName, "injected second force failure");
+      }
+      return null;
+    }).when(second).synch();
+    files.add(firstId, first);
+    files.add(secondId, second);
+    final var originalBegin = writeAheadLog.begin();
+
+    assertThrows(StorageException.class, () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+    assertEquals("one successful file must precede the failure", 2, attempts.get());
+    assertEquals("failed attempt must retain WAL", originalBegin, writeAheadLog.begin());
+    verify(doubleWriteLog, never()).truncate();
+    verify(doubleWriteLog).endCheckpoint();
+
+    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    assertEquals("the next attempt retries both files", 4, attempts.get());
+  }
+
+  /** Full checkpoint and fuzzy checkpoint both stop on a real AsyncFile force failure. */
+  @Test
+  public void testRealAsyncFileForceFailureBlocksFlushAndCheckpointCleanup() throws Exception {
+    wowCache.delete();
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    createNewCache(true, doubleWriteLog);
+    final var fileId = wowCache.addFile("realForceFailure.tst");
+    final var file =
+        (com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile) files.get(fileId);
+    final var channelField = file.getClass().getDeclaredField("fileChannel");
+    channelField.setAccessible(true);
+    final var original = (java.nio.channels.AsynchronousFileChannel) channelField.get(file);
+    final var channel = mock(java.nio.channels.AsynchronousFileChannel.class,
+        org.mockito.AdditionalAnswers.delegatesTo(original));
+    channelField.set(file, channel);
+    file.allocateSpace(PAGE_SIZE);
+    file.write(0, ByteBuffer.allocate(PAGE_SIZE));
+    final var attempts = new AtomicInteger();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      if (attempts.incrementAndGet() <= 2) {
+        throw new IOException("injected data-file force failure");
+      }
+      return null;
+    }).when(channel).force(true);
+    final var begin = writeAheadLog.begin();
+    final var storage = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+        CALLS_REAL_METHODS);
+    final var storageType =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class;
+    final var walField = storageType.getDeclaredField("writeAheadLog");
+    walField.setAccessible(true);
+    walField.set(storage, writeAheadLog);
+    final var cacheField = storageType.getDeclaredField("writeCache");
+    cacheField.setAccessible(true);
+    cacheField.set(storage, wowCache);
+    final var checkpoint = storageType.getDeclaredMethod("flushAllData");
+    checkpoint.setAccessible(true);
+
+    final var failure = assertThrows(java.lang.reflect.InvocationTargetException.class,
+        () -> checkpoint.invoke(storage));
+    assertTrue("real full checkpoint reports the file-force failure",
+        failure.getCause() instanceof RuntimeException);
+    assertThrows(StorageException.class,
+        () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+    assertEquals("neither failure can delete WAL", begin, writeAheadLog.begin());
+    verify(doubleWriteLog, never()).truncate();
+    wowCache.flush();
+    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    assertEquals("both paths invoked file force again", 3, attempts.get());
+  }
+
+  /** A failed per-batch force cannot discard the double-write copies. */
+  @Test
+  public void testFsyncFilesFailureRetainsDwlCopies() throws Exception {
+    wowCache.delete();
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    createNewCache(true, doubleWriteLog);
+    final var fileId = wowCache.addFile("failedDwlSync.tst");
+    final var realFile = files.remove(fileId);
+    realFile.close();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    doThrow(new StorageException(storageName, "injected force failure")).when(file).synch();
+    files.add(fileId, file);
+
+    final var invocation = assertThrows(java.lang.reflect.InvocationTargetException.class,
+        () -> invokeFsyncFilesOrMigration(wowCache, "fsyncFiles"));
+    assertTrue(invocation.getCause() instanceof StorageException);
+    verify(doubleWriteLog, never()).truncate();
+  }
+
+  /** A creation-time force failure closes the file before it can be registered. */
+  @Test
+  public void testCreateFileForceFailureDoesNotLeaveUnownedOpenFile() throws Exception {
+    final var file = mock(File.class);
+    final var open = new AtomicBoolean(true);
+    when(file.exists()).thenReturn(true);
+    when(file.isOpen()).thenAnswer(invocation -> open.get());
+    doAnswer(invocation -> {
+      open.set(false);
+      return null;
+    }).when(file).close();
+    doThrow(new StorageException(storageName, "injected initial force failure"))
+        .when(file).synch();
+    final var method = WOWCache.class.getDeclaredMethod("createFile", File.class, boolean.class);
+    method.setAccessible(true);
+
+    final var failure = assertThrows(java.lang.reflect.InvocationTargetException.class,
+        () -> method.invoke(null, file, true));
+    assertTrue(failure.getCause() instanceof StorageException);
+    assertFalse("failed creation must close its unregistered handle", open.get());
+    verify(file).close();
+  }
+
+  /** A failed initial force through addFile closes the real unregistered AsyncFile channel. */
+  @Test
+  public void failedCreationForceClosesUnregisteredAsyncFileHandle() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var name = "failedCreationForce.tst";
+    final var bookedId = wowCache.bookFileId(name);
+    final var path = storagePath.resolve("failedCreationForce_"
+        + WOWCache.extractFileId(bookedId) + ".tst");
+    final var realChannel = new AtomicReference<AsynchronousFileChannel>();
+    final var channel = new AtomicReference<AsynchronousFileChannel>();
+
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(eq(path), any(), any(ExecutorService.class)))
+          .thenAnswer(invocation -> {
+            final var real = (AsynchronousFileChannel) invocation.callRealMethod();
+            realChannel.set(real);
+            final var tracked = mock(AsynchronousFileChannel.class, delegatesTo(real));
+            doThrow(new IOException("injected initial force failure"))
+                .when(tracked).force(true);
+            channel.set(tracked);
+            return tracked;
+          });
+
+      final var failure = assertThrows(StorageException.class,
+          () -> wowCache.addFile(name));
+      assertTrue(failure.getMessage().contains("synchronizing"));
+      assertNotNull("the data file must open before its initial force", channel.get());
+      verify(channel.get()).close();
+      assertFalse("failed creation must close the unregistered channel", channel.get().isOpen());
+      assertEquals("failed creation cannot register the file", null, files.get(bookedId));
+    } finally {
+      if (realChannel.get() != null) {
+        realChannel.get().close();
+      }
+    }
+  }
+
+  /** A file in use cannot be silently discarded by whole-cache close. */
+  @Test
+  public void testCloseKeepsAcquiredFileRegisteredUntilReleased() throws Exception {
+    final var fileId = wowCache.addFile("inUseAtClose.tst");
+    final var acquired = files.acquire(fileId);
+    assertNotNull(acquired);
+    try {
+      final var failure = assertThrows(StorageException.class, wowCache::close);
+      assertTrue(failure.getMessage().contains("still in use"));
+      assertNotNull("failed close retains the file owner", files.get(fileId));
+      assertTrue(files.get(fileId).isOpen());
+    } finally {
+      files.release(acquired);
+    }
+    wowCache.close();
+    assertEquals(null, files.get(fileId));
+    wowCache = null;
+  }
+
+  /** A failed cleanup retains the original creation error and reports the close error. */
+  @Test
+  public void testCreateFileFailedOpenSuppressesCleanupFailure() throws Exception {
+    final var file = mock(File.class);
+    final var failure = new StorageException(storageName, "injected open failure");
+    final var closeFailure = new StorageException(storageName, "injected close failure");
+    when(file.exists()).thenReturn(true);
+    when(file.isOpen()).thenReturn(false, true);
+    doThrow(failure).when(file).open();
+    doThrow(closeFailure).when(file).close();
+    final var method = WOWCache.class.getDeclaredMethod("createFile", File.class, boolean.class);
+    method.setAccessible(true);
+
+    final var invocation = assertThrows(java.lang.reflect.InvocationTargetException.class,
+        () -> method.invoke(null, file, true));
+    assertEquals(failure, invocation.getCause());
+    assertEquals(1, failure.getSuppressed().length);
+    assertEquals(closeFailure, failure.getSuppressed()[0]);
+    verify(file).close();
+    verify(file, never()).synch();
+  }
+
+  /** Failed cache close leaves the file registered for a later owner-controlled attempt. */
+  @Test
+  public void testCloseForceFailureKeepsFileRegistered() throws Exception {
+    final var fileId = wowCache.addFile("closeFailure.tst");
+    final var realFile = files.remove(fileId);
+    realFile.close();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    when(file.getName()).thenReturn("closeFailure.tst");
+    doThrow(new StorageException(storageName, "injected close force failure"))
+        .when(file).close();
+    files.add(fileId, file);
+
+    assertThrows(StorageException.class, wowCache::close);
+    assertEquals("failed close cannot orphan its handle", file, files.get(fileId));
+  }
+
+  /** A registry-force failure leaves closed entries and their names owned for a retry. */
+  @Test
+  public void testCloseRegistryForceFailureCanRetryWithoutLosingFileNames() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var fileId = wowCache.addFile("retryRegistryForce.tst");
+    final var backupPath = storagePath.resolve("name_id_map_v2_backup.cm");
+    final var forceCalls = new AtomicInteger();
+    try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(backupPath, StandardOpenOption.CREATE,
+          StandardOpenOption.READ, StandardOpenOption.WRITE))
+          .thenAnswer(invocation -> {
+            final var real = backupPath.getFileSystem().provider().newFileChannel(backupPath,
+                java.util.Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ,
+                    StandardOpenOption.WRITE));
+            final var channel = spy(real);
+            org.mockito.Mockito.doAnswer(force -> {
+              if (forceCalls.incrementAndGet() == 1) {
+                throw new IOException("injected registry force failure");
+              }
+              force.callRealMethod();
+              return null;
+            }).when(channel).force(true);
+            return channel;
+          });
+      assertThrows(IOException.class, wowCache::close);
+      assertEquals("failed registry write must retain the file owner", false,
+          files.get(fileId) == null);
+      assertEquals("physical file closed but still owned", false, files.get(fileId).isOpen());
+      wowCache.close();
+    }
+    assertEquals(2, forceCalls.get());
+    assertEquals("successful close releases the file registration", null, files.get(fileId));
+    createNewCache(true);
+    assertTrue("a retried close must persist the original name",
+        wowCache.fileIdByName("retryRegistryForce.tst") >= 0);
+  }
+
+  /** A partial close transitions successful files to CLOSED without orphaning the failed one. */
+  @Test
+  public void testPartialCloseReopensEarlierFileAndRetriesFailedFile() throws Exception {
+    final var firstId = wowCache.addFile("partialFirst.tst");
+    final var secondId = wowCache.addFile("partialSecond.tst");
+    final var closes = new AtomicInteger();
+    for (final var id : new long[] {firstId, secondId}) {
+      final var real = files.remove(id);
+      final var name = real.getName();
+      real.close();
+      final var open = new AtomicBoolean(true);
+      final var file = mock(File.class);
+      when(file.getName()).thenReturn(name);
+      when(file.isOpen()).thenAnswer(invocation -> open.get());
+      org.mockito.Mockito.doAnswer(invocation -> {
+        open.set(true);
+        return null;
+      }).when(file).open();
+      org.mockito.Mockito.doAnswer(invocation -> {
+        if (closes.incrementAndGet() == 2) {
+          throw new StorageException(storageName, "injected second close failure");
+        }
+        open.set(false);
+        return null;
+      }).when(file).close();
+      files.add(id, file);
+    }
+    assertThrows(StorageException.class, wowCache::close);
+    final var firstClosedId = files.get(firstId).isOpen() ? secondId : firstId;
+    final var failedId = firstClosedId == firstId ? secondId : firstId;
+    assertFalse("completed file channel is physically closed", files.get(firstClosedId).isOpen());
+    assertTrue("failed file channel stays owned", files.get(failedId).isOpen());
+    final var acquired = files.acquire(firstClosedId);
+    assertTrue("container must reopen a completed file after partial failure",
+        acquired.get().isOpen());
+    files.release(acquired);
+    wowCache.close();
+    assertTrue("failed file must be retried", closes.get() >= 3);
+    wowCache = null;
   }
 
   private static void invokeFsyncFilesOrMigration(WOWCache cache, String methodName)
