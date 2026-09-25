@@ -13,6 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -236,7 +237,12 @@ public class AbstractStorageWALCutTest {
     when(engine.getHistogramManager()).thenReturn(manager);
     setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
 
-    storage.doShutdown();
+    try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+      storage.doShutdown();
+      assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+          && message.contains("failing-stats")
+          && message.contains("Failed to flush histogram stats"));
+    }
 
     verify(manager).blockRebalancesForStorageShutdown();
     verify(manager).flushIfDirty();
@@ -258,7 +264,12 @@ public class AbstractStorageWALCutTest {
     when(engine.getHistogramManager()).thenReturn(manager);
     setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
 
-    storage.doShutdown();
+    try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+      storage.doShutdown();
+      assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+          && message.contains("failing-stats")
+          && message.contains("Failed to close histogram stats"));
+    }
 
     verify(manager).flushIfDirty();
     verify(storage).flushAllData();

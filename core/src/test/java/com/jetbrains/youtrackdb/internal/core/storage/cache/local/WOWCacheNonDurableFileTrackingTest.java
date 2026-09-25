@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -41,6 +42,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,9 +51,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -798,6 +802,45 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(failure.getCause() instanceof StorageException);
     assertFalse("failed creation must close its unregistered handle", open.get());
     verify(file).close();
+  }
+
+  /** A failed initial force through addFile closes the real unregistered AsyncFile channel. */
+  @Test
+  public void failedCreationForceClosesUnregisteredAsyncFileHandle() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var name = "failedCreationForce.tst";
+    final var bookedId = wowCache.bookFileId(name);
+    final var path = storagePath.resolve("failedCreationForce_"
+        + WOWCache.extractFileId(bookedId) + ".tst");
+    final var realChannel = new AtomicReference<AsynchronousFileChannel>();
+    final var channel = new AtomicReference<AsynchronousFileChannel>();
+
+    try (MockedStatic<AsynchronousFileChannel> opens =
+        mockStatic(AsynchronousFileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> AsynchronousFileChannel.open(eq(path), any(), any(ExecutorService.class)))
+          .thenAnswer(invocation -> {
+            final var real = (AsynchronousFileChannel) invocation.callRealMethod();
+            realChannel.set(real);
+            final var tracked = mock(AsynchronousFileChannel.class, delegatesTo(real));
+            doThrow(new IOException("injected initial force failure"))
+                .when(tracked).force(true);
+            channel.set(tracked);
+            return tracked;
+          });
+
+      final var failure = assertThrows(StorageException.class,
+          () -> wowCache.addFile(name));
+      assertTrue(failure.getMessage().contains("synchronizing"));
+      assertNotNull("the data file must open before its initial force", channel.get());
+      verify(channel.get()).close();
+      assertFalse("failed creation must close the unregistered channel", channel.get().isOpen());
+      assertEquals("failed creation cannot register the file", null, files.get(bookedId));
+    } finally {
+      if (realChannel.get() != null) {
+        realChannel.get().close();
+      }
+    }
   }
 
   /** A file in use cannot be silently discarded by whole-cache close. */

@@ -977,29 +977,160 @@ public class AsyncFileTest {
     }
   }
 
-  /** A failed creation force closes a real AsyncFile without forcing again on cleanup. */
+  /** Both failed cleanup closes preserve the first error and leave the channel available. */
   @Test
-  public void failedCreationForceClosesUnregisteredAsyncFileHandle() throws Exception {
+  public void failedCreationCleanupRetriesOnceAndSuppressesSecondCloseFailure() throws Exception {
     final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
     file.create();
+    final var realChannel = getChannel(file);
     final var channel = installDelegatingChannelSpy(file);
-    org.mockito.Mockito.doThrow(new java.io.IOException("injected initial force failure"))
-        .when(channel).force(true);
-    final var createFile = com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache.class
-        .getDeclaredMethod("createFile",
-            com.jetbrains.youtrackdb.internal.core.storage.fs.File.class,
-            boolean.class);
-    createFile.setAccessible(true);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var second = new java.io.IOException("second cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
     try {
-      final var failure = Assert.assertThrows(java.lang.reflect.InvocationTargetException.class,
-          () -> createFile.invoke(null, file, true));
-      Assert.assertTrue(failure.getCause() instanceof StorageException);
-      Assert.assertFalse("unregistered AsyncFile channel must be closed", file.isOpen());
-      verify(channel).close();
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals("cleanup must not force the channel", 0,
+          countInvocations(channel, "force"));
+      Assert.assertTrue("both failed closes retain the channel reference", file.isOpen());
     } finally {
-      if (file.isOpen()) {
-        file.closeAfterFailedCreate();
+      realChannel.close();
+    }
+  }
+
+  /** A successful second cleanup close clears the channel but still reports the first error. */
+  @Test
+  public void failedCreationCleanupSecondCloseSucceedsAndReportsFirstFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var calls = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw first;
       }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, calls.get());
+      Assert.assertEquals("cleanup must not force the channel", 0,
+          countInvocations(channel, "force"));
+      Assert.assertFalse("successful retry must clear the channel reference", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An unchecked retry failure is suppressed under the first cleanup IOException. */
+  @Test
+  public void failedCreationCleanupSuppressesUncheckedRetryFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first cleanup close failed");
+    final var second = new IllegalStateException("retry cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An unchecked first close failure is reported after a successful retry clears the handle. */
+  @Test
+  public void failedCreationCleanupRetriesUncheckedFailureAndReportsIt() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new IllegalStateException("first cleanup close failed");
+    final var calls = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw first;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(IllegalStateException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, calls.get());
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertFalse("successful retry must clear the channel reference", file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** A retry that throws the same exception instance keeps that instance primary. */
+  @Test
+  public void failedCreationCleanupDoesNotSuppressFirstFailureOnItself() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("both cleanup closes failed");
+    org.mockito.Mockito.doThrow(first, first).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(java.io.IOException.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
+    }
+  }
+
+  /** An Error from the first close stays primary when the retry fails with IOException. */
+  @Test
+  public void failedCreationCleanupRetriesErrorAndSuppressesCheckedRetryFailure() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, true);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new AssertionError("first cleanup close failed");
+    final var second = new java.io.IOException("retry cleanup close failed");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+
+    try {
+      final var failure = Assert.assertThrows(AssertionError.class,
+          file::closeAfterFailedCreate);
+      Assert.assertSame(first, failure);
+      Assert.assertArrayEquals(new Throwable[] {second}, failure.getSuppressed());
+      Assert.assertEquals(2, countInvocations(channel, "close"));
+      Assert.assertEquals(0, countInvocations(channel, "force"));
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
     }
   }
 

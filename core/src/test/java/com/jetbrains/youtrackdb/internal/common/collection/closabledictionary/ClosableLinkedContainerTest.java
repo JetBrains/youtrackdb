@@ -55,7 +55,7 @@ public class ClosableLinkedContainerTest {
     dictionary.release(acquired);
   }
 
-  /** A failed idle close is skipped on later passes while other entries restore the soft limit. */
+  /** Each eviction pass skips a failed close while closing two other idle handles. */
   @Test
   public void failedEvictionSkipsSameEntryWhenSeveralOtherFilesCanClose() throws Exception {
     final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
@@ -67,13 +67,26 @@ public class ClosableLinkedContainerTest {
       throw new IllegalStateException("injected close failure");
     }).when(failing).close();
     dictionary.add(1L, failing);
+    final var heldFailure = dictionary.acquire(1L);
     dictionary.add(2L, new CItem(2));
+    // Entry 2 closes on add while entry 1 is held. Reopening it while 1 is held
+    // creates an overflow of two acquired handles that cannot be evicted yet.
+    final var heldSecond = dictionary.acquire(2L);
+    Assert.assertNotNull(heldSecond);
+    // Add 3 with both other handles acquired. It is closed by inline eviction,
+    // then reopening it creates three acquired handles over a limit of one.
     dictionary.add(3L, new CItem(3));
+    final var heldThird = dictionary.acquire(3L);
+    Assert.assertNotNull(heldThird);
+    dictionary.release(heldFailure);
+    dictionary.release(heldSecond);
+    dictionary.release(heldThird);
+    // One pass must close both 2 and 3. It must not retry 1 after closing 2.
     dictionary.emptyBuffers();
 
     Assert.assertSame(failing, dictionary.get(1L));
     Assert.assertTrue(failing.isOpen());
-    Assert.assertEquals("the failing owner is attempted once per eviction pass", 2,
+    Assert.assertEquals("the failing owner is attempted only once in this eviction pass", 1,
         attempts.get());
     Assert.assertEquals("other idle handles restore the soft limit", 1,
         dictionary.openFilesCount());

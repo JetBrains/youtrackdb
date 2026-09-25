@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +14,8 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -40,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -313,10 +317,16 @@ public class WOWCacheChunkBoundaryProtectionTest {
   public void failedBatchSynchronizationReleasesTemporaryPageBuffer() throws Exception {
     final var fileId = wowCache.addFile(FILE_NAME);
     final var trackedPool = mock(ByteBufferPool.class, AdditionalAnswers.delegatesTo(bufferPool));
+    final var flushPointer = new AtomicReference<Pointer>();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      final var pointer = bufferPool.acquireDirect(false, Intention.FILE_FLUSH);
+      flushPointer.set(pointer);
+      return pointer;
+    }).when(trackedPool).acquireDirect(false, Intention.FILE_FLUSH);
     final var poolField = WOWCache.class.getDeclaredField("bufferPool");
     poolField.setAccessible(true);
-    poolField.set(wowCache, trackedPool);
     dirtyPage(fileId, 0, FIRST_PAGE_LSN);
+    poolField.set(wowCache, trackedPool);
 
     final var doubleWriteLog = mock(DoubleWriteLog.class);
     when(doubleWriteLog.write(any(), any(), any())).thenReturn(true);
@@ -338,7 +348,8 @@ public class WOWCacheChunkBoundaryProtectionTest {
     assertThatThrownBy(() -> wowCache.executeFileFlush(ids))
         .isInstanceOf(StorageException.class)
         .hasMessageContaining("injected batch force failure");
-    verify(trackedPool).release(any());
+    assertThat(flushPointer.get()).isNotNull();
+    verify(trackedPool).release(same(flushPointer.get()));
     verify(doubleWriteLog, never()).truncate();
     assertThat(wowCache.getMinimalNotFlushedSegment()).isEqualTo(FIRST_PAGE_LSN.getSegment());
   }

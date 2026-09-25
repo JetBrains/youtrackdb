@@ -433,11 +433,24 @@ public final class AsyncFile implements File {
     }
   }
 
-  /** Releases a newly opened but unregistered file after its initial synchronization fails. */
+  /** Attempts to release a newly opened but unregistered file after creation fails. */
   public void closeAfterFailedCreate() throws IOException {
     lock.exclusiveLock();
     try {
-      doClose();
+      try {
+        doClose();
+      } catch (IOException | RuntimeException | Error firstFailure) {
+        // One bounded retry can release a channel after a transient close failure. Keep the
+        // original error even if retry succeeds, so creation cleanup never appears successful.
+        try {
+          doClose();
+        } catch (IOException | RuntimeException | Error retryFailure) {
+          if (retryFailure != firstFailure) {
+            firstFailure.addSuppressed(retryFailure);
+          }
+        }
+        throw firstFailure;
+      }
     } finally {
       lock.exclusiveUnlock();
     }
