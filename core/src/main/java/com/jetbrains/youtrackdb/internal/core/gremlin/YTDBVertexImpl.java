@@ -125,13 +125,23 @@ public final class YTDBVertexImpl extends YTDBElementImpl implements YTDBVertexI
 
     var session = tx.getDatabaseSession();
 
-    var edgeClass = session.getMetadata().getImmutableSchemaSnapshot().getClass(label);
+    var snapshot = session.getMetadata().getImmutableSchemaSnapshot();
+    // A null snapshot is rare, but the fallback must still see this transaction's schema.
+    var edgeClass =
+        snapshot != null ? snapshot.getClass(label) : session.getSchema().getClass(label);
     if (edgeClass == null) {
-      try (var copy = session.copy()) {
-        var schemaCopy = copy.getSchema();
-        var edgeCls = schemaCopy.getClass(
+      if (session.getTxSchemaState() != null) {
+        var schema = session.getSchema();
+        var edgeCls = schema.getClass(
             com.jetbrains.youtrackdb.internal.core.db.record.record.Edge.CLASS_NAME);
-        schemaCopy.getOrCreateClass(label, edgeCls);
+        schema.getOrCreateClass(label, edgeCls);
+      } else {
+        try (var copy = session.copy()) {
+          var schemaCopy = copy.getSchema();
+          var edgeCls = schemaCopy.getClass(
+              com.jetbrains.youtrackdb.internal.core.db.record.record.Edge.CLASS_NAME);
+          schemaCopy.getOrCreateClass(label, edgeCls);
+        }
       }
     }
 
