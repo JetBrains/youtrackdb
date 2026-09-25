@@ -302,7 +302,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
    * <p><b>Referrer accounting.</b> {@link MemoryFile#loadOrAddPage} bumps the returned
    * {@link CachePointer}'s readers-referrer count exactly once before publication and
    * before releasing the per-file {@code clearLock} read lock; no concurrent {@code clear()}
-   * / {@code deleteFile()} / {@code truncateFile()} can recycle the frame between
+   * or {@code deleteFile()} can recycle the frame between
    * publication and the increment. Callers must call
    * {@link CachePointer#decrementReadersReferrer()} when they are done with the pointer.
    *
@@ -332,7 +332,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
     // The MemoryFile primitive returns the entry with its CachePointer's readers-referrer
     // already incremented exactly once (and the increment ran under the per-file clearLock
-    // readLock so a concurrent clear()/deleteFile()/truncateFile() cannot recycle the frame
+    // readLock so a concurrent clear() or deleteFile() cannot recycle the frame
     // between publication and the increment). The caller owns a single readers reference
     // and must call decrementReadersReferrer() to release.
     final var cacheEntry = memoryFile.loadOrAddPage(pageIndex, this);
@@ -437,14 +437,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     } finally {
       metadataLock.unlock();
     }
-  }
-
-  @Override
-  public void truncateFile(final long fileId) {
-    final var intId = extractFileId(fileId);
-
-    final var file = getFile(intId);
-    file.clear();
   }
 
   /**
@@ -704,11 +696,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   @Override
   public long getExclusiveWriteCachePagesSize() {
     return 0;
-  }
-
-  @Override
-  public void truncateFile(final long fileId, final WriteCache writeCache) {
-    truncateFile(fileId);
   }
 
   /**

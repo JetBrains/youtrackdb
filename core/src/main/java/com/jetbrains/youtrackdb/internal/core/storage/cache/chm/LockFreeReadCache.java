@@ -663,22 +663,13 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public void truncateFile(long fileId, final WriteCache writeCache) throws IOException {
-    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
-
-    writeCache.truncateFile(fileId);
-    clearFile(fileId, writeCache);
-  }
-
-  @Override
   public void shrinkFile(long fileId, final long targetBytes, final WriteCache writeCache)
       throws IOException {
     fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
 
-    // Two-phase orchestration mirroring truncateFile (above) and deleteFile (below):
-    // write-back layer + AsyncFile first, then read-cache purge. The ordering matters
-    // because doLoad readers consult the writeCachePages dirty map; a stale dirty
-    // entry surviving past the shrink would let a periodic flush re-extend the file
+    // Shrink the write-back layer and AsyncFile first, then purge the read cache.
+    // This order matters because doLoad readers consult the writeCachePages dirty map.
+    // A stale dirty entry surviving past the shrink would let a periodic flush re-extend the file
     // past targetBytes. WriteCache.shrinkFile drops dirty entries at
     // pageIndex >= minPageIndex BEFORE the AsyncFile truncate, so by the time the
     // range-scoped clearFile call runs the write-back side is already settled.
@@ -866,8 +857,7 @@ public final class LockFreeReadCache implements ReadCache {
    * {@code pageIndex >= minPageIndex}; entries below the minimum survive (they belong to
    * file regions the truncate does NOT drop and must remain reachable for ongoing
    * readers). With {@code minPageIndex = 0} this is "remove every cache entry for this
-   * fileId" — the shape that {@code closeFile} / {@code deleteFile} /
-   * {@code truncateFile} use.
+   * fileId" — the shape that {@code closeFile} and {@code deleteFile} use.
    *
    * <p>Same evictionLock acquisition, current-thread read batch flush, and freeze /
    * onRemove / checkCacheOverflow loop in every case. Pinned-entry recovery follows
@@ -886,7 +876,7 @@ public final class LockFreeReadCache implements ReadCache {
    * a higher level so no client TX can race the bulk removal:
    *
    * <ul>
-   *   <li>{@code closeFile} / {@code deleteFile} / {@code truncateFile} hold the
+   *   <li>{@code closeFile} and {@code deleteFile} hold the
    *       storage's exclusive lock.</li>
    *   <li>{@code shrinkFile} is invoked only by the recovery-time orphan-truncation
    *       pass, which runs under {@code stateLock.writeLock()}.</li>

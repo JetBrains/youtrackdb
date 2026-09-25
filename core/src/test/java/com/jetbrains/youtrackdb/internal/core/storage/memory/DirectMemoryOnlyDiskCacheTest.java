@@ -455,7 +455,7 @@ public class DirectMemoryOnlyDiskCacheTest {
   }
 
   // ---------------------------------------------------------------------------
-  // File operations — rename / truncate / delete
+  // File operations — rename / delete
   // ---------------------------------------------------------------------------
 
   /**
@@ -483,35 +483,6 @@ public class DirectMemoryOnlyDiskCacheTest {
     var unknownId = AbstractWriteCache.composeFileId(STORAGE_ID, 9999);
     cache.renameFile(unknownId, "irrelevant.cf"); // must not throw
     assertFalse(cache.exists("irrelevant.cf"));
-  }
-
-  /**
-   * Verifies that {@code truncateFile(fileId)} clears all pages from the file, so
-   * {@code getFilledUpTo()} returns 0 after the truncation.
-   */
-  @Test
-  public void testTruncateFile() {
-    var fileId = cache.addFile("trunc.cf");
-    var pointer = cache.loadOrAdd(fileId, 0, false);
-    pointer.decrementReadersReferrer();
-    assertEquals(1L, cache.getFilledUpTo(fileId));
-
-    cache.truncateFile(fileId);
-    assertEquals(0L, cache.getFilledUpTo(fileId));
-  }
-
-  /**
-   * Verifies that {@code truncateFile(fileId, writeCache)} delegates to {@code truncateFile(fileId)}
-   * — it must behave identically.
-   */
-  @Test
-  public void testTruncateFileWithWriteCache() {
-    var fileId = cache.addFile("trunc2.cf");
-    var pointer = cache.loadOrAdd(fileId, 0, false);
-    pointer.decrementReadersReferrer();
-
-    cache.truncateFile(fileId, cache);
-    assertEquals(0L, cache.getFilledUpTo(fileId));
   }
 
   /**

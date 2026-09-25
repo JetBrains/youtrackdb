@@ -23,7 +23,7 @@ import org.junit.Test;
 
 /**
  * Tests for file-lifecycle methods of {@link LockFreeReadCache}:
- * {@code truncateFile()}, {@code closeFile()}, {@code deleteFile()},
+ * {@code closeFile()}, {@code deleteFile()}, {@code shrinkFile()},
  * {@code changeMaximumAmountOfMemory()}, and {@code silentLoadForRead()}.
  *
  * <p>These methods delegate to {@code clearFile()} internally and route to the WriteCache
@@ -123,43 +123,6 @@ public class LockFreeReadCacheFileOpsTest {
     Assert.assertEquals(
         "changeMaximumAmountOfMemory(larger) must not evict existing entries",
         usedBefore, readCache.getUsedMemory());
-
-    readCache.assertSize();
-    readCache.assertConsistency();
-  }
-
-  // ---- truncateFile ----
-
-  /**
-   * {@code truncateFile(fileId, writeCache)} must:
-   * <ol>
-   *   <li>Remove all cached pages for {@code fileId} from the read cache.</li>
-   *   <li>Leave cached pages for other file IDs untouched.</li>
-   *   <li>Invoke {@code writeCache.truncateFile(fileId)} exactly once.</li>
-   * </ol>
-   */
-  @Test
-  public void testTruncateFileEvictsCacheEntriesForTargetFile() throws IOException {
-    // Load 3 pages for file 0 and 2 pages for file 1.
-    for (int i = 0; i < 3; i++) {
-      readCache.releaseFromRead(readCache.loadForRead(0, i, writeCache, false));
-    }
-    for (int i = 0; i < 2; i++) {
-      readCache.releaseFromRead(readCache.loadForRead(1, i, writeCache, false));
-    }
-    Assert.assertEquals("sanity: 5 pages in cache", 5L * PAGE_SIZE, readCache.getUsedMemory());
-    Assert.assertEquals("sanity: truncateFile not called yet", 0, writeCache.truncateCount.get());
-
-    // Truncate file 0.
-    readCache.truncateFile(0, writeCache);
-
-    // File 0's 3 pages must be evicted; file 1's 2 pages must remain.
-    Assert.assertEquals(
-        "After truncateFile(0), only file 1's 2 pages must remain in cache",
-        2L * PAGE_SIZE, readCache.getUsedMemory());
-    Assert.assertEquals(
-        "truncateFile must invoke writeCache.truncateFile exactly once",
-        1, writeCache.truncateCount.get());
 
     readCache.assertSize();
     readCache.assertConsistency();
@@ -348,7 +311,7 @@ public class LockFreeReadCacheFileOpsTest {
 
   /**
    * {@code shrinkFile()} with {@code targetBytes = 0} drops every cached page for the target
-   * file — equivalent shape to {@code truncateFile} but exercised through the new orchestrator.
+   * file through the range-scoped cache purge.
    * Catches a regression where the range filter mishandles the {@code minPageIndex == 0} edge
    * case (which should match every page).
    */
@@ -652,7 +615,6 @@ public class LockFreeReadCacheFileOpsTest {
 
     private final ByteBufferPool byteBufferPool;
 
-    final AtomicInteger truncateCount = new AtomicInteger();
     final AtomicInteger closeFileCount = new AtomicInteger();
     final AtomicInteger deleteFileCount = new AtomicInteger();
     final AtomicInteger shrinkFileCount = new AtomicInteger();
@@ -755,11 +717,6 @@ public class LockFreeReadCacheFileOpsTest {
       // returns a fresh CachePointer for non-sentinel page indices. Future tests that
       // need to exercise the miss-vs-hit asymmetry must add their own tracker.
       return load(fileId, pageIndex, new ModifiableBoolean(), verifyChecksums);
-    }
-
-    @Override
-    public void truncateFile(final long fileId) {
-      truncateCount.incrementAndGet();
     }
 
     /**

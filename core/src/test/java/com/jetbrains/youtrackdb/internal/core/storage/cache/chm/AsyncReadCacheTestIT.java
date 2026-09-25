@@ -435,10 +435,6 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public void truncateFile(final long fileId) {
-    }
-
-    @Override
     public boolean shrinkFile(final long fileId, final long targetBytes) {
       // Mock not exercised by the recovery-time orphan-truncation pass; surfacing UOE
       // catches an accidental call from a future test that should use the production
