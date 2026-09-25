@@ -39,7 +39,7 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Appends a folded bare hop {@code fromAlias --dir(edgeLabel)--> targetAlias} (no edge filter — the
+   * Appends a folded bare hop {@code fromAlias --dir(edgeLabels)--> targetAlias} (no edge filter — the
    * folded case cannot carry one), registers the target under the generic {@code V} class, and re-pins
    * the boundary / RETURN to the target. Used by {@link VertexHopRecogniser} and {@link
    * CombinatorFoldedHopRecogniser}.
@@ -49,8 +49,8 @@ final class GremlinPatternAssembler {
       String fromAlias,
       String targetAlias,
       MatchPatternBuilder.Direction dir,
-      String edgeLabel) {
-    ctx.addEdge(fromAlias, targetAlias, dir, edgeLabel);
+      String[] edgeLabels) {
+    ctx.addEdge(fromAlias, targetAlias, dir, edgeLabels);
     ctx.addNode(targetAlias, WalkerContext.VERTEX_ROOT_CLASS);
     rePinBoundaryToTarget(ctx, targetAlias);
   }
@@ -71,7 +71,7 @@ final class GremlinPatternAssembler {
     var fromAlias = ctx.boundaryAlias();
     var targetAlias = ctx.nextAnonVertexAlias();
     appendFoldedHop(
-        ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.label());
+        ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.labels());
     if (!ctx.bindStepLabels(hop, targetAlias)) {
       return Outcome.DECLINE;
     }
@@ -79,7 +79,7 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Appends the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabel){as: edgeAlias, where:
+   * Appends the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabels){as: edgeAlias, where:
    * edgeFilter}--> edgeAlias --<closingVertexDir>V(){as: targetAlias}--> targetAlias}, registers the
    * target under the generic {@code V} class, and re-pins the boundary / RETURN to the target. Used by
    * {@link EdgeHopRecogniser}. The edge filter (if any) travels on the edge path item, so the predicate
@@ -91,11 +91,11 @@ final class GremlinPatternAssembler {
       String edgeAlias,
       String targetAlias,
       MatchPatternBuilder.Direction edgeDir,
-      String edgeLabel,
+      String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       SQLWhereClause edgeFilter) {
     ctx.addEdgeAsNode(
-        fromAlias, edgeAlias, targetAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+        fromAlias, edgeAlias, targetAlias, edgeDir, edgeLabels, closingVertexDir, edgeFilter);
     ctx.addNode(targetAlias, WalkerContext.VERTEX_ROOT_CLASS);
     rePinBoundaryToTarget(ctx, targetAlias);
   }
@@ -118,15 +118,14 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStepContract}, applying one rule
-   * shared by the bare hop ({@link VertexHopRecogniser}), the combinator fold artifact ({@link
-   * CombinatorFoldedHopRecogniser}), and the edge-filter chain ({@link EdgeHopRecogniser}): a single
-   * named label translates; a multi-label hop or a blank single label
-   * declines; a label-less hop (all edge types) translates unless the traversal opts into {@code
-   * EdgeLabelVerificationStrategy} (read from {@link RecognitionContext#edgeLabelVerificationEnabled()},
-   * resolved once by the walker). Centralising the rule keeps the two hop kinds from drifting. A
-   * translatable label-less hop yields a {@code null} label, which the builders render as the all-types
-   * {@code out('E')} / bare {@code outE()} form.
+   * Resolves the edge-label arity of a hop's {@link VertexStepContract}, applying one rule shared by
+   * the bare hop ({@link VertexHopRecogniser}), the combinator fold artifact ({@link
+   * CombinatorFoldedHopRecogniser}), and the edge-filter chain ({@link EdgeHopRecogniser}): one or more
+   * non-blank named labels translate; a blank single label declines; a label-less hop (all edge types)
+   * translates unless the traversal opts into {@code EdgeLabelVerificationStrategy} (read from
+   * {@link RecognitionContext#edgeLabelVerificationEnabled()}, resolved once by the walker). A
+   * translatable label-less hop yields a {@code null} labels array, which the builders render as the
+   * all-types {@code out('E')} / bare {@code outE()} form.
    *
    * <p>The {@code EdgeLabelVerificationStrategy} carve-out preserves transparency: that opt-in strategy
    * exists to reject a label-less hop, so translating one into a boundary step would remove it before
@@ -135,24 +134,20 @@ final class GremlinPatternAssembler {
    */
   static EdgeLabelArity resolveEdgeLabel(VertexStepContract<?> step, RecognitionContext ctx) {
     var labels = step.getEdgeLabels();
-    if (labels.length > 1) {
-      // Multi-label edge traversal is out of scope for Phase 1: addEdge / the edge-as-node builder
-      // carry a single edge label, with no multi-label / IN-list slot.
-      return EdgeLabelArity.DECLINE;
-    }
-    if (labels.length == 1) {
-      var label = labels[0];
-      if (label == null || label.isBlank()) {
-        // A single blank label (out("")) is degenerate — decline rather than collapse it to the
-        // all-types form.
-        return EdgeLabelArity.DECLINE;
+    if (labels.length >= 1) {
+      for (var label : labels) {
+        if (label == null || label.isBlank()) {
+          // A blank label (out("") or out("knows", "")) is degenerate — decline rather than collapse
+          // it to the all-types form or drop the blank slot.
+          return EdgeLabelArity.DECLINE;
+        }
       }
-      return new EdgeLabelArity(true, label);
+      return new EdgeLabelArity(true, labels.clone());
     }
     // Label-less (length 0): all edge types. Decline when the traversal opts into
     // EdgeLabelVerificationStrategy — translating the hop away would suppress the label-less error that
-    // strategy must raise (see the Javadoc). Otherwise translate: a null label the builders render as
-    // the all-types out('E') / bare outE() form.
+    // strategy must raise (see the Javadoc). Otherwise translate: a null labels array the builders
+    // render as the all-types out('E') / bare outE() form.
     if (ctx.edgeLabelVerificationEnabled()) {
       return EdgeLabelArity.DECLINE;
     }
@@ -160,13 +155,14 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Outcome of {@link #resolveEdgeLabel}: whether the hop translates and, if so, its single edge label
-   * ({@code null} for a label-less all-types hop). A declined result carries a {@code null} label that
-   * callers must not read — they return their own decline first.
+   * Outcome of {@link #resolveEdgeLabel}: whether the hop translates and, if so, its edge labels
+   * ({@code null} for a label-less all-types hop; otherwise one or more non-blank labels). A declined
+   * result carries a {@code null} labels array that callers must not read — they return their own
+   * decline first.
    */
-  record EdgeLabelArity(boolean translatable, String label) {
+  record EdgeLabelArity(boolean translatable, String[] labels) {
 
-    /** The shared decline result: a multi-label hop or a blank single label. */
+    /** The shared decline result: a blank label slot or an EdgeLabelVerification block. */
     static final EdgeLabelArity DECLINE = new EdgeLabelArity(false, null);
   }
 

@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import java.util.List;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Immutable bundle of the boundary row-projection shaping flags plus the ordered list-shaping
@@ -33,6 +34,9 @@ import javax.annotation.Nonnull;
  * @param recordIdMapKeys map emit keys that must stay a {@code RID} rather than wrap as a vertex —
  *     {@code select(label).by(T.id)} columns, beside {@code elementMap}'s {@code id} under
  *     {@code T.id}
+ * @param edgeMapKeys map emit keys that wrap a bare {@code RID} as a TinkerPop {@code Edge} —
+ *     multi-label {@code select} over an edge {@code as(...)} alias (MATCH normalizes edge cells
+ *     to RIDs; without this flag they become vertices)
  * @param wrapMapValuesInLists wrap {@code valueMap} property values in singleton lists (native
  *     TinkerPop {@code valueMap} shape; {@code elementMap} leaves them unwrapped)
  * @param accumulateMap drain every GROUP BY row into one accumulated map and emit a single
@@ -41,10 +45,15 @@ import javax.annotation.Nonnull;
  *     one-entry map (native {@code SelectOneStep} shape)
  * @param elementMapTokens emit {@code elementMap} id / label columns under TinkerPop {@code T.id} /
  *     {@code T.label} keys rather than plain strings
- * @param listShapingOps ordered list-shaping stream stages ({@code fold} / {@code unfold} / {@code
- *     reverse} / {@code tail}) applied to the projected payload stream in declared order; empty when
- *     the traversal has no list-shaping terminator, in which case the boundary base bypasses the
- *     stage entirely (see {@link ListShapingOp} and {@link AbstractMatchPlanStep})
+ * @param emitGroupEntries when true (and {@code accumulateMap} is false), project each GROUP BY row
+ *     as a {@code Map.Entry} — native {@code groupCount().unfold()} / post-group order+limit
+ * @param rowDedupAlias when non-null, keep the first MATCH row per distinct identity of that RETURN
+ *     column before projection — native prior-label {@code dedup(a)} (unique by {@code a}, emit
+ *     the current boundary element)
+ * @param listShapingOps ordered list-shaping stream stages ({@code fold} / {@code unfold} /
+ *     {@code reverse} / {@code tail}) applied to the projected payload stream in declared order;
+ *     empty when the traversal has no list-shaping terminator, in which case the boundary base
+ *     bypasses the stage entirely (see {@link ListShapingOp} and {@link AbstractMatchPlanStep})
  */
 public record ResultShaping(
     boolean dropNullRows,
@@ -53,10 +62,13 @@ public record ResultShaping(
     @Nonnull List<AliasPropertyPresence> aliasPropertyPresences,
     @Nonnull List<String> mapEmitColumnOrder,
     @Nonnull List<String> recordIdMapKeys,
+    @Nonnull List<String> edgeMapKeys,
     boolean wrapMapValuesInLists,
     boolean accumulateMap,
     boolean unwrapSingletonMap,
     boolean elementMapTokens,
+    boolean emitGroupEntries,
+    @Nullable String rowDedupAlias,
     @Nonnull List<ListShapingOp> listShapingOps) {
 
   /**
@@ -71,10 +83,13 @@ public record ResultShaping(
           List.of(),
           List.of(),
           List.of(),
+          List.of(),
           false,
           false,
           false,
           false,
+          false,
+          null,
           List.of());
 
   /**
@@ -91,6 +106,7 @@ public record ResultShaping(
     aliasPropertyPresences = List.copyOf(aliasPropertyPresences);
     mapEmitColumnOrder = List.copyOf(mapEmitColumnOrder);
     recordIdMapKeys = List.copyOf(recordIdMapKeys);
+    edgeMapKeys = List.copyOf(edgeMapKeys);
     listShapingOps = List.copyOf(listShapingOps);
   }
 
@@ -103,10 +119,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -119,10 +138,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -135,10 +157,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -152,10 +177,13 @@ public record ResultShaping(
         presences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -171,10 +199,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         columns,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -190,10 +221,35 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         keys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code edgeMapKeys} replaced by {@code keys} — select labels whose RID cells
+   * must wrap as edges.
+   */
+  public ResultShaping withEdgeMapKeys(@Nonnull List<String> keys) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        keys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -206,10 +262,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         value,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -222,10 +281,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         value,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -238,10 +300,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         value,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         listShapingOps);
   }
 
@@ -254,10 +319,57 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         value,
+        emitGroupEntries,
+        rowDedupAlias,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code emitGroupEntries} set — each GROUP BY row becomes a {@code Map.Entry}
+   * (native {@code groupCount().unfold()}). Clears {@code accumulateMap} when enabling.
+   */
+  public ResultShaping withEmitGroupEntries(boolean value) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        edgeMapKeys,
+        wrapMapValuesInLists,
+        value ? false : accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        value,
+        rowDedupAlias,
+        listShapingOps);
+  }
+
+  /**
+   * This shaping with {@code rowDedupAlias} set to {@code alias} — first row per identity of that
+   * RETURN column, then project the boundary element (prior-label {@code dedup(a)}).
+   */
+  public ResultShaping withRowDedupAlias(@Nullable String alias) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        edgeMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        emitGroupEntries,
+        alias,
         listShapingOps);
   }
 
@@ -273,10 +385,13 @@ public record ResultShaping(
         aliasPropertyPresences,
         mapEmitColumnOrder,
         recordIdMapKeys,
+        edgeMapKeys,
         wrapMapValuesInLists,
         accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        emitGroupEntries,
+        rowDedupAlias,
         ops);
   }
 }

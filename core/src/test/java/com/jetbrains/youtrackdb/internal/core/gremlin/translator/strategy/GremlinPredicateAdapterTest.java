@@ -39,7 +39,7 @@ import org.junit.Test;
  * (returns {@code null}) everything it cannot faithfully reproduce so the recogniser falls the whole
  * traversal back to the native pipeline. Each test names the predicate it drives and the expected
  * outcome (an AST shape, or a decline), with special attention to the absent-property guard,
- * the NULL comparand rewrites, and the singleton-collection decline.
+ * the NULL comparand rewrites, and singleton-collection normalization.
  */
 public class GremlinPredicateAdapterTest {
 
@@ -198,47 +198,100 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * {@code has("age", P.eq([30]))} — a size-1 collection under {@code eq} — declines. {@code
-   * QueryOperatorEquals} auto-unboxes a singleton against a scalar, and field cardinality is unknown
-   * at translation time, so a translated {@code age = [30]} could diverge from native. Declining
-   * falls the traversal back to the native pipeline.
+   * {@code has("age", P.eq([30]))} — a size-1 collection under {@code eq} — normalizes to scalar
+   * {@code age = 30}, mirroring native {@code QueryOperatorEquals} singleton auto-unbox.
    */
   @Test
-  public void eqSingletonCollection_declines() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("age", P.eq(List.of(30)))))
-        .as("a size-1 collection under eq declines under the singleton-collection rule")
-        .isNull();
+  public void eqSingletonCollection_normalizesToScalarEq() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.eq(List.of(30))));
+    assertThat(expr)
+        .as("a size-1 collection under eq normalizes to scalar equality")
+        .isInstanceOf(SQLBinaryCondition.class);
   }
 
-  /** {@code has("age", P.neq([30]))} — a size-1 collection under {@code neq} — declines, symmetric to eq. */
+  /**
+   * {@code has("age", P.neq([30]))} — a size-1 collection under {@code neq} — normalizes to scalar
+   * {@code age <> 30}, symmetric to eq.
+   */
   @Test
-  public void neqSingletonCollection_declines() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("age", P.neq(List.of(30)))))
-        .as("a size-1 collection under neq declines under the singleton-collection rule")
-        .isNull();
+  public void neqSingletonCollection_normalizesToScalarNeq() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.neq(List.of(30))));
+    assertThat(expr)
+        .as("a size-1 collection under neq normalizes to presence-guarded scalar inequality")
+        .isNotNull()
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock.class);
   }
 
   /**
    * {@code has("age", P.eq([30, 40]))} — a size-2 collection — translates (the singleton
-   * auto-unbox ambiguity does not apply for size ≥2), so only size-1 declines.
+   * auto-unbox ambiguity does not apply for size ≥2), so only size-1 on single-valued fields
+   * normalizes.
    */
   @Test
   public void eqMultiElementCollection_translates() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(List.of(30, 40))));
-    assertThat(expr).as("a size-2 collection under eq translates (not the singleton-decline case)")
+    assertThat(expr).as("a size-2 collection under eq translates (not the singleton-unwrap case)")
         .isInstanceOf(SQLBinaryCondition.class);
   }
 
-  /** {@code has("age", P.eq([]))} — an empty collection — translates (only the size-1 case declines). */
+  /** {@code has("age", P.eq([]))} — an empty collection — translates (only size-1 on scalars unwraps). */
   @Test
   public void eqEmptyCollection_translates() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(List.of())));
-    assertThat(expr).as("an empty collection under eq translates (not the singleton-decline case)")
+    assertThat(expr).as("an empty collection under eq translates (not the singleton-unwrap case)")
         .isInstanceOf(SQLBinaryCondition.class);
+  }
+
+  /**
+   * Size-1 {@code eq([x])} against a schema gate that declares the key as {@code EMBEDDEDLIST}
+   * keeps the collection literal — unwrapping would diverge on nested singletons.
+   */
+  @Test
+  public void eqSingletonCollection_onEmbeddedList_keepsCollectionLiteral() {
+    GremlinPredicateAdapter.PropertyTypeGate listGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "tags".equals(key) && typeNames.contains("EMBEDDEDLIST");
+          }
+        };
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("tags", P.eq(List.of("x"))), listGate);
+    assertThat(expr)
+        .as("EMBEDDEDLIST size-1 eq must translate, not decline")
+        .isInstanceOf(SQLBinaryCondition.class);
+    assertThat(capturedBinds(new HasContainer("tags", P.eq(List.of("x"))), listGate, false))
+        .as("comparand must stay a one-element collection, not the unwrapped scalar")
+        .containsExactly(List.of("x"));
+  }
+
+  /** Symmetric {@code neq([x])} on {@code EMBEDDEDLIST} also keeps the collection. */
+  @Test
+  public void neqSingletonCollection_onEmbeddedList_keepsCollectionLiteral() {
+    GremlinPredicateAdapter.PropertyTypeGate listGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "tags".equals(key) && typeNames.contains("EMBEDDEDLIST");
+          }
+        };
+    assertThat(capturedBinds(new HasContainer("tags", P.neq(List.of("x"))), listGate, false))
+        .as("neq on EMBEDDEDLIST must bind the collection comparand")
+        .containsExactly(List.of("x"));
   }
 
   /**
@@ -954,7 +1007,7 @@ public class GremlinPredicateAdapterTest {
         new Case("notRegex", new HasContainer("name", TextP.notRegex("r")), unknown),
         new Case("and", new HasContainer("age", P.gt(1).and(P.lt(5))), unknown),
         new Case("not eq", new HasContainer("age", P.not(P.eq(1))), unknown),
-        new Case("singleton eq decline", new HasContainer("age", P.eq(List.of(30))), unknown));
+        new Case("singleton eq normalize", new HasContainer("age", P.eq(List.of(30))), unknown));
     for (var c : cases) {
       assertThat(capturedBinds(c.container(), c.gate(), /* viaFilter= */ false))
           .as(c.name())

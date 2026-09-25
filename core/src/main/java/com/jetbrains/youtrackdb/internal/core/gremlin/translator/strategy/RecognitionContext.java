@@ -223,6 +223,20 @@ interface RecognitionContext extends ParamSink {
    */
   boolean isVertexClass(String className);
 
+  /**
+   * Expands each root label to itself plus every declared vertex subclass, for polymorphic
+   * {@code hasLabel(L1, L2, …)} where a leaf-exact {@code @class IN [L1, L2]} would under-match
+   * native hierarchy-aware {@code hasLabel}.
+   */
+  List<String> expandPolymorphicClassClosure(List<String> rootLabels);
+
+  /**
+   * Declared property names on {@link #boundaryClassName()}, in stable sorted order, excluding
+   * reserved {@code has} keys. Empty when the boundary is still the generic {@code V} root, the class
+   * is unknown, or no schema snapshot is available.
+   */
+  List<String> boundaryDeclaredPropertyKeys();
+
   // --- Alias minting ----------------------------------------------------------------------------
 
   /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). */
@@ -236,13 +250,13 @@ interface RecognitionContext extends ParamSink {
   /** Registers a pattern node under {@code alias} rooted at {@code className}, non-optional. */
   void addNode(String alias, String className);
 
-  /** Registers an unfiltered edge {@code fromAlias --dir(edgeLabel)--> toAlias} on the pattern. */
+  /** Registers an unfiltered edge {@code fromAlias --dir(edgeLabels)--> toAlias} on the pattern. */
   void addEdge(
       String fromAlias, String toAlias, MatchPatternBuilder.Direction dir,
-      @Nullable String edgeLabel);
+      @Nullable String[] edgeLabels);
 
   /**
-   * Registers the edge-as-node form {@code fromAlias --edgeDir E(edgeLabel){edgeFilter}--> edgeAlias
+   * Registers the edge-as-node form {@code fromAlias --edgeDir E(edgeLabels){edgeFilter}--> edgeAlias
    * --closingVertexDir V()--> toAlias}, the only IR shape that can filter an edge rather than the
    * target vertex.
    */
@@ -251,7 +265,7 @@ interface RecognitionContext extends ParamSink {
       String edgeAlias,
       String toAlias,
       MatchPatternBuilder.Direction edgeDir,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       MatchPatternBuilder.Direction closingVertexDir,
       @Nullable SQLWhereClause edgeFilter);
 
@@ -327,6 +341,35 @@ interface RecognitionContext extends ParamSink {
    */
   @Nullable String resolveUserLabel(String userLabel);
 
+  /**
+   * Records that the just-accepted modulated {@code select} emits {@code userLabel} as the given
+   * typed map cell. A trailing overlapping {@code select(userLabel)} reads this instead of {@link
+   * #resolveUserLabel}.
+   */
+  void putEmitDescriptor(String userLabel, EmittedColumnDescriptor descriptor);
+
+  /**
+   * The emit descriptor registered for {@code userLabel}, or {@code null} when the label still
+   * names a path/{@code as} binding only.
+   */
+  @Nullable EmittedColumnDescriptor emitDescriptor(String userLabel);
+
+  /**
+   * Drops every emit descriptor. {@link #pinBoundary} clears automatically when the stream element
+   * type changes; modulated select re-registers after pinning.
+   */
+  void clearEmitDescriptors();
+
+  /**
+   * Records that {@code internalAlias} names an edge-as-node pattern alias (bound by {@code
+   * outE.as(...)} / edge-segment {@code has.as(...)}). Used by {@code select(edgeLabel)} to emit
+   * {@link org.apache.tinkerpop.gremlin.structure.Edge} payloads.
+   */
+  void markEdgeAlias(String internalAlias);
+
+  /** Whether {@code internalAlias} was registered via {@link #markEdgeAlias}. */
+  boolean isEdgeAlias(String internalAlias);
+
   /** Clears the three parallel RETURN lists before a terminator replaces the projection. */
   void clearReturnProjection();
 
@@ -378,8 +421,9 @@ interface RecognitionContext extends ParamSink {
 
   /**
    * Whether a following slice may sit behind the captured {@code ORDER BY}: the current boundary is
-   * still the alias the sort was captured on. Equal-key ties follow MATCH {@code OrderByStep}
-   * (implementation-defined, as in YQL {@code ORDER BY} + {@code LIMIT}). A hop between
+   * still the alias the sort was captured on. On element streams, equal primary keys are
+   * total-ordered by the RID secondary key from {@code YTDBOrderRidTieBreakStrategy}, so
+   * translator-on and translator-off agree on which tied rows a cut keeps. A hop between
    * {@code order()} and the slice still declines. See {@link RangeGlobalStepRecogniser}.
    */
   boolean orderAllowsSliceOnCurrentBoundary();
@@ -407,12 +451,13 @@ interface RecognitionContext extends ParamSink {
   @Nullable SQLSkip skip();
 
   /**
-   * Whether the walk already captured a statement-level cardinality clause — {@code SKIP},
-   * {@code LIMIT}, or {@code RETURN DISTINCT}. Select after such a clause must not contribute
-   * pattern {@code IS DEFINED} filters that would run before the cut.
+   * Whether a statement-level cardinality clause is already captured ({@link #limit()},
+   * {@link #skip()}, {@link #returnDistinct()}, or {@link #rowDedupAlias()}). A following
+   * {@code select().by(key)} uses this to choose post-plan presence ({@code ResultShaping}) instead
+   * of {@code key IS DEFINED} in the pattern, so MATCH does not filter before the cut.
    */
   default boolean cardinalityClauseCaptured() {
-    return limit() != null || skip() != null || returnDistinct();
+    return limit() != null || skip() != null || returnDistinct() || rowDedupAlias() != null;
   }
 
   /**
@@ -433,6 +478,20 @@ interface RecognitionContext extends ParamSink {
    * duplicates. See {@link #limit()} / {@link #skip()} for the same pre-aggregate hazard.
    */
   boolean returnDistinct();
+
+  /**
+   * When non-null, the walk keeps the first MATCH row per identity of this RETURN column before
+   * projecting the boundary element — prior-label {@code dedup(a)}. Arms the same post-capture
+   * gate as {@link #returnDistinct()} so a following hop cannot land on the wrong side of the
+   * filter.
+   */
+  @Nullable String rowDedupAlias();
+
+  /**
+   * Pins {@link #rowDedupAlias()} without replacing the rest of the shaping (flags and list-shaping
+   * ops stay). See {@link ResultShaping#withRowDedupAlias}.
+   */
+  void setRowDedupAlias(@Nullable String alias);
 
   /**
    * Pins the boundary row-projection shaping — the seven flags plus the ordered list-shaping ops
@@ -466,6 +525,19 @@ interface RecognitionContext extends ParamSink {
    * the append.
    */
   void setResultShaping(@Nonnull ResultShaping shaping);
+
+  /**
+   * Whether each GROUP BY row is emitted as a {@code Map.Entry} ({@code groupCount().unfold()} /
+   * post-group order+limit). When true, statement-level {@code ORDER BY}/{@code LIMIT} apply to
+   * those rows rather than to a folded map.
+   */
+  boolean emitGroupEntries();
+
+  /**
+   * Switches a folded {@code group}/{@code groupCount} shaping to per-row {@code Map.Entry} emit
+   * (clears {@code accumulateMap}). Used when {@code unfold()} follows a grouping terminator.
+   */
+  void enableGroupEntryEmit();
 
   /**
    * Whether the shaping pinned so far drops rows whose entity lacks a projected property — the
@@ -577,8 +649,8 @@ interface RecognitionContext extends ParamSink {
 
   /**
    * Whether {@link UnionStepRecogniser} has stashed a multi-plan carrier on this walk. Post-union
-   * barriers ({@code count}/{@code limit}/{@code dedup}) branch on this instead of mutating a
-   * single-plan {@code MatchPlanInputs}.
+   * barriers ({@code count}/{@code limit}/{@code dedup}/{@code order}) branch on this instead of
+   * mutating a single-plan {@code MatchPlanInputs}.
    */
   default boolean hasUnionCarrier() {
     return false;

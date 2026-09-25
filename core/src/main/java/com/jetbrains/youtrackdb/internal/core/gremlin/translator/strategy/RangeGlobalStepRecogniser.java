@@ -61,12 +61,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <h2>A slice behind a captured {@code ORDER BY}</h2>
  *
- * A slice selects rows by position. MATCH {@code ORDER BY} leaves equal-key ties
- * implementation-defined (heap / scan order) — the same contract YQL {@code ORDER BY} +
- * {@code LIMIT} already ships. Gremlin {@code order()} is stable relative to traverser arrival,
- * which the language does not pin for graph steps, so portable Gremlin also leaves which tied
- * entity survives a cut unspecified. This recogniser therefore accepts a real slice behind
- * {@code order()} when:
+ * A slice selects rows by position. On element streams,
+ * {@link com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy}
+ * appends a RID secondary key before translation, so equal primary keys become a total order on
+ * both the MATCH arm and the native arm — translator-on and translator-off keep the same members
+ * of a tie group. This recogniser accepts a real slice behind {@code order()} when:
  *
  * <ol>
  *   <li>The boundary at slice time is still the alias the {@code ORDER BY} was captured on. A hop
@@ -77,13 +76,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * </ol>
  *
  * <p>Foreign-alias sort keys (e.g. {@code order().by(select("reply").by("creationDate"))}) and
- * multi-alias {@code select} after the slice are accepted. Equal-key ties — including rows that
- * differ only on a non-sort-key alias — follow MATCH {@code OrderByStep} (implementation-defined,
- * as in YQL {@code ORDER BY} + {@code LIMIT} and as non-unique single-alias ordered slices).
+ * multi-alias {@code select} after the slice are accepted under the same RID total order when the
+ * stream is still elements.
  *
- * <p>UNIQUE indexes are not required. Accepting non-unique keys matches YQL and unlocks LDBC-style
- * {@code order().by(firstName).range(...)} as a MATCH top-N plan. Translator-on and translator-off
- * may keep different members of a tie group; that is accepted, as it is for SQL.
+ * <p>UNIQUE indexes are not required. Accepting non-unique keys unlocks LDBC-style
+ * {@code order().by(firstName).range(...)} as a MATCH top-N plan; the RID key pins which tied
+ * rows survive the cut.
  *
  * <p>The bill recovered is resident memory and CPU: translated, {@code OrderByStep} keeps a
  * min-heap of {@code skip + limit}; natively {@code OrderGlobalStep} drains the whole input because
@@ -142,12 +140,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * has()} keeps index-backed access either way, since {@code YTDBGraphStepStrategy} folds it into
  * {@code YTDBGraphStep}, so the loss is confined to non-leading filters and wide unions.
  *
- * <p>Post-concat {@code order()} is the exit, not a wider accept surface: a slice after a total
- * sort picks the same rows whichever order the arms arrived in, so {@code
- * union(...).order().by(k).limit(n)} becomes translatable once post-concat sort exists, with a
- * unique key or an explicit tie-break to pin the ties. Trimming the decline to recover compile
- * coverage in the meantime would re-admit shapes whose answer depends on arrival order, which is
- * the defect this gate exists to close.
+ * <p>Post-concat {@code order()} already sorts the concatenated multiset in memory, but a real
+ * post-union slice still declines unless the next step is {@code count()}. {@code
+ * union(...).order().by(k).limit(n)} stays declined until this gate accepts a slice after a total
+ * sort (unique key or an explicit tie-break to pin ties). Widening the accept surface earlier would
+ * re-admit shapes whose answer depends on arrival order — the defect this gate exists to close.
  */
 final class RangeGlobalStepRecogniser implements StepRecogniser {
 
@@ -186,16 +183,17 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
       return Outcome.ACCEPTED;
     }
     // A real slice behind a captured ORDER BY is accepted when the boundary at slice time is still
-    // the alias the ORDER BY was captured on — see the class Javadoc. Equal-key ties are
-    // implementation-defined (YQL-equivalent). Hop-then-slice declines via
+    // the alias the ORDER BY was captured on — see the class Javadoc. Element-stream equal-key
+    // ties are total-ordered by the appended RID key. Hop-then-slice declines via
     // orderAllowsSliceOnCurrentBoundary(); foreign-alias sort keys and multi-alias RETURN do not.
     if (ctx.orderBy() != null && !ctx.orderAllowsSliceOnCurrentBoundary()) {
       return Outcome.DECLINE;
     }
     // A real slice behind a grouping terminator would slice the GROUP BY rows instead of the single
     // map the terminator emits — see the class Javadoc's "A slice behind a grouping terminator".
-    // Same placement rationale as the two guards above.
-    if (ctx.groupBy() != null) {
+    // Exception: emitGroupEntries (groupCount().unfold()) — LIMIT applies to entry rows, matching
+    // native.
+    if (ctx.groupBy() != null && !ctx.emitGroupEntries()) {
       return Outcome.DECLINE;
     }
     // Promotion mutates the context (writes alias filters), so it sits after every remaining

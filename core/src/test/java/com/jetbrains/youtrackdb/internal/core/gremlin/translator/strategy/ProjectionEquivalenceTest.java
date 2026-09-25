@@ -26,6 +26,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.WithOptions;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
@@ -79,6 +80,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().values(foo)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("foo"));
+  }
+
+  /** Multi-key {@code values(k1, k2)} flat-maps property values in key order. */
+  @Test
+  public void values_multiKey_flatMapsInOrder() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "Carol");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().values(name, age)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().values("name", "age"));
   }
 
   /**
@@ -912,12 +927,11 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code dedup()} after {@code values(k)} declines to native: a RETURN DISTINCT over the boundary
-   * presence column deduped on (entity, value) and the unique entity defeated it. Native dedups the
-   * projected names; the payloads must match.
+   * {@code dedup()} after {@code values(k)} collapses duplicate scalars after projection — native
+   * dedups the projected names; MATCH cannot express that with {@code RETURN DISTINCT} alone.
    */
   @Test
-  public void valuesDedup_declinesToNative() {
+  public void valuesDedup_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
@@ -925,20 +939,20 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().values(name).dedup()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("name").dedup());
   }
 
-  /** {@code valueMap(k).dedup()} likewise declines to native (map output type, not ELEMENT). */
+  /** {@code valueMap(k).dedup()} collapses duplicate maps after projection. */
   @Test
-  public void valueMapDedup_declinesToNative() {
+  public void valueMapDedup_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.tx().commit();
 
     assertEquivalent(
         "g.V().valueMap(name).dedup()",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().valueMap("name").dedup());
   }
 
@@ -1134,73 +1148,39 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice behind {@code order().by(k)} on the same boundary translates. MATCH's
-   * {@code ORDER BY} on a repeated key is a partial order, so a bound cutting inside a tie group
-   * keeps some member of that group. Three of the four vertices here share the name {@code Tie},
-   * so {@code LIMIT 2} cuts inside that group.
-   *
-   * <p>Asserted: the translator engages one boundary step, the cut returns exactly the limit, and
-   * every returned row belongs to the tied group. Deliberately not asserted: which two members
-   * survive, and their relative order. Tie-member choice under a cut is implementation-defined
-   * here, and ordering inside an equal-key group is a separate contract.
-   *
-   * <p>This test previously required a decline, and the measured divergence it cited was
-   * {@code [t1, t2]} against native's {@code [t2, t1]}. That expectation came from the pre-rebase
-   * unconditional decline in {@code RangeGlobalStepRecogniser}, which the ordered-slice work
-   * replaced with a conditional accept through
-   * {@code WalkerContext.orderAllowsSliceOnCurrentBoundary}. The contract below is the one the
-   * shipped code commits to. Where the same cut falls behind a hop it still declines, and that
-   * case lives in {@code OrderRangeStepRecogniserTest}.
+   * A real slice behind {@code order().by(k)} on the same boundary translates. Three of the four
+   * vertices share the name {@code Tie}, so {@code LIMIT 2} cuts inside that tie group.
+   * {@code YTDBOrderRidTieBreakStrategy} appends a RID secondary key on both arms, so which two
+   * Ties survive is the RID-ordered prefix — not implementation-defined. Sibling with a hop before
+   * the bound:
+   * {@link OrderRidTieBreakEquivalenceTest#duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix}.
+   * A hop between {@code order()} and the slice still declines ({@code OrderRangeStepRecogniserTest}).
    */
   @Test
-  public void orderThenLimit_translatesAndKeepsLimitManyFromTiedGroup() {
-    // Zzz is inserted first on purpose. It sorts last, so a plan that ignored the sort and kept
-    // the first two rows it saw would return z and fail the membership assertion. Inserting it
-    // last would let an unordered plan pass.
+  public void orderThenLimit_translatesAndKeepsRidOrderedPrefixOfTiedGroup() {
+    // Zzz is inserted first on purpose. It sorts last by name, so a plan that ignored the sort and
+    // kept the first two rows it saw would return z and fail the RID-prefix pin.
     graph.addVertex(T.label, "Person", "name", "Zzz", "tag", "z");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t3");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t1");
     graph.addVertex(T.label, "Person", "name", "Tie", "tag", "t2");
     graph.tx().commit();
 
-    // Fixture precondition: the bound is load-bearing only if the sort key ties across it. If
-    // positions 1 and 2 of native's ordered answer carried different names, ORDER BY alone would
-    // decide which rows LIMIT 2 keeps and the membership assertion would guard nothing.
-    var nativeKeys = nativeOrderedNames();
-    assertThat(nativeKeys)
-        .as("the fixture must supply at least three rows for the LIMIT 2 boundary to sit inside")
-        .hasSizeGreaterThan(2);
-    assertThat(nativeKeys.get(1))
-        .as("the fixture must tie the sort key across the LIMIT 2 boundary")
-        .isEqualTo(nativeKeys.get(2));
+    var tiedInRidOrder = tagsInIdentifierOrder().stream()
+        .filter(tag -> !tag.equals("z"))
+        .toList();
+    assertThat(tiedInRidOrder)
+        .as("the fixture must supply three tied rows so LIMIT 2 cuts inside the group")
+        .hasSize(3);
+    var expectedPrefix = tiedInRidOrder.subList(0, 2);
 
-    var tiedGroupTags = List.of("t1", "t2", "t3");
-    withTranslatorOn(
-        () -> {
-          var admin = graph.traversal().V().order().by("name").limit(2).values("tag").asAdmin();
-          admin.applyStrategies();
-          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin.getSteps()))
-              .as("g.V().order().by(name).limit(2).values(tag) must translate — "
-                  + "exactly one boundary step")
-              .isEqualTo(1);
-          var rows = admin.toList().stream().map(String::valueOf).toList();
-          assertThat(rows)
-              .as("the cut must keep exactly the limit, and only rows of the tied group")
-              .hasSize(2)
-              .isSubsetOf(tiedGroupTags);
-        });
-  }
-
-  /** Native's ordered name sequence, read translator-off so the sort is Gremlin's own stable one. */
-  private List<String> nativeOrderedNames() {
-    var names = new ArrayList<String>();
-    withTranslatorOff(
-        () -> {
-          var admin = graph.traversal().V().order().by("name").values("name").asAdmin();
-          admin.applyStrategies();
-          admin.toList().stream().map(String::valueOf).forEach(names::add);
-        });
-    return names;
+    assertEquivalentOrdered(
+        "g.V().order().by(name).limit(2).values(tag)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().order().by("name").limit(2).values("tag"));
+    assertThat(graph.traversal().V().order().by("name").limit(2).values("tag").toList())
+        .as("a bound cutting inside a name tie keeps the RID-ordered prefix of that group")
+        .isEqualTo(expectedPrefix);
   }
 
   /** {@code dedup()} matches native vertex multiset. */
@@ -1234,10 +1214,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().as("v").dedup("v"));
   }
 
-  /**
-   * {@code dedup().by("name")} declines to native — MATCH cannot DISTINCT-ON a property while
-   * still emitting the current element.
-   */
+  /** {@code dedup().by("name")} declines — survivor identity is MATCH-order-dependent vs native. */
   @Test
   public void dedupByName_declinesToNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
@@ -1252,8 +1229,8 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Named dedup on a prior path label declines to native (unique-by-{@code a}, emit-{@code b} is
-   * not MATCH {@code DISTINCT} on RETURN).
+   * Named dedup on a prior path label declines — boundary survivor per prior RID is
+   * MATCH-order-dependent vs native.
    */
   @Test
   public void namedDedup_priorLabel_declinesToNative() {
@@ -1530,10 +1507,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
    * correct answer and the conjunct must not be added. Without this case the four assertions above
    * would be equally green if the conjunct were added unconditionally, which is the bug this pins.
    *
-   * <p>The {@code order()} arm compares multisets rather than sequences on purpose: null-valued
-   * rows survive here, and where {@code ORDER BY} places a null is a known divergence between MATCH
-   * and the native pipeline. The sibling {@code orderByMissingKey_dropsElementLikeNative} has no
-   * nulls left after the drop, so it asserts the stronger ordered form.
+   * <p>The {@code order()} arm uses sequence equality: missing-key rows survive as null keys, and
+   * {@code YTDBOrderNullsStrategy} plus MATCH {@code ORDER BY} null placement keep both arms on the
+   * same YQL-aligned order (RID tie-break separates the two ageless rows). Absolute placement vs
+   * YQL is pinned by {@link TranslatedProductiveOrderTest}. The sibling
+   * {@link #orderByMissingKeyUnderStandardOrderSemantics_dropsElementLikeNative} has no nulls left
+   * after the drop.
    */
   @Test
   public void productiveByStrategy_keepsTheNullBucket() {
@@ -1548,7 +1527,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
             .V()
             .groupCount()
             .by("age"));
-    assertEquivalent(
+    assertEquivalentOrdered(
         "g.withStrategies(ProductiveByStrategy).V().order().by(age)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().withStrategies(ProductiveByStrategy.instance()).V().order()
@@ -1637,14 +1616,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().valueMap(true, "name"));
   }
 
-  /**
-   * A key-less {@code valueMap} / {@code elementMap} projects every property, which needs a
-   * schema-driven enumeration this cut does not have, so all four spellings decline. Requesting the
-   * tokens does not supply a key list: a plan built from the token columns alone returns
-   * {@code {id, label}} per element and silently loses every property.
-   */
+  /** Key-less maps on the generic {@code V} root still decline — no schema class to enumerate. */
   @Test
-  public void keylessValueMapAndElementMap_decline() {
+  public void keylessValueMapAndElementMap_onGenericRoot_decline() {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
@@ -1654,13 +1628,47 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().valueMap(true)", Recognition.DECLINED, () -> graph.traversal().V().valueMap(true));
     assertEquivalent(
         "g.V().elementMap()", Recognition.DECLINED, () -> graph.traversal().V().elementMap());
-    // The fourth spelling is the one the deleted derivation keyed off: with(WithOptions.tokens) is
-    // the second route to a non-zero token bit set on a step carrying no key list, so under
-    // isElementMap = tokens != 0 it skipped the empty-key decline exactly as valueMap(true) did.
     assertEquivalent(
         "g.V().valueMap().with(WithOptions.tokens)",
         Recognition.DECLINED,
         () -> graph.traversal().V().valueMap().with(WithOptions.tokens));
+  }
+
+  /** Keyless {@code valueMap()} / {@code elementMap()} on {@code hasLabel} declines (schemaless gap). */
+  @Test
+  public void hasLabelPerson_valueMap_declinesToNative() {
+    session.getSchema().createClass("Person", session.getSchema().getClass("V"));
+    session.getSchema()
+        .getClass("Person")
+        .createProperty(
+            "name",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+    session.getSchema()
+        .getClass("Person")
+        .createProperty(
+            "age",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().hasLabel(Person).valueMap()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").valueMap());
+    assertEquivalent(
+        "g.V().hasLabel(Person).elementMap()",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").elementMap());
+  }
+
+  /** {@code out(created).dedup().by(name)} declines — order-dependent survivor vs native. */
+  @Test
+  public void hopDedupByName_declinesToNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(created).dedup().by(name)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("created").dedup().by("name"));
   }
 
   // --- terminators that must read the value a preceding values(key) projected --------------------
@@ -1850,6 +1858,43 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().groupCount().by(name).order().by(age)",
         Recognition.DECLINED,
         () -> graph.traversal().V().groupCount().by("name").order().by("age"));
+  }
+
+  /**
+   * {@code groupCount().unfold().order().by(Column.values/keys).limit(n)} sorts and slices GROUP BY
+   * rows as Map.Entry payloads — SQL-native ORDER BY + LIMIT, not a sort of the folded map.
+   */
+  @Test
+  public void groupCount_unfold_order_limit_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.V().groupCount().by(name).unfold().order().by(Column.values,desc).by(Column.keys).limit(2)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name")
+            .unfold()
+            .order().by(Column.values, Order.desc).by(Column.keys, Order.asc)
+            .limit(2));
+  }
+
+  /** Bare {@code groupCount().unfold()} emits the entry multiset without folding back to one map. */
+  @Test
+  public void groupCount_unfold_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().groupCount().by(name).unfold()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().groupCount().by("name").unfold());
   }
 
   /**
@@ -2608,40 +2653,34 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Pins the known unfixed dedup-less defect outside this containment. The translated arm reads the
-   * path alias, while native reads the scalar cell from the emitted map.
+   * After a modulated multi-label select, overlapping {@code select(label)} reads the scalar map
+   * cell — not the path Vertex (BG2200).
    */
   @Test
-  public void mapSelectThenOverlappingSelectOne_knownUnfixedWithoutDedup() {
+  public void mapSelectThenOverlappingSelectOne_readsScalarMapCell() {
     seedChainedSelectContainmentPeople();
-    var translatedRows = new ArrayList<Object>();
-    var nativeRows = new ArrayList<Object>();
 
-    withTranslatorOn(
-        () -> {
-          var traversal = graph.traversal().V().hasLabel("Person").as("q").as("r")
-              .select("q", "r").by("name").by("city").select("q").asAdmin();
-          traversal.applyStrategies();
-          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
-              .as("the known unfixed dedup-less shape remains translated")
-              .isEqualTo(1);
-          translatedRows.addAll(traversal.toList());
-        });
-    withTranslatorOff(
-        () -> nativeRows.addAll(graph.traversal().V().hasLabel("Person").as("q").as("r")
-            .select("q", "r").by("name").by("city").select("q").toList()));
+    assertEquivalent(
+        "g.V().as(q).as(r).select(q, r).by(name).by(city).select(q)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").as("r")
+            .select("q", "r").by("name").by("city").select("q"));
+  }
 
-    assertThat(translatedRows)
-        .as("the known defect returns path vertices from the translated arm")
-        .allMatch(Vertex.class::isInstance)
-        .extracting(row -> ((Vertex) row).property("name").value())
-        .containsExactlyInAnyOrder("Alice", "Bob");
-    assertThat(nativeRows)
-        .as("native reads the scalar q cell from each emitted map")
-        .containsExactlyInAnyOrder("Alice", "Bob");
-    assertThat(translatedRows)
-        .as("the known defect remains a vertex-versus-scalar mismatch")
-        .isNotEqualTo(nativeRows);
+  /**
+   * Post-dedup modulated {@code select(label).by(key)} declines before an overlapping trailing
+   * select (same containment as multi-label select). Native and fallback both rebind {@code q}
+   * through the path after the singleton scalar unwrap.
+   */
+  @Test
+  public void dedupSelectOneThenOverlappingSelectOne_declines() {
+    seedChainedSelectContainmentPeople();
+
+    assertEquivalent(
+        "g.V().as(q).dedup().select(q).by(name).select(q)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().hasLabel("Person").as("q").dedup()
+            .select("q").by("name").select("q"));
   }
 
   /** A later select must not turn a productive presence into a filtering pattern conjunct. */
@@ -3059,6 +3098,10 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
     }
     if (value instanceof Vertex vertex) {
       return "V:" + Objects.toString(vertex.id());
+    }
+    // Map.Entry before Map: entry payloads must not be mistaken for accumulated maps.
+    if (value instanceof Map.Entry<?, ?> entry) {
+      return "E:" + canonicalizeOne(entry.getKey()) + "=" + canonicalizeOne(entry.getValue());
     }
     if (value instanceof Map<?, ?> map) {
       return map.entrySet().stream()
