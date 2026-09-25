@@ -474,7 +474,7 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * We acquire lock managed by this manager in read mode if we need to read data from files, and in
-   * write mode if we add/remove/truncate file.
+   * write mode when we add, remove, or shrink a file.
    */
   private final ReadersWriterSpinLock filesLock = new ReadersWriterSpinLock();
 
@@ -2074,31 +2074,6 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void truncateFile(long fileId) throws IOException {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
-
-    filesLock.acquireWriteLock();
-    try {
-      checkForClose();
-
-      removeCachedPages(intId);
-      final var entry = files.acquire(fileId);
-      try {
-        entry.get().shrink(0);
-      } finally {
-        files.release(entry);
-      }
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName, "File truncation was interrupted"),
-          e, storageName);
-    } finally {
-      filesLock.releaseWriteLock();
-    }
-  }
-
-  @Override
   public boolean shrinkFile(long fileId, final long targetBytes) throws IOException {
     // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
     // violation never lands a partial truncate and never racily competes with concurrent
@@ -2395,7 +2370,7 @@ public final class WOWCache extends AbstractWriteCache
     //
     // It is here rather than inside doRemoveCachePages because an assertion firing in the purge
     // aborts it mid-loop — leaking a PageFrame, orphaning a writeCachePages entry whose listener
-    // was already nulled, and throwing out of deleteFile/truncateFile after the dirty pages were
+    // was already nulled, and throwing out of deleteFile after the dirty pages were
     // dropped but the file was not removed — which is strictly worse than the leak being fixed.
     // removeExclusiveWritePage clamps and logs there instead.
     //
@@ -3580,7 +3555,7 @@ public final class WOWCache extends AbstractWriteCache
    * flush.
    *
    * <p>With {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the
-   * shape used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a
+   * shape used by {@code closeFile} and {@code deleteFile}. With a
    * positive {@code minPageIndex} the entries below the minimum survive — the shape used by
    * {@link #shrinkFile(long, long)} for the recovery-time orphan-truncation pass (those
    * entries belong to file regions the truncate does NOT drop and must survive the next
@@ -3975,7 +3950,7 @@ public final class WOWCache extends AbstractWriteCache
    * {@code (fileId == internalFileId && pageIndex >= minPageIndex)}, and drops the matching
    * {@link #exclusiveWritePages} bookkeeping for the same range. With
    * {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the shape
-   * used by {@code closeFile} / {@code truncateFile} / {@code deleteFile}. With a positive
+   * used by {@code closeFile} and {@code deleteFile}. With a positive
    * {@code minPageIndex} the dirty pages below the truncate target survive (they belong to
    * file regions the truncate does NOT drop and must be persisted by the next periodic
    * flush), while pages at or past the target are dropped before the underlying file
@@ -4018,10 +3993,10 @@ public final class WOWCache extends AbstractWriteCache
             //     Not a universal claim: a reference the read-cache purge cannot see (the
             //     silentLoadForRead blind spot described at the sweep below) would keep a page
             //     readers-held here too, which is the other reason the removal is conditional;
-            //   * LockFreeReadCache.truncateFile/shrinkFile purge the write cache FIRST and
-            //     clear the read cache afterwards, so a page that still has a reader has NOT
+            //   * LockFreeReadCache.shrinkFile purges the write cache FIRST and
+            //     clears the read cache afterwards, so a page that still has a reader has NOT
             //     been published into the set (its key is absent), while a page whose readers
-            //     were already released has. Both cases occur on these two orderings, so the
+            //     were already released has. Both cases occur with these purge orderings, so the
             //     removal must not assume either: an unconditional decrement would push the
             //     counter negative for the reader-held pages and disable the exclusive-write
             //     back-pressure entirely. (Both cases are covered by tests in
@@ -4059,13 +4034,13 @@ public final class WOWCache extends AbstractWriteCache
     //
     // Two constraints on this sweep:
     //   * It is RANGE-BOUND to [minPageIndex, +inf) for this file, never whole-file. Keys
-    //     below minPageIndex belong to file regions truncateFile/shrinkFile deliberately
+    //     below minPageIndex belong to file regions shrinkFile deliberately
     //     keep, their writeCachePages entries survive, and decrementing for them would push
     //     exclusiveWriteCacheSize negative. exclusiveWritePages is a skip-list ordered by
     //     (fileId, pageIndex), so the bounded view is an O(log n + k) slice, not a scan.
     //   * It takes NO additional lock. This method runs on the commit executor, while
     //     filesLock's write lock is held by the thread that submitted the purge task
-    //     (deleteFile / truncateFile / shrinkFile / close), so acquiring filesLock here
+    //     (deleteFile / shrinkFile / close), so acquiring filesLock here
     //     would deadlock against the submitter. Both structures touched are concurrent, and
     //     the per-key group lock would buy nothing because CachePointer fires
     //     addOnlyWriters/removeOnlyWriters without holding it.
@@ -4078,7 +4053,7 @@ public final class WOWCache extends AbstractWriteCache
     // KNOWN LIMITATION: this sweep NARROWS the orphan window on every ordering, and closes it
     // on none. Two residual producers can publish a key into exclusiveWritePages after the
     // sweep has moved past it, both by way of decrementReadersReferrer -> addOnlyWriters:
-    //   * truncateFile/shrinkFile ordering — the read cache is still populated while the purge
+    //   * shrinkFile ordering — the read cache is still populated while the purge
     //     runs, so an ordinary release or an eviction
     //     (WTinyLFUPolicy.invalidateStampsAndRelease) can fire the callback for a page whose
     //     listener this method had not yet nulled.
@@ -4102,7 +4077,7 @@ public final class WOWCache extends AbstractWriteCache
     //     write lock has not been exhaustively verified, so treat this as "not demonstrated
     //     live" rather than "proven impossible", and re-check it if a second silentLoadForRead
     //     caller ever appears without that exclusion.
-    // Closing the truncate/shrink window means changing read-cache locking, which is out of
+    // Closing the shrink window means changing read-cache locking, which is out of
     // scope here; a leaked key is accounting-only (writeCachePages remains the source of truth
     // for durability) and is now bounded by the clamp in removeExclusiveWritePage.
     final var orphanCandidates =

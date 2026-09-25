@@ -447,7 +447,7 @@ public class AllocatePageForWriteTest {
     // at 1 (held by installEmptyPage) — the page remains resident but is no
     // longer pinned by the AOBT overlay. Without this decrement every allocation
     // through this branch would leak a readers reference and MemoryFile.clear
-    // (on deleteFile / truncate / drop) could not return the frame to the pool.
+    // (on cache-level delete / truncate / drop) could not return the frame to the pool.
     verify(pointer, times(1)).decrementReadersReferrer();
     // Bookkeeping: pageChangesMap was registered (visible via hasChangesForPage),
     // maxNewPageIndex bumped (visible via filledUpTo).
@@ -968,30 +968,6 @@ public class AllocatePageForWriteTest {
         .isInstanceOf(StorageException.class)
         .hasMessageContaining(Long.toString(fileId))
         .hasMessageContaining("deleted");
-  }
-
-  /**
-   * After {@code truncateFile} runs on a pre-existing (non-fresh) file,
-   * {@code filledUpTo} must return 0 regardless of the committed
-   * {@code writeCache.getFilledUpTo} value. The test name reflects the actual
-   * arm exercised: {@code truncateFile} pre-sets {@code maxNewPageIndex = -1},
-   * so the second arm of the inlined three-arm body ({@code maxNewPageIndex > -2})
-   * fires first and returns {@code maxNewPageIndex + 1 = 0}. The third
-   * ({@code changesContainer.truncate}) arm is structurally unreachable under
-   * current call shapes; a future refactor that drops the {@code maxNewPageIndex = -1}
-   * pre-set in {@code truncateFile} would activate the third arm, at which point
-   * a dedicated test would be added — this setup would still fall through arm 2.
-   */
-  @Test
-  public void filledUpToAfterTruncateExercisesMaxNewPageIndexArm() {
-    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    // Pre-existing file with five committed pages on disk; truncateFile must override
-    // this with the in-TX truncate flag.
-    when(writeCache.getFilledUpTo(fileId)).thenReturn(5L);
-
-    op.truncateFile(fileId);
-
-    assertThat(op.filledUpTo(fileId)).isEqualTo(0L);
   }
 
   // ---------------------------------------------------------------------------

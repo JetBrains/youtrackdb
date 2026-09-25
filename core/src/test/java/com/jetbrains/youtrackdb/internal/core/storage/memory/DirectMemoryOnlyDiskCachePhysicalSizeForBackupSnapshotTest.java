@@ -125,33 +125,6 @@ public class DirectMemoryOnlyDiskCachePhysicalSizeForBackupSnapshotTest {
   }
 
   /**
-   * Post-truncate: {@code DirectMemoryOnlyDiskCache.truncateFile} resets the in-memory
-   * file via {@code file.clear()} while keeping the file live. Both surfaces must
-   * observe the reset immediately. A future implementer that short-circuited the helper
-   * (e.g. cached the pre-truncate high-watermark) would surface here.
-   */
-  @Test
-  public void postTruncateBothSurfacesReportZero() {
-    for (int i = 0; i < 3; i++) {
-      cache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
-    }
-    cache.truncateFile(fileId);
-
-    final var viaLegacy = cache.getFilledUpTo(fileId);
-    final var viaHelper = cache.physicalSizeForBackupSnapshot(fileId);
-
-    assertEquals("post-truncate file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
-    assertEquals(
-        "physicalSizeForBackupSnapshot must observe the truncate immediately",
-        0L,
-        viaHelper);
-    assertEquals(
-        "physicalSizeForBackupSnapshot must agree with getFilledUpTo post-truncate",
-        viaLegacy,
-        viaHelper);
-  }
-
-  /**
    * Deleted-file engine asymmetry: the in-memory engine's {@code getFilledUpTo} throws
    * {@code StorageException} on a missing/deleted file (the disk engine returns 0
    * instead — see {@code WOWCachePhysicalSizeForBackupSnapshotTest#deletedFileBothSurfacesReportZero}).

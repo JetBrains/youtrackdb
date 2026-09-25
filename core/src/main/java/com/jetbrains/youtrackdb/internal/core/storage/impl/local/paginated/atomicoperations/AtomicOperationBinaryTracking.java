@@ -20,7 +20,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
@@ -551,7 +550,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               + ", " + pageIndex + "); composed fileId=" + fileId;
       // MemoryFile.loadOrAddPage bumped the readers-referrer count by 1 for the caller
       // (the bump runs under the per-file clearLock readLock so a concurrent
-      // clear() / deleteFile() / truncateFile() cannot recycle the frame between
+      // cache clear, delete, or truncate cannot recycle the frame between
       // publication and the increment). Our CacheEntryImpl(insideCache=false) wrapper
       // is released through ReadCache.releaseFromRead -> DirectMemoryOnlyDiskCache.doRelease,
       // which only manipulates usagesCount and never decrements readers-referrer (unlike
@@ -699,12 +698,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return false;
     }
 
-    // Truncated file: all pre-existing pages are logically gone, force fallback
-    // so the pinned path handles filledUpTo correctly
-    if (changesContainer.truncate) {
-      return true;
-    }
-
     // New file: all pages up to maxNewPageIndex have local changes
     if (changesContainer.isNew) {
       return pageIndex <= changesContainer.maxNewPageIndex;
@@ -799,42 +792,35 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       throw new StorageException(writeCache.getStorageName(),
           "File with id " + fileId + " is deleted.");
     }
-    // Three-arm logic preserved verbatim from the prior private helper: a missing
-    // entry registers an empty FileChanges placeholder and falls through to the
-    // committed-file branch; a new or page-overlay-bearing entry returns the
-    // logical extent (maxNewPageIndex + 1); a truncate-flagged entry returns 0;
-    // otherwise the physical extent from the write cache is the answer. The
-    // placeholder is registered as a side effect so subsequent in-TX queries hit
-    // the existing-entry arm without re-allocating.
+    // A missing entry registers an empty FileChanges placeholder and falls through
+    // to the committed-file branch. A new or page-overlay-bearing entry returns
+    // the logical extent (maxNewPageIndex + 1); otherwise the physical extent
+    // from the write cache is the answer. The placeholder is registered so
+    // subsequent in-TX queries do not allocate another entry.
     var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
       fileChanges.put(fileId, new FileChanges());
     } else if (changesContainer.isNew || changesContainer.maxNewPageIndex > -2) {
       return changesContainer.maxNewPageIndex + 1;
-    } else if (changesContainer.truncate) {
-      return 0;
     }
 
     return writeCache.getFilledUpTo(fileId);
   }
 
   /**
-   * This check if a file was trimmed or trunked in the current atomic operation.
+   * Checks whether a page is within the file's current in-transaction extent.
    *
    * @param changesContainer changes container to check
-   * @param pageIndex        limit to check against the changes
-   * @return true if there are no changes or pageIndex still fit, false if the pageIndex do not fit
-   * anymore
+   * @param pageIndex        page index to check against the extent
+   * @return true if the page is within the extent or the file has no local extent
    */
   private static boolean checkChangesFilledUpTo(
       final FileChanges changesContainer, final long pageIndex) {
-    if (changesContainer == null) {
-      return true;
-    } else if (changesContainer.isNew || changesContainer.maxNewPageIndex > -2) {
+    if (changesContainer != null
+        && (changesContainer.isNew || changesContainer.maxNewPageIndex > -2)) {
       return pageIndex < changesContainer.maxNewPageIndex + 1;
-    } else {
-      return !changesContainer.truncate;
     }
+    return true;
   }
 
   @Override
@@ -965,25 +951,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   @Override
-  public void truncateFile(long fileId) {
-    checkIfActive();
-
-    fileId = checkFileIdCompatibility(fileId, storageId);
-
-    final var fileChanges =
-        this.fileChanges.computeIfAbsent(fileId, k -> new FileChanges());
-
-    fileChanges.pageChangesMap.clear();
-    fileChanges.maxNewPageIndex = -1;
-
-    if (fileChanges.isNew) {
-      return;
-    }
-
-    fileChanges.truncate = true;
-  }
-
-  @Override
   public LogSequenceNumber commitChanges(long commitTs, @Nonnull final WriteAheadLog writeAheadLog)
       throws IOException {
     checkIfActive();
@@ -1042,13 +1009,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
           writeAheadLog.log(
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
-        } else if (fileChanges.truncate) {
-          LogManager.instance()
-              .warn(
-                  this,
-                  "You performing truncate operation which is considered unsafe because can not be"
-                      + " rolled back, as result data can be incorrectly restored after crash, this"
-                      + " operation is not recommended to be used");
         }
 
         if (nonDurable) {
@@ -1119,7 +1079,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // Apply-phase epoch bracket: enter every locked logical component before the first
       // shared-cache mutation, then exit all of them after the complete apply section.
       // This covers the readCache.deleteFile loop plus the whole per-file apply loop
-      // (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite).
+      // (addFile/loadOrAddForWrite/releaseFromWrite).
       // Pages are applied one at a time in hash order, so a concurrent optimistic
       // reader overlapping this section could see a mix of pre- and post-commit pages
       // with every per-page stamp still valid; its component epoch detects the overlap.
@@ -1179,14 +1139,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                   writeCache,
                   nonDurable);
             }
-          } else if (fileChanges.truncate) {
-            LogManager.instance()
-                .warn(
-                    this,
-                    "You performing truncate operation which is considered unsafe because can not"
-                        + " be rolled back, as result data can be incorrectly restored after"
-                        + " crash, this operation is not recommended to be used");
-            readCache.truncateFile(fileId, writeCache);
           }
 
           // Non-durable files use null startLSN — no WAL dependency exists,
@@ -1302,7 +1254,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   /**
    * Returns whether this commit will mutate shared read-cache state in the apply
-   * section: any file deletion, any new/truncated file, or any page with accumulated
+   * section: any file deletion, any new file, or any page with accumulated
    * changes. Zero-change commits (read-only atomic operations) return {@code false}
    * and skip the apply-phase epoch bracket entirely.
    */
@@ -1312,7 +1264,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
     for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
       final var changes = fileChangesEntry.getValue();
-      if (changes.isNew || changes.truncate) {
+      if (changes.isNew) {
         return true;
       }
       for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
@@ -1800,7 +1752,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         new Long2ObjectOpenHashMap<>();
     private long maxNewPageIndex = -2;
     private boolean isNew;
-    private boolean truncate;
     private boolean nonDurable;
     private String fileName;
     /**

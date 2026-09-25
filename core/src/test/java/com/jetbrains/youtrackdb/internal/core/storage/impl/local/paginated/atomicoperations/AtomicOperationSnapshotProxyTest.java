@@ -1323,37 +1323,6 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
-  public void testHasChangesForPageReturnsTrueForTruncatedFile() throws IOException {
-    // After truncation, all pages are logically gone — hasChangesForPage must return
-    // true so the pinned path handles filledUpTo correctly.
-    var mockCacheEntry = mock(
-        com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry.class);
-    var readCache = mock(ReadCache.class);
-    var writeCache = mock(WriteCache.class);
-    when(writeCache.getStorageName()).thenReturn("test-storage");
-    when(readCache.loadForRead(anyLong(), anyLong(), any(), anyBoolean()))
-        .thenReturn(mockCacheEntry);
-
-    var op = new AtomicOperationBinaryTracking(
-        readCache, writeCache, null, 1,
-        new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 0),
-        sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
-        sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
-
-    // Write a page to establish the file in fileChanges
-    op.loadPageForWrite(5, 10, 1, false);
-    assertThat(op.hasChangesForPage(5, 10)).isTrue();
-
-    // Truncate the file
-    op.truncateFile(5);
-
-    // All page indices should return true after truncation
-    assertThat(op.hasChangesForPage(5, 0)).isTrue();
-    assertThat(op.hasChangesForPage(5, 10)).isTrue();
-    assertThat(op.hasChangesForPage(5, 999)).isTrue();
-  }
-
-  @Test
   public void testHasChangesForPageReturnsTrueForDeletedFile() throws IOException {
     // After deletion, hasChangesForPage returns true so the pinned path raises
     // the proper StorageException.

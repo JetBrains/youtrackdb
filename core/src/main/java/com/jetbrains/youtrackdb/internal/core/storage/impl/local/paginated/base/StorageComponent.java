@@ -352,12 +352,6 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return atomicOperation.isFileExists(fileName);
   }
 
-  protected void truncateFile(@Nonnull final AtomicOperation atomicOperation, final long filedId)
-      throws IOException {
-    assert atomicOperation != null;
-    atomicOperation.truncateFile(filedId);
-  }
-
   // --- Recovery-time orphan-truncation template method ---
 
   /**

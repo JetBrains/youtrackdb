@@ -340,8 +340,8 @@ public final class AsyncFile implements File {
       //     not inside this method. allocateSpace bumps this.size via a bare
       //     AtomicLong.getAndAdd without acquiring lock.exclusiveLock, so the read of
       //     this.size below is NOT in itself race-free against allocateSpace. The real
-      //     exclusion is at the WOWCache layer: every shrinkFile caller (also
-      //     WOWCache.truncateFile / createFile) holds filesLock.writeLock, which
+      //     exclusion is at the WOWCache layer: shrinkFile and createFile hold
+      //     filesLock.writeLock, which
       //     excludes the loadOrAdd-path callers that are the only callers of
       //     AsyncFile.allocateSpace.
       // Placing the check inside the exclusive-lock window is still correct (moving it
@@ -351,11 +351,8 @@ public final class AsyncFile implements File {
         return;
       }
 
-      // Set the in-memory logical size to the target. Previously this method
-      // unconditionally set the size to 0, which was only correct for the
-      // truncate-to-zero callers; a partial shrink (0 < size < currentSize)
-      // would corrupt the logical / physical accounting on subsequent
-      // allocateSpace calls.
+      // Set the in-memory logical size to the target. A partial shrink must preserve
+      // the size for subsequent allocateSpace calls.
       this.size.set(size);
       fileChannel.truncate(size + HEADER_SIZE);
     } finally {

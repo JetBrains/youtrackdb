@@ -278,30 +278,27 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
   }
 
   /**
-   * Post-truncate: {@code WOWCache.truncateFile} resets the file's physical extent via
-   * {@code shrink(0)} while keeping the file live. Both surfaces must observe the reset
-   * immediately under {@code filesLock}. A future implementer that elided the lock for
-   * a "fast path" or short-circuited the helper would surface here as a non-zero return
-   * after the truncate.
+   * Shrinking a live file to zero resets its physical extent. Both size surfaces must
+   * report zero immediately after {@code shrinkFile} returns.
    */
   @Test
-  public void postTruncateBothSurfacesReportZero() throws IOException {
+  public void postShrinkBothSurfacesReportZero() throws IOException {
     final var fileId = wowCache.addFile(FILE_NAME);
     for (int i = 0; i < 3; i++) {
       wowCache.loadOrAdd(fileId, i, false).decrementReadersReferrer();
     }
-    wowCache.truncateFile(fileId);
+    wowCache.shrinkFile(fileId, 0);
 
     final var viaLegacy = wowCache.getFilledUpTo(fileId);
     final var viaHelper = wowCache.physicalSizeForBackupSnapshot(fileId);
 
-    assertEquals("post-truncate file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
+    assertEquals("post-shrink file must report 0 pages via getFilledUpTo", 0L, viaLegacy);
     assertEquals(
-        "physicalSizeForBackupSnapshot must observe the truncate immediately",
+        "physicalSizeForBackupSnapshot must observe the shrink immediately",
         0L,
         viaHelper);
     assertEquals(
-        "physicalSizeForBackupSnapshot must agree with getFilledUpTo post-truncate",
+        "physicalSizeForBackupSnapshot must agree with getFilledUpTo post-shrink",
         viaLegacy,
         viaHelper);
   }
