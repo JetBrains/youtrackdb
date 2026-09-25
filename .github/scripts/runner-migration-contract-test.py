@@ -34,6 +34,13 @@ RUNNER_REPLACEMENTS = {
     "windows-latest": WINDOWS,
 }
 TEST_WORKFLOW = "runner-migration-contract-tests.yml"
+DEPLOY_IF = "success()"
+UPDATE_YOUTRACK_IF = (
+    "success() && "
+    "(github.event_name == 'push' || github.event_name == 'schedule') && "
+    "needs.check-changes.outputs.last_success_sha != '' && "
+    "needs.check-changes.outputs.last_success_sha != needs.check-changes.outputs.current_sha"
+)
 
 
 def assert_true(condition, message):
@@ -118,6 +125,29 @@ def check_normal(root=ROOT):
     integration = load_workflow(root, "maven-integration-tests-pipeline.yml")
     assert_true(integration["permissions"]["actions"] == "read",
                 "integration actions read permission missing")
+    check_run = next(
+        step["run"] for step in integration["jobs"]["check-changes"]["steps"]
+        if step.get("id") == "check"
+    )
+    for event in ("push", "schedule"):
+        assert_true(check_run.count(f"--event {event}") == 1,
+                    f"last success lookup must filter {event} on the server")
+    for flag in ("--branch develop", "--status success", "--limit 1",
+                 "--json headSha,createdAt"):
+        assert_true(check_run.count(flag) == 2,
+                    f"last success lookup must use {flag} for both events")
+    assert_true(check_run.count('--workflow "Java CI/CD Integration Tests Pipeline"') == 2,
+                "last success lookup must use this workflow for both events")
+    assert_true("sort_by(.createdAt) | last | .headSha // \"\"" in check_run,
+                "last success lookup must select the latest run and allow an empty history")
+    assert_true(check_run.index('if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]')
+                < check_run.index("--event push"),
+                "manual dispatch must force a run before last success lookup")
+    assert_true(integration["jobs"]["deploy"]["if"] == DEPLOY_IF,
+                "deploy must run after successful tests on every trigger")
+    update_if = " ".join(integration["jobs"]["update-youtrack"]["if"].split())
+    assert_true(update_if == UPDATE_YOUTRACK_IF,
+                "YouTrack updates require a successful push or schedule and a nonempty range")
     linux_matrix = pipeline["jobs"]["test-linux"]["strategy"]["matrix"]["include"]
     x64_options = next(entry["mvn_opts"] for entry in linux_matrix if entry["arch"] == "x86")
     arm_options = next(entry["mvn_opts"] for entry in linux_matrix if entry["arch"] == "arm")
@@ -222,7 +252,8 @@ def assert_boundary_unchanged(root, base, paths=BOUNDARY_PATHS):
 
 def migrate_expected_document(old, new, name):
     expected = copy.deepcopy(old)
-    if name == "maven-pipeline.yml":
+    if name == "maven-pipeline.yml" and "test-macos" in expected["jobs"]:
+        # Older baselines need the migration transform; newer ones already have it.
         del expected["jobs"]["test-macos"]
         for job_name in ("ci-status", "notify-failure"):
             needs = expected["jobs"][job_name]["needs"]
@@ -238,6 +269,19 @@ def migrate_expected_document(old, new, name):
         permissions.pop("actions")
     if name == "maven-integration-tests-pipeline.yml":
         expected["permissions"]["actions"] = "read"
+        # This track changes the lookup command and two guards, not runner migration.
+        # check_normal pins their lasting contract, including both event filters.
+        old_check = next(
+            step for step in expected["jobs"]["check-changes"]["steps"]
+            if step.get("id") == "check"
+        )
+        new_check = next(
+            step for step in new["jobs"]["check-changes"]["steps"]
+            if step.get("id") == "check"
+        )
+        old_check["run"] = new_check["run"]
+        expected["jobs"]["deploy"]["if"] = DEPLOY_IF
+        expected["jobs"]["update-youtrack"]["if"] = new["jobs"]["update-youtrack"]["if"]
 
     for job_name, job in expected.get("jobs", {}).items():
         runner = job.get("runs-on")
@@ -380,6 +424,23 @@ def check_negative_controls():
         ("notification permission inheritance", "maven-pipeline.yml", "    permissions: {}\n",
          ""),
     ]
+    mutations.extend([
+        ("schedule lookup replaced by dispatch", "maven-integration-tests-pipeline.yml",
+         "--event schedule", "--event workflow_dispatch"),
+        ("lookup window enlarged", "maven-integration-tests-pipeline.yml",
+         "--event push --status success --limit 1", "--event push --status success --limit 20"),
+        ("lookup ordered by SHA", "maven-integration-tests-pipeline.yml",
+         "sort_by(.createdAt)", "sort_by(.headSha)"),
+        ("nightly deploy excluded", "maven-integration-tests-pipeline.yml",
+         "    if: success()\n    runs-on: ubuntu-latest-8-cores-x64-public\n"
+         "    # The timestamped coordinate",
+         "    if: success() && github.event_name != 'schedule'\n"
+         "    runs-on: ubuntu-latest-8-cores-x64-public\n"
+         "    # The timestamped coordinate"),
+        ("nightly YouTrack update excluded", "maven-integration-tests-pipeline.yml",
+         "(github.event_name == 'push' || github.event_name == 'schedule') &&",
+         "github.event_name == 'push' &&"),
+    ])
     for description, name, old, new in mutations:
         temporary, root = mutate_copy(
             lambda fixture, n=name, before=old, after=new: replace_once(
