@@ -46,7 +46,7 @@ public class Function extends IdentityWrapper {
   public static final String LANGUAGE_PROPERTY = "language";
   public static final String PARAMETERS_PROPERTY = "parameters";
   public static final String IDEMPOTENT_PROPERTY = "idempotent";
-  private CallableFunction<Object, Map<Object, Object>> callback;
+  private volatile CallableFunction<Object, Map<Object, Object>> callback;
 
   private volatile String name;
   private volatile String code;

@@ -313,6 +313,7 @@ gh api repos/JetBrains/youtrackdb/issues/{pr}/comments --jq '.[] | select(.body 
 # Run single module tests
 ./mvnw -pl {module} clean test -Dtest={TestClass}
 
-# Run with disk storage (as CI does)
-./mvnw -pl {module} clean test -Dyoutrackdb.test.env=ci
+# Run a targeted test class with disk storage
+./mvnw -pl {module} clean test -Dtest={TestClass} \
+  -Dyoutrackdb.test.env=ci
 ```

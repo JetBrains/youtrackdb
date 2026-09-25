@@ -9,6 +9,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -140,6 +141,22 @@ public class IndexMiscSmallClassesTest {
     assertEquals("algorithm must match", "BTREE", im.getAlgorithm());
     assertEquals("version must match", 1, im.getVersion());
     assertEquals("metadata must match", meta, im.getMetadata());
+  }
+
+  /** Caller mutation after validation cannot change the metadata stored by an index. */
+  @Test
+  public void indexMetadata_copiesTheValidatedCallerMap() {
+    var callerMetadata = new HashMap<String, Object>();
+    callerMetadata.put("visible", true);
+    IndexMetadataValidator.validate(callerMetadata);
+
+    var metadata = new IndexMetadata(
+        "idx", null, new HashSet<>(), "NOTUNIQUE", "BTREE", 1, callerMetadata);
+    callerMetadata.put(IndexMetadataValidator.RESERVED_PREFIX + "state", "forged");
+
+    assertEquals(Map.of("visible", true), metadata.getMetadata());
+    assertFalse(metadata.getMetadata().containsKey(
+        IndexMetadataValidator.RESERVED_PREFIX + "state"));
   }
 
   /**

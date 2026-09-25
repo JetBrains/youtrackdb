@@ -199,6 +199,26 @@ public interface YouTrackDBInternal extends AutoCloseable, SchedulerInternal {
       YouTrackDBConfig config);
 
   /**
+   * Restarts an interrupted restore of one database, and destroys the target of that restore.
+   *
+   * <p>An interrupted restore leaves a target in the restore-in-progress lifecycle state. The
+   * restart deletes that whole target and restores the backup again. The restart never continues a
+   * partial restore.
+   *
+   * <p>The restart accepts a target in the restore-in-progress lifecycle state. The restart also
+   * accepts one directory whose only entry is the authority lock file, because that directory is
+   * the residue of a crash inside an earlier restart deletion. The restart refuses every other
+   * target with one named admission reason, and the refusal changes no file.
+   *
+   * @param name         the database name of the restore target
+   * @param path         the directory of the backup
+   * @param expectedUUID the expected database identifier inside the backup, or null
+   * @param config       the configuration of the restored database
+   */
+  void restartInterruptedRestore(String name, String path, @Nullable String expectedUUID,
+      YouTrackDBConfig config);
+
+  /**
    * Close the factory with all related databases and pools.
    */
   @Override

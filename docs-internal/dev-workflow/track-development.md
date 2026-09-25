@@ -104,6 +104,18 @@ compiles against a changed API is already covered by the compile gate, and re-ru
 suites costs tens of minutes for no new signal. When the changed behavior does reach a
 dependent's tests, name that dependent in `-pl` explicitly.
 
+A developer machine never runs the full unit suite in disk mode. Disk mode means starting the
+run with `-Dyoutrackdb.test.env=ci`. The targeted subset includes tests covering changed
+production code and tests changed by the same work. The pull request pipeline runs the full disk-mode suite.
+Local verification relies on the pipeline for wider disk-mode coverage.
+
+A developer machine never runs an integration test. The pull request pipeline skips integration
+tests for drafts or Markdown-only changes. When the changed-file list is known, it also skips
+them if no reactor module has both a changed `.java` file and integration test sources. The
+exact marker `[no-it-tests]` skips them when it appears in the first line of the head commit
+message on a same-repository pull request.
+Fork pull requests cannot use the marker.
+
 **Integration-gate set** — the integration test classes covering the subsystems touched by the
 changed files. This set names classes, not modules, because module scope alone still runs the
 whole module suite.
@@ -192,10 +204,13 @@ At the end of each track's implementation, and **before** that track's agent cod
 full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
-2. **Integration tests** for the integration-gate set, green. Follow
-   `docs-internal/agents/thread-guidelines.md` for command syntax. If the set remains uncertain,
-   record the searches and results in the thread report. The orchestrator then chooses the
-   verification path.
+2. **Integration tests** run in the pull request pipeline for reactor modules with a changed
+   `.java` file and integration test sources when the changed-file list is known. The skip rules
+   above still apply. The pipeline can miss integration-gate classes in dependent modules.
+
+   Develop runs the full suite after merge. A developer machine never runs an integration test.
+   If the integration-gate set remains uncertain, record the searches and results in the thread report. The
+   orchestrator then chooses the verification path.
 3. **The coverage gate** over the changed lines, at the thresholds owned by
    orchestrator-guidelines § Test Policy. **Read
    `docs-internal/dev-workflow/coverage-verification.md` and follow it before producing the
@@ -203,10 +218,10 @@ full verification runs:
    not be reported as one: its report-set assertion is what separates a measured pass from a
    vacuous one, and nothing in this section can tell them apart.
 
-The full local integration suite is not a gate for any proved focus area. The full integration
-test suite usually takes several hours.
+The full integration suite is not a gate for any proved focus area. The full integration
+test suite usually takes several hours. A developer machine never runs an integration test.
 
-The local integration-gate set above selects classes that cover changed behavior. The pull
+The integration-gate set above selects classes that cover changed behavior. The pull
 request pipeline uses a different rule. It runs all integration tests in each reactor module
 with both a changed `.java` file and integration test sources. It does not add dependent modules.
 
@@ -223,7 +238,7 @@ Develop runs the full suite after merge. Worker threads do most work during the 
 The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first
 line of the head commit message. The marker comparison respects letter case and works only for a
 pull request from the same repository. Use it only when the change cannot affect integration
-tests.
+tests. It is a commit-subject marker, not a pull request title tag.
 
 GitHub applies required fork approval before any workflow job starts. The repository setting
 **Approval for running fork pull request workflows from contributors** has the current API value

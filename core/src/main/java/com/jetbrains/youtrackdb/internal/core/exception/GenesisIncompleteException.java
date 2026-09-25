@@ -9,9 +9,10 @@ package com.jetbrains.youtrackdb.internal.core.exception;
  * creation and the end of the metadata-creation sequence) must be discarded and re-created, never
  * used — without this check it would reopen silently with a partial or empty schema.
  *
- * <p>The open-path refusal fires from the metadata load ({@code SharedContext.load}), AFTER the
- * schema-version gate parsed the schema root — so an old-format database gets the version gate's
- * export/reimport redirect, never this exception's discard advice (review CS52).
+ * <p>Track 24 moved the open-path refusal of the metadata load to
+ * {@link InconsistentStorageMetadataException}, which is the named inconsistent-metadata result of
+ * the two later consistency checks. This exception now reports the tolerant create path only. The
+ * tolerant create path is the create call that accepts an existing database.
  *
  * <p>The check is deliberately fail-closed: a crash after a fully completed genesis but before
  * the marker write became durable produces a FALSE refusal of a genuinely complete database

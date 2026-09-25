@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValuesTransformer;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -44,6 +45,7 @@ public final class BTreeSingleValueIndexEngine
   private final IndexesSnapshot indexesSnapshot;
   private final String name;
   private final int id;
+  private final IndexEngineReference engineReference;
 
   /**
    * The engine's stable, never-reused file base id. All storage-component names derive from it
@@ -82,6 +84,7 @@ public final class BTreeSingleValueIndexEngine
     this.id = id;
     this.fileBaseId = fileBaseId;
     this.storage = storage;
+    this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
 
     if (version == 3 || version == 4) {
       // The component (and therefore its files) is keyed by the stable file base id, not the
@@ -102,6 +105,11 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public int getId() {
     return id;
+  }
+
+  @Override
+  public IndexEngineReference getEngineReference() {
+    return engineReference;
   }
 
   @Override

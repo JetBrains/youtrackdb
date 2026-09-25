@@ -1,38 +1,59 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.IndexEngineReplacedException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
+import com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildStateStore;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * White-box tests for the lock-free commit-window primitives extracted out of the public
- * structural methods on {@link AbstractStorage}: {@code doGetIndexEngine},
+ * structural methods on {@link AbstractStorage}: {@code getIndexEngineWithStateLock},
  * {@code doAddIndexEngine} / {@code publishIndexEngine}, {@code doDeleteIndexEngine}, and
  * the {@code doCreateCollection} / {@code registerCollection} create/publish split.
  *
  * <p>Two properties are pinned. First, the public {@code addIndexEngine} /
  * {@code deleteIndexEngine} / {@code addCollection} wrappers still create, register, and
  * drop structures exactly as before the extraction (behavior preservation). Second — the
- * load-bearing one — {@code doGetIndexEngine} resolves an engine by id while the calling
+ * load-bearing one — {@code getIndexEngineWithStateLock} resolves an engine by id while the calling
  * thread holds {@code stateLock.writeLock()}, the situation a schema-carrying commit is in
  * once it takes the write lock from the start. The public {@code getIndexEngine} would
  * busy-spin forever there because it re-acquires {@code stateLock.readLock()} on the
@@ -52,7 +73,7 @@ import org.junit.Test;
  * <p>The test lives in the storage package so it can read {@code storage.stateLock} for
  * white-box lock-holding, and uses reflection only for the {@code private} members it
  * must reach directly: the {@code indexEngines} registry (to find an engine's internal id),
- * {@code doGetIndexEngine(int)}, and {@code isCommitWindowActive()} (the window predicate).
+ * {@code getIndexEngineWithStateLock(int)}, and {@code isCommitWindowActive()} (the window predicate).
  */
 public class AbstractStorageCommitPrimitivesTest {
 
@@ -75,6 +96,92 @@ public class AbstractStorageCommitPrimitivesTest {
   }
 
   // ---- Public-wrapper behavior preservation ----
+
+  /** Reading an attached identifier never nests or releases the caller's storage state read lock. */
+  @Test
+  public void indexIdentifierAccessorDoesNotTouchStorageStateLock() {
+    var cls = db.createVertexClass("PureIndexIdentifier");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "PureIndexIdentifier.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index = db.getSharedContext().getIndexManager().getIndex(indexName);
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(index.getIndexId()).isGreaterThanOrEqualTo(0);
+      assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+  }
+
+  /** Older engine constructors also allocate unique process-local generations through storage. */
+  @Test
+  public void olderEngineConstructorAllocatesUniqueGenerations() {
+    var storage = (AbstractStorage) db.getStorage();
+
+    var first = new BTreeSingleValueIndexEngine(7, 101, "legacy-first", storage, 4);
+    var second = new BTreeSingleValueIndexEngine(7, 102, "legacy-second", storage, 4);
+
+    assertThat(first.getEngineReference().slot()).isEqualTo(7);
+    assertThat(second.getEngineReference().slot()).isEqualTo(7);
+    assertThat(second.getEngineReference().generation())
+        .isGreaterThan(first.getEngineReference().generation());
+  }
+
+  /** A transaction-created engine receives a fresh generation when it reuses a dropped slot. */
+  @Test
+  public void reusedIndexEngineSlotReceivesNewGeneration() throws Exception {
+    var cls = db.createVertexClass("GenerationReuse");
+    cls.createProperty("name", PropertyType.STRING);
+    var firstName = "GenerationReuse.first";
+    cls.createIndex(firstName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var firstReference = findEngineByName(storage, firstName).getEngineReference();
+    assertThat(firstReference).isNotNull();
+    var firstIndex = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(firstName);
+    var firstIndexId = firstIndex.getIndexId();
+
+    var indexManager = db.getSharedContext().getIndexManager();
+    db.executeInTx(tx -> indexManager.dropIndex(db, firstName));
+
+    var secondName = "GenerationReuse.second";
+    db.begin();
+    db.getMetadata().getSchema().getClass("GenerationReuse")
+        .createIndex(secondName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    db.commit();
+
+    var secondReference = findEngineByName(storage, secondName).getEngineReference();
+    assertThat(secondReference).isNotNull();
+    assertThat(secondReference.slot()).isEqualTo(firstReference.slot());
+    assertThat(secondReference.generation()).isGreaterThan(firstReference.generation());
+    var engines = indexEngines(storage);
+    var registered = engines.get(secondReference.slot());
+    var unboundReplacement = new IndexEngineReference(
+        secondReference.slot(), secondReference.apiVersion(), secondReference.generation() + 1);
+    var unboundEngine = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(unboundEngine.getEngineReference()).thenReturn(unboundReplacement);
+    engines.set(secondReference.slot(), unboundEngine);
+    try {
+      assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+          firstIndexId, firstIndex.getIdentity(), firstReference))
+          .as("an older carrier must not claim an unbound replacement generation")
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("reference changed");
+      assertThat(unboundReplacement.ownerDescriptorIdentity()).isNull();
+    } finally {
+      engines.set(secondReference.slot(), registered);
+    }
+
+    var futureReference = new IndexEngineReference(
+        secondReference.slot(), secondReference.apiVersion(), secondReference.generation() + 1);
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        firstIndexId, firstIndex.getIdentity(), futureReference))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("reference changed");
+  }
 
   // The public addIndexEngine wrapper (now allocate-id + doAddIndexEngine + publish) must
   // still register the engine so that getIndexEngine resolves it by id and the registry
@@ -147,9 +254,9 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
-  // ---- The load-bearing property: doGetIndexEngine resolves under a held write lock ----
+  // ---- The load-bearing property: getIndexEngineWithStateLock resolves under a held write lock ----
 
-  // doGetIndexEngine must resolve an engine by internal id without taking stateLock, so a
+  // getIndexEngineWithStateLock must resolve an engine by internal id without taking stateLock, so a
   // schema-carrying commit holding stateLock.writeLock() can reach engines during the
   // index-apply path without the non-reentrant self-deadlock the public getIndexEngine
   // would cause. The test holds the write lock on the calling thread, then resolves.
@@ -161,9 +268,7 @@ public class AbstractStorageCommitPrimitivesTest {
   // clean TestTimedOutException naming this method, matching the ScalableRWLockTest convention
   // in this package.
   @Test(timeout = 30_000)
-  public void doGetIndexEngineResolvesWhileWriteLockHeld() throws Exception {
-    // @Test(timeout) runs this body on a JUnit watchdog thread; the session is thread-bound
-    // (a ThreadLocal activation flag), so re-activate it on this thread before touching the db.
+  public void heldStateLockResolverWorksForReadLockAndCommitWindow() throws Exception {
     db.activateOnCurrentThread();
 
     SchemaClass cls = db.createVertexClass("PersonLockFree");
@@ -173,21 +278,599 @@ public class AbstractStorageCommitPrimitivesTest {
     var storage = (AbstractStorage) db.getStorage();
     var engine = findEngineByName(storage, "PersonLockFree_email");
     assertThat(engine).as("precondition: the engine is registered").isNotNull();
-    int internalId = engine.getId();
+    int externalId = externalIdOf(engine);
 
-    Method doGet =
-        AbstractStorage.class.getDeclaredMethod("doGetIndexEngine", int.class);
-    doGet.setAccessible(true);
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
 
-    // Take the write lock on this thread, exactly as a schema-carrying commit does at entry.
     storage.stateLock.writeLock().lock();
     try {
-      var resolved = (BaseIndexEngine) doGet.invoke(storage, internalId);
-      assertThat(resolved)
-          .as("doGetIndexEngine must resolve the engine under the held write lock")
-          .isSameAs(engine);
+      storage.enterCommitWindow();
+      try {
+        assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+      } finally {
+        storage.exitCommitWindow();
+      }
     } finally {
       storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  /** The lock-free resolver rejects callers that provide neither supported state-lock proof. */
+  @Test
+  public void heldStateLockResolverRejectsUnlockedCaller() throws Exception {
+    SchemaClass cls = db.createVertexClass("ResolverPrecondition");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("ResolverPrecondition_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var engine = findEngineByName(storage, "ResolverPrecondition_value");
+
+    assertThatThrownBy(() -> storage.getIndexEngineWithStateLock(externalIdOf(engine)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("state lock")
+        .hasMessageContaining("commit window");
+  }
+
+  /** Indexed data commits must retain their outer state read lock through engine resolution. */
+  @Test(timeout = 30_000)
+  public void indexLockResolutionDoesNotDropOuterStateReadLock() throws Exception {
+    db.activateOnCurrentThread();
+    SchemaClass cls = db.createVertexClass("IndexedCommitLock");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("IndexedCommitLock_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = db.getSharedContext().getIndexManager().getIndex("IndexedCommitLock_value");
+    db.begin();
+    var operation = db.getActiveTransaction().getAtomicOperation();
+
+    storage.stateLock.readLock().lock();
+    try {
+      index.acquireAtomicExclusiveLock(operation);
+      try (var executor = Executors.newSingleThreadExecutor()) {
+        var writerEntered =
+            executor.submit(
+                () -> {
+                  if (!storage.stateLock.writeLock().tryLock()) {
+                    return false;
+                  }
+                  try {
+                    return true;
+                  } finally {
+                    storage.stateLock.writeLock().unlock();
+                  }
+                });
+        assertThat(writerEntered.get(10, TimeUnit.SECONDS))
+            .as("engine resolution must not release the commit's outer state read lock")
+            .isFalse();
+      }
+    } finally {
+      storage.stateLock.readLock().unlock();
+      db.rollback();
+    }
+  }
+
+  /** Owner recovery during a data write must not release the commit's outer state read lock. */
+  @Test(timeout = 30_000)
+  public void staleDataWriteRecoveryRetainsOuterStateReadLock() throws Exception {
+    db.activateOnCurrentThread();
+    var cls = db.createVertexClass("StaleDataWriteLock");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("StaleDataWriteLock_value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager()
+        .getIndex("StaleDataWriteLock_value");
+    db.begin();
+
+    storage.stateLock.readLock().lock();
+    try {
+      var snapshot = index.engineSnapshot();
+      var staleIdentifier =
+          snapshot.engineReference().apiVersion() << (Integer.SIZE - 5) | 0x7_FF_FF_FF;
+      IndexEngineTestSupport.setEngineIdentifier(index, staleIdentifier);
+      assertThatThrownBy(() -> index.doPut(
+          db, storage, "key", new RecordId(cls.getCollectionIds()[0], 42)))
+          .hasMessageContaining("Atomic operation is not committed yet");
+      assertThat(index.getIndexId()).isEqualTo(snapshot.engineIdentifier());
+      try (var executor = Executors.newSingleThreadExecutor()) {
+        var writerEntered = executor.submit(() -> {
+          if (!storage.stateLock.writeLock().tryLock()) {
+            return false;
+          }
+          try {
+            return true;
+          } finally {
+            storage.stateLock.writeLock().unlock();
+          }
+        });
+        assertThat(writerEntered.get(10, TimeUnit.SECONDS))
+            .as("owner recovery must retain the commit's outer state read lock")
+            .isFalse();
+      }
+    } finally {
+      storage.stateLock.readLock().unlock();
+      db.rollback();
+    }
+  }
+
+  /** A stale engine identifier reloads without re-entering either held state-lock mode. */
+  @Test(timeout = 30_000)
+  public void staleIndexLockResolutionRetainsCallerStateLock() throws Exception {
+    db.activateOnCurrentThread();
+    SchemaClass cls = db.createVertexClass("StaleIndexedCommitLock");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("StaleIndexedCommitLock_value", SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager()
+        .getIndex("StaleIndexedCommitLock_value");
+    db.begin();
+    var operation = db.getActiveTransaction().getAtomicOperation();
+
+    storage.stateLock.readLock().lock();
+    try {
+      IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
+      index.acquireAtomicExclusiveLock(operation);
+      try (var executor = Executors.newSingleThreadExecutor()) {
+        var writerEntered =
+            executor.submit(
+                () -> {
+                  if (!storage.stateLock.writeLock().tryLock()) {
+                    return false;
+                  }
+                  try {
+                    return true;
+                  } finally {
+                    storage.stateLock.writeLock().unlock();
+                  }
+                });
+        assertThat(writerEntered.get(10, TimeUnit.SECONDS))
+            .as("stale-id reload must retain the outer state read lock")
+            .isFalse();
+      }
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      storage.enterCommitWindow();
+      try {
+        IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
+        index.acquireAtomicExclusiveLock(operation);
+      } finally {
+        storage.exitCommitWindow();
+      }
+    } finally {
+      storage.stateLock.writeLock().unlock();
+      db.rollback();
+    }
+  }
+
+  /** The collection lookup resolves through every protection branch without dropping ownership. */
+  @Test(timeout = 30_000)
+  public void collectionIdentifierLookupSelfRoutesForEveryProtectionState() {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionName = MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME;
+    var expected = storage.getCollectionIdByName(collectionName);
+
+    assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+      assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+      assertThat(storage.stateLock.isWriteLockedByCurrentThread()).isTrue();
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      assertThat(storage.getCollectionIdByNameWithStateLock(collectionName)).isEqualTo(expected);
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** The public lifecycle creation boundary rejects a caller without state protection. */
+  @Test
+  public void initialLifecycleCreationRejectsUnprotectedCaller() {
+    var storage = (AbstractStorage) db.getStorage();
+
+    assertThatThrownBy(
+        () -> storage.createInitialIndexLifecycle(new RecordId(0, 41), null, null))
+        .isExactlyInstanceOf(StorageStateContextException.class)
+        .hasMessageContaining("state lock")
+        .hasMessageContaining("commit window");
+  }
+
+  /** Initial lifecycle creation accepts read mode, write mode, and an open commit window. */
+  @Test
+  public void initialLifecycleCreationAcceptsEveryProtectionState() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 42));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 43));
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      createInitialLifecycleInsideAtomicOperation(storage, new RecordId(0, 44));
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** The commit-time record primitive rejects a caller without storage state protection. */
+  @Test
+  public void commitRecordCreateRejectsUnprotectedCaller() {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionId =
+        storage.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertThatThrownBy(
+          () -> storage.createRecordInsideCommitAtomicOperation(
+              operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("state lock")
+          .hasMessageContaining("commit window");
+    } finally {
+      db.rollback();
+    }
+  }
+
+  /** An applying ownership rejection leaves storage usable for a later valid write. */
+  @Test
+  public void applyingRecordOwnershipRejectionDoesNotSetStorageErrorMarker() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var collectionId =
+        storage.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+
+    assertThatThrownBy(
+        () -> storage
+            .getAtomicOperationsManager()
+            .executeInsideAtomicOperation(
+                operation -> storage.createRecordInsideCommitAtomicOperation(
+                    operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE)))
+        .hasRootCauseInstanceOf(StorageStateContextException.class);
+
+    var created = new IndexBuildStateStorageBackend(storage).create(Map.of("value", 1));
+
+    assertThat(created.identity().isPersistent()).isTrue();
+    assertThat(storage.getStatus().name()).isEqualTo("OPEN");
+  }
+
+  /** Checked record writes accept read mode, write mode, and an open commit window. */
+  @Test
+  public void checkedRecordCreateAcceptsEveryProtectionState() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.writeLock().lock();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+
+    storage.enterCommitWindow();
+    try {
+      createPrimitiveRecordInsideAtomicOperation(storage);
+    } finally {
+      storage.exitCommitWindow();
+    }
+  }
+
+  /** Protected standalone lifecycle writes fail promptly with operation-specific messages. */
+  @Test(timeout = 30_000)
+  public void standaloneLifecycleWritesRejectProtectedReentryWithClearMessages() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var foreignIdentity = new RecordId(0, 99);
+
+    storage.stateLock.writeLock().lock();
+    try {
+      assertThatThrownBy(() -> backend.create(Map.of("value", 1)))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("creation")
+          .hasMessageContaining("createInsideAtomicOperation");
+      assertThatThrownBy(() -> backend.update(foreignIdentity, 0, Map.of("value", 2)))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("update")
+          .hasMessageNotContaining("createInsideAtomicOperation");
+      assertThatThrownBy(() -> backend.delete(foreignIdentity, 0))
+          .isExactlyInstanceOf(StorageStateContextException.class)
+          .hasMessageContaining("deletion")
+          .hasMessageNotContaining("createInsideAtomicOperation");
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  /** A protected caller rejects before waiting for the standalone backend monitor. */
+  @Test(timeout = 30_000)
+  public void protectedStandaloneCallerCannotDeadlockOnBackendMonitor() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var monitorHeld = new CountDownLatch(1);
+    var writeModeHeld = new CountDownLatch(1);
+    var rejectionObserved = new CountDownLatch(1);
+    var failure = new AtomicReference<Throwable>();
+
+    var monitorHolder =
+        new Thread(
+            () -> {
+              synchronized (backend) {
+                monitorHeld.countDown();
+                try {
+                  writeModeHeld.await();
+                  backend.create(Map.of("value", 1));
+                } catch (Throwable throwable) {
+                  failure.compareAndSet(null, throwable);
+                }
+              }
+            });
+    var protectedCaller =
+        new Thread(
+            () -> {
+              try {
+                monitorHeld.await();
+                storage.stateLock.writeLock().lock();
+                writeModeHeld.countDown();
+                try {
+                  assertProtectedCallRejected(
+                      () -> backend.create(Map.of("value", 2)));
+                  assertProtectedCallRejected(
+                      () -> backend.update(new RecordId(0, 102), 0, Map.of("value", 3)));
+                  assertProtectedCallRejected(
+                      () -> backend.delete(new RecordId(0, 103), 0));
+                  rejectionObserved.countDown();
+                } catch (Throwable throwable) {
+                  failure.compareAndSet(null, throwable);
+                } finally {
+                  storage.stateLock.writeLock().unlock();
+                }
+              } catch (Throwable throwable) {
+                failure.compareAndSet(null, throwable);
+              }
+            });
+    monitorHolder.setDaemon(true);
+    protectedCaller.setDaemon(true);
+    monitorHolder.start();
+    protectedCaller.start();
+
+    assertThat(rejectionObserved.await(10, TimeUnit.SECONDS))
+        .as("the protected caller must reject before monitor acquisition")
+        .isTrue();
+    monitorHolder.join(10_000);
+    protectedCaller.join(10_000);
+    assertThat(monitorHolder.isAlive()).isFalse();
+    assertThat(protectedCaller.isAlive()).isFalse();
+    if (failure.get() != null) {
+      throw new AssertionError("both lifecycle callers must finish", failure.get());
+    }
+  }
+
+  /** Update and delete reject protected reentry before validating a foreign identity. */
+  @Test
+  public void standaloneReentryRejectionPrecedesIdentityValidation() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var foreignIdentity = new RecordId(0, 100);
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThatThrownBy(() -> backend.update(foreignIdentity, 0, Map.of()))
+          .isExactlyInstanceOf(StorageStateContextException.class);
+      assertThatThrownBy(() -> backend.delete(foreignIdentity, 0))
+          .isExactlyInstanceOf(StorageStateContextException.class);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+  }
+
+  /** Standalone create, update, and delete hold state read mode before atomic admission. */
+  @Test(timeout = 30_000)
+  public void standaloneLifecycleWritesAcquireStateLockBeforeAtomicWindow() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var created = backend.create(Map.of("value", 1));
+    var updated = new AtomicReference<IndexBuildStateStore.VersionedRecord>();
+
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage, backend, () -> backend.create(Map.of("value", 2)));
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage,
+        backend,
+        () -> updated.set(
+            backend.update(
+                created.identity(), created.record().version(), Map.of("value", 3))));
+    assertStateLockHeldBeforeAtomicAdmission(
+        storage,
+        backend,
+        () -> backend.delete(created.identity(), updated.get().version()));
+  }
+
+  /** A lifecycle context rejection leaves the storage open for a later valid write. */
+  @Test
+  public void lifecycleContextRejectionDoesNotSetStorageErrorMarker() {
+    var storage = (AbstractStorage) db.getStorage();
+    var backend = new IndexBuildStateStorageBackend(storage);
+    var rejection =
+        org.junit.Assert.assertThrows(
+            StorageStateContextException.class,
+            () -> storage.createInitialIndexLifecycle(new RecordId(0, 101), null, null));
+
+    storage.moveToErrorStateIfNeeded(rejection);
+    var created = backend.create(Map.of("value", 1));
+
+    assertThat(created.identity().isPersistent()).isTrue();
+    assertThat(storage.getStatus().name()).isEqualTo("OPEN");
+  }
+
+  /** Caller-owned create and update operations persist versions without nested transactions. */
+  @Test
+  public void callerOwnedRecordCreateAndUpdateUseExpectedVersion() throws Exception {
+    var cls = db.createVertexClass("PrimitiveRecords");
+    int collectionId = cls.getCollectionIds()[0];
+    var storage = (AbstractStorage) db.getStorage();
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+    byte[] initialContent = new byte[] {1, 2, 3};
+
+    long initialVersion;
+    storage.stateLock.readLock().lock();
+    try {
+      initialVersion =
+          storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.createRecordInsideAtomicOperation(
+                      operation, rid, initialContent, RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    assertThat(rid.isPersistent()).isTrue();
+    assertThat(initialVersion).isGreaterThanOrEqualTo(0);
+
+    byte[] updatedContent = new byte[] {4, 5, 6};
+    long updatedVersion;
+    storage.stateLock.readLock().lock();
+    try {
+      updatedVersion =
+          storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.updateRecordInsideAtomicOperation(
+                      operation,
+                      rid,
+                      updatedContent,
+                      initialVersion,
+                      RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    assertThat(updatedVersion).isGreaterThan(initialVersion);
+    var stored =
+        storage
+            .getAtomicOperationsManager()
+            .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
+    assertThat(((RawBuffer) stored).buffer()).isEqualTo(updatedContent);
+  }
+
+  /** A stale caller-owned update rolls back and preserves the last durable record bytes. */
+  @Test
+  public void callerOwnedRecordUpdateRejectsStaleExpectedVersion() throws Exception {
+    var cls = db.createVertexClass("PrimitiveVersionConflict");
+    var storage = (AbstractStorage) db.getStorage();
+    var rid =
+        new ChangeableRecordId(
+            cls.getCollectionIds()[0], RecordIdInternal.COLLECTION_POS_INVALID);
+    byte[] durableContent = new byte[] {7, 8};
+
+    storage.stateLock.readLock().lock();
+    try {
+      storage
+          .getAtomicOperationsManager()
+          .calculateInsideAtomicOperation(
+              operation -> storage.createRecordInsideAtomicOperation(
+                  operation, rid, durableContent, RecordBytes.RECORD_TYPE));
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThatThrownBy(
+          () -> storage
+              .getAtomicOperationsManager()
+              .calculateInsideAtomicOperation(
+                  operation -> storage.updateRecordInsideAtomicOperation(
+                      operation,
+                      new RecordId(rid),
+                      new byte[] {9},
+                      Long.MIN_VALUE,
+                      RecordBytes.RECORD_TYPE)))
+          .isInstanceOf(ConcurrentModificationException.class);
+    } finally {
+      storage.stateLock.readLock().unlock();
+    }
+
+    var stored =
+        storage
+            .getAtomicOperationsManager()
+            .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
+    assertThat(((RawBuffer) stored).buffer()).isEqualTo(durableContent);
+  }
+
+  /** Caller-owned record primitives fail before taking a second collection lock. */
+  @Test
+  public void callerOwnedRecordWritesRejectSecondCollection() {
+    var firstClass = db.createVertexClass("PrimitiveFirstCollection");
+    var secondClass = db.createVertexClass("PrimitiveSecondCollection");
+    var firstRid =
+        new ChangeableRecordId(
+            firstClass.getCollectionIds()[0], RecordIdInternal.COLLECTION_POS_INVALID);
+    var secondRid =
+        new ChangeableRecordId(
+            secondClass.getCollectionIds()[0], RecordIdInternal.COLLECTION_POS_INVALID);
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.readLock().lock();
+    try {
+      assertThatThrownBy(
+          () -> storage
+              .getAtomicOperationsManager()
+              .executeInsideAtomicOperation(
+                  operation -> {
+                    storage.createRecordInsideAtomicOperation(
+                        operation, firstRid, new byte[] {1}, RecordBytes.RECORD_TYPE);
+                    storage.createRecordInsideAtomicOperation(
+                        operation, secondRid, new byte[] {2}, RecordBytes.RECORD_TYPE);
+                  }))
+          .isInstanceOf(com.jetbrains.youtrackdb.internal.core.exception.StorageException.class)
+          .hasRootCauseInstanceOf(IllegalStateException.class)
+          .rootCause()
+          .hasMessageContaining("one collection")
+          .hasMessageContaining("ascending identifier order");
+    } finally {
+      storage.stateLock.readLock().unlock();
     }
   }
 
@@ -443,18 +1126,633 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
+  /** The public resolver finds one owner in a non-zero slot and returns its packed identifier. */
+  @Test
+  public void ownerResolverReturnsPackedIdentifierForExactOwner() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionExact");
+    cls.createProperty("first", PropertyType.STRING);
+    cls.createProperty("second", PropertyType.STRING);
+    cls.createIndex("OwnerResolutionExact.first", SchemaClass.INDEX_TYPE.UNIQUE, "first");
+    var indexName = "OwnerResolutionExact.second";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "second");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engine = findEngineByName(storage, indexName);
+
+    assertThat(engine.getId()).isGreaterThan(0);
+    assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
+        .isEqualTo(externalIdOf(engine));
+  }
+
+  /** A replacement object in the same slot remains resolvable after binding the same owner. */
+  @Test
+  public void ownerResolverFindsSameOwnerReplacementInSameSlot() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionReplacement");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionReplacement.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var original = (BTreeSingleValueIndexEngine) findEngineByName(storage, indexName);
+    var replacement = replacementEngine(storage, original, "same-owner");
+    replacement.getEngineReference().bindOwner(index.getIdentity());
+
+    engines.set(original.getId(), replacement);
+    try {
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
+          .isEqualTo(externalIdOf(replacement));
+    } finally {
+      engines.set(original.getId(), original);
+    }
+  }
+
+  /** A descriptor with no registered owner fails closed without poisoning the storage. */
+  @Test
+  public void ownerResolverRejectsMissingOwnerWithoutStoragePoisoning() {
+    var storage = (AbstractStorage) db.getStorage();
+    var missingOwner = new RecordId(91, 17);
+
+    assertThatThrownBy(() -> storage.resolveIndexEngineByOwner(missingOwner))
+        .isInstanceOf(StaleIndexEngineException.class)
+        .hasMessageContaining(missingOwner.toString())
+        .hasMessageContaining("no registered engine");
+    assertThat(storage.getStatus().name()).isEqualTo("OPEN");
+  }
+
+  /** A same-slot engine bound to another descriptor cannot satisfy resolution for the old owner. */
+  @Test
+  public void ownerResolverRejectsForeignOwnerInSameSlot() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionForeign");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionForeign.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var original = (BTreeSingleValueIndexEngine) findEngineByName(storage, indexName);
+    var replacement = replacementEngine(storage, original, "foreign-owner");
+    var foreignOwner = new RecordId(92, 18);
+    replacement.getEngineReference().bindOwner(foreignOwner);
+
+    engines.set(original.getId(), replacement);
+    try {
+      assertThatThrownBy(() -> storage.resolveIndexEngineByOwner(index.getIdentity()))
+          .isInstanceOf(StaleIndexEngineException.class)
+          .hasMessageContaining(index.getIdentity().toString())
+          .hasMessageContaining("no registered engine");
+    } finally {
+      engines.set(original.getId(), original);
+    }
+  }
+
+  /** Two registered engines carrying one owner violate the storage ownership invariant. */
+  @Test
+  public void ownerResolverRejectsDuplicateOwner() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionDuplicate");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionDuplicate.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var original = (BTreeSingleValueIndexEngine) findEngineByName(storage, indexName);
+    var engines = indexEngines(storage);
+    var duplicate = new BTreeSingleValueIndexEngine(
+        engines.size(), original.getFileBaseId() + 10_000, "duplicate-owner", storage, 4);
+    duplicate.getEngineReference().bindOwner(index.getIdentity());
+
+    engines.add(duplicate);
+    try {
+      assertThatThrownBy(() -> storage.resolveIndexEngineByOwner(index.getIdentity()))
+          .isInstanceOf(StorageException.class)
+          .hasMessageContaining(index.getIdentity().toString())
+          .hasMessageContaining("Multiple registered index engines");
+    } finally {
+      engines.remove(engines.size() - 1);
+    }
+  }
+
+  /** Null registry slots are ignored while the resolver checks every possible duplicate owner. */
+  @Test
+  public void ownerResolverSkipsNullEngineSlots() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionNullSlot");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionNullSlot.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engine = findEngineByName(storage, indexName);
+    var engines = indexEngines(storage);
+
+    engines.add(null);
+    try {
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
+          .isEqualTo(externalIdOf(engine));
+    } finally {
+      engines.remove(engines.size() - 1);
+    }
+  }
+
+  /** A reference-less engine is skipped while another engine resolves for the requested owner. */
+  @Test
+  public void ownerResolverSkipsReferenceLessEngineAndFindsRequestedOwner() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionReferenceLessPeer");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionReferenceLessPeer.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var expectedEngine = findEngineByName(storage, indexName);
+    var engines = indexEngines(storage);
+    engines.add(Mockito.mock(BaseIndexEngine.class));
+    try {
+      assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
+          .isEqualTo(externalIdOf(expectedEngine));
+    } finally {
+      engines.remove(engines.size() - 1);
+    }
+  }
+
+  /** A stale handle for a reference-less engine fails closed with the typed stale exception. */
+  @Test
+  public void referenceLessEngineHandleFailsClosedWithStaleException() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionReferenceLessHandle");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionReferenceLessHandle.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var original = findEngineByName(storage, indexName);
+    var referenceLessEngine = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(referenceLessEngine.getId()).thenReturn(original.getId());
+    Mockito.when(referenceLessEngine.getName()).thenReturn(indexName);
+    engines.set(original.getId(), referenceLessEngine);
+    setIndexIdentifier(index, index.getIndexId() | 1_000_000);
+    try {
+      assertThatThrownBy(() -> index.getStatistics(db))
+          .isExactlyInstanceOf(StaleIndexEngineException.class)
+          .hasMessageContaining(index.getIdentity().toString());
+    } finally {
+      engines.set(original.getId(), original);
+    }
+  }
+
+  /** A restored reference-less engine cannot poison owner resolution for another index. */
+  @Test
+  public void restoredReferenceLessEngineDoesNotPoisonUnrelatedOwnerResolution() throws Exception {
+    var cls = db.createVertexClass("OwnerResolutionAfterReferenceLessRestore");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionAfterReferenceLessRestore.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var unrelatedIndex =
+        (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var unrelatedEngine = findEngineByName(storage, indexName);
+    var engines = indexEngines(storage);
+    var engine = Mockito.mock(BaseIndexEngine.class);
+    var engineName = "restored-reference-less";
+    var owner = new RecordId(95, 21);
+    var slot = engines.size();
+    Mockito.when(engine.getId()).thenReturn(slot);
+    Mockito.when(engine.getName()).thenReturn(engineName);
+    Mockito.when(engine.getEngineReference()).thenReturn(null);
+
+    storage.bindOwnerAndPublishRestoredIndexEngine(slot, engine, owner);
+
+    assertThat(engines.get(slot)).isSameAs(engine);
+    assertThat(storage.loadIndexEngine(engineName)).isGreaterThanOrEqualTo(0);
+    assertThat(storage.resolveIndexEngineByOwner(unrelatedIndex.getIdentity()).engineIdentifier())
+        .isEqualTo(externalIdOf(unrelatedEngine));
+  }
+
+  /** The lock-held owner resolver rejects a caller without a state lock or commit window. */
+  @Test
+  public void ownerResolverWithStateLockRejectsUnlockedCaller() {
+    var storage = (AbstractStorage) db.getStorage();
+
+    assertThatThrownBy(
+        () -> storage.resolveIndexEngineByOwnerWithStateLock(new RecordId(94, 20)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("state lock")
+        .hasMessageContaining("commit window");
+  }
+
+  /** The public owner resolver self-routes under a commit-window write lock without deadlocking. */
+  @Test(timeout = 30_000)
+  public void publicOwnerResolverRoutesThroughCommitWindow() throws Exception {
+    db.activateOnCurrentThread();
+    var cls = db.createVertexClass("OwnerResolutionCommitWindow");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "OwnerResolutionCommitWindow.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engine = findEngineByName(storage, indexName);
+
+    storage.stateLock.writeLock().lock();
+    try {
+      storage.enterCommitWindow();
+      try {
+        assertThat(storage.resolveIndexEngineByOwner(index.getIdentity()).engineIdentifier())
+            .isEqualTo(externalIdOf(engine));
+      } finally {
+        storage.exitCommitWindow();
+      }
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  /** Attachment rejects every torn reference shape and tolerates reference-less engines. */
+  @Test
+  public void attachIndexEngineOwnerRejectsTornCarrierShapes() throws Exception {
+    var cls = db.createVertexClass("AttachmentShapes");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "AttachmentShapes.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var live = snapshot.engineReference();
+    var owner = index.getIdentity();
+
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        snapshot.engineIdentifier(), owner, null))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("unexpectedly gained");
+    var foreignSlot = new IndexEngineReference(
+        live.slot() + 1, live.apiVersion(), live.generation() + 1);
+    assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+        snapshot.engineIdentifier(), owner, foreignSlot))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("reference changed");
+
+    var engines = indexEngines(storage);
+    var registered = engines.get(live.slot());
+    var referenceLess = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(referenceLess.getId()).thenReturn(live.slot());
+    Mockito.when(referenceLess.getEngineReference()).thenReturn(null);
+    engines.set(live.slot(), referenceLess);
+    try {
+      assertThatThrownBy(() -> storage.attachIndexEngineOwner(
+          snapshot.engineIdentifier(), owner, live))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("lost its process-local reference");
+      assertThat(storage.attachIndexEngineOwner(
+          snapshot.engineIdentifier(), owner, null)).isNull();
+    } finally {
+      engines.set(live.slot(), registered);
+    }
+  }
+
+  /** Reference lookup wrappers preserve runtime failures and errors from the registry engine. */
+  @Test
+  public void referenceLookupPreservesEngineReferenceFailures() throws Exception {
+    assertReferenceLookupFailurePreserved(new IllegalStateException("reference runtime"));
+    assertReferenceLookupFailurePreserved(new AssertionError("reference error"));
+    assertReferenceLookupFailurePreserved(new IOException("reference checked failure"));
+  }
+
+  private void assertReferenceLookupFailurePreserved(Throwable failure) throws Exception {
+    var clsName = "ReferenceLookup" + failure.getClass().getSimpleName();
+    var cls = db.createVertexClass(clsName);
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = clsName + ".value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var slot = snapshot.engineReference().slot();
+    var engines = indexEngines(storage);
+    var throwing = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(throwing.getId()).thenReturn(slot);
+    Mockito.when(throwing.getEngineReference()).thenAnswer(invocation -> {
+      throw failure;
+    });
+    var registered = engines.set(slot, throwing);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertForwardedFailure(
+          () -> storage.getIndexEngine(snapshot.engineIdentifier(), snapshot.engineReference()),
+          failure);
+      assertForwardedFailure(
+          () -> storage.getIndexValues(
+              snapshot.engineIdentifier(), snapshot.engineReference(), "key", operation),
+          failure);
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
+  /** A reference-aware size call keeps the validated engine when its slot changes mid-call. */
+  @Test
+  public void referenceAwareSizeUsesOneResolvedEngine() throws Exception {
+    var cls = db.createVertexClass("FusedReferenceSize");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "FusedReferenceSize.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var engines = indexEngines(storage);
+    var slot = engines.get(index.getIndexId() & 0x7_FF_FF_FF).getId();
+    var expectedReference = index.engineSnapshot().engineReference();
+    var original = Mockito.mock(BaseIndexEngine.class);
+    var replacement = Mockito.mock(BaseIndexEngine.class);
+    Mockito.when(original.getId()).thenReturn(slot);
+    Mockito.when(original.getEngineReference()).thenAnswer(invocation -> {
+      engines.set(slot, replacement);
+      return expectedReference;
+    });
+    Mockito.when(original.size(Mockito.any(), Mockito.isNull(), Mockito.any())).thenReturn(11L);
+    Mockito.when(replacement.getId()).thenReturn(slot);
+    Mockito.when(replacement.size(Mockito.any(), Mockito.isNull(), Mockito.any())).thenReturn(22L);
+
+    var registered = engines.set(slot, original);
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      assertThat(storage.getIndexSize(
+          index.getIndexId(), expectedReference, null, operation)).isEqualTo(11L);
+      Mockito.verify(original).size(storage, null, operation);
+      Mockito.verify(replacement, Mockito.never())
+          .size(Mockito.any(), Mockito.any(), Mockito.any());
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
+  /** Every reference-aware storage API rejects a different engine before any operation runs. */
+  @Test
+  public void referenceAwareIndexApisRejectReplacedEngine() throws Exception {
+    var cls = db.createVertexClass("ReferenceApiMismatch");
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = "ReferenceApiMismatch.value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var live = snapshot.engineReference();
+    var wrong = new IndexEngineReference(live.slot(), live.apiVersion(), live.generation() + 1);
+    var rid = new RecordId(7, 42);
+    @SuppressWarnings("unchecked")
+    var validator = (IndexEngineValidator<Object,
+        com.jetbrains.youtrackdb.internal.core.db.record.record.RID>) Mockito
+            .mock(IndexEngineValidator.class);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      List<ThrowingCallable> calls = List.of(
+          () -> storage.getIndexValues(
+              snapshot.engineIdentifier(), wrong, "key", operation),
+          () -> storage.getIndexEngine(snapshot.engineIdentifier(), wrong),
+          () -> storage.removeKeyFromIndex(
+              snapshot.engineIdentifier(), wrong, "key", operation),
+          () -> storage.putRidIndexEntry(
+              snapshot.engineIdentifier(), wrong, "key", rid, operation),
+          () -> storage.removeRidIndexEntry(
+              snapshot.engineIdentifier(), wrong, "key", rid, operation),
+          () -> storage.validatedPutIndexValue(
+              snapshot.engineIdentifier(), wrong, "key", rid, validator, operation),
+          () -> storage.callIndexEngine(
+              false, snapshot.engineIdentifier(), wrong, engine -> null),
+          () -> storage.iterateIndexEntriesBetween(
+              snapshot.engineIdentifier(), wrong, "a", true, "z", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMajor(
+              snapshot.engineIdentifier(), wrong, "a", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMinor(
+              snapshot.engineIdentifier(), wrong, "z", true, true, null, operation),
+          () -> storage.getIndexStream(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.getIndexDescStream(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.getIndexKeyStream(snapshot.engineIdentifier(), wrong, operation),
+          () -> storage.getIndexSize(snapshot.engineIdentifier(), wrong, null, operation),
+          () -> storage.deleteIndexEngine(snapshot.engineIdentifier(), wrong));
+
+      for (var call : calls) {
+        assertThatThrownBy(call).isExactlyInstanceOf(IndexEngineReplacedException.class);
+      }
+      assertThatThrownBy(() -> storage.clearIndex(snapshot.engineIdentifier(), wrong))
+          .isExactlyInstanceOf(StaleIndexEngineException.class)
+          .hasCauseInstanceOf(IndexEngineReplacedException.class);
+
+      storage.stateLock.readLock().lock();
+      try {
+        assertThatThrownBy(() -> storage.getIndexEngineWithStateLock(
+            snapshot.engineIdentifier(), wrong))
+            .isExactlyInstanceOf(IndexEngineReplacedException.class);
+      } finally {
+        storage.stateLock.readLock().unlock();
+      }
+
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.enterCommitWindow();
+        try {
+          assertThatThrownBy(() -> storage.deleteIndexEngineInCommitWindow(
+              snapshot.engineIdentifier(), wrong, operation))
+              .isExactlyInstanceOf(IndexEngineReplacedException.class);
+        } finally {
+          storage.exitCommitWindow();
+        }
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+
+      assertThat(storage.loadIndexEngine(indexName)).isEqualTo(snapshot.engineIdentifier());
+    } finally {
+      db.rollback();
+    }
+  }
+
+  /** Query wrappers preserve runtime failures and errors raised by the resolved engine. */
+  @Test
+  public void referenceAwareQueryApisPreserveEngineFailures() throws Exception {
+    assertReferenceAwareQueryFailurePreserved(new IllegalStateException("runtime failure"));
+    assertReferenceAwareQueryFailurePreserved(new AssertionError("error failure"));
+    assertReferenceAwareQueryFailurePreserved(new IOException("checked failure"));
+  }
+
+  private void assertReferenceAwareQueryFailurePreserved(Throwable failure) throws Exception {
+    var clsName = "ReferenceFailure" + failure.getClass().getSimpleName();
+    var cls = db.createVertexClass(clsName);
+    cls.createProperty("value", PropertyType.STRING);
+    var indexName = clsName + ".value";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+
+    var storage = (AbstractStorage) db.getStorage();
+    var index = (IndexAbstract) db.getSharedContext().getIndexManager().getIndex(indexName);
+    var snapshot = index.engineSnapshot();
+    var engines = indexEngines(storage);
+    var slot = snapshot.engineReference().slot();
+    var throwing = Mockito.mock(BaseIndexEngine.class, invocation -> {
+      return switch (invocation.getMethod().getName()) {
+        case "getId" -> slot;
+        case "getEngineReference" -> snapshot.engineReference();
+        default -> throw failure;
+      };
+    });
+    var registered = engines.set(slot, throwing);
+
+    db.begin();
+    try {
+      var operation = db.getActiveTransaction().getAtomicOperation();
+      List<ThrowingCallable> calls = List.of(
+          () -> storage.iterateIndexEntriesBetween(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "a", true, "z", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMajor(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "a", true, true, null, operation),
+          () -> storage.iterateIndexEntriesMinor(
+              snapshot.engineIdentifier(), snapshot.engineReference(),
+              "z", true, true, null, operation),
+          () -> storage.getIndexStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation),
+          () -> storage.getIndexDescStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation),
+          () -> storage.getIndexKeyStream(
+              snapshot.engineIdentifier(), snapshot.engineReference(), operation),
+          () -> storage.getIndexSize(
+              snapshot.engineIdentifier(), snapshot.engineReference(), null, operation));
+
+      for (var call : calls) {
+        assertForwardedFailure(call, failure);
+      }
+    } finally {
+      engines.set(slot, registered);
+      db.rollback();
+    }
+  }
+
+  private static void assertProtectedCallRejected(Runnable call) {
+    try {
+      call.run();
+      throw new AssertionError("the protected caller must be rejected");
+    } catch (StorageStateContextException expected) {
+      // Expected before monitor acquisition.
+    }
+  }
+
+  private void assertStateLockHeldBeforeAtomicAdmission(
+      AbstractStorage storage, IndexBuildStateStorageBackend backend, Runnable write)
+      throws Exception {
+    var failure = new AtomicReference<Throwable>();
+    var reachedAtomicAdmission = new CountDownLatch(1);
+    backend.setBeforeAtomicOperationTestHook(reachedAtomicAdmission::countDown);
+    storage.freeze(db, false);
+    var writer =
+        new Thread(
+            () -> {
+              try {
+                write.run();
+              } catch (Throwable throwable) {
+                failure.set(throwable);
+              }
+            });
+    writer.setDaemon(true);
+    writer.start();
+    try {
+      assertThat(reachedAtomicAdmission.await(10, TimeUnit.SECONDS))
+          .as("the standalone writer must reach atomic admission")
+          .isTrue();
+      var competingWriterEntered = storage.stateLock.writeLock().tryLock();
+      if (competingWriterEntered) {
+        storage.stateLock.writeLock().unlock();
+      }
+      assertThat(competingWriterEntered)
+          .as("the standalone writer must hold state read mode while atomic admission waits")
+          .isFalse();
+    } finally {
+      backend.setBeforeAtomicOperationTestHook(null);
+      storage.release(db);
+      writer.join(10_000);
+    }
+    assertThat(writer.isAlive()).isFalse();
+    if (failure.get() != null) {
+      throw new AssertionError("the standalone lifecycle write must finish", failure.get());
+    }
+  }
+
+  private static void createInitialLifecycleInsideAtomicOperation(
+      AbstractStorage storage, RecordId descriptorIdentity) throws IOException {
+    storage
+        .getAtomicOperationsManager()
+        .executeInsideAtomicOperation(
+            operation -> storage.createInitialIndexLifecycle(
+                descriptorIdentity, null, operation));
+  }
+
+  private static void createPrimitiveRecordInsideAtomicOperation(AbstractStorage storage)
+      throws IOException {
+    var collectionId =
+        storage.getCollectionIdByNameWithStateLock(
+            MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var rid = new ChangeableRecordId(collectionId, RecordIdInternal.COLLECTION_POS_INVALID);
+    storage
+        .getAtomicOperationsManager()
+        .executeInsideAtomicOperation(
+            operation -> storage.createRecordInsideCommitAtomicOperation(
+                operation, rid, new byte[] {1}, RecordBytes.RECORD_TYPE));
+  }
+
+  private static void assertForwardedFailure(ThrowingCallable call, Throwable failure) {
+    if (failure instanceof RuntimeException || failure instanceof Error) {
+      assertThatThrownBy(call).isSameAs(failure);
+    } else {
+      assertThatThrownBy(call)
+          .isInstanceOf(RuntimeException.class)
+          .hasCause(failure);
+    }
+  }
+
   // ---- Helpers ----
 
   /**
    * Reads the {@code private} {@code indexEngines} registry on the storage and returns the
    * engine registered under {@code name}, or {@code null} if no live engine carries it.
    */
+  private static BTreeSingleValueIndexEngine replacementEngine(
+      AbstractStorage storage, BTreeSingleValueIndexEngine original, String suffix) {
+    return new BTreeSingleValueIndexEngine(
+        original.getId(),
+        original.getFileBaseId(),
+        original.getName() + "-" + suffix,
+        storage,
+        4);
+  }
+
   @SuppressWarnings("unchecked")
-  private static BaseIndexEngine findEngineByName(AbstractStorage storage, String name)
-      throws Exception {
+  private static List<BaseIndexEngine> indexEngines(AbstractStorage storage) throws Exception {
     var field = AbstractStorage.class.getDeclaredField("indexEngines");
     field.setAccessible(true);
-    var engines = (List<BaseIndexEngine>) field.get(storage);
+    return (List<BaseIndexEngine>) field.get(storage);
+  }
+
+  private static void setIndexIdentifier(IndexAbstract index, int indexIdentifier) {
+    IndexEngineTestSupport.setEngineIdentifier(index, indexIdentifier);
+  }
+
+  private static BaseIndexEngine findEngineByName(AbstractStorage storage, String name)
+      throws Exception {
+    var engines = indexEngines(storage);
     for (var engine : engines) {
       if (engine != null && name.equals(engine.getName())) {
         return engine;

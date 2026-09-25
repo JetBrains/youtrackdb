@@ -38,6 +38,7 @@ import javax.annotation.Nullable;
 public class MetadataDefault implements MetadataInternal {
 
   public static final String COLLECTION_INTERNAL_NAME = "internal";
+  public static final String INDEX_BUILD_STATE_COLLECTION_NAME = "index_build_state";
 
   /**
    * The collection id of {@link #COLLECTION_INTERNAL_NAME}: always {@code 0} — it is the first

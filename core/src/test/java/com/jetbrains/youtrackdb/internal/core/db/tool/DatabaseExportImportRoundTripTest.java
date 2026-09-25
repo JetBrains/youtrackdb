@@ -4,12 +4,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -291,6 +293,25 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
     } finally {
       // Reactivate the YourTracks-managed handle so drop runs on the right session.
       youTrackDB.drop(importDbName);
+    }
+  }
+
+  /**
+   * Lifecycle records use the blob record type internally. Logical export must omit every record
+   * whose source identity belongs to the index build state collection.
+   */
+  @Test
+  public void exportOmitsIndexBuildStateRecords() throws IOException {
+    var output = new ByteArrayOutputStream();
+    new DatabaseExport(session, output, iText -> {
+    }).exportDatabase();
+
+    var dump = new ObjectMapper().readTree(output.toByteArray());
+    var buildStateCollectionId =
+        session.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    for (var record : dump.get("records")) {
+      assertFalse("logical export must omit index build state records",
+          record.path("@rid").asText().startsWith("#" + buildStateCollectionId + ":"));
     }
   }
 

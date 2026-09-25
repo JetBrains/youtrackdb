@@ -118,15 +118,15 @@ public class AtomicOperationsManagerStartupFailureTest {
     verify(operation).deactivate();
   }
 
-  /** A table-start failure attempts rollback and still releases freezer admission. */
+  /** A failed table registration owns no entry to roll back and releases freezer admission. */
   @Test(timeout = 2_000)
-  public void tableStartFailureAttemptsRollbackAndPreservesFailure() throws Exception {
+  public void tableStartFailureSkipsRollbackAndPreservesFailure() throws Exception {
     var startupFailure = new IllegalStateException("table registration failed");
     org.mockito.Mockito.doThrow(startupFailure).when(table).startOperation(42L, 7L);
 
     assertStartupFailure(startupFailure);
 
-    verify(table).rollbackOperation(42L);
+    verify(table, never()).rollbackOperation(anyLong());
     verify(operation).deactivate();
     var freezeId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
     manager.unfreezeWriteOperations(freezeId);

@@ -229,6 +229,8 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   protected void load(FrontendTransactionImpl transaction, EntityImpl entity) {
+    storage.validateIndexBuildStateCollection();
+
     indexes.clear();
     classPropertyIndex.clear();
 
@@ -236,8 +238,10 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     if (indexEntities != null) {
       for (var indexIdentifiable : indexEntities) {
         var indexEntity = transaction.loadEntity(indexIdentifiable);
-        final var newIndexMetadata = IndexAbstract.loadMetadataFromMap(transaction,
-            indexEntity.toMap(false));
+        var lifecycleIdentity = indexEntity.getLink(Index.LIFECYCLE_RECORD);
+        storage.recoverIndexLifecycle(indexIdentifiable.getIdentity(), lifecycleIdentity);
+        final var newIndexMetadata =
+            IndexAbstract.loadMetadataFromMap(transaction, indexEntity.toMap(false));
         var index =
             createIndexInstance(transaction, indexIdentifiable, newIndexMetadata);
         addIndexInternalNoLock(index, transaction, false);
@@ -265,6 +269,16 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
 
   protected void addIndexInternalNoLock(final Index index, FrontendTransaction transaction,
       boolean updateEntity) {
+    if (!(index instanceof IndexAbstract indexAbstract)) {
+      throw new IllegalStateException(
+          "index '" + index.getName() + "' has unexpected handle type "
+              + index.getClass().getName() + "; expected " + IndexAbstract.class.getName());
+    }
+
+    // A newly saved descriptor may receive its persistent RID only when its transaction applies.
+    // Bind storage-scoped state before publishing the handle to writers.
+    indexAbstract.attachDescriptorIdentity();
+
     if (updateEntity) {
       var indexEntity = transaction.loadEntity(indexManagerIdentity);
       indexEntity.getOrCreateLinkSet(CONFIG_INDEXES).add(index.getIdentity());

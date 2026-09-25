@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -172,6 +173,28 @@ public class ScheduledEvent extends IdentityWrapper {
 
   private void setRunning(boolean running) {
     this.running.set(running);
+  }
+
+  static String summarizeResult(Object result) {
+    try {
+      if (result == null) {
+        return "<null>";
+      }
+
+      final var typeName = result.getClass().getName();
+      if (result instanceof Identifiable identifiable) {
+        return "%s rid=%s".formatted(typeName, identifiable.getIdentity());
+      }
+
+      return typeName;
+    } catch (RuntimeException exception) {
+      return "<unavailable>";
+    }
+  }
+
+  static String completionMessage(String eventName, long executionId, String resultSummary) {
+    return "Scheduled event '%s' executionId=%d completed with result: %s"
+        .formatted(eventName, executionId, resultSummary);
   }
 
   private static class ScheduledTimerTask implements Runnable {
@@ -337,21 +360,20 @@ public class ScheduledEvent extends IdentityWrapper {
     }
 
     private void executeEventFunction(DatabaseSessionEmbedded session) {
-      Object result = null;
+      String resultSummary = "<unavailable>";
       try {
         var context = new BasicCommandContext();
         context.setDatabaseSession(session);
 
-        result = session.computeInTx(
-            transaction -> event.getFunction().executeInContext(context, event.getArguments()));
+        resultSummary =
+            session.computeInTx(
+                transaction -> summarizeResult(
+                    event.getFunction().executeInContext(context, event.getArguments())));
       } finally {
         LogManager.instance()
             .info(
                 this,
-                "Scheduled event '%s' executionId=%d completed with result: %s",
-                event.getName(),
-                event.nextExecutionId.get(),
-                result);
+                completionMessage(event.getName(), event.nextExecutionId.get(), resultSummary));
         for (var retry = 0; retry < 10; ++retry) {
           session.executeInTx(
               transaction -> {

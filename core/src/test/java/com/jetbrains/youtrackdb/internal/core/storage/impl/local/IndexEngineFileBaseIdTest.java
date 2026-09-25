@@ -16,6 +16,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.exception.InconsistentStorageMetadataException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -31,7 +33,8 @@ import org.junit.Test;
  * Pins the stable-engine-file-key substrate: the persisted, never-reused index-engine file base
  * id ({@code IndexEngineData.fileBaseId}), its high-water-mark allocator with the persisted
  * floor,
- * the open-time seeding inputs, and the storage-format version gate (v24 reject-and-redirect).
+ * the open-time seeding inputs, and the storage-format version gate (reject-and-redirect below
+ * the current storage format version).
  *
  * <p>Uses DISK databases with a full {@code YourTracks}-instance close between phases, because
  * the seeding and the format gate both run only on a real storage open
@@ -461,9 +464,12 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * The storage-format gate rejects a pre-24 database at open — before any engine or collection
-   * component touches its files — with the export/import redirect message, mirroring the schema
-   * record's reject-and-redirect policy.
+   * Scenario: a database whose storage configuration carries a layout version one below the
+   * supported version opens, while the bootstrap authority record carries the supported version.
+   *
+   * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
+   * with the storage layout version value. The check runs before any engine or collection
+   * component touches its files. The report keeps the export and reimport guidance.
    */
   @Test
   public void preCurrentFormatIsRejectedAtOpenWithExportRedirect() throws Exception {
@@ -472,17 +478,41 @@ public class IndexEngineFileBaseIdTest {
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
-      fail("opening the previous storage format must be rejected");
+      fail("opening a pre-current-version database must report the inconsistent-metadata result");
     } catch (final Exception e) {
-      assertMessageChainContains(e, "predates the current format");
-      assertMessageChainContains(e, "please export your old database");
+      assertLayoutVersionInconsistency(e);
+      assertMessageChainContains(e, "The storage configuration reports storage layout version "
+          + (StorageConfiguration.CURRENT_VERSION - 1));
+      assertMessageChainContains(e, "with the earlier version of YouTrackDB");
     }
   }
 
   /**
-   * The gate also enforces a forward ceiling: a database written by a newer format is rejected
-   * with a distinct message directing the user to a matching YouTrackDB version, instead of
-   * misparsing entries whose layout these binaries cannot know.
+   * Finds the named inconsistent-metadata result inside one failure chain and asserts the storage
+   * layout version value of that result.
+   */
+  private static void assertLayoutVersionInconsistency(final Throwable failure) {
+    InconsistentStorageMetadataException result = null;
+    for (var current = failure; current != null; current = current.getCause()) {
+      if (current instanceof InconsistentStorageMetadataException inconsistency) {
+        result = inconsistency;
+        break;
+      }
+    }
+    assertNotNull("the failure must carry the inconsistent-metadata result, saw: " + failure,
+        result);
+    assertEquals("the result must name the storage layout version source",
+        InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
+        result.inconsistency());
+  }
+
+  /**
+   * Scenario: a database whose storage configuration carries a layout version one above the
+   * supported version opens, while the bootstrap authority record carries the supported version.
+   *
+   * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
+   * with the storage layout version value. The message directs the operator to the matching
+   * YouTrackDB version instead of misparsing an unknown layout.
    */
   @Test
   public void newerFormatIsRejectedAtOpenWithCeilingMessage() throws Exception {
@@ -491,10 +521,12 @@ public class IndexEngineFileBaseIdTest {
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
-      fail("opening a newer storage format must be rejected");
+      fail("opening a newer-version database must report the inconsistent-metadata result");
     } catch (final Exception e) {
-      assertMessageChainContains(e, "is newer than the format this version of YouTrackDB"
-          + " supports");
+      assertLayoutVersionInconsistency(e);
+      assertMessageChainContains(e, "The storage configuration reports storage layout version "
+          + (StorageConfiguration.CURRENT_VERSION + 1));
+      assertMessageChainContains(e, "newer than the layout of this build");
     }
   }
 
@@ -673,6 +705,11 @@ public class IndexEngineFileBaseIdTest {
           oldFileBaseId, restored.getFileBaseId());
       assertTrue("the in-memory registry must still resolve the old engine",
           storage.loadIndexEngine("FbiDRFIdx") >= 0);
+      var restoredIndex = (IndexAbstract) session.getSharedContext().getIndexManager()
+          .getIndex("FbiDRFIdx");
+      assertEquals("the restored engine must be bound to its descriptor owner",
+          restoredIndex.getIndexId(),
+          storage.resolveIndexEngineByOwner(restoredIndex.getIdentity()).engineIdentifier());
 
       // The invariant bar: the index is still fully usable after the failed commit.
       session.executeInTx(tx -> tx.newEntity("FbiDropRecreateFail").setProperty("val", "alive"));

@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
 import java.util.UUID;
@@ -172,19 +173,18 @@ public class BTreeLifecycleTest {
       var lockName = tree.getLockName();
 
       // Pre-condition: the lock name is not yet registered on a fresh atomic operation.
-      assertThat(atomicOperation.containsInLockedObjects(lockName))
+      assertThat(atomicOperation.lockedObjectMode(lockName))
           .as("BTree lock name must not be registered before acquireAtomicExclusiveLock")
-          .isFalse();
+          .isNull();
 
       tree.acquireAtomicExclusiveLock(atomicOperation);
 
       // Post-condition: the BTree is now recorded as an exclusive-lock holder for the
       // duration of the operation. The lock will be released when the atomic operation
       // commits or rolls back.
-      assertThat(atomicOperation.containsInLockedObjects(lockName))
-          .as("acquireAtomicExclusiveLock must register the BTree lock name in the "
-              + "atomic operation's locked-objects set")
-          .isTrue();
+      assertThat(atomicOperation.lockedObjectMode(lockName))
+          .as("acquireAtomicExclusiveLock must register the BTree lock mode")
+          .isEqualTo(AtomicOperation.ComponentLockMode.EXCLUSIVE);
     });
   }
 

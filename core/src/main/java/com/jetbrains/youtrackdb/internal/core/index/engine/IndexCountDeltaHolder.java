@@ -88,6 +88,13 @@ public final class IndexCountDeltaHolder {
   }
 
   /**
+   * Discards work accumulated for an engine slot whose owner is being deleted or replaced.
+   */
+  public void discard(int engineId) {
+    deltas.remove(engineId);
+  }
+
+  /**
    * Marks this holder as already persisted to the BTree entry-point pages.
    * Idempotent: calling twice in a row is harmless.
    */

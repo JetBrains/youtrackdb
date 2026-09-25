@@ -5,7 +5,7 @@ import com.jetbrains.youtrackdb.internal.common.listener.ListenerManger;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
-import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteException;
+import com.jetbrains.youtrackdb.internal.core.exception.InconsistentStorageMetadataException;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache;
@@ -171,24 +171,30 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
     try {
       database.executeInTx(transaction -> {
         schema.load(database);
-        // Genesis-completion belt (design §A1): a database whose creation never ran to
-        // completion is refused before anything else loads — a half-genesis corpse (W6/W7 of
-        // the design's crash-state enumeration) would otherwise reopen silently with a partial
-        // or empty schema; the accepted W9a window (complete database, marker write not yet
-        // durable) is refused fail-closed the same way. The check runs AFTER the schema load
-        // ON PURPOSE (review CS52): Track 2's schema-version gate inside fromStream must own
-        // old-format databases first, with its export/reimport redirect — never the
-        // discard-and-recreate refusal below. It runs on the FIRST session of every context
-        // (the loaded flag is set only at the end, so a refused load re-runs and re-refuses),
-        // which is every reopen a real crash corpse can experience; drop() tolerates the
-        // refusal (CN54) so the prescribed discard always works.
+        // Track 24 turned this later check into a consistency check. Storage admission already
+        // accepted the storage image before recovery, and this check never reverses that
+        // decision. The check compares two durable sources. The first source is the accepted
+        // lifecycle state of the image, which says active. The second source is the genesis
+        // marker of the storage configuration, which says unfinished. A disagreement reports the
+        // named inconsistent-metadata result and keeps the storage closed for the caller.
+        // The check still runs AFTER the schema load ON PURPOSE (review CS52). The schema
+        // version gate of Track 2 inside fromStream must own an old-format database first, with
+        // the export and reimport redirect of that gate.
+        // The check runs on the FIRST session of every context, because the loaded flag is set
+        // only at the end, so a refused load runs again and refuses again. The drop path
+        // tolerates the genesis marker result (CN54), so the prescribed discard always works.
         if (!Boolean.parseBoolean(storage.getProperty(GENESIS_COMPLETED_PROPERTY))) {
-          throw new GenesisIncompleteException(storage.getName(),
-              "Database '"
+          throw new InconsistentStorageMetadataException(storage.getName(),
+              InconsistentStorageMetadataException.Inconsistency.GENESIS_MARKER,
+              "Inconsistent storage metadata of database '"
                   + storage.getName()
-                  + "' cannot be opened: its creation did not run to completion (the"
-                  + " genesis-completion marker is absent). Discard and re-create the"
-                  + " database.");
+                  + "'. The bootstrap authority record reports the active lifecycle state. The"
+                  + " genesis-completion marker of the storage configuration is absent. The"
+                  + " creation of database '"
+                  + storage.getName()
+                  + "' therefore never ran to completion. Drop database '"
+                  + storage.getName()
+                  + "', and create the database again.");
         }
         schema.forceSnapshot();
         indexManager.load(database);

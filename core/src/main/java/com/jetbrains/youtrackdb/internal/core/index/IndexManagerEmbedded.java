@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildStateStore;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
@@ -855,6 +856,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       Map<String, Object> metadata,
       String algorithm) {
 
+    IndexMetadataValidator.validate(metadata);
+
     final var manualIndexesAreUsed =
         indexDefinition == null
             || indexDefinition.getClassName() == null
@@ -983,12 +986,17 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                 metadata);
 
         index = createIndexFromMetadata(transaction, storage, im);
+        ((AbstractStorage) storage)
+            .registerTopLevelIndexLifecycle(transaction, index.getIdentity());
         addIndexInternalNoLock(index, transaction, true);
       } finally {
         releaseExclusiveLock(session, true);
       }
       return (IndexAbstract) index;
     });
+    // The descriptor and lifecycle record are durable now. The commit publishes the lifecycle
+    // snapshot before this attachment exposes the stable lifecycle cell on the index handle.
+    idx.attachDescriptorIdentity();
 
     if (progressListener == null)
     // ASSIGN DEFAULT PROGRESS LISTENER
@@ -1195,20 +1203,27 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        Index idx;
-        idx = indexes.get(iIndexName);
-        if (idx != null) {
-          removeClassPropertyIndexInternal(idx);
-          idx.delete(transaction);
-          indexes.remove(iIndexName);
+    final IndexAbstract[] droppedIndex = new IndexAbstract[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var idx = indexes.get(iIndexName);
+          if (idx != null) {
+            droppedIndex[0] = (IndexAbstract) idx;
+            removeClassPropertyIndexInternal(idx);
+            idx.delete(transaction);
+            indexes.remove(iIndexName);
+          }
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+    } finally {
+      if (droppedIndex[0] != null) {
+        droppedIndex[0].removeLifecycleRegistrationIfDetached();
       }
-    });
+    }
   }
 
   /**
@@ -1273,7 +1288,14 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       List<ReassociatedIndex> reassociated,
       List<AppliedMembership> appliedMembership,
       List<Integer> createdEngineExternalIds,
-      List<AbstractStorage.DroppedIndexEngine> droppedEngines) {
+      List<AbstractStorage.DroppedIndexEngine> droppedEngines,
+      List<CreatedIndexLifecycle> createdLifecycles) {
+
+  }
+
+  /** A created index and the lifecycle record committed with the index artifacts. */
+  public record CreatedIndexLifecycle(
+      IndexAbstract index, IndexBuildStateStore.CreatedLifecycleRecord lifecycle) {
 
   }
 
@@ -1437,7 +1459,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return null;
     }
     return new ReconciledIndexPlan(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-        new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
   }
 
   /**
@@ -1492,6 +1514,22 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
   }
 
+  /** Creates and links lifecycle records after descriptor RIDs become durable addresses. */
+  public void createReconciledIndexLifecycles(
+      FrontendTransaction transaction, AtomicOperation atomicOperation, ReconciledIndexPlan plan) {
+    var localStorage = (AbstractStorage) storage;
+    for (var index : plan.created()) {
+      var descriptorIdentity = index.getIdentity();
+      var descriptor = transaction.loadEntity(descriptorIdentity);
+      var existingLifecycleIdentity = descriptor.getLink(Index.LIFECYCLE_RECORD);
+      var lifecycle =
+          localStorage.createInitialIndexLifecycle(
+              descriptorIdentity, existingLifecycleIdentity, atomicOperation);
+      index.linkLifecycleRecordAtCommit(transaction, lifecycle.identity());
+      plan.createdLifecycles().add(new CreatedIndexLifecycle(index, lifecycle));
+    }
+  }
+
   /**
    * Phase 2 of the commit-time index reconciliation, run inside the commit window after the record
    * apply has assigned the transaction's records persistent RIDs: builds the engine for each
@@ -1520,11 +1558,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // deltas net to a replace (the name stays in both the tx-dropped and tx-created sets), so
       // building the new engine first would collide with the still-registered old one.
       for (final var droppedIndex : plan.dropped()) {
-        final var engineId = droppedIndex.getIndexId();
-        if (engineId >= 0) {
-          final var droppedEngine =
-              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId,
-                  atomicOperation);
+        final var handle = (IndexAbstract) droppedIndex;
+        var snapshot = handle.engineSnapshot();
+        if (snapshot.engineIdentifier() >= 0) {
+          AbstractStorage.DroppedIndexEngine droppedEngine;
+          try {
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
+          } catch (InvalidIndexEngineIdException exception) {
+            // A failed earlier commit can restore the same owner with a fresh engine generation.
+            // Refresh under the commit-window state lock, then retry the validated deletion once.
+            final var resolved = handle.resolveOwnedEngineWithStateLock();
+            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+          }
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.
           plan.droppedEngines().add(droppedEngine);
@@ -1654,6 +1701,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     for (final var droppedIndex : plan.dropped()) {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
+      ((IndexAbstract) droppedIndex).removeLifecycleRegistration();
       runReconciledIndexPublicationTestHook();
     }
     // The rename re-association's in-memory half: install the replacement metadata wholesale (a
@@ -1676,10 +1724,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
       runReconciledIndexPublicationTestHook();
     }
-    for (final var handle : plan.created()) {
-      // The engine is built and the record durable, so register the handle in the shared lookup maps
-      // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
-      // index-manager entity (its link set was updated in the enroll phase and is already durable).
+    for (final var createdLifecycle : plan.createdLifecycles()) {
+      var handle = createdLifecycle.index();
+      ((AbstractStorage) storage)
+          .publishInitialIndexLifecycle(
+              handle.getIdentity(), createdLifecycle.lifecycle().snapshot());
+      // The engine and all linked records are durable before the handle becomes shared.
       addIndexInternalNoLock(handle, transaction, false);
       runReconciledIndexPublicationTestHook();
     }

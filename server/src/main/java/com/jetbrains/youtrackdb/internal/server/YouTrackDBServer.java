@@ -52,10 +52,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -68,7 +68,8 @@ public class YouTrackDBServer {
   public static final String GUEST_USER = "guest";
   public static final String DEFAULT_GUEST_PASSWORD = "!!!TheGuestPw123";
 
-  public static final String DEFAULT_CONFIG_CLASSPATH = "classpath:com/jetbrains/youtrackdb/server/conf/youtrackdb-server.yaml";
+  public static final String DEFAULT_CONFIG_CLASSPATH =
+      "classpath:com/jetbrains/youtrackdb/server/conf/youtrackdb-server.yaml";
   public static final String PROPERTY_CONFIG_FILE = "youtrackdb.config.file";
   public static final String DEFAULT_CONFIG_LOCATION = "conf/youtrackdb-server.yaml";
   private static final String ROOT_PASSWORD_FILE = "secrets/root_password";
@@ -137,7 +138,6 @@ public class YouTrackDBServer {
     }
     return server;
   }
-
 
   public SecuritySystem getSecurity() {
     return databases.getSecuritySystem();
@@ -413,7 +413,6 @@ public class YouTrackDBServer {
     return serverRootDirectory;
   }
 
-
   public YTDBSettings getConfiguration() {
     return serverCfg.getConfiguration();
   }
@@ -531,7 +530,8 @@ public class YouTrackDBServer {
             .error(this,
                 "Root password is not set and root user does not exist. "
                     + "Root user credentials has to provided either by server settings or "
-                    + "in secrets/root_password file. Exiting...", null);
+                    + "in secrets/root_password file. Exiting...",
+                null);
         return false;
       } else {
         LogManager.instance()
@@ -586,7 +586,6 @@ public class YouTrackDBServer {
           return security.getUser(user) != null;
         }));
   }
-
 
   protected void defaultSettings() {
   }
@@ -670,7 +669,6 @@ public class YouTrackDBServer {
       }
 
     }
-
 
     @Override
     public boolean exists(String name) {
@@ -772,6 +770,26 @@ public class YouTrackDBServer {
       }
     }
 
+    /**
+     * Delegates the destructive restart of an interrupted restore to the embedded factory.
+     *
+     * <p>The restart deletes the whole target of the interrupted restore and restores the backup
+     * again. The database name stays in the server name cache, because the restart ends with a
+     * restored database of that same name. A refused restart changes no file, so the cached name
+     * stays correct in that case as well.
+     */
+    @Override
+    public void restartInterruptedRestore(String name, String path,
+        @Nullable String expectedUUID, YouTrackDBConfig config) {
+      dbNamesCacheLock.lock();
+      try {
+        internal.restartInterruptedRestore(name, path, expectedUUID, config);
+        dbNamesCache.add(name);
+      } finally {
+        dbNamesCacheLock.unlock();
+      }
+    }
+
     @Override
     public void close() {
       internal.close();
@@ -818,7 +836,6 @@ public class YouTrackDBServer {
         dbNamesCacheLock.unlock();
       }
     }
-
 
     @Override
     public YouTrackDBConfigImpl getConfiguration() {

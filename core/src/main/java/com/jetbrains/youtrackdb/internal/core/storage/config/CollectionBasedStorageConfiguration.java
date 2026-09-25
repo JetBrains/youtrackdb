@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageSegmentConfiguration
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.exception.InconsistentStorageMetadataException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -290,15 +291,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
 
       preloadIntProperties(atomicOperation);
-      // Reject-and-redirect gate for the storage format (the storage-format arm of the same
-      // policy SchemaShared.fromStream applies to the schema record). It must run here — before
-      // readConfiguration or any other property parse, and before any engine, index, or
-      // collection component touches its files — because this load is the single choke point
-      // every open path funnels through (AbstractStorage.open, DiskStorage.initConfiguration,
-      // and the incremental-restore reopen). Gating first means a mismatched format always
-      // surfaces as the clear redirect, never as a downstream parse error against a layout these
-      // binaries cannot know (and never as a raw file-does-not-exist crash in openIndexes).
-      validateStorageFormatVersion();
+      // Track 24 turned this later check into a consistency check. Storage admission already
+      // read the storage layout version from the bootstrap authority record and already accepted
+      // the storage image. This check therefore compares the storage configuration against that
+      // accepted record and never reverses the admission decision.
+      // The check must run here, before readConfiguration and before any other property parse.
+      // The check must also run before any engine, index, or collection component touches its
+      // files. This load is the single choke point of every open path, which covers
+      // AbstractStorage.open, DiskStorage.initConfiguration, and the incremental-restore reopen.
+      // Checking first means a mismatched layout always surfaces as the named
+      // inconsistent-metadata result. A mismatched layout never surfaces as a downstream parse
+      // error against a layout these binaries cannot know.
+      checkStorageLayoutVersionConsistency();
 
       readConfiguration(atomicOperation);
 
@@ -316,10 +320,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final var properties = (Map<String, String>) cache.get(PROPERTIES);
       validation = properties != null
           && "true".equalsIgnoreCase(properties.get(VALIDATION_PROPERTY));
-    } catch (ConfigurationException e) {
-      // The format-version gate's rejection is the user-facing redirect; rethrow it unwrapped so
-      // the export/import message is the primary error, not a cause buried under a generic
-      // "can not load storage configuration".
+    } catch (ConfigurationException | InconsistentStorageMetadataException e) {
+      // The layout consistency check and the schema-version gate both report a user-facing
+      // result. Rethrow each result unwrapped, so the result stays the primary error. A wrapped
+      // result would hide under a generic "can not load storage configuration" message.
       cache.clear();
       throw e;
     } catch (Exception e) {
@@ -332,28 +336,49 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Rejects a database whose persisted storage-format version does not exactly match
-   * {@link #CURRENT_VERSION}. Both directions are rejected: an older format cannot be upgraded in
-   * place because required allocator metadata has no safe default, and a newer
-   * format cannot be read by these binaries. Reads the just-preloaded cache directly instead of
-   * {@code getVersion} because the caller holds the non-reentrant write lock.
+   * Compares the storage layout version of the storage configuration against the storage layout
+   * version of the bootstrap authority record.
+   *
+   * <p>The bootstrap authority record is the durable record that names one storage identity, one
+   * storage lineage, and one lifecycle state. Storage admission accepts an image only when the
+   * record carries the supported storage layout version. The supported storage layout version is
+   * {@link #CURRENT_VERSION}. A comparison against that constant is therefore a comparison against
+   * the accepted record.
+   *
+   * <p>Both directions of a disagreement report the named inconsistent-metadata result. An older
+   * layout has no in-place upgrade, because the engine file base identifier format has no
+   * computable default for an entry written before version 24. A newer layout is unreadable for
+   * these binaries. The check reads the preloaded cache directly instead of {@code getVersion},
+   * because the caller holds the non-reentrant write lock.
+   *
+   * <p>Both messages name the two disagreeing sources and the operator action. Neither message
+   * describes the admission decision, because an operator cannot act on that internal detail.
    */
-  private void validateStorageFormatVersion() {
+  private void checkStorageLayoutVersionConsistency() {
     final var version = (Integer) cache.get(VERSION_PROPERTY);
     if (version == null || version < CURRENT_VERSION) {
-      throw new ConfigurationException(storage.getName(),
-          "Storage format version " + (version == null ? "<missing>" : version)
-              + " of database '" + storage.getName() + "' predates the current format (version "
-              + CURRENT_VERSION + "). Direct upgrade of the storage format is not supported:"
-              + " please export your old database with the previous version of YouTrackDB and"
-              + " reimport it using the current one.");
+      throw new InconsistentStorageMetadataException(storage.getName(),
+          InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
+          "Inconsistent storage metadata of database '" + storage.getName()
+              + "'. The storage configuration reports storage layout version "
+              + (version == null ? "<missing>" : version)
+              + ". The bootstrap authority record reports storage layout version "
+              + CURRENT_VERSION
+              + ". A direct upgrade of the storage layout is not supported. Export database '"
+              + storage.getName()
+              + "' with the earlier version of YouTrackDB, and import that export with the"
+              + " current version of YouTrackDB.");
     }
     if (version > CURRENT_VERSION) {
-      throw new ConfigurationException(storage.getName(),
-          "Storage format version " + version + " of database '" + storage.getName()
-              + "' is newer than the format this version of YouTrackDB supports (version "
-              + CURRENT_VERSION + "). Please open the database with the YouTrackDB version that"
-              + " created it.");
+      throw new InconsistentStorageMetadataException(storage.getName(),
+          InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
+          "Inconsistent storage metadata of database '" + storage.getName()
+              + "'. The storage configuration reports storage layout version " + version
+              + ". The bootstrap authority record reports storage layout version "
+              + CURRENT_VERSION
+              + ". The stored layout is newer than the layout of this build. Open database '"
+              + storage.getName()
+              + "' with the version of YouTrackDB that created the database.");
     }
   }
 

@@ -219,6 +219,49 @@ public class CheckpointFlushTest {
         75, fixture.manager.getDirtyMutations());
   }
 
+  /**
+   * The strict flush variant reports an input and output failure and restores the dirty count.
+   *
+   * <p>The durability barrier of storage birth uses the strict variant. The barrier must observe a
+   * failed write of the index statistics page, because the write-ahead log never carries index
+   * statistics data. The scenario runs the strict variant over a manager whose page write fails.
+   * The expected outcome has two parts. The strict variant reports the failure to the caller. The
+   * dirty-mutation count returns to the value before the flush, so the next flush retries.
+   */
+  @Test
+  public void flushIfDirtyOrFail_ioFailure_reachesTheCallerAndRestoresDirtyCount() {
+    var fixture = new ManagerFixtureWithFailingFlush();
+    setDirtyMutations(fixture.manager, 75);
+    setFileId(fixture.manager, 42);
+
+    var failure =
+        org.junit.Assert.assertThrows(
+            IOException.class, () -> fixture.manager.flushIfDirtyOrFail());
+
+    assertTrue("the reported failure must name the simulated page write failure, saw: "
+        + failure.getMessage(),
+        failure.getMessage().contains("simulated I/O failure"));
+    assertEquals("dirtyMutations must be restored on a reported flush failure",
+        75, fixture.manager.getDirtyMutations());
+  }
+
+  /**
+   * The strict flush variant reports nothing when the flush succeeds.
+   *
+   * <p>The scenario runs the strict variant over a manager without any cache entry, which is a
+   * successful no-op flush. The expected outcome is one call without any failure and a
+   * dirty-mutation count of zero.
+   */
+  @Test
+  public void flushIfDirtyOrFail_successResetsDirtyCount() throws IOException {
+    var fixture = new ManagerFixture();
+    setDirtyMutations(fixture.manager, 12);
+
+    fixture.manager.flushIfDirtyOrFail();
+
+    assertEquals(0, fixture.manager.getDirtyMutations());
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // Fixtures
   // ═══════════════════════════════════════════════════════════════════════

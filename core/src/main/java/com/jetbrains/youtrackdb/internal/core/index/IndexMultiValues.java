@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.exception.StaleIndexEngineException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AscComparator;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.DescComparator;
@@ -84,21 +85,31 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RID> backedStream;
     acquireSharedLock();
     try {
-      if (indexId < 0) {
+      if (isNeverBuilt(state())) {
         // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
         // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
         // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
         return Stream.empty();
       }
       Stream<RID> stream;
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          stream = storage.getIndexValues(indexId, collatedKey, transaction.getAtomicOperation());
+          stream = storage.getIndexValues(current.engineIdentifier(), current.engineReference(),
+              collatedKey,
+              transaction.getAtomicOperation());
           backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -156,14 +167,12 @@ public abstract class IndexMultiValues extends IndexAbstract {
       RID rid)
       throws InvalidIndexEngineIdException {
     var transaction = session.getActiveTransaction();
-    doPutV1(storage, transaction.getAtomicOperation(), indexId, key, rid);
-  }
-
-  private static void doPutV1(
-      AbstractStorage storage, @Nonnull AtomicOperation atomicOperation, int indexId, Object key,
-      RID identity)
-      throws InvalidIndexEngineIdException {
-    storage.putRidIndexEntry(indexId, key, identity, atomicOperation);
+    withOwnedEngine(current -> {
+      storage.putRidIndexEntry(
+          current.engineIdentifier(), current.engineReference(), key, rid,
+          transaction.getAtomicOperation());
+      return null;
+    });
   }
 
   @Override
@@ -171,14 +180,9 @@ public abstract class IndexMultiValues extends IndexAbstract {
       Object key, RID rid)
       throws InvalidIndexEngineIdException {
     var transaction = session.getActiveTransaction();
-    return doRemoveV1(indexId, storage, key, rid, transaction.getAtomicOperation());
-  }
-
-  private static boolean doRemoveV1(
-      int indexId, AbstractStorage storage, Object key, Identifiable value,
-      AtomicOperation atomicOperation)
-      throws InvalidIndexEngineIdException {
-    return storage.removeRidIndexEntry(indexId, key, value.getIdentity(), atomicOperation);
+    return withOwnedEngine(current -> storage.removeRidIndexEntry(
+        current.engineIdentifier(), current.engineReference(), key, rid,
+        transaction.getAtomicOperation()));
   }
 
   @Override
@@ -190,6 +194,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -197,7 +203,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesBetween(
-                      indexId,
+                      current.engineIdentifier(),
+                      current.engineReference(),
                       fromKey,
                       fromInclusive,
                       toKey,
@@ -206,7 +213,13 @@ public abstract class IndexMultiValues extends IndexAbstract {
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -249,6 +262,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -256,12 +271,19 @@ public abstract class IndexMultiValues extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMajor(
-                      indexId, fromKey, fromInclusive, ascOrder, MultiValuesTransformer.INSTANCE,
+                      current.engineIdentifier(), current.engineReference(),
+                      fromKey, fromInclusive, ascOrder, MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -307,6 +329,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -314,12 +338,19 @@ public abstract class IndexMultiValues extends IndexAbstract {
               IndexStreamSecurityDecorator.decorateStream(
                   this,
                   storage.iterateIndexEntriesMinor(
-                      indexId, toKey, toInclusive, ascOrder, MultiValuesTransformer.INSTANCE,
+                      current.engineIdentifier(), current.engineReference(),
+                      toKey, toInclusive, ascOrder, MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -421,12 +452,22 @@ public abstract class IndexMultiValues extends IndexAbstract {
     final var entryKey = key;
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
-          return storage.getIndexValues(indexId, key, atomicOperation)
+          return storage
+              .getIndexValues(current.engineIdentifier(), current.engineReference(), key,
+                  atomicOperation)
               .map((rid) -> new RawPair<>(entryKey, rid));
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -466,18 +507,27 @@ public abstract class IndexMultiValues extends IndexAbstract {
     acquireSharedLock();
     long tot;
     try {
-      if (indexId < 0) {
+      if (isNeverBuilt(state())) {
         // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
         return 0;
       }
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
-          tot = storage.getIndexSize(indexId, MultiValuesTransformer.INSTANCE,
+          tot = storage.getIndexSize(current.engineIdentifier(), current.engineReference(),
+              MultiValuesTransformer.INSTANCE,
               transaction.getAtomicOperation());
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -500,17 +550,27 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexStream(indexId, MultiValuesTransformer.INSTANCE,
+                  this,
+                  storage.getIndexStream(current.engineIdentifier(), current.engineReference(),
+                      MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {
@@ -589,17 +649,27 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
+      var current = engineStateForRead();
+      var recoveryAttempts = 0;
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
           stream =
               IndexStreamSecurityDecorator.decorateStream(
-                  this, storage.getIndexDescStream(indexId, MultiValuesTransformer.INSTANCE,
+                  this,
+                  storage.getIndexDescStream(current.engineIdentifier(), current.engineReference(),
+                      MultiValuesTransformer.INSTANCE,
                       transaction.getAtomicOperation()),
                   session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
-          doReloadIndexEngine();
+          if (++recoveryAttempts >= 3) {
+            throw new StaleIndexEngineException(
+                storage.getName(),
+                "Index '" + getName() + "' remained stale after owner-bound recovery for"
+                    + " descriptor " + current.descriptorIdentity());
+          }
+          current = resolveOwnedEngine();
         }
       }
     } finally {

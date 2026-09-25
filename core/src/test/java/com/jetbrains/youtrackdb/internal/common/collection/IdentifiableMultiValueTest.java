@@ -3,12 +3,18 @@ package com.jetbrains.youtrackdb.internal.common.collection;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 import org.junit.Assert;
 import org.junit.Test;
@@ -76,6 +82,55 @@ public class IdentifiableMultiValueTest {
     Assert.assertEquals(2, collection.size());
     Assert.assertEquals("foo", collection.get(0));
     Assert.assertEquals("baz", collection.get(1));
+  }
+
+  /** The error message reports only the container class without reading its size or elements. */
+  @Test
+  public void readErrorMessageNamesContainerClassWithoutSizeOrElements() {
+    var collection = new ArrayList<>(List.of("secret-element", "other-element"));
+
+    var message = MultiValue.readErrorMessage("indexed", collection);
+
+    Assert.assertEquals(
+        "Error on reading the indexed item of the Multi-value container java.util.ArrayList",
+        message);
+    Assert.assertFalse(message.contains("size="));
+    Assert.assertFalse(message.contains("secret-element"));
+    Assert.assertFalse(message.contains("other-element"));
+  }
+
+  /** The read-error call site logs the container class without formatting an element. */
+  @Test
+  public void readErrorLogNamesContainerClassWithoutElementText() {
+    var records = new CopyOnWriteArrayList<LogRecord>();
+    var logger = Logger.getLogger(MultiValue.class.getName());
+    var previousLevel = logger.getLevel();
+    var handler = new CapturingHandler(records);
+    handler.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    logger.setLevel(Level.ALL);
+    try {
+      Assert.assertNull(MultiValue.getValue(new ExplodingList(), 0));
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+    }
+
+    var message =
+        records.stream()
+            .map(LogRecord::getMessage)
+            .filter(recordMessage -> recordMessage.contains("Error on reading the indexed item"))
+            .findFirst()
+            .orElse(null);
+    Assert.assertNotNull(message);
+    Assert.assertTrue(message.contains(ExplodingList.class.getName()));
+    Assert.assertFalse(message.contains("secret-element"));
+  }
+
+  /** The container summary catches runtime failures while reading class metadata. */
+  @Test
+  public void containerSummaryUsesPlaceholderForNullContainer() {
+    Assert.assertEquals("<unavailable>", MultiValue.containerSummary(null));
   }
 
   @Test
@@ -370,6 +425,41 @@ public class IdentifiableMultiValueTest {
    * Stub that implements both Iterable and Identifiable — used to verify that isMultiValue returns
    * false for such types (a record that happens to be iterable is not a multi-value collection).
    */
+  private static final class CapturingHandler extends Handler {
+
+    private final List<LogRecord> records;
+
+    private CapturingHandler(List<LogRecord> records) {
+      this.records = records;
+    }
+
+    @Override
+    public void publish(LogRecord record) {
+      records.add(record);
+    }
+
+    @Override
+    public void flush() {
+    }
+
+    @Override
+    public void close() {
+    }
+  }
+
+  private static final class ExplodingList extends AbstractList<String> {
+
+    @Override
+    public String get(int index) {
+      throw new IllegalStateException("secret-element");
+    }
+
+    @Override
+    public int size() {
+      return 1;
+    }
+  }
+
   private static class IdentifiableIterable
       implements Iterable<Object>, Identifiable {
 

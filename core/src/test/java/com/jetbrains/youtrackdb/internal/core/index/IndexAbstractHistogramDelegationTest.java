@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
@@ -34,6 +35,8 @@ import org.junit.Test;
  */
 public class IndexAbstractHistogramDelegationTest {
 
+  private static final RecordId DESCRIPTOR_IDENTITY = new RecordId(17, 42);
+
   private AbstractStorage storage;
   private DatabaseSessionEmbedded session;
   private IndexNotUnique index;
@@ -43,19 +46,23 @@ public class IndexAbstractHistogramDelegationTest {
     storage = mock(AbstractStorage.class);
     session = mock(DatabaseSessionEmbedded.class);
     index = new IndexNotUnique(storage);
+    setDescriptorIdentity(DESCRIPTOR_IDENTITY);
   }
 
-  /**
-   * Sets the indexId field on the IndexAbstract via reflection.
-   */
+  /** Sets the engine identifier used by the delegation fixture. */
   private void setIndexId(int indexId) {
+    index.setEngineIdentifierForTest(indexId);
     try {
-      var field = IndexAbstract.class.getDeclaredField("indexId");
-      field.setAccessible(true);
-      field.set(index, indexId);
-    } catch (ReflectiveOperationException e) {
-      throw new RuntimeException("Failed to set indexId", e);
+      when(storage.getIndexEngine(indexId, null))
+          .thenAnswer(invocation -> storage.getIndexEngine(indexId));
+    } catch (InvalidIndexEngineIdException exception) {
+      throw new AssertionError(exception);
     }
+  }
+
+  /** Sets the descriptor identity needed for owner-bound stale-engine recovery. */
+  private void setDescriptorIdentity(RecordId descriptorIdentity) {
+    index.setDescriptorIdentityForTest(descriptorIdentity);
   }
 
   /**
@@ -118,11 +125,11 @@ public class IndexAbstractHistogramDelegationTest {
   }
 
   /**
-   * Verifies that getStatistics() retries when InvalidIndexEngineIdException
-   * is thrown, reloads the engine ID, and succeeds on the second attempt.
+   * Verifies that getStatistics() resolves a stale identifier through its descriptor owner and
+   * succeeds on the second attempt.
    */
   @Test
-  public void getStatistics_retriesOnInvalidEngineId()
+  public void getStatistics_staleIdentifier_recoversByDescriptorOwner()
       throws InvalidIndexEngineIdException {
     // Given: first call throws, second call succeeds
     setIndexId(5);
@@ -136,16 +143,17 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(5))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    // After reload, the new indexId is 7
-    when(storage.loadIndexEngine("testIndex")).thenReturn(7);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(7, null));
     when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(7, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.getStatistics(session);
 
-    // Then: returns the stats from the reloaded engine
+    // Then: returns the stats from the owner-resolved engine
     assertSame(stats, result);
-    verify(storage).loadIndexEngine("testIndex");
+    verify(storage).resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -192,11 +200,11 @@ public class IndexAbstractHistogramDelegationTest {
   }
 
   /**
-   * Verifies that getHistogram() retries on InvalidIndexEngineIdException,
-   * reloads, and returns the histogram on the second attempt.
+   * Verifies that getHistogram() resolves a stale identifier through its descriptor owner and
+   * returns the histogram on the second attempt.
    */
   @Test
-  public void getHistogram_retriesOnInvalidEngineId()
+  public void getHistogram_staleIdentifier_recoversByDescriptorOwner()
       throws InvalidIndexEngineIdException {
     setIndexId(4);
     var im = mock(IndexMetadata.class);
@@ -209,15 +217,17 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(4))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.loadIndexEngine("hIdx")).thenReturn(8);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(8, null));
     when(storage.getIndexEngine(8)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(8, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.getHistogram(session);
 
     // Then
     assertSame(histogram, result);
-    verify(storage).loadIndexEngine("hIdx");
+    verify(storage).resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -286,11 +296,11 @@ public class IndexAbstractHistogramDelegationTest {
   }
 
   /**
-   * Verifies that analyzeHistogram() retries on InvalidIndexEngineIdException
-   * and returns the snapshot after reload.
+   * Verifies that analyzeHistogram() resolves a stale identifier through its descriptor owner and
+   * returns the snapshot on the second attempt.
    */
   @Test
-  public void analyzeHistogram_retriesOnInvalidEngineId()
+  public void analyzeHistogram_staleIdentifier_recoversByDescriptorOwner()
       throws InvalidIndexEngineIdException {
     setIndexId(3);
     var im = mock(IndexMetadata.class);
@@ -305,15 +315,17 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(3))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.loadIndexEngine("aIdx")).thenReturn(9);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(9, null));
     when(storage.getIndexEngine(9)).thenReturn(btreeEngine);
+    when(storage.getIndexEngine(9, null)).thenReturn(btreeEngine);
 
     // When
     var result = index.analyzeHistogram(session);
 
     // Then
     assertSame(snapshot, result);
-    verify(storage).loadIndexEngine("aIdx");
+    verify(storage).resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -397,11 +409,9 @@ public class IndexAbstractHistogramDelegationTest {
     verify(storage).getIndexEngine(6);
   }
 
-  /**
-   * Verifies that setBulkLoading() retries on InvalidIndexEngineIdException.
-   */
+  /** Verifies that setBulkLoading() recovers a stale identifier through its descriptor owner. */
   @Test
-  public void setBulkLoading_retriesOnInvalidEngineId()
+  public void setBulkLoading_staleIdentifier_recoversByDescriptorOwner()
       throws Exception {
     setIndexId(6);
     var im = mock(IndexMetadata.class);
@@ -414,7 +424,8 @@ public class IndexAbstractHistogramDelegationTest {
 
     when(storage.getIndexEngine(6))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.loadIndexEngine("bulkIdx")).thenReturn(10);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(10, null));
     when(storage.getIndexEngine(10)).thenReturn(btreeEngine);
 
     // When
@@ -422,7 +433,7 @@ public class IndexAbstractHistogramDelegationTest {
 
     // Then
     verify(manager).setBulkLoading(true);
-    verify(storage).loadIndexEngine("bulkIdx");
+    verify(storage).resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -552,11 +563,11 @@ public class IndexAbstractHistogramDelegationTest {
   }
 
   /**
-   * Verifies that buildHistogramAfterFill() retries on
-   * InvalidIndexEngineIdException and proceeds correctly.
+   * Verifies that buildHistogramAfterFill() resolves a stale identifier through its descriptor
+   * owner and proceeds correctly.
    */
   @Test
-  public void buildHistogramAfterFill_retriesOnInvalidEngineId()
+  public void buildHistogramAfterFill_staleIdentifier_recoversByDescriptorOwner()
       throws Exception {
     setIndexId(7);
     var im = mock(IndexMetadata.class);
@@ -567,14 +578,15 @@ public class IndexAbstractHistogramDelegationTest {
     var engine = mock(BaseIndexEngine.class);
     when(storage.getIndexEngine(7))
         .thenThrow(new InvalidIndexEngineIdException("stale"));
-    when(storage.loadIndexEngine("fillIdx")).thenReturn(11);
+    when(storage.resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY))
+        .thenReturn(new AbstractStorage.ResolvedIndexEngine(11, null));
     when(storage.getIndexEngine(11)).thenReturn(engine);
 
     // When
     invokeBuildHistogramAfterFill();
 
-    // Then: reload was triggered
-    verify(storage).loadIndexEngine("fillIdx");
+    // Then: owner recovery was triggered
+    verify(storage).resolveIndexEngineByOwner(DESCRIPTOR_IDENTITY);
   }
 
   // ═══════════════════════════════════════════════════════════════════════

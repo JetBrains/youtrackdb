@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -8,12 +9,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildFailure;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -595,6 +603,79 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
       assertTrue("the declared-v14 dump must ride the lenient path regardless of its"
           + " schema-version field", target.getMetadata().getSchema().existsClass("Matrix"));
     }
+  }
+
+  /**
+   * Import may replace index descriptors and lifecycle records. Every resulting descriptor must
+   * reach one healthy lifecycle record, with no orphan records, and its index must stay usable.
+   * The target-only index and retained RID map exercise deletion-sweep-sensitive configurations.
+   */
+  @Test
+  public void importKeepsLifecycleRecordsReachableAfterImport() throws Exception {
+    var dump = exportSmallDump();
+
+    try (var target = createTargetDatabase("lifecycleReachabilityTarget")) {
+      runImport(target, dump);
+      assertHealthyLifecycleRecordsAndUsableIndexes(target);
+    }
+
+    try (var target = createTargetDatabase("unrebuiltIndexTarget")) {
+      var userClass = target.getMetadata().getSchema().getClass("OUser");
+      userClass.createIndex("TargetOnlyUserStatus", INDEX_TYPE.NOTUNIQUE, "status");
+
+      runImport(target, dump, "-rebuildIndexes=false");
+
+      assertHealthyLifecycleRecordsAndUsableIndexes(target);
+      assertNotNull("the target-only index must survive when rebuilding is disabled",
+          target.getSharedContext().getIndexManager().getIndex("TargetOnlyUserStatus"));
+    }
+
+    try (var target = createTargetDatabase("retainedRidMappingTarget")) {
+      runImport(target, dump, "-deleteRIDMapping=false");
+      assertHealthyLifecycleRecordsAndUsableIndexes(target);
+    }
+  }
+
+  private static void assertHealthyLifecycleRecordsAndUsableIndexes(
+      DatabaseSessionEmbedded database) {
+    var linkedRecords = new HashSet<RID>();
+    var indexes = database.getSharedContext().getIndexManager().getIndexes(database);
+    for (var index : indexes) {
+      var lifecycleIdentity = lifecycleIdentity(database, index);
+      var snapshot = database.getStorage().getIndexBuildStateStore()
+          .read(index.getIdentity(), lifecycleIdentity);
+      assertTrue("each index must link to a distinct lifecycle record: " + index.getName(),
+          linkedRecords.add(lifecycleIdentity));
+      var state = snapshot.buildState();
+      assertFalse("an index lifecycle must not report a missing build state: " + index.getName(),
+          state.lifecycle() == IndexLifecycle.INVALID
+              && state.failure() == IndexBuildFailure.INDEX_BUILD_STATE_MISSING);
+      database.computeInTx(transaction -> index.size(database));
+    }
+    assertEquals("every lifecycle record must be linked by exactly one index", linkedRecords,
+        lifecycleRecordIds(database));
+  }
+
+  private static RID lifecycleIdentity(DatabaseSessionEmbedded database, Index index) {
+    return database.computeInTx(transaction -> {
+      var identity =
+          transaction.loadEntity(index.getIdentity()).getLink(Index.LIFECYCLE_RECORD);
+      assertNotNull("every index must retain a lifecycle link: " + index.getName(), identity);
+      return identity;
+    });
+  }
+
+  private static Set<RID> lifecycleRecordIds(DatabaseSessionEmbedded database) {
+    return database.computeInTx(transaction -> {
+      var identities = new HashSet<RID>();
+      try (var records =
+          database.browseCollection(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME)) {
+        while (records.hasNext()) {
+          identities.add(records.next().getIdentity());
+        }
+      }
+      return identities;
+    });
   }
 
   /**

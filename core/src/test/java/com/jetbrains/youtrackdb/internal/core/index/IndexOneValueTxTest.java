@@ -60,6 +60,23 @@ public class IndexOneValueTxTest extends DbTestBase {
     session.commit();
   }
 
+  /** A stale UNIQUE engine identifier recovers only through the descriptor owner. */
+  @Test
+  public void getRids_staleEngineIdentifier_recoversByDescriptorOwner() {
+    session.begin();
+    var index = (IndexOneValue) session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var expectedIdentifier = index.getIndexId();
+    index.setHandleStateForTest(
+        expectedIdentifier | 1_000_000, index.getIdentity());
+
+    var result = index.get(session, "alpha");
+    session.rollback();
+
+    assertNotNull("owner-bound recovery must preserve the committed lookup", result);
+    assertEquals("owner-bound recovery must install the packed identifier",
+        expectedIdentifier, index.getIndexId());
+  }
+
   // -----------------------------------------------------------------------
   //  get() — UNIQUE index return type is Object (RID or null)
   // -----------------------------------------------------------------------

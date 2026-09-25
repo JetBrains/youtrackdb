@@ -13,17 +13,10 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Full build with unit tests (in-memory storage, default)
 ./mvnw clean package
 
-# Full build with unit tests on disk storage (as CI does)
-./mvnw clean package -Dyoutrackdb.test.env=ci
+# Disk-mode test scope follows `docs-internal/dev-workflow/track-development.md`.
 
-# Run an affected integration test method without unit tests
-./mvnw -pl core test-compile failsafe:integration-test failsafe:verify \
-  -P ci-integration-tests -Dit.test='FreeSpaceMapTestIT#findSinglePage'
-
-# Run integration tests with dependencies built by Maven
-./mvnw -pl core -am test-compile failsafe:integration-test failsafe:verify \
-  -P ci-integration-tests -Dit.test='FreeSpaceMapTestIT#findSinglePage' \
-  -Dfailsafe.failIfNoSpecifiedTests=false
+# A developer machine never runs integration tests. The pull request pipeline runs them.
+# Integration-test scope follows `docs-internal/dev-workflow/track-development.md`.
 
 # If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
@@ -34,6 +27,10 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
+
+# Run targeted disk-mode tests for changed production code and changed tests
+./mvnw -pl core clean test \
+  -Dtest='ChangedProductionTest,ChangedTest' -Dyoutrackdb.test.env=ci
 
 # Run a single test class
 ./mvnw -pl core clean test -Dtest=SomeTestClass
@@ -106,16 +103,12 @@ This rule covers unit, integration, and coverage runs. Separate worktrees may ru
 Maven concurrently. Mid-track tests remain optional. Concurrent runs can also report false
 failures.
 
-Never run the full integration suite locally.
-The pull request pipeline runs integration tests for changed IT modules.
-Develop runs the full suite after merge.
-`docs-internal/dev-workflow/track-development.md` owns integration scope.
+A developer machine never runs integration tests. The pull request pipeline runs integration
+tests for changed IT modules. Develop runs the full suite after merge. Follow
+`docs-internal/dev-workflow/track-development.md` for integration-gate scope and exceptions.
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
-- **Integration test selection**: Integration classes use Failsafe's default `*IT.java` naming pattern. Select affected classes with a comma-separated `-Dit.test='SomeIT,OtherIT'` list. Patterns such as `-Dit.test='*Histogram*IT'` select several classes. Use `-Dit.test='SomeIT#someMethod'` for one method. Run `test-compile` before direct Failsafe goals because a clean checkout has no compiled test classes. Keep `failsafe:verify`, which makes integration failures fail the build.
-- **Module scope**: Add `-pl <module>` to limit the run. Failsafe uses `-Dit.test=`. Surefire uses `-Dtest=`, which does not select integration tests.
-- **Dependency builds**: Adding `-am` propagates the selector to upstream modules. Those modules fail when no test matches. Add `-Dfailsafe.failIfNoSpecifiedTests=false` to prevent that failure.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.

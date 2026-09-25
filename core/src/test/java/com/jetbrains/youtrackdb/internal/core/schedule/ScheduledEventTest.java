@@ -33,7 +33,10 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseExportException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.function.Function;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.schedule.Scheduler.STATUS;
@@ -481,6 +484,45 @@ public class ScheduledEventTest extends DbTestBase {
   }
 
   // ---------------------------------------------------------------------------
+  // Completion logging summaries
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void completionMessageIncludesDetachedScalarFields() {
+    assertEquals(
+        "Scheduled event 'event' executionId=7 completed with result: java.lang.String",
+        ScheduledEvent.completionMessage("event", 7, "java.lang.String"));
+  }
+
+  @Test
+  public void resultSummaryUsesNullPlaceholder() {
+    assertEquals("<null>", ScheduledEvent.summarizeResult(null));
+  }
+
+  @Test
+  public void resultSummaryUsesPlainObjectClassName() {
+    assertEquals(
+        Object.class.getName(), ScheduledEvent.summarizeResult(new Object()));
+  }
+
+  @Test
+  public void resultSummaryUsesIdentifiableClassAndIdentity() {
+    var identifiable = new SummaryIdentifiable(new RecordId(3, 9));
+
+    assertEquals(
+        SummaryIdentifiable.class.getName() + " rid=#3:9",
+        ScheduledEvent.summarizeResult(identifiable));
+  }
+
+  @Test
+  public void resultSummaryUsesUnavailablePlaceholderWhenIdentityReadFails() {
+    var identifiable = new SummaryIdentifiable(null);
+
+    assertEquals(
+        "<unavailable>", ScheduledEvent.summarizeResult(identifiable));
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
@@ -494,5 +536,27 @@ public class ScheduledEventTest extends DbTestBase {
   private ScheduledEvent buildEvent(String name, String rule, Function function,
       Map<Object, Object> args) {
     return SchedulerTestFixtures.buildEvent(session, name, rule, function, args);
+  }
+
+  private static final class SummaryIdentifiable implements Identifiable {
+
+    private final RID identity;
+
+    private SummaryIdentifiable(RID identity) {
+      this.identity = identity;
+    }
+
+    @Override
+    public RID getIdentity() {
+      if (identity == null) {
+        throw new IllegalStateException("identity unavailable");
+      }
+      return identity;
+    }
+
+    @Override
+    public int compareTo(Identifiable other) {
+      return identity.compareTo(other.getIdentity());
+    }
   }
 }

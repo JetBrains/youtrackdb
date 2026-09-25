@@ -16,6 +16,17 @@ public interface BaseIndexEngine {
 
   int getId();
 
+  /**
+   * Returns this engine's process-local registry identity.
+   *
+   * <p>An engine published in a local storage engine registry is expected to return a reference.
+   * Owner resolution skips an engine that does not. A handle for that index cannot recover by owner
+   * and fails closed instead.
+   */
+  @Nullable default IndexEngineReference getEngineReference() {
+    return null;
+  }
+
   void init(DatabaseSessionEmbedded session, IndexMetadata metadata);
 
   void flush();

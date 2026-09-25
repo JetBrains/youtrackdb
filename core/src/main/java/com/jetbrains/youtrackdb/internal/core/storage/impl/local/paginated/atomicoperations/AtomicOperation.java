@@ -174,9 +174,13 @@ public interface AtomicOperation {
 
   void truncateFile(long fileId) throws IOException;
 
-  boolean containsInLockedObjects(String lockName);
+  enum ComponentLockMode {
+    SHARED, EXCLUSIVE
+  }
 
-  void addLockedObject(String lockName);
+  @Nullable ComponentLockMode lockedObjectMode(String lockName);
+
+  void addLockedObject(String lockName, ComponentLockMode mode);
 
   void rollbackInProgress();
 
@@ -188,6 +192,18 @@ public interface AtomicOperation {
 
   /** Tracks a locked StorageComponent so it can be released at operation end. */
   void addLockedComponent(StorageComponent component);
+
+  /** Enables distinct-page accounting for subsequent page accesses. Disabled by default. */
+  void enablePageTracking();
+
+  /** Returns the distinct pages touched after tracking was enabled, or zero before then. */
+  int touchedPagesCount();
+
+  /**
+   * Enforces the one-collection contract of caller-owned record writes. Future multi-collection
+   * support must acquire collection locks in ascending identifier order before any mutation.
+   */
+  void validateRecordCollectionLockOrder(int collectionId);
 
   /** Returns the StorageComponents locked by this operation. */
   Iterable<StorageComponent> lockedComponents();

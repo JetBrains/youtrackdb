@@ -173,11 +173,7 @@ public class MultiValue {
       }
     } catch (RuntimeException e) {
       // IGNORE IT
-      LogManager.instance()
-          .debug(
-              value, "Error on reading the first item of the Multi-value field '%s'", logger,
-              value,
-              e);
+      logReadError("first", value, e);
     }
 
     return null;
@@ -224,11 +220,7 @@ public class MultiValue {
       }
     } catch (RuntimeException e) {
       // IGNORE IT
-      LogManager.instance()
-          .debug(
-              valu, "Error on reading the last item of the Multi-value field '%s'", logger,
-              valu,
-              e);
+      logReadError("last", valu, e);
     }
 
     return null;
@@ -294,13 +286,29 @@ public class MultiValue {
       }
     } catch (RuntimeException e) {
       // IGNORE IT
-      LogManager.instance()
-          .debug(
-              iObject, "Error on reading the first item of the Multi-value field '%s'", logger,
-              iObject,
-              e);
+      logReadError("indexed", iObject, e);
     }
     return null;
+  }
+
+  static String containerSummary(Object value) {
+    try {
+      return value.getClass().getName();
+    } catch (RuntimeException exception) {
+      return "<unavailable>";
+    }
+  }
+
+  static String readErrorMessage(String position, Object value) {
+    return "Error on reading the %s item of the Multi-value container %s"
+        .formatted(position, containerSummary(value));
+  }
+
+  private static void logReadError(String position, Object value, RuntimeException exception) {
+    if (logger.isDebugEnabled()) {
+      LogManager.instance()
+          .debug(MultiValue.class, readErrorMessage(position, value), logger, exception);
+    }
   }
 
   /**

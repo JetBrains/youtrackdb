@@ -2,9 +2,12 @@ package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -130,6 +133,42 @@ public class DiskStorageStaticHelpersTest {
     Files.createFile(testDir.resolve("somefile.txt"));
     Files.createFile(testDir.resolve("data.bin"));
     assertFalse(DiskStorage.exists(testDir));
+  }
+
+  /**
+   * Verifies that the existence probe recognizes one bootstrap authority copy.
+   *
+   * <p>The scenario creates the first authority copy alone. The expected outcome is an existing
+   * storage image, so an interrupted storage birth stays visible.
+   */
+  @Test
+  public void testExistsReturnsTrueWhenAuthorityCopyPresent() throws IOException {
+    Files.createFile(testDir.resolve("storage-bootstrap-0.bsm"));
+    assertTrue(DiskStorage.exists(testDir));
+  }
+
+  /**
+   * Verifies that the existence probe recognizes the authority lock file.
+   *
+   * <p>The scenario creates the authority lock file alone. The expected outcome is an existing
+   * storage image, because an interrupted storage birth can leave only that file.
+   */
+  @Test
+  public void testExistsReturnsTrueWhenAuthorityLockFilePresent() throws IOException {
+    Files.createFile(testDir.resolve("storage-bootstrap.bsml"));
+    assertTrue(DiskStorage.exists(testDir));
+  }
+
+  /**
+   * Verifies that the existence probe recognizes an unfinished record candidate.
+   *
+   * <p>The scenario creates one candidate file alone. The expected outcome is an existing storage
+   * image, because a candidate file is a bootstrap authority artifact.
+   */
+  @Test
+  public void testExistsReturnsTrueWhenRecordCandidatePresent() throws IOException {
+    Files.createFile(testDir.resolve("storage-bootstrap-2.bsm.tmp"));
+    assertTrue(DiskStorage.exists(testDir));
   }
 
   // -----------------------------------------------------------------------
@@ -403,5 +442,74 @@ public class DiskStorageStaticHelpersTest {
 
     // close — does not throw.
     xxOut.close();
+  }
+
+  /**
+   * The restore validation accepts the storage layout version of this build.
+   *
+   * <p>The storage layout version is the version of the on-disk storage layout. The scenario
+   * validates the supported storage layout version. The expected outcome is one call without any
+   * failure.
+   */
+  @Test
+  public void restoredStorageLayoutVersionOfThisBuildIsAccepted() {
+    DiskStorage.validateRestoredStorageLayoutVersion(
+        "acceptedLayout", StorageConfiguration.CURRENT_VERSION);
+  }
+
+  /**
+   * The restore validation refuses a restored storage layout version of another build.
+   *
+   * <p>The scenario validates the storage layout version of an older build. The expected outcome
+   * is one refusal that names both versions, names the database, and prescribes the drop of that
+   * database.
+   */
+  @Test
+  public void restoredStorageLayoutVersionOfAnotherBuildIsRefused() {
+    var refusal =
+        assertThrows(
+            StorageException.class,
+            () -> DiskStorage.validateRestoredStorageLayoutVersion(
+                "refusedLayout", StorageConfiguration.CURRENT_VERSION - 1));
+
+    assertTrue(
+        "the refusal must name the restored storage layout version, saw: " + refusal.getMessage(),
+        refusal.getMessage()
+            .contains("storage layout version " + (StorageConfiguration.CURRENT_VERSION - 1)));
+    assertTrue(
+        "the refusal must prescribe the drop of the named database, saw: " + refusal.getMessage(),
+        refusal.getMessage().contains("Drop database 'refusedLayout'"));
+  }
+
+  /**
+   * The restore validation accepts restored content with a set genesis marker.
+   *
+   * <p>The genesis marker is the durable property that records a finished genesis. Genesis is the
+   * creation of the initial database metadata. The scenario validates the set marker value. The
+   * expected outcome is one call without any failure.
+   */
+  @Test
+  public void restoredGenesisMarkerOfCompleteContentIsAccepted() {
+    DiskStorage.validateRestoredGenesisMarker("acceptedMarker", "true");
+  }
+
+  /**
+   * The restore validation refuses restored content without a set genesis marker.
+   *
+   * <p>The scenario validates an absent marker value and a cleared marker value. The expected
+   * outcome is one refusal per value, and each refusal names the missing marker.
+   */
+  @Test
+  public void restoredGenesisMarkerOfIncompleteContentIsRefused() {
+    for (var markerValue : new String[] {null, "false"}) {
+      var refusal =
+          assertThrows(
+              StorageException.class,
+              () -> DiskStorage.validateRestoredGenesisMarker("refusedMarker", markerValue));
+      assertTrue(
+          "the refusal must name the missing genesis completion marker, saw: "
+              + refusal.getMessage(),
+          refusal.getMessage().contains("no genesis completion marker"));
+    }
   }
 }

@@ -95,17 +95,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    */
   private final transient ConcurrentLinkedQueue<AtomicInteger> readersStateList;
 
-  /**
-   * The thread-id of the Writer currently holding the lock in write-mode, or SRWL_INVALID_TID if
-   * there is no Writer holding or attempting to acquire the lock in write mode.
-   */
+  /** Coordinates exclusive admission. Reader state is tracked separately. */
   private final transient StampedLock stampedLock;
 
-  /**
-   * Thread-local reference to the current thread's ReadersEntry instance. It's from this instance
-   * that the current Reader thread is able to determine where to store its own state, and the
-   * number of reentrant read lock loops for that particular thread.
-   */
+  /** The thread that currently holds write mode, or {@code null} when write mode is free. */
+  private transient volatile Thread writeOwner;
+
+  /** Holds the current thread's single non-reentrant reader state. */
   private final transient ThreadLocal<ReadersEntry> entry;
 
   private final transient AtomicReference<AtomicInteger[]> readersStateArrayRef;
@@ -279,14 +275,22 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Whether the exclusive (write) lock is currently held by some thread. The underlying
-   * {@link StampedLock} tracks no owner, so this cannot distinguish the current thread from
-   * another holder; it exists for assertions that a code path runs inside an exclusive-lock
-   * window (a caller that must itself hold the lock cannot be foiled by another holder anyway,
-   * because that holder would have blocked it).
+   * Whether some thread currently holds write mode. Use {@link
+   * #isWriteLockedByCurrentThread()} when ownership by the caller matters.
    */
   public boolean isWriteLocked() {
     return stampedLock.isWriteLocked();
+  }
+
+  /** Returns whether the current thread holds this lock in read mode. */
+  public boolean isReadLockedByCurrentThread() {
+    final var localEntry = entry.get();
+    return localEntry != null && localEntry.state.get() == SRWL_STATE_READING;
+  }
+
+  /** Returns whether the current thread holds this lock in write mode. */
+  public boolean isWriteLockedByCurrentThread() {
+    return writeOwner == Thread.currentThread();
   }
 
   /**
@@ -353,14 +357,11 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Attempts to release the read lock.
+   * Releases the current thread's read mode.
    *
-   * <p>If the current thread is the holder of this lock then the {@code reentrantReaderCount} is
-   * decremented. If the {@code reentrantReaderCount} is now zero then the lock is released. If the
-   * current thread is not the holder of this lock then {@link IllegalMonitorStateException} is
-   * thrown.
+   * <p>Read mode is not reentrant. One release clears the current thread's reader state.
    *
-   * @throws IllegalMonitorStateException if the current thread does not hold this lock.
+   * @throws IllegalMonitorStateException if the current thread has no reader state.
    */
   public void sharedUnlock() {
     final var localEntry = entry.get();
@@ -377,23 +378,16 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the write lock.
+   * Acquires write mode after prior readers and writers leave.
    *
-   * <p>Acquires the write lock if neither the read nor write lock are held by another thread and
-   * returns immediately, setting the write lock {@code reentrantWriterCount} to one.
-   *
-   * <p>If the current thread already holds the write lock then the {@code reentrantWriterCount} is
-   * incremented by one and the method returns immediately.
-   *
-   * <p>If the lock is held by another thread, then the current thread yields and lies dormant
-   * until the write lock has been acquired, at which time the {@code reentrantWriterCount} is set
-   * to one.
+   * <p>Write mode is not reentrant. A current-thread reacquisition blocks indefinitely.
    */
   public void exclusiveLock() {
     // Try to acquire the lock in write-mode
     stampedLock.writeLock();
+    writeOwner = Thread.currentThread();
 
-    // We can only do this after writerOwner has been set to the current thread
+    // We can only do this after writeOwner has been set to the current thread
     var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
@@ -413,21 +407,18 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Attempts to release the write lock.
+   * Releases the current thread's write mode.
    *
-   * <p>If the current thread is the holder of this lock then the {@code reentrantWriterCount} is
-   * decremented. If {@code reentrantWriterCount} is now zero then the lock is released. If the
-   * current thread is not the holder of this lock then {@link IllegalMonitorStateException} is
-   * thrown.
+   * <p>Write mode is not reentrant. One release frees the lock.
    *
-   * @throws IllegalMonitorStateException if the current thread does not hold this lock.
+   * @throws IllegalMonitorStateException if the current thread does not hold write mode.
    */
   public void exclusiveUnlock() {
-    if (!stampedLock.isWriteLocked()) {
-      // ERROR: tried to unlock a non write-locked instance
+    if (!isWriteLockedByCurrentThread()) {
       throw new IllegalMonitorStateException();
     }
 
+    writeOwner = null;
     stampedLock.asWriteLock().unlock();
   }
 
@@ -515,28 +506,20 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the write lock only if it is not held by another thread at the time of invocation.
+   * Attempts to acquire write mode without waiting.
    *
-   * <p>Acquires the write lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true} if and only if no other thread is attempting a read
-   * lock, setting the write lock {@code writerLoop} count to one.
+   * <p>Write mode is not reentrant. A current-thread reacquisition returns {@code false}.
    *
-   * <p>If the current thread already holds this lock then the {@code reentrantWriterCount} count
-   * is incremented by one and the method returns {@code true}.
-   *
-   * <p>If the write lock is held by another thread then this method will return immediately with
-   * the value {@code false}.
-   *
-   * @return {@code true} if the write lock was free and was acquired by the current thread, or the
-   * write lock was already held by the current thread; and {@code false} otherwise.
+   * @return {@code true} if write mode was acquired
    */
   public boolean exclusiveTryLock() {
     // Try to acquire the lock in write-mode
     if (stampedLock.tryWriteLock() == 0) {
       return false;
     }
+    writeOwner = Thread.currentThread();
 
-    // We can only do this after writerOwner has been set to the current thread
+    // We can only do this after writeOwner has been set to the current thread
     var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
@@ -551,6 +534,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     for (var readerState : localReadersStateArray) {
       if (readerState != null && readerState.get() == SRWL_STATE_READING) {
         // There is at least one ongoing Reader so give up
+        writeOwner = null;
         stampedLock.asWriteLock().unlock();
         return false;
       }
@@ -560,31 +544,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the write lock if it is not held by another thread within the given waiting time.
+   * Attempts to acquire write mode within the given waiting time.
    *
-   * <p>Acquires the write lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true} if and only if no other thread is attempting a read
-   * lock, setting the write lock {@code reentrantWriterCount} to one. If another thread is
-   * attempting a read lock, this function <b>may yield until the read lock is released</b>.
+   * <p>The method may yield while prior readers leave. Write mode is not reentrant. A
+   * current-thread reacquisition expires unless the timeout is effectively unbounded.
    *
-   * <p>If the current thread already holds this lock then the {@code reentrantWriterCount} is
-   * incremented by one and the method returns {@code true}.
-   *
-   * <p>If the write lock is held by another thread then the current thread yields and lies dormant
-   * until one of two things happens:
-   *
-   * <ul>
-   *   <li>The write lock is acquired by the current thread; or
-   *   <li>The specified waiting time elapses
-   * </ul>
-   *
-   * <p>If the write lock is acquired then the value {@code true} is returned and the write lock
-   * {@code reentrantWriterCount} is set to one.
-   *
-   * @param nanosTimeout the time to wait for the write lock in nanoseconds
-   * @return {@code true} if the lock was free and was acquired by the current thread, or the write
-   * lock was already held by the current thread; and {@code false} if the waiting time elapsed
-   * before the lock could be acquired.
+   * @param nanosTimeout the time to wait for write mode in nanoseconds
+   * @return {@code true} if write mode was acquired, or {@code false} if the time elapsed first
    */
   public boolean exclusiveTryLockNanos(long nanosTimeout) throws java.lang.InterruptedException {
     final var lastTime = System.nanoTime();
@@ -592,8 +558,9 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
     if (stampedLock.tryWriteLock(nanosTimeout, TimeUnit.NANOSECONDS) == 0) {
       return false;
     }
+    writeOwner = Thread.currentThread();
 
-    // We can only do this after writerOwner has been set to the current thread
+    // We can only do this after writeOwner has been set to the current thread
     var localReadersStateArray = readersStateArrayRef.get();
     if (localReadersStateArray == null) {
       // Set to dummyArray before scanning the readersStateList to impose
@@ -611,6 +578,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
           Thread.yield();
         } else {
           // Time has expired and there is at least one ongoing Reader so give up
+          writeOwner = null;
           stampedLock.asWriteLock().unlock();
           return false;
         }
@@ -717,6 +685,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       }
     }
 
+    writeOwner = Thread.currentThread();
+
     // Phase 2: the write bit is HELD from here on — writer preference engaged exactly like
     // exclusiveLock (new readers observe isWriteLocked() and back off). Drain the residual
     // readers, polling the abort predicate on every yield iteration. The whole phase is guarded:
@@ -743,6 +713,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
             // Full release: the bit drops, backed-off readers spinning on isWriteLocked() proceed
             // (no lost wakeup possible — there is no parking channel, only the polled bit), and
             // the primitive is immediately reusable.
+            writeOwner = null;
             stampedLock.asWriteLock().unlock();
             return false;
           }
@@ -754,11 +725,13 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       // the window where the condition arrives exactly as the drain completes — including the
       // zero-residual-readers case, where the drain loop body never ran and so never polled.
       if (abort.getAsBoolean()) {
+        writeOwner = null;
         stampedLock.asWriteLock().unlock();
         return false;
       }
       return true;
     } catch (final Throwable phaseTwoFailure) {
+      writeOwner = null;
       stampedLock.asWriteLock().unlock();
       throw phaseTwoFailure;
     }

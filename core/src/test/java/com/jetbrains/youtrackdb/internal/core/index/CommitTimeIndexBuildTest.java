@@ -30,8 +30,18 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildFailure;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
+import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
+import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -46,6 +56,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
@@ -97,6 +108,568 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
    */
   private boolean engineIsRegistered(String indexName) {
     return storage().loadIndexEngine(indexName) >= 0;
+  }
+
+  private long lifecycleRecordCount() {
+    return session.computeInTx(
+        transaction -> {
+          long count = 0;
+          try (var records =
+              session.browseCollection(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME)) {
+            while (records.hasNext()) {
+              records.next();
+              count++;
+            }
+          }
+          return count;
+        });
+  }
+
+  private RID lifecycleIdentity(Index index) {
+    return session.computeInTx(
+        transaction -> transaction.loadEntity(index.getIdentity()).getLink(Index.LIFECYCLE_RECORD));
+  }
+
+  private boolean managerLinks(Index index) {
+    var managerIdentity = RecordIdInternal.fromString(storage().getIndexMgrRecordId(), false);
+    var manager = (IndexManagerAbstract) session.getSharedContext().getIndexManager();
+    return session.computeInTx(
+        transaction -> transaction
+            .loadEntity(managerIdentity)
+            .getLinkSet(manager.CONFIG_INDEXES)
+            .contains(index.getIdentity()));
+  }
+
+  /** Successful creation commits every durable artifact before lifecycle publication. */
+  @Test
+  public void atomicCreationCommitsAllArtifactsAndThenPublishesLifecycle() {
+    var schema = session.getMetadata().getSchema();
+    var target = schema.createClass("AtomicCreateTarget");
+    target.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    session.getMetadata().getSchema().getClass("AtomicCreateTarget")
+        .createIndex("AtomicCreateTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var deferred =
+        (IndexAbstract) session.getSharedContext().getIndexManager()
+            .getIndex(session, "AtomicCreateTarget.name");
+    assertNull("the deferred handle must not publish a lifecycle before commit",
+        deferred.getLifecycleCell());
+    session.commit();
+
+    var index = session.getSharedContext().getIndexManager().getIndex("AtomicCreateTarget.name");
+    var lifecycleIdentity = lifecycleIdentity(index);
+    var durable =
+        storage().getIndexBuildStateStore().read(index.getIdentity(), lifecycleIdentity);
+    assertTrue("the descriptor record must be durable", index.getIdentity().isPersistent());
+    assertNotNull("the descriptor must link its lifecycle record", lifecycleIdentity);
+    assertTrue("the manager record must link the descriptor", managerLinks(index));
+    assertTrue("the engine configuration must register the engine",
+        engineIsRegistered(index.getName()));
+    assertEquals(IndexLifecycle.EXISTS, durable.lifecycle());
+    assertNotNull("the committed snapshot must be published",
+        storage().getIndexLifecycle(index.getIdentity()));
+    assertEquals(durable, storage().getIndexLifecycle(index.getIdentity()).snapshot());
+  }
+
+  /** A failed creation commit removes every artifact and publishes no lifecycle snapshot. */
+  @Test
+  public void failedAtomicCreationLeavesNoArtifactOrLifecyclePublication() {
+    var schema = session.getMetadata().getSchema();
+    var target = schema.createClass("AtomicRollbackTarget");
+    target.createProperty("name", PropertyType.STRING);
+    var recordsBefore = lifecycleRecordCount();
+    var created = new AtomicReference<Index>();
+
+    storage().setPostEngineBuildTestHook(
+        () -> {
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected atomic creation failure");
+        });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("AtomicRollbackTarget")
+          .createIndex("AtomicRollbackTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+      created.set(
+          session.getSharedContext().getIndexManager()
+              .getIndex(session, "AtomicRollbackTarget.name"));
+      assertThrows(RuntimeException.class, session::commit);
+    } finally {
+      storage().setPostEngineBuildTestHook(null);
+    }
+
+    var index = created.get();
+    assertFalse("the manager must not publish the failed index",
+        session.getSharedContext().getIndexManager().existsIndex(index.getName()));
+    assertFalse("the engine registry must remove the failed engine",
+        engineIsRegistered(index.getName()));
+    assertEquals("the lifecycle record must roll back", recordsBefore, lifecycleRecordCount());
+    assertNull("the lifecycle registry must remain empty for the failed descriptor",
+        storage().getIndexLifecycle(index.getIdentity()));
+    assertThrows(
+        "the descriptor record must roll back",
+        RecordNotFoundException.class,
+        () -> session.computeInTx(transaction -> transaction.loadEntity(index.getIdentity())));
+    assertFalse("the manager record must not retain the failed descriptor", managerLinks(index));
+  }
+
+  /** Top-level creation rejects another lifecycle registration for one descriptor. */
+  @Test
+  public void topLevelCreationRejectsSecondLifecycleRecord() {
+    var schema = session.getMetadata().getSchema();
+    var target = schema.createClass("TopLevelLifecycleTarget");
+    target.createProperty("name", PropertyType.STRING);
+    target.createIndex(
+        "TopLevelLifecycleTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index =
+        session.getSharedContext().getIndexManager().getIndex("TopLevelLifecycleTarget.name");
+    var lifecycleIdentity = lifecycleIdentity(index);
+    var recordsBefore = lifecycleRecordCount();
+
+    session.begin();
+    assertThrows(
+        "a descriptor with a durable link must reject another lifecycle registration",
+        IllegalStateException.class,
+        () -> storage().registerTopLevelIndexLifecycle(
+            session.getTransactionInternal(), index.getIdentity()));
+    session.rollback();
+
+    assertEquals(recordsBefore, lifecycleRecordCount());
+    assertEquals(lifecycleIdentity, lifecycleIdentity(index));
+  }
+
+  /** A pending top-level registration rejects the same descriptor before commit. */
+  @Test
+  public void duplicatePendingTopLevelRegistrationIsRejected() {
+    var descriptor = session.computeInTx(transaction -> transaction.newEntity().getIdentity());
+    var recordsBefore = lifecycleRecordCount();
+
+    session.begin();
+    storage().registerTopLevelIndexLifecycle(session.getTransactionInternal(), descriptor);
+    var failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> storage()
+                .registerTopLevelIndexLifecycle(
+                    session.getTransactionInternal(), descriptor));
+    session.rollback();
+
+    assertEquals("Index descriptor already awaits a lifecycle record", failure.getMessage());
+    assertEquals(recordsBefore, lifecycleRecordCount());
+    assertNull(storage().getIndexLifecycle(descriptor));
+  }
+
+  /** A failed top-level descriptor commit leaves no lifecycle record or index. */
+  @Test
+  public void failedTopLevelDescriptorCommitLeavesNoLifecycleArtifact() {
+    var cls = session.getMetadata().getSchema().createClass("TopLevelCommitFailureTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "TopLevelCommitFailureTarget.name";
+    var recordsBefore = lifecycleRecordCount();
+
+    storage()
+        .setEndTxCommitFailureTestHook(
+            () -> {
+              throw new CommandInterruptedException(
+                  session.getDatabaseName(), "injected top-level descriptor commit failure");
+            });
+    try {
+      assertThrows(
+          RuntimeException.class,
+          () -> cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+    } finally {
+      storage().setEndTxCommitFailureTestHook(null);
+    }
+
+    assertEquals(recordsBefore, lifecycleRecordCount());
+    var failed = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertNotNull("the engine-first handle remains observable after descriptor failure", failed);
+    assertNull(storage().getIndexLifecycle(failed.getIdentity()));
+    assertThrows(
+        RecordNotFoundException.class,
+        () -> session.computeInTx(transaction -> transaction.loadEntity(failed.getIdentity())));
+  }
+
+  /** Genesis security indexes use durable links and committed lifecycle snapshots. */
+  @Test
+  public void genesisSecurityIndexesUseAtomicLifecycleContract() {
+    for (var name : List.of("OUser.name", "ORole.name", "OSecurityPolicy.name")) {
+      var index = session.getSharedContext().getIndexManager().getIndex(name);
+      assertNotNull("the genesis security index must exist: " + name, index);
+      var lifecycleIdentity = lifecycleIdentity(index);
+      assertNotNull("the genesis descriptor must link lifecycle state: " + name,
+          lifecycleIdentity);
+      assertEquals(
+          storage().getIndexBuildStateStore().read(index.getIdentity(), lifecycleIdentity),
+          storage().getIndexLifecycle(index.getIdentity()).snapshot());
+    }
+  }
+
+  /** Top-level deletion removes the descriptor and linked lifecycle record together. */
+  @Test
+  public void topLevelDeletionRemovesLinkedLifecycleRecord() {
+    var cls = session.getMetadata().getSchema().createClass("LifecycleDeleteTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "LifecycleDeleteTarget.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var descriptorIdentity = index.getIdentity();
+    var linkedLifecycle = lifecycleIdentity(index);
+
+    session.getSharedContext().getIndexManager().dropIndex(session, indexName);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> storage().getIndexBuildStateStore().read(descriptorIdentity, linkedLifecycle));
+    assertThrows(
+        RecordNotFoundException.class,
+        () -> session.computeInTx(tx -> tx.loadEntity(descriptorIdentity)));
+  }
+
+  /** A failed transactional deletion preserves the lifecycle record and descriptor link. */
+  @Test
+  public void failedTransactionalDeletionPreservesLifecycleRecordAndLink() {
+    var cls = session.getMetadata().getSchema().createClass("LifecycleDropRollbackTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "LifecycleDropRollbackTarget.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var manager = session.getSharedContext().getIndexManager();
+    var index = manager.getIndex(indexName);
+    var linkedLifecycle = lifecycleIdentity(index);
+    var snapshot =
+        storage().getIndexBuildStateStore().read(index.getIdentity(), linkedLifecycle);
+
+    var deletionEnrolled = new AtomicBoolean();
+    storage().setPostEngineBuildTestHook(
+        () -> {
+          deletionEnrolled.set(
+              session.getTransactionInternal().isDeletedInTx(linkedLifecycle));
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected lifecycle deletion failure");
+        });
+    try {
+      session.begin();
+      manager.dropIndex(session, indexName);
+      assertThrows(RuntimeException.class, session::commit);
+    } finally {
+      storage().setPostEngineBuildTestHook(null);
+    }
+
+    assertTrue(
+        "the lifecycle deletion must join the failing transaction",
+        deletionEnrolled.get());
+    assertEquals(linkedLifecycle, lifecycleIdentity(index));
+    assertEquals(
+        snapshot,
+        storage().getIndexBuildStateStore().read(index.getIdentity(), linkedLifecycle));
+  }
+
+  /** Metadata reload publishes durable progress and clears process-local ownership. */
+  @Test
+  public void lifecycleRecoveryPreservesProgressAndClearsOwnership() {
+    var cls = session.getMetadata().getSchema().createClass("LifecycleRecoveryTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "LifecycleRecoveryTarget.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var manager = session.getSharedContext().getIndexManager();
+    var index = manager.getIndex(indexName);
+    var lifecycle = lifecycleIdentity(index);
+    var store = storage().getIndexBuildStateStore();
+    var current = store.read(index.getIdentity(), lifecycle);
+    var state = current.buildState();
+    var owned =
+        new IndexBuildState(
+            state.formatVersion(),
+            state.descriptorIdentity(),
+            state.lifecycle(),
+            state.buildIncarnation(),
+            71L,
+            state.completionCut(),
+            19,
+            true,
+            state.failure(),
+            state.failureMessage());
+    var ownedSnapshot = store.publish(index.getIdentity(), lifecycle, current, owned);
+
+    manager.reload(session);
+
+    var recovered = storage().getIndexLifecycle(index.getIdentity()).snapshot();
+    assertEquals(19, recovered.buildState().completedUnits());
+    assertTrue(recovered.buildState().suspended());
+    assertNull(recovered.buildState().ownerEpoch());
+    assertEquals(ownedSnapshot, store.read(index.getIdentity(), lifecycle));
+  }
+
+  /** Publication accepts the recovered owner-free snapshot after metadata reload. */
+  @Test
+  public void publicationAfterRecoveryIgnoresStaleDurableOwnerEpoch() {
+    var index = createIndexForRecovery("LifecycleRecoveryPublicationTarget");
+    var lifecycle = lifecycleIdentity(index);
+    var store = storage().getIndexBuildStateStore();
+    var current = store.read(index.getIdentity(), lifecycle);
+    var state = current.buildState();
+    var owned =
+        new IndexBuildState(
+            state.formatVersion(),
+            state.descriptorIdentity(),
+            state.lifecycle(),
+            state.buildIncarnation(),
+            71L,
+            state.completionCut(),
+            19,
+            true,
+            state.failure(),
+            state.failureMessage());
+    var ownedSnapshot = store.publish(index.getIdentity(), lifecycle, current, owned);
+
+    session.getSharedContext().getIndexManager().reload(session);
+
+    var recovered = storage().getIndexLifecycle(index.getIdentity()).snapshot();
+    var recoveredState = recovered.buildState();
+    var replacement =
+        new IndexBuildState(
+            recoveredState.formatVersion(),
+            recoveredState.descriptorIdentity(),
+            recoveredState.lifecycle(),
+            recoveredState.buildIncarnation(),
+            null,
+            recoveredState.completionCut(),
+            20,
+            recoveredState.suspended(),
+            recoveredState.failure(),
+            recoveredState.failureMessage());
+    var published = store.publish(index.getIdentity(), lifecycle, recovered, replacement);
+
+    assertEquals(ownedSnapshot.recordVersion(), recovered.recordVersion());
+    assertNull(recoveredState.ownerEpoch());
+    assertEquals(20, published.buildState().completedUnits());
+    assertNull(published.buildState().ownerEpoch());
+    assertTrue(published.recordVersion() > ownedSnapshot.recordVersion());
+    assertEquals(published, store.read(index.getIdentity(), lifecycle));
+  }
+
+  /** Metadata reload preserves an owner-free durable snapshot without replacement. */
+  @Test
+  public void ownerFreeLifecycleRecoveryKeepsDurableSnapshot() {
+    var index = createIndexForRecovery("OwnerFreeRecoveryTarget");
+    var lifecycle = lifecycleIdentity(index);
+    var durable = storage().getIndexBuildStateStore().read(index.getIdentity(), lifecycle);
+    assertNull(durable.buildState().ownerEpoch());
+    var cellBefore = storage().getIndexLifecycle(index.getIdentity());
+
+    session.getSharedContext().getIndexManager().reload(session);
+
+    var cellAfter = storage().getIndexLifecycle(index.getIdentity());
+    assertEquals(durable, cellAfter.snapshot());
+    assertEquals(durable, storage().getIndexBuildStateStore().read(index.getIdentity(), lifecycle));
+    assertTrue("recovery must preserve the current-lineage cell", cellBefore == cellAfter);
+  }
+
+  /** A pure-data commit retains state read mode while creating a lifecycle record. */
+  @Test
+  public void pureDataCommitRetainsStateReadModeThroughLifecycleCreation() throws Exception {
+    var stateLockField = AbstractStorage.class.getDeclaredField("stateLock");
+    stateLockField.setAccessible(true);
+    var stateLock = (ScalableRWLock) stateLockField.get(storage());
+    var observedReadMode = new AtomicBoolean();
+
+    storage()
+        .setEndTxCommitFailureTestHook(
+            () -> observedReadMode.set(stateLock.isReadLockedByCurrentThread()));
+    try {
+      session.begin();
+      var descriptor = session.newEntity().getIdentity();
+      storage().registerTopLevelIndexLifecycle(session.getTransactionInternal(), descriptor);
+      session.commit();
+    } finally {
+      storage().setEndTxCommitFailureTestHook(null);
+    }
+
+    assertTrue(
+        "lifecycle creation must not release the pure-data commit's outer state read mode",
+        observedReadMode.get());
+  }
+
+  /** Protected publication rejects before reading and leaves its applying data commit reversible. */
+  @Test
+  public void protectedPublishRejectsBeforeReadAndOuterCommitRollsBack() {
+    var cls = session.getMetadata().getSchema().createClass("ProtectedPublishRollbackTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(
+        "ProtectedPublishRollbackTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var index =
+        session
+            .getSharedContext()
+            .getIndexManager()
+            .getIndex("ProtectedPublishRollbackTarget.name");
+    var lifecycle = lifecycleIdentity(index);
+    var store = storage().getIndexBuildStateStore();
+    var durableBefore = store.read(index.getIdentity(), lifecycle);
+    var state = durableBefore.buildState();
+    var replacement =
+        new IndexBuildState(
+            state.formatVersion(),
+            state.descriptorIdentity(),
+            state.lifecycle(),
+            state.buildIncarnation(),
+            state.ownerEpoch(),
+            state.completionCut(),
+            state.completedUnits() + 1,
+            state.suspended(),
+            state.failure(),
+            state.failureMessage());
+
+    storage()
+        .setEndTxCommitFailureTestHook(
+            () -> store.publish(index.getIdentity(), lifecycle, durableBefore, replacement));
+    try {
+      session.begin();
+      var inserted = session.newEntity("ProtectedPublishRollbackTarget");
+      inserted.setProperty("name", "rolled-back");
+      assertThrows(
+          "the protected publication must reject during the applying commit",
+          IllegalStateException.class,
+          session::commit);
+    } finally {
+      storage().setEndTxCommitFailureTestHook(null);
+    }
+
+    assertEquals(
+        "the lifecycle record must not advance",
+        durableBefore,
+        store.read(index.getIdentity(), lifecycle));
+    session.begin();
+    try (var records = session.query("select from ProtectedPublishRollbackTarget")) {
+      assertEquals("the outer data commit must roll back", 0L, records.stream().count());
+    }
+    session.commit();
+
+    session.executeInTx(
+        transaction -> {
+          var usable = session.newEntity("ProtectedPublishRollbackTarget");
+          usable.setProperty("name", "usable");
+        });
+    session.begin();
+    try (var records = session.query("select from ProtectedPublishRollbackTarget")) {
+      assertEquals("the storage must accept a later write", 1L, records.stream().count());
+    }
+    session.commit();
+  }
+
+  /** A pure data commit does not allocate top-level lifecycle bookkeeping. */
+  @Test
+  public void pureDataCommitDoesNotAllocateTopLevelLifecycleBookkeeping() {
+    session.begin();
+    var transaction = session.getTransactionInternal();
+    session.newEntity();
+
+    session.commit();
+
+    var key = AbstractStorage.class.getName() + ".topLevelIndexLifecycles";
+    assertNull(transaction.getCustomData(key));
+  }
+
+  /** An absent durable link quarantines only its index with a stable reason. */
+  @Test
+  public void absentLifecycleLinkQuarantinesIndexAndContinuesLoading() {
+    var broken = createIndexForRecovery("AbsentLifecycleTarget");
+    var healthy = createIndexForRecovery("AbsentLifecycleHealthy");
+    session.executeInTx(
+        tx -> tx.loadEntity(broken.getIdentity()).setLink(Index.LIFECYCLE_RECORD, null));
+    var recordsBefore = lifecycleRecordCount();
+
+    session.getSharedContext().getIndexManager().reload(session);
+
+    assertEquals(recordsBefore, lifecycleRecordCount());
+
+    var manager = session.getSharedContext().getIndexManager();
+    assertNotNull(manager.getIndex(broken.getName()));
+    assertNotNull(manager.getIndex(healthy.getName()));
+    var quarantine = storage().getIndexLifecycle(broken.getIdentity()).snapshot().buildState();
+    assertEquals(IndexLifecycle.INVALID, quarantine.lifecycle());
+    assertEquals(IndexBuildFailure.INDEX_BUILD_STATE_MISSING, quarantine.failure());
+    assertEquals("Index descriptor has no lifecycle record link", quarantine.failureMessage());
+  }
+
+  /** A dangling durable link quarantines only its index with a stable reason. */
+  @Test
+  public void missingLifecycleRecordQuarantinesIndexAndContinuesLoading() {
+    var broken = createIndexForRecovery("MissingLifecycleTarget");
+    var healthy = createIndexForRecovery("MissingLifecycleHealthy");
+    var collection =
+        storage().getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var missing = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        collection, Long.MAX_VALUE - 17);
+    session.disableLinkConsistencyCheck();
+    try {
+      session.executeInTx(
+          tx -> tx.loadEntity(broken.getIdentity()).setLink(Index.LIFECYCLE_RECORD, missing));
+    } finally {
+      session.enableLinkConsistencyCheck();
+    }
+    var recordsBefore = lifecycleRecordCount();
+
+    session.getSharedContext().getIndexManager().reload(session);
+
+    assertEquals(recordsBefore, lifecycleRecordCount());
+    var manager = session.getSharedContext().getIndexManager();
+    assertNotNull(manager.getIndex(broken.getName()));
+    assertNotNull(manager.getIndex(healthy.getName()));
+    var quarantine = storage().getIndexLifecycle(broken.getIdentity()).snapshot().buildState();
+    assertEquals(IndexLifecycle.INVALID, quarantine.lifecycle());
+    assertEquals(IndexBuildFailure.INDEX_BUILD_STATE_MISSING, quarantine.failure());
+    assertEquals("Linked index build state record is missing", quarantine.failureMessage());
+  }
+
+  /** Dropping a quarantined dangling-link index removes its descriptor. */
+  @Test
+  public void danglingLifecycleLinkDoesNotBlockDropAndRebuild() {
+    var broken = createIndexForRecovery("DanglingDropTarget");
+    var descriptor = broken.getIdentity();
+    var collection =
+        storage().getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+    var missing = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        collection, Long.MAX_VALUE - 23);
+    session.disableLinkConsistencyCheck();
+    try {
+      session.executeInTx(
+          tx -> tx.loadEntity(descriptor).setLink(Index.LIFECYCLE_RECORD, missing));
+    } finally {
+      session.enableLinkConsistencyCheck();
+    }
+    session.getSharedContext().getIndexManager().reload(session);
+
+    session.getSharedContext().getIndexManager().dropIndex(session, broken.getName());
+    assertThrows(
+        RecordNotFoundException.class,
+        () -> session.computeInTx(tx -> tx.loadEntity(descriptor)));
+
+    var cls = session.getMetadata().getSchema().getClass("DanglingDropTarget");
+    cls.createIndex(broken.getName(), SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    assertNotNull(session.getSharedContext().getIndexManager().getIndex(broken.getName()));
+  }
+
+  /** A missing lifecycle collection blocks loading without clearing shared indexes. */
+  @Test
+  public void missingBuildStateCollectionBlocksIndexLoading() {
+    session.dropCollection(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME);
+
+    var manager = session.getSharedContext().getIndexManager();
+    var existing = manager.getIndex("OUser.name");
+    var failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> manager.reload(session));
+
+    assertEquals("The index build state collection is missing", failure.getMessage());
+    assertEquals(existing, manager.getIndex("OUser.name"));
+  }
+
+  private Index createIndexForRecovery(String className) {
+    var cls = session.getMetadata().getSchema().createClass(className);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    return session.getSharedContext().getIndexManager().getIndex(className + ".name");
   }
 
   /**
@@ -277,6 +850,15 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     var indexManager = session.getSharedContext().getIndexManager();
     assertTrue("the index must exist before the drop", indexManager.existsIndex(indexName));
     assertTrue("the engine must be registered before the drop", engineIsRegistered(indexName));
+    var droppedIndex = (IndexAbstract) indexManager.getIndex(indexName);
+    var droppedDescriptorIdentity = droppedIndex.getIdentity();
+    var droppedLifecycleIdentity = lifecycleIdentity(droppedIndex);
+    var droppedLifecycleSnapshot =
+        storage()
+            .getIndexBuildStateStore()
+            .read(droppedDescriptorIdentity, droppedLifecycleIdentity);
+    assertNotNull("the descriptor must have a lifecycle cell before drop",
+        droppedIndex.getLifecycleCell());
 
     session.executeInTx(tx -> indexManager.dropIndex(session, indexName));
 
@@ -284,6 +866,20 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         indexManager.existsIndex(indexName));
     assertFalse("the dropped index's engine must be unregistered after commit",
         engineIsRegistered(indexName));
+    assertNull("the committed drop must remove its lifecycle registry entry",
+        storage().getIndexLifecycle(droppedDescriptorIdentity));
+    assertThrows(
+        "the transactional drop must delete the linked lifecycle record",
+        IllegalStateException.class,
+        () -> storage()
+            .getIndexBuildStateStore()
+            .read(droppedDescriptorIdentity, droppedLifecycleIdentity));
+    assertThrows(
+        "the transactional drop must delete the descriptor record",
+        RecordNotFoundException.class,
+        () -> session.computeInTx(
+            transaction -> transaction.loadEntity(droppedDescriptorIdentity)));
+    assertEquals(IndexLifecycle.EXISTS, droppedLifecycleSnapshot.lifecycle());
 
     session.getSharedContext().getIndexManager().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
@@ -507,6 +1103,14 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         engineIsRegistered(keepIndexName));
     assertTrue("the surviving committed index's engine must be reconstructed after the failed drop",
         engineIsRegistered(goneIndexName));
+    var restoredKeep = (IndexAbstract) indexManager.getIndex(keepIndexName);
+    var restoredGone = (IndexAbstract) indexManager.getIndex(goneIndexName);
+    assertEquals("the restored keep engine must be bound to its descriptor owner",
+        restoredKeep.getIndexId(),
+        storage.resolveIndexEngineByOwner(restoredKeep.getIdentity()).engineIdentifier());
+    assertEquals("the restored gone engine must be bound to its descriptor owner",
+        restoredGone.getIndexId(),
+        storage.resolveIndexEngineByOwner(restoredGone.getIdentity()).engineIdentifier());
 
     // The invariant bar: a query through the surviving index must return its committed row without an
     // unregistered-engine / null-slot throw — the whole point of the drop-restore arm.
@@ -517,20 +1121,28 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
             + " drop commit",
         1, survivorRids.size());
 
-    // The durable arm: re-parse the index manager's persisted records and reopen the session;
-    // both committed indexes must re-derive from durable state with loadable engines, and the
-    // survivor must still return its committed row. On the disk profile this catches a rollback
-    // that failed to restore the dropped engines' durable configuration entries.
+    // Retry one transactional drop before reload, while its handle still carries the generation
+    // from before failed-drop restoration. The commit-window retry must refresh that carrier.
+    session.begin();
+    indexManager.dropIndex(session, goneIndexName);
+    session.commit();
+    assertFalse("a retry must drop an engine restored after the failed commit",
+        indexManager.existsIndex(goneIndexName));
+    assertTrue("the unrelated restored index must remain usable",
+        indexManager.existsIndex(keepIndexName));
+
+    // The durable arm re-parses the index manager records and reopens the session. The retained
+    // index must load, while the successfully retried drop must remain absent.
     session.getSharedContext().getIndexManager().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
     var reloadedManager = session.getSharedContext().getIndexManager();
     assertTrue("the committed indexes must survive the failed drop in durable state",
         reloadedManager.existsIndex(keepIndexName));
-    assertTrue("the committed indexes must survive the failed drop in durable state",
+    assertFalse("the retried drop must remain durable after reopen",
         reloadedManager.existsIndex(goneIndexName));
-    assertTrue("the surviving indexes' engines must load after a reopen",
+    assertTrue("the surviving index engine must load after a reopen",
         engineIsRegistered(keepIndexName));
-    assertTrue("the surviving indexes' engines must load after a reopen",
+    assertFalse("the dropped engine must remain unregistered after a reopen",
         engineIsRegistered(goneIndexName));
     var reloadedKeep = reloadedManager.getIndex(keepIndexName);
     var reloadedRids =
@@ -828,6 +1440,175 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         session.computeInTx(
             tx -> reloadedManager.getIndex(indexName).getRids(session, "replaced").toList());
     assertEquals("the recreated index's row must survive the reload", 1, reloadedRids.size());
+  }
+
+  /**
+   * A count delta accumulated for the old engine must not follow its reused slot into the empty
+   * replacement. The commit-window hook models old-engine work before reconciliation. The
+   * replacement must retain an empty entry count after the drop and recreate commit.
+   */
+  @Test
+  public void dropThenRecreateDiscardsDroppedIndexCountDelta() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("CountDeltaReplace");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "CountDeltaReplace.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("CountDeltaReplace")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var hookFired = new AtomicBoolean();
+    storage().setCommitWindowTestHook(
+        () -> {
+          hookFired.set(true);
+          IndexCountDelta.accumulate(
+              session.getActiveTransaction().getAtomicOperation(), reusedSlot, 1, false);
+        });
+    try {
+      session.commit();
+    } finally {
+      storage().setCommitWindowTestHook(null);
+    }
+    assertTrue("the count-delta test hook must fire inside the commit window", hookFired.get());
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+    assertEquals("the empty replacement must not inherit the dropped engine count", 0L,
+        session.computeInTx(tx -> replacement.size(session)).longValue());
+  }
+
+  /**
+   * A histogram delta accumulated for the old engine must not follow its reused slot into the empty
+   * replacement. The replacement statistics must remain at their freshly-built zero state.
+   */
+  @Test
+  public void dropThenRecreateDiscardsDroppedIndexHistogramDelta() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("HistogramDeltaReplace");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "HistogramDeltaReplace.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var originalHistogram = originalEngine.getHistogramManager();
+    assertNotNull("the original engine must have a histogram manager", originalHistogram);
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("HistogramDeltaReplace")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var hookFired = new AtomicBoolean();
+    storage().setCommitWindowTestHook(
+        () -> {
+          hookFired.set(true);
+          originalHistogram.onPut(
+              session.getActiveTransaction().getAtomicOperation(), "ghost", true, true);
+        });
+    try {
+      session.commit();
+    } finally {
+      storage().setCommitWindowTestHook(null);
+    }
+    assertTrue("the histogram-delta test hook must fire inside the commit window", hookFired.get());
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+    assertEquals("the empty replacement must not inherit dropped histogram work", 0L,
+        replacementEngine.getStatistics().totalCount());
+  }
+
+  /**
+   * S1 drops and recreates an index before invoking the old manager outside the commit window. The
+   * stale build must neither throw nor change the replacement statistics in the reused slot.
+   */
+  @Test
+  public void staleHistogramBuildCannotPublishIntoReusedSlot() throws Exception {
+    var cls = session.getMetadata().getSchema().createClass("HistogramSlotReuse");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "HistogramSlotReuse.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) indexManager.getIndex(indexName);
+    var originalEngine = (BTreeIndexEngine) storage().getIndexEngine(original.getIndexId());
+    var originalHistogram = originalEngine.getHistogramManager();
+    assertNotNull("the original engine must have a histogram manager", originalHistogram);
+    var reusedSlot = originalEngine.getId();
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("HistogramSlotReuse")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    session.commit();
+
+    var replacement = (IndexAbstract) indexManager.getIndex(indexName);
+    var replacementEngine = (BTreeIndexEngine) storage().getIndexEngine(replacement.getIndexId());
+    assertEquals("the replacement must reuse the dropped engine slot", reusedSlot,
+        replacementEngine.getId());
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("HistogramSlotReuse");
+    entity.setProperty("name", "current");
+    session.commit();
+    var statisticsBeforeStaleBuild = replacementEngine.getStatistics();
+    assertNotNull("the replacement must expose histogram statistics", statisticsBeforeStaleBuild);
+
+    session.begin();
+    try {
+      originalHistogram.buildHistogram(
+          session.getActiveTransaction().getAtomicOperation(), Stream.of("stale"), 1, 0, 1);
+      session.commit();
+    } catch (Exception e) {
+      session.rollback();
+      throw e;
+    }
+
+    assertEquals("the stale build must preserve replacement statistics",
+        statisticsBeforeStaleBuild, replacementEngine.getStatistics());
+  }
+
+  /**
+   * Dropping an unrelated engine must discard only that engine's slot. A normal insertion into a
+   * surviving index must still advance both its approximate count and histogram statistics.
+   */
+  @Test
+  public void unrelatedDropPreservesSurvivingIndexCountAndHistogram() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var survivorClass = schema.createClass("DeltaDiscardSurvivor");
+    survivorClass.createProperty("name", PropertyType.STRING);
+    var survivorName = "DeltaDiscardSurvivor.name";
+    survivorClass.createIndex(survivorName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var droppedClass = schema.createClass("DeltaDiscardUnrelated");
+    droppedClass.createProperty("name", PropertyType.STRING);
+    var droppedName = "DeltaDiscardUnrelated.name";
+    droppedClass.createIndex(droppedName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("DeltaDiscardSurvivor");
+    entity.setProperty("name", "kept");
+    indexManager.dropIndex(session, droppedName);
+    session.commit();
+
+    var survivor = (IndexAbstract) indexManager.getIndex(survivorName);
+    var survivorEngine = (BTreeIndexEngine) storage().getIndexEngine(survivor.getIndexId());
+    assertEquals("the survivor must keep its committed entry count", 1L,
+        session.computeInTx(tx -> survivor.size(session)).longValue());
+    assertEquals("the survivor must keep its committed histogram delta", 1L,
+        survivorEngine.getStatistics().totalCount());
   }
 
   /**

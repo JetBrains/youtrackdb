@@ -89,8 +89,8 @@ public class StorageEmbeddedBlobCollectionsTest {
   }
 
   /**
-   * The shared per-profile body: verifies the storage-birth layout ({@code internal} = 0,
-   * {@code $blob0..N-1} = 1..N), the registration equality of pin G.5 #7, the persisted root
+   * The shared per-profile body verifies the storage-birth layout and blob registration.
+   * The body also verifies the persisted root
    * payload, and a blob record round-trip landing inside a storage-birth blob collection.
    */
   private void assertBlobLayoutAndRoundTrip(DatabaseType type) {
@@ -100,15 +100,16 @@ public class StorageEmbeddedBlobCollectionsTest {
       var expectedCount =
           GlobalConfiguration.STORAGE_BLOB_COLLECTIONS_COUNT.getValueAsInteger();
 
-      // Layout pinned by the design: internal = 0, $blob0..N-1 = 1..N (class collections
-      // follow from N+1). The blob collections are storage-birth collections created right
-      // after the internal collection inside the storage-create atomic operation.
+      // The build-state collection follows blobs to preserve established blob identifiers.
       assertEquals("the internal collection keeps id 0",
           0, session.getCollectionIdByName(MetadataDefault.COLLECTION_INTERNAL_NAME));
       for (var i = 0; i < expectedCount; i++) {
         assertEquals("$blob" + i + " must occupy the storage-birth slot " + (i + 1),
             i + 1, session.getCollectionIdByName("$blob" + i));
       }
+      assertEquals("the build state collection follows the storage-birth blob slots",
+          expectedCount + 1,
+          session.getCollectionIdByName(MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME));
 
       var storageIds = storageBlobCollectionIds(session);
       assertEquals("exactly the configured number of $blob* collections must exist",
@@ -171,9 +172,8 @@ public class StorageEmbeddedBlobCollectionsTest {
   /**
    * CN50 (single config read at storage birth): a database created with a non-default
    * {@code STORAGE_BLOB_COLLECTIONS_COUNT} gets exactly that many {@code $blob*} collections at
-   * ids 1..N, and the schema registration matches them — the process-global default (a different
-   * value) is never consulted after create, because the register loop enumerates the storage's
-   * actual collections by name instead of re-reading the configuration.
+   * ids 1..N, and the schema registration matches them. The process-global default differs and
+   * is never consulted after create because registration enumerates the storage collections.
    */
   @Test
   public void blobCollectionsCountIsFrozenAtStorageBirth() {
@@ -207,7 +207,7 @@ public class StorageEmbeddedBlobCollectionsTest {
   }
 
   /**
-   * The renumbered layout survives a full context close and disk reopen: a fresh
+   * The storage-birth layout survives a full context close and disk reopen. A fresh
    * {@link SharedContext} loaded from disk shows the same registration and the previously
    * written blob record still reads back byte-for-byte.
    */

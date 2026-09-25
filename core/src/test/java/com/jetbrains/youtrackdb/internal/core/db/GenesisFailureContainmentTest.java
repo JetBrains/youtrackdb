@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteException;
+import com.jetbrains.youtrackdb.internal.core.exception.InconsistentStorageMetadataException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
@@ -256,17 +257,27 @@ public class GenesisFailureContainmentTest {
     assertFalse(youTrackDB.exists(dbName));
   }
 
+  /**
+   * Asserts the named inconsistent-metadata result of the genesis consistency check.
+   *
+   * <p>Track 24 turned the later genesis check into a consistency check. The check compares the
+   * accepted lifecycle state against the genesis marker of the storage configuration. The check
+   * reports the genesis marker value of the named inconsistent-metadata result.
+   */
   private static void assertGenesisRefusal(RuntimeException failure) {
-    GenesisIncompleteException refusal = null;
+    InconsistentStorageMetadataException refusal = null;
     for (Throwable t = failure; t != null; t = t.getCause()) {
-      if (t instanceof GenesisIncompleteException g) {
+      if (t instanceof InconsistentStorageMetadataException g) {
         refusal = g;
         break;
       }
     }
-    assertNotNull("the refusal must be the genesis-completion check, saw: " + failure, refusal);
+    assertNotNull("the refusal must be the genesis consistency check, saw: " + failure, refusal);
+    assertEquals("the result must name the genesis marker source, saw: " + refusal.inconsistency(),
+        InconsistentStorageMetadataException.Inconsistency.GENESIS_MARKER,
+        refusal.inconsistency());
     assertTrue("the refusal must prescribe discard-and-recreate, saw: " + refusal.getMessage(),
-        refusal.getMessage().contains("did not run to completion"));
+        refusal.getMessage().contains("never ran to completion"));
   }
 
   /**
@@ -354,10 +365,16 @@ public class GenesisFailureContainmentTest {
       youTrackDB.open(dbName, "admin", ADMIN_PASSWORD);
       fail("an old-format database must be rejected");
     } catch (RuntimeException e) {
+      // Track 24 keeps the present expectation of this fixture. The fixture mutates two durable
+      // sources, because the fixture rewrites the schema version and removes the genesis marker.
+      // The schema version gate of the schema load therefore throws before the genesis
+      // consistency check runs. The assertion below covers the old refusal type and the new
+      // inconsistent-metadata result, so the fixture keeps guarding the same order.
       ConfigurationException redirect = null;
       for (Throwable t = e; t != null; t = t.getCause()) {
         assertFalse("the genesis refusal must NOT pre-empt the version gate (CS52), saw: " + e,
-            t instanceof GenesisIncompleteException);
+            t instanceof GenesisIncompleteException
+                || t instanceof InconsistentStorageMetadataException);
         if (t instanceof ConfigurationException c) {
           redirect = c;
         }

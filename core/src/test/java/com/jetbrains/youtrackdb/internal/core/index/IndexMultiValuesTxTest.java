@@ -58,6 +58,24 @@ public class IndexMultiValuesTxTest extends DbTestBase {
     session.commit();
   }
 
+  /** A stale NOTUNIQUE engine identifier recovers only through the descriptor owner. */
+  @Test
+  public void getRids_staleEngineIdentifier_recoversByDescriptorOwner() {
+    session.begin();
+    var index = (IndexMultiValues) session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var expectedIdentifier = index.getIndexId();
+    index.setHandleStateForTest(
+        expectedIdentifier | 1_000_000, index.getIdentity());
+
+    @SuppressWarnings("unchecked")
+    Collection<RID> result = (Collection<RID>) index.get(session, "alpha");
+    session.rollback();
+
+    assertEquals("owner-bound recovery must preserve both committed values", 2, result.size());
+    assertEquals("owner-bound recovery must install the packed identifier",
+        expectedIdentifier, index.getIndexId());
+  }
+
   // -----------------------------------------------------------------------
   //  getRids — no TX changes (null indexChanges path)
   // -----------------------------------------------------------------------
