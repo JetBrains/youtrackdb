@@ -22,9 +22,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,7 @@ public class StorageBirthActivationTest {
   private static final String ADMIN = "admin";
   private static final String PASSWORD = "adminpwd";
   private static final String LOCK_FILE_NAME = "storage-bootstrap.bsml";
+  private static final String NORMAL_DATABASE_LOCK_FILE_NAME = "dirty.fl";
 
   private Path directory;
 
@@ -122,10 +125,11 @@ public class StorageBirthActivationTest {
   /**
    * A crash-like interruption between two genesis steps leaves an inadmissible image.
    *
-   * <p>The scenario copies the storage directory during one genesis commit. That copy is the image
-   * that a crash between two genesis steps leaves behind. The expected outcome has three parts.
-   * The copy fails every open with the interrupted-birth reason. The copy stays visible to the
-   * existence probe. A clean creation under another name still opens.
+   * <p>The scenario copies the storage directory during one genesis commit. The copy models
+   * interrupted-birth admission at that point, but omits the locked startup metadata file. The
+   * bootstrap authority and the other storage files retain their boundary state. The expected
+   * outcome has three parts. Every open refuses the copy as an interrupted birth. The existence
+   * probe sees the copy. A clean creation under another name still opens.
    */
   @Test
   public void interruptedGenesisImageStaysInadmissible() throws Exception {
@@ -335,7 +339,8 @@ public class StorageBirthActivationTest {
    *
    * <p>This test proves no durability under power loss. The copy reads the files through the page
    * cache of the operating system, so the copy sees written bytes that no file synchronization
-   * needs to have reached the storage medium. Power-loss certification is an explicit non-goal of
+   * needs to have reached the storage medium. The locked startup metadata file is not part of the
+   * histogram evidence and is omitted from the copy. Power-loss certification is a non-goal of
    * the Track 24 design.
    */
   @Test
@@ -364,6 +369,38 @@ public class StorageBirthActivationTest {
         "the copy must carry every index histogram file of the original",
         originalHistograms,
         copiedHistograms);
+  }
+
+  /**
+   * A live-source copy omits only the locked root startup metadata file.
+   *
+   * <p>The scenario holds the normal database lock during a test-only directory copy. The
+   * expected outcome is that the locked file is absent from the copy while authority evidence,
+   * startup backup data, histogram content, and a nested file with the same name are preserved.
+   */
+  @Test
+  public void copyDirectoryOmitsOnlyLockedRootNormalMetadata() throws IOException {
+    var source = directory.resolve("copySource");
+    var target = directory.resolve("copyTarget");
+    Files.createDirectories(source.resolve("nested"));
+    var normalLockFile = Files.writeString(source.resolve(NORMAL_DATABASE_LOCK_FILE_NAME), "dirty");
+    Files.writeString(source.resolve("storage-bootstrap-0.bsm"), "birth-record");
+    Files.writeString(source.resolve("dirty.flb"), "startup-backup");
+    Files.writeString(source.resolve("index.ixs"), "histogram");
+    Files.writeString(source.resolve("nested").resolve(NORMAL_DATABASE_LOCK_FILE_NAME), "nested");
+
+    try (var channel =
+        FileChannel.open(normalLockFile, StandardOpenOption.READ, StandardOpenOption.WRITE);
+        var ignored = channel.lock()) {
+      copyDirectory(source, target);
+    }
+
+    assertFalse(Files.exists(target.resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
+    assertEquals("birth-record", Files.readString(target.resolve("storage-bootstrap-0.bsm")));
+    assertEquals("startup-backup", Files.readString(target.resolve("dirty.flb")));
+    assertEquals("histogram", Files.readString(target.resolve("index.ixs")));
+    assertEquals("nested",
+        Files.readString(target.resolve("nested").resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
   }
 
   /**
@@ -420,11 +457,11 @@ public class StorageBirthActivationTest {
    * A crash after genesis and before the durability barrier leaves an inadmissible image.
    *
    * <p>This test covers crash point three of the design. The scenario copies the storage directory
-   * at the boundary between the end of genesis and the start of the durability barrier. That copy
-   * is the image that a crash at that boundary leaves behind. The copy reads the files through the
-   * page cache of the operating system, so the copy proves no power-loss behavior. The expected
-   * outcome has three parts. The copy stays visible to the existence probe. Every open of the copy reports the
-   * interrupted-birth reason. A drop discards the copy and reports success.
+   * at the boundary between the end of genesis and the start of the durability barrier. The copy
+   * models admission at that boundary and preserves the bootstrap authority and other content, but
+   * omits the locked startup metadata file. The copy reads through the operating system page cache
+   * and proves no power-loss behavior. The expected outcome has three parts. The copy stays visible
+   * to the existence probe. Every open reports the interrupted-birth reason. A drop succeeds.
    */
   @Test
   public void crashAfterGenesisAndBeforeTheBarrierStaysInadmissible() throws Exception {
@@ -439,10 +476,10 @@ public class StorageBirthActivationTest {
    *
    * <p>This test covers crash point four of the design. The scenario copies the storage directory
    * at the boundary between the end of the durability barrier and the start of the activation.
-   * That copy holds complete genesis content under a birth record. The expected outcome has four
-   * parts. The copy stays visible to the existence probe. Every open of the copy reports the
-   * interrupted-birth reason. The copy carries written index histogram content, which proves that
-   * the barrier ran before the copy. A drop discards the copy and reports success.
+   * That copy holds genesis content under a birth record, except for the locked startup metadata
+   * file. The expected outcome has four parts. The existence probe sees the copy. Every open
+   * reports the interrupted-birth reason. The copy carries written histogram content, proving
+   * that the barrier ran before the copy. A drop discards the copy and reports success.
    *
    * <p>This test proves no durability under power loss. The copy runs inside the same process and
    * reads the files through the page cache of the operating system.
@@ -573,7 +610,8 @@ public class StorageBirthActivationTest {
   /**
    * Creates one database and copies the storage directory during one genesis commit.
    *
-   * <p>The copy is the image shape that a crash between two genesis steps leaves behind.
+   * <p>The copy preserves the authority state at that boundary, but omits the locked startup
+   * metadata file. It models interrupted-birth admission, not a byte-for-byte crash image.
    */
   private void createCrashCopy(String sourceName, String copyName) {
     var copier =
@@ -683,17 +721,26 @@ public class StorageBirthActivationTest {
     return sizes;
   }
 
+  /** Copies live storage content without reading the locked root startup metadata file. */
   private static void copyDirectory(Path source, Path target) throws IOException {
     try (var paths = Files.walk(source)) {
       for (var path : paths.toList()) {
         var destination = target.resolve(source.relativize(path).toString());
         if (Files.isDirectory(path)) {
           Files.createDirectories(destination);
-        } else {
+        } else if (!path.equals(source.resolve(NORMAL_DATABASE_LOCK_FILE_NAME))) {
+          // Windows forbids reading dirty.fl under the live storage lock. These copies test
+          // bootstrap admission and histogram content, never startup recovery of the copy.
           Files.createDirectories(destination.getParent());
           Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
         }
       }
     }
+    assertTrue(
+        "the copied birth must retain its durable authority record",
+        Files.isRegularFile(target.resolve("storage-bootstrap-0.bsm")));
+    assertFalse(
+        "the copy must omit the locked startup metadata, not attempt startup recovery",
+        Files.exists(target.resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
   }
 }

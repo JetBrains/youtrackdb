@@ -1366,8 +1366,9 @@ public class StorageBootstrapMetadataTest {
    *
    * <p>The scenario holds the existing dirty-file lock in this virtual machine and asks for a
    * restart deletion. The expected outcome has four parts. The restart reports a busy target. The
-   * content callback never runs. Every original byte and authority copy survives. After lock
-   * release, the same deletion succeeds.
+   * content callback never runs. Content and authority bytes survive while the lock is held, and
+   * the startup metadata bytes are checked after release because Windows forbids locked reads.
+   * After lock release, the same deletion succeeds.
    */
   @Test
   public void restartRefusesOverlappingNormalDatabaseLockAndSucceedsAfterRelease()
@@ -1398,11 +1399,11 @@ public class StorageBootstrapMetadataTest {
                   + " database.");
       assertThat(rejection).hasMessageContaining("normal database lock is busy");
       assertThat(deletionRan.get()).isFalse();
-      assertThat(Files.readString(normalLockFile)).isEqualTo("dirty-metadata");
       assertThat(Files.readString(contentFile)).isEqualTo("payload");
       assertAuthorityBytesUnchanged(authorityBeforeRefusal);
     }
 
+    assertThat(Files.readString(normalLockFile)).isEqualTo("dirty-metadata");
     creator.deleteInterruptedRestoreTarget(
         storageDirectory -> {
           Files.delete(contentFile);
@@ -1417,8 +1418,9 @@ public class StorageBootstrapMetadataTest {
    *
    * <p>The scenario starts one small Java helper process and waits for its bounded ready
    * handshake. The expected outcome has four parts. The restart reports a busy target without
-   * waiting. Every original byte and authority copy survives. The helper exits after releasing its
-   * lock. The same deletion then succeeds.
+   * waiting. Content and authority bytes survive while the helper holds its lock. The helper exits
+   * after releasing its lock, then the original startup metadata bytes are checked. The same
+   * deletion then succeeds.
    */
   @Test(timeout = 60_000)
   public void restartRefusesForeignProcessNormalDatabaseLockAndSucceedsAfterRelease()
@@ -1444,7 +1446,6 @@ public class StorageBootstrapMetadataTest {
                   }));
 
       assertThat(rejection.reason()).isEqualTo(Reason.RESTART_TARGET_BUSY);
-      assertThat(Files.readString(normalLockFile)).isEqualTo("dirty-metadata");
       assertThat(Files.readString(contentFile)).isEqualTo("payload");
       assertAuthorityBytesUnchanged(authorityBeforeRefusal);
       lockHolder.outputWriter().write("release\n");
@@ -1455,6 +1456,7 @@ public class StorageBootstrapMetadataTest {
       stopProcess(lockHolder);
     }
 
+    assertThat(Files.readString(normalLockFile)).isEqualTo("dirty-metadata");
     creator.deleteInterruptedRestoreTarget(
         storageDirectory -> {
           Files.delete(contentFile);
