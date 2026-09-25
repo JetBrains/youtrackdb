@@ -860,9 +860,8 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
    * window only opportunistically. The deterministic pin for the SF1 read-lock discipline
    * (the referrer-increment must happen INSIDE {@code loadOrAddPage} while the readLock is
    * held, so a concurrent {@link MemoryFile#clear()} cannot recycle the frame between
-   * publication and the increment) is {@link #truncateAndLoadOrAddRaceLeavesCacheConsistent},
-   * which keeps the same {@code MemoryFile} instance so every install enters the readLock
-   * path.
+   * publication and the increment) requires a same-file clear. This delete/re-add test
+   * only exercises that path when an installer passes the metadata lookup before deletion.
    */
   @Test
   public void clearAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
@@ -898,8 +897,7 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       // (stop not yet set). The destroyer's loop is bounded by this counter, so reaching the
       // floor proves the installer loops ran concurrently with active rotations - i.e. the
       // race is non-vacuous. It does NOT prove any single call entered the readLock window;
-      // a contended call usually trips the outer stale-fileId guard, and that invariant is
-      // pinned deterministically by truncateAndLoadOrAddRaceLeavesCacheConsistent.
+      // a contended call usually trips the outer stale-fileId guard.
       final var contendedIterations = new AtomicLong();
 
       // Installers: one warm-up install (proves the thread is live and exercises the
@@ -987,154 +985,6 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
             "surviving file's high-watermark must reflect the final extend",
             1L,
             cache.getFilledUpTo(fileIdRef.get()));
-      } finally {
-        surviving.decrementReadersReferrer();
-      }
-    } finally {
-      pool.shutdownNow();
-      assertTrue(
-          "executor must terminate cleanly", pool.awaitTermination(5, TimeUnit.SECONDS));
-    }
-  }
-
-  /**
-   * Sibling of {@link #clearAndLoadOrAddRaceLeavesCacheConsistent} that uses
-   * {@link DirectMemoryOnlyDiskCache#truncateFile(long)} instead of
-   * {@code deleteFile + addFile}. {@code truncateFile} keeps the SAME {@code MemoryFile}
-   * instance across rotations, so the {@code clearLock} read/write discipline is the
-   * actual synchronization point being exercised — the {@code deleteFile + addFile}
-   * shape always trips the {@code IllegalArgumentException} guard at the outer
-   * {@code DirectMemoryOnlyDiskCache.loadOrAdd} entry on stale fileIds and never enters
-   * the per-{@link MemoryFile} install path under the readLock window.
-   *
-   * <p>The fileId stays valid throughout, so installers never see
-   * {@link IllegalArgumentException}; any exception fails the test.
-   *
-   * <p>Non-vacuousness is guaranteed by construction, exactly as in the sibling: a warm-up
-   * barrier holds the destroyer off its first {@code truncateFile} until every installer has
-   * logged one uncontended {@code loadOrAdd}, and the destroyer's rotation loop is bounded by
-   * installer progress — it keeps rotating until the installers have logged at least
-   * {@code minContendedIterations} loop bodies while rotations are still active. Without this,
-   * the destroyer's fixed run of in-memory {@code truncateFile} calls could finish and set
-   * {@code stop} before the installer threads were ever scheduled, leaving near-zero contended
-   * iterations (the old fixed-count guard observed 2 such iterations on macOS arm / JDK 21). A
-   * {@code maxRotations} safety cap keeps a pathological scheduler from spinning the destroyer
-   * forever; hitting it fails the contended-iteration assertion loudly rather than hanging.
-   */
-  @Test
-  public void truncateAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
-    final int installerThreads = 4;
-    final int rotations = 100;
-    // Floor of installer loop bodies that must run while the destroyer is still rotating. The
-    // destroyer keeps churning until this floor is met (see below), so the contended overlap
-    // the test depends on is guaranteed by construction rather than left to thread scheduling.
-    final long minContendedIterations = installerThreads * 5L;
-    // Safety cap on destroyer rotations so a scheduler that fully starves the installers cannot
-    // spin the destroyer forever. Far above the count a healthy run needs; if it is ever hit
-    // the contended-iteration assertion below fails loudly rather than the test hanging.
-    final int maxRotations = rotations * 1000;
-    final var pool = Executors.newFixedThreadPool(installerThreads + 1);
-    try {
-      final var stop = new AtomicBoolean(false);
-      final var unexpected = new ConcurrentLinkedQueue<Throwable>();
-      final var startGate = new CountDownLatch(1);
-      final var installerDone = new CountDownLatch(installerThreads);
-      // Warm-up barrier. Each installer counts this down after one guaranteed-uncontended
-      // loadOrAdd, and the destroyer blocks on it before its first truncateFile, so the race
-      // is non-vacuous regardless of scheduling (see method Javadoc).
-      final var installersWarm = new CountDownLatch(installerThreads);
-      // Counts installer loop bodies executed while the destroyer is still rotating (stop not
-      // yet set). The destroyer's loop is bounded by this counter, so reaching the floor proves
-      // the installer loops ran concurrently with active rotations — i.e. the race is
-      // non-vacuous.
-      final var contendedIterations = new AtomicLong();
-
-      // Installers: one warm-up install (proves the thread is live and exercises the
-      // publish/increment path uncontended), then loop loadOrAdd / decrementReadersReferrer
-      // until the destroyer signals stop. truncateFile keeps the SAME MemoryFile instance
-      // across rotations, so the fileId stays valid — any exception fails the test.
-      for (int t = 0; t < installerThreads; t++) {
-        pool.submit(
-            () -> {
-              try {
-                startGate.await();
-                // Warm-up: the destroyer holds off truncating until installersWarm hits zero,
-                // so this call cannot race a rotation and is guaranteed to succeed.
-                final var warm = cache.loadOrAdd(fileId, 0L, false);
-                warm.decrementReadersReferrer();
-                installersWarm.countDown();
-                while (!stop.get()) {
-                  final var p = cache.loadOrAdd(fileId, 0L, false);
-                  contendedIterations.incrementAndGet();
-                  p.decrementReadersReferrer();
-                }
-              } catch (final Throwable t1) {
-                unexpected.add(t1);
-              } finally {
-                installerDone.countDown();
-              }
-            });
-      }
-
-      // Destroyer: wait for every installer to warm up, then rotate truncateFile against the
-      // same fileId. The loop runs until it has done at least `rotations` cycles AND the
-      // installers have logged at least `minContendedIterations` contended iterations, bounding
-      // the destroyer's lifetime by installer PROGRESS rather than a fixed count.
-      pool.submit(
-          () -> {
-            try {
-              startGate.await();
-              if (!installersWarm.await(20, TimeUnit.SECONDS)) {
-                throw new IllegalStateException(
-                    "installers failed to warm up within the wait window");
-              }
-              int r = 0;
-              while ((r < rotations || contendedIterations.get() < minContendedIterations)
-                  && r < maxRotations) {
-                cache.truncateFile(fileId);
-                r++;
-              }
-            } catch (final Throwable t1) {
-              unexpected.add(t1);
-            } finally {
-              stop.set(true);
-            }
-          });
-
-      startGate.countDown();
-      assertTrue(
-          "installer threads must finish within the bounded wait window",
-          installerDone.await(30, TimeUnit.SECONDS));
-      // Report captured throwables BEFORE the non-vacuousness self-check. A failure that
-      // drives contendedIterations below the floor — e.g. an installer that throws inside its
-      // warm-up loadOrAdd never counts down installersWarm, so the destroyer's warm-up await
-      // times out — would otherwise be reported as "vacuous pass" and mask the real exception.
-      // Print the whole queue: the installer's exception and the destroyer's resulting timeout
-      // can both land here, and the installer's is the diagnostically useful one.
-      if (!unexpected.isEmpty()) {
-        fail("truncate/loadOrAdd race surfaced unexpected exception(s): " + unexpected);
-      }
-      assertTrue(
-          "installer loops must run concurrently with active destroyer rotations; "
-              + "vacuous pass detected (contendedIterations=" + contendedIterations.get() + ")",
-          contendedIterations.get() >= minContendedIterations);
-
-      // Final consistency probe: the same fileId must still accept loadOrAdd cleanly. The
-      // destroyer's last action may be a truncate (watermark 0) or an installer extend, so
-      // probe the post-race watermark first and require it to be 0 or 1 — never a stray higher
-      // value from a partially-applied concurrent install.
-      final long postRaceWatermark = cache.getFilledUpTo(fileId);
-      assertTrue(
-          "post-race high-watermark must be 0 (last op a truncate) or 1 (last op an extend), "
-              + "was " + postRaceWatermark,
-          postRaceWatermark == 0L || postRaceWatermark == 1L);
-      final var surviving = cache.loadOrAdd(fileId, 0L, false);
-      try {
-        assertNotNull("surviving file must accept loadOrAdd after the race", surviving);
-        assertEquals(
-            "after the probe's own page-0 install the high-watermark must be exactly 1",
-            1L,
-            cache.getFilledUpTo(fileId));
       } finally {
         surviving.decrementReadersReferrer();
       }

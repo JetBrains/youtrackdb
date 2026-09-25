@@ -95,8 +95,8 @@ public final class MemoryFile {
     try {
       // Fast path: target already installed. The map is concurrent so the get is lock-free
       // and reflects the latest committed mapping. The readers-referrer is bumped while the
-      // clearLock readLock is held, which prevents a concurrent clear() / deleteFile() /
-      // truncateFile() from observing readers==0 and recycling the frame between our get
+      // clearLock readLock is held, which prevents a concurrent clear() or deleteFile()
+      // from observing readers==0 and recycling the frame between our get
       // and our increment.
       final var existing = content.get(pageIndex);
       if (existing != null) {
@@ -119,7 +119,7 @@ public final class MemoryFile {
       // and the loser's pageFrame is released back to the pool before return.
       final var target = installEmptyPage(pageIndex, readCache);
       // Bump the readers-referrer for the target before releasing clearLock, so a concurrent
-      // clear() / deleteFile() / truncateFile() cannot drop the page out from under us.
+      // clear() or deleteFile() cannot drop the page out from under us.
       target.getCachePointer().incrementReadersReferrer();
       return target;
     } finally {
