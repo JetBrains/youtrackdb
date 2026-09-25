@@ -172,8 +172,6 @@ public interface AtomicOperation {
 
   long fileIdByName(String name);
 
-  void truncateFile(long fileId) throws IOException;
-
   enum ComponentLockMode {
     SHARED, EXCLUSIVE
   }
