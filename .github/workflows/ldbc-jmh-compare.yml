@@ -315,7 +315,7 @@ jobs:
             git fetch --no-tags "https://github.com/$GITHUB_REPOSITORY.git" "$BASELINE_SHA"
           fi
       - name: Set up JDK 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
