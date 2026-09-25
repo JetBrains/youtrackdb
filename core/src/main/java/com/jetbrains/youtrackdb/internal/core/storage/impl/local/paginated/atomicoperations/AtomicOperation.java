@@ -172,8 +172,6 @@ public interface AtomicOperation {
 
   long fileIdByName(String name);
 
-  void truncateFile(long fileId) throws IOException;
-
   boolean containsInLockedObjects(String lockName);
 
   void addLockedObject(String lockName);
