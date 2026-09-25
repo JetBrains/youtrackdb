@@ -540,7 +540,7 @@ class WorkflowContractTest(unittest.TestCase):
         if step.get("name") == "Run baseline and target benchmarks")
     setup = steps[setup_index]
     self.assertLess(setup_index, benchmark_index)
-    self.assertEqual("actions/setup-java@v5", setup["uses"])
+    self.assertEqual("actions/setup-java@v6", setup["uses"])
     self.assertEqual("21", setup["with"]["java-version"])
     self.assertEqual("temurin", setup["with"]["distribution"])
     self.assertEqual("maven", setup["with"]["cache"])
