@@ -4,6 +4,7 @@ import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /// Default implementation of [Ticker] that updates its internal time at a certain granularity in a
 /// separate thread.
@@ -12,8 +13,12 @@ import java.util.concurrent.TimeUnit;
 ///
 /// A single scheduled task samples [System#nanoTime()] every `granularity` and publishes a
 /// fresh [Snapshot] into the `volatile` reference [#snapshot]. Every *N*-th fire the same
-/// task also samples [System#currentTimeMillis()] and recomputes the wall-clock offset
-/// (`nanoTimeDifference`) where `N = timestampRefreshRate / granularity`. Readers do a single
+/// task also samples [System#currentTimeMillis()] *before* [System#nanoTime()] and recomputes
+/// the wall-clock offset (`nanoTimeDifference`) where `N = timestampRefreshRate / granularity`.
+/// Sampling wall time first makes a pause between the reads underestimate the offset rather
+/// than push the derived timestamp ahead of the sampled wall clock. The same order is used at
+/// startup. Real-clock tests cannot reliably reproduce a pause between these two reads, so
+/// their order is intentional. Readers do a single
 /// volatile read of `snapshot` and derive both accessors from it — no reader-side CAS.
 ///
 /// Monotonicity is enforced at the writer by [#nextSnapshot]: when building the next
@@ -84,11 +89,21 @@ public class GranularTicker implements Ticker, AutoCloseable {
   private long tickCount;
 
   private final ScheduledExecutorService executor;
+  private final LongSupplier nanoClock;
+  private final LongSupplier wallClock;
   private volatile ScheduledFuture<?> refreshFuture;
 
   public GranularTicker(long granularityNanos, long timestampRefreshRate,
       ScheduledExecutorService executor) {
+    this(granularityNanos, timestampRefreshRate, executor, System::nanoTime,
+        System::currentTimeMillis);
+  }
+
+  GranularTicker(long granularityNanos, long timestampRefreshRate,
+      ScheduledExecutorService executor, LongSupplier nanoClock, LongSupplier wallClock) {
     this.executor = Objects.requireNonNull(executor, "ScheduledExecutorService must not be null");
+    this.nanoClock = Objects.requireNonNull(nanoClock);
+    this.wallClock = Objects.requireNonNull(wallClock);
     this.granularity = granularityNanos;
     final long safeGranularity = Math.max(1L, granularityNanos);
     this.recalibrationInterval = Math.max(1L, timestampRefreshRate / safeGranularity);
@@ -98,8 +113,10 @@ public class GranularTicker implements Ticker, AutoCloseable {
   public void start() {
     assert !started : "Ticker is already started";
     started = true;
-    final long initialNano = System.nanoTime();
-    final long initialDiff = System.currentTimeMillis() - initialNano / 1_000_000;
+    // Wall time first: a pause before sampling nanoTime makes the offset smaller, not larger.
+    final long initialMillis = wallClock.getAsLong();
+    final long initialNano = nanoClock.getAsLong();
+    final long initialDiff = initialMillis - initialNano / 1_000_000;
     snapshot = new Snapshot(initialNano, initialDiff);
 
     refreshFuture = executor.scheduleAtFixedRate(
@@ -115,10 +132,10 @@ public class GranularTicker implements Ticker, AutoCloseable {
     }
     tickCount++;
     final boolean recalibrate = tickCount % recalibrationInterval == 0;
-    final long freshNano = System.nanoTime();
-    // Sample currentTimeMillis only on recalibration fires. On non-recalibration fires the
-    // previous snapshot's nanoTimeDifference is reused, so the syscall is skipped entirely.
-    final long wallMillis = recalibrate ? System.currentTimeMillis() : 0L;
+    // Sample wall time first only when recalibrating. A pause before nanoTime then makes
+    // the recalibrated offset late rather than early. Other fires reuse the previous offset.
+    final long wallMillis = recalibrate ? wallClock.getAsLong() : 0L;
+    final long freshNano = nanoClock.getAsLong();
     // Publish under the lifecycle lock and re-check stopped. stop() takes the same lock to
     // set the flag, so this refresh either published before stop() acquired the lock or, if
     // it was descheduled past stop() between the early check above and here, now sees

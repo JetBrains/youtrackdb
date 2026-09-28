@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.profiler.WallClockStep;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -47,45 +48,11 @@ import org.junit.runner.RunWith;
 @RunWith(GremlinProcessRunner.class)
 public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
-  // The ticker-based millis timestamp is derived from two independently-refreshed volatile
-  // fields (nanoTime and nanoTimeDifference). When nanoTimeDifference is recalibrated,
-  // integer truncation in nanoTime/1_000_000 can cause the result to dip by up to 1 ms.
-  private static final long ALLOWED_TICKER_JITTER_MS = 1;
-
-  private static long TICKER_POSSIBLE_LAG_NANOS;
-  private static long TICKER_GRANULARITY_MILLIS;
+  private static long wallClockAllowanceMillis;
 
   @BeforeClass
   public static void beforeClass() {
-    var granularity =
-        YouTrackDBEnginesManager.instance().getTicker().getGranularity();
-    TICKER_GRANULARITY_MILLIS = granularity / 1_000_000;
-
-    // Used as the upper bound on `executionTimeNanos = endNano - nano`, i.e., the
-    // allowance for how much more than the real elapsed time the ticker-measured
-    // duration can be. Both `endNano` and `nano` are past `System.nanoTime()` samples
-    // captured by the ticker's scheduled thread, so under nominal conditions the
-    // ticker-measured duration exceeds real time by roughly one scheduler period.
-    // On virtualized CI multiple periods of staleness can stack:
-    //   * Windows: ~15.6 ms OS timer quantum; scheduleAtFixedRate(10 ms) actually fires
-    //     at ~15.6 ms intervals, plus CPU contention adds another quantum, so
-    //     worst-case staleness reaches ~31 ms (~3 periods) for a 10 ms granularity.
-    //   * GitHub-hosted macOS arm (virtualized Apple Silicon): per-fire ticker lag up
-    //     to ~191 ms (~19 periods) observed once on the JDK 25 leg of PR #1097 for a
-    //     10 ms granularity. The macOS arm runners are less predictable than the
-    //     Hetzner bare-metal nodes the Linux legs run on. Prior bumps from 5x to 10x
-    //     covered observed lag up to ~75 ms; the 10x bound continued to trip after
-    //     that, hence this further bump.
-    // A 30x multiplier (300 ms for a 10 ms granularity) covers the observed 191 ms
-    // worst case plus ~57% headroom. Picked over 20x so a similar-magnitude
-    // worsening on a future runner does not force another bump immediately; if 30x
-    // also trips, the next step should be an environment-conditional bound or an
-    // aggregate cross-iteration check rather than another multiplier bump.
-    // The tight "ticker never runs ahead of wall-clock" direction on
-    // `startedAtMillis` is guarded independently by a bound at one granularity +
-    // ALLOWED_TICKER_JITTER_MS, so this multiplier only affects the upper bound on
-    // `executionTimeNanos`.
-    TICKER_POSSIBLE_LAG_NANOS = granularity * 30;
+    wallClockAllowanceMillis = WallClockStep.measureMillis();
   }
 
   @Before
@@ -1590,18 +1557,14 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
   /// Runs 100 randomized query iterations and verifies listener callbacks.
   ///
-  /// For LIGHTWEIGHT mode, we avoid per-iteration lower-bound checks on startedAtMillis because
-  /// [Ticker#approximateCurrentTimeMillis()] is updated by a background thread that can be delayed
-  /// by OS scheduling, making any single-iteration lower bound flaky. So we check per-iteration
-  /// approximate monotonicity (allowing up to 1 ms backward jitter from ticker recalibration)
-  /// and a loose per-iteration upper bound on `executionTimeNanos` sized to absorb worst-case
-  /// scheduler-thread staleness on virtualized CI (see [#TICKER_POSSIBLE_LAG_NANOS] for the
-  /// derivation). The loose upper bound only catches gross over-reporting (drift much larger
-  /// than scheduler staleness); a complementary aggregate cross-iteration check would catch a
-  /// systematic small drift, but is not yet implemented.
+  /// LIGHTWEIGHT bounds use the same ticker as the monitored traversal. Its pre-query
+  /// snapshot bounds timestamps from below, even when the background sampler is delayed.
+  /// The snapshot taken after the first hasNext bounds the recorded start from above.
+  /// Wall-clock upper bounds allow only integer truncation and the measured clock step.
   private void testQuery(
       QueryMonitoringMode mode, RememberingListener listener, Random random) throws Exception {
     long prevStartedAtMillis = 0;
+    int qualifyingQueries = 0;
 
     for (var i = 0; i < 100; i++) {
       final var withTxId = random.nextBoolean();
@@ -1621,6 +1584,8 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
       final long beforeMillis;
       final long beforeNanos;
+      final long tickerMillisAfterStart;
+      final long tickerNanosAfterStart;
       final long afterMillis;
       final long afterNanos;
 
@@ -1631,10 +1596,20 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
       try (var q = gs.V().hasLabel("person")) {
 
-        beforeMillis = System.currentTimeMillis();
-        beforeNanos = System.nanoTime();
+        beforeNanos = mode == QueryMonitoringMode.LIGHTWEIGHT
+            ? YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime()
+            : System.nanoTime();
+        beforeMillis = mode == QueryMonitoringMode.LIGHTWEIGHT
+            ? YouTrackDBEnginesManager.instance().getTicker().approximateCurrentTimeMillis()
+            : System.currentTimeMillis();
 
         assertThat(q.hasNext()).isTrue(); // query has started
+        tickerNanosAfterStart = mode == QueryMonitoringMode.LIGHTWEIGHT
+            ? YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime()
+            : 0L;
+        tickerMillisAfterStart = mode == QueryMonitoringMode.LIGHTWEIGHT
+            ? YouTrackDBEnginesManager.instance().getTicker().approximateCurrentTimeMillis()
+            : 0L;
 
         Thread.sleep(random.nextInt(50));
         q.iterate(); // query has finished
@@ -1659,25 +1634,26 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       }
 
       if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
-        // Ticker must never run ahead of real wall-clock time. The ticker exposes a past
-        // nanoTime sample, so forward drift can only come from nanoTimeDifference
-        // recalibration and integer truncation — one granularity plus ALLOWED_TICKER_JITTER_MS
-        // covers both. This tight bound is independent of scheduler noise on virtualized
-        // CI and therefore is not multiplied by the TICKER_POSSIBLE_LAG factor.
+        // The Snapshot is atomic and monotonic. The wall bound allows one millisecond
+        // of nanoTime division truncation plus the measured wall-clock step (Windows can
+        // advance in coarse ticks). YTDBQueryMetricsStepTickerTest proves source provenance.
         assertThat(listener.startedAtMillis)
+            .as("query start must be no later than the ticker after first hasNext")
+            .isLessThanOrEqualTo(tickerMillisAfterStart)
             .as("ticker must not run ahead of wall clock")
-            .isLessThanOrEqualTo(
-                afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS)
-            // Approximate monotonicity allows the ≤1 ms dip that can come from
-            // independent recalibration of the two volatile fields plus integer
-            // truncation in nanoTime / 1_000_000.
-            .isGreaterThanOrEqualTo(prevStartedAtMillis - ALLOWED_TICKER_JITTER_MS);
-        // The ticker-measured window [nano, endNano] sits inside the System.nanoTime
-        // window [beforeNanos, afterNanos], so the measured duration is at most the real
-        // elapsed time plus ticker lag.
+            .isLessThanOrEqualTo(afterMillis + wallClockAllowanceMillis)
+            .isGreaterThanOrEqualTo(beforeMillis)
+            .isGreaterThanOrEqualTo(prevStartedAtMillis);
+        if (beforeNanos == tickerNanosAfterStart) {
+          // A stable ticker window permits an exact check. The controlled test proves provenance.
+          qualifyingQueries++;
+          assertThat(listener.startedAtMillis)
+              .as("unchanged ticker requires the exact cached query timestamp")
+              .isEqualTo(beforeMillis);
+        }
         assertThat(listener.executionTimeNanos)
             .isGreaterThanOrEqualTo(0)
-            .isLessThanOrEqualTo(duration + TICKER_POSSIBLE_LAG_NANOS);
+            .isLessThanOrEqualTo(duration);
       } else {
         assertThat(listener.startedAtMillis)
             .isGreaterThanOrEqualTo(beforeMillis)
@@ -1689,6 +1665,9 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
       prevStartedAtMillis = listener.startedAtMillis;
       listener.reset();
+    }
+    if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
+      System.err.printf("LIGHTWEIGHT query qualifying %d/100%n", qualifyingQueries);
     }
   }
 
