@@ -303,6 +303,10 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
   }
 
   @Nullable private ClosableEntry<K, V> doAcquireEntry(K key) {
+    return doAcquireEntry(key, false);
+  }
+
+  @Nullable private ClosableEntry<K, V> doAcquireEntry(K key, boolean skipCleanClosed) {
     final var entry = data.get(key);
 
     if (entry == null) {
@@ -315,6 +319,10 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
       if (entry.isRetired() || entry.isDead()) {
         return null;
       } else if (entry.isClosed()) {
+        // Explicit close does not need to reopen an already closed, clean file.
+        if (skipCleanClosed && !entry.get().needsSynchronizationOnClose()) {
+          return null;
+        }
         entry.makeAcquiredFromClosed(entry.get());
         logOpen = true;
       } else if (entry.isOpen()) {
@@ -521,33 +529,46 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
    * @return <code>true</code> if item was closed and <code>false</code> otherwise.
    */
   public boolean close(K key) {
-    emptyBuffers();
-
-    final var entry = data.get(key);
+    // Protect the target while draining the LRU list. Eviction must not swallow its sync error.
+    final var entry = doAcquireEntry(key, true);
     if (entry == null) {
+      emptyBuffers();
       return true;
     }
 
-    entry.acquireStateLock();
+    boolean released = false;
     try {
-      // Keep the state test and transition together, or concurrent closes could each
-      // subtract the same open-file contribution.
-      if (entry.isClosed()) {
-        return true;
+      emptyBuffers();
+      entry.acquireStateLock();
+      try {
+        entry.releaseAcquired();
+        released = true;
+        // A failed explicit close also leaves this entry idle and eligible for eviction.
+        lastNoProgressOpenFiles.set(-1);
+        // Hold the state lock across release and explicit close so eviction cannot intervene.
+        if (entry.makeClosed()) {
+          countClosedFiles();
+          return true;
+        }
+        return false;
+      } finally {
+        entry.releaseStateLock();
       }
-      if (entry.makeClosed()) {
-        countClosedFiles();
-        return true;
-      }
-      return false;
     } finally {
-      entry.releaseStateLock();
+      if (!released) {
+        release(entry);
+      }
     }
   }
 
-  /** Package-private accessor for tests that assert soft-limit overflow. */
-  int openFilesCount() {
+  /** The current open-file count, which can exceed the soft limit. */
+  public int openFilesCount() {
     return openFiles.get();
+  }
+
+  /** The soft limit used by eviction. */
+  public int openFilesLimit() {
+    return openLimit;
   }
 
   boolean checkAllLRUListItemsInMap() {
@@ -920,7 +941,7 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
         }
         final boolean closed;
         try {
-          closed = entry.makeClosed();
+          closed = entry.makeClosedForEviction();
         } catch (RuntimeException e) {
           LogManager.instance().error(this, "Failed to close idle file during eviction", e);
           failedEntries.add(entry);

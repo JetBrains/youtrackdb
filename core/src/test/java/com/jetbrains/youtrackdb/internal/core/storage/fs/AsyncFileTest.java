@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -36,6 +37,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -974,6 +978,111 @@ public class AsyncFileTest {
       Assert.assertEquals("retry must force the same dirty file", 2, forces.get());
     } finally {
       file.close();
+    }
+  }
+
+  /** A failed eviction force closes the channel and keeps the dirty marker through reopen. */
+  @Test
+  public void failedEvictionForceIsRetriedAfterReopen() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+    file.allocateSpace(1);
+    file.write(0, ByteBuffer.wrap(new byte[] {1}));
+    final var firstChannel = installDelegatingChannelSpy(file);
+    org.mockito.Mockito.doThrow(new java.io.IOException("first force failed"))
+        .when(firstChannel).force(true);
+
+    file.closeForEviction();
+    final var order = org.mockito.Mockito.inOrder(firstChannel);
+    order.verify(firstChannel).force(true);
+    order.verify(firstChannel).close();
+    Assert.assertFalse(file.isOpen());
+
+    file.open();
+    final var reopenedChannel = installDelegatingChannelSpy(file);
+    final var attempts = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (attempts.incrementAndGet() == 1) {
+        throw new java.io.IOException("retry failed");
+      }
+      return null;
+    }).when(reopenedChannel).force(true);
+    try {
+      Assert.assertThrows(StorageException.class, file::synch);
+      file.synch();
+      Assert.assertEquals("dirty marker survives close and the failed retry", 2, attempts.get());
+      file.synch();
+      Assert.assertEquals("success clears the dirty marker", 2, attempts.get());
+    } finally {
+      file.close();
+    }
+  }
+
+  /** A first physical close failure is retried without another force attempt. */
+  @Test
+  public void evictionRetriesFailedChannelCloseOnce() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var calls = new AtomicInteger();
+    final var firstFailure = new java.io.IOException("transient close failure");
+    doAnswer(invocation -> {
+      if (calls.incrementAndGet() == 1) {
+        throw firstFailure;
+      }
+      realChannel.close();
+      return null;
+    }).when(channel).close();
+    final var logger = Logger.getLogger(AsyncFile.class.getName());
+    final var causes = new ArrayList<Throwable>();
+    final var handler = new Handler() {
+      @Override
+      public void publish(LogRecord record) {
+        if (record.getThrown() != null) {
+          causes.add(record.getThrown());
+        }
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    logger.addHandler(handler);
+    try (var logs = LogRecordCollector.attachTo(AsyncFile.class)) {
+      file.closeForEviction();
+      Assert.assertTrue("the warning names the file even if the retry succeeds",
+          logs.warnedWithAll("Failed to close file", buildDirectoryPath.toString(), "Retrying"));
+      Assert.assertTrue("the warning keeps the first close error as its cause",
+          causes.contains(firstFailure));
+    } finally {
+      logger.removeHandler(handler);
+    }
+    Assert.assertEquals(2, calls.get());
+    Assert.assertFalse(file.isOpen());
+  }
+
+  /** Both physical close failures leave the entry owned and report the first cause. */
+  @Test
+  public void evictionReportsTwoChannelCloseFailures() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+    file.create();
+    final var realChannel = getChannel(file);
+    final var channel = installDelegatingChannelSpy(file);
+    final var first = new java.io.IOException("first close failure");
+    final var second = new java.io.IOException("second close failure");
+    org.mockito.Mockito.doThrow(first, second).when(channel).close();
+    try {
+      final var failure = Assert.assertThrows(StorageException.class, file::closeForEviction);
+      Assert.assertSame(first, failure.getCause());
+      Assert.assertArrayEquals(new Throwable[] {second}, first.getSuppressed());
+      Assert.assertTrue(file.isOpen());
+    } finally {
+      realChannel.close();
     }
   }
 

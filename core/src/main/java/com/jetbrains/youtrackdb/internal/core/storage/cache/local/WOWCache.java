@@ -168,6 +168,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private static final long ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
 
+  static final long OPEN_FILE_STALL_WARN_NANOS = TimeUnit.SECONDS.toNanos(30);
+  static final long OPEN_FILE_STALL_REPEAT_NANOS = TimeUnit.MINUTES.toNanos(5);
+
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
 
@@ -4942,6 +4945,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       final var filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
       Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry = null;
+      final var slotWait = new OpenFileSlotWait(openFileSlotNanos());
 
       while (entry != null || filesIterator.hasNext()) {
         if (entry == null) {
@@ -4950,13 +4954,24 @@ public final class WOWCache extends AbstractWriteCache
 
         final var fileEntry = files.tryAcquire(entry.getLongKey());
         if (fileEntry == null) {
+          if (Thread.interrupted()) {
+            throw new java.lang.InterruptedException("Interrupted while waiting for an open file");
+          }
           if (submittedWrites.isEmpty()) {
-            Thread.yield();
+            final var waitingFile = entry.getLongKey();
+            slotWait.noProgress(openFileSlotNanos(), () -> LogManager.instance().warn(this,
+                "Storage %s cannot acquire file %d (open files %d, limit %d). "
+                    + "The file may be missing or all open files may be in use. "
+                    + "Last close error unavailable",
+                (Throwable) null, storageName, waitingFile,
+                files.openFilesCount(), files.openFilesLimit()));
+            Thread.sleep(1);
           } else {
             drainSubmittedWrites(submittedWrites);
           }
           continue;
         }
+        slotWait.progress(openFileSlotNanos());
 
         try {
           submittedWrites
@@ -4981,6 +4996,37 @@ public final class WOWCache extends AbstractWriteCache
         } else {
           rethrowWriteFailure(drainFailure);
         }
+      }
+    }
+  }
+
+  /** Allows tests to advance the wait clock without waiting for real time to pass. */
+  long openFileSlotNanos() {
+    return System.nanoTime();
+  }
+
+  /** Tracks time without a successful file acquisition. */
+  static final class OpenFileSlotWait {
+
+    private long lastProgressNanos;
+    private long lastWarningNanos;
+
+    OpenFileSlotWait(long startNanos) {
+      lastProgressNanos = startNanos;
+      lastWarningNanos = startNanos;
+    }
+
+    void progress(long nowNanos) {
+      lastProgressNanos = nowNanos;
+      lastWarningNanos = nowNanos;
+    }
+
+    void noProgress(long nowNanos, Runnable warning) {
+      if (nowNanos - lastProgressNanos >= OPEN_FILE_STALL_WARN_NANOS
+          && nowNanos - lastWarningNanos >= (lastWarningNanos == lastProgressNanos
+              ? OPEN_FILE_STALL_WARN_NANOS : OPEN_FILE_STALL_REPEAT_NANOS)) {
+        lastWarningNanos = nowNanos;
+        warning.run();
       }
     }
   }

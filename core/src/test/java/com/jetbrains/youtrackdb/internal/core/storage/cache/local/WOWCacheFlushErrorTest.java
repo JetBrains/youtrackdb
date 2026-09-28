@@ -8,27 +8,39 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
+import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -49,6 +61,264 @@ import org.mockito.Mockito;
 public class WOWCacheFlushErrorTest {
 
   private static final int PAGE_SIZE = 8192;
+
+  /** The warning starts at 30 seconds, repeats at five minutes, and resets on progress. */
+  @Test
+  public void openFileSlotWarningTracksThresholdRepeatAndProgress() {
+    final var start = 100L;
+    final var wait = new WOWCache.OpenFileSlotWait(start);
+    final var warnings = new AtomicLong();
+    wait.noProgress(start + WOWCache.OPEN_FILE_STALL_WARN_NANOS - 1,
+        warnings::incrementAndGet);
+    assertEquals(0, warnings.get());
+    wait.noProgress(start + WOWCache.OPEN_FILE_STALL_WARN_NANOS, warnings::incrementAndGet);
+    assertEquals(1, warnings.get());
+    wait.noProgress(start + WOWCache.OPEN_FILE_STALL_WARN_NANOS
+        + WOWCache.OPEN_FILE_STALL_REPEAT_NANOS - 1, warnings::incrementAndGet);
+    assertEquals(1, warnings.get());
+    wait.noProgress(start + WOWCache.OPEN_FILE_STALL_WARN_NANOS
+        + WOWCache.OPEN_FILE_STALL_REPEAT_NANOS, warnings::incrementAndGet);
+    assertEquals(2, warnings.get());
+    final var progress = start + WOWCache.OPEN_FILE_STALL_WARN_NANOS
+        + WOWCache.OPEN_FILE_STALL_REPEAT_NANOS;
+    wait.progress(progress);
+    wait.noProgress(progress + WOWCache.OPEN_FILE_STALL_WARN_NANOS - 1,
+        warnings::incrementAndGet);
+    assertEquals(2, warnings.get());
+    wait.noProgress(progress + WOWCache.OPEN_FILE_STALL_WARN_NANOS,
+        warnings::incrementAndGet);
+    assertEquals(3, warnings.get());
+  }
+
+  /** The real slot-wait path emits a warning naming its storage, file, and open-file counts. */
+  @Test
+  public void slotWaitEmitsRealWarningWithoutWaitingThirtySeconds() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var container = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", container);
+    setField(cache, "storageName", "waiting-storage");
+    Mockito.when(container.openFilesCount()).thenReturn(2);
+    Mockito.when(container.openFilesLimit()).thenReturn(1);
+    final var clockCalls = new AtomicInteger();
+    Mockito.doAnswer(invocation -> clockCalls.getAndIncrement() == 0 ? 0L
+        : WOWCache.OPEN_FILE_STALL_WARN_NANOS).when(cache).openFileSlotNanos();
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    buffers.put(7L, new ArrayList<>());
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    try (var logs = LogRecordCollector.attachTo(cache.getClass());
+        var worker = Executors.newSingleThreadExecutor()) {
+      final var task = worker.submit(() -> {
+        try {
+          method.invoke(cache, buffers);
+          return false;
+        } catch (InvocationTargetException e) {
+          return e.getCause() instanceof InterruptedException;
+        }
+      });
+      try {
+        final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!logs.warnedWithAll("waiting-storage", "file 7", "open files 2", "limit 1")) {
+          assertTrue("real wait path must emit a warning", System.nanoTime() < deadline);
+          Thread.yield();
+        }
+      } finally {
+        worker.shutdownNow();
+      }
+      assertTrue(task.get(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /** An interrupt stops the slot wait, even when the entry latch never fires. */
+  @Test
+  public void interruptedOpenFileSlotWaitExits() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var container = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", container);
+    setField(cache, "storageName", "waiting-storage");
+    final var enteredWait = new CountDownLatch(1);
+    Mockito.doAnswer(invocation -> {
+      enteredWait.countDown();
+      return null;
+    }).when(container).tryAcquire(anyLong());
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    buffers.put(1L, new ArrayList<>());
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    final var worker = Executors.newSingleThreadExecutor();
+    try {
+      final var task = worker.submit(() -> {
+        try {
+          method.invoke(cache, buffers);
+          return false;
+        } catch (InvocationTargetException e) {
+          return e.getCause() instanceof InterruptedException;
+        }
+      });
+      assertTrue("worker entered the real wait loop", enteredWait.await(5, TimeUnit.SECONDS));
+      worker.shutdownNow();
+      assertTrue("the interrupted worker stops waiting", task.get(5, TimeUnit.SECONDS));
+    } finally {
+      // A failed latch assertion must still interrupt the worker before teardown.
+      worker.shutdownNow();
+      assertTrue("the interrupted worker terminates", worker.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /** A real page write obtains the second file despite the first file's failed force. */
+  @Test
+  public void pageWriteReleasesFailedEvictionSlotWithinBoundedTime() throws Exception {
+    final var firstPath = Files.createTempFile("failed-eviction-page", ".dat");
+    final var secondPath = Files.createTempFile("second-eviction-page", ".dat");
+    Files.delete(firstPath);
+    Files.delete(secondPath);
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var first = new AsyncFile(firstPath, 1, false, executor, "first-owner");
+      final var second = new AsyncFile(secondPath, 1, false, executor, "second-owner");
+      try {
+        first.create();
+        first.allocateSpace(1);
+        first.write(0, ByteBuffer.wrap(new byte[] {1}));
+        final var field = AsyncFile.class.getDeclaredField("fileChannel");
+        field.setAccessible(true);
+        final var channel = Mockito.mock(AsynchronousFileChannel.class,
+            org.mockito.AdditionalAnswers.delegatesTo(field.get(first)));
+        field.set(first, channel);
+        Mockito.doThrow(new java.io.IOException("force always fails"))
+            .when(channel).force(true);
+
+        final var container = new ClosableLinkedContainer<Long, File>(1);
+        container.add(1L, first);
+        final var heldFirst = container.acquire(1L);
+        second.create();
+        second.allocateSpace(1);
+        container.add(2L, second);
+        final var heldSecond = container.acquire(2L);
+        container.release(heldFirst);
+        // Keep the second file acquired so eviction must free the failing first file.
+        assertEquals("the page write must start with two open handles", 2,
+            container.openFilesCount());
+
+        final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+        setField(cache, "files", container);
+        setField(cache, "storageName", "second-owner");
+        final var writes = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+        writes.put(2L, new ArrayList<>(java.util.List.of(
+            new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {9})))));
+        final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+            Long2ObjectOpenHashMap.class);
+        method.setAccessible(true);
+        try (var worker = Executors.newSingleThreadExecutor()) {
+          final var task = worker.submit(() -> {
+            try {
+              method.invoke(cache, writes);
+              return null;
+            } catch (InvocationTargetException e) {
+              throw new IllegalStateException(e.getCause());
+            }
+          });
+          try {
+            task.get(5, TimeUnit.SECONDS);
+          } finally {
+            worker.shutdownNow();
+            container.release(heldSecond);
+          }
+        }
+        assertTrue("the failing owner's channel is closed", !first.isOpen());
+        assertTrue("the failed force keeps the dirty marker for the owner",
+            first.needsSynchronizationOnClose());
+        Mockito.verify(channel).force(true);
+        Mockito.verify(channel).close();
+      } finally {
+        if (first.isOpen()) {
+          first.closeForEviction();
+        }
+        if (second.isOpen()) {
+          second.closeForEviction();
+        }
+        Files.deleteIfExists(firstPath);
+        Files.deleteIfExists(secondPath);
+      }
+    }
+  }
+
+  /** The owner's checkpoint reopens an evicted file and blocks WAL cleanup on failed sync. */
+  @Test
+  public void checkpointRetriesFailedEvictionSyncAfterReopen() throws Exception {
+    final var path = Files.createTempFile("evicted-checkpoint", ".dat");
+    Files.delete(path);
+    try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var file = new AsyncFile(path, 1, false, executor, "owner");
+      file.create();
+      file.allocateSpace(1);
+      file.write(0, ByteBuffer.wrap(new byte[] {1}));
+      final var container = new ClosableLinkedContainer<Long, File>(1);
+      final var firstChannelField = AsyncFile.class.getDeclaredField("fileChannel");
+      firstChannelField.setAccessible(true);
+      final var firstChannel = Mockito.mock(AsynchronousFileChannel.class,
+          org.mockito.AdditionalAnswers.delegatesTo(firstChannelField.get(file)));
+      firstChannelField.set(file, firstChannel);
+      Mockito.doThrow(new java.io.IOException("eviction force failed"))
+          .when(firstChannel).force(true);
+      container.add(1L, file);
+      final var otherPath = Files.createTempFile("other-checkpoint", ".dat");
+      Files.delete(otherPath);
+      final var other = new AsyncFile(otherPath, 1, false, executor, "other");
+      try {
+        other.create();
+        container.add(2L, other);
+        assertTrue("eviction closes the owner's file", !file.isOpen());
+
+        final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+        setField(cache, "files", container);
+        setField(cache, "filesLock", new ReadersWriterSpinLock());
+        setField(cache, "storageName", "owner");
+        setField(cache, "nameIdMap", new ConcurrentHashMap<>(java.util.Map.of("data", 1)));
+        setField(cache, "nonDurableFileIds", new IntOpenHashSet());
+        setField(cache, "callFsync", true);
+        setField(cache, "id", 0);
+        final var wal = mock(WriteAheadLog.class);
+        setField(cache, "writeAheadLog", wal);
+        final var doubleWrite = mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog.class);
+        setField(cache, "doubleWriteLog", doubleWrite);
+        final var reopened = Mockito.mock(AsynchronousFileChannel.class,
+            org.mockito.AdditionalAnswers.delegatesTo(
+                AsynchronousFileChannel.open(path, java.util.Set.of(
+                    java.nio.file.StandardOpenOption.READ, java.nio.file.StandardOpenOption.WRITE),
+                    executor)));
+        try (var opens = Mockito.mockStatic(AsynchronousFileChannel.class,
+            Mockito.CALLS_REAL_METHODS)) {
+          opens.when(() -> AsynchronousFileChannel.open(path, java.util.Set.of(
+              java.nio.file.StandardOpenOption.READ, java.nio.file.StandardOpenOption.WRITE),
+              executor)).thenReturn(reopened);
+          final var attempts = new AtomicLong();
+          Mockito.doAnswer(invocation -> {
+            if (attempts.incrementAndGet() == 1) {
+              throw new java.io.IOException("owner force failed");
+            }
+            return null;
+          }).when(reopened).force(true);
+          org.junit.Assert.assertThrows(StorageException.class, () -> cache.syncDataFiles(3));
+          Mockito.verify(wal, Mockito.never()).cutAllSegmentsSmallerThan(3);
+          cache.syncDataFiles(3);
+          Mockito.verify(wal).cutAllSegmentsSmallerThan(3);
+          assertEquals(2, attempts.get());
+        }
+      } finally {
+        if (file.isOpen()) {
+          file.close();
+        }
+        if (other.isOpen()) {
+          other.close();
+        }
+        Files.deleteIfExists(path);
+        Files.deleteIfExists(otherPath);
+      }
+    }
+  }
 
   /**
    * Sets the private {@code flushError} field on a WOWCache (or mock) to the given throwable.

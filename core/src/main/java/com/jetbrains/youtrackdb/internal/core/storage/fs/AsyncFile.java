@@ -433,6 +433,45 @@ public final class AsyncFile implements File {
     }
   }
 
+  @Override
+  public boolean needsSynchronizationOnClose() {
+    return callFsync && dirtyCounter.get() > 0;
+  }
+
+  /** Closes an idle file after a failed sync so another storage can use its slot. */
+  @Override
+  public void closeForEviction() {
+    lock.exclusiveLock();
+    try {
+      try {
+        doSynch();
+      } catch (RuntimeException syncFailure) {
+        // The dirty counter remains set. The owning storage retries on its next sync barrier.
+        LogManager.instance().warn(this, "Failed to synchronize file %s during eviction",
+            syncFailure, osFile);
+      }
+
+      try {
+        doClose();
+      } catch (IOException | RuntimeException | Error firstFailure) {
+        LogManager.instance().warn(this, "Failed to close file %s during eviction. Retrying",
+            firstFailure, osFile);
+        try {
+          doClose();
+        } catch (IOException | RuntimeException | Error retryFailure) {
+          if (retryFailure != firstFailure) {
+            firstFailure.addSuppressed(retryFailure);
+          }
+          throw BaseException.wrapException(
+              new StorageException(dbName, "Error during eviction close of file " + osFile),
+              firstFailure, dbName);
+        }
+      }
+    } finally {
+      lock.exclusiveUnlock();
+    }
+  }
+
   /** Attempts to release a newly opened but unregistered file after creation fails. */
   public void closeAfterFailedCreate() throws IOException {
     lock.exclusiveLock();
@@ -440,8 +479,8 @@ public final class AsyncFile implements File {
       try {
         doClose();
       } catch (IOException | RuntimeException | Error firstFailure) {
-        // One bounded retry can release a channel after a transient close failure. Keep the
-        // original error even if retry succeeds, so creation cleanup never appears successful.
+        // See docs-internal/storage/file-close.md for the one-retry close rationale.
+        // Keep the original error even if retry succeeds, so cleanup never appears successful.
         try {
           doClose();
         } catch (IOException | RuntimeException | Error retryFailure) {

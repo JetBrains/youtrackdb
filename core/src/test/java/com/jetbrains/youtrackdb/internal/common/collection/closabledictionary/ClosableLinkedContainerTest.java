@@ -32,9 +32,10 @@ public class ClosableLinkedContainerTest {
     CItem.maxDeltaLimit.set(0);
   }
 
-  /** Eviction logs a failed close but keeps its owner while closing another idle entry. */
+  /** A failed physical close keeps ownership, and explicit close still reports the error. */
   @Test
-  public void failedEvictionPreservesOwnedEntryAndExplicitCloseReportsFailure() throws Exception {
+  public void failedChannelClosePreservesOwnedEntryAndExplicitCloseReportsFailure()
+      throws Exception {
     final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
     final var failing = org.mockito.Mockito.mock(ClosableItem.class);
     final var open = new AtomicBoolean(true);
@@ -42,6 +43,7 @@ public class ClosableLinkedContainerTest {
     org.mockito.Mockito.doAnswer(invocation -> {
       throw new IllegalStateException("injected force failure");
     }).when(failing).close();
+    org.mockito.Mockito.doCallRealMethod().when(failing).closeForEviction();
     dictionary.add(1L, failing);
     dictionary.add(2L, new CItem(1));
 
@@ -55,7 +57,7 @@ public class ClosableLinkedContainerTest {
     dictionary.release(acquired);
   }
 
-  /** Each eviction pass skips a failed close while closing two other idle handles. */
+  /** Each eviction pass skips a failed physical close while closing two other idle handles. */
   @Test
   public void failedEvictionSkipsSameEntryWhenSeveralOtherFilesCanClose() throws Exception {
     final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
@@ -66,6 +68,7 @@ public class ClosableLinkedContainerTest {
       attempts.incrementAndGet();
       throw new IllegalStateException("injected close failure");
     }).when(failing).close();
+    org.mockito.Mockito.doCallRealMethod().when(failing).closeForEviction();
     dictionary.add(1L, failing);
     final var heldFailure = dictionary.acquire(1L);
     dictionary.add(2L, new CItem(2));
@@ -92,6 +95,189 @@ public class ClosableLinkedContainerTest {
         dictionary.openFilesCount());
     Assert.assertFalse(dictionary.get(2L).isOpen());
     Assert.assertFalse(dictionary.get(3L).isOpen());
+  }
+
+  /** An idle file with a failed sync frees its slot while retaining its dirty marker. */
+  @Test
+  public void failedEvictionSyncClosesIdleFileAndAllowsSecondAcquisition() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    final var dirty = new AtomicBoolean(true);
+    final var open = new AtomicBoolean(true);
+    final var failing = new ClosableItem() {
+      @Override
+      public boolean isOpen() {
+        return open.get();
+      }
+
+      @Override
+      public void open() {
+        open.set(true);
+      }
+
+      @Override
+      public void close() {
+        if (dirty.get()) {
+          throw new IllegalStateException("force failed");
+        }
+        open.set(false);
+      }
+
+      @Override
+      public void closeForEviction() {
+        // Model the AsyncFile force failure followed by a successful bare channel close.
+        open.set(false);
+      }
+
+      @Override
+      public boolean needsSynchronizationOnClose() {
+        return dirty.get();
+      }
+    };
+    dictionary.add(1L, failing);
+    dictionary.add(2L, new CItem(1));
+
+    Assert.assertFalse("failed sync releases the idle channel", failing.isOpen());
+    Assert.assertTrue("failed sync keeps the dirty marker", dirty.get());
+    final var second = dictionary.tryAcquire(2L);
+    Assert.assertNotNull("the second file gets an open slot", second);
+    dictionary.release(second);
+    Assert.assertEquals(1, dictionary.openFilesCount());
+
+    // The owning storage reopens its closed entry. Explicit close still reports its force error.
+    Assert.assertThrows(IllegalStateException.class, () -> dictionary.close(1L));
+    Assert.assertTrue(failing.isOpen());
+    dirty.set(false);
+    Assert.assertTrue(dictionary.close(1L));
+  }
+
+  /** Failed explicit closes release idle entries and clear a previously cached no-progress result. */
+  @Test
+  public void failedExplicitClosesInvalidateNoProgressCache() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    class FailingExplicitClose implements ClosableItem {
+      private boolean open = true;
+      private boolean failEviction;
+
+      FailingExplicitClose(boolean failEviction) {
+        this.failEviction = failEviction;
+      }
+
+      @Override
+      public boolean isOpen() {
+        return open;
+      }
+
+      @Override
+      public void open() {
+        open = true;
+      }
+
+      @Override
+      public void close() {
+        throw new IllegalStateException("explicit synchronization failed");
+      }
+
+      @Override
+      public void closeForEviction() {
+        if (failEviction) {
+          throw new IllegalStateException("eviction close failed");
+        }
+        open = false;
+      }
+    }
+    dictionary.add(1L, new FailingExplicitClose(true));
+    final var first = dictionary.acquire(1L);
+    final var secondFile = new FailingExplicitClose(false);
+    dictionary.add(2L, secondFile);
+    final var second = dictionary.acquire(2L);
+    Assert.assertEquals(2, dictionary.openFilesCount());
+    Assert.assertNull("both acquired entries prevent eviction", dictionary.tryAcquire(1L));
+    dictionary.release(first);
+    dictionary.release(second);
+    secondFile.failEviction = true;
+    // Model a concurrent limit check that cached the all-acquired state just before close.
+    final var cacheField = ClosableLinkedContainer.class.getDeclaredField(
+        "lastNoProgressOpenFiles");
+    cacheField.setAccessible(true);
+    ((AtomicInteger) cacheField.get(dictionary)).set(2);
+    Assert.assertThrows(IllegalStateException.class, () -> dictionary.close(1L));
+    secondFile.failEviction = false;
+    final var acquired = dictionary.tryAcquire(2L);
+    Assert.assertNotNull("idle second entry must become eligible for eviction", acquired);
+    dictionary.release(acquired);
+  }
+
+  /** A clean closed entry does not reopen, while a dirty closed entry retries its sync. */
+  @Test
+  public void explicitCloseSkipsCleanClosedEntryButReopensDirtyClosedEntry() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    final var clean = org.mockito.Mockito.mock(ClosableItem.class);
+    org.mockito.Mockito.when(clean.isOpen()).thenReturn(true);
+    dictionary.add(1L, clean);
+    dictionary.add(2L, new CItem(1));
+    Assert.assertTrue(dictionary.close(1L));
+    org.mockito.Mockito.verify(clean, org.mockito.Mockito.never()).open();
+
+    final var dirtyDictionary = new ClosableLinkedContainer<Long, ClosableItem>(1);
+    final var dirty = org.mockito.Mockito.mock(ClosableItem.class);
+    org.mockito.Mockito.when(dirty.isOpen()).thenReturn(true);
+    org.mockito.Mockito.when(dirty.needsSynchronizationOnClose()).thenReturn(true);
+    org.mockito.Mockito.doThrow(new IllegalStateException("sync failed")).when(dirty).close();
+    dirtyDictionary.add(1L, dirty);
+    dirtyDictionary.add(2L, new CItem(1));
+    Assert.assertThrows(IllegalStateException.class, () -> dirtyDictionary.close(1L));
+    org.mockito.Mockito.verify(dirty).open();
+  }
+
+  /** Retirement counts the state observed under its lock, not an earlier OPEN state. */
+  @Test
+  public void retirementAfterConcurrentEvictionCountsClosedStateOnce() throws Exception {
+    final var dictionary = new ClosableLinkedContainer<Long, ClosableItem>(2);
+    final var enteredClose = new CountDownLatch(1);
+    final var allowClose = new CountDownLatch(1);
+    final var file = new CItem(2) {
+      @Override
+      public void closeForEviction() {
+        enteredClose.countDown();
+        try {
+          if (!allowClose.await(5, TimeUnit.SECONDS)) {
+            throw new AssertionError("eviction did not resume");
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new AssertionError(e);
+        }
+        super.close();
+      }
+    };
+    dictionary.add(1L, file);
+    dictionary.add(2L, new CItem(2));
+    try (var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var add = workers.submit(() -> {
+        dictionary.add(3L, new CItem(2));
+        return null;
+      });
+      Assert.assertTrue("eviction entered close", enteredClose.await(5, TimeUnit.SECONDS));
+      final var removalThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+      final var remove = workers.submit(() -> {
+        removalThread.set(Thread.currentThread());
+        return dictionary.remove(1L);
+      });
+      // Wait until retirement blocks on the eviction lock before releasing close.
+      final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (removalThread.get() == null || removalThread.get().getState()
+          != Thread.State.WAITING) {
+        Assert.assertTrue("retirement must reach the state lock", System.nanoTime() < deadline);
+        Thread.yield();
+      }
+      allowClose.countDown();
+      add.get(5, TimeUnit.SECONDS);
+      Assert.assertSame(file, remove.get(5, TimeUnit.SECONDS));
+    } finally {
+      allowClose.countDown();
+    }
+    Assert.assertEquals("retirement cannot subtract a closed handle twice", 2,
+        dictionary.openFilesCount());
   }
 
   @Test
