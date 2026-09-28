@@ -1029,6 +1029,66 @@ public class AsyncFileTest {
     verify(channel).close();
   }
 
+  /**
+   * A rejection on the second of three slots must settle the never-submitted third slot.
+   * The first write still drains before rejection escapes, and close must not wait for unused permits.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testRejectedGroupSubmissionReleasesUnstartedSlot() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var buffer = new AtomicReference<ByteBuffer>();
+    final var rejection = new IllegalStateException("second submission rejected");
+    final var submissions = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (submissions.getAndIncrement() == 0) {
+        buffer.set(invocation.getArgument(0));
+        attachment.set(invocation.getArgument(2));
+        handler.set(invocation.getArgument(3));
+      } else {
+        throw rejection;
+      }
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    file.allocateSpace(3);
+    final var writeFuture = executor.submit(() -> file.write(List.of(
+        new RawPairLongObject<>(0L, ByteBuffer.allocate(1)),
+        new RawPairLongObject<>(1L, ByteBuffer.allocate(1)),
+        new RawPairLongObject<>(2L, ByteBuffer.allocate(1)))));
+    // Keep the first write pending while the second submission fails. The third slot must
+    // be settled without a channel submission so the caller can drain the first callback.
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (submissions.get() < 2 && System.nanoTime() < deadline) {
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    Assert.assertEquals("second submission must be rejected", 2, submissions.get());
+    Assert.assertNotNull("first submission must start", handler.get());
+    Assert.assertFalse("write must drain the first callback", writeFuture.isDone());
+    buffer.get().position(buffer.get().limit());
+    handler.get().completed(1, attachment.get());
+    try {
+      writeFuture.get(5, TimeUnit.SECONDS);
+      Assert.fail("submission rejection must propagate");
+    } catch (java.util.concurrent.ExecutionException e) {
+      Assert.assertSame(rejection, e.getCause());
+    }
+    final var semaphoreField = AsyncFile.class.getDeclaredField("syncSemaphore");
+    semaphoreField.setAccessible(true);
+    final var semaphore = (Semaphore) semaphoreField.get(file);
+    Assert.assertEquals("every group slot must return its permit", Integer.MAX_VALUE,
+        semaphore.availablePermits());
+    Assert.assertEquals("third buffer must never reach the channel", 2,
+        countInvocations(channel, "write"));
+    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    verify(channel).close();
+  }
+
   /** The earliest callback error wins over a later rejected submission in the same group. */
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Test
