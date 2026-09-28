@@ -859,7 +859,7 @@ public class WOWCacheShrinkFileTest {
    *
    * <p><b>Why this shape matters.</b> A page only enters {@code exclusiveWritePages} once it
    * becomes writers-only ({@code readers == 0 && writers > 0}). On the
-   * {@code truncateFile}/{@code shrinkFile} ordering the write cache is purged BEFORE the read
+   * {@code shrinkFile} ordering the write cache is purged BEFORE the read
    * cache is cleared, so the pages still have readers and their keys are NOT in the set when
    * {@code doRemoveCachePages} runs. This test reproduces that in-process by installing a dirty
    * entry via {@code store} and deliberately holding the reader reference across the delete.

@@ -362,13 +362,11 @@ public interface WriteCache {
 
   void deleteFile(long fileId) throws IOException;
 
-  void truncateFile(long fileId) throws IOException;
-
   /**
    * One-way shrink primitive: reduces the on-disk physical size of {@code fileId} to
    * {@code targetBytes}, dropping any cached dirty page entries that sit at or above
-   * the target. Unlike {@link #truncateFile(long)} (which truncates to zero), this
-   * primitive carries an explicit target and never grows the file: callers passing a
+   * the target. This primitive carries an explicit target and never grows the file:
+   * callers passing a
    * {@code targetBytes} greater than or equal to the current physical file size get a
    * no-op.
    *

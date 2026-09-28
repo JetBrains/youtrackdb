@@ -70,10 +70,9 @@ import org.junit.Test;
  *       on the load branch for an existing pageIndex while a writer drives the
  *       extend on a higher pageIndex. The reader never sees a transient null, NPE,
  *       or unexpected exception.
- *   <li><b>Scenario 7</b> (delete/truncate vs concurrent
+ *   <li><b>Scenario 7</b> (delete vs concurrent
  *       {@code loadOrAddForWrite}): installer threads loop on the wrapper while a
- *       destroyer rotates {@code deleteFile + addFile} (and {@code truncateFile} in
- *       a sibling test). Installer calls either succeed cleanly (destroyer waited)
+ *       destroyer rotates {@code deleteFile + addFile}. Installer calls either succeed
  *       or surface {@link IllegalArgumentException} from the dispatch prelude; no
  *       other exception type is acceptable.
  *   <li><b>I4 negative defence</b>: both the extend branch's
@@ -710,155 +709,6 @@ public class WOWCacheLoadOrAddConcurrentTest {
 
       // Final consistency probe.
       final var surviving = wowCache.loadOrAdd(fileIdRef.get(), 0L, false);
-      try {
-        assertNotNull(
-            "surviving file must accept loadOrAdd after the race", surviving);
-      } finally {
-        surviving.decrementReadersReferrer();
-      }
-    } finally {
-      pool.shutdownNow();
-      assertTrue(
-          "executor must terminate cleanly",
-          pool.awaitTermination(5, TimeUnit.SECONDS));
-    }
-  }
-
-  /**
-   * Scenario 7 sibling — {@code truncateFile} vs concurrent
-   * {@link LockFreeReadCache#loadOrAddForWrite} on the same fileId.
-   *
-   * <p>The {@code deleteFile + addFile} variant above always trips the dispatch
-   * prelude's {@code IllegalArgumentException} on the rotated-away fileId; this
-   * sibling exercises the {@code truncateFile} shape that keeps the SAME fileId
-   * across rotations. The actual contention is at the {@code filesLock} read/write
-   * boundary: every installer's {@code loadOrAdd} holds {@code filesLock.readLock}
-   * inside the wrapper's lambda; every {@code truncateFile} holds
-   * {@code filesLock.writeLock}. The installer either completes (truncate hadn't
-   * started yet) or observes a fresh-file state after {@code truncateFile} shrunk
-   * the file and may extend it back to size 1 via the extend branch on its next
-   * loop iteration.
-   *
-   * <p><b>Wrapper-level eviction is bypassed by design.</b> The destroyer drives
-   * {@code wowCache.truncateFile} directly — it does NOT call
-   * {@code readCache.truncateFile}. The wrapper's truncate path cannot run
-   * concurrently with pinned entries for the same reason
-   * {@link LockFreeReadCache#deleteFile} cannot
-   * ({@code clearFile} aborts on pinned pages), so wiring it into a contention
-   * test with installers pinning entries on the same fileId would either deadlock
-   * or surface a spurious abort. The test instead exercises the disk-engine's
-   * {@code filesLock} discipline directly: {@link WOWCache#truncateFile} calls
-   * {@code removeCachedPages(intId)} inside {@code filesLock.writeLock} (touching
-   * only the {@code writeCachePages} dirty map). The wrapper's {@code data}
-   * entries for the same {@code fileId} are not removed, but the installer
-   * threads' subsequent {@code loadOrAdd} calls on a freshly-truncated file route
-   * back into the disk engine's extend branch and re-populate everything
-   * correctly. Wrapper-level stale-entry cleanup is deferred to the eventual
-   * overflow / shutdown path; it does not run inside this test's bounded window.
-   */
-  @Test(timeout = PER_TEST_TIMEOUT_MS)
-  public void truncateFileAndLoadOrAddRaceLeavesCacheConsistent() throws Exception {
-    final int installerThreads = 8;
-    final int rotations = 50;
-    final var fileId = wowCache.addFile(FILE_NAME);
-    final var pool = Executors.newFixedThreadPool(installerThreads + 1);
-    try {
-      final var stop = new AtomicBoolean(false);
-      final var unexpected = new ConcurrentLinkedQueue<Throwable>();
-      final var startGate = new CountDownLatch(1);
-      final var installerDone = new CountDownLatch(installerThreads);
-      // Per-thread iteration counter — see the deleteFile sibling above for the
-      // rationale. A regression that starved N-1 threads of the filesLock read
-      // lock would pass a total-count guard but fail the per-thread floor below.
-      final var perThreadIterations = new AtomicLongArray(installerThreads);
-      // Coordination latch — see the deleteFile sibling above for rationale.
-      final var allInstallersStarted = new CountDownLatch(installerThreads);
-
-      for (int t = 0; t < installerThreads; t++) {
-        final int workerId = t;
-        pool.submit(
-            () -> {
-              try {
-                startGate.await();
-                boolean firstIterationCompleted = false;
-                while (!stop.get() || !firstIterationCompleted) {
-                  try {
-                    final var pointer = wowCache.loadOrAdd(fileId, 0L, false);
-                    perThreadIterations.incrementAndGet(workerId);
-                    pointer.decrementReadersReferrer();
-                    if (!firstIterationCompleted) {
-                      firstIterationCompleted = true;
-                      allInstallersStarted.countDown();
-                    }
-                  } catch (final IllegalStateException e) {
-                    // Tolerated: I4 sentinel from the bare-WOWCache same-pageIndex
-                    // race after a {@link WOWCache#truncateFile} shrunk the file.
-                    // Same rationale as the deleteFile sibling above.
-                    if (e.getMessage() == null
-                        || !(e.getMessage().contains("allocated pageIndex")
-                            || e.getMessage().contains("allocated start index"))
-                        || !e.getMessage().contains("does not match")) {
-                      unexpected.add(e);
-                    }
-                  }
-                }
-              } catch (final Throwable t1) {
-                unexpected.add(t1);
-              } finally {
-                installerDone.countDown();
-              }
-            });
-      }
-
-      pool.submit(
-          () -> {
-            try {
-              startGate.await();
-              // Wait for every installer to record at least one successful iteration
-              // before starting truncate rotations — see the deleteFile sibling above
-              // for the rationale on slow CI runners.
-              if (!allInstallersStarted.await(BARRIER_WAIT_SECONDS, TimeUnit.SECONDS)) {
-                unexpected.add(
-                    new AssertionError(
-                        "installer threads did not all reach first iteration inside "
-                            + BARRIER_WAIT_SECONDS + "s; aborting destroyer"));
-                return;
-              }
-              for (int r = 0; r < rotations; r++) {
-                wowCache.truncateFile(fileId);
-              }
-            } catch (final Throwable t1) {
-              unexpected.add(t1);
-            } finally {
-              stop.set(true);
-            }
-          });
-
-      startGate.countDown();
-      assertTrue(
-          "installer threads must finish within the bounded wait window",
-          installerDone.await(45, TimeUnit.SECONDS));
-
-      if (!unexpected.isEmpty()) {
-        final var first = unexpected.poll();
-        fail(
-            "truncateFile/loadOrAdd race surfaced unexpected exception: " + first);
-      }
-      // Per-thread floor: every installer must run the body at least once. See the
-      // deleteFile sibling above for the rationale (a starved N-1 threads would
-      // pass the old total-count guard but fail the per-thread floor here).
-      for (int i = 0; i < installerThreads; i++) {
-        assertTrue(
-            "installer thread "
-                + i
-                + " did not enter the race loop (iterations="
-                + perThreadIterations.get(i)
-                + "); vacuous pass detected — per-thread floor must be >= 1",
-            perThreadIterations.get(i) >= 1);
-      }
-
-      // Final consistency probe.
-      final var surviving = wowCache.loadOrAdd(fileId, 0L, false);
       try {
         assertNotNull(
             "surviving file must accept loadOrAdd after the race", surviving);

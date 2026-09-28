@@ -509,61 +509,6 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   }
 
   /**
-   * Truncating a non-durable file must not produce any WAL records (truncate
-   * doesn't use FileDeletedWALRecord — it has no WAL record type at all). The
-   * cache truncation (readCache.truncateFile) must still be applied.
-   */
-  @Test
-  public void truncateNonDurableFileSkipsWALButAppliesCache()
-      throws IOException {
-    var op = createOperationWithWAL();
-
-    // Register a non-durable file as an existing file (not new in this op)
-    long ndFileId = composeFileId(10, STORAGE_ID);
-    when(writeCache.isNonDurable(ndFileId)).thenReturn(true);
-    when(writeCache.loadFile("nd-existing.dat")).thenReturn(ndFileId);
-    when(writeCache.getFilledUpTo(ndFileId)).thenReturn(10L);
-    op.loadFile("nd-existing.dat");
-
-    // Truncate the non-durable file
-    op.truncateFile(ndFileId);
-
-    // Also add a durable change so the operation has something to commit
-    long durableFileId =
-        setupNewDurableFileWithFlushedOps(op, "durable-file.dat");
-    mockLoadOrAddForWrite(durableFileId, 0);
-
-    op.commitChanges(42L, wal);
-
-    // Truncate has no dedicated WAL record type for any file (durable or not).
-    // Verify no WAL records reference the non-durable file at all — neither
-    // FileDeletedWALRecord nor PageOperation (pageChangesMap is cleared by
-    // truncateFile()).
-    var ndRecords = loggedRecords.stream()
-        .filter(r -> r != null)
-        .filter(r -> {
-          if (r instanceof FileDeletedWALRecord fdr) {
-            return fdr.getFileId() == ndFileId;
-          }
-          if (r instanceof PageOperation po) {
-            return po.getFileId() == ndFileId;
-          }
-          if (r instanceof FileCreatedWALRecord fcr) {
-            return fcr.getFileId() == ndFileId;
-          }
-          return false;
-        })
-        .toList();
-    assertThat(ndRecords).isEmpty();
-    // Total: start + PageOperation(durable, from flush) + FileCreated(durable, from commit)
-    // + End = 4. Defense-in-depth — primary assertion is ndRecords.isEmpty() above.
-    assertThat(loggedRecords).hasSize(4);
-
-    // Cache truncation must still be applied
-    verify(readCache).truncateFile(ndFileId, writeCache);
-  }
-
-  /**
    * WAL write-then-replay round-trip: create a mixed operation with both durable
    * and non-durable files, capture the WAL records from commitChanges(), verify
    * only durable-file records are emitted, then feed those records into
