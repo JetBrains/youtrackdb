@@ -142,6 +142,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -331,6 +332,10 @@ public abstract class AbstractStorage
    * replay completes. Plain (non-volatile) field — recovery is single-threaded.
    */
   private IntOpenHashSet deletedNonDurableFileIds = new IntOpenHashSet();
+
+  // Scoped to one replayed atomic unit. Track 03 will use each declaration's WAL
+  // position when verifying or rebuilding its page in the write cache.
+  private Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = Map.of();
 
   private final int id;
 
@@ -9072,6 +9077,44 @@ public abstract class AbstractStorage
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
+    declaredAllocationPages = new TreeMap<>();
+    try {
+      // Scan the whole unit before any redo. Allocation records may follow the
+      // page operations that require their pages, including a pending file create.
+      for (final var record : atomicUnit) {
+        if (record instanceof PageAllocatedWALRecord allocation) {
+          final long fileId = allocation.getFileId();
+          final int internalId = writeCache.internalFileId(fileId);
+          if (deletedNonDurableFileIds.contains(internalId)) {
+            continue;
+          }
+          ensureFileForReplay(atomicUnit, fileId);
+          declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
+              .put(allocation.getPageIndex(), allocation.getLsn());
+        }
+      }
+
+      // An ascending load prevents a high-index allocation from gap-filling past an
+      // earlier declared page before that earlier page has been checked.
+      for (final var filePages : declaredAllocationPages.entrySet()) {
+        final long fileId = writeCache.externalFileId(filePages.getKey());
+        for (final var pageIndex : filePages.getValue().keySet()) {
+          final var entry =
+              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
+              + pageIndex;
+          readCache.releaseFromWrite(entry, writeCache, false);
+        }
+      }
+      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate);
+    } finally {
+      declaredAllocationPages = Map.of();
+    }
+  }
+
+  private void applyAtomicUnitRecords(
+      final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
+      throws IOException {
     for (final var walRecord : atomicUnit) {
       switch (walRecord) {
         case FileDeletedWALRecord fileDeletedWALRecord -> {
@@ -9209,6 +9252,9 @@ public abstract class AbstractStorage
           }
 
           atLeastOnePageUpdate.setValue(true);
+        }
+        case PageAllocatedWALRecord ignored -> {
+          // The pre-scan already materialized this page before any redo.
         }
         //noinspection unused
         case AtomicUnitStartRecord atomicUnitStartRecord -> {

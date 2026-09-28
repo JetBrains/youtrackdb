@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -30,8 +31,9 @@ import org.mockito.Mockito;
 
 /**
  * Tests that {@code AbstractStorage.restoreAtomicUnit()} gracefully skips WAL records
- * referencing non-durable files that were deleted during crash recovery. Verifies all three
- * record types (UpdatePageRecord, FileCreatedWALRecord, FileDeletedWALRecord) are skipped
+ * referencing non-durable files that were deleted during crash recovery. Verifies all four
+ * record types (UpdatePageRecord, FileCreatedWALRecord, FileDeletedWALRecord,
+ * PageAllocatedWALRecord) are skipped
  * for non-durable file IDs, while durable file records are still processed normally.
  */
 public class RestoreAtomicUnitNonDurableSkipTest {
@@ -99,6 +101,27 @@ public class RestoreAtomicUnitNonDurableSkipTest {
       }
     }
     throw new RuntimeException("Field not found: " + fieldName);
+  }
+
+  /** A deleted non-durable file's declaration must not recreate or load any page. */
+  @Test
+  public void testAllocationRecordSkippedForDeletedNonDurableFile() throws Exception {
+    var declaration = new PageAllocatedWALRecord(5, ND_EXTERNAL_ID, 1);
+    declaration.setLsn(new LogSequenceNumber(1, 50));
+    var unit = new ArrayList<WALRecord>();
+    unit.add(new AtomicUnitStartRecord(false, 1));
+    unit.add(declaration);
+    unit.add(new FileCreatedWALRecord(1, "nd.dat", ND_EXTERNAL_ID));
+    unit.add(new AtomicUnitEndRecord(1, false, null));
+
+    var updated = new ModifiableBoolean();
+    storage.restoreAtomicUnit(unit, updated);
+
+    verify(writeCache, never()).restoreFileById(ND_EXTERNAL_ID);
+    verify(readCache, never()).loadOrAddForWrite(
+        eq(ND_EXTERNAL_ID), anyLong(), any(), anyBoolean(), any());
+    verify(readCache, never()).addFile(eq("nd.dat"), anyLong(), any());
+    assertFalse(updated.getValue());
   }
 
   /**

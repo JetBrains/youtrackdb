@@ -381,4 +381,7 @@ public final class WALRecordTypes {
 
   public static final int RIDBAG_ENTRY_POINT_SET_RID_BAG_ID_COUNTER_OP =
       PAGE_OPERATION_ID_BASE + 97;
+
+  // Page allocation declaration, distinct from the physiological page operations.
+  public static final int PAGE_ALLOCATED_WAL_RECORD = PAGE_OPERATION_ID_BASE + 98;
 }

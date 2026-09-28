@@ -42,6 +42,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryOnlyDiskCache;
@@ -1021,6 +1022,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           continue;
         }
 
+        // Only a changed new page reaches the cache apply loop. Applying its highest
+        // index extends the physical file through every intervening index, even if
+        // an intervening allocation had no changes and was removed from this map.
+        long highestNewPage = -1;
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
             fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
         while (filePageChangesIterator.hasNext()) {
@@ -1046,8 +1051,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             assert filePageChanges.getPendingOperations().isEmpty()
                 : "Pending operations remain after flush for page "
                     + pageIndex + " in file " + fileId;
+            if (filePageChanges.isNew) {
+              highestNewPage = Math.max(highestNewPage, pageIndex);
+            }
           } else {
             filePageChangesIterator.remove();
+          }
+        }
+
+        if (highestNewPage >= 0) {
+          // The physical floor is zero for a freshly booked file. For an existing
+          // file, allocations below its committed extent are not new pages. Every
+          // page from this floor through the highest changed allocation is made
+          // physically present by the commit's total loadOrAddForWrite calls.
+          final long physicalFloor = fileChanges.isNew ? 0 : writeCache.getFilledUpTo(fileId);
+          // Durable changes already required a PageOperation, which started the WAL
+          // unit in flushPendingOperations before this allocation declaration.
+          assert walUnitStarted : "Changed durable allocation has no WAL unit";
+          for (long pageIndex = physicalFloor; pageIndex <= highestNewPage; pageIndex++) {
+            writeAheadLog.log(new PageAllocatedWALRecord(pageIndex, fileId, operationCommitTs));
           }
         }
       }
