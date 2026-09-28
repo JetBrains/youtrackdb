@@ -5023,6 +5023,9 @@ public final class WOWCache extends AbstractWriteCache
     final var writes = new ArrayList<>(submittedWrites);
     submittedWrites.clear();
     Throwable failure = null;
+    // A failed await may leave the interrupt flag set. Clear it between writes so the
+    // remaining started writes can finish, then restore it for the caller after the drain.
+    boolean interrupted = Thread.interrupted();
     for (final var write : writes) {
       try {
         write.result.await();
@@ -5032,6 +5035,8 @@ public final class WOWCache extends AbstractWriteCache
         } else if (failure != t) {
           failure.addSuppressed(t);
         }
+      } finally {
+        interrupted |= Thread.interrupted();
       }
     }
     // Release all acquired files even if one release fails. No page buffer may be freed
@@ -5048,6 +5053,9 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
     if (failure != null) {
       rethrowWriteFailure(failure);
     }

@@ -585,6 +585,15 @@ public final class AsyncFile implements File {
 
     @Override
     public void completed(Integer bytesWritten, CountDownLatch attachment) {
+      // Metrics must not settle a slot after the continuation has started using its buffer.
+      // A metrics failure does not change the outcome of the physical write.
+      try {
+        diskWriteMeter.record(bytesWritten);
+      } catch (Throwable ignored) {
+        // Continue the write even if recording its rate fails.
+      }
+
+      boolean continuationSubmitted = false;
       try {
         if (byteBuffer.remaining() > 0) {
           lock.sharedLock();
@@ -592,16 +601,21 @@ public final class AsyncFile implements File {
             checkForClose();
             // A rejected continuation does not call failed() on this handler.
             fileChannel.write(byteBuffer, position + byteBuffer.position(), attachment, this);
+            continuationSubmitted = true;
           } finally {
             lock.sharedUnlock();
           }
         } else {
           finish(null, attachment);
         }
-        // Never let metrics prevent the final callback from settling the write.
-        diskWriteMeter.record(bytesWritten);
       } catch (Throwable t) {
-        finish(t, attachment);
+        if (continuationSubmitted) {
+          // Unlock failed after submission. The continuation callback still owns the buffer
+          // and must settle the slot, even when its caller observes an error here.
+          ioResult.recordFailure(t);
+        } else {
+          finish(t, attachment);
+        }
       }
     }
 

@@ -1,38 +1,33 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertNull;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableEntry;
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
-import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
-import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
-import java.io.IOException;
-import java.nio.ByteOrder;
-import java.util.List;
-import com.jetbrains.youtrackdb.internal.LogRecordCollector;
-import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
-import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
+import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -43,10 +38,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -152,6 +149,7 @@ public class WOWCacheFlushErrorTest {
       executor.shutdownNow();
     }
   }
+
   /** Release errors do not replace the first write error or prevent releasing the next file. */
   @SuppressWarnings("unchecked")
   @Test
@@ -193,6 +191,7 @@ public class WOWCacheFlushErrorTest {
     verify(files).release(secondEntry);
     verify(files).release(thirdEntry);
   }
+
   /** When releases themselves fail, the first error survives even if the same error recurs. */
   @SuppressWarnings("unchecked")
   @Test
@@ -220,6 +219,7 @@ public class WOWCacheFlushErrorTest {
     verify(files).release(firstEntry);
     verify(files).release(secondEntry);
   }
+
   /** The same throwable from submission and a started result must never suppress itself. */
   @SuppressWarnings("unchecked")
   @Test
@@ -245,6 +245,7 @@ public class WOWCacheFlushErrorTest {
     verify(files).release(firstEntry);
     verify(files).release(secondEntry);
   }
+
   /** Interruption on the first wait does not skip a second write or release its file early. */
   @SuppressWarnings("unchecked")
   @Test
@@ -309,6 +310,7 @@ public class WOWCacheFlushErrorTest {
       executor.shutdownNow();
     }
   }
+
   /** A failed durable page write keeps its original page dirty and its copy alive until done. */
   @SuppressWarnings("unchecked")
   @Test
@@ -351,10 +353,10 @@ public class WOWCacheFlushErrorTest {
     final var copy = pageCopy.getNativeByteBuffer().order(ByteOrder.nativeOrder());
     final var recordClass = Class.forName(WOWCache.class.getName() + "$WritePageContainer");
     final var constructor = recordClass.getDeclaredConstructor(long.class, ByteBuffer.class,
-        Pointer.class, CachePointer.class);
+        Pointer.class, CachePointer.class, PageWriteTracker.PageWriteAttempt.class);
     constructor.setAccessible(true);
     final var chunk = new ArrayList<>();
-    chunk.add(constructor.newInstance(1L, copy, pageCopy, pointer));
+    chunk.add(constructor.newInstance(1L, copy, pageCopy, pointer, null));
     final var chunks = new ArrayList<>();
     chunks.add(chunk);
     final var method = WOWCache.class.getDeclaredMethod("flushPages", ArrayList.class,
@@ -385,6 +387,7 @@ public class WOWCacheFlushErrorTest {
       pool.clear();
     }
   }
+
   /** Synchronous group submission failure still releases its acquired file. */
   @SuppressWarnings("unchecked")
   @Test
@@ -411,6 +414,7 @@ public class WOWCacheFlushErrorTest {
     verify(files).release(entry);
     assertNull(readFlushError(cache));
   }
+
   private static Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> pageBuffers(
       long... ids) {
     final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
@@ -439,7 +443,6 @@ public class WOWCacheFlushErrorTest {
     field.setAccessible(true);
     return field.get(cache);
   }
-
 
   /** The warning starts at 30 seconds, repeats at five minutes, and resets on progress. */
   @Test
