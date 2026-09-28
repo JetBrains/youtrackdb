@@ -571,12 +571,9 @@ public final class AsyncFile implements File {
       if (exc != null) {
         ioResult.exc.compareAndSet(null, exc);
       }
-      try {
-        dirtyCounter.incrementAndGet();
-      } finally {
-        attachment.countDown();
-        syncSemaphore.release();
-      }
+      dirtyCounter.incrementAndGet();
+      attachment.countDown();
+      syncSemaphore.release();
       if (exc != null) {
         LogManager.instance().error(this, "Error during write operation to the file " + osFile,
             exc);
