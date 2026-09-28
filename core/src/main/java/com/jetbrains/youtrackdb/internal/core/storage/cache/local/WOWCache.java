@@ -4961,8 +4961,7 @@ public final class WOWCache extends AbstractWriteCache
             final var waitingFile = entry.getLongKey();
             slotWait.noProgress(openFileSlotNanos(), () -> LogManager.instance().warn(this,
                 "Storage %s cannot acquire file %d (open files %d, limit %d). "
-                    + "The file may be missing or all open files may be in use. "
-                    + "Last close error unavailable",
+                    + "The file may be missing or all open files may be in use.",
                 (Throwable) null, storageName, waitingFile,
                 files.openFilesCount(), files.openFilesLimit()));
             Thread.sleep(1);
