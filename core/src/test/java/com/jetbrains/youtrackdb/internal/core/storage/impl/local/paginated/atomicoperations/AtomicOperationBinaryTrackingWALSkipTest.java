@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
@@ -169,7 +170,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   /**
    * A durable-only operation with properly flushed PageOperations must produce
    * the WAL unit: start record, PageOperation (flushed at component boundary),
-   * FileCreatedWALRecord, AtomicUnitEndRecord. No UpdatePageRecord is produced.
+   * FileCreatedWALRecord, PageAllocatedWALRecord, AtomicUnitEndRecord.
+   * No UpdatePageRecord is produced.
    */
   @Test
   public void durableOperationWithFlushedPageOpsProducesCorrectWALUnit()
@@ -181,26 +183,25 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     var result = op.commitChanges(42L, wal);
 
-    // Every dependent page must retain the exact atomic-unit start position. A later wal.end()
-    // value could cross a segment boundary under concurrent WAL appends.
+    // Every dependent page retains the exact atomic-unit start, even with later WAL appends.
     verify(readCache)
         .loadOrAddForWrite(
             eq(fileId), eq(0L), eq(writeCache), anyBoolean(),
             eq(new LogSequenceNumber(0, 1)));
 
-    // start placeholder, PageOperation (from flush), FileCreated (from commit), End
-    assertThat(loggedRecords).hasSize(4);
+    // The allocation precedes the end, even though page operations were flushed earlier.
+    assertThat(loggedRecords).hasSize(5);
     assertThat(loggedRecords.get(0)).isNull(); // start record placeholder
     assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
-    assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
-        .isEqualTo(fileId);
+    assertThat(((PageOperation) loggedRecords.get(1)).getFileId()).isEqualTo(fileId);
     assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
-    assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
-    // No UpdatePageRecord anywhere
+    assertThat(loggedRecords.get(3)).isInstanceOf(PageAllocatedWALRecord.class);
+    assertThat(((PageAllocatedWALRecord) loggedRecords.get(3)).getPageIndex()).isZero();
+    assertThat(((PageAllocatedWALRecord) loggedRecords.get(3)).getFileId()).isEqualTo(fileId);
+    assertThat(loggedRecords.get(4)).isInstanceOf(AtomicUnitEndRecord.class);
     assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
         .isZero();
-    // commitChanges() must return the LSN of the AtomicUnitEndRecord
-    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
+    assertThat(result).isEqualTo(loggedRecords.get(4).getLsn());
   }
 
   /**
@@ -233,10 +234,11 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     var result = op.commitChanges(42L, wal);
 
     assertThat(result).isNotNull();
-    // start + PageOperation (flushed by commitChanges) + FileCreated + End
-    assertThat(loggedRecords).hasSize(4);
+    // start + PageOperation (flushed by commitChanges) + FileCreated + allocation + End
+    assertThat(loggedRecords).hasSize(5);
     assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
-    assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    assertThat(loggedRecords.get(3)).isInstanceOf(PageAllocatedWALRecord.class);
+    assertThat(loggedRecords.get(4)).isInstanceOf(AtomicUnitEndRecord.class);
     // No UpdatePageRecord
     assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
         .isZero();
@@ -261,8 +263,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
 
     var result = op.commitChanges(42L, wal);
 
-    // start, PageOperation(durable, from flush), FileCreated(durable, from commit), End
-    assertThat(loggedRecords).hasSize(4);
+    // start, PageOperation(durable), FileCreated(durable), allocation(durable), End
+    assertThat(loggedRecords).hasSize(5);
     assertThat(loggedRecords.get(0)).isNull();
     assertThat(loggedRecords.get(1)).isInstanceOf(PageOperation.class);
     assertThat(((PageOperation) loggedRecords.get(1)).getFileId())
@@ -270,12 +272,15 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     assertThat(loggedRecords.get(2)).isInstanceOf(FileCreatedWALRecord.class);
     assertThat(((FileCreatedWALRecord) loggedRecords.get(2)).getFileId())
         .isEqualTo(durableFileId);
-    assertThat(loggedRecords.get(3)).isInstanceOf(AtomicUnitEndRecord.class);
+    assertThat(loggedRecords.get(3)).isInstanceOf(PageAllocatedWALRecord.class);
+    assertThat(((PageAllocatedWALRecord) loggedRecords.get(3)).getFileId())
+        .isEqualTo(durableFileId);
+    assertThat(loggedRecords.get(4)).isInstanceOf(AtomicUnitEndRecord.class);
     // No UpdatePageRecord anywhere
     assertThat(loggedRecords.stream().filter(r -> r instanceof UpdatePageRecord).count())
         .isZero();
     // commitChanges() must return the LSN of the AtomicUnitEndRecord
-    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
+    assertThat(result).isEqualTo(loggedRecords.get(4).getLsn());
   }
 
   /**
@@ -307,10 +312,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
         .filter(r -> r instanceof FileDeletedWALRecord)
         .toList();
     assertThat(deletedRecords).isEmpty();
-    // Total: start + FileCreated(durable) + PageOperation(durable) + End
-    assertThat(loggedRecords).hasSize(4);
-    // Durable part still produces a valid end LSN
-    assertThat(result).isEqualTo(loggedRecords.get(3).getLsn());
+    // Total: start + PageOperation(durable) + FileCreated(durable) + allocation + End
+    assertThat(loggedRecords).hasSize(5);
+    assertThat(result).isEqualTo(loggedRecords.get(4).getLsn());
     // Cache deletion still applied for the non-durable file
     verify(readCache).deleteFile(existingFileId, writeCache);
   }
@@ -537,9 +541,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     op.commitChanges(42L, wal);
 
     // Verify emitted records contain only durable file data
-    // start(placeholder=null), PageOperation(durable, from flush),
-    // FileCreated(durable, from commit), End
-    assertThat(loggedRecords).hasSize(4);
+    // start(placeholder=null), PageOperation(durable), FileCreated(durable), allocation, End
+    assertThat(loggedRecords).hasSize(5);
     var pageOp = (PageOperation) loggedRecords.get(1);
     assertThat(pageOp.getFileId()).isEqualTo(durableFileId);
     var fileCreated = (FileCreatedWALRecord) loggedRecords.get(2);
@@ -551,7 +554,8 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     atomicUnit.add(new AtomicUnitStartRecord(false, 42));
     atomicUnit.add(fileCreated);
     atomicUnit.add(pageOp);
-    atomicUnit.add(loggedRecords.get(3)); // AtomicUnitEndRecord
+    atomicUnit.add(loggedRecords.get(3)); // PageAllocatedWALRecord
+    atomicUnit.add(loggedRecords.get(4)); // AtomicUnitEndRecord
 
     // Set up AbstractStorage mock for restoreAtomicUnit — only stubs
     // actually invoked during restore of durable-only WAL records
@@ -591,9 +595,10 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     restoreMethod.setAccessible(true);
     restoreMethod.invoke(storage, atomicUnit, atLeastOnePageUpdate);
 
-    // Durable file's page must have been loaded for write (= restored)
-    verify(restoreReadCache).loadOrAddForWrite(
+    // The pre-scan materializes the page once and redo loads it a second time.
+    verify(restoreReadCache, org.mockito.Mockito.times(2)).loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), eq(true), any());
+    verify(restoreReadCache).releaseFromWrite(restoreCacheEntry, restoreWriteCache, false);
     assertThat(atLeastOnePageUpdate.getValue()).isTrue();
 
     // Durable file was re-created (exists("durable-file.dat") returns false)
@@ -713,6 +718,81 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // No page updates should have occurred (the only UpdatePageRecord
     // was for the non-durable file, which was skipped)
     assertThat(atLeastOnePageUpdate.getValue()).isFalse();
+  }
+
+  /**
+   * A changed high page extends the physical file across a silent, allocated page.
+   * Only pages physically present after apply receive declarations.
+   */
+  @Test
+  public void durableGapFillDeclaresEveryPhysicalPageButNotUnusedTail() throws IOException {
+    var op = createOperationWithWAL();
+    var fileId = setupNewDurableFileWithFlushedOps(op, "gapped.dat");
+    op.allocatePageForWrite(fileId, 1); // no changes, gap-filled by page 2
+    var highPage = op.allocatePageForWrite(fileId, 2);
+    highPage.getChanges().setByteValue(null, (byte) 1, 100);
+    highPage.setInitialLSN(new LogSequenceNumber(-1, -1));
+    var pageOp = mock(PageOperation.class, CALLS_REAL_METHODS);
+    when(pageOp.getFileId()).thenReturn(fileId);
+    when(pageOp.getPageIndex()).thenReturn(2L);
+    op.registerPageOperation(fileId, 2, pageOp);
+    op.flushPendingOperations();
+    op.allocatePageForWrite(fileId, 3); // no changes, no physical page
+    mockLoadOrAddForWrite(fileId, 0);
+
+    op.commitChanges(42L, wal);
+
+    var declared = loggedRecords.stream()
+        .filter(r -> r instanceof PageAllocatedWALRecord)
+        .map(r -> ((PageAllocatedWALRecord) r).getPageIndex())
+        .toList();
+    assertThat(declared).containsExactly(0L, 1L, 2L);
+    assertThat(loggedRecords.getLast()).isInstanceOf(AtomicUnitEndRecord.class);
+  }
+
+  /** No changed page reaches apply, so an unused allocation has no physical page to declare. */
+  @Test
+  public void unusedAllocationDoesNotEmitRecord() throws IOException {
+    var op = createOperationWithWAL();
+    long fileId = composeFileId(60, STORAGE_ID);
+    when(writeCache.bookFileId("unused.dat")).thenReturn(fileId);
+    op.addFile("unused.dat");
+    op.allocatePageForWrite(fileId, 0);
+
+    op.commitChanges(42L, wal);
+
+    assertThat(loggedRecords.stream().filter(r -> r instanceof PageAllocatedWALRecord))
+        .isEmpty();
+    assertThat(loggedRecords.getLast()).isInstanceOf(AtomicUnitEndRecord.class);
+    verify(readCache, never()).loadOrAddForWrite(
+        eq(fileId), anyLong(), any(), anyBoolean(), any());
+  }
+
+  /** An existing file declares only the newly extended range, not its existing pages. */
+  @Test
+  public void existingFileDeclaresOnlyNewPhysicalPages() throws IOException {
+    var op = createOperationWithWAL();
+    long fileId = composeFileId(50, STORAGE_ID);
+    when(writeCache.loadFile("existing.dat")).thenReturn(fileId);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(4L);
+    op.loadFile("existing.dat");
+    var page = op.allocatePageForWrite(fileId, 5);
+    page.getChanges().setByteValue(null, (byte) 1, 100);
+    page.setInitialLSN(new LogSequenceNumber(-1, -1));
+    var pageOp = mock(PageOperation.class, CALLS_REAL_METHODS);
+    when(pageOp.getFileId()).thenReturn(fileId);
+    when(pageOp.getPageIndex()).thenReturn(5L);
+    op.registerPageOperation(fileId, 5, pageOp);
+    op.startToApplyOperations(42L);
+    op.flushPendingOperations();
+    mockLoadOrAddForWrite(fileId, 5);
+
+    op.commitChanges(42L, wal);
+
+    assertThat(loggedRecords.stream()
+        .filter(r -> r instanceof PageAllocatedWALRecord)
+        .map(r -> ((PageAllocatedWALRecord) r).getPageIndex()))
+        .containsExactly(4L, 5L);
   }
 
   // --- Helper methods ---

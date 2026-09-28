@@ -142,6 +142,32 @@ public class ActiveWALRecordsRoundTripTest {
   }
 
   /**
+   * A page allocation declares its page, file, and atomic unit. Verify both the direct
+   * byte-array round-trip and factory dispatch for the new on-disk record identifier.
+   */
+  @Test
+  public void pageAllocatedRecordRoundTripsThroughFactory() {
+    var original = new PageAllocatedWALRecord(0xAABBCCL, 0x112233L, 0x77L);
+    var buffer = allocateBuffer(original.serializedSize());
+    assertEquals(buffer.length, original.toStream(buffer, 1));
+
+    var restored = new PageAllocatedWALRecord();
+    assertEquals(buffer.length, restored.fromStream(buffer, 1));
+    assertEquals(original.getPageIndex(), restored.getPageIndex());
+    assertEquals(original.getFileId(), restored.getFileId());
+    assertEquals(original.getOperationUnitId(), restored.getOperationUnitId());
+    assertEquals(WALRecordTypes.PAGE_ALLOCATED_WAL_RECORD, restored.getId());
+
+    var factoryBuffer = WALRecordsFactory.toStream(original);
+    var factoryRecord = WALRecordsFactory.INSTANCE.fromStream(factoryBuffer.array());
+    assertTrue(factoryRecord instanceof PageAllocatedWALRecord);
+    var allocation = (PageAllocatedWALRecord) factoryRecord;
+    assertEquals(original.getPageIndex(), allocation.getPageIndex());
+    assertEquals(original.getFileId(), allocation.getFileId());
+    assertEquals(original.getOperationUnitId(), allocation.getOperationUnitId());
+  }
+
+  /**
    * {@link FileCreatedWALRecord} carries a fileName plus fileId. Use a non-trivial
    * Unicode string so a UTF-8 / UTF-16 mismatch would corrupt the round-trip.
    */

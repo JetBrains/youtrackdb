@@ -10,6 +10,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -28,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
@@ -365,6 +367,82 @@ public class RestoreAtomicUnitPageOperationTest {
     assertTrue(atLeastOnePageUpdate.getValue());
   }
 
+  /**
+   * Declarations after a page operation still load in ascending order before redo.
+   * The replay-scoped set retains each allocation's WAL position while loads run.
+   */
+  @Test
+  public void declaredPagesMaterializeInAscendingOrderBeforeRedo() throws Exception {
+    var pageOp = spy(new TestPageOperation(
+        2, DURABLE_EXTERNAL_ID, 1, new LogSequenceNumber(0, 0), 42));
+    pageOp.setLsn(new LogSequenceNumber(1, 100));
+    var pageZero = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, new LogSequenceNumber(0, 0));
+    var pageTwo = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 2, new LogSequenceNumber(0, 0));
+    when(readCache.loadOrAddForWrite(
+        eq(DURABLE_EXTERNAL_ID), anyLong(), eq(writeCache), eq(true), any()))
+        .thenAnswer(inv -> {
+          var field = AbstractStorage.class.getDeclaredField("declaredAllocationPages");
+          field.setAccessible(true);
+          @SuppressWarnings("unchecked")
+          var declared = (java.util.Map<Integer, java.util.TreeMap<Long, LogSequenceNumber>>) field
+              .get(storage);
+          assertEquals(new LogSequenceNumber(1, 10), declared.get(DURABLE_INTERNAL_ID).get(0L));
+          assertEquals(new LogSequenceNumber(1, 20), declared.get(DURABLE_INTERNAL_ID).get(2L));
+          return inv.getArgument(1, Long.class) == 0L ? pageZero : pageTwo;
+        });
+
+    var high = new PageAllocatedWALRecord(2, DURABLE_EXTERNAL_ID, 1);
+    high.setLsn(new LogSequenceNumber(1, 20));
+    var low = new PageAllocatedWALRecord(0, DURABLE_EXTERNAL_ID, 1);
+    low.setLsn(new LogSequenceNumber(1, 10));
+    var unit = new ArrayList<WALRecord>();
+    unit.add(new AtomicUnitStartRecord(false, 1));
+    unit.add(pageOp); // The operations may precede their declarations in the WAL.
+    unit.add(high);
+    unit.add(low); // Deliberately out of page-index order.
+    unit.add(new AtomicUnitEndRecord(1, false, null));
+
+    var updated = new ModifiableBoolean();
+    storage.restoreAtomicUnit(unit, updated);
+
+    var order = inOrder(readCache, pageOp);
+    order.verify(readCache).loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, null);
+    order.verify(readCache).releaseFromWrite(pageZero, writeCache, false);
+    order.verify(readCache).loadOrAddForWrite(DURABLE_EXTERNAL_ID, 2, writeCache, true, null);
+    order.verify(readCache).releaseFromWrite(pageTwo, writeCache, false);
+    order.verify(pageOp).redo(any(DurablePage.class));
+    assertTrue(updated.getValue());
+    var field = AbstractStorage.class.getDeclaredField("declaredAllocationPages");
+    field.setAccessible(true);
+    assertTrue(((java.util.Map<?, ?>) field.get(storage)).isEmpty());
+  }
+
+  /** A declaration alone can forward-create a file whose create record comes later. */
+  @Test
+  public void declarationConsultsPendingCreateBeforeAnyApply() throws Exception {
+    wireMissingFileRecoverableViaConsult();
+    var page = createCacheEntryWithLsn(CREATED_EXTERNAL_ID, 0, new LogSequenceNumber(0, 0));
+    when(readCache.loadOrAddForWrite(
+        eq(CREATED_EXTERNAL_ID), eq(0L), eq(writeCache), eq(true), any()))
+        .thenReturn(page);
+    var declaration = new PageAllocatedWALRecord(0, CREATED_EXTERNAL_ID, 1);
+    declaration.setLsn(new LogSequenceNumber(1, 1));
+    var unit = new ArrayList<WALRecord>();
+    unit.add(new AtomicUnitStartRecord(false, 1));
+    unit.add(declaration);
+    unit.add(new FileCreatedWALRecord(1, "created.dat", CREATED_EXTERNAL_ID));
+    unit.add(new AtomicUnitEndRecord(1, false, null));
+
+    var updated = new ModifiableBoolean();
+    storage.restoreAtomicUnit(unit, updated);
+
+    var order = inOrder(readCache);
+    order.verify(readCache).addFile("created.dat", CREATED_EXTERNAL_ID, writeCache);
+    order.verify(readCache).loadOrAddForWrite(CREATED_EXTERNAL_ID, 0, writeCache, true, null);
+    order.verify(readCache).releaseFromWrite(page, writeCache, false);
+    assertFalse(updated.getValue()); // An allocation is not a page update.
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Lazy-consult crash-replay regression (issue YTDB-1099).
   //
@@ -399,8 +477,8 @@ public class RestoreAtomicUnitPageOperationTest {
     verify(pageOp).redo(any(DurablePage.class));
     verify(readCache, never()).addFile(any(), anyLong(), any());
     verify(writeCache, never()).restoreFileById(anyLong());
-    // Only the outer replay loop traverses the unit. The pending-create scan is not entered.
-    verify(unit, times(1)).iterator();
+    // The allocation pre-scan and outer replay loop traverse the unit, but no create scan runs.
+    verify(unit, times(2)).iterator();
   }
 
   /** EOF without an end record drops the buffered unit, even if it contains a pending create. */
