@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.common.profiler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.within;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.GranularTicker.Snapshot;
@@ -14,16 +13,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 // GranularTicker publishes a single (nanoTime, nanoTimeDifference) Snapshot behind one
 // volatile reference. A single scheduled task is the only writer, and monotonicity of both
 // accessors is enforced at publish time by GranularTicker.nextSnapshot. Readers do a plain
-// volatile read plus field access. The @Category marker is retained because the wall-clock
-// timing assertions in testTimeApproximation are still sensitive to CPU contention on
-// virtualized CI runners (per-fire scheduler lag up to ~75 ms has been observed on
-// GitHub-hosted macOS arm) — a stability hint, not a correctness requirement.
+// volatile read plus field access. The @Category marker is retained to keep this
+// real-clock scheduler test separate from other timing-sensitive tests.
 @Category(SequentialTest.class)
 public class GranularTickerTest {
 
@@ -33,13 +32,9 @@ public class GranularTickerTest {
     final var timeAdjustmentNanos = TimeUnit.MILLISECONDS.toNanos(50);
     var scheduler = Executors.newScheduledThreadPool(1);
     try (var ticker = new GranularTicker(granularityNanos, timeAdjustmentNanos, scheduler)) {
-
+      final long wallClockAllowanceMillis = WallClockStep.measureMillis();
       ticker.start();
-      final var granularityMillis = TimeUnit.NANOSECONDS.toMillis(granularityNanos);
-
-      final var startRealNano = System.nanoTime();
-      final var startApproxNano = ticker.approximateNanoTime();
-      var prevApproxNano = startApproxNano;
+      var prevApproxNano = ticker.approximateNanoTime();
       var prevApproxMillis = ticker.approximateCurrentTimeMillis();
 
       for (var i = 0; i < 20; i++) {
@@ -52,10 +47,9 @@ public class GranularTickerTest {
         final var afterMillis = System.currentTimeMillis();
 
         // The ticker should never run ahead of real time.
-        assertThat(approxNano)
-            .isLessThanOrEqualTo(afterNano + granularityNanos);
-        assertThat(approxMillis)
-            .isLessThanOrEqualTo(afterMillis + granularityMillis);
+        assertThat(approxNano).isLessThanOrEqualTo(afterNano);
+        assertThat(approxMillis).isLessThanOrEqualTo(
+            afterMillis + wallClockAllowanceMillis);
 
         // The ticker should be monotonically non-decreasing.
         assertThat(approxNano).isGreaterThanOrEqualTo(prevApproxNano);
@@ -65,21 +59,18 @@ public class GranularTickerTest {
         prevApproxMillis = approxMillis;
       }
 
-      // The ticker's background sampler fires at fixed-rate intervals of `granularityNanos`,
-      // but the scheduler can delay a single fire significantly. On virtualized CI
-      // environments the worst-case per-fire lag goes well beyond one granularity tick:
-      // GitHub-hosted macOS arm (virtualized Apple Silicon) has shown per-fire ticker lag
-      // up to ~75 ms for a 10 ms granularity across the tests in this package, and Windows
-      // CI has a ~15.6 ms OS timer quantum that can stack with CPU contention. A 10x
-      // multiplier (100 ms for a 10 ms granularity) covers both with some headroom while
-      // still being a meaningful lower bound on cumulative ticker advancement over 20
-      // iterations — a ticker that silently stopped advancing would still fail since
-      // totalTickerNanos would stay at zero while totalRealNanos exceeds 100 ms.
-      final var totalRealNanos = System.nanoTime() - startRealNano;
-      final var totalTickerNanos = prevApproxNano - startApproxNano;
-      assertThat(totalTickerNanos)
-          .as("ticker should advance over 20 iterations")
-          .isGreaterThanOrEqualTo(totalRealNanos - 10 * granularityNanos);
+      // A delayed scheduler fire may leave the ticker arbitrarily late. Pin a real-time
+      // target and wait for both accessors to catch up instead of bounding scheduler lag.
+      final long targetNano = System.nanoTime();
+      final long targetMillis = System.currentTimeMillis();
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+      while (ticker.approximateNanoTime() < targetNano
+          || ticker.approximateCurrentTimeMillis() < targetMillis) {
+        assertThat(System.nanoTime())
+            .as("ticker must eventually catch up to both real-clock targets")
+            .isLessThan(deadline);
+        Thread.onSpinWait();
+      }
     } finally {
       scheduler.shutdownNow();
     }
@@ -286,7 +277,9 @@ public class GranularTickerTest {
       // clock.
       var nanoBefore = ticker.approximateNanoTime();
       var snapshotBefore = snapshotField.get(ticker);
+      var wallBefore = System.currentTimeMillis();
       capturedTasks.get(0).run();
+      var wallAfter = System.currentTimeMillis();
       var snapshotAfterFire = snapshotField.get(ticker);
       assertThat(ticker.approximateNanoTime())
           .as("refresh task must advance nanoTime when ticker is running")
@@ -294,9 +287,11 @@ public class GranularTickerTest {
       assertThat(snapshotAfterFire)
           .as("refresh task must publish a new snapshot when ticker is running")
           .isNotSameAs(snapshotBefore);
+      // No earlier refresh ran: the previous millis was sampled at start(). With no
+      // backward wall-clock step, the monotonic clamp cannot exceed this fire's wall sample.
       assertThat(ticker.approximateCurrentTimeMillis())
-          .as("recalibration must keep approximateCurrentTimeMillis close to wall clock")
-          .isCloseTo(System.currentTimeMillis(), within(100L));
+          .as("recalibration millis must be bracketed by the surrounding wall reads")
+          .isBetween(wallBefore, wallAfter);
 
       var expectedTick = ticker.approximateNanoTime() / granularityNanos;
       assertThat(ticker.getTick()).isEqualTo(expectedTick);
@@ -318,6 +313,102 @@ public class GranularTickerTest {
     } finally {
       fakeScheduler.shutdownNow();
     }
+  }
+
+  /** A controlled fire publishes the supplied nano sample, then stop freezes both accessors. */
+  @Test
+  public void controlledRefreshPublishesExactNanoAndStops() {
+    var nano = new AtomicLong(1_000_000_000L);
+    var wall = new AtomicLong(5_000L);
+    var tasks = new ArrayList<Runnable>();
+    var scheduler = capturingScheduler(tasks);
+    try {
+      var ticker = new GranularTicker(1, 2, scheduler, nano::get, wall::get);
+      ticker.start();
+      nano.set(2_000_000_000L);
+      tasks.getFirst().run();
+      assertThat(ticker.approximateNanoTime())
+          .as("refresh must publish the supplied nano sample").isEqualTo(nano.get());
+      ticker.stop();
+      nano.set(3_000_000_000L);
+      tasks.getFirst().run();
+      assertThat(ticker.approximateNanoTime())
+          .as("stopped ticker must retain the published nano sample").isEqualTo(2_000_000_000L);
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** Startup and recalibration must derive exactly the controlled wall sample. */
+  @Test
+  public void controlledWallOffsetIsExactAtStartAndRecalibration() {
+    var nano = new AtomicLong(1_000_000_000L);
+    var wall = new AtomicLong(5_000L);
+    var tasks = new ArrayList<Runnable>();
+    var scheduler = capturingScheduler(tasks);
+    try {
+      var ticker = new GranularTicker(1, 1, scheduler, nano::get, wall::get);
+      ticker.start();
+      assertThat(ticker.approximateCurrentTimeMillis())
+          .as("startup must derive the supplied wall millis").isEqualTo(5_000L);
+      nano.set(2_000_000_000L);
+      wall.set(7_500L);
+      tasks.getFirst().run();
+      assertThat(ticker.approximateCurrentTimeMillis())
+          .as("recalibration must derive the supplied wall millis").isEqualTo(7_500L);
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  /** A pause after the first clock read must not put the next derived timestamp ahead. */
+  @Test
+  public void wallFirstSamplingDoesNotRunAheadAfterPauseBetweenReads() {
+    var nano = new AtomicLong(1_000_000_000L);
+    var wall = new AtomicLong(5_000L);
+    var firstRead = new boolean[] {true};
+    LongSupplier nanoClock = () -> {
+      long sample = nano.get();
+      if (firstRead[0]) {
+        firstRead[0] = false;
+        nano.addAndGet(100_000_000L);
+        wall.addAndGet(100L);
+      }
+      return sample;
+    };
+    LongSupplier wallClock = () -> {
+      long sample = wall.get();
+      if (firstRead[0]) {
+        firstRead[0] = false;
+        nano.addAndGet(100_000_000L);
+        wall.addAndGet(100L);
+      }
+      return sample;
+    };
+    var tasks = new ArrayList<Runnable>();
+    var scheduler = capturingScheduler(tasks);
+    try {
+      // The first fire reuses the startup offset and samples the post-pause nano clock.
+      var ticker = new GranularTicker(1, 2, scheduler, nanoClock, wallClock);
+      ticker.start();
+      tasks.getFirst().run();
+      assertThat(ticker.approximateCurrentTimeMillis())
+          .as("a pause between clock reads must not put derived millis ahead of wall time")
+          .isLessThanOrEqualTo(wall.get());
+    } finally {
+      scheduler.shutdownNow();
+    }
+  }
+
+  private static ScheduledExecutorService capturingScheduler(List<Runnable> tasks) {
+    return new DelegatingScheduledExecutorService(Executors.newSingleThreadScheduledExecutor()) {
+      @Override
+      public ScheduledFuture<?> scheduleAtFixedRate(
+          Runnable command, long initialDelay, long period, TimeUnit unit) {
+        tasks.add(command);
+        return NO_OP_FUTURE;
+      }
+    };
   }
 
   /** A no-op {@link ScheduledFuture} that reports as not done and not cancelled. */

@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -709,6 +710,11 @@ public class FrontendTransactionImpl implements
 
   }
 
+  // Override only on a single test transaction. Production always uses the engine ticker.
+  Ticker ticker() {
+    return YouTrackDBEnginesManager.instance().getTicker();
+  }
+
   private Map<RID, RID> doCommit(
       @Nullable TransactionMetricsListener metricsListener,
       @Nullable QueryMonitoringMode metricsMode,
@@ -731,7 +737,7 @@ public class FrontendTransactionImpl implements
       assert metricsMode != null && metricsTrackingId != null;
 
       if (metricsMode == QueryMonitoringMode.LIGHTWEIGHT) {
-        var ticker = YouTrackDBEnginesManager.instance().getTicker();
+        var ticker = ticker();
         commitStartMillis = ticker.approximateCurrentTimeMillis();
         commitStartNanos = ticker.approximateNanoTime();
       } else {
@@ -795,8 +801,7 @@ public class FrontendTransactionImpl implements
       @Nullable Exception cause) {
     final long durationNanos;
     if (mode == QueryMonitoringMode.LIGHTWEIGHT) {
-      durationNanos = YouTrackDBEnginesManager.instance().getTicker().approximateNanoTime()
-          - commitStartNanos;
+      durationNanos = ticker().approximateNanoTime() - commitStartNanos;
     } else {
       durationNanos = System.nanoTime() - commitStartNanos;
     }

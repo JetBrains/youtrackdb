@@ -6,6 +6,7 @@ import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.profiler.WallClockStep;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.TransactionMetricsListener;
@@ -24,33 +25,11 @@ import org.junit.runner.RunWith;
 @RunWith(GremlinProcessRunner.class)
 public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest {
 
-  // The ticker-based millis timestamp is derived from two independently-refreshed volatile
-  // fields (nanoTime and nanoTimeDifference). When nanoTimeDifference is recalibrated,
-  // integer truncation in nanoTime/1_000_000 can cause the result to dip by up to 1 ms.
-  private static final long ALLOWED_TICKER_JITTER_MS = 1;
-
-  private static long TICKER_POSSIBLE_LAG_MILLIS;
-  private static long TICKER_GRANULARITY_MILLIS;
+  private static long wallClockAllowanceMillis;
 
   @BeforeClass
-  public static void beforeClass() throws InterruptedException {
-    var granularity =
-        YouTrackDBEnginesManager.instance().getTicker().getGranularity();
-    TICKER_GRANULARITY_MILLIS = granularity / 1_000_000;
-    // The ticker's background sampler fires at fixed-rate intervals of `granularity`, but
-    // on virtualized CI the scheduler can delay a fire far beyond one granularity — Windows
-    // has a ~15.6 ms OS timer quantum, and GitHub-hosted macOS arm (virtualized Apple
-    // Silicon) has shown per-fire ticker lag up to ~75 ms for a 10 ms granularity across
-    // the tests in this package. A 10x multiplier (100 ms for a 10 ms granularity) covers
-    // both environments with headroom while still catching a ticker that drifts much
-    // farther behind real wall-clock time. The tight "ticker never runs ahead of
-    // wall-clock" direction is guarded independently in the assertion below at one
-    // granularity + ALLOWED_TICKER_JITTER_MS, which is not relaxed.
-    var tickerPossibleLagNanos = granularity * 10;
-    TICKER_POSSIBLE_LAG_MILLIS = tickerPossibleLagNanos / 1_000_000;
-
-    // Ensure ticker has had time to stabilize after graph setup.
-    Thread.sleep(100);
+  public static void beforeClass() {
+    wallClockAllowanceMillis = WallClockStep.measureMillis();
   }
 
   // 3.1. Basic commit callback — write transaction triggers listener exactly once.
@@ -209,38 +188,54 @@ public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest 
     assertThat(listener.trackingId).isNotNull().isNotEmpty();
   }
 
-  // 3.9. LIGHTWEIGHT mode — approximate timestamps.
+  // 3.9. LIGHTWEIGHT mode bounds real database commits with the shared ticker.
+  // Exact source provenance is proved by FrontendTransactionImplTickerTest.
   @Test
   @LoadGraphWith(MODERN)
   public void lightweightModeUsesApproximateTimestamps() {
-    var listener = new RememberingTxListener();
-    var beforeMillis = System.currentTimeMillis();
+    var ticker = YouTrackDBEnginesManager.instance().getTicker();
+    int qualifying = 0;
+    for (int total = 0; total < 20; total++) {
+      var listener = new RememberingTxListener();
+      var beforeMillis = ticker.approximateCurrentTimeMillis();
+      var beforeNanos = ticker.approximateNanoTime();
 
-    var tx = ytdbTx()
-        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
-        .withTransactionListener(listener);
-    tx.open();
-    g().addV("TestVertex").property("name", "lightweight").iterate();
-    tx.commit();
+      var tx = ytdbTx()
+          .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+          .withTransactionListener(listener);
+      tx.open();
+      g().addV("TestVertex").property("name", "lightweight" + total).iterate();
+      var tickerNanoBeforeCommit = ticker.approximateNanoTime();
+      var tickerMillisBeforeCommit = ticker.approximateCurrentTimeMillis();
+      tx.commit();
 
-    var afterMillis = System.currentTimeMillis();
+      // Read the ticker immediately after commit to identify a stable snapshot window.
+      var tickerNanoAfterCommit = ticker.approximateNanoTime();
+      var tickerMillisAfterCommit = ticker.approximateCurrentTimeMillis();
+      var afterNanos = System.nanoTime();
+      var afterMillis = System.currentTimeMillis();
 
-    assertThat(listener.callCount).isEqualTo(1);
-    // Ticker must never run ahead of real wall-clock time. The ticker exposes a past
-    // nanoTime sample, so forward drift can only come from nanoTimeDifference
-    // recalibration and integer truncation — one granularity plus ALLOWED_TICKER_JITTER_MS
-    // covers both. This tight bound is independent of scheduler noise on virtualized CI.
-    assertThat(listener.commitAtMillis)
-        .as("ticker must not run ahead of wall clock")
-        .isLessThanOrEqualTo(
-            afterMillis + TICKER_GRANULARITY_MILLIS + ALLOWED_TICKER_JITTER_MS);
-    // In lightweight mode, timestamps come from the ticker and may lag behind real time
-    // by up to TICKER_POSSIBLE_LAG_MILLIS due to scheduler starvation on virtualized CI.
-    assertThat(listener.commitAtMillis)
-        .isGreaterThanOrEqualTo(beforeMillis - TICKER_POSSIBLE_LAG_MILLIS);
-    // In LIGHTWEIGHT mode, if the commit is faster than the ticker granularity, both the
-    // start and end approximate nano times can be identical, yielding a zero duration.
-    assertThat(listener.commitTimeNanos).isGreaterThanOrEqualTo(0);
+      assertThat(listener.callCount).isEqualTo(1);
+      assertThat(listener.commitAtMillis)
+          .as("commit timestamp must not exceed ticker after commit")
+          .isLessThanOrEqualTo(tickerMillisAfterCommit)
+          .as("ticker must not run ahead of wall clock")
+          .isLessThanOrEqualTo(afterMillis + wallClockAllowanceMillis)
+          .isGreaterThanOrEqualTo(beforeMillis);
+      if (tickerNanoBeforeCommit == tickerNanoAfterCommit) {
+        // A stable ticker window permits an exact check. The controlled test proves provenance.
+        assertThat(listener.commitAtMillis)
+            .as("unchanged ticker requires the exact cached commit timestamp")
+            .isEqualTo(tickerMillisBeforeCommit);
+        qualifying++;
+      }
+      // The wall bound allows division truncation and one measured clock step. The
+      // nanoTime window starts at the same ticker and ends at a real read after commit.
+      assertThat(listener.commitTimeNanos)
+          .isGreaterThanOrEqualTo(0)
+          .isLessThanOrEqualTo(afterNanos - beforeNanos);
+    }
+    System.err.printf("LIGHTWEIGHT commit qualifying %d/20%n", qualifying);
   }
 
   // 3.9 (cont). EXACT mode — precise timestamps.
