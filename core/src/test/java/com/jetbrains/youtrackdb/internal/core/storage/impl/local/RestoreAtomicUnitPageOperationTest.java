@@ -43,6 +43,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -368,8 +369,8 @@ public class RestoreAtomicUnitPageOperationTest {
   }
 
   /**
-   * Declarations after a page operation still load in ascending order before redo.
-   * The replay-scoped set retains each allocation's WAL position while loads run.
+   * Declarations after a page operation keep their WAL positions in the scan map.
+   * Replay loads pages in ascending order before redo.
    */
   @Test
   public void declaredPagesMaterializeInAscendingOrderBeforeRedo() throws Exception {
@@ -380,16 +381,7 @@ public class RestoreAtomicUnitPageOperationTest {
     var pageTwo = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 2, new LogSequenceNumber(0, 0));
     when(readCache.loadOrAddForWrite(
         eq(DURABLE_EXTERNAL_ID), anyLong(), eq(writeCache), eq(true), any()))
-        .thenAnswer(inv -> {
-          var field = AbstractStorage.class.getDeclaredField("declaredAllocationPages");
-          field.setAccessible(true);
-          @SuppressWarnings("unchecked")
-          var declared = (java.util.Map<Integer, java.util.TreeMap<Long, LogSequenceNumber>>) field
-              .get(storage);
-          assertEquals(new LogSequenceNumber(1, 10), declared.get(DURABLE_INTERNAL_ID).get(0L));
-          assertEquals(new LogSequenceNumber(1, 20), declared.get(DURABLE_INTERNAL_ID).get(2L));
-          return inv.getArgument(1, Long.class) == 0L ? pageZero : pageTwo;
-        });
+        .thenAnswer(inv -> inv.getArgument(1, Long.class) == 0L ? pageZero : pageTwo);
 
     var high = new PageAllocatedWALRecord(2, DURABLE_EXTERNAL_ID, 1);
     high.setLsn(new LogSequenceNumber(1, 20));
@@ -402,6 +394,12 @@ public class RestoreAtomicUnitPageOperationTest {
     unit.add(low); // Deliberately out of page-index order.
     unit.add(new AtomicUnitEndRecord(1, false, null));
 
+    var declared = storage.scanDeclaredAllocationPages(unit);
+    assertEquals(1, declared.size());
+    assertEquals(Map.of(
+        0L, new LogSequenceNumber(1, 10),
+        2L, new LogSequenceNumber(1, 20)), declared.get(DURABLE_INTERNAL_ID));
+
     var updated = new ModifiableBoolean();
     storage.restoreAtomicUnit(unit, updated);
 
@@ -412,9 +410,6 @@ public class RestoreAtomicUnitPageOperationTest {
     order.verify(readCache).releaseFromWrite(pageTwo, writeCache, false);
     order.verify(pageOp).redo(any(DurablePage.class));
     assertTrue(updated.getValue());
-    var field = AbstractStorage.class.getDeclaredField("declaredAllocationPages");
-    field.setAccessible(true);
-    assertTrue(((java.util.Map<?, ?>) field.get(storage)).isEmpty());
   }
 
   /** A declaration alone can forward-create a file whose create record comes later. */

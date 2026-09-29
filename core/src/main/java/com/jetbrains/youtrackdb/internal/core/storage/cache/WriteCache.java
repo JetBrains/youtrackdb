@@ -300,6 +300,8 @@ public interface WriteCache {
    *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
    *       method routes Layer B helpers through {@code AtomicOperation.filledUpTo} so the
    *       in-TX {@code FileChanges} placeholder side-effect is preserved on first touch.
+   *   <li>{@code AtomicOperationBinaryTracking.commitChanges} — committed physical file-size
+   *       floor for WAL records that declare newly allocated pages.
    *   <li>{@link #physicalSizeForBackupSnapshot(long)} — the Layer A helper body delegates here
    *       inside the {@link WriteCache} implementers ({@code WOWCache},
    *       {@code DirectMemoryOnlyDiskCache}).
@@ -312,7 +314,7 @@ public interface WriteCache {
    * @deprecated External / cross-component callers must use {@link
    *     #physicalSizeForBackupSnapshot(long)} (Layer A) or {@code
    *     StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} (Layer B).
-   *     The five sites enumerated above are the only retained internal callers.
+   *     The six sites enumerated above are the only retained internal callers.
    */
   @Deprecated(forRemoval = false)
   long getFilledUpTo(long fileId);
@@ -334,7 +336,7 @@ public interface WriteCache {
    * from outside the cache/AOBT internal core?" into an audit-grep-able question.
    * {@link #getFilledUpTo(long)} stays callable for the documented internal set
    * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
-   * allocatePageForWrite}}, and the {@link WriteCache} implementers) and now carries an
+   * allocatePageForWrite, commitChanges}}, and the {@link WriteCache} implementers) and now carries an
    * {@code @Deprecated} marker so a new external caller trips a deprecation warning at
    * compile time.
    *
