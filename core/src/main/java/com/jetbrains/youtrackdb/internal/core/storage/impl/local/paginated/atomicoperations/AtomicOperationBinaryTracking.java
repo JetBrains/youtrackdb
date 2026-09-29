@@ -1022,9 +1022,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           continue;
         }
 
-        // Only a changed new page reaches the cache apply loop. Applying its highest
-        // index extends the physical file through every intervening index, even if
-        // an intervening allocation had no changes and was removed from this map.
+        // Only changed new pages determine the highest new index. Applying that index
+        // extends the physical file through every intervening index, even if an
+        // intervening allocation had no changes and was removed from this map.
         long highestNewPage = -1;
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
             fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();

@@ -333,10 +333,6 @@ public abstract class AbstractStorage
    */
   private IntOpenHashSet deletedNonDurableFileIds = new IntOpenHashSet();
 
-  // Scoped to one replayed atomic unit. Track 03 will use each declaration's WAL
-  // position when verifying or rebuilding its page in the write cache.
-  private Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = Map.of();
-
   private final int id;
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
@@ -9077,39 +9073,42 @@ public abstract class AbstractStorage
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
-    declaredAllocationPages = new TreeMap<>();
-    try {
-      // Scan the whole unit before any redo. Allocation records may follow the
-      // page operations that require their pages, including a pending file create.
-      for (final var record : atomicUnit) {
-        if (record instanceof PageAllocatedWALRecord allocation) {
-          final long fileId = allocation.getFileId();
-          final int internalId = writeCache.internalFileId(fileId);
-          if (deletedNonDurableFileIds.contains(internalId)) {
-            continue;
-          }
-          ensureFileForReplay(atomicUnit, fileId);
-          declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
-              .put(allocation.getPageIndex(), allocation.getLsn());
-        }
-      }
+    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
 
-      // An ascending load prevents a high-index allocation from gap-filling past an
-      // earlier declared page before that earlier page has been checked.
-      for (final var filePages : declaredAllocationPages.entrySet()) {
-        final long fileId = writeCache.externalFileId(filePages.getKey());
-        for (final var pageIndex : filePages.getValue().keySet()) {
-          final var entry =
-              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
-          assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
-              + pageIndex;
-          readCache.releaseFromWrite(entry, writeCache, false);
-        }
+    // An ascending load prevents a high-index allocation from gap-filling past an
+    // earlier declared page before that earlier page has been checked.
+    for (final var filePages : declaredAllocationPages.entrySet()) {
+      final long fileId = writeCache.externalFileId(filePages.getKey());
+      for (final var pageIndex : filePages.getValue().keySet()) {
+        final var entry =
+            readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+        assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
+            + pageIndex;
+        readCache.releaseFromWrite(entry, writeCache, false);
       }
-      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate);
-    } finally {
-      declaredAllocationPages = Map.of();
     }
+    applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate);
+  }
+
+  // Package-private so replay tests can check the allocation map without reflection.
+  Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
+      final List<WALRecord> atomicUnit) throws IOException {
+    final Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = new TreeMap<>();
+    // Scan the whole unit before any redo. Allocation records may follow the
+    // page operations that require their pages, including a pending file create.
+    for (final var record : atomicUnit) {
+      if (record instanceof PageAllocatedWALRecord allocation) {
+        final long fileId = allocation.getFileId();
+        final int internalId = writeCache.internalFileId(fileId);
+        if (deletedNonDurableFileIds.contains(internalId)) {
+          continue;
+        }
+        ensureFileForReplay(atomicUnit, fileId);
+        declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
+            .put(allocation.getPageIndex(), allocation.getLsn());
+      }
+    }
+    return declaredAllocationPages;
   }
 
   private void applyAtomicUnitRecords(
