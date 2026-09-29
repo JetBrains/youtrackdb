@@ -35,10 +35,14 @@ public final class BackupUnitFiles {
   /** The version with a metadata checksum and barrier flag. */
   public static final int VERSION_4 = 4;
 
+  /** The current version with the same header layout as version 4. */
+  public static final int VERSION_5 = 5;
+  public static final int PREVIOUS_BACKUP_FORMAT_VERSION = VERSION_3;
+
   /** Version 2 fixture name used by existing restore admission tests. */
   public static final int OLD_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int LEGACY_BACKUP_FORMAT_VERSION = VERSION_2;
-  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_4;
+  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_5;
 
   /** The accepted creation completion evidence of this build. */
   public static final int COMPLETED_CREATION_EVIDENCE = DiskStorage.CREATION_COMPLETED_EVIDENCE;
@@ -159,7 +163,7 @@ public final class BackupUnitFiles {
       // before any replay of that content.
       var content = ("backup unit " + sequenceNumber + " of " + databaseName).getBytes("UTF-8");
       dataOutputStream.write(content);
-      if (backupFormatVersion == VERSION_4) {
+      if (backupFormatVersion == VERSION_4 || backupFormatVersion == VERSION_5) {
         var offset = outputStream.size() % DiskStorage.IBU_SECTOR_SIZE;
         var pad = offset + DiskStorage.IBU_V4_METADATA_SIZE <= DiskStorage.IBU_SECTOR_SIZE
             ? 0 : DiskStorage.IBU_SECTOR_SIZE - offset;
@@ -183,7 +187,7 @@ public final class BackupUnitFiles {
       dataOutputStream.flush();
 
       var written = outputStream.toByteArray();
-      if (backupFormatVersion == VERSION_4) {
+      if (backupFormatVersion == VERSION_4 || backupFormatVersion == VERSION_5) {
         var tailOffset = written.length - (DiskStorage.IBU_V4_METADATA_SIZE - Long.BYTES);
         ByteBuffer.wrap(written, tailOffset, Long.BYTES).putLong(
             DiskStorage.XX_HASH_64.hash(written, tailOffset + Long.BYTES,
@@ -201,7 +205,7 @@ public final class BackupUnitFiles {
     }
   }
 
-  /** Rewrites one real version 4 unit as a valid version 3 unit without changing its ZIP data. */
+  /** Rewrites one real version 4 or 5 unit as a valid version 3 unit without changing its ZIP data. */
   public static void rewriteVersion4AsVersion3(Path path) throws IOException {
     var unit = Files.readAllBytes(path);
     var sharedStart = unit.length - DiskStorage.IBU_V4_METADATA_SIZE;

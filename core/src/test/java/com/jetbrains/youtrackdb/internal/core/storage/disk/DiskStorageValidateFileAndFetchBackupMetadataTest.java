@@ -1265,7 +1265,8 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
         var dataOutputStream = new DataOutputStream(outputStream)) {
-      if (backupFormatVersion == BackupUnitFiles.VERSION_4) {
+      if (backupFormatVersion == BackupUnitFiles.VERSION_4
+          || backupFormatVersion == BackupUnitFiles.VERSION_5) {
         dataOutputStream.writeLong(0);
         dataOutputStream.writeInt(DiskStorage.BARRIER_ABSENT);
       }
@@ -1284,7 +1285,8 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.flush();
 
       final var metadata = outputStream.toByteArray();
-      if (backupFormatVersion == BackupUnitFiles.VERSION_4) {
+      if (backupFormatVersion == BackupUnitFiles.VERSION_4
+          || backupFormatVersion == BackupUnitFiles.VERSION_5) {
         java.nio.ByteBuffer.wrap(metadata).putLong(DiskStorage.XX_HASH_64.hash(metadata,
             Long.BYTES, metadata.length - Long.BYTES, DiskStorage.METADATA_HASH_SEED));
       }
@@ -1474,6 +1476,73 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         "an old header must never become removable output",
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
         inspection.classification());
+  }
+
+  /**
+   * An incomplete version 3 unit remains removable under the develop cleanup rule.
+   *
+   * <p>Develop removes a recognized incomplete version 3 unit. Version 5 does not change that rule.
+   */
+  @Test
+  public void brokenHashOfVersion3HeaderIsRecognizedIncomplete() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    var unit = backupUnitWithHeader(uuid, 1, BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+        identity.featureFormatVersion(), identity.storageLayoutVersion(),
+        identity.creationEvidence(), false);
+
+    var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
+
+    Assert.assertEquals(DiskStorage.BackupUnitClassification.RECOGNIZED_INCOMPLETE,
+        inspection.classification());
+    Assert.assertTrue(inspection.contentCheckFailed());
+  }
+
+  /**
+   * Versions 3, 4, and 5 pass full and header-only admission with their proper layouts.
+   */
+  @Test
+  public void previousAndCurrentVersionHeadersAreSupported() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.VERSION_3, BackupUnitFiles.VERSION_4,
+        BackupUnitFiles.VERSION_5}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.SUPPORTED,
+            inspection.classification());
+        Assert.assertEquals(version, inspection.metadata().backupFormatVersion());
+      }
+    }
+  }
+
+  /**
+   * Neither version 2 nor version 6 passes full or header-only admission.
+   *
+   * <p>The refusal must name the encountered version and all three supported versions.
+   */
+  @Test
+  public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            inspection.classification());
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("version " + version));
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3, 4, and 5"));
+      }
+    }
   }
 
   /**
