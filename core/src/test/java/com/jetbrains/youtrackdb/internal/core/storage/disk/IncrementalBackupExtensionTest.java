@@ -92,6 +92,83 @@ public class IncrementalBackupExtensionTest {
   }
 
   /**
+   * Extending a version 3 chain writes version 4 without rewriting any older unit.
+   *
+   * <p>The full backup has real content, but its header identifies the previous release. The
+   * extension must admit it and write a current-version increment while keeping its bytes.
+   */
+  @Test
+  public void incrementalBackupExtendsPreviousVersionChainWithCurrentVersion() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var fullUnit = storage.fullBackup(backupPath);
+      BackupUnitFiles.rewriteBackupFormatVersion(backupPath.resolve(fullUnit),
+          BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION);
+      var originalBytes = Files.readAllBytes(backupPath.resolve(fullUnit));
+
+      addOneRecord(youTrackDB);
+      var newUnit = storage.backup(backupPath);
+
+      assertTrue(Files.exists(backupPath.resolve(newUnit)));
+      assertEquals(2, unitNames().size());
+      org.junit.Assert.assertArrayEquals("the original unit must stay unchanged", originalBytes,
+          Files.readAllBytes(backupPath.resolve(fullUnit)));
+      assertEquals(BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+          inspectUnit(fullUnit, storage.getUuid()).metadata().backupFormatVersion());
+      assertEquals(BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
+          inspectUnit(newUnit, storage.getUuid()).metadata().backupFormatVersion());
+    }
+  }
+
+  /**
+   * A future-version unit at the head refuses extension without removing or replacing any file.
+   */
+  @Test
+  public void incrementalBackupRefusesFutureVersionHeadAndKeepsEveryFile() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var contentBeforeBackup = unitContent();
+
+      var refusal =
+          assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3 and 4"));
+      assertEquals("no existing file may change", contentBeforeBackup, unitContent());
+    }
+  }
+
+  /**
+   * An incomplete version 3 unit cannot be removed by a version 4 backup.
+   *
+   * <p>The existing full backup and the incomplete trailing unit must retain their bytes. The
+   * version 4 counterpart remains removable in the next test.
+   */
+  @Test
+  public void incrementalBackupKeepsIncompletePreviousVersionTrailingUnit() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE, 1, false,
+          BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false,
+          BackupUnitFiles.unitFileName(storage.getUuid(), SOURCE, 1,
+              BackupUnitFiles.FUTURE_DATE_STAMP));
+      var contentBeforeBackup = unitContent();
+
+      assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+
+      assertEquals("the previous-version output must stay protected", contentBeforeBackup,
+          unitContent());
+    }
+  }
+
+  /**
    * One incremental backup removes recognized incomplete trailing output.
    *
    * <p>An interrupted backup of this build can leave a complete header of this database over
@@ -122,8 +199,8 @@ public class IncrementalBackupExtensionTest {
   /**
    * One incremental backup refuses an old trailing unit and changes no file.
    *
-   * <p>An old header carries no semantic database format and no creation completion evidence. The
-   * scenario appends such a unit after one full backup. The expected outcome has three parts. The
+   * <p>The synthetic unit uses the unsupported version 2 number in the version 3 header layout.
+   * The scenario appends it after one full backup. The expected outcome has three parts. The
    * backup reports the unsupported chain. Every existing unit keeps its bytes. The backup writes no
    * new unit.
    */

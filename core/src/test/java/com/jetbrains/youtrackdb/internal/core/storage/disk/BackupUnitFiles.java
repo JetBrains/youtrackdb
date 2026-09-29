@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -16,24 +17,30 @@ import net.jpountz.xxhash.XXHashFactory;
  * header carries the semantic database format of the backed-up database and the creation
  * completion evidence of that database.
  *
- * <p>This helper writes such a header, an old header, and a header of another build. It also
- * writes a header without creation completion evidence. It writes an authentic header of the
- * earlier version 2 format and output without any readable header too.
+ * <p>This helper writes supported and unsupported headers with the version 3 layout. It also
+ * writes a header without creation completion evidence, an authentic shorter version 2 header,
+ * and output without any readable header.
  *
  * <p>The written content is arbitrary. Every case of this helper serves an admission decision,
  * which runs before any replay of the content.
  */
 public final class BackupUnitFiles {
 
-  /** The backup format version of an earlier build, which carries no semantic identity. */
-  public static final int OLD_BACKUP_FORMAT_VERSION = DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1;
+  /** An unsupported backup format version, used in tests of the version 3 header layout. */
+  public static final int OLD_BACKUP_FORMAT_VERSION = 2;
 
   /** The backup format version of the earlier release that wrote the shorter header tail. */
-  public static final int LEGACY_BACKUP_FORMAT_VERSION = 2;
+  public static final int LEGACY_BACKUP_FORMAT_VERSION = OLD_BACKUP_FORMAT_VERSION;
+
+  /** The previous supported backup format version, with the same header layout as version 4. */
+  public static final int PREVIOUS_BACKUP_FORMAT_VERSION = 3;
 
   /** The backup format version of this build. */
   public static final int CURRENT_BACKUP_FORMAT_VERSION =
       DiskStorage.CURRENT_BACKUP_FORMAT_VERSION;
+
+  /** A backup format version that this build must refuse. */
+  public static final int FUTURE_BACKUP_FORMAT_VERSION = CURRENT_BACKUP_FORMAT_VERSION + 1;
 
   /** The accepted creation completion evidence of this build. */
   public static final int COMPLETED_CREATION_EVIDENCE = DiskStorage.CREATION_COMPLETED_EVIDENCE;
@@ -177,6 +184,24 @@ public final class BackupUnitFiles {
       Files.write(directory.resolve(fileName), outputStream.toByteArray());
       return fileName;
     }
+  }
+
+  /**
+   * Changes the version of a real backup unit without changing its content or header layout.
+   *
+   * <p>The hash covers the version field, so this fixture recalculates it. This lets tests replay
+   * real backup content in a chain whose headers came from two releases.
+   */
+  public static void rewriteBackupFormatVersion(Path unitPath, int version) throws IOException {
+    var bytes = Files.readAllBytes(unitPath);
+    // The version 3 and version 4 header has the same 74-byte tail, including the stored hash.
+    var headerOffset = bytes.length - 74;
+    ByteBuffer.wrap(bytes, headerOffset, Short.BYTES).putShort((short) version);
+    try (var hash = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED)) {
+      hash.update(bytes, 0, bytes.length - Long.BYTES);
+      ByteBuffer.wrap(bytes, bytes.length - Long.BYTES, Long.BYTES).putLong(hash.getValue());
+    }
+    Files.write(unitPath, bytes);
   }
 
   /**

@@ -13,8 +13,8 @@ starts a chain. Each later **incremental backup** appends one unit to that chain
 replays the full backup and each following increment from the same database.
 
 Each unit carries a small **backup header** at its tail. The header records the database
-identifier as a universally unique identifier (UUID). It also records the unit position,
-covered log range, and content hash code.
+identifier as a universally unique identifier (UUID). It also records the backup format version,
+unit position, covered log range, and content hash code.
 
 ## Run a backup or restore
 
@@ -47,10 +47,18 @@ The header evidence does not replace the final restore checks. After replay, the
 that the restored database finished its creation. The restore writes all restored data to disk
 before the database becomes available.
 
-## Older backups are unsupported
+## Backup format compatibility
 
-A backup unit from an earlier release lacks the database format and creation completion evidence.
-This release refuses such a unit in three situations:
+This release reads backup format versions 3 and 4. It writes version 4. Both versions use the
+same header layout. A version 3 chain from the previous release remains restorable and extendable.
+An incremental backup from this release adds a version 4 unit to that chain.
+
+An older release that reads only version 3 refuses a chain with a version 4 unit. It refuses both
+restore and incremental extension. The refusal happens before any restore target changes. Keep
+the original version 3 chain before an upgrade if a downgrade may be needed.
+
+A backup unit of format version 2 or earlier lacks the database format and creation completion
+evidence. This release refuses such a unit in three situations:
 
 - A restore of that chain fails.
 - An incremental backup refuses to extend that chain.
@@ -77,8 +85,9 @@ You can instead create a full backup in a new, empty directory. This option leav
 chain unchanged.
 
 An incremental backup automatically removes trailing output only when its header identifies
-incomplete output from this release. YouTrackDB never automatically removes an unclassifiable
-file. It also performs no automatic cleanup of files left by a process or host crash.
+incomplete version 4 output from this release. It does not automatically remove incomplete
+version 3 output. YouTrackDB never automatically removes an unclassifiable file. It also performs
+no automatic cleanup of files left by a process or host crash.
 
 ## Restore admission runs before every target change
 

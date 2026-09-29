@@ -1454,7 +1454,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), false);
 
@@ -1464,6 +1464,74 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         "an old header must never become removable output",
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
         inspection.classification());
+  }
+
+  /**
+   * An incomplete version 3 unit stays protected even though its header passes admission.
+   *
+   * <p>The previous release wrote version 3. A broken hash on its header must never turn into
+   * removable output of this build, unlike the same failure on a version 4 header.
+   */
+  @Test
+  public void brokenHashOfPreviousVersionHeaderStaysUnclassifiable() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    var unit = backupUnitWithHeader(uuid, 1, BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+        identity.featureFormatVersion(), identity.storageLayoutVersion(),
+        identity.creationEvidence(), false);
+
+    var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
+
+    Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+        inspection.classification());
+    Assert.assertTrue(inspection.contentCheckFailed());
+  }
+
+  /**
+   * Versions 3 and 4 share a header layout and pass full and header-only admission.
+   */
+  @Test
+  public void previousAndCurrentVersionHeadersAreSupported() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.SUPPORTED,
+            inspection.classification());
+        Assert.assertEquals(version, inspection.metadata().backupFormatVersion());
+      }
+    }
+  }
+
+  /**
+   * Neither version 2 nor version 5 passes full or header-only admission.
+   *
+   * <p>The refusal must name the encountered version and both supported versions.
+   */
+  @Test
+  public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            inspection.classification());
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("version " + version));
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3 and 4"));
+      }
+    }
   }
 
   /**
@@ -1675,7 +1743,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), true);
 
