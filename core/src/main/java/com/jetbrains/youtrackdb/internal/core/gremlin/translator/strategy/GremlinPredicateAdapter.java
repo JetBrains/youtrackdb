@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -12,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -129,13 +131,11 @@ final class GremlinPredicateAdapter {
           "LINKBAG");
 
   /**
-   * Every {@link com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType} name —
-   * used to ask {@link PropertyTypeGate#declaredTypeIn} whether a property is declared at all
-   * (unknown / schemaless keys return false).
+   * Every {@link PropertyType} name — used to ask {@link PropertyTypeGate#declaredTypeIn} whether a
+   * property is declared at all (unknown / schemaless keys return false).
    */
   private static final List<String> ANY_DECLARED_PROPERTY_TYPE =
-      java.util.Arrays.stream(
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.values())
+      Arrays.stream(PropertyType.values())
           .map(Enum::name)
           .toList();
 

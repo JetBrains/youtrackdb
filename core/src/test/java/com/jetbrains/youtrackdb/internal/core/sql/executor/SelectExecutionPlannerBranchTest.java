@@ -1391,7 +1391,7 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * {@code SELECT name FROM Class ORDER BY tags[0]} with an index on {@code name} still mints a
+   * {@code SELECT marker FROM Class ORDER BY tags[0]} with an index on {@code name} still mints a
    * synthetic key for the bracket expression. The mint-fact strip must remove it even when the
    * plan shape varies.
    */
@@ -1491,8 +1491,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * BG1908: {@code SELECT marker AS name … ORDER BY name} with an index on the schema field
-   * {@code name} must sort by the projected {@code marker} values, not by the indexed field.
+   * {@code SELECT marker AS name … ORDER BY name} with an index on the schema field {@code name}
+   * must sort by the projected {@code marker} values, not by the indexed field.
    */
   @Test
   public void shadowedAliasOrderBy_doesNotUseIndexedFieldOrder() {
@@ -1530,8 +1530,8 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
   }
 
   /**
-   * BG1909: {@code ORDER BY tags[0]} with an index on {@code name} must not use the name index
-   * for ordering (modifier / bracket key is not a bare property).
+   * {@code ORDER BY tags[0]} with an index on {@code name} must not use the name index for ordering
+   * (modifier / bracket key is not a bare property).
    */
   @Test
   public void modifiedOrderBy_doesNotUseBareFieldIndex() {

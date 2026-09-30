@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
@@ -453,11 +454,11 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
         .containsOnlyKeys(BOUNDARY_ALIAS, FIRST_EDGE_ALIAS, FIRST_ANON_ALIAS);
     var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
     var rendered = new StringBuilder();
-    edge.item.toString(java.util.Map.of(), rendered);
+    edge.item.toString(Map.of(), rendered);
     assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 
-  /** Multi-label {@code inE("knows", "likes").inV()} is claimed with both labels. */
+  /** Multi-label {@code inE("knows", "likes").outV()} is claimed with both labels. */
   @Test
   public void multiLabelInEdge_isClaimed() {
     var admin = graph.traversal().V().inE("knows", "likes").outV().asAdmin();
@@ -471,7 +472,7 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
     var ir = ctx.patternBuilder.build();
     var edge = ir.pattern().aliasToNode.get(BOUNDARY_ALIAS).out.iterator().next();
     var rendered = new StringBuilder();
-    edge.item.toString(java.util.Map.of(), rendered);
+    edge.item.toString(Map.of(), rendered);
     assertThat(rendered.toString()).contains("knows").contains("likes");
   }
 

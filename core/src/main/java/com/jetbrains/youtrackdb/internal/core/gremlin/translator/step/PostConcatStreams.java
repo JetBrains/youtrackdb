@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -236,7 +237,7 @@ final class PostConcatStreams {
     @Override
     public Result next(CommandContext ctx) {
       if (!hasNext(ctx)) {
-        throw new java.util.NoSuchElementException();
+        throw new NoSuchElementException();
       }
       return sorted.get(index++);
     }

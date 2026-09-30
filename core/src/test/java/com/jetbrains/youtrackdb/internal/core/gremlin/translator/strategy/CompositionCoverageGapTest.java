@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -172,9 +174,8 @@ public class CompositionCoverageGapTest extends GraphBaseTest {
 
     adapter.setRowDedupAlias("$g2m_b");
     adapter.enableGroupEntryEmit();
-    verify(parent, org.mockito.Mockito.never())
-        .setRowDedupAlias(org.mockito.ArgumentMatchers.any());
-    verify(parent, org.mockito.Mockito.never()).enableGroupEntryEmit();
+    verify(parent, never()).setRowDedupAlias(any());
+    verify(parent, never()).enableGroupEntryEmit();
   }
 
   /** Post-union {@code order()} with no sort keys cannot be constructed. */

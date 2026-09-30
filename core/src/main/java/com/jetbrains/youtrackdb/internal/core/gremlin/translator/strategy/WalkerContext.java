@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -549,7 +550,7 @@ final class WalkerContext implements RecognitionContext {
     if (schema == null || rootLabels.isEmpty()) {
       return List.copyOf(rootLabels);
     }
-    var expanded = new java.util.LinkedHashSet<String>();
+    var expanded = new LinkedHashSet<String>();
     for (var root : rootLabels) {
       if (root == null || root.isBlank()) {
         continue;

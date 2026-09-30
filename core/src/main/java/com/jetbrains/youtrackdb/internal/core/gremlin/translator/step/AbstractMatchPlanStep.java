@@ -517,7 +517,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   private Iterator<Object> accumulatedGroupMapSource() {
     if (shaping.emptyBarrier()) {
-      return java.util.Collections.emptyIterator();
+      return Collections.emptyIterator();
     }
     var ctx = planContext();
     return List.<Object>of(drainGroupRowsToMap(ctx, openStream)).iterator();

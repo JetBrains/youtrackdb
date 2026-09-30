@@ -1399,7 +1399,7 @@ public class SelectExecutionPlanner {
 
   /**
    * Allocates {@code _$$$ORDER_BY_ALIAS$$$_N} skipping names already reserved so mint-fact
-   * deletion cannot collide with a user alias (AD55). Adds the chosen name to {@code reserved}.
+   * deletion cannot collide with a user alias. Adds the chosen name to {@code reserved}.
    */
   private static String allocateOrderByMintAlias(Set<String> reserved) {
     for (var count = 0;; count++) {
@@ -3246,10 +3246,10 @@ public class SelectExecutionPlanner {
             break; // ASC/DESC interleaved, cannot be used with index.
           }
         }
-        // BG1909: a modifier means the index on the base field cannot serve the sort key.
-        // BG1908: an alias that shadows the indexed field with a different expression must not
-        // claim the index either. isBareIndexedFieldProjection covers post-mint synthetic aliases
-        // only when the minted expression is the bare indexed field.
+        // A modifier means the index on the base field cannot serve the sort key. An alias that
+        // shadows the indexed field with a different expression must not claim the index either.
+        // isBareIndexedFieldProjection covers post-mint synthetic aliases only when the minted
+        // expression is the bare indexed field.
         if (!sortOnlyOrderKeyMatchesIndexField(indexField, orderItem)) {
           indexFound = false;
           break;
@@ -3296,8 +3296,8 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * Sort-only index match for one ORDER BY item (Track 12). Requires a bare property key the
-   * index stores — no modifier, and no shadowed projection alias.
+   * Sort-only index match for one ORDER BY item. Requires a bare property key the index stores —
+   * no modifier, and no shadowed projection alias.
    */
   private boolean sortOnlyOrderKeyMatchesIndexField(String indexField, SQLOrderByItem orderItem) {
     if (orderItem.getModifier() != null || orderItem.getRecordAttr() != null) {
@@ -3673,8 +3673,8 @@ public class SelectExecutionPlanner {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
     }
-    // WHERE-index fullySorted path (Track 12): modifiers are invisible to getProperties(), so
-    // refuse here rather than claiming index order for ORDER BY name.length() / link chains.
+    // WHERE-index fullySorted path: modifiers are invisible to getProperties(), so refuse here
+    // rather than claiming index order for ORDER BY name.length() / link chains.
     for (var item : orderBy.getItems()) {
       if (item.getModifier() != null) {
         return false;
