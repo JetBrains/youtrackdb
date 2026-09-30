@@ -16,7 +16,7 @@ mismatch.
 
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.11.0**.
+Last reconciled against **ytdb-slate 0.12.1**.
 
 This reconciliation read these package documents:
 
@@ -30,8 +30,30 @@ This reconciliation read these package documents:
 - `writing-guidance.md`
 - `context-budget.md`
 - `design-principles.md`
+- `configuration.md`
+- `review-common-policy.md`
+- `review-implementation-input.md`
+- `review-perspectives/ri.md`
+- `review-perspectives/cn.md`
+- `review-perspectives/du.md`
+- `review-perspectives/se.md`
+- `review-perspectives/pf.md`
+- `review-perspectives/tq.md`
+- `review-perspectives/pl.md`
+- `review-perspectives/lx.md`
+- `review-perspectives/nl.md`
+- `review-perspectives/cb.md`
+- `review-perspectives/gr.md`
+- `review-perspectives/uf.md`
+- `roadmap.md`
+- `safety-and-trust.md`
 
 The check covered configured `router` (the logical-model `models` object and `compressor`),
 `workflow`, `workerExtensions`, `orchestratorPromptDocs`, `workerPromptDocs`,
 `doctrineExtraPath`, and `reviewPerspectivesPath`. It also covered the `thread` tool contract.
 Every call starts a new thread and needs `type`, a logical `model`, and `reason`.
+The `thread` tool also accepts `reviewPerspectives` for built-in reviews. Implementer threads
+need `trackNumber` while a change is open. Project charters still use `reviewPerspectivesPath`.
+The `slate_change start` and `slate_change close` commands manage records under
+`slate-changes/<change>/`. The new `writing.showStatus` key controls writing status output.
+Draft publishing always uses one umbrella pull request.

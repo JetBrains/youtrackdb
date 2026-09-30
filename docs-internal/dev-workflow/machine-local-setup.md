@@ -44,9 +44,9 @@ The orchestrator is the parent session that starts workers. Slate removes the ga
 from the orchestrator at session start. Later adapter actions can add it back.
 JetBrains/ytdb-slate#441 tracks this limit.
 
-The repository's `.pi/mcp.json` stores adapter behavior settings only. Keep the YouTrack
-server address in your personal `~/.pi/agent/mcp.json`. Keep the token in a separate local
-file. Neither the address nor the token belongs in the repository.
+The repository's `.pi/mcp-adapter.json` stores adapter behavior settings only. Keep the
+YouTrack server address in your personal `~/.pi/agent/mcp-adapter.json`. Keep the token in a
+separate local file. Neither the address nor the token belongs in the repository.
 
 In YouTrack, open your avatar, then select Profile > Account Security > Tokens. Select New
 token and give it the YouTrack scope. Create owner-only directories and files before editing
@@ -57,10 +57,17 @@ them:
   umask 077
   mkdir -p ~/.config/youtrack ~/.pi/agent
   chmod 700 ~/.config/youtrack ~/.pi/agent
-  touch ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp.json
-  chmod 600 ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp.json
+  touch ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp-adapter.json
+  chmod 600 ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp-adapter.json
 )
 ```
+
+If `~/.pi/agent/mcp.json` has a `youtrack` entry, first move it into
+`~/.pi/agent/mcp-adapter.json` and remove it from the old file. Preserve other server entries
+in both files. If the adapter file already has a `youtrack` entry, update that entry instead of
+adding another. The adapter no longer reads the old file, so workers lose YouTrack access if
+you leave the entry there. Pi's built-in MCP support reads the old file and connects the
+orchestrator to YouTrack. Slate blocks those tools in the orchestrator.
 
 Edit `~/.config/youtrack/mcp-auth-header` in an editor. Put this single line in that file,
 with your own permanent token in place of the placeholder:
@@ -69,7 +76,10 @@ with your own permanent token in place of the placeholder:
 Bearer <your permanent token>
 ```
 
-Do not put the token in a shell command. Put this configuration in `~/.pi/agent/mcp.json`:
+Do not put the token in a shell command. Use this configuration in
+`~/.pi/agent/mcp-adapter.json`. If that file already contains content, preserve it.
+Add or update the `youtrack` entry inside `mcpServers`. Create that object if needed.
+Keep exactly one `youtrack` entry:
 
 ```json
 {
@@ -86,12 +96,14 @@ Do not put the token in a shell command. Put this configuration in `~/.pi/agent/
 
 The adapter runs the `!` command and uses its entire output as the header value. It does not
 add `Bearer` to that output. Keep both personal files private. Do not commit either file.
+Keep the personal adapter file at permission mode 0600.
 
 Keep this server lazy. Do not set `lifecycle` to `eager` or `keep-alive`. Do not enable
 `directTools` for this server. These options add startup connections or tools outside this
 setup. Restart Pi after saving the file. Without this file, a worker still sees the gateway,
 but the gateway reports no server.
 
-The `/mcp` panel and `/mcp` subcommands can change the tracked `.pi/mcp.json`.
-These subcommands include `/mcp disable <server>`, `/mcp enable <server>`, and
-`/mcp jev setup`. Those changes appear in `git status`. Do not commit them.
+Use the `/mcp-adapter` panel for the adapter. Its `/mcp-adapter disable <server>`,
+`/mcp-adapter enable <server>`, and `/mcp-adapter jev setup` commands can change the tracked
+`.pi/mcp-adapter.json`. Those changes appear in `git status`. Do not commit them.
+The `/mcp` panel now belongs to Pi's built-in MCP support.
