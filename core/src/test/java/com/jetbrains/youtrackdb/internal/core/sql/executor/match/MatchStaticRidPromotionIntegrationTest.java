@@ -170,6 +170,47 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * Load plan for {@code alias}: prefetch block when present, otherwise the root {@code + SET}
+   * MatchFirstStep sub-plan (used when ORDER BY disables prefetch so the synthetic SELECT can
+   * own order).
+   */
+  private static String aliasFetchBlock(String plan, String alias) {
+    var prefetch = prefetchBlock(plan, alias);
+    if (!prefetch.isEmpty()) {
+      return prefetch;
+    }
+    var marker = "+ SET \n";
+    var start = plan.indexOf(marker);
+    if (start < 0) {
+      return "";
+    }
+    var afterSet = plan.substring(start + marker.length());
+    // MatchFirstStep prints "+ SET \n   <alias>\n  AS\n   <subplan>"
+    for (var line : afterSet.split("\n", -1)) {
+      if (line.trim().equals(alias)) {
+        var aliasAt = plan.indexOf("\n" + line + "\n", start);
+        if (aliasAt < 0) {
+          break;
+        }
+        var from = aliasAt + 1;
+        var end = plan.length();
+        for (var next : new String[] {"+ PREFETCH ", "+ SET", "+ MATCH", "+ CALCULATE"}) {
+          var idx = plan.indexOf(next, from + line.length());
+          if (idx >= 0 && idx < end) {
+            end = idx;
+          }
+        }
+        return plan.substring(from, end);
+      }
+      if (!line.trim().isEmpty() && !line.trim().equals(alias)) {
+        // First non-empty line under SET is a different alias.
+        break;
+      }
+    }
+    return "";
+  }
+
+  /**
    * Multi-hop chain rooted at a Comment pinned by a literal {@code @rid} in the
    * WHERE clause. Exactly one path (alice -> bob -> c1) reaches c1, so the query
    * returns a single row. Confirms the promotion preserves query results.
@@ -307,10 +348,11 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + query).toList();
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
+    var cBlock = aliasFetchBlock(plan, "c");
     assertTrue("@rid IN list should prefetch via FETCH FROM RIDs, got:\n" + plan,
-        prefetchBlock(plan, "c").contains("FETCH FROM RIDs"));
+        cBlock.contains("FETCH FROM RIDs"));
     assertFalse("@rid IN list should not class-scan Comment, got:\n" + plan,
-        prefetchBlock(plan, "c").contains("FETCH FROM CLASS"));
+        cBlock.contains("FETCH FROM CLASS"));
     session.commit();
   }
 
@@ -338,7 +380,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + query).toList();
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    var cBlock = prefetchBlock(plan, "c");
+    var cBlock = aliasFetchBlock(plan, "c");
     assertTrue("the promoted alias fetches by RID, got:\n" + plan,
         cBlock.contains("FETCH FROM RIDs"));
     assertFalse("the fetch target enforces membership, so no @rid filter, got:\n" + plan,

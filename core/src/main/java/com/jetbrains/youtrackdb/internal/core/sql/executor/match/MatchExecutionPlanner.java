@@ -712,8 +712,9 @@ public class MatchExecutionPlanner {
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: rewrite bare ORDER BY onto the synthetic SELECT (same fetch queue as
-      // SELECT; IndexOrderedPlanner needs a hop).
-      if (indexOrderedCandidate == null) {
+      // SELECT; IndexOrderedPlanner needs a hop). Skip when UNWIND is present: ORDER BY must run
+      // after UNWIND expands rows, so sorting inside MatchFirstStep would apply the wrong grain.
+      if (indexOrderedCandidate == null && this.unwind == null) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,

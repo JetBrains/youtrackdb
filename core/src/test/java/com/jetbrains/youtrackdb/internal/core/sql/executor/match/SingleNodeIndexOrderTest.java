@@ -349,6 +349,62 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
+   * UNWIND changes cardinality after the root scan, so SingleNode must not inject ORDER BY into
+   * MatchFirstStep. Plan keeps a MATCH-level OrderByStep after UNWIND; LIMIT applies to expanded
+   * rows (alpha, bravo, charlie), not to persons sorted by the tags array.
+   */
+  @Test
+  public void bareMatch_unwindBeforeOrderBy_doesNotInjectRootSelectOrder() {
+    session.execute("CREATE CLASS UWItem EXTENDS V").close();
+    session.execute("CREATE PROPERTY UWItem.tags EMBEDDEDLIST STRING").close();
+    session.begin();
+    session.execute("CREATE VERTEX UWItem SET name = 'alice', tags = ['zulu', 'bravo', 'alpha']")
+        .close();
+    session.execute("CREATE VERTEX UWItem SET name = 'bob', tags = ['yankee', 'charlie']").close();
+    session.execute("CREATE VERTEX UWItem SET name = 'carol', tags = ['delta']").close();
+    session.commit();
+
+    var query = "MATCH {class: UWItem, as: p} RETURN p.name AS name, p.tags AS tags"
+        + " ORDER BY tags ASC UNWIND tags LIMIT 3";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("UNWIND must keep MATCH OrderBy off the root SELECT:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("+ UNWIND")
+        .contains("+ ORDER BY");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tags"))));
+    }
+    assertThat(tags).containsExactly("alpha", "bravo", "charlie");
+  }
+
+  /**
+   * Duplicate RETURN aliases: ORDER BY resolves to the last expression (same as projection), so
+   * collation / values come from that property — not the first alias hit.
+   */
+  @Test
+  public void bareMatch_duplicateReturnAlias_ordersByLastExpression() {
+    var cls = session.createVertexClass("DupAlias");
+    cls.createProperty("name", PropertyType.STRING);
+    session.execute("ALTER PROPERTY DupAlias.name COLLATE ci").close();
+    cls.createProperty("surname", PropertyType.STRING);
+    session.begin();
+    session.execute("CREATE VERTEX DupAlias SET name = 'first', surname = 'Zebra'").close();
+    session.execute("CREATE VERTEX DupAlias SET name = 'second', surname = 'ada'").close();
+    session.execute("CREATE VERTEX DupAlias SET name = 'third', surname = 'Ada'").close();
+    session.commit();
+
+    var query = "MATCH {class: DupAlias, as: a} RETURN a.name AS x, a.surname AS x ORDER BY x";
+    var values = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> values.add(String.valueOf((Object) row.getProperty("x"))));
+    }
+    assertThat(values).containsExactly("Ada", "Zebra", "ada");
+  }
+
+  /**
    * Multi-property ORDER BY on an exact-width composite matches SELECT: VALUES scan, no class
    * fetch, no second MATCH OrderByStep, full (score, name) sequence.
    */

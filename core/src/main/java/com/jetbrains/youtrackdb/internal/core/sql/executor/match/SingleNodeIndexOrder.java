@@ -354,12 +354,15 @@ final class SingleNodeIndexOrder {
       return null;
     }
     if (returnAliases != null && returnItems != null) {
+      // Duplicate RETURN aliases: ORDER BY uses the last expression (same as projection).
+      String[] resolved = null;
       for (int i = 0; i < returnAliases.size(); i++) {
         var retAlias = returnAliases.get(i);
         if (retAlias != null && retAlias.getStringValue().equals(orderAlias)) {
-          return resolveSimpleDotExpression(returnItems.get(i));
+          resolved = resolveSimpleDotExpression(returnItems.get(i));
         }
       }
+      return resolved;
     }
     return null;
   }
