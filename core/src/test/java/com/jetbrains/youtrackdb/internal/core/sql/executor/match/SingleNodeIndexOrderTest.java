@@ -323,15 +323,14 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Control: forcing a buffering sort (no usable index order for a non-indexed secondary beyond
-   * what we accept) still trips the lowered heap cap — proves the instrument works on this
-   * fixture shape.
+   * Control: multi-property ORDER BY with no leading index still buffers in the root SELECT's
+   * OrderByStep and trips the lowered heap cap (MATCH elides a second sort).
    */
   @Test
   @Category(SequentialTest.class)
   public void bareMatch_multiPropertyWithoutCoveringIndex_buffersAndHitsHeapCap() {
     seedNamedScores(false);
-    // name is not leading-indexed; planner cannot fully cover — OrderByStep buffers.
+    // name is not leading-indexed; SELECT OrderByStep buffers after the rewritten bare keys.
     var query = "MATCH {class: Scored, as: s} RETURN s ORDER BY s.name ASC, s.score ASC";
     var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
     GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(2);
@@ -347,6 +346,90 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
+  }
+
+  /**
+   * Multi-property ORDER BY on an exact-width composite matches SELECT: VALUES scan, no class
+   * fetch, no second MATCH OrderByStep, full (score, name) sequence.
+   */
+  @Test
+  public void bareMatch_multiProperty_usesCompositeIndexValuesLikeSelect() {
+    var cls = session.createVertexClass("ScoredPair");
+    cls.createProperty("score", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    session.execute("CREATE INDEX ScoredPair_score_name ON ScoredPair (score, name) NOTUNIQUE")
+        .close();
+    session.begin();
+    session.execute("CREATE VERTEX ScoredPair SET score = 1, name = 'b'").close();
+    session.execute("CREATE VERTEX ScoredPair SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX ScoredPair SET score = 2, name = 'c'").close();
+    session.commit();
+
+    var matchQuery = "MATCH {class: ScoredPair, as: s} RETURN s.name AS name"
+        + " ORDER BY s.score ASC, s.name ASC";
+    var selectQuery = "SELECT name FROM ScoredPair ORDER BY score ASC, name ASC";
+    assertThat(plan(matchQuery))
+        .contains("FETCH FROM INDEX VALUES ASC ScoredPair_score_name")
+        .doesNotContain("FETCH FROM CLASS ScoredPair")
+        .doesNotContain("+ ORDER BY");
+    assertThat(plan(selectQuery))
+        .contains("FETCH FROM INDEX VALUES ASC ScoredPair_score_name")
+        .doesNotContain("FETCH FROM CLASS ScoredPair")
+        .doesNotContain("+ ORDER BY");
+
+    var matchNames = new ArrayList<String>();
+    try (var rs = session.query(matchQuery)) {
+      rs.forEachRemaining(row -> matchNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    var selectNames = new ArrayList<String>();
+    try (var rs = session.query(selectQuery)) {
+      rs.forEachRemaining(row -> selectNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(matchNames).containsExactly("a", "b", "c").isEqualTo(selectNames);
+  }
+
+  /**
+   * Multi-property ORDER BY plus trailing {@code @rid} on an exact-width composite: SELECT opens
+   * VALUES on the composite; RID elision admits coverage so MATCH drops OrderByStep; equal
+   * (score, name) ties follow {@code @rid}.
+   */
+  @Test
+  public void bareMatch_multiPropertyWithRid_usesCompositeAndCoversRid() {
+    var cls = session.createVertexClass("ScoredPairRid");
+    cls.createProperty("score", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    session.execute(
+        "CREATE INDEX ScoredPairRid_score_name ON ScoredPairRid (score, name) NOTUNIQUE")
+        .close();
+    session.begin();
+    session.execute("CREATE VERTEX ScoredPairRid SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX ScoredPairRid SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX ScoredPairRid SET score = 2, name = 'b'").close();
+    session.commit();
+
+    var query = "MATCH {class: ScoredPairRid, as: s} RETURN s"
+        + " ORDER BY s.score ASC, s.name ASC, s.@rid ASC";
+    assertThat(plan(query))
+        .contains("FETCH FROM INDEX VALUES ASC ScoredPairRid_score_name")
+        .doesNotContain("FETCH FROM CLASS ScoredPairRid")
+        .doesNotContain("+ ORDER BY");
+
+    var expected = new ArrayList<Object[]>();
+    for (var v : graph.traversal().V().hasLabel("ScoredPairRid").toList()) {
+      expected.add(new Object[] {v.value("score"), v.value("name"), v.id()});
+    }
+    expected.sort(
+        Comparator
+            .<Object[], Object>comparing(r -> r[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[1], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[2], SingleNodeIndexOrderTest::compareNullsFirst));
+    var expectedRids = expected.stream().map(r -> r[2].toString()).toList();
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual).isEqualTo(expectedRids);
   }
 
   /**

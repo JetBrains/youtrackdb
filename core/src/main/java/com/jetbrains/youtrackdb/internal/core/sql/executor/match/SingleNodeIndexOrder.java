@@ -17,20 +17,25 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Plan-time rewrite of edge-free MATCH {@code ORDER BY} onto the synthetic root SELECT, so fetch
- * selection matches {@code SELECT FROM Class WHERE … ORDER BY prop} ({@code
+ * selection matches {@code SELECT FROM Class WHERE … ORDER BY props} ({@code
  * SelectExecutionPlanner}: rid → filter index → sort-only VALUES → class).
  *
  * <p>Injection does not depend on a private WHERE allow-list: any residual filter travels with the
- * SELECT and the planner picks the scan. {@link #orderFullyCovered()} stays conservative (RID /
- * null-group / return shape) and only then drops MATCH's {@code OrderByStep}.
+ * SELECT and the planner picks the scan. Bare property keys (one or many) on the single alias are
+ * rewritten in full; an optional trailing {@code @rid} is kept for MATCH elision only. {@link
+ * #orderFullyCovered()} stays conservative (RID / null-group / return shape) and only then drops
+ * MATCH's {@code OrderByStep}.
  *
  * <p>Edge-hop index order stays in {@link IndexOrderedPlanner}.
  */
@@ -43,7 +48,7 @@ final class SingleNodeIndexOrder {
 
   /**
    * When present, the synthetic root SELECT carries {@link #selectOrderBy()} so the SELECT planner
-   * owns fetch + primary order. {@link #orderFullyCovered()} is true when MATCH must not append a
+   * owns fetch + property order. {@link #orderFullyCovered()} is true when MATCH must not append a
    * second {@code OrderByStep}.
    */
   record Candidate(
@@ -53,8 +58,8 @@ final class SingleNodeIndexOrder {
   }
 
   /**
-   * Returns a candidate when the pattern is one isolated node and ORDER BY rewrites to a bare
-   * property on that node (optional RID secondary). Index / WHERE admission is left to the SELECT
+   * Returns a candidate when the pattern is one isolated node and ORDER BY rewrites to bare
+   * properties on that node (optional trailing RID). Index / WHERE admission is left to the SELECT
    * planner; elision uses {@link #orderFullyCovered()}.
    */
   @Nullable static Candidate detect(
@@ -85,37 +90,55 @@ final class SingleNodeIndexOrder {
     }
 
     var items = orderBy.getItems();
-    // Multi-key ORDER BY beyond primary + optional @rid is not rewritten onto the root SELECT.
-    if (items.size() > 2) {
+    var propertyNames = new ArrayList<String>();
+    var selectItems = new ArrayList<SQLOrderByItem>();
+    for (var i = 0; i < items.size(); i++) {
+      var item = items.get(i);
+      if (item.getCollate() != null
+          || !IndexOrderedPlanner.isDefaultCollate(item.getDeclaredCollate())) {
+        return null;
+      }
+      var resolved = resolveOrderByToAliasProperty(item, returnItems, returnAliases);
+      if (resolved != null && alias.equals(resolved[0])) {
+        var propertyName = resolved[1];
+        var orderAsc = SQLOrderByItem.ASC.equals(item.getType()) || item.getType() == null;
+        var selectItem =
+            ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
+        selectItem.setNullOrdering(item.getNullOrdering());
+        selectItem.setDeclaredCollate(item.getDeclaredCollate());
+        propertyNames.add(propertyName);
+        selectItems.add(selectItem);
+        continue;
+      }
+      // Non-property key: only a trailing @rid is allowed (MATCH elision; not injected into SELECT).
+      if (i != items.size() - 1 || selectItems.isEmpty()) {
+        return null;
+      }
+      break;
+    }
+    if (selectItems.isEmpty()) {
       return null;
     }
-    var primary = items.getFirst();
-    if (primary.getCollate() != null
-        || !IndexOrderedPlanner.isDefaultCollate(primary.getDeclaredCollate())) {
+    var ridTrailing = propertyNames.size() < items.size();
+    if (ridTrailing && propertyNames.size() != items.size() - 1) {
       return null;
     }
-    var resolved = resolveOrderByToAliasProperty(primary, returnItems, returnAliases);
-    if (resolved == null || !alias.equals(resolved[0])) {
-      return null;
-    }
-    var propertyName = resolved[1];
-    var orderAsc = SQLOrderByItem.ASC.equals(primary.getType())
-        || primary.getType() == null;
+    var selectOrderBy = ProjectionExpressionFactories.orderBy(selectItems);
 
-    var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
-    selectItem.setNullOrdering(primary.getNullOrdering());
-    selectItem.setDeclaredCollate(primary.getDeclaredCollate());
-    var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
-
-    if (items.size() == 1) {
-      // SELECT applies the bare primary key (index stream or its own OrderByStep). MATCH must not
-      // sort again.
+    if (!ridTrailing) {
+      // SELECT applies the bare property keys (index stream or its own OrderByStep).
       return new Candidate(alias, selectOrderBy, true);
     }
 
-    // size == 2: inject primary ORDER BY for the SELECT fetch queue; elide MATCH OrderByStep only
-    // when the secondary is an index-native RID tie-break and the filter cannot divert the root
-    // onto a different index (which would drop RID order from the stream).
+    // Trailing @rid: inject property ORDER BY for the SELECT fetch queue; elide MATCH OrderByStep
+    // only when the RID secondary is index-native and the filter cannot divert the root onto a
+    // different index (which would drop RID order from the stream).
+    var primaryAsc = SQLOrderByItem.ASC.equals(items.getFirst().getType())
+        || items.getFirst().getType() == null;
+    if (!isRecordIdItemOf(items.getLast(), alias, primaryAsc)) {
+      return new Candidate(alias, selectOrderBy, false);
+    }
+
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     if (session == null) {
       return new Candidate(alias, selectOrderBy, false);
@@ -129,35 +152,17 @@ final class SingleNodeIndexOrder {
       return new Candidate(alias, selectOrderBy, false);
     }
 
-    Index matchedIndex = null;
-    for (var idx : clazz.getIndexesInternal()) {
-      var definition = idx.getDefinition();
-      if (definition == null || definition.isNullValuesIgnored()) {
-        continue;
-      }
-      if (IndexOrderedPlanner.isMultiValueDefinition(definition)
-          || !IndexOrderedPlanner.isDefaultCollate(definition.getCollate())) {
-        continue;
-      }
-      var fields = definition.getProperties();
-      if (fields.size() != 1 || !propertyName.equals(fields.getFirst())) {
-        continue;
-      }
-      matchedIndex = idx;
-      break;
-    }
-
+    Index matchedIndex = findExactWidthOrderIndex(clazz.getIndexesInternal(), propertyNames);
     var aliasFilter = aliasFilters.get(alias);
     var ridAccepted =
         matchedIndex != null
-            && filterCannotStealOrderIndex(aliasFilter, propertyName)
+            && filterCannotStealOrderIndex(aliasFilter, propertyNames)
             && acceptsRidTieBreak(
-                items.get(1),
-                alias,
-                propertyName,
                 matchedIndex,
-                orderAsc,
+                propertyNames,
+                primaryAsc,
                 aliasFilter,
+                alias,
                 returnItems,
                 returnAliases,
                 returnDistinct,
@@ -169,30 +174,55 @@ final class SingleNodeIndexOrder {
   }
 
   /**
-   * True when the alias filter cannot divert the root SELECT onto a different index than {@code
-   * propertyName}. Used only for RID elision: a stolen filter index would order ties by that
-   * index's key, not by {@code @rid}. A null filter is safe. Presence-only checks on the ordered
-   * property ({@code IS NOT NULL} / {@code IS DEFINED}) leave the sort-only VALUES path open.
+   * Exact-width index whose fields are {@code propertyNames} in order. Used for RID elision only;
+   * fetch selection still belongs to the SELECT planner (which also prefers exact-width).
    */
-  private static boolean filterCannotStealOrderIndex(
-      @Nullable SQLWhereClause filter, String propertyName) {
-    if (filter == null) {
-      return true;
+  @Nullable private static Index findExactWidthOrderIndex(
+      Iterable<Index> indexes, List<String> propertyNames) {
+    for (var idx : indexes) {
+      var definition = idx.getDefinition();
+      if (definition == null || definition.isNullValuesIgnored()) {
+        continue;
+      }
+      if (IndexOrderedPlanner.isMultiValueDefinition(definition)
+          || !IndexOrderedPlanner.isDefaultCollate(definition.getCollate())) {
+        continue;
+      }
+      var fields = definition.getProperties();
+      if (fields.size() == propertyNames.size() && fields.equals(propertyNames)) {
+        return idx;
+      }
     }
-    return isOnlyPresenceFilterOn(filter.getBaseExpression(), propertyName);
+    return null;
   }
 
   /**
-   * Whole expression is only {@code IS NOT NULL} / {@code IS DEFINED} on {@code propertyName},
-   * possibly wrapped in non-negating NOT / single-OR / AND of the same.
+   * True when the alias filter cannot divert the root SELECT onto a different index than the order
+   * keys. Used only for RID elision. A null filter is safe. Presence-only checks on the ordered
+   * properties leave the sort-only VALUES path open.
+   */
+  private static boolean filterCannotStealOrderIndex(
+      @Nullable SQLWhereClause filter, List<String> propertyNames) {
+    if (filter == null) {
+      return true;
+    }
+    return isOnlyPresenceFilterOn(
+        filter.getBaseExpression(), new HashSet<>(propertyNames));
+  }
+
+  /**
+   * Whole expression is only {@code IS NOT NULL} / {@code IS DEFINED} on one of {@code
+   * propertyNames}, possibly wrapped in non-negating NOT / single-OR / AND of the same.
    */
   private static boolean isOnlyPresenceFilterOn(
-      @Nullable SQLBooleanExpression expr, String propertyName) {
+      @Nullable SQLBooleanExpression expr, Set<String> propertyNames) {
     if (expr instanceof SQLIsNotNullCondition notNull) {
-      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
+      var field = extractSimpleFieldName(notNull.getExpression());
+      return field != null && propertyNames.contains(field);
     }
     if (expr instanceof SQLIsDefinedCondition defined) {
-      return propertyName.equals(extractSimpleFieldName(defined.getExpression()));
+      var field = extractSimpleFieldName(defined.getExpression());
+      return field != null && propertyNames.contains(field);
     }
     if (expr instanceof SQLAndBlock andBlock) {
       var subs = andBlock.getSubBlocks();
@@ -200,28 +230,27 @@ final class SingleNodeIndexOrder {
         return false;
       }
       for (var sub : subs) {
-        if (!isOnlyPresenceFilterOn(sub, propertyName)) {
+        if (!isOnlyPresenceFilterOn(sub, propertyNames)) {
           return false;
         }
       }
       return true;
     }
     if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
-      return isOnlyPresenceFilterOn(notBlock.getSub(), propertyName);
+      return isOnlyPresenceFilterOn(notBlock.getSub(), propertyNames);
     }
     if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
-      return isOnlyPresenceFilterOn(orBlock.getSubBlocks().getFirst(), propertyName);
+      return isOnlyPresenceFilterOn(orBlock.getSubBlocks().getFirst(), propertyNames);
     }
     return false;
   }
 
   private static boolean acceptsRidTieBreak(
-      SQLOrderByItem ridItem,
-      String alias,
-      String propertyName,
       Index matchedIndex,
+      List<String> propertyNames,
       boolean orderAsc,
       @Nullable SQLWhereClause aliasFilter,
+      String alias,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases,
       boolean returnDistinct,
@@ -229,10 +258,7 @@ final class SingleNodeIndexOrder {
       boolean returnPaths,
       boolean returnPatterns,
       boolean returnPathElements) {
-    if (!isRecordIdItemOf(ridItem, alias, orderAsc)) {
-      return false;
-    }
-    if (!orderAsc && !nullKeysExcluded(matchedIndex, propertyName, aliasFilter)) {
+    if (!orderAsc && !nullKeysExcluded(matchedIndex, propertyNames.getFirst(), aliasFilter)) {
       return false;
     }
     if (returnDistinct
@@ -243,7 +269,7 @@ final class SingleNodeIndexOrder {
         || !projectsOnlyAlias(alias, returnItems, returnAliases)) {
       return false;
     }
-    return propertyName.equals(matchedIndex.getDefinition().getProperties().getFirst());
+    return matchedIndex.getDefinition().getProperties().equals(propertyNames);
   }
 
   private static boolean nullKeysExcluded(
