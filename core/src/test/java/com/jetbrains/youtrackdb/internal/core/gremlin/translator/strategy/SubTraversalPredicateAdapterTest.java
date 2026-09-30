@@ -528,6 +528,36 @@ public class SubTraversalPredicateAdapterTest {
   // ---------------------------------------------------------------------------
 
   /**
+   * The parent's ordered-hop deferral channel is swallowed on a sub-walk: pending hop reads stay
+   * null, writes are ignored, and flush is a no-op success so a child cannot park state the parent
+   * would later expand.
+   */
+  @Test
+  public void pendingOrderedHop_isSwallowedOnSubWalk() {
+    var parent = new WalkerContext(true, false);
+    parent.addNode(BOUNDARY_ALIAS, "V");
+    parent.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    parent.setSingleReturnColumn(BOUNDARY_ALIAS);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    var hop =
+        new PendingOrderedHop(
+            org.apache.tinkerpop.gremlin.structure.Direction.OUT,
+            new String[] {"knows"},
+            BOUNDARY_ALIAS,
+            FIRST_ANON_ALIAS,
+            List.of());
+
+    adapter.setPendingOrderedHop(hop);
+
+    assertThat(adapter.pendingOrderedHop()).isNull();
+    assertThat(adapter.takePendingOrderedHop()).isNull();
+    assertThat(adapter.flushPendingOrderedHop()).isTrue();
+    assertThat(parent.pendingOrderedHop())
+        .as("child setPendingOrderedHop must not reach the parent")
+        .isNull();
+  }
+
+  /**
    * The list-shaping decline channel, pinned as a discriminating pair on one fixture rather than as
    * a bare {@code isFalse()}. The real parent {@link WalkerContext} answers {@code true} — the
    * positive control proving the assertion below reads the sub-walk's own answer and not a fixture
