@@ -28,8 +28,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
@@ -504,6 +506,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * #processNextStart()}'s try so a drain failure releases the plan.
    */
   private Iterator<Object> accumulatedGroupMapSource() {
+    if (shaping.emptyBarrier()) {
+      return java.util.Collections.emptyIterator();
+    }
     var ctx = planContext();
     return List.<Object>of(drainGroupRowsToMap(ctx, openStream)).iterator();
   }
@@ -823,7 +828,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (failsAliasPropertyPresence(row)) {
       return SKIP;
     }
-    var entity = presenceKeySet.isEmpty() ? null : resolveEntity(row);
+    // Edge elementMap needs the boundary entity for Direction.IN/OUT even when no property keys
+    // were presence-checked; valueMap / vertex maps load it only for hasProperty.
+    var needsEntity = !presenceKeySet.isEmpty() || isEdgeElementMap();
+    var entity = needsEntity ? resolveEntity(row) : null;
     if (shaping.unwrapSingletonMap()) {
       var unwrapped = unwrapSingletonColumn(row, entity);
       if (unwrapped != BUILD_MAP) {
@@ -836,10 +844,53 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
             ? row.getPropertyNames()
             : shaping.mapEmitColumnOrder();
     var map = new LinkedHashMap<Object, Object>(Math.max(names.size(), 4));
+    var endpointsInserted = false;
     for (String name : names) {
       putMapColumn(map, row, name, entity);
+      // Native ElementMapStep puts IN then OUT immediately after id/label, before properties.
+      if (!endpointsInserted && isEdgeElementMap() && "label".equals(name)) {
+        putEdgeEndpointMaps(map, entity);
+        endpointsInserted = true;
+      }
+    }
+    if (isEdgeElementMap() && !endpointsInserted) {
+      putEdgeEndpointMaps(map, entity);
     }
     return map;
+  }
+
+  /**
+   * Edge {@code elementMap} — tokens on, no valueMap list wrapping, boundary return class is Edge.
+   * Matches native {@code ElementMapStep} which inserts {@link Direction#IN}/{@link Direction#OUT}
+   * vertex structures after id/label.
+   */
+  private boolean isEdgeElementMap() {
+    return Edge.class.isAssignableFrom(returnClass)
+        && shaping.elementMapTokens()
+        && !shaping.wrapMapValuesInLists();
+  }
+
+  /**
+   * Puts {@link Direction#IN} then {@link Direction#OUT} as {@code {T.id, T.label}} maps from the
+   * edge entity's endpoints — same shape as native {@code ElementMapStep#getVertexStructure}.
+   */
+  private void putEdgeEndpointMaps(LinkedHashMap<Object, Object> map, @Nullable EntityImpl entity) {
+    if (entity == null || !entity.isEdge() || armingGraph == null) {
+      return;
+    }
+    var edge = new YTDBEdgeImpl(armingGraph, entity.asEdge());
+    map.put(Direction.IN, vertexStructureMap(edge.inVertex()));
+    map.put(Direction.OUT, vertexStructureMap(edge.outVertex()));
+  }
+
+  private static LinkedHashMap<Object, Object> vertexStructureMap(@Nullable Vertex vertex) {
+    var structure = new LinkedHashMap<Object, Object>(4);
+    if (vertex == null) {
+      return structure;
+    }
+    structure.put(T.id, vertex.id());
+    structure.put(T.label, vertex.label());
+    return structure;
   }
 
   /**

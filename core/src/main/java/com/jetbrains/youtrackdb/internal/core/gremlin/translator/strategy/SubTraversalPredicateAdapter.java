@@ -330,6 +330,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public String leastCommonVertexAncestor(List<String> classNames) {
+    return parent.leastCommonVertexAncestor(classNames);
+  }
+
+  @Override
   public List<String> boundaryDeclaredPropertyKeys() {
     return parent.boundaryDeclaredPropertyKeys();
   }

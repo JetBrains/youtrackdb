@@ -231,6 +231,13 @@ interface RecognitionContext extends ParamSink {
   List<String> expandPolymorphicClassClosure(List<String> rootLabels);
 
   /**
+   * Most specific common vertex ancestor of {@code classNames}, or {@link
+   * WalkerContext#VERTEX_ROOT_CLASS} when they only share {@code V}. {@code null} when the schema
+   * is missing or any name is not a known vertex class.
+   */
+  @Nullable String leastCommonVertexAncestor(List<String> classNames);
+
+  /**
    * Declared property names on {@link #boundaryClassName()}, in stable sorted order, excluding
    * reserved {@code has} keys. Empty when the boundary is still the generic {@code V} root, the class
    * is unknown, or no schema snapshot is available.

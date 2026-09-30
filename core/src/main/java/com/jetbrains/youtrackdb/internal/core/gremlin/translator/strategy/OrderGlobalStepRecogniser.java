@@ -203,6 +203,16 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         return ProjectionExpressionFactories.orderByProperty(
             projection.alias(), projection.propertyKey(), ascending);
       }
+      // Post-union values(k) arms pin SINGLE_VALUE + presence key on the agreed shaping, but the
+      // parent walk never recorded lastPropertyProjection. Sort by that presence key (entity.property)
+      // rather than declining or falling through to @rid.
+      if (ctx.boundaryOutputType() == BoundaryOutputType.SINGLE_VALUE
+          && ctx instanceof WalkerContext walker) {
+        var keys = walker.shaping().presencePropertyKeys();
+        if (keys.size() == 1) {
+          return ProjectionExpressionFactories.orderByProperty(alias, keys.getFirst(), ascending);
+        }
+      }
       if (!boundaryCarriesRecordId(ctx)) {
         return null;
       }
@@ -227,7 +237,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    */
   private static boolean boundaryCarriesRecordId(RecognitionContext ctx) {
     var outputType = ctx.boundaryOutputType();
-    return outputType != BoundaryOutputType.MAP && outputType != BoundaryOutputType.SCALAR;
+    // Identity order without lastPropertyProjection sorts by @rid. That is valid only for element
+    // rows — SINGLE_VALUE (e.g. values(k) without a recorded projection, including post-union
+    // parent context) must decline rather than emit RID order for a property stream.
+    return outputType == null || outputType == BoundaryOutputType.ELEMENT;
   }
 
   /**

@@ -189,36 +189,38 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Schema-backed gate for one or more edge/vertex classes (multi-label hops). True when any named
-   * class declares the key as the requested type; a null/empty label array routes every key to
-   * unknown (strict / keep type guard).
+   * Schema-backed gate for one or more edge/vertex classes (multi-label hops). True only when
+   * <em>every</em> named class declares the key as the requested type — any-label would drop
+   * type guards / switch to prefix ranges when a schemaless sibling label still carries a
+   * differently typed value. A null/empty label array routes every key to unknown (strict / keep
+   * type guard).
    */
   static PropertyTypeGate schemaGate(RecognitionContext ctx, @Nullable String[] classNames) {
     return new PropertyTypeGate() {
       @Override
       public boolean isDeclaredString(String key) {
-        if (classNames == null) {
+        if (classNames == null || classNames.length == 0) {
           return false;
         }
         for (var className : classNames) {
-          if (ctx.isDeclaredStringProperty(className, key)) {
-            return true;
+          if (!ctx.isDeclaredStringProperty(className, key)) {
+            return false;
           }
         }
-        return false;
+        return true;
       }
 
       @Override
       public boolean declaredTypeIn(String key, List<String> typeNames) {
-        if (classNames == null) {
+        if (classNames == null || classNames.length == 0) {
           return false;
         }
         for (var className : classNames) {
-          if (ctx.isDeclaredPropertyTypeIn(className, key, typeNames)) {
-            return true;
+          if (!ctx.isDeclaredPropertyTypeIn(className, key, typeNames)) {
+            return false;
           }
         }
-        return false;
+        return true;
       }
     };
   }
@@ -571,15 +573,33 @@ final class GremlinPredicateAdapter {
         default -> null;
       };
     }
-    // Size-1 collection under eq/neq against a single-valued (or schema-unknown) field: unwrap to
-    // the sole element so the WHERE compares scalars, mirroring native QueryOperatorEquals
-    // singleton auto-unbox. Declared collection-valued properties keep the collection as the
-    // comparand (key = [x]) — native compares both sides as collections, and unwrapping would
-    // mis-handle a nested singleton such as [["x"]].
+    // Size-1 collection under eq/neq against a single-valued (or schema-unknown) field:
+    //
+    // Folded start-step path (!rangeTypeGuard): unwrap to the sole element so the WHERE compares
+    // scalars, mirroring native QueryOperatorEquals singleton auto-unbox on YTDBGraphStep.
+    // Declared collection-valued properties keep the collection as the comparand (key = [x]) —
+    // native compares both sides as collections, and unwrapping would mis-handle a nested
+    // singleton such as [["x"]].
+    //
+    // Unfolded positions (rangeTypeGuard): TinkerPop Compare.eq / GremlinValueComparator does not
+    // unbox — equals("josh", ["josh"]) is false. Emitting an unwrapped scalar (or a collection
+    // literal that SQL would still auto-unbox) would return rows native drops. Translate instead:
+    // eq → always-false (IS DEFINED AND IS NOT DEFINED); neq → IS DEFINED (any present scalar is
+    // structurally ≠ [v]; absent properties stay dropped).
     if ((compare == Compare.eq || compare == Compare.neq)
         && value instanceof Collection<?> collection
         && collection.size() == 1
         && !translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
+      if (translation.rangeTypeGuard()) {
+        if (!translation.emitAst()) {
+          return BIND_OK;
+        }
+        return switch (compare) {
+          case eq -> WHERE.and(WHERE.isDefined(key), WHERE.isNotDefined(key));
+          case neq -> WHERE.isDefined(key);
+          default -> null;
+        };
+      }
       value = collection.iterator().next();
       if (value == null) {
         return switch (compare) {

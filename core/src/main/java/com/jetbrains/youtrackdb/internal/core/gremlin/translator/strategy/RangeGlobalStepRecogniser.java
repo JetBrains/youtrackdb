@@ -191,10 +191,29 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     // A real slice behind a grouping terminator would slice the GROUP BY rows instead of the single
     // map the terminator emits — see the class Javadoc's "A slice behind a grouping terminator".
-    // Exception: emitGroupEntries (groupCount().unfold()) — LIMIT applies to entry rows, matching
-    // native.
-    if (ctx.groupBy() != null && !ctx.emitGroupEntries()) {
-      return Outcome.DECLINE;
+    //
+    // Map mode (!emitGroupEntries): native emits one map traverser, so limit(n>=1)/range(0,n)
+    // keep that map (no-op) and skip(n>=1) drops it (LIMIT 0). Never push SQL LIMIT onto GROUP BY
+    // rows.
+    //
+    // Entry mode (groupCount().unfold()): LIMIT applies to entry rows only when a captured ORDER BY
+    // total-orders them. Without ORDER BY, native HashMap iteration order and MATCH first-seen
+    // order cut different sets for limit(n) — keep declining.
+    if (ctx.groupBy() != null) {
+      if (!ctx.emitGroupEntries()) {
+        if (normalized.skip() == 0
+            && (normalized.limit() < 0 || normalized.limit() >= 1)) {
+          return Outcome.ACCEPTED;
+        }
+        // skip past the sole map, or limit(0) — emit no barrier map.
+        if (ctx instanceof WalkerContext walker) {
+          ctx.setResultShaping(walker.shaping().withEmptyBarrier(true));
+        }
+        return Outcome.ACCEPTED;
+      }
+      if (ctx.orderBy() == null || !ctx.orderAllowsSliceOnCurrentBoundary()) {
+        return Outcome.DECLINE;
+      }
     }
     // Promotion mutates the context (writes alias filters), so it sits after every remaining
     // decline. A no-op slice never reaches here. See the class Javadoc's "A slice behind a

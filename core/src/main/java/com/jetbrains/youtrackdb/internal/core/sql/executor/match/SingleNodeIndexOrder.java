@@ -128,6 +128,15 @@ final class SingleNodeIndexOrder {
       return null;
     }
 
+    var aliasFilter = aliasFilters.get(alias);
+    // A non-null WHERE can be served by a different index than the ORDER BY key. The root SELECT
+    // then sorts in memory on the primary key alone, and claiming orderFullyCovered would drop
+    // MATCH's OrderByStep (including the RID tie-break). Only admit when the filter cannot steal
+    // another index — null, or IS NOT NULL on the ordered property alone.
+    if (!filterAllowsCoveredOrder(aliasFilter, propertyName)) {
+      return null;
+    }
+
     var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
     selectItem.setNullOrdering(primary.getNullOrdering());
     selectItem.setDeclaredCollate(primary.getDeclaredCollate());
@@ -146,7 +155,7 @@ final class SingleNodeIndexOrder {
             propertyName,
             matchedIndex,
             orderAsc,
-            aliasFilters.get(alias),
+            aliasFilter,
             returnItems,
             returnAliases,
             returnDistinct,
@@ -154,9 +163,24 @@ final class SingleNodeIndexOrder {
             returnPaths,
             returnPatterns,
             returnPathElements);
-    // Always open the ordered index for the primary key. Keep MATCH OrderByStep when the RID
-    // secondary is not index-native (e.g. DESC with null keys still in the index).
+    // Always open the ordered index for the primary key when the filter is safe. Keep MATCH
+    // OrderByStep when the RID secondary is not index-native (e.g. DESC with null keys still in
+    // the index) — orderFullyCovered=false.
     return new Candidate(alias, selectOrderBy, ridAccepted);
+  }
+
+  /**
+   * True when the alias filter cannot divert the root SELECT onto a different index than {@code
+   * propertyName}. A null filter is safe. {@code IS NOT NULL} (and AND/OR wrappers) on that property
+   * alone is safe. Any other predicate may win {@code handleClassAsTargetWithIndex} over the sort
+   * path.
+   */
+  private static boolean filterAllowsCoveredOrder(
+      @Nullable SQLWhereClause filter, String propertyName) {
+    if (filter == null) {
+      return true;
+    }
+    return requiresNotNull(filter.getBaseExpression(), propertyName);
   }
 
   private static boolean acceptsRidTieBreak(

@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcat
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
@@ -565,6 +566,52 @@ final class WalkerContext implements RecognitionContext {
       }
     }
     return List.copyOf(expanded);
+  }
+
+  @Override
+  public String leastCommonVertexAncestor(List<String> classNames) {
+    if (schema == null || classNames == null || classNames.isEmpty()) {
+      return null;
+    }
+    var current = schema.getClass(classNames.getFirst());
+    if (current == null || !current.isVertexType()) {
+      return null;
+    }
+    for (int i = 1; i < classNames.size(); i++) {
+      var other = schema.getClass(classNames.get(i));
+      if (other == null || !other.isVertexType()) {
+        return null;
+      }
+      current = leastCommonAncestor(current, other);
+      if (current == null) {
+        return VERTEX_ROOT_CLASS;
+      }
+    }
+    return current.getName();
+  }
+
+  /**
+   * Most specific common ancestor of {@code a} and {@code b}, or {@code null} when they only share
+   * the implicit {@code V} root (caller maps that to {@link #VERTEX_ROOT_CLASS}).
+   */
+  private static @Nullable SchemaClass leastCommonAncestor(SchemaClass a, SchemaClass b) {
+    if (a.equals(b) || b.isSubClassOf(a)) {
+      return a;
+    }
+    if (a.isSubClassOf(b)) {
+      return b;
+    }
+    SchemaClass best = null;
+    for (var ancestor : a.getAllSuperClasses()) {
+      if (!ancestor.isVertexType() || !b.isSubClassOf(ancestor)) {
+        continue;
+      }
+      // Prefer the more specific ancestor when several supers of {@code a} also cover {@code b}.
+      if (best == null || ancestor.isSubClassOf(best)) {
+        best = ancestor;
+      }
+    }
+    return best;
   }
 
   @Override

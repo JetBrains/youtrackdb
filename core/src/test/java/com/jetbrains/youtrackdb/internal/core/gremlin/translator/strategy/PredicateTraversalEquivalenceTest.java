@@ -155,10 +155,11 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
 
   /**
    * A multi-label {@code g.V().hasLabel("Person", "Employee")} in polymorphic mode expands the
-   * subclass closure and matches native hierarchy-aware {@code hasLabel}.
+   * subclass closure, re-types to the LCA ({@code Person}), and matches native hierarchy-aware
+   * {@code hasLabel}.
    */
   @Test
-  public void hasLabelMultiLabel_matchesNativePolymorphic() {
+  public void hasLabelMultiLabel_onRootMatchesPolymorphic() {
     seedPersonEmployeeHierarchy();
     withPolymorphicDefault(true, () -> assertEquivalent(
         "polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
@@ -167,11 +168,11 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Multi-label {@code hasLabel(Person, Employee)} in non-polymorphic mode matches native leaf-exact
-   * semantics: both the {@code Person} and the {@code Employee} vertex, via {@code @class IN}.
+   * Root multi-label {@code hasLabel} in non-polymorphic mode re-types to the LCA and keeps an exact
+   * {@code @class IN} leaf filter; results match native.
    */
   @Test
-  public void hasLabelMultiLabel_matchesNativeNonPolymorphic() {
+  public void hasLabelMultiLabel_onRootMatchesNonPolymorphic() {
     seedPersonEmployeeHierarchy();
     withPolymorphicDefault(false, () -> assertEquivalent(
         "non-polymorphic g.V().hasLabel(Person, Employee) (multi-label)",

@@ -402,23 +402,28 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.orderBy).isNull();
   }
 
-  /** With emitGroupEntries, {@code limit(n)} attaches LIMIT to GROUP BY / entry rows. */
+  /**
+   * With emitGroupEntries but no ORDER BY, {@code limit(n)} declines — HashMap vs first-seen cut
+   * sets would diverge.
+   */
   @Test
-  public void limitOverGroupEntries_setsLimit() {
+  public void limitOverGroupEntries_withoutOrder_declines() {
     var admin = graph.traversal().V().limit(2).asAdmin();
     var ctx = seededGroupEntryContext();
     var cursor = cursorAt(admin, RangeGlobalStep.class);
 
     var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
-    assertThat(ctx.limit).isNotNull();
-    assertThat(ctx.limit.toString()).contains("2");
+    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.limit).isNull();
   }
 
-  /** Without emitGroupEntries, limit after GROUP BY declines. */
+  /**
+   * Without emitGroupEntries, {@code limit(n)} after GROUP BY is a no-op on the single map native
+   * emits — accepted without a SQL LIMIT on the GROUP BY rows.
+   */
   @Test
-  public void limitAfterGroupByWithoutEntries_declines() {
+  public void limitAfterGroupByWithoutEntries_isNoOp() {
     var admin = graph.traversal().V().limit(2).asAdmin();
     var ctx = seededContext();
     ctx.setGroupBy(new SQLGroupBy(-1));
@@ -426,8 +431,9 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
     var outcome = RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.limit).isNull();
+    assertThat(ctx.skip).isNull();
   }
 
   /** {@code limit(5)} is {@code RangeGlobalStep(0, 5)} → {@code LIMIT 5} only. */

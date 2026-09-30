@@ -247,9 +247,9 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
   // hasLabel — multi-label and missing class.
   // ---------------------------------------------------------------------------
 
-  /** Multi-label {@code hasLabel} + property filter — translates under default polymorphic mode. */
+  /** Root multi-label {@code hasLabel} + property filter translates via LCA + {@code @class IN}. */
   @Test
-  public void hasLabelMultiLabel_withPropertyFilter_matchesNative() {
+  public void hasLabelMultiLabel_withPropertyFilter_matches() {
     seedPersonEmployeeHierarchy();
     graph.addVertex(T.label, "Person", "name", "Zara");
     graph.tx().commit();
@@ -259,9 +259,9 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person", "Employee").has("name", "Eve"));
   }
 
-  /** Three-label {@code hasLabel} via {@code within(...)} — translates under default polymorphic mode. */
+  /** Root three-label {@code hasLabel} re-types to the shared LCA and matches native. */
   @Test
-  public void hasLabelThreeLabels_matchesNative() {
+  public void hasLabelThreeLabels_matches() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     session.getSchema().createClass("Manager", person);

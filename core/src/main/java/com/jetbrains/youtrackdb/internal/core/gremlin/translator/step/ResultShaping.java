@@ -47,6 +47,8 @@ import javax.annotation.Nullable;
  *     {@code T.label} keys rather than plain strings
  * @param emitGroupEntries when true (and {@code accumulateMap} is false), project each GROUP BY row
  *     as a {@code Map.Entry} — native {@code groupCount().unfold()} / post-group order+limit
+ * @param emptyBarrier when true, a grouping barrier emits no map at all (map-mode {@code skip(n)} /
+ *     {@code range(a,…)} with {@code a >= 1} past the sole map traverser)
  * @param rowDedupAlias when non-null, keep the first MATCH row per distinct identity of that RETURN
  *     column before projection — native prior-label {@code dedup(a)} (unique by {@code a}, emit
  *     the current boundary element)
@@ -68,6 +70,7 @@ public record ResultShaping(
     boolean unwrapSingletonMap,
     boolean elementMapTokens,
     boolean emitGroupEntries,
+    boolean emptyBarrier,
     @Nullable String rowDedupAlias,
     @Nonnull List<ListShapingOp> listShapingOps) {
 
@@ -84,6 +87,7 @@ public record ResultShaping(
           List.of(),
           List.of(),
           List.of(),
+          false,
           false,
           false,
           false,
@@ -125,6 +129,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -144,6 +149,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -163,6 +169,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -183,6 +190,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -205,6 +213,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -227,6 +236,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -249,6 +259,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -268,6 +279,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -287,6 +299,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -306,6 +319,7 @@ public record ResultShaping(
         value,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -325,6 +339,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         value,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         listShapingOps);
   }
@@ -346,6 +361,27 @@ public record ResultShaping(
         value ? false : accumulateMap,
         unwrapSingletonMap,
         elementMapTokens,
+        value,
+        emptyBarrier,
+        rowDedupAlias,
+        listShapingOps);
+  }
+
+  /** This shaping with {@code emptyBarrier} set to {@code value}. */
+  public ResultShaping withEmptyBarrier(boolean value) {
+    return new ResultShaping(
+        dropNullRows,
+        dropOnAbsent,
+        presencePropertyKeys,
+        aliasPropertyPresences,
+        mapEmitColumnOrder,
+        recordIdMapKeys,
+        edgeMapKeys,
+        wrapMapValuesInLists,
+        accumulateMap,
+        unwrapSingletonMap,
+        elementMapTokens,
+        emitGroupEntries,
         value,
         rowDedupAlias,
         listShapingOps);
@@ -369,6 +405,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         alias,
         listShapingOps);
   }
@@ -391,6 +428,7 @@ public record ResultShaping(
         unwrapSingletonMap,
         elementMapTokens,
         emitGroupEntries,
+        emptyBarrier,
         rowDedupAlias,
         ops);
   }

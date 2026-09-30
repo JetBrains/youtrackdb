@@ -301,7 +301,7 @@ flowchart TB
   needs the no-mutation-on-decline discipline (per-recognizer unit invariant).
 - **Implemented in**: Track 2 (walker + registry); per-class entries added by
   Tracks 2–8 and Track 11
-- **Full design**: design.md §"Recogniser dispatch"
+- **Full design**: design.md §"Class Design" (subsection "Recogniser dispatch")
 
 #### D10: Walker supports multi-step claims via index-driven iteration
 - **Alternatives considered**: single-step-per-recognizer for-each loop with a
@@ -411,13 +411,14 @@ Phase 2+ (the translator declines these under D3; native pipeline handles them):
 `optional(...)`; OR over edge-bearing sub-traversals; variable-depth
 `repeat()/times()`; stateful side-effects (`sack`/`store`/`aggregate`); lambda
 steps; `subgraph`; path manipulation (`simplePath`/`cyclicPath`/advanced
-`path()`); `choose()`; custom DSL steps; edge-returning terminals and
-user-facing edge aliases; edge property extraction; multi-label edges
-(`out("a","b")`); mid-traversal list-shaping; singleton-collection equality on
-schema-less fields; `profile()`; **positional suffixes after a `union` that are
-not immediately followed by `count()`** — `union(...).limit(n)`,
-`union(...).range(a, b)`, `union(...).skip(n)`. Full table: design.md §"Out of
-scope (Phase 2+)".
+`path()`); `choose()`; custom DSL steps; bare edge-returning terminals without
+`select` (e.g. `outE(L)` alone); keyless `valueMap()` /
+`elementMap()`; order-dependent `dedup().by` / prior-label `dedup(a)`;
+`groupCount().unfold().limit(n)` without a preceding `order()` (HashMap vs
+first-seen entry order); `profile()`; **positional suffixes after a `union`
+that are not immediately followed by `count()`** — `union(...).limit(n)`,
+`union(...).range(a, b)`, `union(...).skip(n)`. Full table: design.md
+§"Out of scope (Phase 2+)".
 
 **The post-union positional suffix, and the way out of it (Track 9 step 7).**
 Gremlin's `union` is a `BranchStep` that interleaves its arms per incoming

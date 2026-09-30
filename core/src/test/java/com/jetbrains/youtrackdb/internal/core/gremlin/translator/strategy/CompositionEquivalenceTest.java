@@ -651,12 +651,19 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .where(__.as("a").has("age", P.eq(30))));
   }
 
-  /** Multi-label hop translates — MATCH {@code out('knows','created')} carries both labels. */
+  /**
+   * Multi-label hop translates. A decoy third edge label must not appear — otherwise dropping both
+   * labels would still match {@code out()} on this fixture.
+   */
   @Test
   public void multiLabel_out_matchesNative() {
     ModernGraphFixture.seed(graph, session);
+    var marko = graph.traversal().V().has("name", "marko").next();
+    var decoy = graph.addVertex(T.label, "Person", "name", "Decoy");
+    marko.addEdge("hates", decoy);
+    graph.tx().commit();
     assertEquivalent(
-        "g.V().out(knows,created)",
+        "g.V().out(knows,created) with hates decoy",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "created"));
   }
@@ -681,9 +688,9 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().both("knows", "created"));
   }
 
-  /** Polymorphic multi-label hasLabel expands subclass closure and translates. */
+  /** Root multi-label hasLabel re-types to LCA + {@code @class IN}; on/off match. */
   @Test
-  public void hasLabel_multi_then_out_matchesNative() {
+  public void hasLabel_multi_then_out_matches() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     session.createEdgeClass("knows");
@@ -697,12 +704,9 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person", "Employee").out("knows"));
   }
 
-  /**
-   * Non-polymorphic multi-label {@code hasLabel(Person,Employee).out(knows)} translates: {@code @class
-   * IN} mirrors native leaf-exact membership.
-   */
+  /** Non-polymorphic root multi-label hasLabel also translates via LCA + exact {@code @class IN}. */
   @Test
-  public void hasLabel_multi_then_out_nonPolymorphic_matchesNative() {
+  public void hasLabel_multi_then_out_nonPolymorphic_matches() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     session.createEdgeClass("knows");
@@ -827,11 +831,21 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
 
   /**
    * groupCount().unfold().order().by(Column.values/keys).limit(n) — SQL-native ORDER BY + LIMIT on
-   * GROUP BY rows, emitting Map.Entry payloads.
+   * GROUP BY rows, emitting Map.Entry payloads. Fixture uses unequal counts (Alice=1, Bob=2,
+   * Cleo=3) so {@code by(Column.values, desc)} decides the order before {@code keys}; {@code
+   * limit(2)} then cuts Cleo+Bob and drops Alice — a modern-graph all-counts-1 seed would never
+   * exercise the primary key.
    */
   @Test
   public void groupCount_unfold_order_limit_matchesNative() {
-    ModernGraphFixture.seed(graph, session);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.addVertex(T.label, "Person", "name", "Cleo");
+    graph.tx().commit();
+
     assertEquivalentOrdered(
         "g.V().hasLabel(Person).groupCount().by(name).unfold()"
             + ".order().by(Column.values,desc).by(Column.keys).limit(2)",
@@ -911,6 +925,21 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V()
             .union(__.out("knows"), __.out("created"))
             .order().by("name", Order.asc));
+  }
+
+  /**
+   * Post-union identity {@code order()} over {@code values(name)} arms sorts the projected scalars,
+   * not vertex RIDs.
+   */
+  @Test
+  public void union_values_then_order_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalentOrdered(
+        "g.V().union(out(knows).values(name), out(created).values(name)).order()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .union(__.out("knows").values("name"), __.out("created").values("name"))
+            .order());
   }
 
   /**
@@ -1000,7 +1029,7 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .out("created"));
   }
 
-  /** Singleton collection {@code eq([v])} normalizes to scalar {@code eq(v)}. */
+  /** Singleton collection {@code eq([v])} at the folded start normalizes to scalar {@code eq(v)}. */
   @Test
   public void has_eqSingletonCollection_matchesNative() {
     ModernGraphFixture.seed(graph, session);
@@ -1008,6 +1037,53 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         "g.V().has(name,eq([marko]))",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", P.eq(List.of("marko"))));
+  }
+
+  /**
+   * After a hop, native Compare.eq does not unbox size-1 collections — translator emits an
+   * always-false filter so ON matches native empty.
+   */
+  @Test
+  public void has_eqSingletonCollection_afterHop_matchesNativeEmpty() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(knows).has(name,eq([josh]))",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().out("knows").has("name", P.eq(List.of("josh"))));
+  }
+
+  /** Edge select then multi-key values flat-maps edge property values in key order. */
+  @Test
+  public void selectEdge_thenMultiKeyValues_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).as(e).inV().select(e).values(weight,since)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
+            .values("weight", "since"));
+  }
+
+  /** Edge select then elementMap includes Direction.IN/OUT endpoint maps. */
+  @Test
+  public void selectEdge_thenElementMap_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).as(e).inV().select(e).elementMap(weight)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
+            .elementMap("weight"));
+  }
+
+  /** Edge select then valueMap projects edge properties without Direction endpoints. */
+  @Test
+  public void selectEdge_thenValueMap_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).as(e).inV().select(e).valueMap(weight)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
+            .valueMap("weight"));
   }
 
   // ---------------------------------------------------------------------------

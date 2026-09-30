@@ -211,6 +211,42 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
+   * Unfolded positions ({@code rangeTypeGuard=true}): size-1 collection {@code eq} emits an
+   * always-false filter — native {@code Compare.eq} does not unbox, so scalar vs {@code [v]} never
+   * matches.
+   */
+  @Test
+  public void eqSingletonCollection_withRangeTypeGuard_emitsAlwaysFalse() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.eq(List.of(30))),
+        GremlinPredicateAdapter.NO_TYPE_INFO,
+        null,
+        true);
+    assertThat(expr)
+        .as("unfolded singleton eq must never match a scalar property")
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock.class);
+    var sb = new StringBuilder();
+    expr.toGenericStatement(sb);
+    assertThat(sb.toString()).containsIgnoringCase("IS DEFINED")
+        .containsIgnoringCase("IS NOT DEFINED");
+  }
+
+  /**
+   * Unfolded size-1 collection {@code neq}: any present scalar is structurally ≠ {@code [v]}, so
+   * the filter is presence-only ({@code IS DEFINED}).
+   */
+  @Test
+  public void neqSingletonCollection_withRangeTypeGuard_emitsIsDefined() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.neq(List.of(30))),
+        GremlinPredicateAdapter.NO_TYPE_INFO,
+        null,
+        true);
+    assertThat(expr).isInstanceOf(
+        com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition.class);
+  }
+
+  /**
    * {@code has("age", P.neq([30]))} — a size-1 collection under {@code neq} — normalizes to scalar
    * {@code age <> 30}, symmetric to eq.
    */

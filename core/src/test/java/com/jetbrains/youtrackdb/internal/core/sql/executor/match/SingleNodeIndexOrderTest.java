@@ -365,17 +365,18 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHERE on a non-indexed property leaves sort-only index values as the ORDER BY path. Full RID
-   * sequence matches the DESC score oracle over the filtered set.
+   * WHERE on another property can steal a different index, so SingleNodeIndexOrder stays off and
+   * MATCH keeps OrderByStep (including an explicit RID tie-break). Result order matches the DESC
+   * score oracle over the filtered set.
    */
   @Test
-  public void bareMatch_withWhereOnOtherProperty_usesIndexValuesForOrder() {
+  public void bareMatch_withWhereOnOtherProperty_keepsMatchOrderBy() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s, where: (name <> 'nullish')} RETURN s"
-        + " ORDER BY s.score DESC";
+        + " ORDER BY s.score DESC, s.@rid DESC";
     assertThat(plan(query))
-        .contains("FETCH FROM INDEX VALUES DESC Scored_score")
-        .doesNotContain("FETCH FROM CLASS Scored");
+        .doesNotContain("FETCH FROM INDEX VALUES DESC Scored_score")
+        .contains("+ ORDER BY");
 
     var expected = expectedScoredRids(false).stream()
         .filter(rid -> {

@@ -302,12 +302,15 @@ final class GremlinProjectionAssembler {
       // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
     }
-    ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    ctx.pinBoundary(
+        boundary,
+        BoundaryOutputType.SINGLE_VALUE,
+        ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class);
     return Outcome.ACCEPTED;
   }
 
   /**
-   * Configures multi-key {@code values(k1, k2, …)}: project the boundary vertex, then flat-map keys
+   * Configures multi-key {@code values(k1, k2, …)}: project the boundary element, then flat-map keys
    * in declaration order via {@link ValuesFlatMapListShapingOp}.
    */
   static Outcome configureMultiKeyValues(RecognitionContext ctx, String[] propertyKeys) {
@@ -323,7 +326,8 @@ final class GremlinProjectionAssembler {
     }
     ctx.clearReturnProjection();
     ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
-    ctx.pinBoundary(boundary, BoundaryOutputType.ELEMENT, Vertex.class);
+    var elementClass = ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class;
+    ctx.pinBoundary(boundary, BoundaryOutputType.ELEMENT, elementClass);
     ctx.setResultShaping(
         ResultShaping.NONE.withListShapingOps(
             List.of(new ValuesFlatMapListShapingOp(propertyKeys))));
@@ -339,7 +343,8 @@ final class GremlinProjectionAssembler {
    * alias.key} would only duplicate that work in {@code CALCULATE PROJECTIONS}. Emit order is pinned
    * via {@link ResultShaping#mapEmitColumnOrder()} (tokens then keys). {@code valueMap} wraps
    * property values in singleton lists; {@code elementMap} leaves them unwrapped. An empty key list
-   * declines — see the body.
+   * declines — see the body. Edge {@code elementMap} also emits {@code Direction.IN}/{@code OUT}
+   * endpoint maps in the plan step (native {@code ElementMapStep} shape).
    *
    * @param tokens bit set of the {@code T.id} / {@code T.label} token columns to emit, from
    *     {@code valueMap(true)} / {@code with(WithOptions.tokens)} or from {@code elementMap}, which
@@ -381,17 +386,15 @@ final class GremlinProjectionAssembler {
       presenceKeys.add(key);
       emitOrder.add(key);
     }
-    // List wrapping follows the step, not the tokens: valueMap wraps property values in singleton
-    // lists whether or not it was asked for tokens, and elementMap never does. Deriving it from the
-    // token bits instead made valueMap(true, "name") emit name=josh where native emits name=[josh].
-    // The token-key flag does follow the tokens — id / label go under T.id / T.label whenever they
-    // are emitted, from either step. mapEmitColumnOrder drives projectMap so presence keys appear
-    // even though they are not RETURN columns.
+    // List wrapping follows the step for vertices: valueMap wraps property values in singleton
+    // lists; elementMap never does. Native edge valueMap leaves property values unwrapped (same
+    // as elementMap), so edge valueMap must not wrap either.
+    var wrapLists = !isElementMap && !ctx.isEdgeAlias(boundary);
     ctx.setResultShaping(
         ResultShaping.NONE
             .withPresencePropertyKeys(presenceKeys)
             .withMapEmitColumnOrder(emitOrder)
-            .withWrapMapValuesInLists(!isElementMap)
+            .withWrapMapValuesInLists(wrapLists)
             .withElementMapTokens(tokens != 0));
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
@@ -409,6 +412,7 @@ final class GremlinProjectionAssembler {
   }
 
   private static void repinMap(RecognitionContext ctx, String boundary) {
-    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
+    var elementClass = ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class;
+    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, elementClass);
   }
 }

@@ -627,12 +627,14 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
     alice.addEdge("knows", bob);
     alice.addEdge("likes", carol);
+    alice.addEdge("hates", dave); // decoy: must not appear in out(knows, likes)
     graph.tx().commit();
 
     assertEquivalent(
-        "g.V().out(knows, likes) (multi-label)",
+        "g.V().out(knows, likes) (multi-label) with hates decoy",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "likes"));
   }

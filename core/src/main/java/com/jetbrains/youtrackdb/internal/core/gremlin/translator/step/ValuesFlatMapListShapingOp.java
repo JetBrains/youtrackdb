@@ -4,17 +4,17 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
-import org.apache.tinkerpop.gremlin.structure.VertexProperty;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Property;
 
 /**
- * Expands each upstream vertex payload into zero or more scalar property values — native
+ * Expands each upstream element payload into zero or more scalar property values — native
  * {@code values(k1, k2, …)} flat-map order. Keys are emitted in declaration order; absent properties
- * are skipped, matching {@code PropertiesStep} over {@code PropertyType.VALUE}.
+ * are skipped, matching {@code PropertiesStep} over {@code PropertyType.VALUE}. Works for both
+ * vertices and edges ({@link Element#properties(String...)}).
  *
  * <p>YouTrackDB stores one cell per property key ({@code Cardinality.list} writes collapse), so
- * {@link Vertex#properties(String)} yields at most one {@link VertexProperty} per key — the same
- * contract as {@link Vertex#property(String)}.
+ * {@link Element#properties(String)} yields at most one {@link Property} per key.
  */
 public final class ValuesFlatMapListShapingOp implements ListShapingOp {
 
@@ -55,17 +55,17 @@ public final class ValuesFlatMapListShapingOp implements ListShapingOp {
           if (!upstream.hasNext()) {
             return;
           }
-          keyValues = valuesForVertex(upstream.next());
+          keyValues = valuesForElement(upstream.next());
         }
       }
 
-      private Iterator<Object> valuesForVertex(Object payload) {
-        if (!(payload instanceof Vertex vertex)) {
+      private Iterator<Object> valuesForElement(Object payload) {
+        if (!(payload instanceof Element element)) {
           return Collections.singletonList(payload).iterator();
         }
         return new Iterator<>() {
           private int index;
-          private Iterator<? extends VertexProperty<Object>> propertyValues =
+          private Iterator<? extends Property<Object>> propertyValues =
               Collections.emptyIterator();
 
           @Override
@@ -74,7 +74,7 @@ public final class ValuesFlatMapListShapingOp implements ListShapingOp {
               if (index >= keys.length) {
                 return false;
               }
-              propertyValues = vertex.properties(keys[index++]);
+              propertyValues = element.properties(keys[index++]);
             }
             return true;
           }

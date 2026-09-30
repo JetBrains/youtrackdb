@@ -1772,16 +1772,11 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
   /**
    * A slice after a grouping terminator selects among the maps the grouping emitted, and a grouping
    * terminator emits exactly one. Native {@code limit(1)} therefore keeps that whole map and
-   * {@code skip(1)} drops it; a statement-level {@code LIMIT} / {@code SKIP} would instead cut the
-   * {@code GROUP BY} rows that feed the map, returning a one-entry map for the first spelling and a
-   * two-entry map for the second. Three distinct names make both directions visible.
-   *
-   * <p>The {@code skip} arm's payload comparison is vacuous by itself — both arms end up empty — so
-   * the emptiness is pinned directly, and the recognised {@code groupCount().by(name)} case is what
-   * separates the grouping gate from a prefix that stopped translating.
+   * {@code skip(1)} drops it. Translation matches: keep-map is a no-op (no SQL LIMIT on GROUP BY
+   * rows); drop-map is {@code LIMIT 0}.
    */
   @Test
-  public void slicesAfterGroup_decline() {
+  public void slicesAfterGroup_matchNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.addVertex(T.label, "Person", "name", "Cleo");
@@ -1803,13 +1798,12 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
 
     assertEquivalent(
         "g.V().groupCount().by(name).limit(1)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().groupCount().by("name").limit(1));
-    // Empty on both arms by design — the skip drops the single map the grouping emitted. The
-    // assertion above pins that answer directly, so the opt-out is attributable.
+    // Empty on both arms by design — the skip drops the single map the grouping emitted.
     assertEquivalent(
         "g.V().group().by(name).skip(1)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().group().by("name").skip(1));
   }
