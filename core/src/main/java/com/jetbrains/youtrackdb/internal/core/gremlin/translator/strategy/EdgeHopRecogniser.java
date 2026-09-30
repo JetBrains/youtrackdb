@@ -147,7 +147,7 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // The type gate keys on the edge class(es) so a startingWith on a declared-String edge property
     // uses the index-aware prefix range and every other case the strict full-scan form. A label-less
     // edge (null labels) has no known class, so all its keys route to strict. Multi-label: true when
-    // any of the named edge classes declares the key as String.
+    // every named edge class declares the key as String (a schemaless sibling keeps the type guard).
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
         GremlinPredicateAdapter.schemaGate(ctx, edgeLabels);
     ParamSink paramSink = ctx::bindParam;

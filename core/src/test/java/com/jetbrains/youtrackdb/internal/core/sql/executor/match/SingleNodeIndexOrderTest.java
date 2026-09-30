@@ -222,9 +222,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /**
    * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
    * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
-   * DESC index oracle (tie-break agrees with scan direction on non-null keys). When null keys
-   * remain eligible in the index, MATCH keeps OrderByStep ({@code orderFullyCovered=false}) so
-   * the RID secondary stays correct.
+   * DESC index oracle on this fixture (no null keys). MATCH keeps OrderByStep because null keys
+   * remain eligible in the index ({@code orderFullyCovered=false}).
    */
   @Test
   public void gremlinWithRidTieBreak_usesIndex() {
@@ -232,6 +231,9 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var planText = translatedPlan(graph.traversal());
     assertThat(planText).contains(".@rid DESC");
     assertIndexValuesScan(planText, "IndexedItem_timestamp");
+    assertThat(planText)
+        .as("DESC+@rid with null keys still indexable must keep MATCH OrderByStep:\n%s", planText)
+        .contains("+ ORDER BY");
     assertThat(gremlinOrderedIds(graph.traversal()))
         .isEqualTo(expectedIndexedItemRids(false));
   }
@@ -347,9 +349,10 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHEN the WHERE also hits the ordered index, SELECT prefers a filtered index range over the
-   * sort-only values scan. The root still must not fall back to a class fetch, and DESC order of
-   * the filtered rows must be correct.
+   * A range filter on the ordered property ({@code score >= 2}) is not a presence-only check, so
+   * {@link SingleNodeIndexOrder} refuses the candidate and MATCH keeps OrderByStep. The root SELECT
+   * still serves the filter via a range index fetch (not a class scan); DESC order of the filtered
+   * rows must be correct.
    */
   @Test
   public void bareMatch_withWhereOnIndexedKey_usesIndexWithoutClassFetch() {
@@ -358,7 +361,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         + " ORDER BY s.score DESC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX Scored_score")
-        .doesNotContain("FETCH FROM CLASS Scored");
+        .doesNotContain("FETCH FROM CLASS Scored")
+        .contains("+ ORDER BY");
 
     var names = new ArrayList<String>();
     try (var rs = session.query(query)) {
@@ -461,13 +465,16 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
    * open the single-field {@code (score)} index. Picking the composite would order equal-score ties
    * by {@code name} while MATCH claims RID coverage and drops its OrderByStep — on≠off for Gremlin
    * RID tie-break and wrong MATCH {@code ORDER BY score, @rid}.
+   *
+   * <p>{@code getIndexesInternal()} returns a {@code HashSet}, so creating the composite before the
+   * single-field index does not force iteration order; the plan assertions below are what catch a
+   * revert to first-match selection whenever the composite happens to come first.
    */
   @Test
   public void bareMatchAscWithRid_prefersSingleFieldIndexOverCompositeLeadingSameKey() {
     var cls = session.createVertexClass("ScoredComp");
     cls.createProperty("score", PropertyType.INTEGER);
     cls.createProperty("name", PropertyType.STRING);
-    // Create the composite first so a first-match planner would prefer it.
     session.execute("CREATE INDEX ScoredComp_score_name ON ScoredComp (score, name) NOTUNIQUE")
         .close();
     session.execute("CREATE INDEX ScoredComp_score ON ScoredComp (score) NOTUNIQUE").close();
@@ -505,6 +512,40 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     assertThat(actual)
         .as("equal-score ties must follow @rid, not composite name order")
         .isEqualTo(expectedRids);
+  }
+
+  /**
+   * DESC + {@code @rid} with {@code score IS NOT NULL}: null keys are excluded from the result, so
+   * {@code acceptsRidTieBreak} admits full coverage. Plan streams the index values scan and omits
+   * MATCH OrderByStep; RID sequence matches the DESC oracle over the non-null scores only.
+   */
+  @Test
+  public void bareMatchDescWithRid_isNotNullFilter_fullyCoversIndexOrder() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s"
+        + " ORDER BY s.score DESC, s.@rid DESC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("presence filter admits covered DESC+RID:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES DESC Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored")
+        .doesNotContain("+ ORDER BY");
+
+    var expected = expectedScoredRids(false).stream()
+        .filter(rid -> {
+          for (var v : graph.traversal().V().hasLabel("Scored").toList()) {
+            if (v.id().toString().equals(rid)) {
+              return v.property("score").isPresent();
+            }
+          }
+          return false;
+        })
+        .toList();
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual).isEqualTo(expected);
   }
 
   /**

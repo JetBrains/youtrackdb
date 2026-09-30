@@ -1593,4 +1593,60 @@ public class SelectExecutionPlannerBranchTest extends TestUtilsFixture {
           plan.getSteps().stream().anyMatch(step -> step instanceof FetchFromIndexValuesStep));
     }
   }
+
+  /**
+   * Sort-only {@code ORDER BY score} must open the exact-width {@code (score)} index when a
+   * composite {@code (score, name)} also exists. First-match over {@code getIndexesInternal()}
+   * (a HashSet) could pick the composite and reorder equal-score ties by {@code name}.
+   */
+  @Test
+  public void sortOnlyOrderBy_prefersExactWidthIndexOverComposite() {
+    var className = "ExactWidthOrder_" + uniqueSuffix();
+    var clazz = session.getMetadata().getSchema().createClass(className);
+    clazz.createProperty("score", PropertyType.INTEGER);
+    clazz.createProperty("name", PropertyType.STRING);
+    var compositeName = className + ".score_name";
+    var singleName = className + ".score";
+    clazz.createIndex(compositeName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "score", "name");
+    clazz.createIndex(singleName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "score");
+
+    session.begin();
+    // Same score pair: name order (a before b) is the reverse of RID order (b before a).
+    var first = session.newInstance(className);
+    first.setProperty("score", 1);
+    first.setProperty("name", "pending");
+    var second = session.newInstance(className);
+    second.setProperty("score", 1);
+    second.setProperty("name", "pending");
+    var third = session.newInstance(className);
+    third.setProperty("score", 2);
+    third.setProperty("name", "c");
+    var lowerRid = first.getIdentity().compareTo(second.getIdentity()) <= 0 ? first : second;
+    var higherRid = lowerRid == first ? second : first;
+    lowerRid.setProperty("name", "b");
+    higherRid.setProperty("name", "a");
+    session.commit();
+
+    try (var result = session.query("select name from " + className + " order by score asc")) {
+      var plan = result.getExecutionPlan();
+      Assert.assertNotNull(plan);
+      var planText = plan.prettyPrint(0, 2);
+      Assert.assertTrue(
+          "exact-width score index must win over composite:\n" + planText,
+          plan.getSteps().stream()
+              .filter(FetchFromIndexValuesStep.class::isInstance)
+              .map(step -> ((FetchFromIndexValuesStep) step).getIndexName())
+              .anyMatch(singleName::equals));
+      Assert.assertFalse(
+          "composite must not serve ORDER BY score alone:\n" + planText,
+          plan.getSteps().stream()
+              .filter(FetchFromIndexValuesStep.class::isInstance)
+              .map(step -> ((FetchFromIndexValuesStep) step).getIndexName())
+              .anyMatch(compositeName::equals));
+      var names = result.stream().map(row -> (String) row.getProperty("name")).toList();
+      // Single-field index ties by @rid: lower-RID "b" before higher-RID "a", then "c".
+      // Composite (score, name) would emit "a" then "b" instead.
+      Assert.assertEquals(List.of("b", "a", "c"), names);
+    }
+  }
 }
