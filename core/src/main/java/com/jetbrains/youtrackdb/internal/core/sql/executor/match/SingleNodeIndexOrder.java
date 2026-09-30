@@ -164,13 +164,10 @@ final class SingleNodeIndexOrder {
             returnPaths,
             returnPatterns,
             returnPathElements);
-    // Without a covered RID secondary, opening the ordered index still leaves MATCH's full
-    // OrderByStep with no early-stop hint — worse than a class fetch + bounded heap. Decline the
-    // candidate until the pre-sorted primary can drive early termination.
-    if (!ridAccepted) {
-      return null;
-    }
-    return new Candidate(alias, selectOrderBy, true);
+    // Always open the ordered index for the primary key when the filter is safe. Keep MATCH
+    // OrderByStep when the RID secondary is not index-native (e.g. DESC with null keys still in
+    // the index) — orderFullyCovered=false.
+    return new Candidate(alias, selectOrderBy, ridAccepted);
   }
 
   /**

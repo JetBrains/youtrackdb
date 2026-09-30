@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -77,6 +78,26 @@ final class PostConcatStreams {
           }
           Object id = raw instanceof Identifiable identifiable ? identifiable.getIdentity() : raw;
           return seen.add(id) ? result : null;
+        });
+  }
+
+  /**
+   * Keeps only rows whose {@code entityColumnAlias} entity has {@code propertyKey} present
+   * ({@code EntityImpl.hasProperty}). Mirrors Gremlin's {@code by(key)} drop under standard order
+   * semantics when the union path cannot push {@code IS DEFINED} into sealed child plans.
+   */
+  static ExecutionStream requireDefined(
+      @Nonnull ExecutionStream upstream,
+      @Nonnull String entityColumnAlias,
+      @Nonnull String propertyKey) {
+    return upstream.filter(
+        (result, ctx) -> {
+          var entity = result.getEntity(entityColumnAlias);
+          if (!(entity instanceof EntityImpl entityImpl)
+              || !entityImpl.hasProperty(propertyKey)) {
+            return null;
+          }
+          return result;
         });
   }
 

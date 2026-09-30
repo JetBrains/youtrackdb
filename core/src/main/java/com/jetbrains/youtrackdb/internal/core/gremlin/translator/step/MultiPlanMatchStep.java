@@ -448,6 +448,8 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
         yield s;
       }
       case PostConcatOp.Dedup ignored -> PostConcatStreams.dedup(stream, getBoundaryAlias());
+      case PostConcatOp.RequireDefined requireDefined -> PostConcatStreams.requireDefined(
+          stream, requireDefined.entityColumnAlias(), requireDefined.propertyKey());
       case PostConcatOp.Order order -> PostConcatStreams.sort(stream, order.items());
     };
   }

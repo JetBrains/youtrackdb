@@ -220,20 +220,18 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Gremlin with RID tie-break on DESC: the index may still hold null keys, so SingleNodeIndexOrder
-   * does not claim a covered scan (that would open the index and still fully sort). Plan keeps a
-   * class fetch + MATCH OrderByStep; result order still matches the DESC+RID oracle.
+   * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
+   * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
+   * DESC index oracle (tie-break agrees with scan direction on non-null keys). When null keys
+   * remain eligible in the index, MATCH keeps OrderByStep ({@code orderFullyCovered=false}) so
+   * the RID secondary stays correct.
    */
   @Test
-  public void gremlinWithRidTieBreak_descKeepsClassFetchAndMatchOrder() {
+  public void gremlinWithRidTieBreak_usesIndex() {
     seedIndexedItems();
     var planText = translatedPlan(graph.traversal());
     assertThat(planText).contains(".@rid DESC");
-    assertThat(planText)
-        .as("DESC+@rid without null-key exclusion must not open a non-covering index scan")
-        .doesNotContain("FETCH FROM INDEX VALUES")
-        .contains("FETCH FROM CLASS IndexedItem")
-        .contains("+ ORDER BY");
+    assertIndexValuesScan(planText, "IndexedItem_timestamp");
     assertThat(gremlinOrderedIds(graph.traversal()))
         .isEqualTo(expectedIndexedItemRids(false));
   }
@@ -456,6 +454,37 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
     assertThat(actual).isEqualTo(expectedScoredRids(true));
+  }
+
+  /**
+   * DESC + {@code @rid} with null keys still in the index: open the score index for the primary
+   * stream, keep MATCH OrderByStep ({@code orderFullyCovered=false}) because the null-key group is
+   * stored outside the sorted tree and always walks RID ascending. Result must match the full
+   * DESC+RID oracle, including RID order inside the null group.
+   */
+  @Test
+  public void bareMatchDescWithRid_nullKeyGroupKeepsMatchOrderBy() {
+    seedNamedScores(false);
+    session.begin();
+    session.execute("CREATE VERTEX Scored SET name = 'nullish-2'").close();
+    session.commit();
+
+    var query = "MATCH {class: Scored, as: s} RETURN s"
+        + " ORDER BY s.score DESC, s.@rid DESC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("primary key still streams from the index:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES DESC Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored");
+    assertThat(planText)
+        .as("null-key RID group is not DESC-native — MATCH must keep OrderByStep:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual).isEqualTo(expectedScoredRids(false));
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {

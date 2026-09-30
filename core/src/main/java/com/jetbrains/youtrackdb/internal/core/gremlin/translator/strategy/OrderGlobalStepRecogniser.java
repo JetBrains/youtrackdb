@@ -126,6 +126,11 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     // Contribution — reached only after every comparator resolved, so a declining modulator leaves
     // the context unmutated.
     if (ctx.hasUnionCarrier()) {
+      // Sealed child plans cannot take a pattern IS DEFINED from this parent walk. Under standard
+      // order semantics emit the same drop as a post-concat stream filter before the in-memory sort.
+      if (!ctx.emitGroupEntries()) {
+        appendPostConcatPresenceDrops(ctx, boundary, orderStep);
+      }
       ctx.appendPostConcatOp(new PostConcatOp.Order(List.copyOf(items)));
       return Outcome.ACCEPTED;
     }
@@ -258,6 +263,34 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         .ifPresent(
             target -> ByModulatorPresence.requireModulatedProperty(
                 ctx, target.alias(), target.propertyKey()));
+  }
+
+  /**
+   * Post-union twin of {@link #requireModulatedPropertyForOrder}: same policy and productive-by
+   * gate, but the drop is a {@link PostConcatOp.RequireDefined} on the concatenated stream because
+   * child MATCH plans are already sealed.
+   */
+  private static void appendPostConcatPresenceDrops(
+      RecognitionContext ctx, String boundary, OrderGlobalStep<?, ?> orderStep) {
+    if (!OrderKeyPresencePolicy.emitsPatternPresenceConjunct(ctx)) {
+      return;
+    }
+    var comparators = orderStep.getComparators();
+    if (comparators == null) {
+      return;
+    }
+    for (var pair : comparators) {
+      ByModulatorTranslator.orderModulatorPresenceTarget(
+          boundary, pair.getValue0(), ctx::resolveUserLabel)
+          .ifPresent(
+              target -> {
+                if (ctx.byModulatorIsProductive(target.propertyKey())) {
+                  return;
+                }
+                ctx.appendPostConcatOp(
+                    new PostConcatOp.RequireDefined(target.alias(), target.propertyKey()));
+              });
+    }
   }
 
   private static boolean ctxHasOrderBy(RecognitionContext ctx) {

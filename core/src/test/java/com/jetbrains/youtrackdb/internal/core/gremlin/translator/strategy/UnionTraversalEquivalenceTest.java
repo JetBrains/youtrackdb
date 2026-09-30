@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
@@ -213,6 +214,32 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().union(out(knows), in(knows)).order().by(name)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order().by("name"));
+  }
+
+  /**
+   * Under standard order semantics ({@code orderIncludesMissingKey=false}) a post-union
+   * {@code order().by(age)} must drop vertices that lack {@code age}, same as the non-union path.
+   * Default keep-nulls leaves them in; sealed union arms cannot take a pattern {@code IS DEFINED},
+   * so the drop is a post-concat {@code RequireDefined} before the in-memory sort.
+   */
+  @Test
+  public void unionThenOrder_byMissingKey_underStandardSemantics_dropsLikeNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    bob.addEdge("knows", carol);
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.with(orderIncludesMissingKey,false).V().union(out(knows),in(knows)).order().by(age)",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal()
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+            .V()
+            .union(__.out("knows"), __.in("knows"))
+            .order()
+            .by("age"));
   }
 
   /**

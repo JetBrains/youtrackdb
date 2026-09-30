@@ -7,16 +7,18 @@ import javax.annotation.Nonnull;
 /**
  * Ordered post-concatenation reductions applied by {@link MultiPlanMatchStep} after the N child
  * plans are combined. These are the barriers that must see the <em>concatenated</em> multiset
- * ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}, {@code order}) — not
- * the Track 9 list-shaping terminators ({@code fold}/{@code unfold}/{@code reverse}/{@code tail}),
- * which ride {@link ResultShaping#listShapingOps()}.
+ * ({@code count}, {@code limit}/{@code range}/{@code skip}, {@code dedup}, presence drop under
+ * standard order semantics, {@code order}) — not the Track 9 list-shaping terminators
+ * ({@code fold}/{@code unfold}/{@code reverse}/{@code tail}), which ride
+ * {@link ResultShaping#listShapingOps()}.
  *
  * <p>Push-down: a lone {@link Count} rewrites each child to {@code RETURN count(*)} and sums the N
  * scalar rows (keeps per-arm SQL count / plan-cache optimisations). Any preceding stream op disables
  * that push-down so {@code union().limit(5).count()} counts at most five concatenated rows.
  */
 public sealed interface PostConcatOp
-    permits PostConcatOp.Count, PostConcatOp.Range, PostConcatOp.Dedup, PostConcatOp.Order {
+    permits PostConcatOp.Count, PostConcatOp.Range, PostConcatOp.Dedup, PostConcatOp.RequireDefined,
+    PostConcatOp.Order {
 
   /** {@code union(…).count()} — push-down when it is the only post-concat op. */
   record Count() implements PostConcatOp {
@@ -42,6 +44,23 @@ public sealed interface PostConcatOp
   /** {@code dedup()} over concatenated ELEMENT rows (identity of the boundary entity). */
   record Dedup() implements PostConcatOp {
     public static final Dedup INSTANCE = new Dedup();
+  }
+
+  /**
+   * Drops concatenated rows whose boundary entity lacks {@code propertyKey} ({@code hasProperty}).
+   * Used under standard order semantics before {@link Order}: sealed union arms cannot take a
+   * pattern {@code IS DEFINED} from the parent walk, so the drop runs on the stream instead.
+   */
+  record RequireDefined(@Nonnull String entityColumnAlias, @Nonnull String propertyKey)
+      implements PostConcatOp {
+    public RequireDefined {
+      if (entityColumnAlias.isEmpty()) {
+        throw new IllegalArgumentException("post-concat require-defined needs an entity column");
+      }
+      if (propertyKey.isEmpty()) {
+        throw new IllegalArgumentException("post-concat require-defined needs a property key");
+      }
+    }
   }
 
   /**
