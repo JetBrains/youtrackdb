@@ -2152,7 +2152,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
 
   /**
    * A RETURN alias repeats its case-insensitive source property name. ORDER BY must retain that
-   * declaration because the alias does not shadow another expression.
+   * declaration because the alias does not shadow another expression. Under {@code ci},
+   * {@code Ada}/{@code ada} tie ahead of {@code Zebra}; relative order inside the tie group is not
+   * pinned.
    */
   @Test
   public void testSameNameReturnAliasKeepsPropertyCollation() {
@@ -2171,9 +2173,10 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     var result = session.query(
         "MATCH {class: " + clazz + ", as:a} RETURN a.name AS name ORDER BY name").toList();
     Assert.assertEquals(3, result.size());
-    Assert.assertEquals("Ada", result.get(0).getProperty("name"));
-    Assert.assertEquals("ada", result.get(1).getProperty("name"));
     Assert.assertEquals("Zebra", result.get(2).getProperty("name"));
+    Assert.assertEquals(
+        Set.of("Ada", "ada"),
+        Set.of(result.get(0).getProperty("name"), result.get(1).getProperty("name")));
     session.commit();
   }
 

@@ -91,7 +91,8 @@ public class TestOrderBy extends DbTestBase {
 
   /**
    * Scenario: an alias repeats the name of its case-insensitive source property. Expected: the
-   * alias does not shadow a different expression, so the property's declaration still governs.
+   * alias does not shadow a different expression, so the property's declaration still governs —
+   * {@code Ada}/{@code ada} tie under {@code ci} ahead of {@code Zebra}.
    */
   @Test
   public void sameNameProjectionAliasKeepsPropertyCollation() {
@@ -105,11 +106,19 @@ public class TestOrderBy extends DbTestBase {
     session.commit();
 
     session.begin();
-    var rows = session.query(
+    var names = session.query(
         "select name as name from sameNameProjectionAliasOrder order by name")
-        .stream().collect(Collectors.toList());
-    assertThat(rows).extracting(row -> row.getProperty("name"))
-        .containsExactly("Ada", "ada", "Zebra");
+        .stream()
+        .map(row -> row.<String>getProperty("name"))
+        .collect(Collectors.toList());
+    assertThat(names)
+        .as("ci folds Ada/ada into one group before Zebra")
+        .hasSize(3)
+        .last()
+        .isEqualTo("Zebra");
+    assertThat(names.subList(0, 2))
+        .as("case variants tie under ci; relative order inside the group is not pinned")
+        .containsExactlyInAnyOrder("ada", "Ada");
     session.commit();
   }
 
@@ -146,7 +155,8 @@ public class TestOrderBy extends DbTestBase {
 
   /**
    * Scenario: a plain projection orders its case-insensitive property without an explicit alias.
-   * Expected: the implicit output name does not shadow the source property's declaration.
+   * Expected: the implicit output name does not shadow the source property's declaration —
+   * {@code Ada}/{@code ada} tie under {@code ci} ahead of {@code Zebra}.
    */
   @Test
   public void plainProjection_ordersTheNamedPropertyWithItsDeclaration() {
@@ -160,10 +170,18 @@ public class TestOrderBy extends DbTestBase {
     session.commit();
 
     session.begin();
-    var rows = session.query("select surname from plainProjectionOrder order by surname")
-        .stream().collect(Collectors.toList());
-    assertThat(rows).extracting(row -> row.getProperty("surname"))
-        .containsExactly("Ada", "ada", "Zebra");
+    var surnames = session.query("select surname from plainProjectionOrder order by surname")
+        .stream()
+        .map(row -> row.<String>getProperty("surname"))
+        .collect(Collectors.toList());
+    assertThat(surnames)
+        .as("ci folds Ada/ada into one group before Zebra")
+        .hasSize(3)
+        .last()
+        .isEqualTo("Zebra");
+    assertThat(surnames.subList(0, 2))
+        .as("case variants tie under ci; relative order inside the group is not pinned")
+        .containsExactlyInAnyOrder("ada", "Ada");
     session.commit();
   }
 
