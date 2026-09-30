@@ -711,7 +711,8 @@ public class MatchExecutionPlanner {
           context.getDatabaseSession());
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
-      // Edge-free root: reuse SELECT's FetchFromIndexValues path (IndexOrderedPlanner needs a hop).
+      // Edge-free root: rewrite bare ORDER BY onto the synthetic SELECT (same fetch queue as
+      // SELECT; IndexOrderedPlanner needs a hop).
       if (indexOrderedCandidate == null) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
@@ -866,7 +867,8 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
-      // Single-node root already streamed the full ORDER BY from the index values scan.
+      // Single-node root: SELECT already produced the full requested order (primary, or
+      // primary+RID when covered).
       if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
         info.orderBy = null;
       }

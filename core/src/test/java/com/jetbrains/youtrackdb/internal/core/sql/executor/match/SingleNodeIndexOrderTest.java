@@ -21,8 +21,9 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
- * Edge-free MATCH {@code ORDER BY} served by {@code FetchFromIndexValues} through the synthetic
- * root SELECT ({@link SingleNodeIndexOrder}), distinct from hop-based {@link IndexOrderedPlanner}.
+ * Edge-free MATCH {@code ORDER BY} rewritten onto the synthetic root SELECT ({@link
+ * SingleNodeIndexOrder}) so fetch matches SELECT ({@code filter index → VALUES → class}), distinct
+ * from hop-based {@link IndexOrderedPlanner}.
  */
 public class SingleNodeIndexOrderTest extends GraphBaseTest {
 
@@ -253,8 +254,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Without an index on the ordered property, MATCH falls back to a class fetch and an in-memory
-   * OrderByStep.
+   * Without an index on the ordered property, the root SELECT falls back to a class fetch and its
+   * in-memory OrderByStep (MATCH elides a second sort for a single primary key).
    */
   @Test
   public void bareMatch_withoutIndex_usesClassFetchAndOrderBy() {
@@ -274,8 +275,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * An index that ignores null values must not serve MATCH ORDER BY: the key-less row would
-   * disappear. Plan falls back; all rows including the nullish one remain.
+   * An index that ignores null values must not serve ORDER BY: the key-less row would disappear.
+   * SELECT (and MATCH via the same root) falls back; all rows including the nullish one remain.
    */
   @Test
   public void bareMatch_ignoreNullsIndex_keepsKeylessRow() {
@@ -349,20 +350,22 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * A range filter on the ordered property ({@code score >= 2}) is not a presence-only check, so
-   * {@link SingleNodeIndexOrder} refuses the candidate and MATCH keeps OrderByStep. The root SELECT
-   * still serves the filter via a range index fetch (not a class scan); DESC order of the filtered
-   * rows must be correct.
+   * Range filter on the ordered property: root SELECT opens the score index (same queue as {@code
+   * SELECT FROM Scored WHERE score >= 2 ORDER BY score DESC}). Result order of the filtered rows
+   * must be correct.
    */
   @Test
   public void bareMatch_withWhereOnIndexedKey_usesIndexWithoutClassFetch() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s, where: (score >= 2)} RETURN s.name AS name"
         + " ORDER BY s.score DESC";
+    var selectControl = "SELECT name FROM Scored WHERE score >= 2 ORDER BY score DESC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX Scored_score")
-        .doesNotContain("FETCH FROM CLASS Scored")
-        .contains("+ ORDER BY");
+        .doesNotContain("FETCH FROM CLASS Scored");
+    assertThat(plan(selectControl))
+        .contains("FETCH FROM INDEX Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored");
 
     var names = new ArrayList<String>();
     try (var rs = session.query(query)) {
@@ -372,17 +375,20 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHERE on another property can steal a different index, so SingleNodeIndexOrder stays off and
-   * MATCH keeps OrderByStep (including an explicit RID tie-break). Result order matches the DESC
-   * score oracle over the filtered set.
+   * WHERE on another property with no competing index: SELECT (and MATCH) open sort-only VALUES on
+   * the ORDER BY key and apply the name predicate as a residual. RID secondary is not covered, so
+   * MATCH keeps OrderByStep; result matches the DESC score+RID oracle over the filtered set.
    */
   @Test
-  public void bareMatch_withWhereOnOtherProperty_keepsMatchOrderBy() {
+  public void bareMatch_withWhereOnOtherProperty_usesValuesAndKeepsRidOrderBy() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s, where: (name <> 'nullish')} RETURN s"
         + " ORDER BY s.score DESC, s.@rid DESC";
-    assertThat(plan(query))
-        .doesNotContain("FETCH FROM INDEX VALUES DESC Scored_score")
+    var planText = plan(query);
+    assertThat(planText)
+        .as("residual WHERE must not block VALUES on the order key:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES DESC Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored")
         .contains("+ ORDER BY");
 
     var expected = expectedScoredRids(false).stream()
@@ -403,9 +409,9 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHERE {@code score IS NOT NULL AND name = …} must not admit SingleNodeIndexOrder: the name
-   * index can steal the root SELECT, drop the {@code @rid} secondary, and reorder equal-score ties.
-   * Plan keeps MATCH OrderByStep; RID sequence matches the score+RID oracle.
+   * WHERE {@code score IS NOT NULL AND name >= …}: the name index can steal the root SELECT, so
+   * RID elision stays off. Plan must not claim VALUES coverage; RID sequence matches the
+   * score+RID oracle.
    */
   @Test
   public void bareMatch_whereNotNullAndOtherIndexedProperty_keepsRidTieBreak() {

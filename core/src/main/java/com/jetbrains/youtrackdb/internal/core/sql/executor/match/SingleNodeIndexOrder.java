@@ -24,12 +24,15 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Plan-time detection of a single-node MATCH root that can stream an indexed property order the
- * same way {@code SELECT FROM Class ORDER BY prop} uses {@code FetchFromIndexValuesStep}.
+ * Plan-time rewrite of edge-free MATCH {@code ORDER BY} onto the synthetic root SELECT, so fetch
+ * selection matches {@code SELECT FROM Class WHERE … ORDER BY prop} ({@code
+ * SelectExecutionPlanner}: rid → filter index → sort-only VALUES → class).
  *
- * <p>Edge-hop index order stays in {@link IndexOrderedPlanner}. This helper covers the edge-free
- * shape {@code MATCH {class: C, as: a} RETURN a ORDER BY a.prop}, including the Gremlin translation
- * of {@code g.V().hasLabel(C).order().by(prop)}.
+ * <p>Injection does not depend on a private WHERE allow-list: any residual filter travels with the
+ * SELECT and the planner picks the scan. {@link #orderFullyCovered()} stays conservative (RID /
+ * null-group / return shape) and only then drops MATCH's {@code OrderByStep}.
+ *
+ * <p>Edge-hop index order stays in {@link IndexOrderedPlanner}.
  */
 final class SingleNodeIndexOrder {
 
@@ -39,9 +42,9 @@ final class SingleNodeIndexOrder {
   }
 
   /**
-   * When present, the synthetic root SELECT should carry {@link #selectOrderBy()} so the SELECT
-   * planner can open an ordered index scan. {@link #orderFullyCovered()} is true when MATCH must not
-   * append a second {@code OrderByStep} — the scan already yields the full requested order.
+   * When present, the synthetic root SELECT carries {@link #selectOrderBy()} so the SELECT planner
+   * owns fetch + primary order. {@link #orderFullyCovered()} is true when MATCH must not append a
+   * second {@code OrderByStep}.
    */
   record Candidate(
       @Nonnull String alias,
@@ -50,9 +53,9 @@ final class SingleNodeIndexOrder {
   }
 
   /**
-   * Returns a candidate when the pattern is one isolated node, ORDER BY resolves to one indexed
-   * property on that node (optional RID tie-break), and an eligible index exists; otherwise {@code
-   * null}.
+   * Returns a candidate when the pattern is one isolated node and ORDER BY rewrites to a bare
+   * property on that node (optional RID secondary). Index / WHERE admission is left to the SELECT
+   * planner; elision uses {@link #orderFullyCovered()}.
    */
   @Nullable static Candidate detect(
       @Nullable Pattern pattern,
@@ -82,6 +85,10 @@ final class SingleNodeIndexOrder {
     }
 
     var items = orderBy.getItems();
+    // Multi-key ORDER BY beyond primary + optional @rid is not rewritten onto the root SELECT.
+    if (items.size() > 2) {
+      return null;
+    }
     var primary = items.getFirst();
     if (primary.getCollate() != null
         || !IndexOrderedPlanner.isDefaultCollate(primary.getDeclaredCollate())) {
@@ -95,17 +102,31 @@ final class SingleNodeIndexOrder {
     var orderAsc = SQLOrderByItem.ASC.equals(primary.getType())
         || primary.getType() == null;
 
+    var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
+    selectItem.setNullOrdering(primary.getNullOrdering());
+    selectItem.setDeclaredCollate(primary.getDeclaredCollate());
+    var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
+
+    if (items.size() == 1) {
+      // SELECT applies the bare primary key (index stream or its own OrderByStep). MATCH must not
+      // sort again.
+      return new Candidate(alias, selectOrderBy, true);
+    }
+
+    // size == 2: inject primary ORDER BY for the SELECT fetch queue; elide MATCH OrderByStep only
+    // when the secondary is an index-native RID tie-break and the filter cannot divert the root
+    // onto a different index (which would drop RID order from the stream).
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     if (session == null) {
-      return null;
+      return new Candidate(alias, selectOrderBy, false);
     }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null) {
-      return null;
+      return new Candidate(alias, selectOrderBy, false);
     }
     var clazz = schema.getClassInternal(className);
     if (clazz == null) {
-      return null;
+      return new Candidate(alias, selectOrderBy, false);
     }
 
     Index matchedIndex = null;
@@ -125,58 +146,35 @@ final class SingleNodeIndexOrder {
       matchedIndex = idx;
       break;
     }
-    if (matchedIndex == null) {
-      return null;
-    }
 
     var aliasFilter = aliasFilters.get(alias);
-    // A non-null WHERE can be served by a different index than the ORDER BY key. The root SELECT
-    // then sorts in memory on the primary key alone, and claiming orderFullyCovered would drop
-    // MATCH's OrderByStep (including the RID tie-break). Only admit when the filter cannot steal
-    // another index — null, or IS NOT NULL on the ordered property alone.
-    if (!filterAllowsCoveredOrder(aliasFilter, propertyName)) {
-      return null;
-    }
-
-    var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
-    selectItem.setNullOrdering(primary.getNullOrdering());
-    selectItem.setDeclaredCollate(primary.getDeclaredCollate());
-    var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
-
-    if (items.size() == 1) {
-      return new Candidate(alias, selectOrderBy, true);
-    }
-    if (items.size() != 2) {
-      return null;
-    }
     var ridAccepted =
-        acceptsRidTieBreak(
-            items.get(1),
-            alias,
-            propertyName,
-            matchedIndex,
-            orderAsc,
-            aliasFilter,
-            returnItems,
-            returnAliases,
-            returnDistinct,
-            returnElements,
-            returnPaths,
-            returnPatterns,
-            returnPathElements);
-    // Always open the ordered index for the primary key when the filter is safe. Keep MATCH
-    // OrderByStep when the RID secondary is not index-native (e.g. DESC with null keys still in
-    // the index) — orderFullyCovered=false.
+        matchedIndex != null
+            && filterCannotStealOrderIndex(aliasFilter, propertyName)
+            && acceptsRidTieBreak(
+                items.get(1),
+                alias,
+                propertyName,
+                matchedIndex,
+                orderAsc,
+                aliasFilter,
+                returnItems,
+                returnAliases,
+                returnDistinct,
+                returnElements,
+                returnPaths,
+                returnPatterns,
+                returnPathElements);
     return new Candidate(alias, selectOrderBy, ridAccepted);
   }
 
   /**
    * True when the alias filter cannot divert the root SELECT onto a different index than {@code
-   * propertyName}. A null filter is safe. The whole filter must be only {@code IS NOT NULL} /
-   * {@code IS DEFINED} on that property (AND of those alone is fine). Any other conjunct may win
-   * {@code handleClassAsTargetWithIndex} over the sort path.
+   * propertyName}. Used only for RID elision: a stolen filter index would order ties by that
+   * index's key, not by {@code @rid}. A null filter is safe. Presence-only checks on the ordered
+   * property ({@code IS NOT NULL} / {@code IS DEFINED}) leave the sort-only VALUES path open.
    */
-  private static boolean filterAllowsCoveredOrder(
+  private static boolean filterCannotStealOrderIndex(
       @Nullable SQLWhereClause filter, String propertyName) {
     if (filter == null) {
       return true;
