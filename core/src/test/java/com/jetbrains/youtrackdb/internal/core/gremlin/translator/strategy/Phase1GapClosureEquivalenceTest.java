@@ -305,6 +305,35 @@ public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V(alice.id()).out("knows").hasLabel("Person", "Employee"));
   }
 
+  /**
+   * Post-hop multi-label must not admit an out-of-set neighbour. Alice knows Eve (Employee) and a
+   * Software widget; {@code hasLabel(Person, Employee)} must keep only Eve — dropping both labels
+   * would still match bare {@code out()} on this fixture.
+   */
+  @Test
+  public void postHopHasLabelMultiLabel_excludesSoftwareNeighbourDecoy() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    session.createVertexClass("Software");
+    session.createEdgeClass("knows");
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var eve = graph.addVertex(T.label, "Employee", "name", "Eve");
+    var widget = graph.addVertex(T.label, "Software", "name", "widget");
+    alice.addEdge("knows", eve);
+    alice.addEdge("knows", widget);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V(alice).out(knows).hasLabel(Person, Employee) with Software decoy",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(alice.id()).out("knows")
+            .hasLabel("Person", "Employee").values("name"));
+    assertThat(graph.traversal().V(alice.id()).out("knows")
+        .hasLabel("Person", "Employee").values("name").toList())
+        .as("Software neighbour must be excluded")
+        .containsExactly("Eve");
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers — fixtures and assertion drivers.
   // ---------------------------------------------------------------------------

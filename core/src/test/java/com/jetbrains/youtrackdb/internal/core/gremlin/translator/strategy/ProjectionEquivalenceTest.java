@@ -1988,6 +1988,44 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().group().by("city").by(__.values("age").mean()));
   }
 
+  /**
+   * Explicit value-side {@code by(__.count())} — unequal bucket sizes so a regression that always
+   * emits {@code 1} (or folds lists instead of counting) diverges from native.
+   */
+  @Test
+  public void groupValueSideCount_matchesNativeUnequalBuckets() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "NYC");
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "NYC");
+    graph.addVertex(T.label, "Person", "name", "Carol", "city", "LON");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group().by(city).by(__.count())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by("city").by(__.count()));
+    assertThat(graph.traversal().V().group().by("city").by(__.count()).next())
+        .as("fixture premise: NYC=2, LON=1 — count must see unequal buckets")
+        .containsEntry("NYC", 2L)
+        .containsEntry("LON", 1L);
+  }
+
+  /**
+   * Explicit value-side {@code by(__.fold())} — default group value is also a fold, but naming it
+   * goes through the recogniser's count/fold branch; on/off must agree on the folded lists.
+   */
+  @Test
+  public void groupValueSideFold_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "city", "NYC");
+    graph.addVertex(T.label, "Person", "name", "Bob", "city", "NYC");
+    graph.addVertex(T.label, "Person", "name", "Carol", "city", "LON");
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().group().by(city).by(__.fold())",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().group().by("city").by(__.fold()));
+  }
+
   // ---------------------------------------------------------------------------
   // select behind a captured RETURN DISTINCT. dedup() compiles to DISTINCT over
   // whatever RETURN holds when the plan is assembled, and it keys on the boundary

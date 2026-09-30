@@ -1132,6 +1132,34 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Edge {@code select(e).project(...).by(weight)} — project after an edge boundary must read edge
+   * properties, not the hop-target vertex. A regression that left the boundary on the {@code inV}
+   * would look for {@code weight} on the Person and diverge.
+   */
+  @Test
+  public void selectEdge_thenProject_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().has(name,marko).outE(knows).as(e).inV().select(e).project(w).by(weight)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "marko").outE("knows").as("e").inV()
+            .select("e").project("w").by("weight"));
+  }
+
+  /**
+   * {@code filter(__.has(...))} after a hop — root {@code filter(has)} is covered elsewhere; the
+   * mid-path form must still match native (inline hoist bugs can hide at the root).
+   */
+  @Test
+  public void filterHas_afterHop_matchesNative() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(knows).filter(__.has(age, gte 30))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("knows").filter(__.has("age", P.gte(30))));
+  }
+
+  /**
    * Edge {@code valueMap(true, weight)} keeps id/label tokens and must not grow
    * {@code Direction.IN}/{@code OUT} entries — those belong to {@code elementMap} only. A regression
    * that reuses the elementMap endpoint path would diverge from native here.

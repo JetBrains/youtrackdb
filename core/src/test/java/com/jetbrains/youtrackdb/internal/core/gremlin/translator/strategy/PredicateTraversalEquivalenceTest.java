@@ -181,6 +181,58 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Non-polymorphic {@code hasLabel(Person, Employee)} must keep the exact {@code @class IN} — a
+   * sibling subclass {@code Manager} is outside the named set. Without that IN, {@code SELECT FROM
+   * Person} (LCA) would still return Manager and this case would pass wrongly.
+   */
+  @Test
+  public void hasLabelMultiLabel_nonPolymorphic_excludesSiblingSubclassDecoy() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", person);
+    graph.addVertex(T.label, "Person", "name", "p");
+    graph.addVertex(T.label, "Employee", "name", "e");
+    graph.addVertex(T.label, "Manager", "name", "m");
+    graph.tx().commit();
+
+    withPolymorphicDefault(false, () -> {
+      // assertEquivalent drains RIDs; the values("name") bag below is the decoy pin only.
+      assertEquivalent(
+          "non-poly hasLabel(Person,Employee) with Manager decoy",
+          Recognition.RECOGNIZED,
+          () -> graph.traversal().V().hasLabel("Person", "Employee"));
+      assertThat(graph.traversal().V().hasLabel("Person", "Employee").values("name").toList())
+          .as("Manager must be excluded — that is what forces @class IN to stay")
+          .containsExactlyInAnyOrder("p", "e");
+    });
+  }
+
+  /**
+   * Disjoint label trees under {@code V}: {@code hasLabel(Person, Software)} keeps a {@code V} root
+   * plus {@code @class IN}. A third class ({@code Company}) must not appear — dropping the IN would
+   * full-scan every vertex.
+   */
+  @Test
+  public void hasLabelMultiLabel_disjointTrees_excludesThirdClassDecoy() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Software");
+    session.createVertexClass("Company");
+    graph.addVertex(T.label, "Person", "name", "alice");
+    graph.addVertex(T.label, "Software", "name", "lop");
+    graph.addVertex(T.label, "Company", "name", "acme");
+    graph.tx().commit();
+
+    // assertEquivalent drains RIDs; the values("name") bag below is the decoy pin only.
+    assertEquivalent(
+        "g.V().hasLabel(Person, Software) with Company decoy",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person", "Software"));
+    assertThat(graph.traversal().V().hasLabel("Person", "Software").values("name").toList())
+        .as("Company must stay out — pins V + @class IN, not a wrong LCA re-type")
+        .containsExactlyInAnyOrder("alice", "lop");
+  }
+
+  /**
    * {@code g.V().hasLabel("Missing")} on a never-used label declines to native and returns empty on
    * both arms. Native resolves the class at execution time (it may be created later in the same
    * transaction), so a translated plan compiled against a schema without the class would diverge;
