@@ -943,7 +943,7 @@ final class WalkerContext implements RecognitionContext {
         pending.fromAlias(),
         pending.targetAlias(),
         GremlinPatternAssembler.toBuilderDirection(pending.direction()),
-        pending.edgeLabel());
+        pending.edgeLabels());
     // Deferred has(...) becomes MATCH filters on the neighbour alias (order().hop().has() without
     // a following slice).
     return HasStepRecogniser.contributeContainersToAlias(

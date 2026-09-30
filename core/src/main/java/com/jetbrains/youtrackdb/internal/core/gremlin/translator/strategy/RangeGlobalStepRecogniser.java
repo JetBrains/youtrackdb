@@ -280,7 +280,7 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     ctx.appendListShapingOp(
         new OrderedExpandSliceListShapingOp(
             pendingHop.direction(),
-            pendingHop.edgeLabel(),
+            pendingHop.edgeLabels(),
             normalized.skip(),
             normalized.limit(),
             propertyKey,
