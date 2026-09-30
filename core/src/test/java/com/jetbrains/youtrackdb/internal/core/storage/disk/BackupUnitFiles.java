@@ -18,8 +18,8 @@ import net.jpountz.xxhash.XXHashFactory;
  * completion evidence of that database.
  *
  * <p>This helper writes supported and unsupported headers with the version 3 layout. It also
- * writes a header without creation completion evidence, an authentic shorter version 2 header,
- * and output without any readable header.
+ * writes a header without creation completion evidence, authentic shorter version 1 and 2
+ * headers, and output without any readable header.
  *
  * <p>The written content is arbitrary. Every case of this helper serves an admission decision,
  * which runs before any replay of the content.
@@ -31,6 +31,9 @@ public final class BackupUnitFiles {
 
   /** The backup format version of the earlier release that wrote the shorter header tail. */
   public static final int LEGACY_BACKUP_FORMAT_VERSION = OLD_BACKUP_FORMAT_VERSION;
+
+  /** The first backup format version, with no last transaction identifier in its tail. */
+  public static final int FIRST_BACKUP_FORMAT_VERSION = 1;
 
   /** The previous supported backup format version, with the same header layout as version 4. */
   public static final int PREVIOUS_BACKUP_FORMAT_VERSION = 3;
@@ -285,6 +288,35 @@ public final class BackupUnitFiles {
    */
   public static byte[] legacyVersion2UnitBytes(UUID databaseId, String databaseName,
       int sequenceNumber, boolean fullBackup) throws IOException {
+    return legacyUnitBytes(databaseId, databaseName, sequenceNumber, fullBackup,
+        LEGACY_BACKUP_FORMAT_VERSION);
+  }
+
+  /** Writes one authentic version 1 unit with its original 54-byte tail. */
+  public static String writeLegacyVersion1Unit(Path directory, UUID databaseId,
+      String databaseName, int sequenceNumber, boolean fullBackup) throws IOException {
+    return writeLegacyVersion1Unit(directory, databaseId, databaseName, sequenceNumber, fullBackup,
+        unitFileName(databaseId, databaseName, sequenceNumber));
+  }
+
+  /** Writes one authentic version 1 unit under a chosen file name. */
+  public static String writeLegacyVersion1Unit(Path directory, UUID databaseId,
+      String databaseName, int sequenceNumber, boolean fullBackup, String fileName)
+      throws IOException {
+    Files.write(directory.resolve(fileName),
+        legacyVersion1UnitBytes(databaseId, databaseName, sequenceNumber, fullBackup));
+    return fileName;
+  }
+
+  /** Builds one version 1 unit without the last transaction identifier added in version 2. */
+  public static byte[] legacyVersion1UnitBytes(UUID databaseId, String databaseName,
+      int sequenceNumber, boolean fullBackup) throws IOException {
+    return legacyUnitBytes(databaseId, databaseName, sequenceNumber, fullBackup,
+        FIRST_BACKUP_FORMAT_VERSION);
+  }
+
+  private static byte[] legacyUnitBytes(UUID databaseId, String databaseName,
+      int sequenceNumber, boolean fullBackup, int version) throws IOException {
     var startLsn = fullBackup ? null : new LogSequenceNumber(1, 10 * sequenceNumber);
     var endLsn = new LogSequenceNumber(1, 10 * (sequenceNumber + 1));
 
@@ -297,7 +329,7 @@ public final class BackupUnitFiles {
           + " written by an earlier release").getBytes("UTF-8");
       dataOutputStream.write(content);
 
-      dataOutputStream.writeShort(LEGACY_BACKUP_FORMAT_VERSION);
+      dataOutputStream.writeShort(version);
       dataOutputStream.writeLong(databaseId.getLeastSignificantBits());
       dataOutputStream.writeLong(databaseId.getMostSignificantBits());
       dataOutputStream.writeInt(sequenceNumber);
@@ -305,7 +337,9 @@ public final class BackupUnitFiles {
       dataOutputStream.writeInt(startLsn == null ? -1 : startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
-      dataOutputStream.writeLong(42L);
+      if (version == LEGACY_BACKUP_FORMAT_VERSION) {
+        dataOutputStream.writeLong(42L);
+      }
       dataOutputStream.flush();
 
       var written = outputStream.toByteArray();

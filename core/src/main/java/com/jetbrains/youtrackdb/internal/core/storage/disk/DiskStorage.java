@@ -223,6 +223,12 @@ public class DiskStorage extends AbstractStorage {
    */
   static final int CURRENT_BACKUP_FORMAT_VERSION = 4;
   private static final int PREVIOUS_BACKUP_FORMAT_VERSION = 3;
+  // Older tails start with a version short and end with a hash long.
+  private static final int VERSION_2_BACKUP_TAIL_SIZE = 62;
+  private static final int VERSION_1_BACKUP_TAIL_SIZE = 54;
+  // Both old writers stored the UUID low bits first, immediately after the version.
+  private static final int LEGACY_UUID_LOW_OFFSET = Short.BYTES;
+  private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
 
   /**
    * States that the creation of the backed-up database finished.
@@ -1722,6 +1728,34 @@ public class DiskStorage extends AbstractStorage {
         && dbUUID.getLeastSignificantBits() == metadataUUIDLowerBits
         && dbUUID.getMostSignificantBits() == metadataUUIDHigherBits;
 
+    // The last 74 bytes can include content from a shorter legacy tail. Match both the version
+    // and the old tail's identifier to the file name. A future unit's sequence number can look
+    // like version 1 at the old position, but its old-position identifier does not match.
+    // Check before the hash and expected database identifier. Old units stay unclassifiable.
+    if (metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
+        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+      var version2Start = IBU_METADATA_SIZE - VERSION_2_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version2Start) == 2
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 2);
+      }
+      var version1Start = IBU_METADATA_SIZE - VERSION_1_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version1Start) == 1
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 1);
+      }
+    }
+
     // The failed content check of a recognized header is the only removable outcome. Every
     // other failure below keeps its unit, because that unit can hold a valuable old backup.
     if (calculatedHashCode != null && calculatedHashCode != metadataHashCode) {
@@ -1754,14 +1788,7 @@ public class DiskStorage extends AbstractStorage {
 
     if (metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
         && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
-      LogManager.instance()
-          .warn(DiskStorage.class, storageName,
-              "Version of the file %s stored in metadata %d is unsupported; supported versions are %d and %d.",
-              ibuFileName, metadataVersion, PREVIOUS_BACKUP_FORMAT_VERSION,
-              CURRENT_BACKUP_FORMAT_VERSION);
-      return unclassifiableUnit("The header carries backup format version "
-          + metadataVersion + ", and this build supports backup format versions "
-          + PREVIOUS_BACKUP_FORMAT_VERSION + " and " + CURRENT_BACKUP_FORMAT_VERSION + " only.");
+      return unsupportedBackupVersion(ibuFileName, storageName, metadataVersion);
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -1866,6 +1893,19 @@ public class DiskStorage extends AbstractStorage {
         calculatedHashCode == null
             ? "The unit passes every header check."
             : "The unit passes every header check and every content check.");
+  }
+
+  /** Refuses an unsupported version and names both versions that this build accepts. */
+  private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
+      String storageName, int version) {
+    LogManager.instance()
+        .warn(DiskStorage.class, storageName,
+            "Version of the file %s stored in metadata %d is unsupported; supported versions are %d and %d.",
+            ibuFileName, version, PREVIOUS_BACKUP_FORMAT_VERSION,
+            CURRENT_BACKUP_FORMAT_VERSION);
+    return unclassifiableUnit("The header carries backup format version "
+        + version + ", and this build supports backup format versions "
+        + PREVIOUS_BACKUP_FORMAT_VERSION + " and " + CURRENT_BACKUP_FORMAT_VERSION + " only.");
   }
 
   /** Builds the inspection of one unit that this build cannot classify. */

@@ -389,8 +389,8 @@ public class IncrementalBackupExtensionTest {
    * covers it. The scenario replaces the full backup of one two-unit chain by an authentic
    * version 2 unit.
    *
-   * <p>The expected outcome has two parts. The backup reports the unsupported chain.
-   * Every existing unit keeps its bytes.
+   * <p>The expected outcome has two parts. The refusal names version 2 and both accepted
+   * versions. Every existing unit keeps its bytes.
    */
   @Test
   public void incrementalBackupRefusesAnAuthenticVersion2UnitBelowASupportedHead()
@@ -404,12 +404,40 @@ public class IncrementalBackupExtensionTest {
           fullBackupUnit);
       var contentBeforeBackup = unitContent();
 
-      assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> storage.backup(backupPath));
 
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3 and 4"));
       assertEquals(
           "the refused backup must keep every existing unit unchanged",
           contentBeforeBackup,
           unitContent());
+    }
+  }
+
+  /**
+   * A real version 1 unit below a supported head refuses extension without changing files.
+   * The refusal names version 1 and both accepted versions.
+   */
+  @Test
+  public void incrementalBackupRefusesAnAuthenticVersion1UnitBelowASupportedHead()
+      throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var fullUnit = storage.fullBackup(backupPath);
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      BackupUnitFiles.writeLegacyVersion1Unit(backupPath, storage.getUuid(), SOURCE, 0, true,
+          fullUnit);
+      var original = unitContent();
+
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> storage.backup(backupPath));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3 and 4"));
+      assertEquals("the refused backup keeps every unit", original, unitContent());
     }
   }
 
