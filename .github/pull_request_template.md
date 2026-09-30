@@ -69,9 +69,8 @@ See the ytdb-slate package's delivery-packages.md. -->
 
 #### Tracks:
 <!-- Multi-track changes only. This table is a display index, not a boundary authority.
-Umbrella mode uses marker commits. Per-track mode uses reviewed branch ranges and
-user-merged commits. Write "N/A (single-track)" otherwise. Remove this whole section
-before the PR becomes ready for review. -->
+Umbrella mode uses marker commits. Write "N/A (single-track)" otherwise.
+Remove this whole section before the PR becomes ready for review. -->
 
 | # | Track | Scope | Status |
 |---|-------|-------|--------|

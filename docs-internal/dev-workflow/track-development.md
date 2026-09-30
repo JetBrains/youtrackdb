@@ -273,11 +273,11 @@ code review.
 
 ### Re-running the gate before the track's closing event
 
-Every track has a **closing event**. A multi-track change in umbrella mode or without draft
-publishing closes a track at its marker commit. Per-track mode closes at the ready-for-review
-flip. A single-track change with a draft pull request closes at the ready-for-review flip.
-Without draft publishing, a single-track change closes at final acceptance. This boundary
-gives each track a verification trigger.
+Every track has a **closing event**. Slate uses one umbrella draft pull request when draft
+publishing is enabled. A multi-track change closes each track at its marker commit, with or
+without draft publishing. A single-track change with a draft pull request closes at the
+ready-for-review flip. Without draft publishing, a single-track change closes at final
+acceptance. This boundary gives each track a verification trigger.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
