@@ -457,6 +457,57 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
+   * When the class also has a composite {@code (score, name)} index, sort-only planning must still
+   * open the single-field {@code (score)} index. Picking the composite would order equal-score ties
+   * by {@code name} while MATCH claims RID coverage and drops its OrderByStep — on≠off for Gremlin
+   * RID tie-break and wrong MATCH {@code ORDER BY score, @rid}.
+   */
+  @Test
+  public void bareMatchAscWithRid_prefersSingleFieldIndexOverCompositeLeadingSameKey() {
+    var cls = session.createVertexClass("ScoredComp");
+    cls.createProperty("score", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    // Create the composite first so a first-match planner would prefer it.
+    session.execute("CREATE INDEX ScoredComp_score_name ON ScoredComp (score, name) NOTUNIQUE")
+        .close();
+    session.execute("CREATE INDEX ScoredComp_score ON ScoredComp (score) NOTUNIQUE").close();
+    session.begin();
+    // Same score; name order (a then b) is the reverse of insert RID order (b then a).
+    session.execute("CREATE VERTEX ScoredComp SET score = 1, name = 'b'").close();
+    session.execute("CREATE VERTEX ScoredComp SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX ScoredComp SET score = 2, name = 'c'").close();
+    session.commit();
+
+    var query = "MATCH {class: ScoredComp, as: s} RETURN s"
+        + " ORDER BY s.score ASC, s.@rid ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("narrow single-field index must win over composite leading score:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC ScoredComp_score")
+        .doesNotContain("ScoredComp_score_name")
+        .doesNotContain("FETCH FROM CLASS ScoredComp")
+        .doesNotContain("+ ORDER BY");
+
+    var expected = new ArrayList<Object[]>();
+    for (var v : graph.traversal().V().hasLabel("ScoredComp").toList()) {
+      expected.add(new Object[] {v.value("score"), v.id()});
+    }
+    expected.sort(
+        Comparator
+            .<Object[], Object>comparing(r -> r[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[1], SingleNodeIndexOrderTest::compareNullsFirst));
+    var expectedRids = expected.stream().map(r -> r[1].toString()).toList();
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual)
+        .as("equal-score ties must follow @rid, not composite name order")
+        .isEqualTo(expectedRids);
+  }
+
+  /**
    * DESC + {@code @rid} with null keys still in the index: open the score index for the primary
    * stream, keep MATCH OrderByStep ({@code orderFullyCovered=false}) because the null-key group is
    * stored outside the sorted tree and always walks RID ascending. Result must match the full

@@ -3185,6 +3185,12 @@ public class SelectExecutionPlanner {
    * (see {@code INDEX_IGNORE_NULL_VALUES_DEFAULT}), so only an explicitly configured index pays
    * the fallback to an in-memory sort.
    *
+   * <p>When several indexes cover the ORDER BY prefix, the narrowest one wins (fewest trailing
+   * fields beyond the ORDER BY). Otherwise a composite {@code (score, name)} can beat a single
+   * {@code (score)} by iteration order and reorder equal-{@code score} ties by {@code name}
+   * instead of by {@code @rid} — which MATCH single-node index order (and Gremlin RID tie-break)
+   * treat as covered.
+   *
    * @return {@code true} if an index was used for sorting (plan is updated);
    *         {@code false} if no suitable index was found (caller should fall back)
    */
@@ -3201,6 +3207,13 @@ public class SelectExecutionPlanner {
           "Class not found: " + queryTarget);
     }
 
+    Index bestIndex = null;
+    var bestTrailingFields = Integer.MAX_VALUE;
+    boolean bestOrderAsc = true;
+    boolean bestNullsFirst = false;
+    var orderItemCount = info.orderBy.getItems().size();
+    var placements = ctx.getDatabaseSession().getPlanNullPlacements().resolve();
+
     for (var idx : clazz.getIndexesInternal().stream()
         .filter(i -> i.getDefinition() != null)
         // An index that ignores null values does not cover the records that lack the
@@ -3208,7 +3221,7 @@ public class SelectExecutionPlanner {
         .filter(i -> !i.getDefinition().isNullValuesIgnored())
         .toList()) {
       var indexFields = idx.getDefinition().getProperties();
-      if (indexFields.size() < info.orderBy.getItems().size()) {
+      if (indexFields.size() < orderItemCount) {
         continue;
       }
       if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())
@@ -3217,7 +3230,7 @@ public class SelectExecutionPlanner {
       }
       var indexFound = true;
       String orderType = null;
-      for (var i = 0; i < info.orderBy.getItems().size(); i++) {
+      for (var i = 0; i < orderItemCount; i++) {
         var orderItem = info.orderBy.getItems().get(i);
         if (orderItem.getCollate() != null
             || !IndexOrderedPlanner.isDefaultCollate(orderItem.getDeclaredCollate())) {
@@ -3242,31 +3255,44 @@ public class SelectExecutionPlanner {
           break;
         }
       }
-      if (indexFound && orderType != null) {
-        var orderAsc = orderType.equals(SQLOrderByItem.ASC);
-        var placements = ctx.getDatabaseSession().getPlanNullPlacements().resolve();
-        // Null-key stream placement follows the first ORDER BY item. An explicit clause wins over
-        // the direction-specific setting. A single-property index can move its null bucket.
-        // Composite keys keep null components inline and can only provide natural placement.
-        var nullsFirst = info.orderBy.getItems().getFirst().nullsFirstFor(placements);
-        if (!canProduceNullPlacement(idx.getDefinition(), info.orderBy, orderAsc, placements)) {
-          continue;
+      if (!indexFound || orderType == null) {
+        continue;
+      }
+      var orderAsc = orderType.equals(SQLOrderByItem.ASC);
+      // Null-key stream placement follows the first ORDER BY item. An explicit clause wins over
+      // the direction-specific setting. A single-property index can move its null bucket.
+      // Composite keys keep null components inline and can only provide natural placement.
+      var nullsFirst = info.orderBy.getItems().getFirst().nullsFirstFor(placements);
+      if (!canProduceNullPlacement(idx.getDefinition(), info.orderBy, orderAsc, placements)) {
+        continue;
+      }
+      var trailingFields = indexFields.size() - orderItemCount;
+      if (trailingFields < bestTrailingFields) {
+        bestIndex = idx;
+        bestTrailingFields = trailingFields;
+        bestOrderAsc = orderAsc;
+        bestNullsFirst = nullsFirst;
+        if (trailingFields == 0) {
+          // Exact-width cover — nothing narrower exists among remaining candidates.
+          break;
         }
-        plan.chain(
-            new FetchFromIndexValuesStep(
-                new IndexSearchDescriptor(idx),
-                orderAsc,
-                nullsFirst,
-                ctx,
-                profilingEnabled));
-        IntArrayList filterCollectionIds;
-        filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
-        plan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
-        info.orderApplied = true;
-        return true;
       }
     }
-    return false;
+    if (bestIndex == null) {
+      return false;
+    }
+    plan.chain(
+        new FetchFromIndexValuesStep(
+            new IndexSearchDescriptor(bestIndex),
+            bestOrderAsc,
+            bestNullsFirst,
+            ctx,
+            profilingEnabled));
+    IntArrayList filterCollectionIds;
+    filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
+    plan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
+    info.orderApplied = true;
+    return true;
   }
 
   /**
