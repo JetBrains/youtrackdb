@@ -293,7 +293,7 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
   // Order + slice after hop (sequence-sensitive)
   // ---------------------------------------------------------------------------
 
-  /** Hop then order then limit — allowed; order then hop then limit declines (pinned elsewhere). */
+  /** Hop then order then limit — allowed; order then hop then limit is pinned in OrderRangeStepRecogniserTest. */
   @Test
   public void out_order_limit_matchesNativeOrdered() {
     var m = ModernGraphFixture.seed(graph, session);

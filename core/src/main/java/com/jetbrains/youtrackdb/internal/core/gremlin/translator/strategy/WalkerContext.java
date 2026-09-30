@@ -906,10 +906,12 @@ final class WalkerContext implements RecognitionContext {
       return false;
     }
     var boundary = boundaryAlias;
-    // A hop between order() and the slice re-pins the boundary — LIMIT would cut the sorted
-    // source, not the post-hop traverser stream Gremlin applies. Foreign-alias ORDER BY items and
-    // multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy already
-    // total-orders equal primary keys via RID on both arms.
+    // Statement LIMIT behind ORDER BY requires the boundary to still be the sort alias. A hop that
+    // flushed into MATCH re-pins the boundary, so this gate refuses statement LIMIT (the cut would
+    // apply to sorted sources, not the post-hop stream). A deferred hop after order() is handled
+    // separately via PendingOrderedHop + ordered-expand, before this gate runs. Foreign-alias ORDER
+    // BY items and multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy
+    // already total-orders equal primary keys via RID on both arms.
     return boundary != null && orderByAlias != null && boundary.equals(orderByAlias);
   }
 
