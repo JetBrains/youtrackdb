@@ -128,6 +128,17 @@ final class GremlinPredicateAdapter {
           "LINKMAP",
           "LINKBAG");
 
+  /**
+   * Every {@link com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType} name —
+   * used to ask {@link PropertyTypeGate#declaredTypeIn} whether a property is declared at all
+   * (unknown / schemaless keys return false).
+   */
+  private static final List<String> ANY_DECLARED_PROPERTY_TYPE =
+      java.util.Arrays.stream(
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.values())
+          .map(Enum::name)
+          .toList();
+
   /** Singleton — the adapter is stateless and cheap to share across recogniser calls. */
   static final GremlinPredicateAdapter INSTANCE = new GremlinPredicateAdapter();
 
@@ -583,14 +594,18 @@ final class GremlinPredicateAdapter {
     //
     // Unfolded positions (rangeTypeGuard): TinkerPop Compare.eq / GremlinValueComparator does not
     // unbox — equals("josh", ["josh"]) is false. Emitting an unwrapped scalar (or a collection
-    // literal that SQL would still auto-unbox) would return rows native drops. Translate instead:
-    // eq → always-false (IS DEFINED AND IS NOT DEFINED); neq → IS DEFINED (any present scalar is
-    // structurally ≠ [v]; absent properties stay dropped).
+    // literal that SQL would still auto-unbox) would return rows native drops. When the schema
+    // declares a non-collection type, translate to always-false (eq) / IS DEFINED (neq). When the
+    // property is schema-unknown, decline — a schemaless list cell would match native eq([v]) and
+    // the always-false rewrite would silently under-match.
     if ((compare == Compare.eq || compare == Compare.neq)
         && value instanceof Collection<?> collection
         && collection.size() == 1
         && !translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
       if (translation.rangeTypeGuard()) {
+        if (!translation.typeGate().declaredTypeIn(key, ANY_DECLARED_PROPERTY_TYPE)) {
+          return null;
+        }
         if (!translation.emitAst()) {
           return BIND_OK;
         }

@@ -386,10 +386,11 @@ final class GremlinProjectionAssembler {
       presenceKeys.add(key);
       emitOrder.add(key);
     }
-    // List wrapping follows the step for vertices: valueMap wraps property values in singleton
-    // lists; elementMap never does. Native edge valueMap leaves property values unwrapped (same
-    // as elementMap), so edge valueMap must not wrap either.
-    var wrapLists = !isElementMap && !ctx.isEdgeAlias(boundary);
+    // wrapMapValuesInLists tracks the step kind (valueMap vs elementMap), not the emit wrap. Edge
+    // valueMap still leaves property values unwrapped at project time (see AbstractMatchPlanStep),
+    // but the flag stays true so isEdgeElementMap can tell valueMap(tokens) from elementMap —
+    // both would otherwise look identical (tokens on, wrap off).
+    var wrapLists = !isElementMap;
     ctx.setResultShaping(
         ResultShaping.NONE
             .withPresencePropertyKeys(presenceKeys)

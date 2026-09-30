@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
@@ -163,24 +164,60 @@ final class SingleNodeIndexOrder {
             returnPaths,
             returnPatterns,
             returnPathElements);
-    // Always open the ordered index for the primary key when the filter is safe. Keep MATCH
-    // OrderByStep when the RID secondary is not index-native (e.g. DESC with null keys still in
-    // the index) — orderFullyCovered=false.
-    return new Candidate(alias, selectOrderBy, ridAccepted);
+    // Without a covered RID secondary, opening the ordered index still leaves MATCH's full
+    // OrderByStep with no early-stop hint — worse than a class fetch + bounded heap. Decline the
+    // candidate until the pre-sorted primary can drive early termination.
+    if (!ridAccepted) {
+      return null;
+    }
+    return new Candidate(alias, selectOrderBy, true);
   }
 
   /**
    * True when the alias filter cannot divert the root SELECT onto a different index than {@code
-   * propertyName}. A null filter is safe. {@code IS NOT NULL} (and AND/OR wrappers) on that property
-   * alone is safe. Any other predicate may win {@code handleClassAsTargetWithIndex} over the sort
-   * path.
+   * propertyName}. A null filter is safe. The whole filter must be only {@code IS NOT NULL} /
+   * {@code IS DEFINED} on that property (AND of those alone is fine). Any other conjunct may win
+   * {@code handleClassAsTargetWithIndex} over the sort path.
    */
   private static boolean filterAllowsCoveredOrder(
       @Nullable SQLWhereClause filter, String propertyName) {
     if (filter == null) {
       return true;
     }
-    return requiresNotNull(filter.getBaseExpression(), propertyName);
+    return isOnlyPresenceFilterOn(filter.getBaseExpression(), propertyName);
+  }
+
+  /**
+   * Whole expression is only {@code IS NOT NULL} / {@code IS DEFINED} on {@code propertyName},
+   * possibly wrapped in non-negating NOT / single-OR / AND of the same.
+   */
+  private static boolean isOnlyPresenceFilterOn(
+      @Nullable SQLBooleanExpression expr, String propertyName) {
+    if (expr instanceof SQLIsNotNullCondition notNull) {
+      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
+    }
+    if (expr instanceof SQLIsDefinedCondition defined) {
+      return propertyName.equals(extractSimpleFieldName(defined.getExpression()));
+    }
+    if (expr instanceof SQLAndBlock andBlock) {
+      var subs = andBlock.getSubBlocks();
+      if (subs.isEmpty()) {
+        return false;
+      }
+      for (var sub : subs) {
+        if (!isOnlyPresenceFilterOn(sub, propertyName)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
+      return isOnlyPresenceFilterOn(notBlock.getSub(), propertyName);
+    }
+    if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
+      return isOnlyPresenceFilterOn(orBlock.getSubBlocks().getFirst(), propertyName);
+    }
+    return false;
   }
 
   private static boolean acceptsRidTieBreak(

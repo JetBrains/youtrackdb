@@ -35,11 +35,11 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       hasLabel}); polymorphic mode re-types alone (a {@code SELECT FROM L} scan matches subclasses,
  *       mirroring native hierarchy-aware {@code hasLabel} — see {@code YTDBLabelMatcher}). Handled
  *       only for a single {@code eq(L)} container: a multi-label {@code hasLabel(L1, L2)} arrives as
- *       one {@code within(...)} container and is expressed as {@code @class IN [L1, L2, …]} without
- *       re-typing when the fold is already closed (after a hop). On the traversal root (generic
- *       {@code V} + {@link RecognitionContext#atTraversalStart()}), multi-label {@code hasLabel}
- *       declines — MATCH would full-scan {@code V} under {@code @class IN}, while native runs
- *       per-label restricted scans. Two conflicting {@code ~label} containers decline (one MATCH
+ *       one {@code within(...)} container. When the boundary is still generic {@code V}, the
+ *       recogniser re-types to the labels' least common vertex ancestor (when one exists below
+ *       {@code V}) and adds {@code @class IN [L1, L2, …]} (leaf-exact under non-polymorphic mode;
+ *       subclass-expanded under polymorphic mode). Disjoint trees under {@code V} keep the {@code V}
+ *       root and the IN filter alone. Two conflicting {@code ~label} containers decline (one MATCH
  *       node has one class);
  *   <li>a {@code ~id} container ({@code T.id} accessor) contributes an {@code @rid IN [...]} filter
  *       via the record-attribute builder shared with {@link StartStepRecogniser}. {@code hasId} is set
@@ -163,8 +163,14 @@ final class HasStepRecogniser implements StepRecogniser {
       typeGate = GremlinPredicateAdapter.schemaGate(ctx, single.name());
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
       typeGate = GremlinPredicateAdapter.schemaGate(ctx, multi.names().toArray(String[]::new));
+      // No ~label on this step: still gate against the current boundary class when it is a concrete
+      // vertex class (after hasLabel / a typed hop). Generic V stays unknown so schemaless list cells
+      // do not get the always-false singleton rewrite.
     } else {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, (String) null);
+      var boundaryClass = ctx.boundaryClassName();
+      typeGate = GremlinPredicateAdapter.schemaGate(
+          ctx,
+          WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass) ? null : boundaryClass);
     }
     ParamSink paramSink = ctx::bindParam;
     // A range comparison needs the per-record type guard exactly when this HasStep will NOT be

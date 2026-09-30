@@ -1800,12 +1800,17 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().groupCount().by(name).limit(1)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().groupCount().by("name").limit(1));
-    // Empty on both arms by design — the skip drops the single map the grouping emitted.
     assertEquivalent(
         "g.V().group().by(name).skip(1)",
         Recognition.RECOGNIZED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().group().by("name").skip(1));
+    // skip drops the barrier map; unfold must not revive GROUP BY rows as entries.
+    assertEquivalent(
+        "g.V().groupCount().by(name).skip(1).unfold()",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().groupCount().by("name").skip(1).unfold());
   }
 
   /**

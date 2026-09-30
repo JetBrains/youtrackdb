@@ -417,6 +417,22 @@ public class GremlinPlanFingerprintTest {
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, tail5));
   }
 
+  /**
+   * {@code emptyBarrier} must enter the fingerprint: map-mode {@code groupCount().limit(1)} (keep
+   * map) and {@code groupCount().skip(1)} (drop map) share RETURN/GROUP BY text and would otherwise
+   * collide in the plan cache.
+   */
+  @Test
+  public void emptyBarrier_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var keep = ResultShaping.NONE.withAccumulateMap(true);
+    var drop = keep.withEmptyBarrier(true);
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, keep))
+        .as(";BS: emptyBarrier bit must separate keep-map from drop-map shaping")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, drop));
+  }
+
   private static MatchPlanInputs patternWithOptional(String alias, boolean optional) {
     var pattern = new Pattern();
     var node = new PatternNode();

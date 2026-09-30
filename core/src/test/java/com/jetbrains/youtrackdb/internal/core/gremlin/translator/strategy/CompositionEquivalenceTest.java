@@ -1040,28 +1040,73 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * After a hop, native Compare.eq does not unbox size-1 collections — translator emits an
-   * always-false filter so ON matches native empty.
+   * After a hop the boundary is still generic {@code V}, so schema-unknown singleton {@code eq}
+   * declines (native Compare does not unbox; a schemaless list cell could still match). Both arms
+   * stay on native and agree on empty.
    */
   @Test
-  public void has_eqSingletonCollection_afterHop_matchesNativeEmpty() {
+  public void has_eqSingletonCollection_afterHop_declinesToNativeEmpty() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().out(knows).has(name,eq([josh]))",
-        Recognition.RECOGNIZED,
+        Recognition.DECLINED,
         Cardinality.MAY_BE_EMPTY,
         () -> graph.traversal().V().out("knows").has("name", P.eq(List.of("josh"))));
   }
 
-  /** Edge select then multi-key values flat-maps edge property values in key order. */
+  /**
+   * After a hop, co-located {@code hasLabel(Person)} makes {@code name} a declared STRING, so
+   * unfolded singleton {@code eq} translates to always-false and matches native empty.
+   */
+  @Test
+  public void has_eqSingletonCollection_afterHop_withHasLabel_matchesNativeEmpty() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().out(knows).hasLabel(Person).has(name,eq([josh]))",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().out("knows").hasLabel("Person")
+            .has("name", P.eq(List.of("josh"))));
+  }
+
+  /**
+   * Schemaless list cell after a hop: native {@code eq([x])} matches the list; translator must
+   * decline (not emit always-false) so ON matches native.
+   */
+  @Test
+  public void has_eqSingletonCollection_afterHop_schemalessList_matchesNative() {
+    var a = graph.addVertex(T.label, "Person", "name", "a");
+    var b = graph.addVertex(T.label, "Person", "name", "b", "tags", List.of("x"));
+    var c = graph.addVertex(T.label, "Person", "name", "c", "tags", "x");
+    a.addEdge("knows", b);
+    a.addEdge("knows", c);
+    graph.tx().commit();
+    assertEquivalent(
+        "out(knows).has(tags, eq([x])) schemaless list",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("knows").has("tags", P.eq(List.of("x"))));
+    assertEquivalent(
+        "out(knows).has(tags, neq([x])) schemaless list",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().out("knows").has("tags", P.neq(List.of("x"))));
+  }
+
+  /**
+   * Edge select then multi-key values flat-maps edge property values in declaration order. Fixture
+   * puts both keys on the edge so a key-order swap cannot hide behind an absent second key.
+   */
   @Test
   public void selectEdge_thenMultiKeyValues_matchesNative() {
     ModernGraphFixture.seed(graph, session);
-    assertEquivalent(
-        "g.V().outE(knows).as(e).inV().select(e).values(weight,since)",
+    for (var edge : graph.traversal().E().hasLabel("knows").toList()) {
+      edge.property("since", 2012);
+    }
+    graph.tx().commit();
+    assertEquivalentOrdered(
+        "g.V().has(name,marko).outE(knows).as(e).inV().select(e).values(since,weight)",
         Recognition.RECOGNIZED,
-        () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
-            .values("weight", "since"));
+        () -> graph.traversal().V().has("name", "marko").outE("knows").as("e").inV().select("e")
+            .values("since", "weight"));
   }
 
   /** Edge select then elementMap includes Direction.IN/OUT endpoint maps. */
@@ -1084,6 +1129,38 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
             .valueMap("weight"));
+  }
+
+  /**
+   * Edge {@code valueMap(true, weight)} keeps id/label tokens and must not grow
+   * {@code Direction.IN}/{@code OUT} entries — those belong to {@code elementMap} only. A regression
+   * that reuses the elementMap endpoint path would diverge from native here.
+   */
+  @Test
+  public void selectEdge_thenValueMapWithTokens_matchesNative_noEndpoints() {
+    ModernGraphFixture.seed(graph, session);
+    assertEquivalent(
+        "g.V().outE(knows).as(e).inV().select(e).valueMap(true, weight)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").as("e").inV().select("e")
+            .valueMap(true, "weight"));
+  }
+
+  /**
+   * {@code groupCount().skip(1).unfold()} must stay empty on both arms: skip drops the sole map,
+   * so unfold has nothing to emit. A regression that clears {@code emptyBarrier} when enabling
+   * entry emit would stream every group entry.
+   */
+  @Test
+  public void groupCount_skip_thenUnfold_matchesNativeEmpty() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().groupCount().by(name).skip(1).unfold()",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().groupCount().by("name").skip(1).unfold());
   }
 
   // ---------------------------------------------------------------------------

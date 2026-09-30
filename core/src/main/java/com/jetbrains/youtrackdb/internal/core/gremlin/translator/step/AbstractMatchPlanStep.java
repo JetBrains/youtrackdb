@@ -344,6 +344,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     return shaping.accumulateMap();
   }
 
+  /** Whether a grouping barrier must emit nothing ({@link ResultShaping#emptyBarrier()}). */
+  protected boolean emptyBarrier() {
+    return shaping.emptyBarrier();
+  }
+
   /**
    * Renders a one-line marker identifying this as a translated MATCH boundary, e.g. {@code
    * YTDBMatchPlanStep(node,ELEMENT)}. Because the strategy replaces a recognised traversal's whole
@@ -433,6 +438,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * because a concatenated GROUP BY stream would merge every union arm into one native map.
    */
   protected Iterator<Object> openProjectionSource() {
+    // emptyBarrier wins over emitGroupEntries: skip(1).unfold() must stay empty even though
+    // unfold clears accumulateMap and would otherwise walk every GROUP BY row as an entry.
+    if (emptyBarrier()) {
+      return Collections.emptyIterator();
+    }
     return shaping.accumulateMap() ? accumulatedGroupMapSource() : rowProjectionSource();
   }
 
@@ -860,9 +870,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * Edge {@code elementMap} — tokens on, no valueMap list wrapping, boundary return class is Edge.
-   * Matches native {@code ElementMapStep} which inserts {@link Direction#IN}/{@link Direction#OUT}
-   * vertex structures after id/label.
+   * Edge {@code elementMap} only: tokens on and wrapMapValuesInLists false (elementMap). Edge
+   * {@code valueMap(true,…)} keeps wrapMapValuesInLists true so it does not take this path —
+   * native {@code PropertyMapStep} never emits {@link Direction#IN}/{@link Direction#OUT}.
    */
   private boolean isEdgeElementMap() {
     return Edge.class.isAssignableFrom(returnClass)
@@ -990,7 +1000,12 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         return SKIP;
       }
       var value = convertValue(entity.getProperty(name));
-      return shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value;
+      // Native edge valueMap leaves values unwrapped; the wrap flag still marks valueMap vs
+      // elementMap so endpoint insertion stays elementMap-only.
+      if (shaping.wrapMapValuesInLists() && !Edge.class.isAssignableFrom(returnClass)) {
+        return Collections.singletonList(value);
+      }
+      return value;
     }
     return convertMapColumn(name, row.getProperty(name));
   }

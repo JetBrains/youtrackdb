@@ -211,19 +211,30 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * Unfolded positions ({@code rangeTypeGuard=true}): size-1 collection {@code eq} emits an
-   * always-false filter — native {@code Compare.eq} does not unbox, so scalar vs {@code [v]} never
-   * matches.
+   * Unfolded positions ({@code rangeTypeGuard=true}) with a declared scalar property: size-1
+   * collection {@code eq} emits an always-false filter — native {@code Compare.eq} does not unbox.
    */
   @Test
   public void eqSingletonCollection_withRangeTypeGuard_emitsAlwaysFalse() {
+    GremlinPredicateAdapter.PropertyTypeGate ageGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "age".equals(key) && typeNames.contains("INTEGER");
+          }
+        };
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(List.of(30))),
-        GremlinPredicateAdapter.NO_TYPE_INFO,
+        ageGate,
         null,
         true);
     assertThat(expr)
-        .as("unfolded singleton eq must never match a scalar property")
+        .as("unfolded singleton eq on a declared scalar must never match")
         .isInstanceOf(com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock.class);
     var sb = new StringBuilder();
     expr.toGenericStatement(sb);
@@ -232,14 +243,42 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
-   * Unfolded size-1 collection {@code neq}: any present scalar is structurally ≠ {@code [v]}, so
-   * the filter is presence-only ({@code IS DEFINED}).
+   * Unfolded size-1 collection {@code eq} with no schema gate declines — a schemaless list cell
+   * would match native {@code Compare.eq([v], [v])}, so an always-false rewrite would under-match.
+   */
+  @Test
+  public void eqSingletonCollection_withRangeTypeGuard_unknownSchema_declines() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("tags", P.eq(List.of("x"))),
+        GremlinPredicateAdapter.NO_TYPE_INFO,
+        null,
+        true);
+    assertThat(expr)
+        .as("schema-unknown unfolded singleton eq must decline, not invent always-false")
+        .isNull();
+  }
+
+  /**
+   * Unfolded size-1 collection {@code neq} on a declared scalar: any present value is structurally
+   * ≠ {@code [v]}, so the filter is presence-only ({@code IS DEFINED}).
    */
   @Test
   public void neqSingletonCollection_withRangeTypeGuard_emitsIsDefined() {
+    GremlinPredicateAdapter.PropertyTypeGate ageGate =
+        new GremlinPredicateAdapter.PropertyTypeGate() {
+          @Override
+          public boolean isDeclaredString(String key) {
+            return false;
+          }
+
+          @Override
+          public boolean declaredTypeIn(String key, java.util.List<String> typeNames) {
+            return "age".equals(key) && typeNames.contains("INTEGER");
+          }
+        };
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.neq(List.of(30))),
-        GremlinPredicateAdapter.NO_TYPE_INFO,
+        ageGate,
         null,
         true);
     assertThat(expr).isInstanceOf(

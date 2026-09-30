@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStreamProducer;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.MultipleExecutionStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -458,6 +459,9 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
    */
   @Override
   protected Iterator<Object> openProjectionSource() {
+    if (emptyBarrier()) {
+      return Collections.emptyIterator();
+    }
     if (!accumulatesGroupMap()) {
       return super.openProjectionSource();
     }

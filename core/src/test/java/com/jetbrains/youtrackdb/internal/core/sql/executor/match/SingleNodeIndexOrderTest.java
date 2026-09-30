@@ -29,7 +29,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /** Duplicate timestamps: {@code i / 2} over {@code ITEMS} rows → two rows per key. */
   private static final int ITEMS = 200;
 
-  private static final int LOW_HEAP_CAP = 10;
+  private static final int LOW_HEAP_CAP = 2;
 
   private static final String BUFFERING_FAILURE = "in-heap ORDER BY";
 
@@ -220,16 +220,20 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
-   * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
-   * DESC index oracle (tie-break agrees with scan direction on non-null keys).
+   * Gremlin with RID tie-break on DESC: the index may still hold null keys, so SingleNodeIndexOrder
+   * does not claim a covered scan (that would open the index and still fully sort). Plan keeps a
+   * class fetch + MATCH OrderByStep; result order still matches the DESC+RID oracle.
    */
   @Test
-  public void gremlinWithRidTieBreak_usesIndex() {
+  public void gremlinWithRidTieBreak_descKeepsClassFetchAndMatchOrder() {
     seedIndexedItems();
     var planText = translatedPlan(graph.traversal());
     assertThat(planText).contains(".@rid DESC");
-    assertIndexValuesScan(planText, "IndexedItem_timestamp");
+    assertThat(planText)
+        .as("DESC+@rid without null-key exclusion must not open a non-covering index scan")
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("FETCH FROM CLASS IndexedItem")
+        .contains("+ ORDER BY");
     assertThat(gremlinOrderedIds(graph.traversal()))
         .isEqualTo(expectedIndexedItemRids(false));
   }
@@ -301,7 +305,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         + " ORDER BY s.score ASC, s.@rid ASC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX VALUES ASC Scored_score")
-        .doesNotContain("FETCH FROM CLASS Scored");
+        .doesNotContain("FETCH FROM CLASS Scored")
+        .doesNotContain("+ ORDER BY");
 
     var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
     GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
@@ -393,6 +398,49 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
     assertThat(actual).isEqualTo(expected);
+  }
+
+  /**
+   * WHERE {@code score IS NOT NULL AND name = …} must not admit SingleNodeIndexOrder: the name
+   * index can steal the root SELECT, drop the {@code @rid} secondary, and reorder equal-score ties.
+   * Plan keeps MATCH OrderByStep; RID sequence matches the score+RID oracle.
+   */
+  @Test
+  public void bareMatch_whereNotNullAndOtherIndexedProperty_keepsRidTieBreak() {
+    var cls = session.createVertexClass("Scored2");
+    cls.createProperty("score", PropertyType.INTEGER);
+    cls.createProperty("name", PropertyType.STRING);
+    session.execute("CREATE INDEX Scored2_score ON Scored2 (score) NOTUNIQUE").close();
+    session.execute("CREATE INDEX Scored2_name ON Scored2 (name) NOTUNIQUE").close();
+    session.begin();
+    // Same score; name-index order (a then b) is the reverse of insert RID order (b then a).
+    session.execute("CREATE VERTEX Scored2 SET score = 1, name = 'b'").close();
+    session.execute("CREATE VERTEX Scored2 SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX Scored2 SET score = 2, name = 'c'").close();
+    session.commit();
+
+    var query = "MATCH {class: Scored2, as: s, where: (score IS NOT NULL AND name >= 'a')}"
+        + " RETURN s ORDER BY s.score ASC, s.@rid ASC";
+    assertThat(plan(query))
+        .as("AND with a second indexed conjunct must not claim covered index order")
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("+ ORDER BY");
+
+    var expected = new ArrayList<Object[]>();
+    for (var v : graph.traversal().V().hasLabel("Scored2").toList()) {
+      expected.add(new Object[] {v.value("score"), v.id()});
+    }
+    expected.sort(
+        Comparator
+            .<Object[], Object>comparing(r -> r[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[1], SingleNodeIndexOrderTest::compareNullsFirst));
+    var expectedRids = expected.stream().map(r -> r[1].toString()).toList();
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual).isEqualTo(expectedRids);
   }
 
   /**
