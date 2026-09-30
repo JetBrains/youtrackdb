@@ -405,8 +405,8 @@ public class IncrementalBackupExtensionTest {
    * covers it. The scenario replaces the full backup of one two-unit chain by an authentic
    * version 2 unit.
    *
-   * <p>The expected outcome has two parts. The backup reports the unsupported chain.
-   * Every existing unit keeps its bytes.
+   * <p>The expected outcome has two parts. The refusal names version 2 and all three accepted
+   * versions. Every existing unit keeps its bytes.
    */
   @Test
   public void incrementalBackupRefusesAnAuthenticVersion2UnitBelowASupportedHead()
@@ -420,12 +420,40 @@ public class IncrementalBackupExtensionTest {
           fullBackupUnit);
       var contentBeforeBackup = unitContent();
 
-      assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> storage.backup(backupPath));
 
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
       assertEquals(
           "the refused backup must keep every existing unit unchanged",
           contentBeforeBackup,
           unitContent());
+    }
+  }
+
+  /**
+   * A real version 1 unit below a supported head refuses extension without changing files.
+   * The refusal names version 1 and all three accepted versions.
+   */
+  @Test
+  public void incrementalBackupRefusesAnAuthenticVersion1UnitBelowASupportedHead()
+      throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var fullUnit = storage.fullBackup(backupPath);
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      BackupUnitFiles.writeLegacyVersion1Unit(backupPath, storage.getUuid(), SOURCE, 0, true,
+          fullUnit);
+      var original = unitContent();
+
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> storage.backup(backupPath));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertEquals("the refused backup keeps every unit", original, unitContent());
     }
   }
 
@@ -461,7 +489,7 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** A v3 full unit followed by real v4 increments extends and replays as one mixed chain. */
+  /** A v3 full unit followed by real v5 increments extends and replays as one mixed chain. */
   @Test
   public void mixedVersionChainExtendsAndRestoresPastPaddingAndTail() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -472,7 +500,7 @@ public class IncrementalBackupExtensionTest {
       var first = storage.backup(backupPath);
       assertEquals(BackupUnitFiles.VERSION_3,
           inspectUnit(full, storage.getUuid()).metadata().backupFormatVersion());
-      assertEquals(BackupUnitFiles.VERSION_4,
+      assertEquals(BackupUnitFiles.VERSION_5,
           inspectUnit(first, storage.getUuid()).metadata().backupFormatVersion());
       addOneRecord(youTrackDB);
       storage.backup(backupPath);
@@ -545,10 +573,10 @@ public class IncrementalBackupExtensionTest {
           });
       var published = output.published.toByteArray();
       assertTrue("close must have discarded no tail bytes", output.closed);
-      assertNotNull("the published bytes must form a complete v4 unit",
+      assertNotNull("the published bytes must form a complete v5 unit",
           DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
               new ByteArrayInputStream(published), null).metadata());
-      assertEquals(BackupUnitFiles.VERSION_4,
+      assertEquals(BackupUnitFiles.VERSION_5,
           DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
               new ByteArrayInputStream(published), null).metadata().backupFormatVersion());
     }
@@ -1211,7 +1239,7 @@ public class IncrementalBackupExtensionTest {
     public void write(byte[] data, int offset, int length) throws IOException {
       var isTail = length == DiskStorage.IBU_V4_METADATA_SIZE
           && data[offset + Long.BYTES + Integer.BYTES] == 0
-          && data[offset + Long.BYTES + Integer.BYTES + 1] == BackupUnitFiles.VERSION_4;
+          && data[offset + Long.BYTES + Integer.BYTES + 1] == BackupUnitFiles.VERSION_5;
       if (isTail) {
         tailRequests++;
       }

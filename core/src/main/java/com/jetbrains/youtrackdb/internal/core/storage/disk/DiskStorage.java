@@ -262,6 +262,11 @@ public class DiskStorage extends AbstractStorage {
   static final int CURRENT_BACKUP_FORMAT_VERSION = 5;
   static final int PREVIOUS_BACKUP_FORMAT_VERSION = 4;
   static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
+  // Legacy headers have shorter tails, with the database UUID immediately after the version.
+  private static final int VERSION_2_BACKUP_TAIL_SIZE = 62;
+  private static final int VERSION_1_BACKUP_TAIL_SIZE = 54;
+  private static final int LEGACY_UUID_LOW_OFFSET = Short.BYTES;
+  private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
 
   private static boolean hasBackupMetadataChecksum(int version) {
     return version == PREVIOUS_BACKUP_FORMAT_VERSION
@@ -1964,6 +1969,33 @@ public class DiskStorage extends AbstractStorage {
           ibuFileName);
     }
 
+    // A shorter legacy tail may look like a current header when read at the shared offset.
+    // Check the actual legacy version and its UUID against the file name before the hash check.
+    if (metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION
+        && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
+        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+      var version2Start = IBU_METADATA_SIZE - VERSION_2_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version2Start) == 2
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 2);
+      }
+      var version1Start = IBU_METADATA_SIZE - VERSION_1_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version1Start) == 1
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 1);
+      }
+    }
+
     // The failed content check of a recognized header is the only removable outcome. Every
     // other failure below keeps its unit, because that unit can hold a valuable old backup.
     if (calculatedHashCode != null && calculatedHashCode != metadataHashCode) {
@@ -2002,12 +2034,7 @@ public class DiskStorage extends AbstractStorage {
     if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
         && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
         && metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION) {
-      LogManager.instance()
-          .warn(DiskStorage.class, storageName,
-              "Version of the file %s stored in metadata %d is unsupported.",
-              ibuFileName, metadataVersion);
-      return unclassifiableUnit("The header carries backup format version "
-          + metadataVersion + ", and this build supports backup format versions 3, 4, and 5 only.");
+      return unsupportedBackupVersion(ibuFileName, storageName, metadataVersion);
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -2112,6 +2139,16 @@ public class DiskStorage extends AbstractStorage {
         calculatedHashCode == null
             ? "The unit passes every header check."
             : "The unit passes every header check and every content check.");
+  }
+
+  /** Names the detected unsupported version and all three accepted versions. */
+  private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
+      String storageName, int version) {
+    LogManager.instance().warn(DiskStorage.class, storageName,
+        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, and 5.",
+        ibuFileName, version);
+    return unclassifiableUnit("The header carries backup format version "
+        + version + ", and this build supports backup format versions 3, 4, and 5 only.");
   }
 
   /** Builds the inspection of one unit that this build cannot classify. */

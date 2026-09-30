@@ -86,7 +86,7 @@ public class BackupAdmissionRestoreTest {
    *
    * <p>An old header carries no semantic database format and no creation completion evidence. The
    * scenario restores one chain of such headers through the path entry. The expected outcome has
-   * three parts. The restore reports the unsupported chain. No database of the target name exists.
+   * three parts. The restore names version 2 and all three accepted versions. No target database exists.
    * No directory of the target name exists.
    */
   @Test
@@ -101,10 +101,27 @@ public class BackupAdmissionRestoreTest {
               () -> internalOf(youTrackDB)
                   .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
-      assertTrue(
-          "the refusal must name the unsupported backup format version, saw: "
-              + refusal.getMessage(),
-          refusal.getMessage().contains("backup format version"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertNoTargetExists(youTrackDB);
+    }
+  }
+
+  /**
+   * A path restore names a real version 1 unit and preserves the absent target.
+   */
+  @Test
+  public void pathRestoreRefusesAnAuthenticVersion1UnitBeforeAnyTargetChange() throws Exception {
+    BackupUnitFiles.writeLegacyVersion1Unit(
+        syntheticBackupPath, syntheticDatabaseId, SOURCE, 0, true);
+
+    try (var youTrackDB = openManager()) {
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> internalOf(youTrackDB)
+              .restore(TARGET, syntheticBackupPath.toString(), null, null));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -1971,12 +1988,10 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
-  /** Reads the version from either the short v3 tail or the shared v4/v5 tail. */
+  /** All accepted versions store their version at EOF-74, with a longer v4/v5 tail. */
   private static short backupFormatVersion(Path unitPath) throws IOException {
     var bytes = Files.readAllBytes(unitPath);
-    var sharedVersion = ByteBuffer.wrap(bytes, bytes.length - 74, Short.BYTES).getShort();
-    return sharedVersion == BackupUnitFiles.VERSION_4 || sharedVersion == BackupUnitFiles.VERSION_5
-        ? sharedVersion : ByteBuffer.wrap(bytes, bytes.length - 62, Short.BYTES).getShort();
+    return ByteBuffer.wrap(bytes, bytes.length - 74, Short.BYTES).getShort();
   }
 
   /** Returns the sorted names of every real backup unit of the backup directory. */

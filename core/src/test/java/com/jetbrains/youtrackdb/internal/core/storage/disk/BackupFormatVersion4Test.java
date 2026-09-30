@@ -95,15 +95,16 @@ public class BackupFormatVersion4Test {
     }
   }
 
-  /** The v3 rule checks the complete v4 prefix and still reads version 4 at EOF-74. */
+  /** The v3 rule checks the complete v4-layout prefix and reads version 5 at EOF-74. */
   @Test
-  public void olderReaderSeesVersionFourAfterAValidFullHash() throws Exception {
+  public void olderReaderSeesVersionFiveAfterAValidFullHash() throws Exception {
     var id = UUID.randomUUID();
     var folder = temporaryFolder.newFolder().toPath();
     var name = BackupUnitFiles.writeSupportedUnit(folder, id, "db", 0, true);
     var unit = Files.readAllBytes(folder.resolve(name));
     var sharedOffset = unit.length - 74;
-    assertEquals(4, ByteBuffer.wrap(unit, sharedOffset, Short.BYTES).getShort());
+    assertEquals(BackupUnitFiles.VERSION_5,
+        ByteBuffer.wrap(unit, sharedOffset, Short.BYTES).getShort());
     assertEquals(DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - Long.BYTES,
         DiskStorage.XX_HASH_SEED),
         ByteBuffer.wrap(unit, unit.length - Long.BYTES,
