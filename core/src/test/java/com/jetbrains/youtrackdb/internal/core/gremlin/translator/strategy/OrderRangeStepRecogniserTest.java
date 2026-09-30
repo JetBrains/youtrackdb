@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -962,26 +963,176 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice declines once an {@code ORDER BY} has been captured, and this is the shape where
-   * the divergence reaches the row set rather than only its order. Two hubs of two targets each,
-   * seeded so insertion order and sorted order disagree, give {@code order().by(name).out(knows)}
-   * four rows in two tie groups of two — the sort key is the hub, so a hub's two targets tie.
-   * {@code limit(3)} cuts inside the second tie group, and before the decline the translated arm
-   * kept {@code ZedTarget1} where native kept {@code ZedTarget2}: a different row, silently,
-   * under a switch that defaults on.
-   *
-   * <p>The comparison is ordered because {@code order()} makes the sequence the answer. The control
-   * the helper takes is the same traversal without the {@code order()} prefix, which still
-   * translates — so the decline is attributable to the captured {@code ORDER BY} and not to some
-   * other gate this path crosses.
+   * Ordered sources expand in VertexStep neighbour order, then {@code limit} cuts the flat stream —
+   * including mid-hub. Two hubs of two targets each, seeded so insertion order and sorted order
+   * disagree: {@code limit(3)} cuts inside Zed's tie group. Before ordered-expand, statement LIMIT
+   * after a MATCH hop kept the wrong neighbour; now ON==OFF on membership and sequence.
    */
   @Test
-  public void orderThenHopThenLimit_declinesAndReturnsNativeRows() {
+  public void orderThenHopThenLimit_translatesAndMatchesNative() {
     seedTwoHubsWithTiedSortKey();
-    assertOrderedSliceDeclines(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().order().by(name).out(knows).limit(3).values(name)",
-        () -> graph.traversal().V().order().by("name").out("knows").limit(3).values("name"),
-        () -> graph.traversal().V().out("knows").limit(3).values("name"));
+        () -> graph.traversal().V().order().by("name").out("knows").limit(3).values("name"));
+  }
+
+  /**
+   * Same composition with {@code range}: skip+limit on the expanded neighbour stream, not statement
+   * SKIP/LIMIT after a join.
+   */
+  @Test
+  public void orderThenHopThenRange_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).range(1, 3).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").range(1, 3).values("name"));
+  }
+
+  /**
+   * Early-stop cut: {@code limit(1)} is smaller than the first hub's out-degree, so expand must not
+   * need the second hub's neighbours for membership.
+   */
+  @Test
+  public void orderThenHopThenLimit_earlyStopInsideFirstHub_translates() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").limit(1).values("name"));
+  }
+
+  /** {@code in} direction uses the same ordered-expand path as {@code out}. */
+  @Test
+  public void orderThenInThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).in(knows).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").in("knows").limit(2).values("name"));
+  }
+
+  /** {@code both} direction uses the same ordered-expand path as {@code out}. */
+  @Test
+  public void orderThenBothThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).both(knows).limit(3).values(name)",
+        () -> graph.traversal().V().order().by("name").both("knows").limit(3).values("name"));
+  }
+
+  /**
+   * Neighbour {@code has(key, value)} before the cut filters during ordered-expand, so membership
+   * matches native {@code order().hop().has().limit}.
+   */
+  @Test
+  public void orderThenHopThenHasThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget1).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").has("name", "AbeTarget1")
+            .limit(1).values("name"));
+  }
+
+  /**
+   * {@code has} that keeps only the second neighbour of the first sorted hub: limit(1) must see the
+   * filtered stream, not the raw expand order.
+   */
+  @Test
+  public void orderThenHopThenHasThenLimit_filtersBeforeCut_translates() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget2).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").has("name", "AbeTarget2")
+            .limit(1).values("name"));
+  }
+
+  /**
+   * Reverse composition: statement {@code LIMIT} cuts ordered sources, then expand-only
+   * list-shaping. On {@link #seedTwoHubsWithTiedSortKey()}, {@code limit(1)} keeps Abe only, so
+   * both neighbours are Abe's — not the mid-hub cut of {@code order().out().limit(3)}. Bare
+   * {@code limit().out()} without {@code order()} still declines ({@link #limitThenHop_declinesAndReturnsNativeRows}).
+   */
+  @Test
+  public void orderThenLimitThenHop_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).values(name)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows").values("name"));
+  }
+
+  /**
+   * Source slice then hop then neighbour {@code has}: filters apply on the expand stage after the
+   * statement top-N, matching native {@code order().limit().out().has()}.
+   */
+  @Test
+  public void orderThenLimitThenHopThenHas_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).has(name, AbeTarget2).values(name)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows")
+            .has("name", "AbeTarget2").values("name"));
+  }
+
+  /** {@code skip} half of source-slice-then-hop: drop first sorted hub, expand from the rest. */
+  @Test
+  public void orderThenSkipThenHop_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).skip(1).out(knows).values(name)",
+        () -> graph.traversal().V().order().by("name").skip(1).out("knows").values("name"));
+  }
+
+  /**
+   * Non-equality {@code has} uses the same {@link org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer#test}
+   * path as native.
+   */
+  @Test
+  public void orderThenHopThenHasNeqThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, neq(AbeTarget1)).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", P.neq("AbeTarget1"))
+            .limit(2).values("name"));
+  }
+
+  /** {@code hasLabel} before the cut filters neighbours via {@code HasContainer.test}. */
+  @Test
+  public void orderThenHopThenHasLabelThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).hasLabel(Person).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").hasLabel("Person")
+            .limit(2).values("name"));
+  }
+
+  /** {@code P.within} before the cut is deferred the same way as equality {@code has}. */
+  @Test
+  public void orderThenHopThenHasWithinThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, within(AbeTarget1, AbeTarget2)).limit(1)"
+            + ".values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", P.within("AbeTarget1", "AbeTarget2"))
+            .limit(1).values("name"));
+  }
+
+  /**
+   * Two hops between order and slice stay declined (only a single deferred hop is in v1 scope).
+   * Fixture adds a second-hop edge so the shape is non-empty on the native arm.
+   */
+  @Test
+  public void orderThenTwoHopsThenLimit_stillDeclines() {
+    seedTwoHubsWithTiedSortKey();
+    // AbeTarget1 -> ZedTarget1 so out().out() yields at least one neighbour.
+    var abeTarget1 = graph.traversal().V().has("name", "AbeTarget1").next();
+    var zedTarget1 = graph.traversal().V().has("name", "ZedTarget1").next();
+    abeTarget1.addEdge("knows", zedTarget1);
+    graph.tx().commit();
+    assertOrderedSliceDeclines(
+        "g.V().order().by(name).out(knows).out(knows).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").out("knows").limit(1)
+            .values("name"),
+        () -> graph.traversal().V().out("knows").out("knows").limit(1).values("name"));
   }
 
   /**
@@ -1175,13 +1326,13 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A hop between the sort and the slice fans one sorted source into several rows — still declines.
-   * Twin: {@link #orderByUniqueIdThenLimit_translates}.
+   * Hop between sort and slice: ordered-expand list-shaping, not statement LIMIT after join. Twin:
+   * {@link #orderByUniqueIdThenLimit_translates}.
    */
   @Test
-  public void orderByUniqueIdThenHopThenLimit_declines() {
+  public void orderByUniqueIdThenHopThenLimit_translates() {
     seedPeopleWithTiedCreationDateAndUniqueId();
-    assertOrderedSliceDeclinesWithRemainingSteps(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().hasLabel(Person).order().by(id).out(knows).limit(2).values(id)",
         () -> graph.traversal().V().hasLabel("Person").order().by("id").out("knows").limit(2)
             .values("id"));

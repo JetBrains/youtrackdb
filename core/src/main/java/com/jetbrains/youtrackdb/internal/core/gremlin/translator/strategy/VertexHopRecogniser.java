@@ -11,6 +11,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
  * g.V().out(L).out(L)}) is a sequence of single-hop claims and the last hop's target becomes the
  * traversal's result.
  *
+ * <p>Exception: {@code order().by(...).limit|skip|range} then {@code out|in|both} keeps statement
+ * top-N on the sorted sources and expands via {@link OrderedExpandAccept} (not a MATCH join).
+ *
  * <h2>Reached by delegation, not registered directly</h2>
  *
  * The bare hop is a {@link VertexStep} with {@code returnsEdge() == false}, the same registry class as
@@ -55,6 +58,10 @@ final class VertexHopRecogniser implements StepRecogniser {
     var step = cursor.take();
     if (!(step instanceof VertexStep<?> hop) || hop.returnsEdge()) {
       return Outcome.DECLINE;
+    }
+    // order().limit|skip then hop: statement already cuts sources — expand post-plan, do not defer.
+    if (OrderedExpandAccept.hasOrderedSourceSliceForExpand(ctx)) {
+      return OrderedExpandAccept.acceptExpandAfterSourceSlice(cursor, hop, ctx);
     }
     return GremlinPatternAssembler.claimFoldedHop(hop, ctx);
   }
