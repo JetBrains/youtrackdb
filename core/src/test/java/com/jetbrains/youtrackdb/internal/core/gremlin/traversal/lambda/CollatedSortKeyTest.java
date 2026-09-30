@@ -36,16 +36,18 @@ public class CollatedSortKeyTest {
   }
 
   /**
-   * Scenario: two spellings of one name under the case-insensitive collation. Expected: they do not
-   * tie — the collation falls back to the raw comparison when the folded forms match, which is what
-   * keeps a tie group in a stable order on both arms.
+   * Scenario: two spellings of one name under the case-insensitive collation. Expected: they tie —
+   * {@code ci} compares folded forms only, so a later {@code by(...)} or the record-id micro-tie-break
+   * can decide.
    */
   @Test
-  public void compareTo_caseInsensitiveCollation_breaksTiesOnTheRawValue() {
+  public void compareTo_caseInsensitiveCollation_tiesCaseVariants() {
     var capitalised = CollatedSortKey.of("Ada", CASE_INSENSITIVE);
     var lowerCase = CollatedSortKey.of("ada", CASE_INSENSITIVE);
 
-    assertThat(capitalised).isLessThan(lowerCase);
+    assertThat(capitalised).isEqualByComparingTo(lowerCase);
+    assertThat(capitalised).isEqualTo(lowerCase);
+    assertThat(capitalised.hashCode()).isEqualTo(lowerCase.hashCode());
   }
 
   /**

@@ -52,9 +52,9 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
 
   /**
    * Scenario: the same six names in a property declared case-insensitive. Expected: the declaration
-   * is followed on both arms, so {@code ada} sorts beside {@code Ada} instead of after {@code Zebra},
-   * and the two spellings of that one name keep a stable relative order because the collation falls
-   * back to the raw comparison when the folded forms tie.
+   * is followed on both arms, so {@code ada} sorts beside {@code Ada} instead of after {@code Zebra}.
+   * Case variants tie under {@code ci}; relative order among them is the record-id micro-tie-break
+   * (insertion order here: {@code ada} before {@code Ada}), and both arms must agree.
    */
   @Test
   public void caseInsensitiveDeclaredProperty_ordersByTheDeclarationOnBothArms() {
@@ -66,15 +66,16 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
         "declared ci: g.V().order().by(name).values(name)",
         () -> graph.traversal().V().order().by("name").values("name"));
 
-    assertThat(graph.traversal().V().order().by("name").values("name").toList())
-        .as("a property declared case-insensitive orders by that declaration")
-        .containsExactly("Ada", "ada", "Bob", "Cara", "Zebra", "Ähhhh");
+    assertCiNameOrder(
+        graph.traversal().V().order().by("name").values("name").toList(),
+        List.of("Bob", "Cara", "Zebra", "Ähhhh"),
+        true);
   }
 
   /**
    * Scenario: the descending direction over the declared case-insensitive property. Expected: the
-   * exact reverse of the ascending sequence, on both arms, which pins that the direction is applied
-   * to the collated comparison rather than beside it.
+   * non-tied names reverse relative to ascending; the Ada/ada pair stays a ci tie group (relative
+   * order is the rid micro-tie-break, often still ascending). Both arms must agree.
    */
   @Test
   public void caseInsensitiveDeclaredProperty_descendingMatchesOnBothArms() {
@@ -86,9 +87,10 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
         "declared ci desc: g.V().order().by(name, desc).values(name)",
         () -> graph.traversal().V().order().by("name", Order.desc).values("name"));
 
-    assertThat(graph.traversal().V().order().by("name", Order.desc).values("name").toList())
-        .as("descending must reverse the collated order, not the plain one")
-        .containsExactly("Ähhhh", "Zebra", "Cara", "Bob", "ada", "Ada");
+    assertCiNameOrder(
+        graph.traversal().V().order().by("name", Order.desc).values("name").toList(),
+        List.of("Ähhhh", "Zebra", "Cara", "Bob"),
+        false);
   }
 
   /**
@@ -138,10 +140,10 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
             + " g.V().hasLabel(Person).order().by(name).values(name)",
         () -> graph.traversal().V().hasLabel("Person").order().by("name").values("name"));
 
-    assertThat(
-        graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList())
-        .as("the declaration of the sorted class governs, whatever a sibling class declares")
-        .containsExactly("Ada", "ada", "Bob", "Cara", "Zebra", "\u00c4hhhh");
+    assertCiNameOrder(
+        graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList(),
+        List.of("Bob", "Cara", "Zebra", "\u00c4hhhh"),
+        true);
   }
 
   /**
@@ -153,6 +155,20 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
       graph.addVertex(T.label, className, "name", name);
     }
     graph.tx().commit();
+  }
+
+  /**
+   * Pins ci grouping: Ada/ada as a tied pair (order among them is rid, not CS), and the remaining
+   * names in folded order. {@code adaPairFirst} places that pair at the start (ASC) or end (DESC).
+   */
+  private static void assertCiNameOrder(
+      List<?> rawNames, List<String> otherNamesInOrder, boolean adaPairFirst) {
+    var names = rawNames.stream().map(String::valueOf).toList();
+    assertThat(names).hasSize(2 + otherNamesInOrder.size());
+    var pair = adaPairFirst ? names.subList(0, 2) : names.subList(names.size() - 2, names.size());
+    var rest = adaPairFirst ? names.subList(2, names.size()) : names.subList(0, names.size() - 2);
+    assertThat(pair).containsExactlyInAnyOrder("Ada", "ada");
+    assertThat(rest).containsExactlyElementsOf(otherNamesInOrder);
   }
 
   private void assertEquivalentOrdered(

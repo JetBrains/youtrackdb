@@ -44,9 +44,13 @@ public interface Collate extends Serializable {
   @Nonnull
   String getName();
 
-  @Nullable
-  Object transform(@Nullable Object obj);
+  @Nullable Object transform(@Nullable Object obj);
 
+  /**
+   * Compares two values for one {@code ORDER BY} / {@code order().by} key under this collation.
+   * Values equal under the collation (including case variants of {@code ci}) compare as zero so a
+   * later key or a trailing {@code @rid} micro-tie-break can decide.
+   */
   default int compareForOrderBy(@Nonnull Object o1, @Nonnull Object o2) {
     return DefaultComparator.INSTANCE.compare(transform(o1), transform(o2));
   }

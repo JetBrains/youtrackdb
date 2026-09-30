@@ -10,12 +10,11 @@ import javax.annotation.Nullable;
  *
  * <h2>Why a key type rather than a transformed value</h2>
  *
- * A collation is more than a transform of the value. {@code ci} lowercases both operands, and when
- * they then compare equal it falls back to the raw comparison, so {@code Ada} and {@code ada} keep a
- * stable relative order instead of tying. Projecting the lowercased value alone would lose that
- * second step, and the engine comparison — which calls {@link Collate#compareForOrderBy} — would
- * order a tie group differently from the native pipeline. Projecting this key instead routes both
- * arms through the one method.
+ * A collation is more than a transform of the value. {@code ci} lowercases both operands for
+ * comparison, and case variants therefore tie so a later {@code by(...)} (or the trailing record-id
+ * micro-tie-break) can decide — see {@link Collate#compareForOrderBy(Object, Object)}. Projecting
+ * the lowercased value alone would still work for {@code ci}, but other collations may need more
+ * than a fold, so the key carries the collation itself.
  *
  * <p>TinkerPop's orderability comparator reaches {@link #compareTo} because this class is outside
  * every type it knows and is {@link Comparable} against its own class, which is the case its unknown
@@ -78,8 +77,7 @@ public final class CollatedSortKey implements Comparable<CollatedSortKey> {
 
   /**
    * Hashes the collated form of the value, so two keys that the collation calls equal cannot hash
-   * apart. The {@code ci} fallback to the raw comparison means such keys can still compare non-zero,
-   * which only costs an extra bucket probe.
+   * apart.
    */
   @Override
   public int hashCode() {
