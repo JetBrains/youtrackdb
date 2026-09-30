@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -82,14 +83,20 @@ public class OrderByStep extends AbstractExecutionStep {
 
   /**
    * When non-null, the input stream is known to be sorted by this ORDER BY
-   * item (typically the first field). In the bounded heap path, the heap
-   * can stop reading when this item's value is strictly "worse" (sorts
-   * later) than the worst element in the heap — because all subsequent
-   * items will also be worse.
+   * item (typically the first field).
    *
-   * <p>Set by the MATCH planner when IndexOrderedEdgeStep produces results
-   * sorted by the primary ORDER BY field, enabling early termination for
-   * multi-field ORDER BY queries.
+   * <p>Bounded heap: stop reading when this item's value is strictly "worse"
+   * than the worst heap element (all later rows are worse). Requires
+   * {@link #indexOrderedUpstream} and a runtime pre-sorted signal.
+   *
+   * <p>Unbounded path: when the planner guarantees primary order (SingleNode
+   * index values, or IndexOrdered with a runtime pre-sorted signal), sort only
+   * within equal-primary groups for the remaining ORDER BY keys instead of
+   * re-sorting the whole stream.
+   *
+   * <p>Set by the MATCH planner for IndexOrdered multi-field ORDER BY and for
+   * edge-free SingleNode when the root SELECT streams the primary key but MATCH
+   * still needs a secondary (e.g. {@code @rid}) sort.
    */
   @Nullable private final SQLOrderByItem primaryKeySortedInput;
 
@@ -333,16 +340,21 @@ public class OrderByStep extends AbstractExecutionStep {
   }
 
   /**
-   * Unbounded path: collects all upstream rows, then sorts once.
-   * Enforces {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}.
+   * Unbounded path: collects all upstream rows, then sorts once — or, when the
+   * input is known to be sorted by {@link #primaryKeySortedInput}, sorts only
+   * within equal-primary groups. Enforces {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}.
    */
   private List<Result> initUnbounded(
       ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
-    List<Result> cachedResult = new ArrayList<>();
     // Fix placement when the sort starts, before a potentially long upstream drain.
     var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+    if (canSortWithinPrimaryGroups(ctx)) {
+      return initUnboundedPrimaryGroups(
+          upstream, ctx, timeoutBegin, maxElementsAllowed, nullsDefault);
+    }
+    List<Result> cachedResult = new ArrayList<>();
     try {
       while (upstream.hasNext(ctx)) {
         if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
@@ -351,12 +363,7 @@ public class OrderByStep extends AbstractExecutionStep {
         var item = upstream.next(ctx);
         cachedResult.add(item);
         if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
-                  + maxElementsAllowed
-                  + ") . You can set "
-                  + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
-                  + " to increase this limit");
+          throw heapCapExceeded(ctx, maxElementsAllowed);
         }
       }
       cachedResult.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
@@ -364,6 +371,84 @@ public class OrderByStep extends AbstractExecutionStep {
     } finally {
       upstream.close(ctx);
     }
+  }
+
+  /**
+   * True when unbounded ORDER BY may sort only inside equal-primary groups: the planner set
+   * {@link #primaryKeySortedInput}, there is a secondary key, and either the input is asserted
+   * primary-sorted without an IndexOrdered runtime gate (SingleNode values scan) or IndexOrdered
+   * confirmed pre-sorted output at runtime.
+   */
+  private boolean canSortWithinPrimaryGroups(CommandContext ctx) {
+    if (primaryKeySortedInput == null || orderBy.getItems().size() < 2) {
+      return false;
+    }
+    if (!indexOrderedUpstream) {
+      return true;
+    }
+    return Boolean.TRUE.equals(
+        ctx.getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED));
+  }
+
+  /**
+   * Drains a primary-sorted upstream, sorting each equal-primary run by the full ORDER BY.
+   * Same heap cap as the full-sort path (total buffered rows).
+   */
+  private List<Result> initUnboundedPrimaryGroups(
+      ExecutionStream upstream,
+      CommandContext ctx,
+      long timeoutBegin,
+      long maxElementsAllowed,
+      ResolvedOrderByNullsPlacement nullsDefault) {
+    List<Result> output = new ArrayList<>();
+    List<Result> group = new ArrayList<>();
+    var total = 0;
+    try {
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+        total++;
+        if (maxElementsAllowed >= 0 && maxElementsAllowed < total) {
+          throw heapCapExceeded(ctx, maxElementsAllowed);
+        }
+        if (!group.isEmpty()
+            && primaryKeySortedInput.compare(group.getFirst(), item, ctx, nullsDefault) != 0) {
+          flushPrimaryGroup(group, output, ctx, nullsDefault);
+        }
+        group.add(item);
+      }
+      flushPrimaryGroup(group, output, ctx, nullsDefault);
+      return output;
+    } finally {
+      upstream.close(ctx);
+    }
+  }
+
+  private void flushPrimaryGroup(
+      List<Result> group,
+      List<Result> output,
+      CommandContext ctx,
+      ResolvedOrderByNullsPlacement nullsDefault) {
+    if (group.isEmpty()) {
+      return;
+    }
+    if (group.size() > 1) {
+      group.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
+    }
+    output.addAll(group);
+    group.clear();
+  }
+
+  private static CommandExecutionException heapCapExceeded(
+      CommandContext ctx, long maxElementsAllowed) {
+    return new CommandExecutionException(ctx.getDatabaseSession(),
+        "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+            + maxElementsAllowed
+            + ") . You can set "
+            + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+            + " to increase this limit");
   }
 
   @Override

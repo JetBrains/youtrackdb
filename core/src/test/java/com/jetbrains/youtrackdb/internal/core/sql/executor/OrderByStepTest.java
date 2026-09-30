@@ -771,6 +771,47 @@ public class OrderByStepTest extends DbTestBase {
     Assert.assertEquals(1, (int) descendingRows.get(1).getProperty(SORT_FIELD));
   }
 
+  // ── Primary-sorted group sort (unbounded) ──
+
+  /**
+   * When the planner asserts a primary-sorted input (SingleNode values scan), the unbounded path
+   * sorts only inside equal-primary groups. Input arrives with primary keys in order but secondary
+   * keys reversed inside a tie; output must fix the secondary without reshuffling across groups.
+   */
+  @Test
+  public void unboundedSortsWithinPrimaryGroupsWhenHinted() {
+    var ctx = ctx();
+    var orderBy = orderByPrimaryAndTag();
+    // indexOrderedUpstream=false: SingleNode-style guarantee, no runtime pre-sorted variable.
+    var step =
+        new OrderByStep(orderBy, null, orderBy.getItems().getFirst(), false, ctx, -1, false);
+
+    var rows = new ArrayList<Result>();
+    rows.add(taggedRow(ctx, 1, "b"));
+    rows.add(taggedRow(ctx, 1, "a"));
+    rows.add(taggedRow(ctx, 2, "z"));
+    rows.add(taggedRow(ctx, 2, "y"));
+    step.setPrevious(upstream(ctx, rows));
+
+    var results = collect(step.start(ctx), ctx);
+    Assert.assertEquals(4, results.size());
+    Assert.assertEquals(1, (int) results.get(0).getProperty(SORT_FIELD));
+    Assert.assertEquals("a", results.get(0).getProperty("tag"));
+    Assert.assertEquals(1, (int) results.get(1).getProperty(SORT_FIELD));
+    Assert.assertEquals("b", results.get(1).getProperty("tag"));
+    Assert.assertEquals(2, (int) results.get(2).getProperty(SORT_FIELD));
+    Assert.assertEquals("y", results.get(2).getProperty("tag"));
+    Assert.assertEquals(2, (int) results.get(3).getProperty(SORT_FIELD));
+    Assert.assertEquals("z", results.get(3).getProperty("tag"));
+  }
+
+  private static Result taggedRow(CommandContext ctx, int primary, String tag) {
+    var r = new ResultInternal(ctx.getDatabaseSession());
+    r.setProperty(SORT_FIELD, primary);
+    r.setProperty("tag", tag);
+    return r;
+  }
+
   // ── Early termination with null sort keys ──
 
   /** A two-item ORDER BY, so the first item can act as the pre-sorted primary key hint. */

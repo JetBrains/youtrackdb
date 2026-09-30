@@ -797,7 +797,7 @@ public class MatchExecutionPlanner {
       if (this.orderBy != null
           && (singleNodeIndexOrder == null || !singleNodeIndexOrder.orderFullyCovered())) {
         // Multi-field + candidate → primary key cutoff hint for early
-        // termination in the bounded heap.
+        // termination in the bounded heap / group sort on the unbounded path.
         // Disabled when RETURN DISTINCT: early termination stops reading
         // when primary key worsens, but the bounded heap may contain
         // duplicates that DistinctStep will remove — producing fewer
@@ -807,6 +807,15 @@ public class MatchExecutionPlanner {
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
             && indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
+          primaryHint = orderBy.getItems().getFirst();
+        }
+        // Single-node VALUES streams the primary key; MATCH still sorts when a
+        // secondary (e.g. @rid) is not index-native. Hint enables sort-within-ties.
+        if (primaryHint == null
+            && singleNodeIndexOrder != null
+            && !singleNodeIndexOrder.orderFullyCovered()
+            && orderBy.getItems().size() > 1
             && !this.returnDistinct) {
           primaryHint = orderBy.getItems().getFirst();
         }
@@ -866,6 +875,17 @@ public class MatchExecutionPlanner {
             && !this.returnDistinct) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
+      }
+      // Single-node root streams primary order from the index values scan but still
+      // needs MATCH OrderBy for a non-covered secondary — sort within primary ties.
+      if (singleNodeIndexOrder != null
+          && !singleNodeIndexOrder.orderFullyCovered()
+          && this.groupBy == null
+          && this.orderBy != null
+          && this.orderBy.getItems().size() > 1
+          && !this.returnDistinct
+          && info.primaryKeySortedInput == null) {
+        info.primaryKeySortedInput = orderBy.getItems().getFirst();
       }
       // Single-node root: SELECT already produced the full requested order (primary, or
       // primary+RID when covered).

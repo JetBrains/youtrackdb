@@ -224,7 +224,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
    * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
    * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
    * DESC index oracle on this fixture (no null keys). MATCH keeps OrderByStep because null keys
-   * remain eligible in the index ({@code orderFullyCovered=false}).
+   * remain eligible in the index ({@code orderFullyCovered=false}); the step sorts within
+   * primary-key groups (ties / null bucket) rather than re-sorting the whole stream.
    */
   @Test
   public void gremlinWithRidTieBreak_usesIndex() {
@@ -640,8 +641,9 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /**
    * DESC + {@code @rid} with null keys still in the index: open the score index for the primary
    * stream, keep MATCH OrderByStep ({@code orderFullyCovered=false}) because the null-key group is
-   * stored outside the sorted tree and always walks RID ascending. Result must match the full
-   * DESC+RID oracle, including RID order inside the null group.
+   * stored outside the sorted tree and always walks RID ascending. OrderByStep is hinted that the
+   * primary key is already sorted, so it only reorders within equal-score (and null) groups.
+   * Result must match the full DESC+RID oracle, including RID order inside the null group.
    */
   @Test
   public void bareMatchDescWithRid_nullKeyGroupKeepsMatchOrderBy() {
