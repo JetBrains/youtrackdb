@@ -803,6 +803,10 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
         "quiesce", "point-in-time",
         // M2.b-4: the best-effort acknowledgment flag
         "-acceptBestEffortDump=true",
+        // Track 1: the operator can recognize each new v15 rejection and remediate it.
+        "exporter order", "internal, schema manager, or index manager",
+        "___exportImportRIDMap", "Drop this leftover helper class",
+        "-migrateLinks=false", "number of committed records",
         // CN59: genesis-incomplete refusal guidance incl. the OSystem case
         "genesis", "OSystem",
         // CS59/FM-M18: crash-orphaned export residue is deletable

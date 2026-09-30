@@ -6,12 +6,17 @@ import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -717,6 +722,267 @@ public class DatabaseImportHardeningTest extends DbTestBase {
       assertNotNull("an empty dump must be rejected", rejection);
       assertTrue("the rejection must precede all target mutation",
           target.getMetadata().getSchema().existsClass("PreFlightMarker"));
+    }
+  }
+
+  /** An injected database error at the real top-level record commit must name the source RID. */
+  @Test
+  public void v15RecordWriteFailureNamesRid() throws Exception {
+    var dump = exportSmallDump();
+    var failedRid = new String[1];
+    mutateDump(dump, root -> {
+      for (var record : (ArrayNode) root.get("records")) {
+        if ("Hardened".equals(record.path("@class").asText())) {
+          failedRid[0] = record.path("@rid").asText();
+          break;
+        }
+      }
+    });
+    assertNotNull("the fixture must contain the failing record", failedRid[0]);
+    try (var target = createTargetDatabase("writeFailureTarget")) {
+      // This callback runs only for the outermost commit, never for a nested commit() call.
+      target.registerListener(new SessionListener() {
+        @Override
+        public void onBeforeTxCommit(Transaction transaction) {
+          if (transaction.getRecordOperations()
+              .anyMatch(operation -> operation.record() instanceof EntityImpl entity
+                  && "Hardened".equals(entity.getSchemaClassName()))) {
+            throw new DatabaseException(target, "injected record commit failure");
+          }
+        }
+      });
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a failed v15 record commit must reject the import", rejection);
+      assertRejectionMentions(rejection, "v15 dump record " + failedRid[0]
+          + " could not be written");
+      assertRejectionMentions(rejection, "injected record commit failure");
+    }
+  }
+
+  /** A database exception during record decoding must not be swallowed on v15. */
+  @Test
+  public void v15RecordDecodeFailureNamesRid() throws Exception {
+    var dump = exportSmallDump();
+    var failedRid = new String[1];
+    mutateDump(dump, root -> {
+      for (var record : (ArrayNode) root.get("records")) {
+        if ("Hardened".equals(record.path("@class").asText())) {
+          failedRid[0] = record.path("@rid").asText();
+          ((ObjectNode) record).put("@class", "ClassThatDoesNotExistInTheTarget");
+          break;
+        }
+      }
+    });
+    assertNotNull("the fixture must contain the failing record", failedRid[0]);
+    try (var target = createTargetDatabase("decodeFailureTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a failed v15 record decode must reject the import", rejection);
+      assertRejectionMentions(rejection, "v15 dump record " + failedRid[0]
+          + " could not be written");
+    }
+  }
+
+  /** A v15 schema inheritance failure must reject and name the class being linked. */
+  @Test
+  public void v15SchemaApplyFailureIsRejected() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      for (var entry : (ArrayNode) root.path("schema").path("classes")) {
+        if ("Hardened".equals(entry.path("name").asText())) {
+          ((ObjectNode) entry).putArray("super-classes").add("NoSuchParent");
+          break;
+        }
+      }
+    });
+    try (var target = createTargetDatabase("schemaFailureTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("an invalid v15 schema must reject the import", rejection);
+      assertRejectionMentions(rejection,
+          "v15 dump schema could not be applied while importing class 'Hardened'");
+    }
+  }
+
+  /** Schema parsing errors before the class loop name the failing schema step. */
+  @Test
+  public void v15SchemaHeaderFailureIsRejectedByName() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> ((ObjectNode) root.get("schema")).put("version", "invalid"));
+    try (var target = createTargetDatabase("schemaHeaderTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("an unreadable v15 schema header must reject the import", rejection);
+      assertRejectionMentions(rejection,
+          "v15 dump schema could not be applied while reading schema header");
+    }
+  }
+
+  /** All three internal-record markers are rejected with their RID, never silently deleted. */
+  @Test
+  public void v15InternalRecordMarkersNameRid() throws Exception {
+    var dump = exportSmallDump();
+    var originalDump = gunzip(dump);
+    for (var marker : new String[] {"@schemaManager", "@indexManager", "@internal"}) {
+      gzipTo(dump, originalDump);
+      var markedRid = new String[1];
+      mutateDump(dump, root -> {
+        for (var record : (ArrayNode) root.get("records")) {
+          if ("Hardened".equals(record.path("@class").asText())) {
+            markedRid[0] = record.path("@rid").asText();
+            // Metadata must precede ordinary properties for the serializer to recognize it.
+            var value = ((ObjectNode) record).remove("i");
+            ((ObjectNode) record).put(marker, true);
+            ((ObjectNode) record).set("i", value);
+            break;
+          }
+        }
+      });
+      assertNotNull("the fixture must contain a user record", markedRid[0]);
+      try (var target = createTargetDatabase("internalTarget" + marker.substring(1))) {
+        var rejection = importExpectingRejection(target, dump);
+        assertNotNull("an internal v15 record must reject the import", rejection);
+        assertRejectionMentions(rejection, "v15 dump record " + markedRid[0]);
+        assertRejectionMentions(rejection, "marked as an internal record");
+      }
+    }
+  }
+
+  /** A manifest before indexes is present exactly once but is not in exporter order. */
+  @Test
+  public void v15ReorderedSectionsAreRejected() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      var indexes = root.remove("indexes");
+      root.set("indexes", indexes);
+    });
+    try (var target = createTargetDatabase("reorderedSectionsTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a reordered v15 dump must reject the import", rejection);
+      assertRejectionMentions(rejection, "sections are out of exporter order");
+    }
+  }
+
+  /** A parsed lifecycle record that is skipped cannot satisfy the manifest written count. */
+  @Test
+  public void v15ManifestCountsCommittedRecordsNotJustParsedEntries() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      var collectionId = -1;
+      for (var collection : root.withArray("collections")) {
+        if (MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(
+            collection.path("name").asText())) {
+          collectionId = collection.path("id").asInt();
+          break;
+        }
+      }
+      assertTrue("the lifecycle collection must exist", collectionId >= 0);
+      root.withArray("records").addObject().put("@rid", "#" + collectionId + ":999999")
+          .put("@version", 0).put("@type", "b")
+          .put("value", "not-imported".getBytes(StandardCharsets.UTF_8));
+      var manifest = (ObjectNode) root.get("manifest");
+      manifest.put("records", manifest.get("records").asLong() + 1);
+    });
+    try (var target = createTargetDatabase("writtenCountTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("skipped v15 records must reject the import", rejection);
+      assertRejectionMentions(rejection, "but the import wrote");
+    }
+  }
+
+  /** The importer must not drop a source class whose name is reserved for its RID map. */
+  @Test
+  public void v15ReservedRidMapClassIsRejectedByName() throws Exception {
+    var helper = DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+    session.getMetadata().getSchema().createClass(helper);
+    session.executeInTx(tx -> session.newEntity(helper).setString("payload", "keep"));
+    var dump = exportDump();
+    try (var target = createTargetDatabase("reservedClassTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("the reserved v15 class must reject the import", rejection);
+      assertRejectionMentions(rejection, "reserved class '" + helper + "'");
+      assertRejectionMentions(rejection, "Drop this leftover helper class");
+    }
+  }
+
+  /** An empty dotted class must be rejected before it can become the temporary RID map. */
+  @Test
+  public void v15DottedReservedRidMapClassIsRejectedBySourceAndReservedNames()
+      throws Exception {
+    var sourceClass = "...exportImportRIDMap";
+    var helper = DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+    session.getMetadata().getSchema().createClass(sourceClass);
+    var dump = exportDump();
+    try (var target = createTargetDatabase("dottedReservedClassTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("an empty class renamed to the helper class must reject the import",
+          rejection);
+      assertRejectionMentions(rejection, "v15 dump schema class '" + sourceClass + "'");
+      assertRejectionMentions(rejection, "reserved class '" + helper + "'");
+    }
+  }
+
+  /** A dumped record in the temporary RID-map class must not be counted and then deleted. */
+  @Test
+  public void v15ReservedRidMapRecordIsRejectedByRid() throws Exception {
+    var dump = exportSmallDump();
+    var helper = DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+    var sourceRid = new String[1];
+    mutateDump(dump, root -> {
+      for (var record : (ArrayNode) root.get("records")) {
+        if ("Hardened".equals(record.path("@class").asText())) {
+          sourceRid[0] = record.path("@rid").asText();
+          ((ObjectNode) record).put("@class", helper);
+          break;
+        }
+      }
+    });
+    assertNotNull("the fixture must contain a user record", sourceRid[0]);
+    try (var target = createTargetDatabase("reservedRecordTarget")) {
+      var rejection = importExpectingRejection(target, dump);
+      assertNotNull("a v15 record in the RID-map class must reject the import", rejection);
+      assertRejectionMentions(rejection, "v15 dump record " + sourceRid[0]
+          + " uses reserved class '" + helper + "'");
+    }
+  }
+
+  /** Both public ways to disable link migration must reject v15 before the preamble runs. */
+  @Test
+  public void v15DisabledLinkMigrationIsRejectedBeforeMutation() throws Exception {
+    var dump = exportSmallDump();
+    for (var throughSetter : new boolean[] {false, true}) {
+      try (var target = createTargetDatabase("disabledLinksTarget" + throughSetter)) {
+        target.getMetadata().getSchema().createClass("PreFlightMarker");
+        RuntimeException rejection = null;
+        try {
+          var importer = new DatabaseImport(target, dump.toString(), text -> {
+          });
+          if (throughSetter) {
+            importer.setMigrateLinks(false);
+          } else {
+            importer.setOptions("-migrateLinks=false");
+          }
+          importer.importDatabase();
+        } catch (DatabaseImportException | DatabaseExportException e) {
+          rejection = e;
+        }
+        assertNotNull("v15 needs link migration", rejection);
+        assertRejectionMentions(rejection, "v15 dump requires link migration");
+        assertTrue("pre-flight must leave the target untouched",
+            target.getMetadata().getSchema().existsClass("PreFlightMarker"));
+      }
+    }
+  }
+
+  /** Legacy dumps keep their existing ability to import without link migration. */
+  @Test
+  public void v14DisabledLinkMigrationStillImports() throws Exception {
+    var dump = exportSmallDump();
+    mutateDump(dump, root -> {
+      ((ObjectNode) root.get("info")).put("exporter-version", 14);
+      root.remove("manifest");
+    });
+    try (var target = createTargetDatabase("legacyDisabledLinksTarget")) {
+      runImport(target, dump, "-migrateLinks=false");
+      assertTrue("a v14 dump must still import with link migration disabled",
+          target.getMetadata().getSchema().existsClass("Hardened"));
     }
   }
 }
