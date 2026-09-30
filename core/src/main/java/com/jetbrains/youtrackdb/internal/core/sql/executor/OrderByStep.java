@@ -285,16 +285,16 @@ public class OrderByStep extends AbstractExecutionStep {
       var heap = new PriorityQueue<Result>(
           maxResults, (a, b) -> orderBy.compare(b, a, ctx, nullsDefault));
 
-      // Early-termination eligibility is fixed for the whole scan:
-      // IndexOrderedEdgeStep sets VAR_INDEX_ORDERED_PRE_SORTED before this step
-      // starts and never changes it mid-iteration, so read it once here rather
-      // than per row.
+      // Early-termination eligibility is fixed for the whole scan.
+      // IndexOrdered: EdgeStep sets VAR_INDEX_ORDERED_PRE_SORTED after upstream starts.
+      // SingleNode: planner sets primaryKeySortedInput without indexOrderedUpstream when the
+      // synthetic root SELECT already streams the primary key (VALUES / ordered SELECT).
       boolean earlyTerminationEnabled =
           primaryKeySortedInput != null
-              && indexOrderedUpstream
-              && Boolean.TRUE.equals(
-                  ctx.getSystemVariable(
-                      CommandContext.VAR_INDEX_ORDERED_PRE_SORTED));
+              && (!indexOrderedUpstream
+                  || Boolean.TRUE.equals(
+                      ctx.getSystemVariable(
+                          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)));
 
       while (upstream.hasNext(ctx)) {
         if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
@@ -306,8 +306,6 @@ public class OrderByStep extends AbstractExecutionStep {
         // field and the heap is full, stop reading as soon as the primary key
         // of the new item is strictly worse than the heap's worst element.
         // All subsequent items will also be worse (input is sorted).
-        // Only active when IndexOrderedEdgeStep confirmed pre-sorted output;
-        // when the fallback (unsorted) path was taken, cutoff is unsafe.
         if (earlyTerminationEnabled
             && heap.size() >= maxResults
             && primaryKeySortedInput.compare(item, heap.peek(), ctx, nullsDefault) > 0) {

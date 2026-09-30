@@ -31,11 +31,13 @@ import javax.annotation.Nullable;
  * selection matches {@code SELECT FROM Class WHERE … ORDER BY props} ({@code
  * SelectExecutionPlanner}: rid → filter index → sort-only VALUES → class).
  *
- * <p>Injection does not depend on a private WHERE allow-list: any residual filter travels with the
- * SELECT and the planner picks the scan. Bare property keys (one or many) on the single alias are
- * rewritten in full; an optional trailing {@code @rid} is kept for MATCH elision only. {@link
- * #orderFullyCovered()} stays conservative (RID / null-group / return shape) and only then drops
- * MATCH's {@code OrderByStep}.
+ * <p><b>Wide inject, narrow elision.</b> Bare property keys (one or many) on the single alias are
+ * rewritten onto the root SELECT whenever they reduce cleanly — residual WHERE travels with the
+ * SELECT and does not block injection. An optional trailing {@code @rid} is kept for MATCH elision
+ * only. {@link #orderFullyCovered()} is conservative (RID / null-group / return shape): MATCH drops
+ * its {@code OrderByStep} only when that flag is true <em>and</em> MATCH grain allows it (no
+ * UNWIND/GROUP BY; SKIP/LIMIT pushed onto the same synthetic SELECT). Otherwise MATCH keeps
+ * {@code OrderByStep} while the root may still stream from VALUES.
  *
  * <p>Edge-hop index order stays in {@link IndexOrderedPlanner}.
  */
@@ -48,8 +50,9 @@ final class SingleNodeIndexOrder {
 
   /**
    * When present, the synthetic root SELECT carries {@link #selectOrderBy()} so the SELECT planner
-   * owns fetch + property order. {@link #orderFullyCovered()} is true when MATCH must not append a
-   * second {@code OrderByStep}.
+   * owns fetch + property order. {@link #orderFullyCovered()} means property/RID coverage is
+   * sound; the MATCH planner may still keep {@code OrderByStep} when SKIP/LIMIT cannot share the
+   * root SELECT grain.
    */
   record Candidate(
       @Nonnull String alias,
@@ -59,8 +62,8 @@ final class SingleNodeIndexOrder {
 
   /**
    * Returns a candidate when the pattern is one isolated node and ORDER BY rewrites to bare
-   * properties on that node (optional trailing RID). Index / WHERE admission is left to the SELECT
-   * planner; elision uses {@link #orderFullyCovered()}.
+   * properties on that node (optional trailing RID). Residual WHERE does not block injection —
+   * fetch stays with the SELECT planner. {@link #orderFullyCovered()} gates MATCH elision only.
    */
   @Nullable static Candidate detect(
       @Nullable Pattern pattern,

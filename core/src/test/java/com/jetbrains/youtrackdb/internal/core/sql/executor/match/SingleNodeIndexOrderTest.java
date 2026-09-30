@@ -323,8 +323,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Control: multi-property ORDER BY with no leading index still buffers in the root SELECT's
-   * OrderByStep and trips the lowered heap cap (MATCH elides a second sort).
+   * Control: multi-property ORDER BY with no covering index still buffers in the root SELECT's
+   * OrderByStep (MATCH elides a second sort) and trips the lowered heap cap when unbounded.
    */
   @Test
   @Category(SequentialTest.class)
@@ -343,6 +343,29 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         }
       })
           .hasMessageContaining(BUFFERING_FAILURE);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
+  }
+
+  /**
+   * Narrow elision pushes LIMIT onto the synthetic root SELECT, so ORDER BY without a covering
+   * index still uses a bounded heap (top-N) and succeeds under a heap cap equal to LIMIT.
+   */
+  @Test
+  @Category(SequentialTest.class)
+  public void bareMatch_orderByWithoutIndex_limitUsesBoundedHeap() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name"
+        + " ORDER BY s.name ASC LIMIT 2";
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(2);
+    try {
+      var names = new ArrayList<String>();
+      try (var rs = session.query(query)) {
+        rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+      }
+      assertThat(names).hasSize(2);
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
@@ -378,6 +401,35 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tags"))));
     }
     assertThat(tags).containsExactly("alpha", "bravo", "charlie");
+  }
+
+  /**
+   * Same grain guard with an indexed ORDER BY key: without UNWIND the root opens VALUES; with
+   * UNWIND injection is skipped so the plan has no VALUES on that index.
+   */
+  @Test
+  public void bareMatch_unwind_skipsInjectionWhenIndexWouldApplyOtherwise() {
+    session.execute("CREATE CLASS UWIdx EXTENDS V").close();
+    session.execute("CREATE PROPERTY UWIdx.k LONG").close();
+    session.execute("CREATE PROPERTY UWIdx.payload EMBEDDEDLIST STRING").close();
+    session.execute("CREATE INDEX UWIdx_k ON UWIdx (k) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX UWIdx SET k = 1, payload = ['b', 'a']").close();
+    session.execute("CREATE VERTEX UWIdx SET k = 2, payload = ['c']").close();
+    session.commit();
+
+    var withoutUnwind =
+        "MATCH {class: UWIdx, as: v} RETURN v.payload AS payload ORDER BY v.k ASC";
+    assertThat(plan(withoutUnwind)).contains("FETCH FROM INDEX VALUES");
+
+    var withUnwind =
+        "MATCH {class: UWIdx, as: v} RETURN v.payload AS payload"
+            + " ORDER BY v.k ASC UNWIND payload";
+    var planText = plan(withUnwind);
+    assertThat(planText)
+        .contains("+ UNWIND")
+        .contains("+ ORDER BY")
+        .doesNotContain("FETCH FROM INDEX VALUES ASC UWIdx_k");
   }
 
   /**
@@ -501,7 +553,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var selectControl = "SELECT name FROM Scored WHERE score >= 2 ORDER BY score DESC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX Scored_score")
-        .doesNotContain("FETCH FROM CLASS Scored");
+        .doesNotContain("FETCH FROM CLASS Scored")
+        .doesNotContain("+ ORDER BY");
     assertThat(plan(selectControl))
         .contains("FETCH FROM INDEX Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored");

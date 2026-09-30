@@ -349,6 +349,8 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     var cBlock = aliasFetchBlock(plan, "c");
+    assertTrue("ORDER BY disables prefetch so the root SET owns the RID fetch, got:\n" + plan,
+        prefetchBlock(plan, "c").isEmpty());
     assertTrue("@rid IN list should prefetch via FETCH FROM RIDs, got:\n" + plan,
         cBlock.contains("FETCH FROM RIDs"));
     assertFalse("@rid IN list should not class-scan Comment, got:\n" + plan,
@@ -381,6 +383,8 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     var cBlock = aliasFetchBlock(plan, "c");
+    assertTrue("ORDER BY disables prefetch so the root SET owns the RID fetch, got:\n" + plan,
+        prefetchBlock(plan, "c").isEmpty());
     assertTrue("the promoted alias fetches by RID, got:\n" + plan,
         cBlock.contains("FETCH FROM RIDs"));
     assertFalse("the fetch target enforces membership, so no @rid filter, got:\n" + plan,

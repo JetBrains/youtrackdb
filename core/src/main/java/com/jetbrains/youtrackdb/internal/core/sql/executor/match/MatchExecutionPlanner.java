@@ -711,10 +711,10 @@ public class MatchExecutionPlanner {
           context.getDatabaseSession());
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
-      // Edge-free root: rewrite bare ORDER BY onto the synthetic SELECT (same fetch queue as
-      // SELECT; IndexOrderedPlanner needs a hop). Skip when UNWIND is present: ORDER BY must run
-      // after UNWIND expands rows, so sorting inside MatchFirstStep would apply the wrong grain.
-      if (indexOrderedCandidate == null && this.unwind == null) {
+      // Edge-free root: rewrite bare ORDER BY onto the synthetic SELECT (wide inject — residual
+      // WHERE stays on the SELECT fetch queue). Skip when UNWIND / GROUP BY change grain before
+      // ORDER BY; IndexOrderedPlanner owns hops.
+      if (indexOrderedCandidate == null && this.unwind == null && this.groupBy == null) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,
@@ -795,8 +795,7 @@ public class MatchExecutionPlanner {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
       }
 
-      if (this.orderBy != null
-          && (singleNodeIndexOrder == null || !singleNodeIndexOrder.orderFullyCovered())) {
+      if (this.orderBy != null && !elideMatchOrderBy(singleNodeIndexOrder)) {
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap.
         // Disabled when RETURN DISTINCT: early termination stops reading
@@ -808,6 +807,15 @@ public class MatchExecutionPlanner {
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
             && indexOrderedCandidate.multiFieldOrderBy()
+            && !this.returnDistinct) {
+          primaryHint = orderBy.getItems().getFirst();
+        }
+        // Single-node VALUES streams the primary key; MATCH still sorts a non-covered
+        // secondary (e.g. @rid). Hint enables LIMIT early-stop on the primary.
+        if (primaryHint == null
+            && singleNodeIndexOrder != null
+            && !singleNodeIndexOrder.orderFullyCovered()
+            && orderBy.getItems().size() > 1
             && !this.returnDistinct) {
           primaryHint = orderBy.getItems().getFirst();
         }
@@ -824,11 +832,14 @@ public class MatchExecutionPlanner {
             context, -1, enableProfiling));
       }
 
-      if (this.skip != null && skip.getValue(context) >= 0) {
-        result.chain(new SkipExecutionStep(skip, context, enableProfiling));
-      }
-      if (this.limit != null && limit.getValue(context) >= 0) {
-        result.chain(new LimitExecutionStep(limit, context, enableProfiling));
+      // When elision pushed SKIP/LIMIT onto the synthetic root SELECT, do not apply again.
+      if (!singleNodeRootConsumedSkipLimit(singleNodeIndexOrder)) {
+        if (this.skip != null && skip.getValue(context) >= 0) {
+          result.chain(new SkipExecutionStep(skip, context, enableProfiling));
+        }
+        if (this.limit != null && limit.getValue(context) >= 0) {
+          result.chain(new LimitExecutionStep(limit, context, enableProfiling));
+        }
       }
     } else {
       // Custom RETURN expressions — delegate to the SELECT planner for projection,
@@ -868,10 +879,24 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
-      // Single-node root: SELECT already produced the full requested order (primary, or
-      // primary+RID when covered).
-      if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
+      // Single-node VALUES streams primary order; MATCH still sorts a non-covered secondary.
+      if (singleNodeIndexOrder != null
+          && !singleNodeIndexOrder.orderFullyCovered()
+          && this.groupBy == null
+          && this.orderBy != null
+          && this.orderBy.getItems().size() > 1
+          && !this.returnDistinct
+          && info.primaryKeySortedInput == null) {
+        info.primaryKeySortedInput = orderBy.getItems().getFirst();
+      }
+      // Narrow elision: drop MATCH ORDER BY only when root SELECT owns full order grain
+      // (and SKIP/LIMIT were pushed onto that SELECT when present).
+      if (elideMatchOrderBy(singleNodeIndexOrder)) {
         info.orderBy = null;
+        if (singleNodeRootConsumedSkipLimit(singleNodeIndexOrder)) {
+          info.skip = null;
+          info.limit = null;
+        }
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
@@ -2346,6 +2371,16 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
+        // Narrow elision pushes SKIP/LIMIT onto the synthetic SELECT so its OrderByStep /
+        // VALUES+Limit bounds like standalone SELECT … ORDER BY … LIMIT.
+        if (selectOrderBy != null && elideMatchOrderBy(singleNodeIndexOrder)) {
+          if (this.skip != null) {
+            select.setSkip(this.skip.copy());
+          }
+          if (this.limit != null) {
+            select.setLimit(this.limit.copy());
+          }
+        }
         plan.chain(
             new MatchFirstStep(
                 context,
@@ -2355,6 +2390,37 @@ public class MatchExecutionPlanner {
       }
     }
     return plan;
+  }
+
+  /**
+   * True when MATCH may drop its {@code OrderByStep}: SingleNode reports full coverage and SKIP /
+   * LIMIT either are absent or can share the root SELECT grain (no DISTINCT / GROUP BY / UNWIND).
+   * Wide inject may still have put property ORDER BY on the root for VALUES even when this is
+   * false.
+   */
+  private boolean elideMatchOrderBy(@Nullable SingleNodeIndexOrder.Candidate candidate) {
+    if (candidate == null || !candidate.orderFullyCovered()) {
+      return false;
+    }
+    if (this.skip == null && this.limit == null) {
+      return true;
+    }
+    return canPushSkipLimitIntoSingleNodeRoot();
+  }
+
+  /**
+   * SKIP/LIMIT may move onto the synthetic root SELECT when nothing downstream changes row count
+   * before those clauses (no DISTINCT / GROUP BY / UNWIND).
+   */
+  private boolean canPushSkipLimitIntoSingleNodeRoot() {
+    return !returnDistinct && groupBy == null && unwind == null;
+  }
+
+  private boolean singleNodeRootConsumedSkipLimit(
+      @Nullable SingleNodeIndexOrder.Candidate candidate) {
+    return elideMatchOrderBy(candidate)
+        && canPushSkipLimitIntoSingleNodeRoot()
+        && (this.skip != null || this.limit != null);
   }
 
   /**
