@@ -777,6 +777,124 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     assertThat(actual).isEqualTo(expectedScoredRids(false));
   }
 
+  /**
+   * GROUP BY changes grain before ORDER BY. SingleNode must not inject (or elide) root SELECT
+   * order — otherwise raw rows would be sorted/covered before aggregation. Plan keeps MATCH-level
+   * ORDER BY; groups are ordered by the grouping key.
+   */
+  @Test
+  public void bareMatch_groupBy_skipsRootSelectOrderInject() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
+        + " GROUP BY score ORDER BY score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("GROUP BY must not open sort-only VALUES on the root:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("GROUP BY")
+        .contains("ORDER BY");
+
+    var scores = new ArrayList<Object>();
+    var counts = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> {
+        scores.add(row.getProperty("score"));
+        counts.add(((Number) row.getProperty("cnt")).longValue());
+      });
+    }
+    // seedNamedScores: scores 1,1,2,3,null → groups ordered nulls-first or by ASC score
+    assertThat(scores).hasSize(4);
+    assertThat(counts.stream().mapToLong(Long::longValue).sum()).isEqualTo(5L);
+    // Non-null scores ascend; null group is present exactly once.
+    var nonNull = scores.stream().filter(s -> s != null).map(s -> ((Number) s).intValue()).toList();
+    assertThat(nonNull).containsExactly(1, 2, 3);
+    assertThat(scores).containsNull();
+  }
+
+  /**
+   * RETURN DISTINCT + LIMIT: inject may still open VALUES, but elision must not drop MATCH
+   * OrderBy (DISTINCT changes cardinality before LIMIT). Result is the first LIMIT distinct
+   * scores in order.
+   */
+  @Test
+  public void bareMatch_distinctLimit_keepsMatchOrderAndCorrectTopN() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN DISTINCT s.score AS score"
+        + " ORDER BY score ASC LIMIT 2";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("DISTINCT+LIMIT must keep a MATCH-level OrderByStep:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var scores = new ArrayList<Object>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> scores.add(row.getProperty("score")));
+    }
+    assertThat(scores).hasSize(2);
+    // ASC: null group first (seed has a null score), then 1 — or 1 then 2 if nulls last.
+    // Pin against the SELECT control so placement stays aligned with the engine default.
+    var selectScores = new ArrayList<Object>();
+    try (var rs = session.query(
+        "SELECT DISTINCT score FROM Scored ORDER BY score ASC LIMIT 2")) {
+      rs.forEachRemaining(row -> selectScores.add(row.getProperty("score")));
+    }
+    assertThat(scores).isEqualTo(selectScores);
+  }
+
+  /**
+   * Multi-property ORDER BY with an index only on the leading key: MATCH injects both bare keys
+   * like SELECT (no composite VALUES). Result order matches the SELECT control; neither plan
+   * claims a composite VALUES scan.
+   */
+  @Test
+  public void bareMatch_multiProperty_leadingIndexOnly_matchesSelectOrder() {
+    seedNamedScores(false);
+    var matchQuery = "MATCH {class: Scored, as: s} RETURN s.name AS name"
+        + " ORDER BY s.score ASC, s.name ASC";
+    var selectQuery = "SELECT name FROM Scored ORDER BY score ASC, name ASC";
+    assertThat(plan(matchQuery)).doesNotContain("FETCH FROM INDEX VALUES ASC Scored_score_name");
+    assertThat(plan(selectQuery)).doesNotContain("FETCH FROM INDEX VALUES ASC Scored_score_name");
+
+    var matchNames = new ArrayList<String>();
+    try (var rs = session.query(matchQuery)) {
+      rs.forEachRemaining(row -> matchNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    var selectNames = new ArrayList<String>();
+    try (var rs = session.query(selectQuery)) {
+      rs.forEachRemaining(row -> selectNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(matchNames).isEqualTo(selectNames).hasSize(5);
+  }
+
+  /**
+   * Residual OR on a non-order property still injects: SELECT (and MATCH) may open VALUES on the
+   * order key and apply the OR as a residual. Filtered names match the SELECT control in score
+   * order.
+   */
+  @Test
+  public void bareMatch_residualOrWhere_usesValuesLikeSelect() {
+    seedNamedScores(false);
+    var matchQuery = "MATCH {class: Scored, as: s, where: (name = 'a' OR name = 'c')}"
+        + " RETURN s.name AS name ORDER BY s.score ASC";
+    var selectQuery = "SELECT name FROM Scored WHERE name = 'a' OR name = 'c' ORDER BY score ASC";
+    assertThat(plan(matchQuery))
+        .contains("FETCH FROM INDEX VALUES ASC Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored");
+    assertThat(plan(selectQuery))
+        .contains("FETCH FROM INDEX VALUES ASC Scored_score")
+        .doesNotContain("FETCH FROM CLASS Scored");
+
+    var matchNames = new ArrayList<String>();
+    try (var rs = session.query(matchQuery)) {
+      rs.forEachRemaining(row -> matchNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    var selectNames = new ArrayList<String>();
+    try (var rs = session.query(selectQuery)) {
+      rs.forEachRemaining(row -> selectNames.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(matchNames).containsExactly("a", "c").isEqualTo(selectNames);
+  }
+
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {
     return source.V().hasLabel("IndexedItem")
         .order().by("timestamp", Order.desc)
