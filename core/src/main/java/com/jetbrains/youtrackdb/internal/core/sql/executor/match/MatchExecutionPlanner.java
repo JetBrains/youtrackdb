@@ -797,7 +797,7 @@ public class MatchExecutionPlanner {
 
       if (this.orderBy != null && !elideMatchOrderBy(singleNodeIndexOrder)) {
         // Multi-field + candidate → primary key cutoff hint for early
-        // termination in the bounded heap.
+        // termination in the bounded heap / group sort on the unbounded path.
         // Disabled when RETURN DISTINCT: early termination stops reading
         // when primary key worsens, but the bounded heap may contain
         // duplicates that DistinctStep will remove — producing fewer
@@ -811,7 +811,7 @@ public class MatchExecutionPlanner {
           primaryHint = orderBy.getItems().getFirst();
         }
         // Single-node VALUES streams the primary key; MATCH still sorts a non-covered
-        // secondary (e.g. @rid). Hint enables LIMIT early-stop on the primary.
+        // secondary (e.g. @rid). Hint enables LIMIT early-stop and sort-within-ties.
         if (primaryHint == null
             && singleNodeIndexOrder != null
             && !singleNodeIndexOrder.orderFullyCovered()
@@ -879,7 +879,8 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
-      // Single-node VALUES streams primary order; MATCH still sorts a non-covered secondary.
+      // Single-node VALUES streams primary order; MATCH still sorts a non-covered secondary
+      // (LIMIT early-stop / sort-within-ties on the unbounded path).
       if (singleNodeIndexOrder != null
           && !singleNodeIndexOrder.orderFullyCovered()
           && this.groupBy == null
