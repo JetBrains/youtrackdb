@@ -4381,12 +4381,17 @@ public class MatchExecutionPlanner {
    * falls back to stripping surrounding quotes from {@code toString()}
    * if execution returns null (e.g., context-dependent expressions).
    *
-   * @return the edge class name, or {@code null} if no parameter is present
-   *     or the value cannot be resolved to a string
+   * <p>Multi-label hops ({@code out('a','b')}) return {@code null}: callers that key a single
+   * LinkBag field ({@code in_a} / {@code out_a}) would under-match, same guard as
+   * {@link IndexOrderedPlanner}. Semi-join and {@code EdgeRidLookup} then skip and leave the
+   * generic MATCH path, which already unions every label.
+   *
+   * @return the edge class name, or {@code null} if no parameter is present, more than one
+   *     parameter is present, or the value cannot be resolved to a string
    */
   static String extractEdgeClassName(SQLMethodCall method) {
     var params = method.getParams();
-    if (params == null || params.isEmpty()) {
+    if (params == null || params.isEmpty() || params.size() > 1) {
       return null;
     }
     var firstParam = params.getFirst();
@@ -5480,8 +5485,9 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Returns the edge class name from an {@link EdgeTraversal}'s path item
-   * method, or {@code null} if none is specified.
+   * Returns the edge class name from an {@link EdgeTraversal}'s path item method, or {@code null}
+   * if none is specified or the hop names more than one label (multi-label would under-match any
+   * single-field LinkBag pre-filter — see {@link #extractEdgeClassName}).
    */
   @Nullable static String getEdgeClassName(EdgeTraversal et) {
     var method = et.edge.item.getMethod();
@@ -5489,7 +5495,7 @@ public class MatchExecutionPlanner {
       return null;
     }
     var params = method.getParams();
-    if (params == null || params.isEmpty()) {
+    if (params == null || params.isEmpty() || params.size() > 1) {
       return null;
     }
     var expr = params.getFirst();

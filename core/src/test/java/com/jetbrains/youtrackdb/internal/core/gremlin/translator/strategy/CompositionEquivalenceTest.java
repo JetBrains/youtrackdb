@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
@@ -666,6 +668,54 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         "g.V().out(knows,created) with hates decoy",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().out("knows", "created"));
+  }
+
+  /**
+   * Multi-label hop closing a {@code where(eq(label))} cycle must not under-match: MATCH back-ref
+   * semi-join / EdgeRidLookup key a single LinkBag from the first edge label only, so they skip
+   * multi-label hops and leave the generic path. Without that opt-out,
+   * {@code out(knows,created)} would keep only {@code knows} and drop the {@code created} cycle.
+   */
+  @Test
+  public void multiLabel_out_whereEqLabel_cycle_matchesNative() {
+    session.createVertexClass("Person");
+    session.createEdgeClass("knows");
+    session.createEdgeClass("created");
+    var a = graph.addVertex(T.label, "Person", "name", "a");
+    var b = graph.addVertex(T.label, "Person", "name", "b");
+    var c = graph.addVertex(T.label, "Person", "name", "c");
+    a.addEdge("knows", b);
+    b.addEdge("created", a);
+    b.addEdge("knows", c);
+    c.addEdge("knows", a);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().hasLabel(Person).as(x).out(knows).out(knows,created).where(eq(x)).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("x")
+            .out("knows")
+            .out("knows", "created")
+            .where(P.eq("x"))
+            .values("name"));
+    // Same hop with labels swapped — still on/off equal; pin must not depend on first-label luck.
+    assertEquivalent(
+        "g.V().hasLabel(Person).as(x).out(knows).out(created,knows).where(eq(x)).values(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").as("x")
+            .out("knows")
+            .out("created", "knows")
+            .where(P.eq("x"))
+            .values("name"));
+    assertThat(
+        graph.traversal().V().hasLabel("Person").as("x")
+            .out("knows")
+            .out("knows", "created")
+            .where(P.eq("x"))
+            .values("name")
+            .toList())
+        .as("created closes a→b→a; first-label-only semi-join would return empty")
+        .containsExactly("a");
   }
 
   /** Multi-label {@code in(knows,created)} on the modern graph. */
