@@ -10,9 +10,13 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -73,8 +77,87 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
+   * Sequence the index values scan emits for {@code IndexedItem.timestamp}: property order, then
+   * record id in the same direction (multi-value index key {@code (property, rid)}).
+   */
+  private List<String> expectedIndexedItemRids(boolean ascending) {
+    var rows = new ArrayList<Object[]>();
+    for (var vertex : graph.traversal().V().hasLabel("IndexedItem").toList()) {
+      rows.add(new Object[] {vertex.value("timestamp"), vertex.id()});
+    }
+    Comparator<Object[]> comparator =
+        Comparator.<Object[], Object>comparing(
+            row -> row[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(row -> row[1], SingleNodeIndexOrderTest::compareNullsFirst);
+    rows.sort(ascending ? comparator : comparator.reversed());
+    return rows.stream().map(row -> row[1].toString()).toList();
+  }
+
+  private List<Long> expectedIndexedItemTimestamps(boolean ascending) {
+    var rows = new ArrayList<Object[]>();
+    for (var vertex : graph.traversal().V().hasLabel("IndexedItem").toList()) {
+      rows.add(new Object[] {vertex.value("timestamp"), vertex.id()});
+    }
+    Comparator<Object[]> comparator =
+        Comparator.<Object[], Object>comparing(
+            row -> row[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(row -> row[1], SingleNodeIndexOrderTest::compareNullsFirst);
+    rows.sort(ascending ? comparator : comparator.reversed());
+    return rows.stream().map(row -> (Long) row[0]).toList();
+  }
+
+  private List<String> expectedScoredRids(boolean ascending) {
+    var rows = new ArrayList<Object[]>();
+    for (var vertex : graph.traversal().V().hasLabel("Scored").toList()) {
+      var score = vertex.property("score").isPresent() ? vertex.<Object>value("score") : null;
+      rows.add(new Object[] {score, vertex.id()});
+    }
+    Comparator<Object[]> comparator =
+        Comparator.<Object[], Object>comparing(
+            row -> row[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(row -> row[1], SingleNodeIndexOrderTest::compareNullsFirst);
+    rows.sort(ascending ? comparator : comparator.reversed());
+    return rows.stream().map(row -> row[1].toString()).toList();
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static int compareNullsFirst(@Nullable Object left, @Nullable Object right) {
+    if (left == null) {
+      return right == null ? 0 : -1;
+    }
+    if (right == null) {
+      return 1;
+    }
+    return ((Comparable) left).compareTo(right);
+  }
+
+  private List<String> matchItemRids(String query) {
+    var rows = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> rows.add(row.getVertex("item").getIdentity().toString()));
+    }
+    return rows;
+  }
+
+  private List<Long> matchTimestamps(String query, String column) {
+    var rows = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> rows.add(((Number) row.getProperty(column)).longValue()));
+    }
+    return rows;
+  }
+
+  private List<String> selectRids(String query) {
+    var rows = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> rows.add(row.getIdentity().toString()));
+    }
+    return rows;
+  }
+
+  /**
    * Bare MATCH ordered by an indexed property streams the index values scan instead of a class
-   * fetch plus a separate sort.
+   * fetch plus a separate sort. The full RID sequence matches the index order oracle.
    */
   @Test
   public void bareMatchDesc_usesIndexValuesAndKeepsDuplicateKeyOrder() {
@@ -83,23 +166,14 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         + " ORDER BY item.timestamp DESC";
     assertIndexValuesScan(plan(query), "IndexedItem_timestamp");
     assertThat(plan(query)).doesNotContain("+ ORDER BY");
-
-    try (var result = session.query(query)) {
-      assertThat(result.next().getVertex("item").<Long>getProperty("timestamp"))
-          .isEqualTo(ITEMS / 2L - 1);
-      assertThat(result.next().getVertex("item").<Long>getProperty("timestamp"))
-          .isEqualTo(ITEMS / 2L - 1);
-      var count = 2;
-      while (result.hasNext()) {
-        result.next();
-        count++;
-      }
-      assertThat(count).isEqualTo(ITEMS);
-    }
+    assertThat(matchItemRids(query))
+        .as("DESC index values must match (timestamp DESC, @rid DESC)")
+        .isEqualTo(expectedIndexedItemRids(false));
   }
 
   /**
    * Ascending bare MATCH uses the ascending index values scan and omits MATCH-level OrderByStep.
+   * The full RID sequence matches the index order oracle.
    */
   @Test
   public void bareMatchAsc_usesIndexValuesWithoutMatchOrderBy() {
@@ -111,16 +185,14 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         .contains("FETCH FROM INDEX VALUES ASC IndexedItem_timestamp")
         .doesNotContain("FETCH FROM CLASS IndexedItem")
         .doesNotContain("+ ORDER BY");
-
-    try (var result = session.query(query)) {
-      assertThat(result.next().getVertex("item").<Long>getProperty("timestamp")).isEqualTo(0L);
-      assertThat(result.next().getVertex("item").<Long>getProperty("timestamp")).isEqualTo(0L);
-    }
+    assertThat(matchItemRids(query))
+        .as("ASC index values must match (timestamp ASC, @rid ASC)")
+        .isEqualTo(expectedIndexedItemRids(true));
   }
 
   /**
    * ORDER BY a RETURN projection alias that is a bare {@code alias.property} still reaches the
-   * index values path.
+   * index values path and returns the full timestamp sequence in index order.
    */
   @Test
   public void bareMatch_orderByProjectionAlias_usesIndex() {
@@ -128,13 +200,13 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var query = "MATCH {class: IndexedItem, as: item} RETURN item.timestamp AS ts"
         + " ORDER BY ts DESC";
     assertIndexValuesScan(plan(query), "IndexedItem_timestamp");
-    try (var result = session.query(query)) {
-      assertThat(result.next().<Long>getProperty("ts")).isEqualTo(ITEMS / 2L - 1);
-    }
+    assertThat(matchTimestamps(query, "ts"))
+        .isEqualTo(expectedIndexedItemTimestamps(false));
   }
 
   /**
-   * Plain SELECT control: same fixture, index values DESC, no class fetch, no separate sort.
+   * Plain SELECT control: same fixture, index values DESC, no class fetch, no separate sort, full
+   * RID sequence matches the oracle.
    */
   @Test
   public void selectControl_usesIndexValuesDesc() {
@@ -144,22 +216,13 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         .contains("FETCH FROM INDEX VALUES DESC IndexedItem_timestamp")
         .doesNotContain("FETCH FROM CLASS IndexedItem")
         .doesNotContain("+ ORDER BY");
-    try (var result = session.query(query)) {
-      assertThat(result.next().<Long>getProperty("timestamp")).isEqualTo(ITEMS / 2L - 1);
-      assertThat(result.next().<Long>getProperty("timestamp")).isEqualTo(ITEMS / 2L - 1);
-      var count = 2;
-      while (result.hasNext()) {
-        result.next();
-        count++;
-      }
-      assertThat(count).isEqualTo(ITEMS);
-    }
+    assertThat(selectRids(query)).isEqualTo(expectedIndexedItemRids(false));
   }
 
   /**
    * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
-   * still opens the timestamp index (class fetch is gone). DESC + null-key index may keep
-   * OrderByStep for soundness; row count and leading duplicates stay correct.
+   * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
+   * DESC index oracle (tie-break agrees with scan direction on non-null keys).
    */
   @Test
   public void gremlinWithRidTieBreak_usesIndex() {
@@ -167,19 +230,22 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var planText = translatedPlan(graph.traversal());
     assertThat(planText).contains(".@rid DESC");
     assertIndexValuesScan(planText, "IndexedItem_timestamp");
+    assertThat(gremlinOrderedIds(graph.traversal()))
+        .isEqualTo(expectedIndexedItemRids(false));
   }
 
   /**
-   * Same Gremlin without the RID strategy: no {@code @rid} in the order, index values scan, no
-   * MATCH-level OrderByStep needed for the single property.
+   * Same Gremlin without the RID strategy: no {@code @rid} in the order, index values scan, full
+   * id sequence still matches the DESC index oracle.
    */
   @Test
   public void gremlinWithoutRidTieBreak_usesIndexWithoutRidOrder() {
     seedIndexedItems();
-    var planText = translatedPlan(
-        graph.traversal().withoutStrategies(YTDBOrderRidTieBreakStrategy.class));
+    var source = graph.traversal().withoutStrategies(YTDBOrderRidTieBreakStrategy.class);
+    var planText = translatedPlan(source);
     assertThat(planText).doesNotContain(".@rid");
     assertIndexValuesScan(planText, "IndexedItem_timestamp");
+    assertThat(gremlinOrderedIds(source)).isEqualTo(expectedIndexedItemRids(false));
   }
 
   /**
@@ -218,14 +284,14 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
 
     var names = new ArrayList<String>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> names.add(row.getProperty("name")));
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
     }
     assertThat(names).contains("nullish").hasSize(5);
   }
 
   /**
    * Ascending MATCH with an explicit {@code @rid} secondary that the index scan already produces
-   * streams under a lowered heap cap (no buffering OrderByStep).
+   * streams under a lowered heap cap and matches the full RID oracle.
    */
   @Test
   @Category(SequentialTest.class)
@@ -240,14 +306,11 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
     GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
     try {
+      var rids = new ArrayList<String>();
       try (var rs = session.query(query)) {
-        var count = 0;
-        while (rs.hasNext()) {
-          rs.next();
-          count++;
-        }
-        assertThat(count).isEqualTo(5);
+        rs.forEachRemaining(row -> rids.add(row.getVertex("s").getIdentity().toString()));
       }
+      assertThat(rids).isEqualTo(expectedScoredRids(true));
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
@@ -302,48 +365,57 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHERE on a non-indexed property leaves sort-only index values as the ORDER BY path.
+   * WHERE on a non-indexed property leaves sort-only index values as the ORDER BY path. Full RID
+   * sequence matches the DESC score oracle over the filtered set.
    */
   @Test
   public void bareMatch_withWhereOnOtherProperty_usesIndexValuesForOrder() {
     seedNamedScores(false);
-    var query = "MATCH {class: Scored, as: s, where: (name <> 'nullish')} RETURN s.name AS name"
+    var query = "MATCH {class: Scored, as: s, where: (name <> 'nullish')} RETURN s"
         + " ORDER BY s.score DESC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX VALUES DESC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored");
 
-    var names = new ArrayList<String>();
+    var expected = expectedScoredRids(false).stream()
+        .filter(rid -> {
+          for (var v : graph.traversal().V().hasLabel("Scored").toList()) {
+            if (v.id().toString().equals(rid)) {
+              return !"nullish".equals(v.value("name"));
+            }
+          }
+          return false;
+        })
+        .toList();
+    var actual = new ArrayList<String>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
-    assertThat(names).hasSize(4).startsWith("d", "c").contains("a", "b");
+    assertThat(actual).isEqualTo(expected);
   }
 
   /**
-   * Duplicate score ties: ASC + {@code @rid} matches the identifier order the index scan emits.
+   * Duplicate score ties: ASC + {@code @rid} matches the full identifier oracle.
    */
   @Test
   public void bareMatchAscWithRid_tieBreakMatchesRidOrder() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s} RETURN s"
         + " ORDER BY s.score ASC, s.@rid ASC";
-
-    record Row(String rid, Integer score, String name) {
-    }
-    var rows = new ArrayList<Row>();
+    var actual = new ArrayList<String>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(r -> {
-        var v = r.getVertex("s");
-        rows.add(new Row(
-            v.getIdentity().toString(),
-            v.<Integer>getProperty("score"),
-            String.valueOf((Object) v.getProperty("name"))));
-      });
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
-    var scored = rows.stream().filter(row -> row.score != null && row.score == 1).toList();
-    assertThat(scored).hasSize(2);
-    assertThat(scored.get(0).rid.compareTo(scored.get(1).rid)).isLessThan(0);
+    assertThat(actual).isEqualTo(expectedScoredRids(true));
+  }
+
+  private List<String> gremlinOrderedIds(GraphTraversalSource source) {
+    return source.V().hasLabel("IndexedItem")
+        .order().by("timestamp", Order.desc)
+        .toList()
+        .stream()
+        .map(v -> ((Vertex) v).id().toString())
+        .toList();
   }
 
   private String translatedPlan(GraphTraversalSource source) {
