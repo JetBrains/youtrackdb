@@ -1339,7 +1339,8 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Discriminating twin of hop-then-slice decline — sort and slice on the hop target only.
+   * Discriminating twin of {@link #orderByUniqueIdThenHopThenLimit_translates} — sort and slice on
+   * the hop target only (hop, then order, then limit).
    *
    * <p>Runs under the PORTABLE OPT-OUT. Under the shipped productive-order default the order key
    * emits no {@code IS DEFINED} conjunct, the sorted alias carries no filter at all, and the
@@ -1907,11 +1908,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The {@code ORDER BY} sibling of {@link #assertClauseThenStepDeclines}: {@code shape} carries an
-   * {@code order()} before a real slice, must decline, and must return native's rows <em>in native's
-   * order</em>. The comparison is ordered rather than a multiset one because {@code order()} makes
-   * the sequence part of the answer, and the tie-group divergence this decline closes shows up in
-   * the sequence even on the fixtures where it leaves the row set alone.
+   * The {@code ORDER BY} sibling of {@link #assertClauseThenStepDeclines} for shapes that still
+   * decline after a captured {@code order()} (for example two hops before the slice). {@code shape}
+   * must return native's rows <em>in native's order</em>. The comparison is ordered rather than a
+   * multiset one because {@code order()} makes the sequence part of the answer.
    *
    * <p>{@code sameShapeWithoutOrder} is the control, and it is what stops the case being satisfied
    * by some other gate: strip the {@code order()} prefix and the identical suffix must still
@@ -1959,7 +1959,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
       assertThat(boundaryOn)
-          .as(scenario + ": a real slice behind a captured ORDER BY must decline the whole walk")
+          .as(scenario + ": this ordered-slice shape must decline the whole walk")
           .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off rows must match in native's order")
@@ -1971,8 +1971,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * Asserts that {@code shape} declines (zero boundary steps), still has a non-empty native step
-   * list after strategy application, and returns a non-empty native sequence. The non-empty step
-   * list keeps a decline from being satisfied by a walk that produced no plan and no steps.
+   * list after strategy application, and returns a non-empty native sequence. Used for ordered-slice
+   * shapes that remain out of scope (for example a second hop between {@code order()} and the
+   * slice). The non-empty step list keeps a decline from being satisfied by a walk that produced no
+   * plan and no steps.
    */
   private void assertOrderedSliceDeclinesWithRemainingSteps(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
@@ -2001,7 +2003,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
       assertThat(boundaryOn)
-          .as(scenario + ": hop/foreign-RETURN ordered slice must decline the whole walk")
+          .as(scenario + ": ordered-slice shape must decline the whole walk")
           .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off rows must match in native's order")
