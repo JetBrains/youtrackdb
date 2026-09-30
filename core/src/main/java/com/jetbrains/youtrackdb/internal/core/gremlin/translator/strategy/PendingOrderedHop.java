@@ -20,7 +20,8 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  * time; every other container shape already handled on the MATCH path is deferred here.
  *
  * @param direction TinkerPop hop direction ({@code OUT} / {@code IN} / {@code BOTH})
- * @param edgeLabel single edge label, or {@code null} for all edge types
+ * @param edgeLabels edge labels from {@link GremlinPatternAssembler.EdgeLabelArity#labels()}, or
+ *     {@code null} for all edge types
  * @param fromAlias pattern alias of the ordered source (still the MATCH RETURN column while deferred)
  * @param targetAlias synthetic neighbour alias already allocated and used for label binding / boundary
  *     pinning; flush reuses it so filters and {@code as(...)} stay on the same alias
@@ -29,16 +30,17 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  */
 record PendingOrderedHop(
     @Nonnull Direction direction,
-    @Nullable String edgeLabel,
+    @Nullable String[] edgeLabels,
     @Nonnull String fromAlias,
     @Nonnull String targetAlias,
     @Nonnull List<HasContainer> hasContainers) {
 
   PendingOrderedHop {
+    edgeLabels = edgeLabels == null ? null : edgeLabels.clone();
     hasContainers = List.copyOf(hasContainers);
   }
 
   PendingOrderedHop withHasContainers(@Nonnull List<HasContainer> containers) {
-    return new PendingOrderedHop(direction, edgeLabel, fromAlias, targetAlias, containers);
+    return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, containers);
   }
 }

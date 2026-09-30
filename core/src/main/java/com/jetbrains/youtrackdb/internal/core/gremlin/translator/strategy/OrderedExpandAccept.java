@@ -109,7 +109,7 @@ final class OrderedExpandAccept {
     ctx.appendListShapingOp(
         new OrderedExpandSliceListShapingOp(
             hop.getDirection(),
-            arity.label(),
+            arity.labels(),
             /* skip= */ 0,
             /* limit= */ -1,
             propertyKey,

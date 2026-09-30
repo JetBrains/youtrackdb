@@ -329,7 +329,7 @@ final class GremlinPlanFingerprint {
                 + ":"
                 + expand.direction()
                 + ":"
-                + expand.edgeLabel()
+                + java.util.Arrays.toString(expand.edgeLabels())
                 + ":"
                 + expand.skip()
                 + ":"

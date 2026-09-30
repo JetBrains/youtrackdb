@@ -35,7 +35,8 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
 
   private final Direction direction;
-  @Nullable private final String edgeLabel;
+  /** Edge labels for the hop, or {@code null} for all edge types. */
+  @Nullable private final String[] edgeLabels;
   private final long skip;
   /** Rows to emit after skip; {@code -1} means unbounded (skip-only). */
   private final long limit;
@@ -46,7 +47,7 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
 
   public OrderedExpandSliceListShapingOp(
       @Nonnull Direction direction,
-      @Nullable String edgeLabel,
+      @Nullable String[] edgeLabels,
       long skip,
       long limit,
       @Nullable String propertyKey,
@@ -58,7 +59,7 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
       throw new IllegalArgumentException("limit must be >= -1: " + limit);
     }
     this.direction = direction;
-    this.edgeLabel = edgeLabel;
+    this.edgeLabels = edgeLabels == null ? null : edgeLabels.clone();
     this.skip = skip;
     this.limit = limit;
     this.propertyKey = propertyKey;
@@ -70,8 +71,8 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
     return direction;
   }
 
-  @Nullable public String edgeLabel() {
-    return edgeLabel;
+  @Nullable public String[] edgeLabels() {
+    return edgeLabels == null ? null : edgeLabels.clone();
   }
 
   public long skip() {
@@ -161,10 +162,10 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
       }
 
       private Iterator<Vertex> expand(Vertex vertex) {
-        if (edgeLabel == null) {
+        if (edgeLabels == null) {
           return vertex.vertices(direction);
         }
-        return vertex.vertices(direction, edgeLabel);
+        return vertex.vertices(direction, edgeLabels);
       }
 
       private Object project(Vertex neighbour) {

@@ -93,7 +93,7 @@ final class GremlinPatternAssembler {
       }
       ctx.setPendingOrderedHop(
           new PendingOrderedHop(
-              hop.getDirection(), arity.label(), fromAlias, targetAlias, List.of()));
+              hop.getDirection(), arity.labels(), fromAlias, targetAlias, List.of()));
       ctx.pinBoundary(targetAlias, BoundaryOutputType.ELEMENT, Vertex.class);
       return Outcome.ACCEPTED;
     }
