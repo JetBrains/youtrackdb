@@ -200,9 +200,12 @@ public class TestOrderBy extends DbTestBase {
   }
 
   /**
-   * Scenario: a plain SELECT over a case-insensitive property uses its index, while an explicit
-   * default collation forces the buffered comparison. Expected: both plans return the same first row
-   * after the planner refuses the index whose collation differs from the sort comparison.
+   * Scenario: a property declares {@code ci} and has a matching index; plain {@code ORDER BY name}
+   * uses that collation (case variants compare equal), while an explicit {@code collate default}
+   * buffers a case-sensitive comparison. Expected: under {@code ci}, {@code ada} and {@code Ada}
+   * form one tie group ahead of {@code Zebra} (tie order inside the group is not RID-pinned on a
+   * bare SELECT); under default, the sequence is {@code Ada}, {@code Zebra}, {@code ada}; and the
+   * default path refuses the mismatched CI index.
    */
   @Test
   public void declaredCollationDoesNotUseMismatchedIndexForSelectOrder() {
@@ -212,21 +215,33 @@ public class TestOrderBy extends DbTestBase {
         .createIndex(INDEX_TYPE.NOTUNIQUE);
 
     session.begin();
-    var zebra = session.newEntity("collatedSelect");
-    zebra.setProperty("name", "Zebra");
-    var ada = session.newEntity("collatedSelect");
-    ada.setProperty("name", "ada");
-    var first = session.newEntity("collatedSelect");
-    first.setProperty("name", "Ada");
+    session.newEntity("collatedSelect").setProperty("name", "Zebra");
+    session.newEntity("collatedSelect").setProperty("name", "ada");
+    session.newEntity("collatedSelect").setProperty("name", "Ada");
     session.commit();
 
     session.begin();
-    assertThat(identitiesOf("select from collatedSelect order by name"))
-        .as("the plain SELECT must agree with its buffered default-collation control")
-        .startsWith(first.getIdentity());
-    assertThat(identitiesOf("select from collatedSelect order by name collate default"))
-        .as("explicit default collation is the buffered reference order")
-        .startsWith(first.getIdentity());
+    var ciNames = namesOf("select from collatedSelect order by name");
+    assertThat(ciNames)
+        .as("ci folds Ada/ada into one group before Zebra")
+        .hasSize(3)
+        .last()
+        .isEqualTo("Zebra");
+    assertThat(ciNames.subList(0, 2))
+        .as("case variants tie under ci; relative order inside the group is not pinned")
+        .containsExactlyInAnyOrder("ada", "Ada");
+    assertThat(namesOf("select from collatedSelect order by name collate default"))
+        .as("explicit default collation is case-sensitive buffered order")
+        .containsExactly("Ada", "Zebra", "ada");
+    var defaultExplain =
+        session.query("explain select from collatedSelect order by name collate default")
+            .next()
+            .getProperty("executionPlanAsString")
+            .toString();
+    assertThat(defaultExplain)
+        .as("default collation must not ride the ci index for ordering")
+        .contains("ORDER BY")
+        .doesNotContain("INDEX");
     session.commit();
   }
 
@@ -315,6 +330,14 @@ public class TestOrderBy extends DbTestBase {
   private List<RID> identitiesOf(String query) {
     try (var result = session.query(query)) {
       return result.stream().map(row -> row.getIdentity()).collect(Collectors.toList());
+    }
+  }
+
+  /** The {@code name} property of every row of {@code query}, in arrival order. */
+  private List<String> namesOf(String query) {
+    try (var result = session.query(query)) {
+      return result.stream().map(row -> row.<String>getProperty("name"))
+          .collect(Collectors.toList());
     }
   }
 
