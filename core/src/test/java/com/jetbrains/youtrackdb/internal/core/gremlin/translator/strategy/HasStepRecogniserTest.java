@@ -103,48 +103,73 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Non-polymorphic multi-label {@code hasLabel("Person", "Employee")} translates to {@code @class IN
-   * [Person, Employee]} without re-typing to a single class. Stays on the generic {@code V} root.
-   * Leaf-exact {@code @class IN} mirrors native non-polymorphic {@code hasLabel} exactly.
+   * Multi-label {@code hasLabel} on the traversal root re-types the boundary to the least common
+   * vertex ancestor of the labels (here {@code Person}, since {@code Employee} extends it) and adds
+   * an exact {@code @class IN} leaf filter under non-polymorphic mode.
    */
   @Test
-  public void hasLabelMultiLabelNonPolymorphic_contributesClassInFilter() {
+  public void hasLabelMultiLabelNonPolymorphic_onRoot_retypesToLcaAndClassIn() {
     var person = session.createVertexClass("Person");
     session.getSchema().createClass("Employee", person);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
     var ctx = contextWithStartBoundary(false, session.getSchema());
+    ctx.setAtTraversalStart(true);
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.patternBuilder.build().aliasClasses())
-        .as("multi-label hasLabel does not re-type the boundary node")
-        .containsEntry(BOUNDARY_ALIAS, "V");
+        .as("non-polymorphic multi-label re-types to the LCA of the named classes")
+        .containsEntry(BOUNDARY_ALIAS, "Person");
     assertThat(renderBoundaryFilter(ctx))
-        .as("multi-label hasLabel contributes @class IN [...]")
+        .as("non-polymorphic multi-label keeps an exact @class IN leaf filter")
         .contains("@class IN");
   }
 
   /**
-   * Polymorphic multi-label {@code hasLabel("Person", "Employee")} declines: {@code @class IN [...]}
-   * is leaf-exact and drops polymorphic subclasses of the listed classes, under-matching native
-   * hierarchy-aware {@code hasLabel}. No cheap subclass expansion exists here, so it falls back to
-   * native. The recogniser contributes nothing.
+   * Polymorphic multi-label {@code hasLabel} on the root re-types to the LCA and contributes
+   * {@code @class IN} over the polymorphic subclass closure (no leaf-exact {@code =}).
    */
   @Test
-  public void hasLabelMultiLabelPolymorphic_declines() {
+  public void hasLabelMultiLabelPolymorphic_onRoot_retypesToLcaAndClassIn() {
     var person = session.createVertexClass("Person");
-    session.getSchema().createClass("Employee", person);
+    var employee = session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", employee);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
     var ctx = contextWithStartBoundary(true, session.getSchema());
+    ctx.setAtTraversalStart(true);
     var cursor = cursorAfterStart(admin);
 
     var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).as("polymorphic multi-label hasLabel must decline (subclass undercount)")
-        .isEqualTo(Outcome.DECLINE);
-    assertContributedNothing(ctx);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.build().aliasClasses())
+        .as("polymorphic multi-label re-types to the LCA of the named classes")
+        .containsEntry(BOUNDARY_ALIAS, "Person");
+    assertThat(renderBoundaryFilter(ctx)).contains("@class IN");
+  }
+
+  /**
+   * After a hop the fold is closed; multi-label {@code hasLabel} contributes {@code @class IN} as a
+   * filter on already-fetched neighbours.
+   */
+  @Test
+  public void hasLabelMultiLabel_afterHop_contributesClassInFilter() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    session.createEdgeClass("knows");
+    var admin = graph.traversal().V().out("knows").hasLabel("Person", "Employee").asAdmin();
+    var ctx = contextWithStartBoundary(false, session.getSchema());
+    ctx.setAtTraversalStart(false);
+    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
+    cursor.take();
+    cursor.take();
+
+    var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(renderBoundaryFilter(ctx)).contains("@class IN");
   }
 
   /**

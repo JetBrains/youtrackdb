@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -12,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -90,10 +92,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *   <li>the predicate's bi-predicate is a custom {@code BiPredicate} (not {@link Compare} / {@link
  *       Contains} / {@link Text} / {@link Text.RegexPredicate}) — the translator cannot reproduce
  *       arbitrary user logic;
- *   <li>the comparand is a size-1 collection under {@code eq} / {@code neq}: {@code
- *       QueryOperatorEquals} auto-unboxes a singleton against a scalar, and field cardinality is
- *       unknown at translation time, so the two pipelines could disagree. Size 0 and size ≥2
- *       collections translate normally;
+ *   <li>the comparand is a size-1 collection under {@code eq} / {@code neq} against a
+ *       <em>single-valued</em> (or schema-unknown) field: normalized to the sole element so the
+ *       emitted scalar comparison mirrors native {@code QueryOperatorEquals} singleton auto-unbox.
+ *       Against a declared collection-valued field ({@code EMBEDDEDLIST} / {@code LINKLIST} / …)
+ *       the collection is kept as the comparand ({@code key = [x]}), matching native structural
+ *       equality — unwrapping would turn a nested singleton such as {@code [["x"]]} into a wrong
+ *       scalar compare. Size 0 and size ≥2 collections always keep the collection;
  *   <li>a {@code within} / {@code without} member or a scalar comparand is null, or the comparand
  *       is a type {@link MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue}
  *       parameter).
@@ -113,6 +118,26 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  * declared-String {@code startingWith} still allocates two.
  */
 final class GremlinPredicateAdapter {
+
+  /** Schema type names that store a collection in one property cell. */
+  private static final List<String> MULTI_VALUE_PROPERTY_TYPES =
+      List.of(
+          "EMBEDDEDLIST",
+          "EMBEDDEDSET",
+          "EMBEDDEDMAP",
+          "LINKLIST",
+          "LINKSET",
+          "LINKMAP",
+          "LINKBAG");
+
+  /**
+   * Every {@link PropertyType} name — used to ask {@link PropertyTypeGate#declaredTypeIn} whether a
+   * property is declared at all (unknown / schemaless keys return false).
+   */
+  private static final List<String> ANY_DECLARED_PROPERTY_TYPE =
+      Arrays.stream(PropertyType.values())
+          .map(Enum::name)
+          .toList();
 
   /** Singleton — the adapter is stateless and cheap to share across recogniser calls. */
   static final GremlinPredicateAdapter INSTANCE = new GremlinPredicateAdapter();
@@ -170,6 +195,43 @@ final class GremlinPredicateAdapter {
       @Override
       public boolean declaredTypeIn(String key, List<String> typeNames) {
         return ctx.isDeclaredPropertyTypeIn(className, key, typeNames);
+      }
+    };
+  }
+
+  /**
+   * Schema-backed gate for one or more edge/vertex classes (multi-label hops). True only when
+   * <em>every</em> named class declares the key as the requested type — any-label would drop
+   * type guards / switch to prefix ranges when a schemaless sibling label still carries a
+   * differently typed value. A null/empty label array routes every key to unknown (strict / keep
+   * type guard).
+   */
+  static PropertyTypeGate schemaGate(RecognitionContext ctx, @Nullable String[] classNames) {
+    return new PropertyTypeGate() {
+      @Override
+      public boolean isDeclaredString(String key) {
+        if (classNames == null || classNames.length == 0) {
+          return false;
+        }
+        for (var className : classNames) {
+          if (!ctx.isDeclaredStringProperty(className, key)) {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      @Override
+      public boolean declaredTypeIn(String key, List<String> typeNames) {
+        if (classNames == null || classNames.length == 0) {
+          return false;
+        }
+        for (var className : classNames) {
+          if (!ctx.isDeclaredPropertyTypeIn(className, key, typeNames)) {
+            return false;
+          }
+        }
+        return true;
       }
     };
   }
@@ -476,9 +538,10 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites
-   *, the singleton-collection decline, the {@code neq} absent-property guard, and — when {@code
-   * rangeTypeGuard} is set — the per-record type guard on the four order comparisons.
+   * Translates a scalar {@link Compare}. Handles the {@code eq(null)} / {@code neq(null)} rewrites,
+   * size-1 collection unwrap under {@code eq}/{@code neq}, the {@code neq} absent-property guard,
+   * and — when {@code rangeTypeGuard} is set — the per-record type guard on the four order
+   * comparisons.
    *
    * <h2>The type guard</h2>
    *
@@ -521,12 +584,45 @@ final class GremlinPredicateAdapter {
         default -> null;
       };
     }
-    // Singleton-collection equality declines: QueryOperatorEquals auto-unboxes a size-1
-    // collection against a scalar, and field cardinality is unknown at translation time, so the
-    // translated and native pipelines could disagree. Size 0 and ≥2 fall through and translate.
+    // Size-1 collection under eq/neq against a single-valued (or schema-unknown) field:
+    //
+    // Folded start-step path (!rangeTypeGuard): unwrap to the sole element so the WHERE compares
+    // scalars, mirroring native QueryOperatorEquals singleton auto-unbox on YTDBGraphStep.
+    // Declared collection-valued properties keep the collection as the comparand (key = [x]) —
+    // native compares both sides as collections, and unwrapping would mis-handle a nested
+    // singleton such as [["x"]].
+    //
+    // Unfolded positions (rangeTypeGuard): TinkerPop Compare.eq / GremlinValueComparator does not
+    // unbox — equals("josh", ["josh"]) is false. Emitting an unwrapped scalar (or a collection
+    // literal that SQL would still auto-unbox) would return rows native drops. When the schema
+    // declares a non-collection type, translate to always-false (eq) / IS DEFINED (neq). When the
+    // property is schema-unknown, decline — a schemaless list cell would match native eq([v]) and
+    // the always-false rewrite would silently under-match.
     if ((compare == Compare.eq || compare == Compare.neq)
-        && value instanceof Collection<?> collection && collection.size() == 1) {
-      return null;
+        && value instanceof Collection<?> collection
+        && collection.size() == 1
+        && !translation.typeGate().declaredTypeIn(key, MULTI_VALUE_PROPERTY_TYPES)) {
+      if (translation.rangeTypeGuard()) {
+        if (!translation.typeGate().declaredTypeIn(key, ANY_DECLARED_PROPERTY_TYPE)) {
+          return null;
+        }
+        if (!translation.emitAst()) {
+          return BIND_OK;
+        }
+        return switch (compare) {
+          case eq -> WHERE.and(WHERE.isDefined(key), WHERE.isNotDefined(key));
+          case neq -> WHERE.isDefined(key);
+          default -> null;
+        };
+      }
+      value = collection.iterator().next();
+      if (value == null) {
+        return switch (compare) {
+          case eq -> translation.emitAst() ? WHERE.isNull(key) : BIND_OK;
+          case neq -> translation.emitAst() ? WHERE.not(WHERE.isNull(key)) : BIND_OK;
+          default -> null;
+        };
+      }
     }
     // Resolve the comparability block before binding the literal, so a shape that must decline does
     // not first push a positional parameter into the sink. A declared property whose schema type

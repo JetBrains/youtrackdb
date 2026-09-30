@@ -11,8 +11,9 @@ import org.junit.Test;
 
 /**
  * Unit tests for {@link WalkerContext#orderAllowsSliceOnCurrentBoundary()}: the hop gate and ORDER
- * BY capture reset. Foreign-alias sort keys and multi-alias RETURN are allowed at slice time — tie
- * groups follow the same implementation-defined contract as boundary-only ordered slices.
+ * BY capture reset. Foreign-alias sort keys and multi-alias RETURN are allowed at slice time —
+ * element-stream ties are RID-total-ordered by {@code YTDBOrderRidTieBreakStrategy}, same as
+ * boundary-only ordered slices.
  */
 public class WalkerContextOrderedSliceGateTest {
 
@@ -45,7 +46,7 @@ public class WalkerContextOrderedSliceGateTest {
 
   /**
    * A foreign-alias {@code ORDER BY} still licenses a slice when boundary is unchanged — the clause
-   * is already in the assembled statement; tie-breaking is implementation-defined.
+   * is already in the assembled statement; element ties stay RID-total-ordered on both arms.
    */
   @Test
   public void foreignSortKey_allowsSliceWhenBoundaryUnchanged() {

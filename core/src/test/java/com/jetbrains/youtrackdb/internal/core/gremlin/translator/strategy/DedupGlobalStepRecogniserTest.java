@@ -14,7 +14,8 @@ import org.junit.Test;
 /**
  * Unit tests for {@link DedupGlobalStepRecogniser}: anonymous {@code dedup()} and named
  * {@code dedup(labels…)} that only name the current boundary set {@code RETURN DISTINCT} without
- * rewriting RETURN; prior-hop labels and {@code by(...)} modulators decline.
+ * rewriting RETURN; prior-hop labels pin row-level dedup; {@code by(...)} modulators append
+ * list-shaping.
  */
 public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
 
@@ -68,10 +69,7 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnDistinct).isFalse();
   }
 
-  /**
-   * {@code dedup().by("name")} declines — MATCH cannot DISTINCT-ON a property while still emitting
-   * the current element under {@code ELEMENT} projection.
-   */
+  /** {@code dedup().by("name")} declines — survivor identity is MATCH-order-dependent vs native. */
   @Test
   public void dedupWithByChild_declines() {
     var admin = graph.traversal().V().dedup().by("name").asAdmin();
@@ -82,6 +80,25 @@ public class DedupGlobalStepRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
     assertThat(ctx.returnDistinct).isFalse();
+    assertThat(ctx.shaping().listShapingOps()).isEmpty();
+  }
+
+  /** {@code values("name").dedup()} appends a payload-identity list-shaping stage. */
+  @Test
+  public void valuesThenDedup_appendsPayloadListShapingOp() {
+    var admin = graph.traversal().V().values("name").dedup().asAdmin();
+    var ctx = seededContext();
+    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    var cursor = cursorAtDedup(admin);
+
+    var outcome = DedupGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.returnDistinct).isFalse();
+    assertThat(ctx.shaping().listShapingOps()).hasSize(1);
+    assertThat(ctx.shaping().listShapingOps().getFirst())
+        .isInstanceOf(
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.DedupPayloadListShapingOp.class);
   }
 
   /** {@code g.V().as("v")} binds the start label through {@link StartStepRecogniser}. */

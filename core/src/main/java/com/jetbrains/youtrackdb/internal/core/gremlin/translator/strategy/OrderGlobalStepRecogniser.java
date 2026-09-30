@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
@@ -9,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFac
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -71,26 +73,26 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     if (!(step instanceof OrderGlobalStep<?, ?> orderStep)) {
       return Outcome.DECLINE;
     }
-    // Post-union order needs an in-memory sort of the concatenation; not in this cut (count /
-    // limit / dedup cover the push-down / early-stop post-concat set). The walker's post-union
-    // allow-list already declines the traversal before this recogniser is dispatched, so in
-    // production this branch is a second line of defence: it keeps a direct invocation honest and
-    // makes re-adding order() to the allow-list a decline rather than a silent mistranslation.
-    if (ctx.hasUnionCarrier()) {
-      return Outcome.DECLINE;
-    }
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
     }
-    // A second order() has no clear MATCH composition rule in Phase 1.
-    if (ctxHasOrderBy(ctx)) {
+    if (ctx.hasUnionCarrier()) {
+      for (var op : ctx.postConcatOps()) {
+        if (op instanceof PostConcatOp.Order) {
+          return Outcome.DECLINE;
+        }
+      }
+    } else if (ctxHasOrderBy(ctx)) {
+      // A second order() has no clear MATCH composition rule in Phase 1.
       return Outcome.DECLINE;
     }
     // An order() after a grouping terminator sorts the single map that terminator emitted, not the
     // rows that fed it — see the class Javadoc's "An order() after a grouping terminator". Checked
     // before the comparator loop so the declining path commits no presence conjunct.
-    if (ctx.groupBy() != null) {
+    // Exception: groupCount().unfold() emits Map.Entry rows (emitGroupEntries); ORDER BY then
+    // sorts those GROUP BY rows via Column.values / Column.keys.
+    if (ctx.groupBy() != null && !ctx.emitGroupEntries()) {
       return Outcome.DECLINE;
     }
 
@@ -107,7 +109,9 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       }
       var ascending = SQLOrderByItem.ASC.equals(direction.get());
       var item =
-          resolveSortItem(ctx, boundary, pair.getValue0(), ascending, ctx::resolveUserLabel);
+          ctx.emitGroupEntries()
+              ? resolveGroupEntrySortItem(pair.getValue0(), ascending)
+              : resolveSortItem(ctx, boundary, pair.getValue0(), ascending, ctx::resolveUserLabel);
       if (item == null) {
         return Outcome.DECLINE;
       }
@@ -121,8 +125,19 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
 
     // Contribution — reached only after every comparator resolved, so a declining modulator leaves
     // the context unmutated.
-    for (var pair : comparators) {
-      requireModulatedPropertyForOrder(ctx, boundary, pair.getValue0());
+    if (ctx.hasUnionCarrier()) {
+      // Sealed child plans cannot take a pattern IS DEFINED from this parent walk. Under standard
+      // order semantics emit the same drop as a post-concat stream filter before the in-memory sort.
+      if (!ctx.emitGroupEntries()) {
+        appendPostConcatPresenceDrops(ctx, boundary, orderStep);
+      }
+      ctx.appendPostConcatOp(new PostConcatOp.Order(List.copyOf(items)));
+      return Outcome.ACCEPTED;
+    }
+    if (!ctx.emitGroupEntries()) {
+      for (var pair : comparators) {
+        requireModulatedPropertyForOrder(ctx, boundary, pair.getValue0());
+      }
     }
     // TinkerPop may migrate an upstream {@code as(...)} label onto the {@code order()} step (e.g.
     // {@code inV().as("friend").order().by(name)} arrives as {@code OrderGlobalStep@[friend]}).
@@ -131,8 +146,21 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
-    ctx.recordOrderByCapture(boundary, orderKeysOnlyBoundary(boundary, items));
+    // Entry-mode ORDER BY uses projection aliases (key/value), not the boundary element alias —
+    // still a sort of the current GROUP BY / entry stream, so a following LIMIT may attach.
+    ctx.recordOrderByCapture(
+        boundary, ctx.emitGroupEntries() || orderKeysOnlyBoundary(boundary, items));
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * {@code Column.values} / {@code Column.keys} over Map.Entry payloads after
+   * {@code groupCount().unfold()}.
+   */
+  private static SQLOrderByItem resolveGroupEntrySortItem(
+      Traversal.Admin<?, ?> modulator, boolean ascending) {
+    return ByModulatorTranslator.translateGroupEntryOrderModulator(modulator, ascending)
+        .orElse(null);
   }
 
   /**
@@ -180,6 +208,16 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
         return ProjectionExpressionFactories.orderByProperty(
             projection.alias(), projection.propertyKey(), ascending);
       }
+      // Post-union values(k) arms pin SINGLE_VALUE + presence key on the agreed shaping, but the
+      // parent walk never recorded lastPropertyProjection. Sort by that presence key (entity.property)
+      // rather than declining or falling through to @rid.
+      if (ctx.boundaryOutputType() == BoundaryOutputType.SINGLE_VALUE
+          && ctx instanceof WalkerContext walker) {
+        var keys = walker.shaping().presencePropertyKeys();
+        if (keys.size() == 1) {
+          return ProjectionExpressionFactories.orderByProperty(alias, keys.getFirst(), ascending);
+        }
+      }
       if (!boundaryCarriesRecordId(ctx)) {
         return null;
       }
@@ -204,7 +242,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    */
   private static boolean boundaryCarriesRecordId(RecognitionContext ctx) {
     var outputType = ctx.boundaryOutputType();
-    return outputType != BoundaryOutputType.MAP && outputType != BoundaryOutputType.SCALAR;
+    // Identity order without lastPropertyProjection sorts by @rid. That is valid only for element
+    // rows — SINGLE_VALUE (e.g. values(k) without a recorded projection, including post-union
+    // parent context) must decline rather than emit RID order for a property stream.
+    return outputType == null || outputType == BoundaryOutputType.ELEMENT;
   }
 
   /**
@@ -224,8 +265,41 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
                 ctx, target.alias(), target.propertyKey()));
   }
 
+  /**
+   * Post-union twin of {@link #requireModulatedPropertyForOrder}: same policy and productive-by
+   * gate, but the drop is a {@link PostConcatOp.RequireDefined} on the concatenated stream because
+   * child MATCH plans are already sealed.
+   */
+  private static void appendPostConcatPresenceDrops(
+      RecognitionContext ctx, String boundary, OrderGlobalStep<?, ?> orderStep) {
+    if (!OrderKeyPresencePolicy.emitsPatternPresenceConjunct(ctx)) {
+      return;
+    }
+    var comparators = orderStep.getComparators();
+    if (comparators == null) {
+      return;
+    }
+    for (var pair : comparators) {
+      ByModulatorTranslator.orderModulatorPresenceTarget(
+          boundary, pair.getValue0(), ctx::resolveUserLabel)
+          .ifPresent(
+              target -> {
+                if (ctx.byModulatorIsProductive(target.propertyKey())) {
+                  return;
+                }
+                ctx.appendPostConcatOp(
+                    new PostConcatOp.RequireDefined(target.alias(), target.propertyKey()));
+              });
+    }
+  }
+
   private static boolean ctxHasOrderBy(RecognitionContext ctx) {
     return ctx.orderBy() != null;
+  }
+
+  @Override
+  public boolean selectsPositionally(Step<?, ?> step) {
+    return false;
   }
 
   @Override

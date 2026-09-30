@@ -126,6 +126,25 @@ public class ListShapingTerminatorEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * {@code tail(1)} after a hop + total order: marko's knows-targets ordered by name are josh then
+   * vadas; the window must keep vadas. A head-window regression ({@code limit(1)}) would keep josh.
+   */
+  @Test
+  public void tailAfterOrderedHop_keepsTheSameLastRowAsNative() {
+    ModernGraphFixture.seed(graph, session);
+
+    assertOrdered(
+        "g.V().has(name,marko).out(knows).order().by(name).values(name).tail(1)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("name", "marko").out("knows")
+            .order().by("name").values("name").tail(1));
+    assertThat(graph.traversal().V().has("name", "marko").out("knows")
+        .order().by("name").values("name").tail(1).toList())
+        .as("fixture premise: ordered knows names end with vadas")
+        .containsExactly("vadas");
+  }
+
+  /**
    * A window wider than the stream returns every row on both arms rather than padding, throwing, or
    * emitting out of a fixed-size ring. This is the branch where the window's eviction arithmetic never
    * runs, so it is the one an implementation built around a full ring gets wrong.

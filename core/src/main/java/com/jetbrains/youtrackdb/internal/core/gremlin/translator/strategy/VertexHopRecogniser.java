@@ -33,13 +33,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
  * reappears only for an explicit user-named class (the folded {@code hasLabel}, added later), through
  * the shared {@code MatchWhereBuilder.classEquals} seam — never here.
  *
- * <h2>Single or no edge label — multi-label declines</h2>
+ * <h2>One or more edge labels, or none</h2>
  *
- * A single-label hop ({@code out("knows")}) and a label-less hop ({@code out()}, all edge types) both
- * translate. The label-less hop passes a null edge label to the assembler, which the IR renders as the
- * all-edges {@code out('E')} form ({@code E} traversed polymorphically). A multi-label hop ({@code
- * out("a", "b")}) declines: {@code MatchPatternBuilder.addEdge} carries a single edge label with no
- * multi-label slot, so a multi-label hop falls back to the native pipeline.
+ * A single-label hop ({@code out("knows")}), a multi-label hop ({@code out("a", "b")}), and a
+ * label-less hop ({@code out()}, all edge types) all translate. The label-less hop passes a null
+ * labels array to the assembler, which the IR renders as the all-edges {@code out('E')} form
+ * ({@code E} traversed polymorphically). Multi-label hops render as {@code out('a', 'b')} —
+ * MATCH already accepts multiple method parameters.
  */
 final class VertexHopRecogniser implements StepRecogniser {
 

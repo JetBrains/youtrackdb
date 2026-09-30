@@ -119,6 +119,7 @@ shape declines along with anything else unrecognized.
 | Filtering | `has(key, predicate)` | `aliasFilters` predicate (per "Predicate translation" below) | Track 4 |
 | Filtering | `has(label, key, value)` | `aliasClasses[a] = label` + `aliasFilters` `key = value` | Track 4 |
 | Filtering | `hasLabel(label)` | folded by `YTDBGraphStepStrategy` into start-step `hasContainers`; `aliasClasses[a] = label` | Track 4 |
+| Filtering | `hasLabel(L1, L2, …)` | re-type boundary to the least common vertex ancestor of `{L1,L2,…}` when that ancestor is stricter than `V`; `@class IN` over the named labels (polymorphic: subclass closure). Disjoint trees under `V` keep the `V` root and the IN filter alone. | Track 4 |
 | Filtering | `hasId(id)` (single) | `aliasRids[a] = SQLRid(id)` | Track 4 |
 | Filtering | `hasId(id1, id2, …)` (multi) | `aliasFilters[a] = WHERE @rid IN [...]` | Track 4 |
 | Filtering | `hasNot(key)` | `aliasFilters[a]` `key IS NOT DEFINED` via `MatchWhereBuilder.isNotDefined`. Recognised by **`NotFilterStepRecogniser`** (Case A — `__.values(key)` desugar wrapped in `NotStep`), mirror of `has(key)` handled by `TraversalFilterStepRecogniser`. NOT `IS NULL` — would over-match against properties stored with literal `null` value (TP wrapper keeps those visible as `Property.isPresent() == true`). See "Phase 1 dependency: `IS DEFINED` / `IS NOT DEFINED` operators". | Track 4 |
@@ -136,13 +137,13 @@ shape declines along with anything else unrecognized.
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 5 |
 | Dedup | `dedup()` (no labels) | `info.distinct = true` → `DistinctExecutionStep` | Track 5 |
 | Dedup | `dedup(labels...)` | projection over labels + DISTINCT | Track 5 |
-| Dedup | `dedup(labels...).by(<recognized by-shape>)` | per-label dedup key extracted via the by-modulator (see "by-modulator translation" below) | Track 5 |
+| Dedup | `values(k).dedup()` / `valueMap(…).dedup()` | payload identity via `DedupPayloadListShapingOp`; `dedup().by` and prior-label `dedup(a)` decline | Track 5 |
 | Projection | `select(label)` | `$matched.<label>` projection (single column) | Track 5 |
 | Projection | `select(l1, l2, …)` | multi-column `$matched.*` projection | Track 5 |
 | Projection | `select(labels...).by(<recognized by-shape>)` | per-label by-modulator applied to the projected value (one `by(...)` per label, applied in order) | Track 5 |
-| Projection | `values(keys...)` | property-extraction projection on current alias | Track 5 |
-| Projection | `valueMap(keys...)` | nested-map projection | Track 5 |
-| Projection | `elementMap()` | full schema-driven property map | Track 5 |
+| Projection | `values(keys...)` | property-extraction projection on current alias (vertex or edge) | Track 5 |
+| Projection | `valueMap(keys...)` | nested-map projection (vertex or edge; no Direction endpoints) | Track 5 |
+| Projection | `elementMap(keys...)` | keyed map with id/label tokens; edge form also emits `Direction.IN`/`OUT` endpoint maps; keyless form declines | Track 5 |
 | Projection | `project(keys...).by(<recognized by-shape>)` | composite map; one `by(...)` per key, applied positionally (TinkerPop semantics) | Track 5 |
 | Order | `order().by(key, Order.asc/desc)` | `SQLOrderBy`; missing sort keys remain by default; standard order semantics add `IS DEFINED` (`Order.shuffle` declines) | Track 5 |
 | Order | `order().by(<recognized by-shape>, Order.asc/desc)` | by-modulator unwrapped to a field/identity reference, then `SQLOrderBy`; property-key modulators use the order presence policy | Track 5 |
@@ -834,6 +835,10 @@ inside a `HasStep`) and routes:
   recognizer sees it there and pins `aliasClasses[a] = label`. A
   non-folded `hasLabel` step elsewhere routes through the same
   `aliasClasses[a]` slot.
+- `hasLabel(L1, L2, …)` → one `~label` within-container. Re-types the
+  boundary to the least common vertex ancestor of the named classes when
+  that ancestor is stricter than `V`, and contributes `@class IN [...]`
+  (polymorphic mode expands each label's subclass closure first).
 - `hasId(id)` (single) → `HasContainer{T.id, id}` → `aliasRids[a]` (the
   planner's single-RID fast path that resolves to `SELECT FROM #X:Y`).
 - `hasId(id1, id2, …)` (multi) → `aliasFilters[a]` `WHERE @rid IN [...]`
@@ -1172,6 +1177,14 @@ recognized shape lands in one file, not five.
   modulators than labels — extras cycle. The translator declines on
   cycle: each label must have its own explicit `by(...)` slot. This is
   a deliberate Phase 1 restriction; equivalence is tested per-label.
+- *Group-entry `Column` modulators*. After `groupCount().unfold()`,
+  direct `by(Column.values)` / `by(Column.keys)` sort entry rows.
+  Nested shapes such as `by(__.order().by(Column.values))` decline —
+  walking into them would sort by the column alone while native compares
+  whole map entries.
+- *Multi-label select over an edge alias*. MATCH stores edge cells as
+  RIDs. Bare `select(e, v)` marks edge labels in `ResultShaping.edgeMapKeys`
+  so projection wraps a TinkerPop `Edge` rather than a vertex.
 - *Sub-traversal carrying side-effects*. Any `by(__.aggregate(...))`,
   `by(__.sack(...))`, or `by(...)` whose sub-traversal contains a
   side-effect step declines whole — side effects have no MATCH
@@ -1348,6 +1361,14 @@ holds N plans and iterates them in order), and emit the concatenation. All
 children must agree on output type; if any child fails to translate or
 disagrees on type, the union step is unrecognized and under D3
 all-or-nothing the entire enclosing traversal declines.
+
+After a recognized union the walker also accepts reductions over the combined
+multiset: `count`, `dedup`, `order` (an in-memory sort of the drained
+concatenation), and `limit`/`range`/`skip` followed immediately by `count`.
+The slice steps need that `count` because children emit rows in a different
+order than the native pipeline, so only the slice's size matches. Any other
+step after the union declines, and a `union` nested inside a child declines
+the whole union.
 
 The decision to keep union as concatenation rather than cartesian is
 strict: violating it would silently change result semantics, and that
@@ -1944,10 +1965,16 @@ index into the list:
   `plans[0].start()`; subsequent calls drive that stream until exhausted,
   then advance to `plans[1].start()`, and so on. Plan N+1 is only
   started after plan N is fully drained — never both alive simultaneously.
+- **Post-concatenation reductions.** Optional `PostConcatOp` stages
+  (`count`, `limit`/`range`/`skip`, `dedup`, `order`) run once over the
+  concatenated stream after the child plans combine. `order` sorts the
+  drained multiset in memory; a positional slice still requires an
+  immediate following `count()` (see `RangeGlobalStepRecogniser`).
 - **Memory.** Only the *currently-iterating* `ExecutionStream` is alive;
   the list of compiled plans (one per child traversal) is alive for the
   boundary step's lifetime. Memory cost = number of compiled plans, not
-  number of in-flight streams.
+  number of in-flight streams. Post-concat `order` additionally buffers
+  the full concatenation before emitting.
 - **Exception propagation.** If `plans[N]` throws mid-iteration, the
   current stream closes, the boundary re-throws, and `plans[N+1..]` are
   never started. The native fallback was already foregone at translation
@@ -2029,7 +2056,7 @@ or `DECLINED` marker. Two assertions per case:
 The fixture is parameterised so each track adds rows for its shapes
 without rewriting the harness; the fixture seeds a small graph
 (Person/Place vertices, Knows/Likes/Follows edges) that exercises
-multi-hop chains, multi-edge cardinality, and multi-label decline.
+multi-hop chains, multi-edge cardinality, and multi-label `hasLabel`.
 
 **TinkerPop Cucumber feature suite.** ~1900 scenarios from upstream
 TinkerPop, run via `YTDBGraphFeatureTest` (in `core`) and
@@ -2096,12 +2123,10 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Path manipulation | `simplePath()`, `cyclicPath()`, advanced `path()` | Per-traverser path history isn't materialized by MATCH | `returnPaths = true` / `returnPathElements = true` on `MatchPlanInputs` covers basic `path()`; `simplePath` / `cyclicPath` need extra checks |
 | Imperative branching | `choose(traversal).option(...)` | Branch-on-traverser has no MATCH equivalent | Stay native or future per-row branch construct |
 | Custom DSL steps | `executeInTx()`, `computeInTx()` | Execution-model concerns, not a query shape | Stay native |
-| Edge-returning terminals | `outE(L)` / `inE(L)` / `bothE(L)` (without paired vertex hop) | No recogniser mints an edge terminal: `returnClass` is hard-set to `Vertex.class` (`StartStepRecogniser`, `GremlinPatternAssembler`), and `EdgeStepRecogniser` declines a chain with no closing vertex hop, so the boundary step never emits an `Edge`. The projection seam already exists — `YTDBMatchPlanStep.projectElement` dispatches element kind on `returnClass`, and its `Edge` branch throws — but nothing reaches it. | Accept an edge terminal in the recogniser, set `returnClass = Edge.class`, pin the boundary alias to the edge alias, and replace the `projectElement` `Edge` throw with a `Result.getEdge` + `YTDBEdgeImpl` wrap. No new `BoundaryOutputType` variant is needed: `ELEMENT` already means "vertex/edge bound to the boundary alias", and element kind (`returnClass`) is orthogonal to payload shape (`outputType`). Settle first whether the node-ized edge alias (`$g2m_edge_N`) is returnable as a full `Edge` via `Result.getEdge`. |
-| User-facing edge alias | `outE(L).as("e").inV()` (or any explicit `as(label)` on an edge step) | Phase 1 mints anonymous edge aliases (`$g2m_edge_N`) internally for `outE(L).has(...).inV()` shapes, but user-supplied edge labels need propagation into `WalkerContext.userLabelToAlias` with an edge-vs-node disambiguator | Extend the label-propagation helper (Track 5) with an edge-side branch |
-| Edge property extraction | `outE(L).values("date")`, `outE(L).valueMap()`, `outE(L).elementMap()`, `outE(L).has(...).values(...)` and analogues (any property-extraction step that follows an `outE`/`inE`/`bothE` without a closing vertex hop first) | The boundary step would have to project edge properties (not vertex properties), and `GremlinProjectionAssembler` would need to know "current alias is an edge, route property access through the edge alias slot" — both depend on the edge-as-terminator infrastructure above | Lands together with the edge-returning-terminals fix in Phase 2; once edge-terminal projection (`returnClass = Edge.class`) and edge-alias-aware projection exist, `values`/`valueMap`/`elementMap` recognisers extend naturally |
-| Multi-label edges | `out("a", "b")` | `MatchPatternBuilder.addEdge` accepts a single edge-label string; an edge-label `IN [...]` filter slot doesn't exist yet | Variadic `SQLMethodCall.params` retrofit on the shared builder |
-| Mid-traversal list-shaping | `fold().unfold().has(...)` and any `fold` / `unfold` / `reverse` / `tail` step not appearing as the terminal step | These steps are accepted only as terminators (see "List-shaping terminators" — Track 6) because the boundary step is the only step in a translated traversal under D3 all-or-nothing; a list-shape step mid-traversal would have to hand its output back to a native step, which D3 explicitly disallows | Phase 2 path: relax D3 to a per-step recognise-or-decline gate that lets recognised list-shapers slot in mid-chain, with the boundary step splitting into prefix/suffix sub-plans |
-| Singleton-collection equality | `P.eq([a])` / `P.neq([a])` (size-1 collection literal) when the field's `PropertyType` is not in the schema | `QueryOperatorEquals.equals` auto-unboxes a singleton `Collection` against a scalar (`QueryOperatorEquals.java:63-69`), diverging from TinkerPop's structural-equality semantics under `COMPARABILITY`. Phase 1 declines for the size-1 case because the field cardinality cannot be inferred at translation time in schema-less / mixed-mode classes. Multi-element and empty collection literals (`size != 1`) translate normally — they bypass the unbox branch. | Phase 2: schema-aware rewrite — when the field's `PropertyType` is statically known, route scalar-typed fields with `eq([a])` to the constant `false` filter and collection-typed fields with `eq([a])` to a normal `field = listLit` translation. Schema-less remains declined. The infrastructure required (per-property `PropertyType` lookup at translation time) is shared with other Phase 2 type-aware optimizations (typed index lookup, RID-range narrowing for collection-typed properties), so it lands as part of that work, not as a one-off. |
+| Edge-returning terminals | bare `outE(L)` / `inE(L)` / `bothE(L)` without a closing vertex hop or `select` | Edge hops that close with `inV`/`outV`/`otherV` and `outE(…).as(e)….select(e)` translate and emit `Edge`. A bare edge terminal with no select still declines. | Accept bare edge terminals when projection is complete. |
+| User-facing edge alias (residue) | edge `as(e)` without a later `select(e)` that projects the edge | Bound edge aliases used by `select(e)` translate. Labels that never project as edges stay internal. | — |
+| Mid-traversal list-shaping (residue) | `fold().unfold().has(...)` and list-shapers that are not the admitted `groupCount().unfold()` entry path or a terminator | `groupCount().unfold()` entry emission is the admitted mid-chain unfold. Other mid-chain list-shapers still decline. | Per-step recognise-or-decline for remaining list-shapers. |
+| `groupCount().unfold().limit(n)` without `order()` | entry-mode slice with no total order | Native `HashMap` iteration order and MATCH first-seen order cut different entry sets. `unfold().order().by(…).limit(n)` translates. | — |
 
 **Type-keyed recognizer dispatch ships in Phase 1** (see "Recogniser
 dispatch" in Class Design). No follow-up migration is queued for

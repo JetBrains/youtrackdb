@@ -154,31 +154,82 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A multi-label {@code g.V().hasLabel("Person", "Employee")} in polymorphic mode declines to
-   * native: {@code @class IN [Person, Employee]} is leaf-exact and would drop polymorphic subclasses
-   * of the listed classes, under-matching native hierarchy-aware {@code hasLabel}. Native still
-   * returns a non-empty multiset (the Person and Employee rows), so on==off is not vacuous.
+   * A multi-label {@code g.V().hasLabel("Person", "Employee")} in polymorphic mode expands the
+   * subclass closure, re-types to the LCA ({@code Person}), and matches native hierarchy-aware
+   * {@code hasLabel}.
    */
   @Test
-  public void hasLabelMultiLabel_declinesPolymorphic() {
+  public void hasLabelMultiLabel_onRootMatchesPolymorphic() {
     seedPersonEmployeeHierarchy();
     withPolymorphicDefault(true, () -> assertEquivalent(
         "polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person", "Employee")));
   }
 
   /**
-   * Multi-label {@code hasLabel(Person, Employee)} in non-polymorphic mode matches native leaf-exact
-   * semantics: both the {@code Person} and the {@code Employee} vertex, via {@code @class IN}.
+   * Root multi-label {@code hasLabel} in non-polymorphic mode re-types to the LCA and keeps an exact
+   * {@code @class IN} leaf filter; results match native.
    */
   @Test
-  public void hasLabelMultiLabel_matchesNativeNonPolymorphic() {
+  public void hasLabelMultiLabel_onRootMatchesNonPolymorphic() {
     seedPersonEmployeeHierarchy();
     withPolymorphicDefault(false, () -> assertEquivalent(
         "non-polymorphic g.V().hasLabel(Person, Employee) (multi-label)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person", "Employee")));
+  }
+
+  /**
+   * Non-polymorphic {@code hasLabel(Person, Employee)} must keep the exact {@code @class IN} — a
+   * sibling subclass {@code Manager} is outside the named set. Without that IN, {@code SELECT FROM
+   * Person} (LCA) would still return Manager and this case would pass wrongly.
+   */
+  @Test
+  public void hasLabelMultiLabel_nonPolymorphic_excludesSiblingSubclassDecoy() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", person);
+    graph.addVertex(T.label, "Person", "name", "p");
+    graph.addVertex(T.label, "Employee", "name", "e");
+    graph.addVertex(T.label, "Manager", "name", "m");
+    graph.tx().commit();
+
+    withPolymorphicDefault(false, () -> {
+      // assertEquivalent drains RIDs; the values("name") bag below is the decoy pin only.
+      assertEquivalent(
+          "non-poly hasLabel(Person,Employee) with Manager decoy",
+          Recognition.RECOGNIZED,
+          () -> graph.traversal().V().hasLabel("Person", "Employee"));
+      assertThat(graph.traversal().V().hasLabel("Person", "Employee").values("name").toList())
+          .as("Manager must be excluded — that is what forces @class IN to stay")
+          .containsExactlyInAnyOrder("p", "e");
+    });
+  }
+
+  /**
+   * Disjoint label trees under {@code V}: {@code hasLabel(Person, Software)} keeps a {@code V} root
+   * plus {@code @class IN}. A third class ({@code Company}) must not appear — dropping the IN would
+   * full-scan every vertex.
+   */
+  @Test
+  public void hasLabelMultiLabel_disjointTrees_excludesThirdClassDecoy() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Software");
+    session.createVertexClass("Company");
+    graph.addVertex(T.label, "Person", "name", "alice");
+    graph.addVertex(T.label, "Software", "name", "lop");
+    graph.addVertex(T.label, "Company", "name", "acme");
+    graph.tx().commit();
+
+    // assertEquivalent drains RIDs; the values("name") bag below is the decoy pin only.
+    assertEquivalent(
+        "g.V().hasLabel(Person, Software) with Company decoy",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person", "Software"));
+    assertThat(graph.traversal().V().hasLabel("Person", "Software").values("name").toList())
+        .as("Company must stay out — pins V + @class IN, not a wrong LCA re-type")
+        .containsExactlyInAnyOrder("alice", "lop");
   }
 
   /**
@@ -208,26 +259,23 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * A BARE {@code g.V().hasId(id)} point-lookup declines to native: a single pinned node with no
-   * hop, which native resolves by RID directly with no query, so the translator would compile an
-   * uncached MATCH plan for nothing. Declining is trivially on==off; native still returns exactly
-   * that vertex. A RID lookup FOLLOWED by a hop still translates.
+   * A bare {@code g.V().hasId(id)} point-lookup translates and matches native.
    */
   @Test
-  public void hasIdSingle_declinesBarePointLookup() {
+  public void hasIdSingle_matchesNativeBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     var aliceId = alice.id();
     assertEquivalent(
         "g.V().hasId(alice)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasId(aliceId));
   }
 
-  /** A bare {@code g.V().hasId(id1, id2)} point-lookup declines to native; native returns both. */
+  /** A bare {@code g.V().hasId(id1, id2)} point-lookup translates; native returns both. */
   @Test
-  public void hasIdMulti_declinesBarePointLookup() {
+  public void hasIdMulti_matchesNativeBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     graph.addVertex(T.label, "Person", "name", "Carol");
@@ -236,24 +284,22 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     var bobId = bob.id();
     assertEquivalent(
         "g.V().hasId(alice, bob)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasId(aliceId, bobId));
   }
 
   /**
-   * A bare {@code g.V().hasId(id, id)} with a repeated id declines to native like every other bare
-   * RID point-lookup. Native still applies set membership — it matches the one vertex once — so the
-   * decline is on==off.
+   * A bare {@code g.V().hasId(id, id)} with a repeated id translates; native applies set membership.
    */
   @Test
-  public void hasIdDuplicate_declinesBarePointLookup() {
+  public void hasIdDuplicate_matchesNativeBarePointLookup() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     var aliceId = alice.id();
     assertEquivalent(
         "g.V().hasId(alice, alice) (duplicate id, set membership)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasId(aliceId, aliceId));
   }
 
@@ -273,41 +319,28 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * materialising an element, so a widened plan returns one with nothing to notice. This case
    * therefore asserts both.
    *
-   * <p>Since a bare {@code g.V().hasId(rid)} point-lookup now DECLINES to native (a single pinned
-   * node with no hop — native resolves the RID directly), the vertex-source scoping is enforced by
-   * the native pipeline on both arms rather than by a translated plan. This asserts the bare shape
-   * declines (zero boundary steps with the translator on) and that both arms return nothing and
-   * count zero, so the empty result is the honest answer. The translated pinned-RID fetch's
-   * class-scoping (for RID starts that DO translate, i.e. followed by a hop) stays covered by the
-   * SQL-layer {@code PromoteStaticRidsFromFiltersTest}.
+   * <p>With bare RID point-lookups translated, the vertex-source scoping is enforced by the
+   * translated plan's class filter on both arms. This asserts ON==OFF: both return nothing and
+   * count zero.
    */
   @Test
-  public void hasIdOverEdgeRid_declinesAndReturnsNothingAndCountsZero() {
+  public void hasIdOverEdgeRid_returnsNothingAndCountsZero() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     var edge = alice.addEdge("knows", bob);
     graph.tx().commit();
     var edgeId = edge.id();
 
-    withTranslator(true, () -> {
-      var admin = graph.traversal().V().hasId(edgeId).asAdmin();
-      admin.applyStrategies();
-      assertThat(countBoundarySteps(admin.getSteps()))
-          .as("a bare g.V().hasId(<edge rid>) point-lookup must decline to native")
-          .isZero();
-      assertThat(admin.toList())
-          .as("a vertex source must not emit a record that is an edge")
-          .isEmpty();
-      assertThat(graph.traversal().V().hasId(edgeId).count().next())
-          .as("the vertex-source count must be scoped to vertices too")
-          .isZero();
-    });
-    withTranslator(false, () -> {
-      assertThat(graph.traversal().V().hasId(edgeId).toList())
-          .as("native pins the expected answer")
-          .isEmpty();
-      assertThat(graph.traversal().V().hasId(edgeId).count().next()).isZero();
-    });
+    assertEquivalent(
+        "g.V().hasId(<edge rid>) — vertex source must not emit edges",
+        Recognition.RECOGNIZED,
+        Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().hasId(edgeId));
+    withTranslator(true, () -> assertThat(graph.traversal().V().hasId(edgeId).count().next())
+        .as("the vertex-source count must be scoped to vertices too")
+        .isZero());
+    withTranslator(false,
+        () -> assertThat(graph.traversal().V().hasId(edgeId).count().next()).isZero());
   }
 
   // ---------------------------------------------------------------------------
@@ -339,13 +372,10 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     graph.tx().commit();
     var aliceId = alice.id();
     var bobId = bob.id();
-    // A RID-bearing single-node lookup (V(ids).has(...) with no hop) is a bare point-lookup and
-    // declines to native, which still AND-composes the id membership with the has filter — only
-    // Alice, never Carol. on==off holds; the merge stays covered for translating shapes by
-    // hasLabelAndHas_andCompose_onSameAlias below.
+    // A RID-bearing single-node lookup AND-composes id membership with the has filter.
     assertEquivalent(
         "g.V(alice, bob).has(age, 30) — only Alice, not every age-30 vertex",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V(aliceId, bobId).has("age", 30));
   }
 
@@ -574,15 +604,53 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().has("age", P.outside(20, 30)));
   }
 
-  /** Size-1 collection equality declines under D3 — the whole traversal falls back to native. */
+  /** Size-1 collection equality normalizes to scalar eq and matches native singleton auto-unbox. */
   @Test
-  public void singletonCollectionEq_declines() {
+  public void singletonCollectionEq_matchesNative() {
     graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
     assertEquivalent(
         "g.V().has(name, eq([Alice])) singleton collection",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("name", P.eq(List.of("Alice"))));
+  }
+
+  /**
+   * Size-1 collection eq against a declared {@code EMBEDDEDLIST} keeps the list as the comparand
+   * ({@code tags = [x]}) and matches native structural equality — including a nested singleton
+   * that unwrap would mis-handle, and a size-2 cell that must not match {@code eq([x])}.
+   */
+  @Test
+  public void singletonCollectionEq_onEmbeddedList_matchesNative() {
+    var person = session.getSchema().getOrCreateClass(
+        "Person", session.getSchema().getClass("V"));
+    if (person.getProperty("tags") == null) {
+      person.createProperty("tags", PropertyType.EMBEDDEDLIST);
+    }
+    graph.addVertex(T.label, "Person", "name", "Alice", "tags", List.of("x"));
+    graph.addVertex(T.label, "Person", "name", "Bob", "tags", List.of("y"));
+    graph.addVertex(T.label, "Person", "name", "Carol", "tags", List.of("x", "y"));
+    graph.addVertex(T.label, "Person", "name", "Dee", "tags", List.of(List.of("x")));
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([x])) — match singleton list cell",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.eq(List.of("x"))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([x,y])) — match size-2 cell",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.eq(List.of("x", "y"))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, eq([[x]])) — nested singleton kept intact",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V()
+            .hasLabel("Person")
+            .has("tags", P.eq(List.of(List.of("x")))));
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(tags, neq([x])) — structural neq on EMBEDDEDLIST",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("tags", P.neq(List.of("x"))));
   }
 
   /** Size-2 collection membership via {@code within} translates and matches native. */

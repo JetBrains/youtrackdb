@@ -1,13 +1,18 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ValuesFlatMapListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -39,6 +44,11 @@ final class GremlinProjectionAssembler {
   /**
    * Configures a {@code select(labels…)} terminator: one RETURN column per bound user label (internal
    * alias surfaced under the Gremlin label name) and {@link BoundaryOutputType#MAP}.
+   *
+   * <p>When a prior modulated {@code select} registered {@link EmittedColumnDescriptor}s for the
+   * requested labels, this projects those map cells (scalar / token) rather than rebinding through
+   * {@link RecognitionContext#resolveUserLabel} — native overlapping {@code select} reads the map,
+   * not the path Vertex.
    */
   static Outcome configureSelect(RecognitionContext ctx, Collection<String> userLabels) {
     var boundary = ctx.boundaryAlias();
@@ -51,7 +61,41 @@ final class GremlinProjectionAssembler {
     if (!ctx.promotePresenceDropToPatternFilter()) {
       return Outcome.DECLINE;
     }
+    if (anyScalarEmitDescriptor(ctx, userLabels)) {
+      return configureSelectFromEmitDescriptors(ctx, userLabels);
+    }
+    if (userLabels.size() == 1) {
+      var userLabel = userLabels.iterator().next();
+      var internalAlias = ctx.resolveUserLabel(userLabel);
+      if (internalAlias == null) {
+        return Outcome.DECLINE;
+      }
+      // After dedup(), MATCH DISTINCT keys the RETURN row — a foreign hop label is not
+      // Gremlin's "dedup current, then select another path label" contract.
+      if (ctx.returnDistinct() && !boundary.equals(internalAlias)) {
+        return Outcome.DECLINE;
+      }
+      if (ctx.isEdgeAlias(internalAlias)) {
+        ctx.clearReturnProjection();
+        ctx.setSingleReturnColumn(internalAlias);
+        ctx.pinBoundary(internalAlias, BoundaryOutputType.ELEMENT, Edge.class);
+        ctx.setResultShaping(ResultShaping.NONE);
+        return Outcome.ACCEPTED;
+      }
+      // A bare select of a vertex alias that is not the current boundary must repin the walk to
+      // that alias (ELEMENT), not leave boundaryAlias on the prior hop. Otherwise a following
+      // values()/properties() reads the wrong entity — e.g. select("e").order().by("weight")
+      // .select("v").values("name") would read "name" from the edge alias and drop every row.
+      if (!internalAlias.equals(boundary)) {
+        ctx.clearReturnProjection();
+        ctx.setSingleReturnColumn(internalAlias);
+        ctx.pinBoundary(internalAlias, BoundaryOutputType.ELEMENT, Vertex.class);
+        ctx.setResultShaping(ResultShaping.NONE);
+        return Outcome.ACCEPTED;
+      }
+    }
     ctx.clearReturnProjection();
+    var edgeMapKeys = new ArrayList<String>();
     for (String userLabel : userLabels) {
       var internalAlias = ctx.resolveUserLabel(userLabel);
       if (internalAlias == null) {
@@ -64,6 +108,10 @@ final class GremlinProjectionAssembler {
       }
       ctx.markReturnAliasIfForeign(internalAlias);
       ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(internalAlias), userLabel);
+      // Bare multi-label select stores edge aliases as RIDs; mark them so projection wraps Edge.
+      if (ctx.isEdgeAlias(internalAlias)) {
+        edgeMapKeys.add(userLabel);
+      }
     }
     // A single-label select emits the column value directly (native SelectOneStep shape).
     var shaping = ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1);
@@ -71,8 +119,115 @@ final class GremlinProjectionAssembler {
       // Result content is a HashMap — pin select-label order for LinkedHashMap emission.
       shaping = shaping.withMapEmitColumnOrder(List.copyOf(userLabels));
     }
+    if (!edgeMapKeys.isEmpty()) {
+      shaping = shaping.withEdgeMapKeys(List.copyOf(edgeMapKeys));
+    }
     ctx.setResultShaping(shaping);
     repinMap(ctx, boundary);
+    return Outcome.ACCEPTED;
+  }
+
+  private static boolean anyScalarEmitDescriptor(
+      RecognitionContext ctx, Collection<String> userLabels) {
+    for (String userLabel : userLabels) {
+      if (ctx.emitDescriptor(userLabel) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Rebuilds RETURN from previously registered emit descriptors. Fail-closed when any requested
+   * label lacks a descriptor (mixed path-label + map-cell select is not represented yet).
+   */
+  private static Outcome configureSelectFromEmitDescriptors(
+      RecognitionContext ctx, Collection<String> userLabels) {
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null) {
+      return Outcome.DECLINE;
+    }
+    // Snapshot before pinBoundary clears the live map.
+    var snapshots = new LinkedHashMap<String, EmittedColumnDescriptor>();
+    for (String userLabel : userLabels) {
+      var descriptor = ctx.emitDescriptor(userLabel);
+      if (descriptor == null) {
+        return Outcome.DECLINE;
+      }
+      snapshots.put(userLabel, descriptor);
+    }
+    ctx.clearReturnProjection();
+    var aliasPresences = new ArrayList<AliasPropertyPresence>();
+    var presenceEntityColumns = new HashSet<String>();
+    var recordIdKeys = new ArrayList<String>();
+    var returnDistinct = ctx.returnDistinct();
+    for (var entry : snapshots.entrySet()) {
+      var userLabel = entry.getKey();
+      switch (entry.getValue()) {
+        case EmittedColumnDescriptor.AliasProperty property -> {
+          if (returnDistinct && !boundary.equals(property.internalAlias())) {
+            return Outcome.DECLINE;
+          }
+          ctx.markReturnAliasIfForeign(property.internalAlias());
+          var entityCol = ResultShaping.presenceEntityColumnAlias(property.internalAlias());
+          if (presenceEntityColumns.add(entityCol)) {
+            ctx.appendReturnColumn(
+                MatchProjectionBuilder.aliasColumn(property.internalAlias()), entityCol);
+          }
+          if (property.productive() && !returnDistinct) {
+            ctx.appendReturnColumn(
+                ByModulatorTranslator.aliasProperty(
+                    property.internalAlias(), property.propertyKey()),
+                userLabel);
+          } else {
+            aliasPresences.add(
+                new AliasPropertyPresence(
+                    entityCol, property.propertyKey(), userLabel, !property.productive()));
+          }
+        }
+        case EmittedColumnDescriptor.RecordAttribute recordAttr -> {
+          if (returnDistinct && !boundary.equals(recordAttr.internalAlias())) {
+            return Outcome.DECLINE;
+          }
+          ctx.markReturnAliasIfForeign(recordAttr.internalAlias());
+          if (returnDistinct) {
+            var entityCol = ResultShaping.presenceEntityColumnAlias(recordAttr.internalAlias());
+            if (presenceEntityColumns.add(entityCol)) {
+              ctx.appendReturnColumn(
+                  MatchProjectionBuilder.aliasColumn(recordAttr.internalAlias()), entityCol);
+            }
+          }
+          ctx.appendReturnColumn(
+              ByModulatorTranslator.aliasRecordAttribute(
+                  recordAttr.internalAlias(), recordAttr.attribute()),
+              userLabel);
+          if ("@rid".equals(recordAttr.attribute())) {
+            recordIdKeys.add(userLabel);
+          }
+        }
+      }
+    }
+    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
+    var shaping = ResultShaping.NONE.withUnwrapSingletonMap(userLabels.size() == 1);
+    shaping = shaping.withMapEmitColumnOrder(List.copyOf(userLabels));
+    if (!aliasPresences.isEmpty()) {
+      var anyFiltering = aliasPresences.stream().anyMatch(AliasPropertyPresence::dropOnAbsent);
+      if (anyFiltering) {
+        shaping = shaping.withDropOnAbsent(true);
+      }
+      shaping = shaping.withAliasPropertyPresences(aliasPresences);
+    }
+    if (!recordIdKeys.isEmpty()) {
+      shaping = shaping.withRecordIdMapKeys(List.copyOf(recordIdKeys));
+    }
+    ctx.setResultShaping(shaping);
+    // Re-register only while the traverser remains a multi-key map. A singleton overlapping
+    // select unwraps to a scalar; further select(label) must rebind through the path.
+    if (userLabels.size() > 1) {
+      for (var entry : snapshots.entrySet()) {
+        ctx.putEmitDescriptor(entry.getKey(), entry.getValue());
+      }
+    }
     return Outcome.ACCEPTED;
   }
 
@@ -147,7 +302,35 @@ final class GremlinProjectionAssembler {
       // A captured child's shaping is swallowed, so the same drop travels as a pattern conjunct.
       ByModulatorPresence.requireProjectedProperty(ctx, boundary, propertyKey);
     }
-    ctx.pinBoundary(boundary, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    ctx.pinBoundary(
+        boundary,
+        BoundaryOutputType.SINGLE_VALUE,
+        ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class);
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Configures multi-key {@code values(k1, k2, …)}: project the boundary element, then flat-map keys
+   * in declaration order via {@link ValuesFlatMapListShapingOp}.
+   */
+  static Outcome configureMultiKeyValues(RecognitionContext ctx, String[] propertyKeys) {
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null || propertyKeys == null || propertyKeys.length == 0) {
+      return Outcome.DECLINE;
+    }
+    for (String propertyKey : propertyKeys) {
+      if (propertyKey == null || propertyKey.isBlank()
+          || WalkerContext.isReservedHasKey(propertyKey)) {
+        return Outcome.DECLINE;
+      }
+    }
+    ctx.clearReturnProjection();
+    ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(boundary), boundary);
+    var elementClass = ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class;
+    ctx.pinBoundary(boundary, BoundaryOutputType.ELEMENT, elementClass);
+    ctx.setResultShaping(
+        ResultShaping.NONE.withListShapingOps(
+            List.of(new ValuesFlatMapListShapingOp(propertyKeys))));
     return Outcome.ACCEPTED;
   }
 
@@ -160,7 +343,8 @@ final class GremlinProjectionAssembler {
    * alias.key} would only duplicate that work in {@code CALCULATE PROJECTIONS}. Emit order is pinned
    * via {@link ResultShaping#mapEmitColumnOrder()} (tokens then keys). {@code valueMap} wraps
    * property values in singleton lists; {@code elementMap} leaves them unwrapped. An empty key list
-   * declines — see the body.
+   * declines — see the body. Edge {@code elementMap} also emits {@code Direction.IN}/{@code OUT}
+   * endpoint maps in the plan step (native {@code ElementMapStep} shape).
    *
    * @param tokens bit set of the {@code T.id} / {@code T.label} token columns to emit, from
    *     {@code valueMap(true)} / {@code with(WithOptions.tokens)} or from {@code elementMap}, which
@@ -175,11 +359,8 @@ final class GremlinProjectionAssembler {
       return Outcome.DECLINE;
     }
     if (propertyKeys == null || propertyKeys.length == 0) {
-      // No key list means every property, enumerated at iteration time — decline until
-      // schema-driven all-property projection lands. This covers valueMap(), elementMap(),
-      // valueMap(true) and valueMap().with(WithOptions.tokens) alike: requesting the id / label
-      // tokens says nothing about which properties to project, and a plan built from the token
-      // columns alone returns {id, label} per element and silently loses every property.
+      // No key list means every property, including schemaless/ad-hoc ones native valueMap()
+      // enumerates at iteration time. Schema-declared keys alone under-project, so decline.
       return Outcome.DECLINE;
     }
     ctx.clearReturnProjection();
@@ -205,17 +386,16 @@ final class GremlinProjectionAssembler {
       presenceKeys.add(key);
       emitOrder.add(key);
     }
-    // List wrapping follows the step, not the tokens: valueMap wraps property values in singleton
-    // lists whether or not it was asked for tokens, and elementMap never does. Deriving it from the
-    // token bits instead made valueMap(true, "name") emit name=josh where native emits name=[josh].
-    // The token-key flag does follow the tokens — id / label go under T.id / T.label whenever they
-    // are emitted, from either step. mapEmitColumnOrder drives projectMap so presence keys appear
-    // even though they are not RETURN columns.
+    // wrapMapValuesInLists tracks the step kind (valueMap vs elementMap), not the emit wrap. Edge
+    // valueMap still leaves property values unwrapped at project time (see AbstractMatchPlanStep),
+    // but the flag stays true so isEdgeElementMap can tell valueMap(tokens) from elementMap —
+    // both would otherwise look identical (tokens on, wrap off).
+    var wrapLists = !isElementMap;
     ctx.setResultShaping(
         ResultShaping.NONE
             .withPresencePropertyKeys(presenceKeys)
             .withMapEmitColumnOrder(emitOrder)
-            .withWrapMapValuesInLists(!isElementMap)
+            .withWrapMapValuesInLists(wrapLists)
             .withElementMapTokens(tokens != 0));
     repinMap(ctx, boundary);
     return Outcome.ACCEPTED;
@@ -233,6 +413,7 @@ final class GremlinProjectionAssembler {
   }
 
   private static void repinMap(RecognitionContext ctx, String boundary) {
-    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
+    var elementClass = ctx.isEdgeAlias(boundary) ? Edge.class : Vertex.class;
+    ctx.pinBoundary(boundary, BoundaryOutputType.MAP, elementClass);
   }
 }

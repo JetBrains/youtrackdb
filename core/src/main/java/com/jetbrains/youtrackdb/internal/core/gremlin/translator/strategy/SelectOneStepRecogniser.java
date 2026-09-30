@@ -45,6 +45,7 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     if (scopeKeys == null || scopeKeys.size() != 1) {
       return Outcome.DECLINE;
     }
+    var userLabel = scopeKeys.iterator().next();
     var modulators = selectStep.getLocalChildren();
     if (modulators.isEmpty()) {
       return GremlinProjectionAssembler.configureSelect(ctx, scopeKeys);
@@ -54,15 +55,16 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     }
     // A key-modulated select emits a scalar map cell. A following element projection would instead
     // cast that cell to Element natively, so keep the newly admitted post-cardinality shape native.
-    // Filter children arm the same gate without a local slice.
+    // Filter children arm the same gate without a local slice. Trailing overlapping select shares
+    // SelectStepRecogniser.trailingSelectOverlaps as interim safety when containment is armed.
     if (ctx.needsMapElementProjectionContainment()
-        && SelectStepRecogniser.trailingElementProjection(cursor.peek())) {
+        && (SelectStepRecogniser.trailingElementProjection(cursor.peek())
+            || SelectStepRecogniser.trailingSelectOverlaps(cursor.peek(), List.of(userLabel)))) {
       return Outcome.DECLINE;
     }
     if (!ctx.promotePresenceDropToPatternFilter()) {
       return Outcome.DECLINE;
     }
-    var userLabel = scopeKeys.iterator().next();
     var internalAlias = ctx.resolveUserLabel(userLabel);
     if (internalAlias == null) {
       return Outcome.DECLINE;
@@ -113,6 +115,8 @@ final class SelectOneStepRecogniser implements StepRecogniser {
     }
     ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
     ctx.setResultShaping(shaping);
+    // Singleton select unwraps to a scalar; do not register map-cell descriptors (trailing
+    // select(label) rebinds through the path, matching native SelectOne).
     return Outcome.ACCEPTED;
   }
 

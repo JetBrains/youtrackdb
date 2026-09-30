@@ -368,6 +368,41 @@ public class GremlinPlanFingerprintTest {
   }
 
   /**
+   * {@code ;EK:} encodes edge map keys. A multi-label select that wraps one label as an edge must
+   * not share a plan-cache fingerprint with a vertex-only map of the same labels.
+   */
+  @Test
+  public void edgeMapKeys_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var withEdge = ResultShaping.NONE
+        .withMapEmitColumnOrder(List.of("e", "v"))
+        .withEdgeMapKeys(List.of("e"));
+    var vertexOnly = ResultShaping.NONE.withMapEmitColumnOrder(List.of("e", "v"));
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, withEdge))
+        .as(";EK: must encode edgeMapKeys")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, vertexOnly));
+  }
+
+  /**
+   * {@code ;RD:} encodes a prior-label row-dedup alias. Two shapings that differ only in that alias
+   * must not share a plan-cache fingerprint.
+   */
+  @Test
+  public void rowDedupAlias_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var byA = ResultShaping.NONE.withRowDedupAlias("$g2m_a");
+    var byB = ResultShaping.NONE.withRowDedupAlias("$g2m_b");
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, byA))
+        .as(";RD: must encode rowDedupAlias")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, byB));
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, byA))
+        .as("null rowDedupAlias must differ from a set alias")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE));
+  }
+
+  /**
    * {@code ;LS:} encodes TailListShapingOp's limit. {@code tail(2)} and {@code tail(5)} share a
    * class name, so omitting the limit would let them collide on one plan-cache entry.
    */
@@ -380,6 +415,22 @@ public class GremlinPlanFingerprintTest {
     assertThat(GremlinPlanFingerprint.fingerprint(inputs, tail2))
         .as(";LS: must encode TailListShapingOp.limit()")
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, tail5));
+  }
+
+  /**
+   * {@code emptyBarrier} must enter the fingerprint: map-mode {@code groupCount().limit(1)} (keep
+   * map) and {@code groupCount().skip(1)} (drop map) share RETURN/GROUP BY text and would otherwise
+   * collide in the plan cache.
+   */
+  @Test
+  public void emptyBarrier_distinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var keep = ResultShaping.NONE.withAccumulateMap(true);
+    var drop = keep.withEmptyBarrier(true);
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, keep))
+        .as(";BS: emptyBarrier bit must separate keep-map from drop-map shaping")
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, drop));
   }
 
   private static MatchPlanInputs patternWithOptional(String alias, boolean optional) {

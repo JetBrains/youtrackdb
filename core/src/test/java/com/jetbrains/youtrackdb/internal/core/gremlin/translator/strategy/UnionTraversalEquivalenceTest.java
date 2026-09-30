@@ -4,13 +4,18 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -198,15 +203,43 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code order()} after union still declines — in-memory post-concat sort is not in this cut.
+   * {@code order().by(...)} after {@code union(...)} sorts the concatenated multiset in memory via
+   * {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp.Order};
+   * sequence equality (not only multiset) pins sort order vs native.
    */
   @Test
-  public void unionThenOrder_declines() {
+  public void unionThenOrder_byName_matchesNativeOrdered() {
     seedKnowsChain();
-    assertEquivalent(
-        "g.V().union(out(knows), in(knows)).order()",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order());
+    assertEquivalentOrdered(
+        "g.V().union(out(knows), in(knows)).order().by(name)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows")).order().by("name"));
+  }
+
+  /**
+   * Under standard order semantics ({@code orderIncludesMissingKey=false}) a post-union
+   * {@code order().by(age)} must drop vertices that lack {@code age}, same as the non-union path.
+   * Default keep-nulls leaves them in; sealed union arms cannot take a pattern {@code IS DEFINED},
+   * so the drop is a post-concat {@code RequireDefined} before the in-memory sort.
+   */
+  @Test
+  public void unionThenOrder_byMissingKey_underStandardSemantics_dropsLikeNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob", "age", 40);
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    bob.addEdge("knows", carol);
+    graph.tx().commit();
+
+    assertEquivalentOrdered(
+        "g.with(orderIncludesMissingKey,false).V().union(out(knows),in(knows)).order().by(age)",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal()
+            .with(YTDBQueryConfigParam.orderIncludesMissingKey, false)
+            .V()
+            .union(__.out("knows"), __.in("knows"))
+            .order()
+            .by("age"));
   }
 
   /**
@@ -877,6 +910,57 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Each union arm ending in {@code groupCount()} must emit its own map — not one map merged across
+   * arms. From Alice: {@code out(knows)} yields {@code {Bob=1, Carol=1}}; {@code in(knows)} yields
+   * {@code {Bob=1}} because Bob knows Alice.
+   */
+  @Test
+  public void union_groupCount_perArmMaps_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("knows", carol);
+    bob.addEdge("knows", alice);
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).union(out(k).groupCount().by(name), in(k).groupCount().by(name))",
+        Recognition.RECOGNIZED_MULTI_PLAN,
+        () -> graph.traversal().V(aliceId)
+            .union(
+                __.out("knows").groupCount().by("name"),
+                __.in("knows").groupCount().by("name")),
+        UnionTraversalEquivalenceTest::canonicalizeMaps);
+  }
+
+  /** Sorted key order so map payloads compare as multisets independent of LinkedHashMap iteration. */
+  private static List<String> canonicalizeMaps(List<?> results) {
+    return results.stream().map(UnionTraversalEquivalenceTest::canonicalizeMapPayload).sorted()
+        .toList();
+  }
+
+  private static String canonicalizeMapPayload(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      return map.entrySet().stream()
+          .sorted(Comparator.comparing(e -> String.valueOf(e.getKey())))
+          .map(e -> String.valueOf(e.getKey()) + "=" + String.valueOf(e.getValue()))
+          .collect(Collectors.joining(",", "{", "}"));
+    }
+    return String.valueOf(value);
+  }
+
+  private void assertEquivalent(
+      String scenario,
+      Recognition expected,
+      Supplier<GraphTraversal<?, ?>> traversalSupplier,
+      Function<List<?>, List<String>> renderer) {
+    support.assertEquivalent(
+        scenario, expected, Cardinality.NON_EMPTY, renderer, traversalSupplier);
+  }
+
+  /**
    * A filtered prefix before the union. The prefix's own {@code has} is folded natively, so it must
    * <em>not</em> take the per-record type guard, while a container inside an arm must. The
    * bare-{@code g.V()} case above cannot separate the two: its prefix is a single {@code GraphStep},
@@ -951,6 +1035,19 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         expected,
         Cardinality.NON_EMPTY,
         TranslatorEquivalenceSupport::sortedIdsOrValues,
+        traversalSupplier);
+  }
+
+  /** Same as {@link #assertEquivalent} but preserves encounter order (no sort). */
+  private void assertEquivalentOrdered(
+      String scenario, Recognition expected, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    support.assertEquivalent(
+        scenario,
+        expected,
+        Cardinality.NON_EMPTY,
+        results -> results.stream()
+            .map(v -> v instanceof Vertex vertex ? vertex.id().toString() : String.valueOf(v))
+            .toList(),
         traversalSupplier);
   }
 

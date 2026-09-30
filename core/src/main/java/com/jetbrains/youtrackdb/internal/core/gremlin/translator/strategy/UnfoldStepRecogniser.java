@@ -59,6 +59,17 @@ final class UnfoldStepRecogniser implements StepRecogniser {
     if (!(step instanceof UnfoldStep<?, ?>)) {
       return Outcome.DECLINE;
     }
+    // groupCount().unfold(): switch from one accumulated map to per-row Map.Entry emit so a
+    // following order()/limit() can become statement ORDER BY / LIMIT on GROUP BY rows. No
+    // UnfoldListShapingOp — entries are already the payload stream (list-shaping gate stays off).
+    if (ctx.groupBy() != null && !ctx.emitGroupEntries()) {
+      ctx.enableGroupEntryEmit();
+      return Outcome.ACCEPTED;
+    }
+    if (ctx.emitGroupEntries()) {
+      // Already emitting entries (e.g. a second unfold) — identity no-op.
+      return Outcome.ACCEPTED;
+    }
     // The decline channel: a context whose shaping no boundary base reads cannot carry the stage, and
     // appending anyway would either throw or silently drop it.
     if (!ctx.supportsListShaping()) {

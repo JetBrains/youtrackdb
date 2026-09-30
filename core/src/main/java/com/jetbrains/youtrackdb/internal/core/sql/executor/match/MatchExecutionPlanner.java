@@ -703,6 +703,7 @@ public class MatchExecutionPlanner {
     // when the plan cache misses (e.g. a $matched.X.@rid back-reference that
     // blocks caching).
     IndexOrderedPlanner.IndexOrderedCandidate indexOrderedCandidate = null;
+    SingleNodeIndexOrder.Candidate singleNodeIndexOrder = null;
     List<EdgeTraversal> probeEdges = null;
     if (subPatterns.size() == 1 && orderBy != null) {
       probeEdges = getTopologicalSortedSchedule(
@@ -710,12 +711,33 @@ public class MatchExecutionPlanner {
           context.getDatabaseSession());
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
+      // Edge-free root: reuse SELECT's FetchFromIndexValues path (IndexOrderedPlanner needs a hop).
+      if (indexOrderedCandidate == null) {
+        singleNodeIndexOrder =
+            SingleNodeIndexOrder.detect(
+                pattern,
+                orderBy,
+                aliasClasses,
+                aliasFilters,
+                returnItems,
+                returnAliases,
+                returnDistinct,
+                returnElements,
+                returnPaths,
+                returnPatterns,
+                returnPathElements,
+                context);
+      }
     }
 
     // Phase 4: Prefetch small alias sets into the context variable map (see class Javadoc)
     if (indexOrderedCandidate != null) {
       // Exclude the target alias — it will be bound by IndexOrderedEdgeStep
       aliasesToPrefetch.remove(indexOrderedCandidate.targetAlias());
+    }
+    if (singleNodeIndexOrder != null) {
+      // Prefetch loads the class unordered; keep the ordered index scan as MatchFirstStep.
+      aliasesToPrefetch.remove(singleNodeIndexOrder.alias());
     }
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
@@ -727,7 +749,7 @@ public class MatchExecutionPlanner {
         step.addSubPlan(
             createPlanForPattern(
                 subPattern, context, estimatedRootEntries, aliasesToPrefetch,
-                null, null, enableProfiling));
+                null, null, null, enableProfiling));
       }
       result.chain(step);
     } else {
@@ -737,7 +759,7 @@ public class MatchExecutionPlanner {
       var plan =
           createPlanForPattern(
               pattern, context, estimatedRootEntries, aliasesToPrefetch,
-              indexOrderedCandidate, probeEdges, enableProfiling);
+              indexOrderedCandidate, probeEdges, singleNodeIndexOrder, enableProfiling);
       for (var step : plan.getSteps()) {
         result.chain((ExecutionStepInternal) step);
       }
@@ -771,7 +793,8 @@ public class MatchExecutionPlanner {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
       }
 
-      if (this.orderBy != null) {
+      if (this.orderBy != null
+          && (singleNodeIndexOrder == null || !singleNodeIndexOrder.orderFullyCovered())) {
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap.
         // Disabled when RETURN DISTINCT: early termination stops reading
@@ -842,6 +865,10 @@ public class MatchExecutionPlanner {
             && !this.returnDistinct) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
+      }
+      // Single-node root already streamed the full ORDER BY from the index values scan.
+      if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
+        info.orderBy = null;
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
@@ -2198,6 +2225,7 @@ public class MatchExecutionPlanner {
       Set<String> prefetchedAliases,
       @Nullable IndexOrderedPlanner.IndexOrderedCandidate candidate,
       @Nullable List<EdgeTraversal> precomputedSortedEdges,
+      @Nullable SingleNodeIndexOrder.Candidate singleNodeIndexOrder,
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     // Reuse the schedule computed by Phase 4b (index-ordered probe) when available.
@@ -2310,7 +2338,11 @@ public class MatchExecutionPlanner {
         var clazz = aliasClasses.get(node.alias);
         var pinnedRids = pinnedRidsForAlias(node.alias);
         var filter = fetchFilterFor(node.alias, pinnedRids);
-        var select = createSelectStatement(clazz, pinnedRids, filter);
+        var selectOrderBy =
+            singleNodeIndexOrder != null && singleNodeIndexOrder.alias().equals(node.alias)
+                ? singleNodeIndexOrder.selectOrderBy()
+                : null;
+        var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
         plan.chain(
             new MatchFirstStep(
                 context,
@@ -4349,12 +4381,17 @@ public class MatchExecutionPlanner {
    * falls back to stripping surrounding quotes from {@code toString()}
    * if execution returns null (e.g., context-dependent expressions).
    *
-   * @return the edge class name, or {@code null} if no parameter is present
-   *     or the value cannot be resolved to a string
+   * <p>Multi-label hops ({@code out('a','b')}) return {@code null}: callers that key a single
+   * LinkBag field ({@code in_a} / {@code out_a}) would under-match, same guard as
+   * {@link IndexOrderedPlanner}. Semi-join and {@code EdgeRidLookup} then skip and leave the
+   * generic MATCH path, which already unions every label.
+   *
+   * @return the edge class name, or {@code null} if no parameter is present, more than one
+   *     parameter is present, or the value cannot be resolved to a string
    */
   static String extractEdgeClassName(SQLMethodCall method) {
     var params = method.getParams();
-    if (params == null || params.isEmpty()) {
+    if (params == null || params.isEmpty() || params.size() > 1) {
       return null;
     }
     var firstParam = params.getFirst();
@@ -5448,8 +5485,9 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Returns the edge class name from an {@link EdgeTraversal}'s path item
-   * method, or {@code null} if none is specified.
+   * Returns the edge class name from an {@link EdgeTraversal}'s path item method, or {@code null}
+   * if none is specified or the hop names more than one label (multi-label would under-match any
+   * single-field LinkBag pre-filter — see {@link #extractEdgeClassName}).
    */
   @Nullable static String getEdgeClassName(EdgeTraversal et) {
     var method = et.edge.item.getMethod();
@@ -5457,7 +5495,7 @@ public class MatchExecutionPlanner {
       return null;
     }
     var params = method.getParams();
-    if (params == null || params.isEmpty()) {
+    if (params == null || params.isEmpty() || params.size() > 1) {
       return null;
     }
     var expr = params.getFirst();
@@ -5764,8 +5802,19 @@ public class MatchExecutionPlanner {
    */
   private static SQLSelectStatement createSelectStatement(
       String targetClass, @Nullable List<SQLRid> targetRids, SQLWhereClause filter) {
+    return createSelectStatement(targetClass, targetRids, filter, null);
+  }
+
+  private static SQLSelectStatement createSelectStatement(
+      String targetClass,
+      @Nullable List<SQLRid> targetRids,
+      SQLWhereClause filter,
+      @Nullable SQLOrderBy orderBy) {
     var prefetchStm = new SQLSelectStatement(-1);
     prefetchStm.setWhereClause(filter);
+    if (orderBy != null) {
+      prefetchStm.setOrderBy(orderBy);
+    }
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
     if (targetRids != null && !targetRids.isEmpty()) {

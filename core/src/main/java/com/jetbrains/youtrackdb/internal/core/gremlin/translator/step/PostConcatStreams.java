@@ -4,9 +4,15 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -74,6 +80,35 @@ final class PostConcatStreams {
           Object id = raw instanceof Identifiable identifiable ? identifiable.getIdentity() : raw;
           return seen.add(id) ? result : null;
         });
+  }
+
+  /**
+   * Keeps only rows whose {@code entityColumnAlias} entity has {@code propertyKey} present
+   * ({@code EntityImpl.hasProperty}). Mirrors Gremlin's {@code by(key)} drop under standard order
+   * semantics when the union path cannot push {@code IS DEFINED} into sealed child plans.
+   */
+  static ExecutionStream requireDefined(
+      @Nonnull ExecutionStream upstream,
+      @Nonnull String entityColumnAlias,
+      @Nonnull String propertyKey) {
+    return upstream.filter(
+        (result, ctx) -> {
+          var entity = result.getEntity(entityColumnAlias);
+          if (!(entity instanceof EntityImpl entityImpl)
+              || !entityImpl.hasProperty(propertyKey)) {
+            return null;
+          }
+          return result;
+        });
+  }
+
+  /**
+   * Drains {@code upstream}, sorts rows with {@link SQLOrderByItem#compare}, and replays them in
+   * order. Used for {@code union(…).order().by(…)} where SQL {@code ORDER BY} cannot span arms.
+   */
+  static ExecutionStream sort(
+      @Nonnull ExecutionStream upstream, @Nonnull List<SQLOrderByItem> items) {
+    return new SortStream(upstream, List.copyOf(items));
   }
 
   /** Drain-and-count decorator; see {@link #count(ExecutionStream)}. */
@@ -175,6 +210,80 @@ final class PostConcatStreams {
     @Override
     public void close(CommandContext ctx) {
       upstream.close(ctx);
+    }
+  }
+
+  /** Sort decorator; see {@link #sort(ExecutionStream, List)}. */
+  private static final class SortStream implements ExecutionStream {
+
+    private final ExecutionStream upstream;
+    private final List<SQLOrderByItem> items;
+    private final List<Result> sorted = new ArrayList<>();
+    private int index;
+    private boolean materialized;
+    private boolean upstreamClosed;
+
+    SortStream(ExecutionStream upstream, List<SQLOrderByItem> items) {
+      this.upstream = upstream;
+      this.items = items;
+    }
+
+    @Override
+    public boolean hasNext(CommandContext ctx) {
+      ensure(ctx);
+      return index < sorted.size();
+    }
+
+    @Override
+    public Result next(CommandContext ctx) {
+      if (!hasNext(ctx)) {
+        throw new NoSuchElementException();
+      }
+      return sorted.get(index++);
+    }
+
+    @Override
+    public void close(CommandContext ctx) {
+      closeUpstreamOnce(ctx);
+      sorted.clear();
+      index = 0;
+      materialized = false;
+    }
+
+    private void closeUpstreamOnce(CommandContext ctx) {
+      if (upstreamClosed) {
+        return;
+      }
+      upstreamClosed = true;
+      upstream.close(ctx);
+    }
+
+    private void ensure(CommandContext ctx) {
+      if (materialized) {
+        return;
+      }
+      materialized = true;
+      try {
+        while (upstream.hasNext(ctx)) {
+          sorted.add(upstream.next(ctx));
+        }
+      } finally {
+        closeUpstreamOnce(ctx);
+      }
+      // Resolve once for the whole sort: a mid-sort config flip would break Comparator, and each
+      // resolve takes a storage lock (see SQLOrderByItem.compare).
+      var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+      sorted.sort(
+          (a, b) -> {
+            for (var item : items) {
+              var cmp = item.compare(a, b, ctx, nullsDefault);
+              if (cmp != 0) {
+                return cmp;
+              }
+            }
+            return 0;
+          });
+      index = 0;
     }
   }
 }

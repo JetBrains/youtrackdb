@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -27,8 +28,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
@@ -183,6 +186,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /** {@link ResultShaping#recordIdMapKeys()} as a set, for the RID-versus-vertex decision. */
   private final Set<String> recordIdMapKeySet;
 
+  /** {@link ResultShaping#edgeMapKeys()} as a set — RID cells that wrap as edges, not vertices. */
+  private final Set<String> edgeMapKeySet;
+
   /**
    * Entity columns already resolved for the row being projected, cleared once per row. Holds at
    * most one entry per distinct entity column, so it is bounded by the projection width rather
@@ -315,6 +321,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.presenceEntityColumnSet = Set.copyOf(entityColumns);
     this.aliasPresenceByMapKey = Map.copyOf(byMapKey);
     this.recordIdMapKeySet = Set.copyOf(shaping.recordIdMapKeys());
+    this.edgeMapKeySet = Set.copyOf(shaping.edgeMapKeys());
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -330,6 +337,16 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /** The TinkerPop element class the step emits. */
   public Class<E> getReturnClass() {
     return returnClass;
+  }
+
+  /** Whether GROUP BY rows drain into one map payload ({@code group} / {@code groupCount}). */
+  protected boolean accumulatesGroupMap() {
+    return shaping.accumulateMap();
+  }
+
+  /** Whether a grouping barrier must emit nothing ({@link ResultShaping#emptyBarrier()}). */
+  protected boolean emptyBarrier() {
+    return shaping.emptyBarrier();
   }
 
   /**
@@ -412,9 +429,21 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * list-shaping op composes over the group-barrier map exactly as it does over the per-row stream.
    */
   private Iterator<Object> openShapedPayloads() {
-    Iterator<Object> source =
-        shaping.accumulateMap() ? accumulatedGroupMapSource() : rowProjectionSource();
-    return applyListShaping(source);
+    return applyListShaping(openProjectionSource());
+  }
+
+  /**
+   * Raw projection iterator before list-shaping ops. Subclasses may override — {@link
+   * MultiPlanMatchStep} drains each child plan into its own map when {@code accumulateMap} is set,
+   * because a concatenated GROUP BY stream would merge every union arm into one native map.
+   */
+  protected Iterator<Object> openProjectionSource() {
+    // emptyBarrier wins over emitGroupEntries: skip(1).unfold() must stay empty even though
+    // unfold clears accumulateMap and would otherwise walk every GROUP BY row as an entry.
+    if (emptyBarrier()) {
+      return Collections.emptyIterator();
+    }
+    return shaping.accumulateMap() ? accumulatedGroupMapSource() : rowProjectionSource();
   }
 
   /**
@@ -487,10 +516,22 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * #processNextStart()}'s try so a drain failure releases the plan.
    */
   private Iterator<Object> accumulatedGroupMapSource() {
+    if (shaping.emptyBarrier()) {
+      return Collections.emptyIterator();
+    }
     var ctx = planContext();
+    return List.<Object>of(drainGroupRowsToMap(ctx, openStream)).iterator();
+  }
+
+  /**
+   * Drains every GROUP BY row from {@code stream} into one map — shared by the single-plan barrier
+   * and by {@link MultiPlanMatchStep}'s per-child accumulation.
+   */
+  protected LinkedHashMap<Object, Object> drainGroupRowsToMap(
+      CommandContext ctx, ExecutionStream stream) {
     var map = new LinkedHashMap<Object, Object>();
-    while (openStream.hasNext(ctx)) {
-      var row = openStream.next(ctx);
+    while (stream.hasNext(ctx)) {
+      var row = stream.next(ctx);
       map.put(
           // Bare group()/groupCount() GROUP BY the element identity (@rid), and native keys the map
           // by the Vertex — so wrap the RID as a Vertex here, the same RID→Vertex conversion
@@ -498,7 +539,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
           convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
           convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
     }
-    return List.<Object>of(map).iterator();
+    return map;
   }
 
   /**
@@ -594,6 +635,13 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         e.addSuppressed(suppressed);
       }
       throw e;
+    }
+    // Prior-label dedup(a): keep the first row per identity of the prior RETURN column, then
+    // project the boundary element. Same decorator MultiPlanMatchStep uses for post-union bare
+    // dedup(), applied here before row projection.
+    var rowDedupAlias = shaping.rowDedupAlias();
+    if (rowDedupAlias != null) {
+      stream = PostConcatStreams.dedup(stream, rowDedupAlias);
     }
     return stream;
   }
@@ -752,10 +800,21 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     rowEntityCache.clear();
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
-      case MAP -> projectMap(row);
+      case MAP -> shaping.emitGroupEntries() ? projectGroupEntry(row) : projectMap(row);
       case SINGLE_VALUE -> projectSingleValue(row);
       case SCALAR -> projectScalar(row);
     };
+  }
+
+  /**
+   * One {@link Map.Entry} per GROUP BY row — native {@code groupCount().unfold()} (and the same
+   * entry stream under post-group {@code order}/{@code limit}). Key/value conversion matches
+   * {@link #accumulatedGroupMapSource}.
+   */
+  private Object projectGroupEntry(Result row) {
+    return new AbstractMap.SimpleImmutableEntry<>(
+        convertMapColumn(GROUP_KEY_ALIAS, row.getProperty(GROUP_KEY_ALIAS)),
+        convertGroupValue(row.getProperty(GROUP_VALUE_ALIAS)));
   }
 
   /**
@@ -779,7 +838,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (failsAliasPropertyPresence(row)) {
       return SKIP;
     }
-    var entity = presenceKeySet.isEmpty() ? null : resolveEntity(row);
+    // Edge elementMap needs the boundary entity for Direction.IN/OUT even when no property keys
+    // were presence-checked; valueMap / vertex maps load it only for hasProperty.
+    var needsEntity = !presenceKeySet.isEmpty() || isEdgeElementMap();
+    var entity = needsEntity ? resolveEntity(row) : null;
     if (shaping.unwrapSingletonMap()) {
       var unwrapped = unwrapSingletonColumn(row, entity);
       if (unwrapped != BUILD_MAP) {
@@ -792,10 +854,53 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
             ? row.getPropertyNames()
             : shaping.mapEmitColumnOrder();
     var map = new LinkedHashMap<Object, Object>(Math.max(names.size(), 4));
+    var endpointsInserted = false;
     for (String name : names) {
       putMapColumn(map, row, name, entity);
+      // Native ElementMapStep puts IN then OUT immediately after id/label, before properties.
+      if (!endpointsInserted && isEdgeElementMap() && "label".equals(name)) {
+        putEdgeEndpointMaps(map, entity);
+        endpointsInserted = true;
+      }
+    }
+    if (isEdgeElementMap() && !endpointsInserted) {
+      putEdgeEndpointMaps(map, entity);
     }
     return map;
+  }
+
+  /**
+   * Edge {@code elementMap} only: tokens on and wrapMapValuesInLists false (elementMap). Edge
+   * {@code valueMap(true,…)} keeps wrapMapValuesInLists true so it does not take this path —
+   * native {@code PropertyMapStep} never emits {@link Direction#IN}/{@link Direction#OUT}.
+   */
+  private boolean isEdgeElementMap() {
+    return Edge.class.isAssignableFrom(returnClass)
+        && shaping.elementMapTokens()
+        && !shaping.wrapMapValuesInLists();
+  }
+
+  /**
+   * Puts {@link Direction#IN} then {@link Direction#OUT} as {@code {T.id, T.label}} maps from the
+   * edge entity's endpoints — same shape as native {@code ElementMapStep#getVertexStructure}.
+   */
+  private void putEdgeEndpointMaps(LinkedHashMap<Object, Object> map, @Nullable EntityImpl entity) {
+    if (entity == null || !entity.isEdge() || armingGraph == null) {
+      return;
+    }
+    var edge = new YTDBEdgeImpl(armingGraph, entity.asEdge());
+    map.put(Direction.IN, vertexStructureMap(edge.inVertex()));
+    map.put(Direction.OUT, vertexStructureMap(edge.outVertex()));
+  }
+
+  private static LinkedHashMap<Object, Object> vertexStructureMap(@Nullable Vertex vertex) {
+    var structure = new LinkedHashMap<Object, Object>(4);
+    if (vertex == null) {
+      return structure;
+    }
+    structure.put(T.id, vertex.id());
+    structure.put(T.label, vertex.label());
+    return structure;
   }
 
   /**
@@ -860,12 +965,20 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   /** Boundary / alias-presence entity columns are never part of the emitted map payload. */
   private boolean isStrippedMapColumn(String name) {
-    return name.equals(boundaryAlias) || presenceEntityColumnSet.contains(name);
+    // $g2m_pe_* identity columns (post-dedup DISTINCT keys without AliasPropertyPresence) strip
+    // the same way as presence entity columns registered on the shaping.
+    return name.equals(boundaryAlias)
+        || presenceEntityColumnSet.contains(name)
+        || name.startsWith("$g2m_pe_");
   }
 
   /**
-   * Returns one map entry value. Row filtering already removed absent nonproductive keys. An absent
-   * productive key returns {@code null}.
+   * Returns one map entry value. Row filtering already removed absent nonproductive {@code select}
+   * keys that drop the row — projection then reads {@code getProperty} without a second presence
+   * check that could contradict the filter (a property can disappear between those two moments).
+   * An absent productive key emits {@code null}. An absent {@code project} key with
+   * {@link AliasPropertyPresence#omitOnAbsent()} returns {@link #SKIP} so {@link #putMapColumn}
+   * leaves that entry out of the map.
    */
   private Object mapColumnValue(Result row, String name, @Nullable EntityImpl entity) {
     var aliasPresence = aliasPresenceByMapKey.get(name);
@@ -873,10 +986,13 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       var aliasEntity = resolveEntityFromColumn(row, aliasPresence.entityColumnAlias());
       // Row filtering rejects missing filtering entities before projection.
       if (aliasEntity == null) {
-        return null;
+        return aliasPresence.omitOnAbsent() ? SKIP : null;
       }
-      // projectMap and projectSingleValue reject absent filtering properties before this read.
-      // Productive presences may be absent, and their direct property read returns null.
+      // project omit-on-absent needs hasProperty; select trusts the earlier filter decision.
+      if (aliasPresence.omitOnAbsent()
+          && !aliasEntity.hasProperty(aliasPresence.propertyKey())) {
+        return SKIP;
+      }
       return convertValue(aliasEntity.getProperty(aliasPresence.propertyKey()));
     }
     if (presenceKeySet.contains(name)) {
@@ -884,19 +1000,31 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         return SKIP;
       }
       var value = convertValue(entity.getProperty(name));
-      return shaping.wrapMapValuesInLists() ? Collections.singletonList(value) : value;
+      // Native edge valueMap leaves values unwrapped; the wrap flag still marks valueMap vs
+      // elementMap so endpoint insertion stays elementMap-only.
+      if (shaping.wrapMapValuesInLists() && !Edge.class.isAssignableFrom(returnClass)) {
+        return Collections.singletonList(value);
+      }
+      return value;
     }
     return convertMapColumn(name, row.getProperty(name));
   }
 
   /**
    * Converts a non-presence MAP column. Select labels often arrive as bare {@link RID}s and must
-   * become TinkerPop vertices; a column read as a record-identifier token must stay a RID.
+   * become TinkerPop vertices or edges; a column read as a record-identifier token must stay a RID.
    */
   private Object convertMapColumn(String columnName, Object raw) {
+    if (raw instanceof Entity entity && entity.isEdge()) {
+      return new YTDBEdgeImpl(armingGraph, entity.asEdge());
+    }
     if (raw instanceof RID rid) {
       if (holdsRecordIdToken(columnName)) {
         return rid;
+      }
+      // Multi-label select over an edge as(...) alias: MATCH stores a RID, native emits an Edge.
+      if (edgeMapKeySet.contains(columnName)) {
+        return new YTDBEdgeImpl(armingGraph, rid);
       }
       return new YTDBVertexImpl(armingGraph, rid);
     }
@@ -1106,13 +1234,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /**
    * Projects the matched element bound to {@link #boundaryAlias}, dispatching on {@link
    * #returnClass}: a vertex-producing prefix ({@code g.V()}, {@code .out(...)}) emits a TinkerPop
-   * {@link Vertex}, an edge-producing prefix ({@code g.E()}, {@code .outE(...)}) a {@link Edge}.
-   *
-   * <p>Only the vertex arm is wired today — the translator recognises no edge-producing prefix in
-   * the current scope, so {@code returnClass} is always {@code Vertex.class} and the edge arm is
-   * unreachable. The branch is written out anyway so the field's role (it selects the element kind,
-   * orthogonally to {@link #outputType} selecting the payload shape) is visible before the edge
-   * track lands; that track fills in edge projection in place of the throw.
+   * {@link Vertex}; an edge-producing prefix ({@code .outE(...).as(e).select(e)}, boundary pinned
+   * via {@code markEdgeAlias}) emits a {@link Edge}.
    *
    * <p>Package-private so unit tests can exercise projection directly.
    */
@@ -1121,14 +1244,22 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       return projectVertex(row, graph);
     }
     if (Edge.class.isAssignableFrom(returnClass)) {
-      throw new UnsupportedOperationException(
-          "Gremlin-to-MATCH edge projection is not implemented yet; the translator recognises only"
-              + " vertex-producing prefixes in the current scope (returnClass="
-              + returnClass.getName() + ").");
+      return projectEdge(row, graph);
     }
     throw new IllegalStateException(
         "Boundary return class must be a Vertex or Edge subtype, but was "
             + returnClass.getName() + ".");
+  }
+
+  private Edge projectEdge(Result row, YTDBGraphInternal graph) {
+    var raw = row.getProperty(boundaryAlias);
+    if (raw instanceof Entity entity && entity.isEdge()) {
+      return new YTDBEdgeImpl(graph, entity.asEdge());
+    }
+    if (raw instanceof RID rid) {
+      return new YTDBEdgeImpl(graph, rid);
+    }
+    return null;
   }
 
   /**

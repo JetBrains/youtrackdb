@@ -35,8 +35,12 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       hasLabel}); polymorphic mode re-types alone (a {@code SELECT FROM L} scan matches subclasses,
  *       mirroring native hierarchy-aware {@code hasLabel} — see {@code YTDBLabelMatcher}). Handled
  *       only for a single {@code eq(L)} container: a multi-label {@code hasLabel(L1, L2)} arrives as
- *       one {@code within(...)} container and is expressed as {@code @class IN [L1, L2, …]} without
- *       re-typing; two conflicting {@code ~label} containers decline (one MATCH node has one class);
+ *       one {@code within(...)} container. When the boundary is still generic {@code V}, the
+ *       recogniser re-types to the labels' least common vertex ancestor (when one exists below
+ *       {@code V}) and adds {@code @class IN [L1, L2, …]} (leaf-exact under non-polymorphic mode;
+ *       subclass-expanded under polymorphic mode). Disjoint trees under {@code V} keep the {@code V}
+ *       root and the IN filter alone. Two conflicting {@code ~label} containers decline (one MATCH
+ *       node has one class);
  *   <li>a {@code ~id} container ({@code T.id} accessor) contributes an {@code @rid IN [...]} filter
  *       via the record-attribute builder shared with {@link StartStepRecogniser}. {@code hasId} is set
  *       membership, so a repeated id ({@code hasId(a, a)}) does <em>not</em> decline (unlike {@code
@@ -67,8 +71,8 @@ import org.apache.tinkerpop.gremlin.structure.T;
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
- * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id, a
- * size-1 collection equality) declines with zero {@code WalkerContext} mutation. The label bind opens
+ * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id)
+ * declines with zero {@code WalkerContext} mutation. The label bind opens
  * the contribution block for the same reason — a colliding label declines before the re-type and the
  * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary
@@ -132,14 +136,6 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
-    // A multi-label hasLabel(L1, L2) is expressed as @class IN [L1, L2, …], which is leaf-exact and
-    // therefore drops polymorphic subclasses of L1/L2. In polymorphic mode that under-matches native
-    // hierarchy-aware hasLabel, so decline to native (there is no cheap subclass expansion here). The
-    // non-polymorphic @class IN path stays — it mirrors native non-polymorphic hasLabel exactly.
-    if (labelConstraint instanceof ParsedLabelConstraint.Multi && ctx.polymorphic()) {
-      return Outcome.DECLINE;
-    }
-
     // A hasLabel on a class that does not exist in the schema at translation time declines to
     // native. Native resolves the class at execution time, so if the class is created later in the
     // same open transaction (DDL-in-tx — e.g. g.addV("Person") in one project() by() and
@@ -160,13 +156,22 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
-    // The class context for the startsWith-form type gate is the step's own single ~label (if any); a
-    // property has() on a generic V boundary has no known leaf class, so its keys resolve as
-    // not-a-declared-String and a startingWith there routes to the strict full-scan form.
-    String typeClass =
-        labelConstraint instanceof ParsedLabelConstraint.Single single ? single.name() : null;
-    GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        GremlinPredicateAdapter.schemaGate(ctx, typeClass);
+    // Type gate: single ~label uses that class; multi-label requires the property type on every
+    // named class (allMatch — a schemaless sibling must not drop type guards). No ~label → unknown.
+    GremlinPredicateAdapter.PropertyTypeGate typeGate;
+    if (labelConstraint instanceof ParsedLabelConstraint.Single single) {
+      typeGate = GremlinPredicateAdapter.schemaGate(ctx, single.name());
+    } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
+      typeGate = GremlinPredicateAdapter.schemaGate(ctx, multi.names().toArray(String[]::new));
+      // No ~label on this step: still gate against the current boundary class when it is a concrete
+      // vertex class (after hasLabel / a typed hop). Generic V stays unknown so schemaless list cells
+      // do not get the always-false singleton rewrite.
+    } else {
+      var boundaryClass = ctx.boundaryClassName();
+      typeGate = GremlinPredicateAdapter.schemaGate(
+          ctx,
+          WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass) ? null : boundaryClass);
+    }
     ParamSink paramSink = ctx::bindParam;
     // A range comparison needs the per-record type guard exactly when this HasStep will NOT be
     // folded into YTDBGraphStep — folded, the native fallback runs the same SQL-style comparison the
@@ -218,7 +223,21 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
-      whereExprs.add(WHERE.classIn(multi.names()));
+      var classNames =
+          ctx.polymorphic()
+              ? ctx.expandPolymorphicClassClosure(multi.names())
+              : multi.names();
+      // MATCH nodes carry one class. While the boundary is still V, re-type to the least common
+      // vertex ancestor of the labels so the scan starts on that class collection; @class IN still
+      // restricts to the named (or polymorphically expanded) set. Disjoint trees under V keep the
+      // V root and rely on the IN filter alone — still translates, no decline.
+      if (WalkerContext.VERTEX_ROOT_CLASS.equals(ctx.boundaryClassName())) {
+        var lca = ctx.leastCommonVertexAncestor(multi.names());
+        if (lca != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(lca)) {
+          ctx.addNode(boundary, lca);
+        }
+      }
+      whereExprs.add(WHERE.classIn(classNames));
     }
     if (!whereExprs.isEmpty()) {
       var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));
