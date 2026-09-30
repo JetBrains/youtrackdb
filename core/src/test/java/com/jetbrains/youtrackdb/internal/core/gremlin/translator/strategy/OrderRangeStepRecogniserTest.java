@@ -1117,6 +1117,47 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * No following slice: deferred hop flushes into MATCH, and neighbour {@code has} becomes a MATCH
+   * filter on the target alias — {@code order().hop().has().values} without a cut.
+   */
+  @Test
+  public void orderThenHopThenHasThenValues_flushesIntoMatchAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", "AbeTarget1").values("name"));
+  }
+
+  /**
+   * Label-less {@code out()} uses the null edge-label expand arm (all edge types) on the
+   * ordered-expand stage.
+   */
+  @Test
+  public void orderThenBareOutThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out().limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out().limit(2).values("name"));
+  }
+
+  /**
+   * Source-slice then hop then {@code values} on a sparse key: absent properties drop after expand
+   * without filling the source top-N quota from later hubs.
+   */
+  @Test
+  public void orderThenLimitThenHopThenValuesSparse_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    // Only AbeTarget1 carries age — expand from Abe (limit 1) yields one value or empty if filtered.
+    var abeTarget1 = graph.traversal().V().has("name", "AbeTarget1").next();
+    abeTarget1.property("age", 31);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).values(age)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows").values("age"));
+  }
+
+  /**
    * Two hops between order and slice stay declined (only a single deferred hop is in v1 scope).
    * Fixture adds a second-hop edge so the shape is non-empty on the native arm.
    */
