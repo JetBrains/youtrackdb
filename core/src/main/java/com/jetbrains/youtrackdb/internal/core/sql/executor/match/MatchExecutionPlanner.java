@@ -713,8 +713,14 @@ public class MatchExecutionPlanner {
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: rewrite bare ORDER BY onto the synthetic SELECT (wide inject — residual
       // WHERE stays on the SELECT fetch queue). Skip when UNWIND / GROUP BY change grain before
-      // ORDER BY; IndexOrderedPlanner owns hops.
-      if (indexOrderedCandidate == null && this.unwind == null && this.groupBy == null) {
+      // ORDER BY; IndexOrderedPlanner owns hops. Bare RETURN count(*) keeps MATCH ORDER BY (order
+      // does not change the count once the missing-key filter is in the pattern) — injecting into
+      // MatchFirst then eliding MATCH ORDER BY breaks Gremlin-to-MATCH plan build for
+      // order().by(k).count().
+      if (indexOrderedCandidate == null
+          && this.unwind == null
+          && this.groupBy == null
+          && !isCountStarReturn()) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,

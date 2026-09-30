@@ -109,6 +109,12 @@ final class SingleNodeIndexOrder {
             ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
         selectItem.setNullOrdering(item.getNullOrdering());
         selectItem.setDeclaredCollate(item.getDeclaredCollate());
+        // Preserve Gremlin comparator selection: translator-built MATCH ORDER BY items use
+        // GremlinOrderComparator for schema-less mixed types. Fresh projection-alias items would
+        // otherwise fall through to DefaultComparator and ClassCast (or silent ties) on the
+        // synthetic root SELECT after inject/elision.
+        selectItem.setGremlinToMatchTranslatorProduced(
+            item.isGremlinToMatchTranslatorProduced());
         propertyNames.add(propertyName);
         selectItems.add(selectItem);
         continue;
