@@ -621,11 +621,22 @@ final class GremlinStepWalker {
         return false;
       }
       if (head == null) {
-        return true;
+        // order().hop() with no following slice: materialise the deferred hop into MATCH.
+        return ctx.flushPendingOrderedHop();
       }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
         return false;
+      }
+      // Deferred hop after order() is only consumed by Range into OrderedExpandSlice. HasStep may
+      // stash neighbour filters onto the pending hop. Any other step needs the neighbour in MATCH —
+      // flush before that recogniser runs (values/hop/…).
+      if (ctx.pendingOrderedHop() != null
+          && recogniser != RangeGlobalStepRecogniser.INSTANCE
+          && recogniser != HasStepRecogniser.INSTANCE) {
+        if (!ctx.flushPendingOrderedHop()) {
+          return false;
+        }
       }
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
       // may claim a step once a union carrier is on the context; every other one would write into
@@ -644,9 +655,12 @@ final class GremlinStepWalker {
       // Single-plan cardinality gate (see capturedCardinalityClause and the allow-list below).
       // Once a SKIP / LIMIT / DISTINCT is captured, only the pure projections may claim a further
       // step; anything else would run before the clause in the compiled statement and so return a
-      // different row set.
+      // different row set. Carve-out: order().limit|skip then out|in|both expands post-plan after
+      // statement source top-N (OrderedExpandAccept) — not a MATCH join under the same LIMIT.
       if (capturedCardinalityClause(ctx) && !POST_CARDINALITY_RECOGNISERS.contains(recogniser)) {
-        return false;
+        if (!OrderedExpandAccept.isOrderedSourceSliceThenHop(ctx, recogniser, head)) {
+          return false;
+        }
       }
       // Single-plan list-shaping gate (see capturedListShapingOp and mayFollowListShaping). Once a
       // terminator has appended a stream stage, only a per-payload shaper or a drain may claim a
@@ -853,7 +867,9 @@ final class GremlinStepWalker {
    *
    * <p>Fail-closed by construction, like the post-union allow-list above: a recogniser added later
    * is refused after a slice until someone establishes that its contribution lands on the far side
-   * of the clause and adds it here.
+   * of the clause and adds it here. One non-member carve-out lives beside the set check: {@link
+   * OrderedExpandAccept#isOrderedSourceSliceThenHop} admits {@code order().limit|skip} then a vertex
+   * hop, because statement top-N cuts sources and expand runs post-plan.
    */
   private static final Set<StepRecogniser> POST_CARDINALITY_RECOGNISERS =
       Set.of(

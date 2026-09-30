@@ -151,6 +151,12 @@ final class WalkerContext implements RecognitionContext {
    */
   @Nullable private String orderByAlias;
 
+  /**
+   * Folded hop deferred after {@code order()} for an ordered-expand slice, or {@code null}. See
+   * {@link PendingOrderedHop}.
+   */
+  @Nullable private PendingOrderedHop pendingOrderedHop;
+
   /** {@code LIMIT} for {@code limit()} / {@code range()} terminators. */
   @Nullable SQLLimit limit;
 
@@ -905,6 +911,43 @@ final class WalkerContext implements RecognitionContext {
     // multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy already
     // total-orders equal primary keys via RID on both arms.
     return boundary != null && orderByAlias != null && boundary.equals(orderByAlias);
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop pendingOrderedHop() {
+    return pendingOrderedHop;
+  }
+
+  @Override
+  public void setPendingOrderedHop(@Nullable PendingOrderedHop hop) {
+    this.pendingOrderedHop = hop;
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop takePendingOrderedHop() {
+    var hop = pendingOrderedHop;
+    pendingOrderedHop = null;
+    return hop;
+  }
+
+  @Override
+  public boolean flushPendingOrderedHop() {
+    var pending = takePendingOrderedHop();
+    if (pending == null) {
+      return true;
+    }
+    // Reuse the targetAlias allocated at defer time so as(...)/has filters already bound to it land
+    // on the pattern node flush creates.
+    GremlinPatternAssembler.appendFoldedHop(
+        this,
+        pending.fromAlias(),
+        pending.targetAlias(),
+        GremlinPatternAssembler.toBuilderDirection(pending.direction()),
+        pending.edgeLabel());
+    // Deferred has(...) becomes MATCH filters on the neighbour alias (order().hop().has() without
+    // a following slice).
+    return HasStepRecogniser.contributeContainersToAlias(
+        this, pending.targetAlias(), pending.hasContainers());
   }
 
   @Override

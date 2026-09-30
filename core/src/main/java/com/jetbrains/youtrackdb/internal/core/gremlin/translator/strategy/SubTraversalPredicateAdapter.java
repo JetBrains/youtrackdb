@@ -641,6 +641,27 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public @Nullable PendingOrderedHop pendingOrderedHop() {
+    return null;
+  }
+
+  @Override
+  public void setPendingOrderedHop(@Nullable PendingOrderedHop hop) {
+    // Swallowed — a child's hop does not defer on the parent.
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop takePendingOrderedHop() {
+    return null;
+  }
+
+  @Override
+  public boolean flushPendingOrderedHop() {
+    // No-op success — see pendingOrderedHop().
+    return true;
+  }
+
+  @Override
   public void setLimit(@Nullable SQLLimit limit) {
     // Captured locally — see setReturnDistinct. Required so cardinalityClauseCaptured() arms map /
     // select containment inside where/and/or children (RG3300).

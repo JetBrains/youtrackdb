@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -69,6 +70,33 @@ final class GremlinPatternAssembler {
       return Outcome.DECLINE;
     }
     var fromAlias = ctx.boundaryAlias();
+    // After order(), defer a single bare hop so a following slice can expand in VertexStep order
+    // (OrderedExpandSliceListShapingOp) instead of MATCH join + LIMIT. Non-slice followers flush via
+    // the walker (reusing targetAlias). A second hop after flush is a normal append.
+    //
+    // When SKIP/LIMIT is already on the statement (order().limit().out), do not defer and do not
+    // append a MATCH edge: join+LIMIT would cut after expand. VertexHopRecogniser takes the
+    // expand-after-source-slice path instead; CombinatorFoldedHop declines here.
+    if (ctx.orderBy() != null
+        && ctx.pendingOrderedHop() == null
+        && fromAlias != null
+        && ctx.orderAllowsSliceOnCurrentBoundary()) {
+      if (ctx.limit() != null || ctx.skip() != null) {
+        return Outcome.DECLINE;
+      }
+      // Logical boundary moves to a synthetic target so a following has()/hop sees the neighbour
+      // stream; RETURN stays on fromAlias (sources) until flush or ordered-expand consume — pinBoundary
+      // alone does not rewrite RETURN.
+      var targetAlias = ctx.nextAnonVertexAlias();
+      if (!ctx.bindStepLabels(hop, targetAlias)) {
+        return Outcome.DECLINE;
+      }
+      ctx.setPendingOrderedHop(
+          new PendingOrderedHop(
+              hop.getDirection(), arity.label(), fromAlias, targetAlias, List.of()));
+      ctx.pinBoundary(targetAlias, BoundaryOutputType.ELEMENT, Vertex.class);
+      return Outcome.ACCEPTED;
+    }
     var targetAlias = ctx.nextAnonVertexAlias();
     appendFoldedHop(
         ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.labels());
