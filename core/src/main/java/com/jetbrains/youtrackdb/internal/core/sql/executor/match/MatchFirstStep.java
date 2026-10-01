@@ -49,10 +49,18 @@ public class MatchFirstStep extends AbstractExecutionStep {
   private final InternalExecutionPlan executionPlan;
 
   /**
+   * When true, this root streams an index VALUES order that also covers a trailing {@code @rid}
+   * tie-break. Sets {@link CommandContext#VAR_INDEX_ORDERED_PRE_SORTED} per execution: withdrawn
+   * when the transaction has pending record changes (same rule as
+   * {@link IndexOrderedEdgeStep}).
+   */
+  private final boolean signalRidIndexOrder;
+
+  /**
    * Constructs a step that reads from prefetched cache only (no sub-plan).
    */
   public MatchFirstStep(CommandContext context, PatternNode node, boolean profilingEnabled) {
-    this(context, node, null, profilingEnabled);
+    this(context, node, null, false, profilingEnabled);
   }
 
   /**
@@ -67,11 +75,25 @@ public class MatchFirstStep extends AbstractExecutionStep {
       PatternNode node,
       InternalExecutionPlan subPlan,
       boolean profilingEnabled) {
+    this(context, node, subPlan, false, profilingEnabled);
+  }
+
+  /**
+   * @param signalRidIndexOrder when true, publish index-ordered pre-sorted signal for an accepted
+   *                            {@code @rid} tie-break (clean-tx pass-through in OrderByStep)
+   */
+  public MatchFirstStep(
+      CommandContext context,
+      PatternNode node,
+      InternalExecutionPlan subPlan,
+      boolean signalRidIndexOrder,
+      boolean profilingEnabled) {
     super(context, profilingEnabled);
     assert MatchAssertions.checkNotNull(node, "pattern node");
     assert MatchAssertions.checkNotEmpty(node.alias, "pattern node alias");
     this.node = node;
     this.executionPlan = subPlan;
+    this.signalRidIndexOrder = signalRidIndexOrder;
   }
 
   @Override
@@ -110,6 +132,15 @@ public class MatchFirstStep extends AbstractExecutionStep {
       assert executionPlan != null
           : "no prefetched data and no sub-plan for alias " + alias;
       data = executionPlan.start();
+    }
+
+    // OrderByStep reads this before pulling rows; set it before returning the stream.
+    if (signalRidIndexOrder) {
+      // Any pending record change can put VALUES entries out of @rid order within a key group
+      // (provisional identifiers). Checked per execution — the plan is cacheable across txs.
+      var ridOrderHolds = ctx.getDatabaseSession().getTransactionInternal().getEntryCount() == 0;
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.valueOf(ridOrderHolds));
     }
 
     // Wrap each raw record into a MATCH row: { alias → record }
@@ -202,6 +233,7 @@ public class MatchFirstStep extends AbstractExecutionStep {
       executionPlanCopy = executionPlan.copy(ctx);
     }
 
-    return new MatchFirstStep(ctx, nodeCopy, executionPlanCopy, profilingEnabled);
+    return new MatchFirstStep(
+        ctx, nodeCopy, executionPlanCopy, signalRidIndexOrder, profilingEnabled);
   }
 }

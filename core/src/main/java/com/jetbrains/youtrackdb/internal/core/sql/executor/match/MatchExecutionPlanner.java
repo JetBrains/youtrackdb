@@ -814,6 +814,11 @@ public class MatchExecutionPlanner {
         // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
         // filter that preserves input order (RidSet-based dedup), and runs
         // AFTER OrderByStep in the pipeline.
+        //
+        // primaryHint must stay set for multi-field + built-in returns ($paths /
+        // $patterns / $elements / $pathElements). Clearing it while leaving
+        // indexOrderedUpstream true makes OrderByStep treat the stream as fully
+        // sorted and skip the composite sort — wrong secondary-key order.
         var indexOrderedUpstream = indexOrderedCandidate != null;
         // The SKIP and LIMIT clauses go over as AST nodes, not as a resolved number: this plan
         // is cacheable, so a parameterized bound has to be read on every execution.
@@ -866,12 +871,27 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
+      // Single-node VALUES + accepted @rid: keep OrderByStep, but allow pass-through when
+      // MatchFirstStep signals PRE_SORTED (clean tx). Same contract as IndexOrderedEdgeStep.
+      if (singleNodeIndexOrder != null
+          && singleNodeIndexOrder.ridTieBreakAccepted()
+          && this.groupBy == null) {
+        info.indexOrderedUpstream = true;
+      }
       // Single-node root already streamed the full ORDER BY from the index values scan.
       if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
         info.orderBy = null;
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
+      // addOrderByProjections may replace ORDER BY items with minted aliases; rebind the hint so
+      // OrderByStep.copy() still finds primaryKeySortedInput inside the cached plan's orderBy.
+      if (info.primaryKeySortedInput != null
+          && info.orderBy != null
+          && !info.orderBy.getItems().isEmpty()
+          && !info.orderBy.getItems().contains(info.primaryKeySortedInput)) {
+        info.primaryKeySortedInput = info.orderBy.getItems().getFirst();
+      }
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
     }
 
@@ -2343,11 +2363,16 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
+        var signalRidIndexOrder =
+            singleNodeIndexOrder != null
+                && singleNodeIndexOrder.alias().equals(node.alias)
+                && singleNodeIndexOrder.ridTieBreakAccepted();
         plan.chain(
             new MatchFirstStep(
                 context,
                 node,
                 select.createExecutionPlan(context, profilingEnabled),
+                signalRidIndexOrder,
                 profilingEnabled));
       }
     }

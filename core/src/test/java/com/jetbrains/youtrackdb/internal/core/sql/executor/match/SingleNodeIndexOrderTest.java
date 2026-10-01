@@ -294,19 +294,19 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Ascending MATCH with an explicit {@code @rid} secondary that the index scan already produces
-   * streams under a lowered heap cap and matches the full RID oracle.
+   * Ascending MATCH with an explicit {@code @rid} secondary: VALUES scan + OrderByStep present, but
+   * clean-tx pass-through streams under a lowered heap cap (IndexOrdered-style PRE_SORTED signal).
    */
   @Test
   @Category(SequentialTest.class)
-  public void bareMatchAscWithRid_streamsUnderLowHeapCap() {
+  public void bareMatchAscWithRid_streamsUnderLowHeapCapWhenTxClean() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s} RETURN s"
         + " ORDER BY s.score ASC, s.@rid ASC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX VALUES ASC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
     GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
@@ -319,6 +319,48 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
+  }
+
+  /**
+   * Inside an open transaction, an uncommitted row can sit anywhere in its score group in the
+   * index. MatchFirstStep withdraws PRE_SORTED so OrderByStep sorts; equal-score ties follow
+   * {@code @rid}, including the pending row.
+   */
+  @Test
+  public void bareMatchAscWithRid_pendingTx_keepsRidTieBreakOrder() {
+    seedNamedScores(false);
+    session.begin();
+    session.execute("CREATE VERTEX Scored SET score = 1, name = 'pending'").close();
+
+    var query = "MATCH {class: Scored, as: s} RETURN s"
+        + " ORDER BY s.score ASC, s.@rid ASC";
+    assertThat(plan(query))
+        .contains("FETCH FROM INDEX VALUES ASC Scored_score")
+        .contains("+ ORDER BY");
+
+    // Oracle from the same tx visibility as MATCH (graph.traversal can miss SQL-created pending).
+    var expectedRows = new ArrayList<Object[]>();
+    try (var rs = session.query("SELECT @rid AS r, score FROM Scored")) {
+      rs.forEachRemaining(row -> expectedRows.add(new Object[] {
+          row.getProperty("score"),
+          row.getProperty("r")
+      }));
+    }
+    expectedRows.sort(
+        Comparator
+            .<Object[], Object>comparing(r -> r[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[1], SingleNodeIndexOrderTest::compareNullsFirst));
+    var expected = expectedRows.stream().map(r -> r[1].toString()).toList();
+    assertThat(expected).as("fixture plus pending row").hasSize(6);
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual)
+        .as("pending row must sit in @rid order inside score=1, not provisional index order")
+        .isEqualTo(expected);
+    session.rollback();
   }
 
   /**
@@ -463,8 +505,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /**
    * When the class also has a composite {@code (score, name)} index, sort-only planning must still
    * open the single-field {@code (score)} index. Picking the composite would order equal-score ties
-   * by {@code name} while MATCH claims RID coverage and drops its OrderByStep — on≠off for Gremlin
-   * RID tie-break and wrong MATCH {@code ORDER BY score, @rid}.
+   * by {@code name} while MATCH OrderBy finishes {@code @rid} — on≠off for Gremlin RID tie-break
+   * and wrong MATCH {@code ORDER BY score, @rid}.
    *
    * <p>{@code getIndexesInternal()} returns a {@code HashSet}, so creating the composite before the
    * single-field index does not force iteration order; the plan assertions below are what catch a
@@ -493,7 +535,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         .contains("FETCH FROM INDEX VALUES ASC ScoredComp_score")
         .doesNotContain("ScoredComp_score_name")
         .doesNotContain("FETCH FROM CLASS ScoredComp")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var expected = new ArrayList<Object[]>();
     for (var v : graph.traversal().V().hasLabel("ScoredComp").toList()) {
@@ -515,21 +557,21 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * DESC + {@code @rid} with {@code score IS NOT NULL}: null keys are excluded from the result, so
-   * {@code acceptsRidTieBreak} admits full coverage. Plan streams the index values scan and omits
-   * MATCH OrderByStep; RID sequence matches the DESC oracle over the non-null scores only.
+   * DESC + {@code @rid} with {@code score IS NOT NULL}: VALUES scan and OrderByStep; clean-tx
+   * pass-through still matches the DESC RID oracle over non-null scores.
    */
   @Test
-  public void bareMatchDescWithRid_isNotNullFilter_fullyCoversIndexOrder() {
+  public void bareMatchDescWithRid_isNotNullFilter_usesIndexAndKeepsOrderBy() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s"
         + " ORDER BY s.score DESC, s.@rid DESC";
     var planText = plan(query);
     assertThat(planText)
-        .as("presence filter admits covered DESC+RID:\n%s", planText)
+        .as("presence filter admits score VALUES + OrderBy (pass-through when tx clean):\n%s",
+            planText)
         .contains("FETCH FROM INDEX VALUES DESC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var expected = expectedScoredRids(false).stream()
         .filter(rid -> {
@@ -577,6 +619,317 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
     assertThat(actual).isEqualTo(expectedScoredRids(false));
+  }
+
+  /**
+   * {@code RETURN s.child AS s} rebinds the pattern alias. ORDER BY s.score must sort by the
+   * child's score. SingleNode must not inject/elide using the parent node's index — that sorted by
+   * parent score and dropped MATCH OrderBy.
+   */
+  @Test
+  public void bareMatch_returnAliasShadowsPattern_doesNotInjectOrElide() {
+    session.execute("CREATE CLASS ShadowParent EXTENDS V").close();
+    session.execute("CREATE CLASS ShadowChild EXTENDS V").close();
+    session.execute("CREATE PROPERTY ShadowParent.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowParent.child LINK ShadowChild").close();
+    session.execute("CREATE PROPERTY ShadowChild.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowChild.tag STRING").close();
+    session.execute("CREATE INDEX ShadowParent_score ON ShadowParent (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX ShadowChild SET score = 1, tag = 'low-child'").close();
+    session.execute("CREATE VERTEX ShadowChild SET score = 100, tag = 'high-child'").close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 10, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 1)")
+        .close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 1, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 100)")
+        .close();
+    session.commit();
+
+    var query = "MATCH {class: ShadowParent, as: s}"
+        + " RETURN s.child.tag AS tag, s.child AS s ORDER BY s.score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("shadowed alias must not open parent score VALUES / elide MATCH OrderBy:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES ASC ShadowParent_score")
+        .contains("+ ORDER BY");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tag"))));
+    }
+    // Child scores 1 then 100 — not parent scores 1 then 10 (that would be high-child, low-child).
+    assertThat(tags).containsExactly("low-child", "high-child");
+  }
+
+  /**
+   * Bare {@code ORDER BY s} after {@code RETURN s.k AS s} resolves through the projection to
+   * {@code s.k}. That is not a shadow of the pattern vertex — SingleNode must still open the index
+   * on {@code k} and return keys in index order.
+   */
+  @Test
+  public void bareMatch_returnPropertyAsPatternAlias_orderByAlias_usesIndex() {
+    session.execute("CREATE CLASS ProjItem EXTENDS V").close();
+    session.execute("CREATE PROPERTY ProjItem.k LONG").close();
+    session.execute("CREATE INDEX ProjItem_k ON ProjItem (k) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX ProjItem SET k = 3").close();
+    session.execute("CREATE VERTEX ProjItem SET k = 1").close();
+    session.execute("CREATE VERTEX ProjItem SET k = 2").close();
+    session.commit();
+
+    var query = "MATCH {class: ProjItem, as: s} RETURN s.k AS s ORDER BY s ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("projection alias ORDER BY s must still use ProjItem_k:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC ProjItem_k")
+        .doesNotContain("FETCH FROM CLASS ProjItem")
+        .doesNotContain("+ ORDER BY");
+
+    var keys = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> keys.add(((Number) row.getProperty("s")).longValue()));
+    }
+    assertThat(keys).containsExactly(1L, 2L, 3L);
+  }
+
+  /**
+   * Last RETURN binding wins: {@code RETURN s.k AS s, s AS s} restores the pattern alias, so
+   * {@code ORDER BY s.k} may open the index (same as develop before the first-wins shadow check).
+   */
+  @Test
+  public void bareMatch_returnPropertyThenBareAlias_orderByProperty_usesIndex() {
+    session.execute("CREATE CLASS LastWin EXTENDS V").close();
+    session.execute("CREATE PROPERTY LastWin.k LONG").close();
+    session.execute("CREATE INDEX LastWin_k ON LastWin (k) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX LastWin SET k = 3").close();
+    session.execute("CREATE VERTEX LastWin SET k = 1").close();
+    session.execute("CREATE VERTEX LastWin SET k = 2").close();
+    session.commit();
+
+    var query = "MATCH {class: LastWin, as: s} RETURN s.k AS s, s AS s ORDER BY s.k ASC LIMIT 3";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("last-wins bare s must still admit LastWin_k VALUES:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC LastWin_k")
+        .doesNotContain("FETCH FROM CLASS LastWin");
+
+    var keys = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(
+          row -> keys.add(((Number) row.getVertex("s").getProperty("k")).longValue()));
+    }
+    assertThat(keys).containsExactly(1L, 2L, 3L);
+  }
+
+  /**
+   * Indexed {@code ORDER BY k} plus {@code UNWIND} and {@code LIMIT}: expanded rows must be the
+   * first tags in {@code k} order (UNWIND before ORDER BY/LIMIT). SingleNode may open the index;
+   * eliding the post-UNWIND sort is only safe while the LIMIT still applies to expanded rows in
+   * that same {@code k} order.
+   */
+  @Test
+  public void bareMatch_unwind_orderByIndexedKey_limitExpandedRows() {
+    session.execute("CREATE CLASS UwIdx EXTENDS V").close();
+    session.execute("CREATE PROPERTY UwIdx.k LONG").close();
+    session.execute("CREATE PROPERTY UwIdx.tags EMBEDDEDLIST STRING").close();
+    session.execute("CREATE INDEX UwIdx_k ON UwIdx (k) NOTUNIQUE").close();
+    session.begin();
+    // k=2 has three tags; k=1 and k=3 have one each. LIMIT 3 after UNWIND must take both tags
+    // from k=1? No — k ASC: first parent k=1 (one tag), then k=2 (three tags) → limit 3 is
+    // t1-a, t2-x, t2-y.
+    session.execute("CREATE VERTEX UwIdx SET k = 2, tags = ['t2-x', 't2-y', 't2-z']").close();
+    session.execute("CREATE VERTEX UwIdx SET k = 1, tags = ['t1-a']").close();
+    session.execute("CREATE VERTEX UwIdx SET k = 3, tags = ['t3-a']").close();
+    session.commit();
+
+    var query = "MATCH {class: UwIdx, as: p} RETURN p.k AS k, p.tags AS tags"
+        + " ORDER BY k ASC UNWIND tags LIMIT 3";
+    var planText = plan(query);
+    // Document whether SingleNode engages; either plan must still yield correct expanded LIMIT.
+    assertThat(planText).contains("+ UNWIND");
+
+    var tags = new ArrayList<String>();
+    var keys = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> {
+        keys.add(((Number) row.getProperty("k")).longValue());
+        tags.add(String.valueOf((Object) row.getProperty("tags")));
+      });
+    }
+    assertThat(keys).containsExactly(1L, 2L, 2L);
+    assertThat(tags).containsExactly("t1-a", "t2-x", "t2-y");
+  }
+
+  /**
+   * {@code ORDER BY} the unwound field (not the indexed key). SingleNode must not satisfy this via
+   * the {@code k} index; results are lexicographic tags with LIMIT.
+   */
+  @Test
+  public void bareMatch_unwind_orderByUnwoundField_notIndexedKey() {
+    session.execute("CREATE CLASS UwTag EXTENDS V").close();
+    session.execute("CREATE PROPERTY UwTag.k LONG").close();
+    session.execute("CREATE PROPERTY UwTag.tags EMBEDDEDLIST STRING").close();
+    session.execute("CREATE INDEX UwTag_k ON UwTag (k) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX UwTag SET k = 1, tags = ['zulu', 'bravo']").close();
+    session.execute("CREATE VERTEX UwTag SET k = 9, tags = ['alpha']").close();
+    session.execute("CREATE VERTEX UwTag SET k = 5, tags = ['yankee', 'charlie']").close();
+    session.commit();
+
+    var query = "MATCH {class: UwTag, as: p} RETURN p.k AS k, p.tags AS tags"
+        + " ORDER BY tags ASC UNWIND tags LIMIT 3";
+    assertThat(plan(query))
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("+ ORDER BY")
+        .contains("+ UNWIND");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tags"))));
+    }
+    assertThat(tags).containsExactly("alpha", "bravo", "charlie");
+  }
+
+  /**
+   * {@code GROUP BY} the indexed key with {@code ORDER BY} the same key and {@code LIMIT}.
+   * SingleNode elision clears MATCH/SELECT {@code ORDER BY}, which enables aggregation early-stop
+   * on {@code LIMIT}. That is only correct when groups emerge in index order (LinkedHashMap
+   * first-seen) matching the requested {@code ORDER BY}.
+   */
+  @Test
+  public void bareMatch_groupByIndexedKey_orderBySameKey_limit() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
+        + " GROUP BY score ORDER BY score ASC LIMIT 2";
+    var planText = plan(query);
+    // Prefer documenting engagement; assert result regardless.
+    var scores = new ArrayList<Object>();
+    var counts = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> {
+        scores.add(row.getProperty("score"));
+        counts.add(((Number) row.getProperty("cnt")).longValue());
+      });
+    }
+    // Fixture: null, 1 (×2), 2, 3 → ASC with nulls first: null then 1
+    assertThat(scores)
+        .as("plan:\n%s", planText)
+        .containsExactly(null, 1);
+    assertThat(counts).containsExactly(1L, 2L);
+  }
+
+  /**
+   * {@code GROUP BY name ORDER BY name} while only {@code score} is indexed. SingleNode must not
+   * open the score index for a name sort; groups must still be name-ordered.
+   */
+  @Test
+  public void bareMatch_groupByName_orderByName_scoreIndexMustNotDriveOrder() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name, count(*) AS cnt"
+        + " GROUP BY name ORDER BY name ASC";
+    assertThat(plan(query))
+        .doesNotContain("FETCH FROM INDEX VALUES ASC Scored_score");
+
+    var names = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(names).containsExactly("a", "b", "c", "d", "nullish");
+  }
+
+  /**
+   * {@code GROUP BY score ORDER BY cnt}: SingleNode must not treat this as a covered score order.
+   * Groups ordered by count, not by score / index first-seen.
+   */
+  @Test
+  public void bareMatch_groupByScore_orderByCount_notIndexOrder() {
+    session.execute("CREATE CLASS GrpCnt EXTENDS V").close();
+    session.execute("CREATE PROPERTY GrpCnt.score INTEGER").close();
+    session.execute("CREATE INDEX GrpCnt_score ON GrpCnt (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX GrpCnt SET score = 1").close();
+    session.execute("CREATE VERTEX GrpCnt SET score = 1").close();
+    session.execute("CREATE VERTEX GrpCnt SET score = 2").close();
+    session.execute("CREATE VERTEX GrpCnt SET score = 3").close();
+    session.execute("CREATE VERTEX GrpCnt SET score = 3").close();
+    session.execute("CREATE VERTEX GrpCnt SET score = 3").close();
+    session.commit();
+
+    var query = "MATCH {class: GrpCnt, as: s} RETURN s.score AS score, count(*) AS cnt"
+        + " GROUP BY score ORDER BY cnt ASC, score ASC";
+    var planText = plan(query);
+    var scores = new ArrayList<Object>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> scores.add(row.getProperty("score")));
+    }
+    // counts: score2→1, score1→2, score3→3
+    assertThat(scores)
+        .as("ORDER BY cnt must win over score index stream; plan:\n%s", planText)
+        .containsExactly(2, 1, 3);
+  }
+
+  /**
+   * {@code GROUP BY name, score ORDER BY score DESC}: if SingleNode opens ASC-incompatible
+   * streaming and clears {@code ORDER BY}, LinkedHashMap first-seen on a wrong stream would
+   * mis-order. Expect highest score group first.
+   */
+  @Test
+  public void bareMatch_groupByName_orderByIndexedScore_mustSortGroupsByScore() {
+    session.execute("CREATE CLASS GrpScore EXTENDS V").close();
+    session.execute("CREATE PROPERTY GrpScore.score INTEGER").close();
+    session.execute("CREATE PROPERTY GrpScore.name STRING").close();
+    session.execute("CREATE INDEX GrpScore_score ON GrpScore (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX GrpScore SET score = 1, name = 'z'").close();
+    session.execute("CREATE VERTEX GrpScore SET score = 2, name = 'a'").close();
+    session.execute("CREATE VERTEX GrpScore SET score = 3, name = 'm'").close();
+    session.commit();
+
+    var desc =
+        "MATCH {class: GrpScore, as: s} RETURN s.name AS name, s.score AS score, count(*) AS cnt"
+            + " GROUP BY name, score ORDER BY score DESC";
+    var planText = plan(desc);
+    var namesDesc = new ArrayList<String>();
+    try (var rs = session.query(desc)) {
+      rs.forEachRemaining(row -> namesDesc.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(namesDesc)
+        .as("GROUP BY + ORDER BY score DESC; plan:\n%s", planText)
+        .containsExactly("m", "a", "z");
+
+    var asc =
+        "MATCH {class: GrpScore, as: s} RETURN s.name AS name, s.score AS score, count(*) AS cnt"
+            + " GROUP BY name, score ORDER BY score ASC";
+    var namesAsc = new ArrayList<String>();
+    try (var rs = session.query(asc)) {
+      rs.forEachRemaining(row -> namesAsc.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(namesAsc).containsExactly("z", "a", "m");
+  }
+
+  /**
+   * DESC {@code GROUP BY score ORDER BY score LIMIT 1} with a null key in the index. Aggregation
+   * early-stop after SingleNode clears {@code ORDER BY} must still return the top non-null score
+   * group under default null placement (nulls first on DESC would wrongly win LIMIT 1).
+   */
+  @Test
+  public void bareMatch_groupByScore_descLimit1_withNullKey() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
+        + " GROUP BY score ORDER BY score DESC LIMIT 1";
+    var planText = plan(query);
+    try (var rs = session.query(query)) {
+      assertThat(rs.hasNext()).isTrue();
+      var row = rs.next();
+      assertThat(row.<Object>getProperty("score"))
+          .as("DESC LIMIT 1 must be score 3 not the null group; plan:\n%s", planText)
+          .isEqualTo(3);
+      assertThat(rs.hasNext()).isFalse();
+    }
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {
