@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -96,6 +97,8 @@ final class SingleNodeIndexOrder {
     var propertyNames = new ArrayList<String>();
     var selectItems = new ArrayList<SQLOrderByItem>();
     Boolean propertyDirectionAsc = null;
+    // Sticky: ASC,DESC,ASC must not clear the mixed flag when the third key matches the first.
+    var mixedPropertyDirections = false;
     for (var i = 0; i < items.size(); i++) {
       var item = items.get(i);
       if (item.getCollate() != null
@@ -111,9 +114,8 @@ final class SingleNodeIndexOrder {
           propertyDirectionAsc = orderAsc;
         } else if (propertyDirectionAsc != orderAsc) {
           // Mixed ASC/DESC among property keys cannot be served by one index VALUES scan; a
-          // trailing @rid would then claim coverage incorrectly. Refuse the whole candidate when
-          // a later pass would need RID elision — handled below once ridTrailing is known.
-          propertyDirectionAsc = null; // mark mixed; see ridTrailing handling
+          // trailing @rid would then claim coverage incorrectly.
+          mixedPropertyDirections = true;
         }
         var selectItem =
             ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
@@ -142,7 +144,6 @@ final class SingleNodeIndexOrder {
     if (ridTrailing && propertyNames.size() != items.size() - 1) {
       return null;
     }
-    var mixedPropertyDirections = propertyDirectionAsc == null && selectItems.size() > 1;
     var selectOrderBy = ProjectionExpressionFactories.orderBy(selectItems);
 
     if (!ridTrailing) {
@@ -156,14 +157,12 @@ final class SingleNodeIndexOrder {
       return null;
     }
 
-    // Trailing @rid: inject property ORDER BY for the SELECT fetch queue; elide MATCH OrderByStep
-    // only when the RID secondary is index-native and the filter cannot divert the root onto a
-    // different index (which would drop RID order from the stream).
+    // Trailing @rid: inject property ORDER BY for VALUES when an exact-width index streams primary
+    // order. Elide MATCH OrderByStep only when RID secondary matches scan direction / null rules.
     var primaryAsc = SQLOrderByItem.ASC.equals(items.getFirst().getType())
         || items.getFirst().getType() == null;
-    if (!isRecordIdItemOf(items.getLast(), alias, primaryAsc)) {
-      return null;
-    }
+    // Opposite-direction @rid (score ASC, @rid DESC) still injects for VALUES; MATCH keeps sort.
+    var ridDirectionMatches = isRecordIdItemOf(items.getLast(), alias, primaryAsc);
 
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     if (session == null) {
@@ -184,9 +183,15 @@ final class SingleNodeIndexOrder {
     if (matchedIndex == null) {
       return null;
     }
+    if (!ridDirectionMatches) {
+      return new Candidate(alias, selectOrderBy, false);
+    }
     var aliasFilter = aliasFilters.get(alias);
+    var nullsPlacement = session.getPlanNullPlacements().resolve();
     var ridAccepted =
         filterCannotStealOrderIndex(aliasFilter, propertyNames)
+            && compositeIndexNullPlacementMatches(
+                matchedIndex, selectItems, primaryAsc, nullsPlacement)
             && acceptsRidTieBreak(
                 matchedIndex,
                 propertyNames,
@@ -201,6 +206,29 @@ final class SingleNodeIndexOrder {
                 returnPatterns,
                 returnPathElements);
     return new Candidate(alias, selectOrderBy, ridAccepted);
+  }
+
+  /**
+   * Composite indexes embed nulls in the key and can only produce the natural null placement
+   * (first on ASC, last on DESC). Claiming {@code @rid} coverage when any property key asks for the
+   * opposite placement (e.g. {@code NULLS LAST} on an ASC composite) would drop that key's null
+   * grouping — same rule as {@code SelectExecutionPlanner.canProduceNullPlacement}.
+   */
+  private static boolean compositeIndexNullPlacementMatches(
+      Index matchedIndex,
+      List<SQLOrderByItem> selectItems,
+      boolean orderAsc,
+      ResolvedOrderByNullsPlacement placements) {
+    var definition = matchedIndex.getDefinition();
+    if (definition == null || definition.getProperties().size() < 2) {
+      return true;
+    }
+    for (var item : selectItems) {
+      if (item.nullsFirstFor(placements) != orderAsc) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

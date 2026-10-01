@@ -978,28 +978,219 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Mixed ASC/DESC among property keys cannot ride an index VALUES scan for a trailing {@code
-   * @rid}. Refuse SingleNode inject so MATCH keeps the full sort (including {@code @rid}).
+   * Mixed ASC/DESC among three or more property keys (ASC, DESC, ASC) must not clear the mixed
+   * flag when the third key matches the first — otherwise MATCH elides and {@code @rid} order is
+   * lost among equal prefixes.
    */
   @Test
-  public void bareMatch_mixedDirectionRid_keepsMatchSort() {
-    seedNamedScores(false);
-    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name, s.score AS score"
-        + " ORDER BY s.score DESC, s.name ASC, s.@rid DESC";
+  public void bareMatch_threeKeyMixedDirections_keepsMatchSortAndRidOrder() {
+    session.execute("CREATE CLASS TripleKey EXTENDS V").close();
+    session.execute("CREATE PROPERTY TripleKey.a INTEGER").close();
+    session.execute("CREATE PROPERTY TripleKey.b INTEGER").close();
+    session.execute("CREATE PROPERTY TripleKey.c INTEGER").close();
+    session.execute("CREATE INDEX TripleKey_abc ON TripleKey (a, b, c) NOTUNIQUE").close();
+    session.begin();
+    // Same (a,b,c) prefix so @rid is the only distinguisher after those keys.
+    session.execute("CREATE VERTEX TripleKey SET a = 1, b = 2, c = 3, tag = 'first'").close();
+    session.execute("CREATE VERTEX TripleKey SET a = 1, b = 2, c = 3, tag = 'second'").close();
+    session.execute("CREATE VERTEX TripleKey SET a = 0, b = 9, c = 0, tag = 'other'").close();
+    session.commit();
+
+    var query = "MATCH {class: TripleKey, as: t} RETURN t.tag AS tag"
+        + " ORDER BY t.a ASC, t.b DESC, t.c ASC, t.@rid ASC";
     var planText = plan(query);
     assertThat(planText)
-        .as("mixed property directions + @rid must not elide MATCH OrderBy:\n%s", planText)
+        .as("3-key mixed directions must keep MATCH OrderBy (no VALUES elision):\n%s", planText)
         .contains("+ ORDER BY")
         .doesNotContain("FETCH FROM INDEX VALUES");
 
     var expected = new ArrayList<String>();
     try (var rs = session.query(
-        "SELECT name FROM Scored ORDER BY score DESC, name ASC, @rid DESC")) {
+        "SELECT tag FROM TripleKey ORDER BY a ASC, b DESC, c ASC, @rid ASC")) {
+      rs.forEachRemaining(row -> expected.add(String.valueOf((Object) row.getProperty("tag"))));
+    }
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(String.valueOf((Object) row.getProperty("tag"))));
+    }
+    // Must match SELECT including @rid tie-break among equal (a,b,c) prefixes.
+    assertThat(actual).isEqualTo(expected).hasSize(3);
+    assertThat(actual.getFirst()).isEqualTo("other");
+  }
+
+  /**
+   * {@code ORDER BY score ASC, @rid DESC}: still open the score VALUES scan (inject), but MATCH
+   * keeps OrderBy because RID direction does not match the ASC scan.
+   */
+  @Test
+  public void bareMatch_scoreAscRidDesc_usesValuesButKeepsMatchSort() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s.name AS name"
+        + " ORDER BY s.score ASC, s.@rid DESC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("ASC property + DESC @rid must still VALUES-scan score:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC Scored_score")
+        .contains("+ ORDER BY");
+
+    var expected = new ArrayList<String>();
+    try (var rs = session.query(
+        "SELECT name FROM Scored WHERE score IS NOT NULL ORDER BY score ASC, @rid DESC")) {
       rs.forEachRemaining(row -> expected.add(String.valueOf((Object) row.getProperty("name"))));
     }
     var actual = new ArrayList<String>();
     try (var rs = session.query(query)) {
       rs.forEachRemaining(row -> actual.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(actual).isEqualTo(expected);
+  }
+
+  /**
+   * expand() changes row multiplicity after the root fetch. Even without LIMIT, MATCH must keep
+   * OrderBy — eliding would leave expanded rows unsorted.
+   */
+  @Test
+  public void bareMatch_expandWithoutLimit_keepsMatchSort() {
+    session.execute("CREATE CLASS ExpNode EXTENDS V").close();
+    session.execute("CREATE PROPERTY ExpNode.score INTEGER").close();
+    session.execute("CREATE PROPERTY ExpNode.tags EMBEDDEDLIST STRING").close();
+    session.execute("CREATE INDEX ExpNode_score ON ExpNode (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX ExpNode SET score = 2, tags = ['z', 'a']").close();
+    session.execute("CREATE VERTEX ExpNode SET score = 1, tags = ['m']").close();
+    session.commit();
+
+    var query = "MATCH {class: ExpNode, as: e} RETURN expand(e.tags) ORDER BY e.score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("expand without LIMIT must keep MATCH OrderBy:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var count = 0;
+    try (var rs = session.query(query)) {
+      while (rs.hasNext()) {
+        rs.next();
+        count++;
+      }
+    }
+    assertThat(count).isEqualTo(3);
+  }
+
+  /**
+   * Negative SKIP is a no-op on develop. Pushing it onto the root SELECT must not throw
+   * {@code Cannot execute a query with a negative SKIP}.
+   */
+  @Test
+  public void bareMatch_negativeSkip_isNoOpLikeDevelop() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name"
+        + " ORDER BY s.name ASC SKIP -1 LIMIT 2";
+    var names = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(names).containsExactly("a", "b");
+  }
+
+  /**
+   * Fully covered ORDER BY with NOT + LIMIT must not put an unbounded ORDER BY on the root SELECT
+   * (heap-cap equal to LIMIT must still succeed — MATCH owns the bounded sort alone).
+   */
+  @Test
+  @Category(SequentialTest.class)
+  public void bareMatch_notPattern_rootSelectHasNoUnboundedOrderBy() {
+    session.execute("CREATE CLASS NotBound EXTENDS V").close();
+    session.execute("CREATE PROPERTY NotBound.score INTEGER").close();
+    session.execute("CREATE INDEX NotBound_score ON NotBound (score) NOTUNIQUE").close();
+    session.execute("CREATE CLASS NotBoundE EXTENDS E").close();
+    session.begin();
+    for (var i = 0; i < 50; i++) {
+      session.execute("CREATE VERTEX NotBound SET score = " + i + ", name = 'n" + i + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE NotBoundE FROM (SELECT FROM NotBound WHERE score = 0)"
+            + " TO (SELECT FROM NotBound WHERE score = 1)")
+        .close();
+    session.commit();
+
+    var query = "MATCH {class: NotBound, as: a}, NOT {as: a}-->{}"
+        + " RETURN a.name AS name ORDER BY a.score ASC LIMIT 2";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("NOT+LIMIT must keep MATCH OrderBy and not VALUES-elide:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(2);
+    try {
+      var names = new ArrayList<String>();
+      try (var rs = session.query(query)) {
+        rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+      }
+      // score=0 has an edge; first two without edges are score 1 and 2 — wait, score=1 is target
+      // of edge but still has no outgoing? NOT {as:a}-->{} filters nodes with outgoing edges.
+      // Only score=0 has outgoing. So order is n1, n2.
+      assertThat(names).containsExactly("n1", "n2");
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
+  }
+
+  /**
+   * RETURN $elements must not enable primary-key early-stop (can skip rows that belong in the
+   * result). Plan keeps OrderBy; LIMIT returns the lowest-score elements.
+   */
+  @Test
+  public void bareMatch_returnElements_limitDoesNotEarlyStopWrongly() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN $elements"
+        + " ORDER BY s.score ASC, s.@rid ASC LIMIT 2";
+    var planText = plan(query);
+    assertThat(planText).contains("+ ORDER BY");
+
+    var scores = new ArrayList<Integer>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> {
+        var entity = row.asEntity();
+        scores.add(((Number) entity.getProperty("score")).intValue());
+      });
+    }
+    assertThat(scores).containsExactly(1, 1);
+  }
+
+  /**
+   * Composite index + {@code NULLS LAST} on a non-leading key: do not claim {@code @rid} coverage
+   * (composite scan cannot move null buckets). MATCH keeps OrderBy.
+   */
+  @Test
+  public void bareMatch_compositeNullsLast_keepsMatchSortForRid() {
+    session.execute("CREATE CLASS CompNull EXTENDS V").close();
+    session.execute("CREATE PROPERTY CompNull.score INTEGER").close();
+    session.execute("CREATE PROPERTY CompNull.name STRING").close();
+    session.execute("CREATE INDEX CompNull_sn ON CompNull (score, name) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX CompNull SET score = 1, name = 'a'").close();
+    session.execute("CREATE VERTEX CompNull SET score = 1").close(); // null name
+    session.execute("CREATE VERTEX CompNull SET score = 2, name = 'b'").close();
+    session.commit();
+
+    var query = "MATCH {class: CompNull, as: s} RETURN s.score AS score, s.name AS name"
+        + " ORDER BY s.score ASC, s.name ASC NULLS LAST, s.@rid ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("composite NULLS LAST + @rid must keep MATCH OrderBy:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var expected = new ArrayList<String>();
+    try (var rs = session.query(
+        "SELECT score, name FROM CompNull ORDER BY score ASC, name ASC NULLS LAST, @rid ASC")) {
+      rs.forEachRemaining(row -> expected.add(
+          row.getProperty("score") + ":" + row.getProperty("name")));
+    }
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(
+          row.getProperty("score") + ":" + row.getProperty("name")));
     }
     assertThat(actual).isEqualTo(expected);
   }

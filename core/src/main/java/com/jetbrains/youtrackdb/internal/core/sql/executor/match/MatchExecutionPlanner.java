@@ -813,16 +813,26 @@ public class MatchExecutionPlanner {
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
             && indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct) {
+            && !this.returnDistinct
+            && !this.returnElements
+            && !this.returnPaths
+            && !this.returnPatterns
+            && !this.returnPathElements) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // Single-node VALUES streams the primary key; MATCH still sorts a non-covered
         // secondary (e.g. @rid). Hint enables LIMIT early-stop and sort-within-ties.
+        // Disabled for $elements/$paths/$patterns/$pathElements: early-stop can cut rows
+        // that still belong in the expanded return set.
         if (primaryHint == null
             && singleNodeIndexOrder != null
             && !singleNodeIndexOrder.orderFullyCovered()
             && orderBy.getItems().size() > 1
-            && !this.returnDistinct) {
+            && !this.returnDistinct
+            && !this.returnElements
+            && !this.returnPaths
+            && !this.returnPatterns
+            && !this.returnPathElements) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // indexOrderedUpstream: OrderByStep checks runtime context variable
@@ -2381,18 +2391,27 @@ public class MatchExecutionPlanner {
         var clazz = aliasClasses.get(node.alias);
         var pinnedRids = pinnedRidsForAlias(node.alias);
         var filter = fetchFilterFor(node.alias, pinnedRids);
-        var selectOrderBy =
-            singleNodeIndexOrder != null && singleNodeIndexOrder.alias().equals(node.alias)
-                ? singleNodeIndexOrder.selectOrderBy()
-                : null;
+        SQLOrderBy selectOrderBy = null;
+        if (singleNodeIndexOrder != null && singleNodeIndexOrder.alias().equals(node.alias)) {
+          // Attach root ORDER BY only when MATCH will elide its sort, or when coverage is partial
+          // (VALUES streams the primary key while MATCH keeps OrderBy+LIMIT). Fully covered but
+          // non-elidable grain (expand / NOT / DISTINCT+LIMIT, …) must not get an unbounded root
+          // ORDER BY beside MATCH's bounded sort.
+          if (elideMatchOrderBy(singleNodeIndexOrder, context)
+              || !singleNodeIndexOrder.orderFullyCovered()) {
+            selectOrderBy = singleNodeIndexOrder.selectOrderBy();
+          }
+        }
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
         // Narrow elision pushes SKIP/LIMIT onto the synthetic SELECT so its OrderByStep /
         // VALUES+Limit bounds like standalone SELECT … ORDER BY … LIMIT.
+        // Negative SKIP/LIMIT stay off the SELECT (MATCH also ignores them) — pushing a negative
+        // SKIP into SelectExecutionPlanner throws, while develop treated it as a no-op.
         if (selectOrderBy != null && elideMatchOrderBy(singleNodeIndexOrder, context)) {
-          if (this.skip != null) {
+          if (this.skip != null && this.skip.getValue(context) >= 0) {
             select.setSkip(this.skip.copy());
           }
-          if (this.limit != null) {
+          if (this.limit != null && this.limit.getValue(context) >= 0) {
             select.setLimit(this.limit.copy());
           }
         }
@@ -2408,14 +2427,22 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * True when MATCH may drop its {@code OrderByStep}: SingleNode reports full coverage and SKIP /
-   * LIMIT either are absent or can share the root SELECT grain (no DISTINCT / GROUP BY / UNWIND /
-   * NOT patterns / aggregates / expand). Wide inject may still have put property ORDER BY on the
-   * root for VALUES even when this is false.
+   * True when MATCH may drop its {@code OrderByStep}: SingleNode reports full coverage and the
+   * root SELECT can own the same order grain (no DISTINCT-with-bound issues deferred to
+   * {@link #canPushSkipLimitIntoSingleNodeRoot}, and no GROUP BY / UNWIND / NOT / aggregates /
+   * expand — expand must keep MATCH sort even when SKIP/LIMIT are absent).
    */
   private boolean elideMatchOrderBy(
       @Nullable SingleNodeIndexOrder.Candidate candidate, CommandContext context) {
     if (candidate == null || !candidate.orderFullyCovered()) {
+      return false;
+    }
+    // expand()/aggregates/NOT/UNWIND/GROUP BY change row identity after the root fetch — never
+    // drop MATCH OrderBy even when SKIP/LIMIT are absent.
+    if (groupBy != null
+        || unwind != null
+        || (notMatchExpressions != null && !notMatchExpressions.isEmpty())
+        || returnHasAggregateOrExpand(context)) {
       return false;
     }
     if (this.skip == null && this.limit == null) {
@@ -2462,9 +2489,14 @@ public class MatchExecutionPlanner {
 
   private boolean singleNodeRootConsumedSkipLimit(
       @Nullable SingleNodeIndexOrder.Candidate candidate, CommandContext context) {
-    return elideMatchOrderBy(candidate, context)
-        && canPushSkipLimitIntoSingleNodeRoot(context)
-        && (this.skip != null || this.limit != null);
+    if (!elideMatchOrderBy(candidate, context) || !canPushSkipLimitIntoSingleNodeRoot(context)) {
+      return false;
+    }
+    // Only treat SKIP/LIMIT as consumed when a non-negative bound was actually pushed onto the
+    // root SELECT. Negative SKIP is a no-op on MATCH and must not be sent to the SELECT planner.
+    var pushedSkip = this.skip != null && this.skip.getValue(context) >= 0;
+    var pushedLimit = this.limit != null && this.limit.getValue(context) >= 0;
+    return pushedSkip || pushedLimit;
   }
 
   /**
