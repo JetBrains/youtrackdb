@@ -65,8 +65,9 @@ import org.javatuples.Pair;
  * <h2>What it does not touch</h2>
  *
  * <ul>
- *   <li>The record identifier tie-break key that {@code YTDBOrderRidTieBreakStrategy} appends: it
- *       compares identifiers, never text, so no collation applies to it.
+ *   <li>The record identifier tie-break key that {@code YTDBOrderRidTieBreakStrategy} appends
+ *       (before this strategy runs): it compares identifiers, never text, so no collation applies
+ *       to it.
  *   <li>A modulator that is already a {@link CollatedSortKeyTraversal}. That type is the idempotence
  *       marker: only a {@link ValueTraversal} is replaced, so a second application finds the
  *       replacement and changes nothing.

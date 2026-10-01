@@ -31,6 +31,10 @@ import javax.annotation.Nullable;
 
 /**
  * Case insensitive collate.
+ *
+ * <p>{@link #compareForOrderBy} compares folded forms only. Case variants of one string tie, so a
+ * later {@code ORDER BY} / {@code by(...)} key (or a trailing {@code @rid} micro-tie-break) can
+ * decide.
  */
 public class CaseInsensitiveCollate extends DefaultComparator implements Collate {
 
@@ -77,16 +81,7 @@ public class CaseInsensitiveCollate extends DefaultComparator implements Collate
 
   @Override
   public int compareForOrderBy(@Nonnull Object objectOne, @Nonnull Object objectTwo) {
-    var newObj1 = transform(objectOne);
-    var newObj2 = transform(objectTwo);
-    var result = super.compare(newObj1, newObj2);
-    if (result == 0) {
-      // case insensitive are the same, fall back to case sensitive to have a decent ordering of
-      // upper vs lower case
-      result = super.compare(objectOne, objectTwo);
-    }
-
-    return result;
+    return super.compare(transform(objectOne), transform(objectTwo));
   }
 
   @Override

@@ -171,7 +171,7 @@ public class DefaultCollateFactoryTest {
   }
 
   // ---------------------------------------------------------------------------
-  // CaseInsensitiveCollate — compareForOrderBy fallback to case-sensitive
+  // CaseInsensitiveCollate — compareForOrderBy folds only (no CS fallback)
   // ---------------------------------------------------------------------------
 
   @Test
@@ -181,15 +181,11 @@ public class DefaultCollateFactoryTest {
   }
 
   @Test
-  public void compareForOrderByOrdersCaseInsensitivelyAndFallsBackToCaseSensitiveOnTie() {
-    // "Foo" and "foo" tie under the case-insensitive prefix, so the method
-    // falls back to the parent (case-sensitive) compare to disambiguate the
-    // ordering. ASCII-wise 'F' (70) < 'f' (102), so "Foo" sorts before "foo".
+  public void compareForOrderByLeavesCaseVariantsTied() {
+    // Case variants must compare equal so a later ORDER BY key (or @rid) can decide.
     var collate = new CaseInsensitiveCollate();
-    assertTrue("'Foo' must sort before 'foo' under the case-sensitive fallback",
-        collate.compareForOrderBy("Foo", "foo") < 0);
-    assertTrue("'foo' must sort after 'Foo'",
-        collate.compareForOrderBy("foo", "Foo") > 0);
+    assertEquals(0, collate.compareForOrderBy("Foo", "foo"));
+    assertEquals(0, collate.compareForOrderBy("foo", "Foo"));
   }
 
   @Test
