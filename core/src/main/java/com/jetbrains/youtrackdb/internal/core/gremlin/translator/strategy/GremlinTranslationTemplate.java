@@ -11,12 +11,14 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * skips the walker: {@link Decline} returns from {@code apply} immediately, and {@link Translate}
  * splices the stored plan template with this invocation's harvested bindings.
  *
- * <p>The plan template is the closed copy {@link GremlinPlanCache} already stores. The boundary
- * step must not execute or close it; it copies on first {@code openArming()}.
+ * <p>The cache wraps each outcome in an identity holder with its generation. The plan template
+ * is the closed copy {@link GremlinPlanCache} already stores. The boundary step must not execute
+ * or close it; it copies on first {@code openArming()}. The shared decline sentinel is only a
+ * payload: each publication gets a distinct holder for guarded removal.
  */
 sealed interface GremlinTranslationTemplate {
 
-  /** Shared decline sentinel — declining shapes have no per-entry payload. */
+  /** Shared decline payload; the cache gives each publication its own holder. */
   Decline DECLINE = new Decline();
 
   /** The walker declined this shape; {@code apply} returns without mutating the traversal. */
