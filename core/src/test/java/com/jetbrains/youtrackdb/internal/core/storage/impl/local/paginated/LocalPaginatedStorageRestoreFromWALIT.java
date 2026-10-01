@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.ConcurrentModificationException;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
@@ -15,13 +16,17 @@ import com.jetbrains.youtrackdb.internal.core.db.tool.DatabaseCompare;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -151,6 +156,91 @@ public class LocalPaginatedStorageRestoreFromWALIT {
     Assert.assertTrue(databaseCompare.compare());
     testDocumentTx.close();
     baseDocumentTx.close();
+  }
+
+  /**
+   * A committed new page can be physically present but blank after a crash. The DWL has no
+   * image for its validation write. Replay must rebuild it without losing the committed rows.
+   */
+  @Test
+  public void invalidDeclaredNewPageIsRebuiltDuringCrashReplay() throws Exception {
+    var source = (DiskStorage) baseDocumentTx.getStorage();
+    var copyPath = buildDir.toPath().resolve("testLocalPaginatedStorageRestoreFromWAL");
+    var fileName = new String[1];
+    var nativeName = new String[1];
+    var pageIndex = new long[1];
+    var pageSize = source.getWriteCache().pageSize();
+    WalTestUtils.withWalProtection(baseDocumentTx, () -> {
+      var wal = source.getWALInstance();
+      var beforeCommit = wal.end();
+      // Grow a new collection enough to guarantee allocation records beyond its metadata.
+      baseDocumentTx.executeInTx(tx -> {
+        for (var index = 0; index < 500; index++) {
+          var entity = tx.newEntity("TestOne");
+          entity.setProperty("intProp", index);
+          entity.setProperty("stringProp", "data-" + index + "-" + "x".repeat(256));
+        }
+      });
+      wal.flush();
+      var records = wal.read(wal.begin(), 1000);
+      while (!records.isEmpty()) {
+        for (var record : records) {
+          if (record instanceof PageAllocatedWALRecord allocation
+              && allocation.getLsn().compareTo(beforeCommit) > 0
+              && allocation.getPageIndex() > 1) {
+            var name = source.getWriteCache().fileNameById(allocation.getFileId());
+            if (name != null && name.endsWith(".pcl")) {
+              fileName[0] = name;
+              nativeName[0] = source.getWriteCache().nativeFileNameById(allocation.getFileId());
+              pageIndex[0] = allocation.getPageIndex();
+            }
+          }
+        }
+        records = wal.next(records.getLast().getLsn(), 1000);
+      }
+      Assert.assertNotNull("The fixture must allocate a new collection page", fileName[0]);
+      copyDataFromTestWithoutClose();
+    });
+    baseDocumentTx.close();
+    source.close(baseDocumentTx);
+    Files.deleteIfExists(copyPath.resolve("dirty.flb"));
+
+    // A validation write can be lost while the allocation extends the file. Keep the
+    // physical length and replace only the declared page. Remove all DWL copies.
+    try (var stream = Files.list(copyPath)) {
+      for (var file : stream.filter(p -> p.toString().endsWith(".dwl")).toList()) {
+        Files.delete(file);
+      }
+    }
+    try (var file = new RandomAccessFile(copyPath.resolve(nativeName[0]).toFile(), "rw")) {
+      var offset = com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE
+          + pageIndex[0] * pageSize;
+      if (file.length() < offset + pageSize) {
+        file.setLength(offset + pageSize);
+      }
+      file.seek(offset);
+      file.write(new byte[pageSize]);
+    }
+
+    try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
+      testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+          "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
+      Assert.assertTrue(((DiskStorage) testDocumentTx.getStorage())
+          .wereDataRestoredAfterOpen());
+      Assert.assertEquals(500, testDocumentTx.countClass("TestOne"));
+      Assert.assertTrue(warnings.warnedWithAll(fileName[0], "page " + pageIndex[0]));
+      Assert.assertFalse(warnings.messages().stream().anyMatch(
+          message -> message.contains("verification failed for page")));
+      testDocumentTx.executeInTx(tx -> {
+        var entity = tx.newEntity("TestOne");
+        entity.setProperty("intProp", 500);
+      });
+      testDocumentTx.close();
+    }
+    testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
+        "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
+    Assert.assertEquals(501, testDocumentTx.countClass("TestOne"));
+    testDocumentTx.close();
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {

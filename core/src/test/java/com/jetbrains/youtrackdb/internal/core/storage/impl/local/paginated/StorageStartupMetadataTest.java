@@ -20,6 +20,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.UUID;
 import java.util.stream.Stream;
+import net.jpountz.xxhash.XXHashFactory;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -444,6 +445,146 @@ public class StorageStartupMetadataTest {
     } finally {
       reopened.close();
     }
+  }
+
+  /**
+   * Version 4 stores the dirty flag, transaction identifier, and opened-at version string.
+   * Reading it must not confuse its field layout with version 3's shorter layout.
+   */
+  @Test
+  public void testOpenVersion4ReadsAllFields() throws IOException {
+    writeVersionedMetadata(4);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isEqualTo("prior-build");
+      assertThat(storedVersion()).isEqualTo(4);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Version 5 has the same fields as version 4 and can be read without rewriting. */
+  @Test
+  public void testOpenVersion5ReadsAllFields() throws IOException {
+    writeVersionedMetadata(5);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isEqualTo("prior-build");
+      assertThat(storedVersion()).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** A newly created file and every later metadata update must write version 5. */
+  @Test
+  public void testCreateAndWriteEmitVersion5() throws IOException {
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.create("new-build");
+      assertThat(storedVersion()).isEqualTo(5);
+      metadata.setLastTxId(42L);
+      assertThat(storedVersion()).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Clean close writes the transaction identifier and upgrades a version 4 file to 5. */
+  @Test
+  public void testVersion4IsRewrittenAsVersion5OnCleanClose() throws IOException {
+    writeVersionedMetadata(4);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    metadata.open("ignored");
+    try {
+      assertThat(storedVersion()).isEqualTo(4);
+      // DiskStorage's clean close always updates the transaction identifier before clearing dirty.
+      metadata.setLastTxId(77L);
+      metadata.clearDirty();
+      assertThat(storedVersion()).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+    var reopened = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      reopened.open("ignored");
+      assertThat(reopened.isDirty()).isFalse();
+      assertThat(reopened.getLastTxId()).isEqualTo(77L);
+      assertThat(reopened.getOpenedAtVersion()).isEqualTo("prior-build");
+    } finally {
+      reopened.close();
+    }
+  }
+
+  /** Version 6 is from a newer build and must fail with a database-specific mismatch. */
+  @Test
+  public void testVersion6NamesDatabaseAndNewerBuild() throws IOException {
+    writeVersionedMetadata(6);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      assertThatThrownBy(() -> metadata.open("ignored"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("version mismatch")
+          .hasMessageContaining(tmpDir.getFileName().toString())
+          .hasMessageContaining("version 6")
+          .hasMessageContaining("A newer build wrote the startup metadata");
+      assertThat(storedVersion()).isEqualTo(6);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Version 3 omits the opened-at version and remains readable after the upgrade. */
+  @Test
+  public void testOpenVersion3StillReadsTransactionId() throws IOException {
+    var buffer = ByteBuffer.allocate(8 + 4 + 1 + 8 + 4);
+    buffer.position(8);
+    buffer.putInt(3);
+    buffer.put((byte) 0);
+    buffer.putLong(42L);
+    buffer.putInt(-1);
+    stampChecksum(buffer);
+    Files.write(filePath, buffer.array());
+
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isNull();
+    } finally {
+      metadata.close();
+    }
+  }
+
+  private int storedVersion() throws IOException {
+    return ByteBuffer.wrap(Files.readAllBytes(filePath)).getInt(8);
+  }
+
+  private void writeVersionedMetadata(int version) throws IOException {
+    final byte[] openedAtVersion = "prior-build".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    var buffer = ByteBuffer.allocate(8 + 4 + 1 + 8 + 4 + 4 + openedAtVersion.length);
+    buffer.position(8);
+    buffer.putInt(version);
+    buffer.put((byte) 0);
+    buffer.putLong(42L);
+    buffer.putInt(-1);
+    buffer.putInt(openedAtVersion.length);
+    buffer.put(openedAtVersion);
+    stampChecksum(buffer);
+    Files.write(filePath, buffer.array());
+  }
+
+  private static void stampChecksum(ByteBuffer buffer) {
+    final var hash = XXHashFactory.fastestInstance().hash64()
+        .hash(buffer, 8, buffer.capacity() - 8, 0xADF678FE45L);
+    buffer.putLong(0, hash);
   }
 
   /**

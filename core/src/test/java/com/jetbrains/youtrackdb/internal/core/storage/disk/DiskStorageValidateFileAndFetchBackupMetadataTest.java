@@ -1454,7 +1454,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), false);
 
@@ -1464,6 +1464,75 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         "an old header must never become removable output",
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
         inspection.classification());
+  }
+
+  /**
+   * An incomplete version 3 unit stays protected even though its header passes admission.
+   *
+   * <p>The previous release wrote version 3. A broken hash on its header must never turn into
+   * removable output of this build, unlike the same failure on a version 4 header.
+   */
+  @Test
+  public void brokenHashOfPreviousVersionHeaderStaysUnclassifiable() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    var unit = backupUnitWithHeader(uuid, 1, BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+        identity.featureFormatVersion(), identity.storageLayoutVersion(),
+        identity.creationEvidence(), false);
+
+    var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
+
+    Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+        inspection.classification());
+    Assert.assertTrue(inspection.contentCheckFailed());
+  }
+
+  /**
+   * Versions 3 and 4 share a header layout and pass full and header-only admission.
+   */
+  @Test
+  public void previousAndCurrentVersionHeadersAreSupported() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.SUPPORTED,
+            inspection.classification());
+        Assert.assertEquals(version, inspection.metadata().backupFormatVersion());
+      }
+    }
+  }
+
+  /**
+   * Neither version 2 nor version 5 passes full or header-only admission.
+   *
+   * <p>The refusal must name the encountered version and both supported versions. Version 5
+   * uses sequence number 1, which falls at the version 1 position of a shorter tail.
+   */
+  @Test
+  public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
+    var uuid = UUID.randomUUID();
+    var identity = DiskStorage.supportedBackupSemanticIdentity();
+    for (var version : new int[] {BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION}) {
+      var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
+          identity.storageLayoutVersion(), identity.creationEvidence(), true);
+      var fileName = unitFileName(uuid, 1);
+
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, fileName, uuid), inspectHeader(unit, fileName, uuid)}) {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            inspection.classification());
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("version " + version));
+        Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3 and 4"));
+      }
+    }
   }
 
   /**
@@ -1569,12 +1638,9 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   /**
    * An authentic unit of the earlier version 2 format stays unclassifiable and protected.
    *
-   * <p>A version 2 tail is twelve bytes shorter than the tail of this build, and its hash code
-   * covers every byte before that hash code. This build therefore reads the last bytes of the
-   * content as header fields. The scenario inspects such a unit against the database identifier
-   * (UUID) of its own database. The expected outcome has two parts. The validation rejects the
-   * unit. The classification stays unclassifiable, so an incremental backup never deletes a real
-   * legacy chain.
+   * <p>A version 2 tail is twelve bytes shorter than the tail of this build. The scenario
+   * inspects such a unit against the database identifier of its own database. The refusal names
+   * version 2 and both accepted versions. The unit stays unclassifiable and protected.
    */
   @Test
   public void authenticVersion2UnitStaysUnclassifiableForItsOwnDatabase() throws IOException {
@@ -1588,6 +1654,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         "a version 2 unit must never become removable output",
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
         inspection.classification());
+    assertUnsupportedVersion(inspection, 2);
   }
 
   /**
@@ -1595,8 +1662,8 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
    *
    * <p>A restore of one backup directory expects any database identifier (UUID) when the caller
    * names none. The scenario inspects one authentic version 2 unit in that form. The expected
-   * outcome has two parts. The validation rejects the unit. The detail names the unsupported
-   * backup format version.
+   * outcome has two parts. The validation rejects the unit. The detail names version 2 and both
+   * accepted versions.
    */
   @Test
   public void authenticVersion2UnitStaysUnclassifiableWithoutAnExpectedIdentifier()
@@ -1608,9 +1675,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     Assert.assertEquals(
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE, inspection.classification());
-    Assert.assertTrue(
-        "the detail must name the unsupported backup format version, saw: " + inspection.detail(),
-        inspection.detail().contains("backup format version"));
+    assertUnsupportedVersion(inspection, 2);
   }
 
   /**
@@ -1675,7 +1740,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), true);
 
@@ -1715,8 +1780,8 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
    * The header-only admission refuses an authentic unit of the earlier version 2 format.
    *
    * <p>The scenario admits one authentic version 2 unit from its header alone. The expected
-   * outcome is the unclassifiable classification. One real legacy unit below the head of a chain
-   * therefore refuses the extension of that chain, and no deletion follows.
+   * outcome is an unclassifiable refusal naming version 2 and both accepted versions. One real
+   * legacy unit below the head of a chain therefore refuses extension without deletion.
    */
   @Test
   public void headerOnlyAdmissionRefusesAnAuthenticVersion2Unit() throws IOException {
@@ -1727,5 +1792,64 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     Assert.assertEquals(
         DiskStorage.BackupUnitClassification.UNCLASSIFIABLE, inspection.classification());
+    assertUnsupportedVersion(inspection, 2);
+  }
+
+  /**
+   * A real version 2 UUID can also look like the current-layout UUID at the wrong offset.
+   *
+   * <p>The old-layout identifier still proves version 2 in both inspection modes. Neither
+   * inspection may report the version read at the current-layout position instead.
+   */
+  @Test
+  public void legacyVersion2UuidCollisionNamesVersion2InBothInspections() throws IOException {
+    var uuid = UUID.fromString("73650002-6572-2072-6572-2072656c6561");
+    var unit = BackupUnitFiles.legacyVersion2UnitBytes(uuid, "db", 1, true);
+    var name = unitFileName(uuid, 1);
+
+    for (var inspection : new DiskStorage.BackupUnitInspection[] {
+        inspect(unit, name, uuid), inspectHeader(unit, name, uuid)}) {
+      Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+          inspection.classification());
+      assertUnsupportedVersion(inspection, 2);
+    }
+  }
+
+  /** Real version 1 tails name version 1 in full and header-only inspection. */
+  @Test
+  public void authenticVersion1UnitNamesItsVersionInBothInspections() throws IOException {
+    var uuid = UUID.randomUUID();
+    var unit = BackupUnitFiles.legacyVersion1UnitBytes(uuid, "db", 1, true);
+    var name = unitFileName(uuid, 1);
+
+    for (var inspection : new DiskStorage.BackupUnitInspection[] {
+        inspect(unit, name, uuid), inspectHeader(unit, name, uuid)}) {
+      Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+          inspection.classification());
+      assertUnsupportedVersion(inspection, 1);
+    }
+  }
+
+  /** A legacy version remains a refusal detail even when its stored hash is damaged. */
+  @Test
+  public void authenticLegacyUnitsWithBrokenHashesStillNameTheirVersions() throws IOException {
+    var uuid = UUID.randomUUID();
+    for (var version : new int[] {1, 2}) {
+      var unit = version == 1
+          ? BackupUnitFiles.legacyVersion1UnitBytes(uuid, "db", 1, true)
+          : BackupUnitFiles.legacyVersion2UnitBytes(uuid, "db", 1, true);
+      unit[unit.length - 1] ^= 1;
+      var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
+      Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+          inspection.classification());
+      assertUnsupportedVersion(inspection, version);
+    }
+  }
+
+  private static void assertUnsupportedVersion(DiskStorage.BackupUnitInspection inspection,
+      int version) {
+    Assert.assertTrue(inspection.detail(),
+        inspection.detail().contains("backup format version " + version + ","));
+    Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3 and 4"));
   }
 }

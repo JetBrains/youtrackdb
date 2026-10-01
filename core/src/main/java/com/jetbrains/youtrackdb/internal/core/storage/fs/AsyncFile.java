@@ -26,7 +26,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class AsyncFile implements File {
 
@@ -245,27 +247,65 @@ public final class AsyncFile implements File {
     final var asyncIOResult = new AsyncIOResult(latch, dbName);
 
     syncSemaphore.acquireUninterruptibly(buffers.size());
-    for (final var pair : buffers) {
-      final var byteBuffer = pair.second;
-      byteBuffer.rewind();
-      lock.sharedLock();
-      try {
-        checkForClose();
-        checkPosition(pair.first);
-        checkPosition(pair.first + pair.second.limit() - 1);
+    int submitted = 0;
+    try {
+      for (final var pair : buffers) {
+        final var byteBuffer = pair.second;
+        byteBuffer.rewind();
+        lock.sharedLock();
+        try {
+          checkForClose();
+          checkPosition(pair.first);
+          checkPosition(pair.first + pair.second.limit() - 1);
 
-        final var position = pair.first + HEADER_SIZE;
-        fileChannel.write(
-            byteBuffer,
-            position,
-            latch,
-            new WriteHandler(byteBuffer, asyncIOResult, position, syncSemaphore));
-      } finally {
-        lock.sharedUnlock();
+          final var position = pair.first + HEADER_SIZE;
+          final var handler = new WriteHandler(byteBuffer, asyncIOResult, position, syncSemaphore);
+          // Count this slot before submitting: the channel may invoke the handler inline.
+          submitted++;
+          try {
+            fileChannel.write(byteBuffer, position, latch, handler);
+          } catch (Throwable t) {
+            handler.failed(t, latch);
+            throw t;
+          }
+        } finally {
+          lock.sharedUnlock();
+        }
       }
+      return asyncIOResult;
+    } catch (Throwable t) {
+      // Submission may have stopped halfway through the group. Drain the already-started
+      // writes before the caller can free their buffers, and return all unused permits.
+      for (int i = submitted; i < buffers.size(); i++) {
+        latch.countDown();
+        syncSemaphore.release();
+      }
+      final var firstError = asyncIOResult.exc.get();
+      Throwable waitError = null;
+      try {
+        asyncIOResult.await();
+      } catch (Throwable e) {
+        waitError = e;
+      }
+      if (firstError != null && firstError != t) {
+        // An earlier callback failure wins over a later synchronous submission failure.
+        if (waitError != null) {
+          waitError.addSuppressed(t);
+          if (waitError instanceof Error error) {
+            throw error;
+          }
+          if (waitError instanceof RuntimeException runtime) {
+            throw runtime;
+          }
+        }
+        throw BaseException.wrapException(
+            new StorageException(dbName, "Error during IO operation"), firstError, dbName);
+      }
+      if (waitError != null && waitError != t) {
+        t.addSuppressed(waitError);
+      }
+      throw t;
     }
-
-    return asyncIOResult;
   }
 
   @Override
@@ -488,6 +528,7 @@ public final class AsyncFile implements File {
     private final long position;
 
     private final Semaphore syncSemaphore;
+    private final AtomicBoolean terminal = new AtomicBoolean();
 
     private WriteHandler(
         ByteBuffer byteBuffer, AsyncIOResult ioResult, long position, Semaphore syncSemaphore) {
@@ -499,39 +540,51 @@ public final class AsyncFile implements File {
 
     @Override
     public void completed(Integer bytesWritten, CountDownLatch attachment) {
-      diskWriteMeter.record(bytesWritten);
-
-      if (byteBuffer.remaining() > 0) {
-        lock.sharedLock();
-        try {
-          checkForClose();
-
-          fileChannel.write(byteBuffer, position + byteBuffer.position(), attachment, this);
-        } finally {
-          lock.sharedUnlock();
+      try {
+        diskWriteMeter.record(bytesWritten);
+        if (byteBuffer.remaining() > 0) {
+          lock.sharedLock();
+          try {
+            checkForClose();
+            // A rejected continuation does not invoke failed() on this handler.
+            fileChannel.write(byteBuffer, position + byteBuffer.position(), attachment, this);
+          } finally {
+            lock.sharedUnlock();
+          }
+        } else {
+          finish(null, attachment);
         }
-      } else {
-        dirtyCounter.incrementAndGet();
-        attachment.countDown();
-        syncSemaphore.release();
+      } catch (Throwable t) {
+        finish(t, attachment);
       }
     }
 
     @Override
     public void failed(Throwable exc, CountDownLatch attachment) {
-      ioResult.exc = exc;
-      LogManager.instance().error(this, "Error during write operation to the file " + osFile, exc);
+      finish(exc, attachment);
+    }
 
+    private void finish(Throwable exc, CountDownLatch attachment) {
+      if (!terminal.compareAndSet(false, true)) {
+        return;
+      }
+      if (exc != null) {
+        ioResult.exc.compareAndSet(null, exc);
+      }
       dirtyCounter.incrementAndGet();
       attachment.countDown();
       syncSemaphore.release();
+      if (exc != null) {
+        LogManager.instance().error(this, "Error during write operation to the file " + osFile,
+            exc);
+      }
     }
   }
 
   private static final class AsyncIOResult implements IOResult {
 
     private final CountDownLatch latch;
-    private Throwable exc;
+    private final AtomicReference<Throwable> exc = new AtomicReference<>();
     private final String dbName;
 
     private AsyncIOResult(CountDownLatch latch, String dbName) {
@@ -541,16 +594,30 @@ public final class AsyncFile implements File {
 
     @Override
     public void await() {
-      try {
-        latch.await();
-      } catch (java.lang.InterruptedException e) {
-        throw BaseException.wrapException(
-            new ThreadInterruptedException("File write was interrupted"),
-            e, dbName);
+      java.lang.InterruptedException interrupted = null;
+      while (true) {
+        try {
+          latch.await();
+          break;
+        } catch (java.lang.InterruptedException e) {
+          if (interrupted == null) {
+            interrupted = e;
+            // Keep the first observed error even if a page write fails during the drain.
+            exc.compareAndSet(null, e);
+          }
+        }
       }
-      if (exc != null) {
+      if (interrupted != null) {
+        Thread.currentThread().interrupt();
+      }
+      final var failure = exc.get();
+      if (failure instanceof java.lang.InterruptedException e) {
+        throw BaseException.wrapException(
+            new ThreadInterruptedException("File write was interrupted"), e, dbName);
+      }
+      if (failure != null) {
         throw BaseException.wrapException(new StorageException(dbName, "Error during IO operation"),
-            exc, dbName);
+            failure, dbName);
       }
     }
   }

@@ -218,10 +218,17 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>Version 3 added the semantic database format and the creation completion evidence. This
-   * build reads and writes that version only, so every earlier unit stays unsupported.
+   * <p>Version 3 added the semantic database format and creation completion evidence. Version 4
+   * keeps that header layout. This build reads versions 3 and 4, but writes version 4 only.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 3;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 4;
+  private static final int PREVIOUS_BACKUP_FORMAT_VERSION = 3;
+  // Older tails start with a version short and end with a hash long.
+  private static final int VERSION_2_BACKUP_TAIL_SIZE = 62;
+  private static final int VERSION_1_BACKUP_TAIL_SIZE = 54;
+  // Both old writers stored the UUID low bits first, immediately after the version.
+  private static final int LEGACY_UUID_LOW_OFFSET = Short.BYTES;
+  private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
 
   /**
    * States that the creation of the backed-up database finished.
@@ -1514,8 +1521,8 @@ public class DiskStorage extends AbstractStorage {
    * Reads one backup unit, copies the read bytes, and classifies the unit.
    *
    * <p>The classification separates three cases. A supported unit passes every header check and
-   * every content check. A recognized incomplete unit carries the complete supported header of
-   * this database and fails the content check. Every other unit is unclassifiable.
+   * every content check. A recognized incomplete unit carries the complete current-version header
+   * of this database and fails the content check. Every other unit is unclassifiable.
    *
    * <p>The unclassifiable outcome covers an old header and a header of another build. It also
    * covers a header without accepted creation completion evidence. It covers a disagreeing file
@@ -1712,14 +1719,42 @@ public class DiskStorage extends AbstractStorage {
 
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
         metadataLayoutVersion, metadataCreationEvidence);
-    // A recognized unit carries the complete supported header of this very database. Only such
-    // a unit becomes removable output of an interrupted backup of this build. Every other unit
-    // can hold a valuable old backup, so no automatic removal ever covers it.
+    // A recognized unit carries this build's complete current-version header for this database.
+    // Only such a unit becomes removable output of an interrupted backup of this build. Every
+    // other unit can hold a valuable old backup, so no automatic removal ever covers it.
     var recognized = metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
         && semanticIdentity.equals(supportedBackupSemanticIdentity())
         && dbUUID != null
         && dbUUID.getLeastSignificantBits() == metadataUUIDLowerBits
         && dbUUID.getMostSignificantBits() == metadataUUIDHigherBits;
+
+    // The last 74 bytes can include content from a shorter legacy tail. Match both the version
+    // and the old tail's identifier to the file name. A future unit's sequence number can look
+    // like version 1 at the old position, but its old-position identifier does not match.
+    // Check before the hash and expected database identifier. Old units stay unclassifiable.
+    if (metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
+        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+      var version2Start = IBU_METADATA_SIZE - VERSION_2_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version2Start) == 2
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 2);
+      }
+      var version1Start = IBU_METADATA_SIZE - VERSION_1_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version1Start) == 1
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 1);
+      }
+    }
 
     // The failed content check of a recognized header is the only removable outcome. Every
     // other failure below keeps its unit, because that unit can hold a valuable old backup.
@@ -1751,14 +1786,9 @@ public class DiskStorage extends AbstractStorage {
       return unclassifiableUnit("The file name carries no database identifier (UUID).");
     }
 
-    if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
-      LogManager.instance()
-          .warn(DiskStorage.class, storageName,
-              "Version of the file %s stored in metadata %d does not match supported version %d.",
-              ibuFileName, metadataVersion, CURRENT_BACKUP_FORMAT_VERSION);
-      return unclassifiableUnit("The header carries backup format version "
-          + metadataVersion + ", and this build supports backup format version "
-          + CURRENT_BACKUP_FORMAT_VERSION + " only.");
+    if (metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
+        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+      return unsupportedBackupVersion(ibuFileName, storageName, metadataVersion);
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -1865,6 +1895,19 @@ public class DiskStorage extends AbstractStorage {
             : "The unit passes every header check and every content check.");
   }
 
+  /** Refuses an unsupported version and names both versions that this build accepts. */
+  private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
+      String storageName, int version) {
+    LogManager.instance()
+        .warn(DiskStorage.class, storageName,
+            "Version of the file %s stored in metadata %d is unsupported; supported versions are %d and %d.",
+            ibuFileName, version, PREVIOUS_BACKUP_FORMAT_VERSION,
+            CURRENT_BACKUP_FORMAT_VERSION);
+    return unclassifiableUnit("The header carries backup format version "
+        + version + ", and this build supports backup format versions "
+        + PREVIOUS_BACKUP_FORMAT_VERSION + " and " + CURRENT_BACKUP_FORMAT_VERSION + " only.");
+  }
+
   /** Builds the inspection of one unit that this build cannot classify. */
   private static BackupUnitInspection unclassifiableUnit(String detail) {
     return new BackupUnitInspection(BackupUnitClassification.UNCLASSIFIABLE, null, false, detail);
@@ -1873,7 +1916,8 @@ public class DiskStorage extends AbstractStorage {
   /**
    * Builds the inspection of one unit that failed its content check.
    *
-   * @param recognized true when the unit carries the complete supported header of this database
+   * @param recognized true when the unit carries this build's complete current-version header
+   *     for this database
    */
   private static BackupUnitInspection incompleteOrUnclassifiableUnit(boolean recognized,
       String detail) {
@@ -2948,10 +2992,9 @@ public class DiskStorage extends AbstractStorage {
     /** The unit passes every header check and every content check. */
     SUPPORTED,
     /**
-     * The unit carries the complete supported header of this database and fails a content check.
-     *
-     * <p>Such a unit is incomplete output of an interrupted backup of this build. An incremental
-     * backup removes such trailing output before the backup extends the chain.
+     * The unit carries this build's complete current-version header for this database and fails
+     * a content check. Such a unit is incomplete output of an interrupted backup of this build.
+     * An incremental backup removes such trailing output before it extends the chain.
      */
     RECOGNIZED_INCOMPLETE,
     /**
@@ -2960,7 +3003,7 @@ public class DiskStorage extends AbstractStorage {
      * <p>Five cases reach this outcome. An old header and a header of another build reach it.
      * A header without accepted creation completion evidence reaches it. A file name that
      * disagrees with the header and unreadable output reach it as well. Such a unit stays in
-     * place forever, because the unit can hold a valuable backup of another build.
+     * place until an operator resolves it, because it can hold a valuable backup.
      */
     UNCLASSIFIABLE
   }

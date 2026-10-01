@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -92,7 +93,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -348,6 +348,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentHashMap<PageKey, LogSequenceNumber> dirtyPages =
       new ConcurrentHashMap<>();
+
+  // Replay state is confined to the replay thread. Flush and validation tasks never read it.
+  private final ThreadLocal<RecoveryPageContext> recoveryPageContext = new ThreadLocal<>();
 
   /**
    * Copy of content of {@link #dirtyPages} table at the moment when
@@ -1267,6 +1270,15 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public void setRecoveryPageContext(RecoveryPageContext context) {
+    if (context == null) {
+      recoveryPageContext.remove();
+    } else {
+      recoveryPageContext.set(context);
+    }
+  }
+
+  @Override
   public void restoreModeOn() throws IOException {
     filesLock.acquireWriteLock();
     try {
@@ -1609,6 +1621,8 @@ public final class WOWCache extends AbstractWriteCache
    */
   private CachePointer loadOrAddLoadBranch(
       final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var context = recoveryPageContext.get();
+    final var gapPosition = context == null ? null : context.consumeGapPage(intId, pageIndex);
     final var pageKey = new PageKey(intId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
@@ -1621,7 +1635,9 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     try {
-      final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+      final var filePagePointer = loadFileContent(
+          intId, pageIndex, verifyChecksums,
+          context == null ? null : context.declaredPosition(intId, pageIndex), gapPosition);
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
@@ -1679,6 +1695,10 @@ public final class WOWCache extends AbstractWriteCache
               + allocatedIndex
               + " does not match requested pageIndex "
               + pageIndex);
+    }
+    final var context = recoveryPageContext.get();
+    if (context != null) {
+      context.addCreatedPage(intId, pageIndex);
     }
     commitExecutor()
         .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
@@ -1743,7 +1763,11 @@ public final class WOWCache extends AbstractWriteCache
     // pages stamp in ascending order. Each task is idempotent (writeValidPageInFile
     // only writes if the underlying file is shorter than the page offset), so a
     // resubmission against an already-stamped page is a no-op.
+    final var context = recoveryPageContext.get();
     for (long gapPage = currentSize; gapPage <= pageIndex; gapPage++) {
+      if (context != null) {
+        context.addCreatedPage(intId, gapPage);
+      }
       commitExecutor()
           .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
     }
@@ -1904,8 +1928,8 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   // Retained internal site: the WriteCache implementer must keep this override so the
-  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo},
-  // the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
+  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo,
+  // commitChanges}, the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
   // suppression silences the deprecation warning the override would otherwise inherit
   // from the @Deprecated interface declaration.
   @SuppressWarnings("deprecation")
@@ -2053,6 +2077,10 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
+        final var context = recoveryPageContext.get();
+        if (context != null) {
+          context.removeFile(intId);
+        }
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
           final var updated = new IntOpenHashSet(nonDurableFileIds);
@@ -3579,6 +3607,12 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, null, null);
+  }
+
+  @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
+      final boolean verifyChecksums, @Nullable LogSequenceNumber declaredPosition,
+      @Nullable LogSequenceNumber gapPosition) throws IOException {
     final var fileId = composeFileId(id, internalFileId);
     try {
       final var entry = files.acquire(fileId);
@@ -3612,7 +3646,22 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                assertPageIsBroken(pageIndex, fileId, pageFrame);
+                if (declaredPosition != null || gapPosition != null) {
+                  // Only the replay write-load supplies provenance. Do not stamp the
+                  // allocation LSN into the header: redo must still see an empty page.
+                  buffer.clear();
+                  buffer.put(new byte[pageSize]);
+                  DurablePage.setLogSequenceNumberForPage(
+                      buffer, new LogSequenceNumber(-1, -1));
+                  LogManager.instance().warn(this,
+                      "Crash recovery rebuilt new page %d of file '%s' in storage '%s' as an"
+                          + " empty page. The page failed verification and the double write log"
+                          + " has no copy of it. WAL replay applies this page's logged changes,"
+                          + " if any.",
+                      pageIndex, fileNameById(fileId), storageName);
+                } else {
+                  assertPageIsBroken(pageIndex, fileId, pageFrame);
+                }
               } else {
                 // Copy recovered data from double-write log into the PageFrame's buffer
                 // and release the temporary double-write pointer back to ByteBufferPool.
@@ -4819,66 +4868,105 @@ public final class WOWCache extends AbstractWriteCache
     final List<ClosableEntry<Long, File>> acquiredFiles = new ArrayList<>(buffersByFileId.size());
     final List<IOResult> ioResults = new ArrayList<>(buffersByFileId.size());
 
-    Long2ObjectOpenHashMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry;
-    Iterator<Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>>> filesIterator;
-
-    filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
-    entry = null;
-    // acquire as much files as possible and flush data
-    while (true) {
-      if (entry == null) {
-        if (filesIterator.hasNext()) {
-          entry = filesIterator.next();
-        } else {
-          break;
-        }
-      }
-
-      final var fileEntry = files.tryAcquire(entry.getLongKey());
-      if (fileEntry != null) {
-        final var file = fileEntry.get();
-
-        var bufferList = entry.getValue();
-
-        ioResults.add(file.write(bufferList));
-        acquiredFiles.add(fileEntry);
-
-        entry = null;
-      } else {
-        if (ioResults.size() != acquiredFiles.size()) {
-          throw new IllegalStateException("Not all data are written to the files.");
+    Throwable failure = null;
+    try {
+      final var filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
+      Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry = null;
+      // Acquire as many files as possible before waiting, without changing write order.
+      while (true) {
+        if (entry == null) {
+          if (filesIterator.hasNext()) {
+            entry = filesIterator.next();
+          } else {
+            break;
+          }
         }
 
-        if (!ioResults.isEmpty()) {
-          for (final var ioResult : ioResults) {
-            ioResult.await();
+        final var fileEntry = files.tryAcquire(entry.getLongKey());
+        if (fileEntry != null) {
+          // Retain the file even if starting its write throws synchronously.
+          acquiredFiles.add(fileEntry);
+          ioResults.add(fileEntry.get().write(entry.getValue()));
+          entry = null;
+        } else if (!ioResults.isEmpty()) {
+          final var batchFailure = drainPageWrites(ioResults, acquiredFiles);
+          if (batchFailure != null) {
+            failure = batchFailure;
+            break;
           }
-
-          for (final var closableEntry : acquiredFiles) {
-            files.release(closableEntry);
-          }
-
-          ioResults.clear();
-          acquiredFiles.clear();
         } else {
           Thread.yield();
         }
       }
+    } catch (Throwable t) {
+      failure = t;
+    } finally {
+      final var drainFailure = drainPageWrites(ioResults, acquiredFiles);
+      if (failure == null) {
+        failure = drainFailure;
+      } else if (drainFailure != null && drainFailure != failure) {
+        failure.addSuppressed(drainFailure);
+      }
     }
 
-    if (ioResults.size() != acquiredFiles.size()) {
-      throw new IllegalStateException("Not all data are written to the files.");
+    if (failure instanceof java.lang.InterruptedException e) {
+      throw e;
     }
+    if (failure instanceof IOException e) {
+      throw e;
+    }
+    if (failure instanceof Error e) {
+      throw e;
+    }
+    if (failure instanceof RuntimeException e) {
+      throw e;
+    }
+    if (failure != null) {
+      throw new IOException(failure);
+    }
+  }
 
-    if (!ioResults.isEmpty()) {
+  /** Wait for all submitted writes before releasing file handles and their page buffers. */
+  private Throwable drainPageWrites(
+      List<IOResult> ioResults, List<ClosableEntry<Long, File>> acquiredFiles) {
+    boolean interrupted = Thread.interrupted();
+    // Clearing the flag makes later waits possible, but must not turn an already
+    // interrupted flush into an apparent success.
+    Throwable failure = interrupted
+        ? new ThreadInterruptedException("File write was interrupted") : null;
+    try {
       for (final var ioResult : ioResults) {
-        ioResult.await();
+        try {
+          ioResult.await();
+        } catch (Throwable t) {
+          if (failure == null) {
+            failure = t;
+          } else if (failure != t) {
+            failure.addSuppressed(t);
+          }
+          // A prior interrupt must not skip later waits, even for interruptible IOResult types.
+          interrupted |= Thread.interrupted();
+        }
       }
-
-      for (final var closableEntry : acquiredFiles) {
-        files.release(closableEntry);
+      for (final var fileEntry : acquiredFiles) {
+        try {
+          files.release(fileEntry);
+        } catch (Throwable t) {
+          if (failure == null) {
+            failure = t;
+          } else if (failure != t) {
+            failure.addSuppressed(t);
+          }
+        }
+      }
+    } finally {
+      ioResults.clear();
+      acquiredFiles.clear();
+      if (interrupted) {
+        Thread.currentThread().interrupt();
       }
     }
+    return failure;
   }
 
   private void flushExclusiveWriteCache(final CountDownLatch latch, long pagesToFlushLimit)
