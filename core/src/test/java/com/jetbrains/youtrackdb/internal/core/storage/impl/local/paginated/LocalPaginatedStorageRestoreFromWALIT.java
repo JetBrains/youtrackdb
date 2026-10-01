@@ -160,7 +160,8 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
   /**
    * A committed new page can be physically present but blank after a crash. The DWL has no
-   * image for its validation write. Replay must rebuild it without losing the committed rows.
+   * image for its validation write. Replay must rebuild it without losing the committed rows,
+   * including their field values, both immediately and after reopening.
    */
   @Test
   public void invalidDeclaredNewPageIsRebuiltDuringCrashReplay() throws Exception {
@@ -228,19 +229,44 @@ public class LocalPaginatedStorageRestoreFromWALIT {
       Assert.assertTrue(((DiskStorage) testDocumentTx.getStorage())
           .wereDataRestoredAfterOpen());
       Assert.assertEquals(500, testDocumentTx.countClass("TestOne"));
+      assertRecoveredRecords(testDocumentTx, 500);
       Assert.assertTrue(warnings.warnedWithAll(fileName[0], "page " + pageIndex[0]));
       Assert.assertFalse(warnings.messages().stream().anyMatch(
           message -> message.contains("verification failed for page")));
       testDocumentTx.executeInTx(tx -> {
         var entity = tx.newEntity("TestOne");
         entity.setProperty("intProp", 500);
+        entity.setProperty("stringProp", "data-500-" + "x".repeat(256));
       });
       testDocumentTx.close();
     }
     testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
     Assert.assertEquals(501, testDocumentTx.countClass("TestOne"));
+    assertRecoveredRecords(testDocumentTx, 501);
     testDocumentTx.close();
+  }
+
+  private static void assertRecoveredRecords(DatabaseSessionEmbedded session, int expectedCount) {
+    // Browsing every record reads the collection data pages, including the zeroed page.
+    session.executeInTx(tx -> {
+      var seen = new boolean[expectedCount];
+      try (var records = session.browseClass("TestOne")) {
+        while (records.hasNext()) {
+          var entity = records.next();
+          Integer index = entity.getProperty("intProp");
+          Assert.assertNotNull("Missing intProp in " + entity.getIdentity(), index);
+          Assert.assertTrue("Unexpected intProp " + index, index >= 0 && index < expectedCount);
+          Assert.assertFalse("Duplicate intProp " + index, seen[index]);
+          Assert.assertEquals("Wrong stringProp for " + index,
+              "data-" + index + "-" + "x".repeat(256), entity.getProperty("stringProp"));
+          seen[index] = true;
+        }
+      }
+      for (var index = 0; index < expectedCount; index++) {
+        Assert.assertTrue("Missing record with intProp " + index, seen[index]);
+      }
+    });
   }
 
   private void copyDataFromTestWithoutClose() throws Exception {
