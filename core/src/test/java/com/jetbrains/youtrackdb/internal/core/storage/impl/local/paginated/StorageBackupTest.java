@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.BackupUnitFiles;
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -59,6 +60,8 @@ public class StorageBackupTest {
         //lock file and backup file
         Assert.assertEquals(2, backupDir.listFiles().length);
 
+        // Version 3 head candidates require a full hash check before extension can remove them.
+        BackupUnitFiles.rewriteVersion4AsVersion3(backupDir.toPath().resolve(backupFileName));
         try (var backupChannel = FileChannel.open(backupDir.toPath().resolve(backupFileName),
             StandardOpenOption.WRITE, StandardOpenOption.READ)) {
           // The first byte belongs to backup content, not to the identity header at the tail.
@@ -79,7 +82,7 @@ public class StorageBackupTest {
 
         generateChunkOfData(traversal, random);
 
-        //one more full backup
+        // The extension replaces the incomplete version 3 head.
         traversal.backup(backupDir.toPath());
         //lock file and backup file
         Assert.assertEquals(2, backupDir.listFiles().length);
@@ -128,6 +131,8 @@ public class StorageBackupTest {
         backupFileName = traversal.backup(backupDir.toPath());
         Assert.assertEquals(3, backupDir.listFiles().length);
 
+        // Version 3 head candidates require a full hash check before extension can remove them.
+        BackupUnitFiles.rewriteVersion4AsVersion3(backupDir.toPath().resolve(backupFileName));
         try (var backupChannel = FileChannel.open(backupDir.toPath().resolve(backupFileName),
             StandardOpenOption.WRITE, StandardOpenOption.READ)) {
           // The first byte belongs to backup content, not to the identity header at the tail.

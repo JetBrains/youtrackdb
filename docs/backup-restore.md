@@ -14,7 +14,24 @@ replays the full backup and each following increment from the same database.
 
 Each unit carries a small **backup header** at its tail. The header records the database
 identifier as a universally unique identifier (UUID). It also records the unit position,
-covered log range, and content hash code.
+covered log range, and full content hash code. This release writes format version 4. It reads
+format versions 3 and 4. Version 4 also has a metadata checksum and a force-barrier flag. The
+flag states whether the writer made the payload durable before it wrote the tail.
+
+An incremental backup checks the chain before adding a unit. For version 4 units, it checks
+metadata without reading the payload when the input supplier can read the tail. A newest unit
+with a valid metadata checksum and a present force-barrier flag needs only this check. A version
+3 newest unit, a version 4 newest unit without the flag, and a unit with a failed metadata
+checksum need a full content hash check.
+
+A unit below the chain head needs only header admission. With a tail-read supplier, the
+extension reads only its tail, including for a version 3 unit below a version 4 head.
+Without tail reads, the supplier reads the complete unit, but admission still skips the
+full content hash check when the metadata is valid. An unreadable tail stops extension.
+
+A restore checks the full content hash of every unit and the metadata checksum of every
+version 4 unit. An extension does not detect payload damage in a unit admitted from its
+header alone. Restore detects such damage.
 
 ## Run a backup or restore
 
@@ -49,8 +66,9 @@ before the database becomes available.
 
 ## Older backups are unsupported
 
-A backup unit from an earlier release lacks the database format and creation completion evidence.
-This release refuses such a unit in three situations:
+This release supports backup format versions 3 and 4. Versions 1 and 2 lack the database
+format and creation completion evidence. This release also refuses units with an unknown
+format version. A refusal leaves every source unit in place in these three situations:
 
 - A restore of that chain fails.
 - An incremental backup refuses to extend that chain.
@@ -60,14 +78,16 @@ This release refuses such a unit in three situations:
 `YTDBGraphTraversalSource.fullBackup(Path)` or the `ytdbFullBackup` service. Keep the old
 directory unchanged until the new chain is complete.
 
-A full backup still replaces every unit for its database in the target directory. The new,
-empty directory protects the old chain from that overwrite behavior.
+A full backup replaces every unit for its database in the target directory, including
+units with an unknown format version. The new, empty directory protects the old chain from
+that overwrite behavior. A build older than format version 3 can remove a newest unit
+that it cannot validate. This includes version 3 and version 4 units. Do not extend a
+newer chain with such a build. Use a new, empty directory.
 
 ## Unreadable backup output needs an operator decision
 
-A crash during a backup write can leave output without a readable header. YouTrackDB cannot
-classify that output. It preserves the file and refuses every later incremental extension of
-that chain.
+A crash during a backup write can leave output without a readable header. An incremental
+extension cannot classify that output. It preserves the file and refuses to extend the chain.
 
 Inspect the file before changing it. After confirming that it is interrupted output, move it
 outside the backup directory or remove it. Then call `YTDBGraphTraversalSource.backup(Path)` or
@@ -76,9 +96,12 @@ the `ytdbIncrementalBackup` service again.
 You can instead create a full backup in a new, empty directory. This option leaves the existing
 chain unchanged.
 
-An incremental backup automatically removes trailing output only when its header identifies
-incomplete output from this release. YouTrackDB never automatically removes an unclassifiable
-file. It also performs no automatic cleanup of files left by a process or host crash.
+An incremental backup removes every recognized incomplete unit above the chain head only
+after a full content hash check fails for each one. Removal starts only after the entire chain
+passes inspection. A failed metadata checksum alone never allows removal. An incremental
+extension never removes an unclassifiable file. It leaves unclassifiable output from a
+process or host crash for the operator. A full backup still replaces `.ibu` files with this
+database's UUID prefix in its target directory, even when their headers are unreadable.
 
 ## Restore admission runs before every target change
 
@@ -86,7 +109,8 @@ A restore performs its checks in this order:
 
 1. It checks the database name, target directory, target existence, reserved prefixes, and
    expected database identifier. These checks do not read the backup source or change a file.
-2. It copies every selected unit into temporary files and validates the complete chain.
+2. It copies every selected unit into temporary files and checks the full content hash of each
+   unit. It also checks the metadata checksum of each version 4 unit and validates the chain.
 3. It creates the target, replays only the temporary copies, performs final checks, and makes
    the database available.
 

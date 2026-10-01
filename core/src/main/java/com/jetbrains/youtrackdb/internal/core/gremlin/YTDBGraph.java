@@ -50,7 +50,11 @@ public interface YTDBGraph extends Graph {
   /// that provide access to the content of backup.
   ///
   /// @param ibuFilesSupplier        Lamba that provides the list of backup files already created.
-  /// @param ibuInputStreamSupplier  Lamba that provides the input stream for the backup file.
+  /// @param ibuInputStreamSupplier  Supplier of input streams for backup units. It may implement
+  /// [BackupTailReadCapability] to return the last bytes of a named unit, up to the requested
+  /// count, without reading more than that count from the unit. A shorter unit returns all its
+  /// bytes. A failed tail read stops extension and removes no unit. Without this capability,
+  /// extension reads complete units.
   /// @param ibuOutputStreamSupplier Lambda that provides the output stream for the backup file.
   /// The output stream may implement [BackupForceCapability]. It must make all written bytes and
   /// the file length durable before its force returns. It must also publish one write request
