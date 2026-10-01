@@ -22,8 +22,9 @@ import javax.annotation.Nonnull;
  * that produce a complete MATCH input set without going through the SQL parser.
  *
  * <p>The fields mirror the post-parse state extracted by
- * {@link MatchExecutionPlanner#MatchExecutionPlanner(SQLMatchStatement)} from a parsed AST.
- * The planner's existing planning pipeline then runs unchanged, including its internal
+ * {@link MatchExecutionPlanner#MatchExecutionPlanner(SQLMatchStatement)} from a parsed AST,
+ * plus detached positive existence checks supplied by programmatic callers. SQL statements
+ * supply no exists checks. The planner's existing planning pipeline then runs, including its internal
  * call to {@code SelectExecutionPlanner.handleProjectionsBlock} for projection / order /
  * limit / skip / group-by handling.
  *
@@ -46,6 +47,7 @@ public record MatchPlanInputs(
     Map<String, SQLWhereClause> aliasFilters,
     List<SQLMatchExpression> matchExpressions,
     List<SQLMatchExpression> notMatchExpressions,
+    List<SQLMatchExpression> existsMatchExpressions,
     List<SQLExpression> returnItems,
     List<SQLIdentifier> returnAliases,
     List<SQLNestedProjection> returnNestedProjections,
@@ -70,6 +72,7 @@ public record MatchPlanInputs(
     aliasFilters = aliasFilters == null ? Map.of() : aliasFilters;
     matchExpressions = matchExpressions == null ? List.of() : matchExpressions;
     notMatchExpressions = notMatchExpressions == null ? List.of() : notMatchExpressions;
+    existsMatchExpressions = existsMatchExpressions == null ? List.of() : existsMatchExpressions;
     returnItems = returnItems == null ? List.of() : returnItems;
     returnAliases = returnAliases == null ? List.of() : returnAliases;
     returnNestedProjections =
@@ -118,6 +121,7 @@ public record MatchPlanInputs(
     private Map<String, SQLWhereClause> aliasFilters;
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
+    private List<SQLMatchExpression> existsMatchExpressions;
     private List<SQLExpression> returnItems;
     private List<SQLIdentifier> returnAliases;
     private List<SQLNestedProjection> returnNestedProjections;
@@ -153,6 +157,11 @@ public record MatchPlanInputs(
 
     public Builder notMatchExpressions(List<SQLMatchExpression> notMatchExpressions) {
       this.notMatchExpressions = notMatchExpressions;
+      return this;
+    }
+
+    public Builder existsMatchExpressions(List<SQLMatchExpression> existsMatchExpressions) {
+      this.existsMatchExpressions = existsMatchExpressions;
       return this;
     }
 
@@ -229,6 +238,7 @@ public record MatchPlanInputs(
           aliasFilters,
           matchExpressions,
           notMatchExpressions,
+          existsMatchExpressions,
           returnItems,
           returnAliases,
           returnNestedProjections,

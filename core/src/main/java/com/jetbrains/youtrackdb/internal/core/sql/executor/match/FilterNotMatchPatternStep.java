@@ -2,13 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -21,7 +18,7 @@ import javax.annotation.Nullable;
  * This step implements the `NOT { … }` syntax in MATCH queries. For each upstream
  * result row, it constructs a temporary execution plan consisting of:
  * <p>
- * 1. A {@link ChainStep} that injects the current row as the starting point.
+ * 1. A shallow copy of the row published as $matched and injected as the starting point.
  * 2. The list of sub-steps (typically {@link MatchStep}s) that represent the NOT
  *    pattern's edges.
  * <p>
@@ -31,7 +28,7 @@ import javax.annotation.Nullable;
  * <pre>
  * NOT pattern evaluation per upstream row:
  *
- *   upstream row ──→ ChainStep(copy of row) ──→ MatchStep(NOT edges) ──→ any result?
+ *   upstream row ──→ copied row ──→ MatchStep(NOT edges) ──→ any result?
  *                                                                          │
  *                                                          ┌───────────────┴───────────────┐
  *                                                          │                               │
@@ -71,8 +68,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
    * Returns the result if it does NOT match the pattern, or `null` (to drop it) if it
    * does. This inverts the normal filter logic.
    */
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (!matchesPattern(result, ctx)) {
       return result;
     }
@@ -84,27 +80,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
    * temporary plan. Returns `true` if at least one result is produced (= pattern matched).
    */
   private boolean matchesPattern(Result nextItem, CommandContext ctx) {
-    var plan = createExecutionPlan(nextItem, ctx);
-    var rs = plan.start();
-    try {
-      return rs.hasNext(ctx);
-    } finally {
-      rs.close(ctx);
-    }
-  }
-
-  /**
-   * Builds a temporary execution plan that starts with the current row (via
-   * {@link ChainStep}) and chains the NOT-pattern sub-steps.
-   */
-  private SelectExecutionPlan createExecutionPlan(Result nextItem, CommandContext ctx) {
-    var plan = new SelectExecutionPlan(ctx);
-    var db = ctx.getDatabaseSession();
-
-    plan.chain(
-        new ChainStep(ctx, nextItem, db));
-    subSteps.forEach(plan::chain);
-    return plan;
+    return DetachedMatchPatternProbe.matches(nextItem, subSteps, ctx, profilingEnabled);
   }
 
   @Nonnull
@@ -142,52 +118,4 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
     return new FilterNotMatchPatternStep(subStepsCopy, ctx, profilingEnabled);
   }
 
-  /**
-   * Internal step that injects a single MATCH result row as the starting point
-   * for the NOT-pattern sub-plan. It shallow-copies the row's properties and
-   * metadata so that the sub-plan's traversal does not mutate the original row
-   * structure (note: property values themselves are shared, not deep-copied).
-   */
-  private class ChainStep extends AbstractExecutionStep {
-
-    private final Result nextItem;
-    private final DatabaseSessionEmbedded db;
-
-    ChainStep(CommandContext ctx, Result nextItem, DatabaseSessionEmbedded db) {
-      super(ctx, FilterNotMatchPatternStep.this.profilingEnabled);
-      this.nextItem = nextItem;
-      this.db = db;
-    }
-
-    /** Emits a single shallow-copied row as a singleton stream. */
-    @Override
-    public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-      return ExecutionStream.singleton(copy(nextItem));
-    }
-
-    /**
-     * Shallow-copies properties and metadata from the source row into a new result.
-     * Property names and metadata keys are copied, but the values themselves are
-     * shared references (not deep-cloned). This is sufficient because the NOT-pattern
-     * sub-plan only reads the values — it never mutates them in place.
-     */
-    private Result copy(Result nextItem) {
-      var result = new ResultInternal(db);
-      for (var prop : nextItem.getPropertyNames()) {
-        result.setProperty(prop, nextItem.getProperty(prop));
-      }
-      if (nextItem instanceof ResultInternal nextResult) {
-        for (var md : nextResult.getMetadataKeys()) {
-          result.setMetadata(md, nextResult.getMetadata(md));
-        }
-      }
-
-      return result;
-    }
-
-    @Override
-    public ExecutionStep copy(CommandContext ctx) {
-      return new ChainStep(ctx, nextItem, db);
-    }
-  }
 }

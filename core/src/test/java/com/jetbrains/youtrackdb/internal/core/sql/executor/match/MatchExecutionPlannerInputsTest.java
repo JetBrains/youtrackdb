@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
@@ -57,11 +58,12 @@ public class MatchExecutionPlannerInputsTest {
     var inputs =
         new MatchPlanInputs(
             new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
-            null, false, false, false, false, false);
+            null, null, false, false, false, false, false);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
     assertThat(inputs.notMatchExpressions()).isEmpty();
+    assertThat(inputs.existsMatchExpressions()).isEmpty();
     assertThat(inputs.returnItems()).isEmpty();
     assertThat(inputs.returnAliases()).isEmpty();
     assertThat(inputs.returnNestedProjections()).isEmpty();
@@ -94,8 +96,7 @@ public class MatchExecutionPlannerInputsTest {
     nestedProjections.add(null);
     nestedProjections.add(null);
 
-    // Positional ctor (the builder normalises nulls, so null-entry lists must use it): the three
-    // varying arguments are returnItems (6th), returnAliases (7th), returnNestedProjections (8th).
+    // Positional ctor: the return lists are parallel and preserve null entries.
     var inputs =
         new MatchPlanInputs(
             new Pattern(),
@@ -103,6 +104,7 @@ public class MatchExecutionPlannerInputsTest {
             /* aliasFilters */ null,
             /* matchExpressions */ null,
             /* notMatchExpressions */ null,
+            /* existsMatchExpressions */ null,
             items,
             aliases,
             nestedProjections,
@@ -157,6 +159,7 @@ public class MatchExecutionPlannerInputsTest {
     assertThat(getPattern(planner)).isSameAs(pattern);
     assertThat(planner.matchExpressions).isEmpty();
     assertThat(planner.notMatchExpressions).isEmpty();
+    assertThat(planner.existsMatchExpressions).isEmpty();
     assertThat(planner.returnItems).isEmpty();
     assertThat(planner.returnAliases).isEmpty();
     assertThat(planner.returnNestedProjections).isEmpty();
@@ -203,6 +206,7 @@ public class MatchExecutionPlannerInputsTest {
   public void plannerCtor_fullyPopulatedInputs() {
     var pattern = new Pattern();
     var notExpr = new SQLMatchExpression(-1);
+    var existsExpr = new SQLMatchExpression(-1);
     var proj1 = new SQLNestedProjection(-1);
     var proj2 = new SQLNestedProjection(-1);
 
@@ -212,6 +216,7 @@ public class MatchExecutionPlannerInputsTest {
             .aliasFilters(Map.of("a", new SQLWhereClause(-1)))
             .matchExpressions(List.of(new SQLMatchExpression(-1)))
             .notMatchExpressions(List.of(notExpr))
+            .existsMatchExpressions(List.of(existsExpr))
             // Two parallel return items so the three return lists are equal-length (the record
             // enforces this); proj1/proj2 exercise the ordered non-null nested-projection copy.
             .returnItems(List.of(new SQLExpression(-1), new SQLExpression(-1)))
@@ -222,6 +227,7 @@ public class MatchExecutionPlannerInputsTest {
     var planner = new MatchExecutionPlanner(inputs);
 
     assertThat(planner.notMatchExpressions).containsExactly(notExpr);
+    assertThat(planner.existsMatchExpressions).containsExactly(existsExpr);
     assertThat(planner.returnAliases).hasSize(2);
     // Two distinct non-null projections in declared order — a copy that dropped, duplicated, or
     // reordered a non-null nested projection fails here, which the earlier null-only case (a size
@@ -415,6 +421,23 @@ public class MatchExecutionPlannerInputsTest {
     assertThat(getGroupBy(planner)).isSameAs(groupBy);
     assertThat(getOrderBy(planner)).isSameAs(orderBy);
     assertThat(getUnwind(planner)).isSameAs(unwind);
+  }
+
+  /** A detached NOT or EXISTS check uses its origin after any positive branch has joined. */
+  @Test
+  public void collectDownstreamAliases_keepsDetachedCheckOrigins() {
+    var exists = new SQLMatchExpression(-1);
+    var existsOrigin = new SQLMatchFilter(-1);
+    existsOrigin.setAlias("c");
+    exists.setOrigin(existsOrigin);
+    var not = new SQLMatchExpression(-1);
+    var notOrigin = new SQLMatchFilter(-1);
+    notOrigin.setAlias("b");
+    not.setOrigin(notOrigin);
+    var planner = new MatchExecutionPlanner(MatchPlanInputs.builder(new Pattern())
+        .notMatchExpressions(List.of(not)).existsMatchExpressions(List.of(exists)).build());
+    assertThat(planner.collectDownstreamAliases(List.of(new SQLExpression(-1)),
+        null, null, null, java.util.Set.of("a", "b", "c"))).contains("b", "c");
   }
 
   // ──────────────────────────────────── Test helpers ────────────────────────────────────
