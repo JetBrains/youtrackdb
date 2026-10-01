@@ -796,6 +796,7 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
         // WC61/WC62 (review-fix): legacy dumps get NO structural verification; the
         // schema-version rejection row is scoped to v15 dumps
         "no structural verification", "supported range (v15 dumps)",
+        "records marked only `@internal` follow the normal commit path",
         // WC63 (review-fix): only a KILLED/CRASHED export orphans temp files
         "killed or crashed",
         // CN61 (cumulative review): live-export consistency envelope — quiesce DDL; an

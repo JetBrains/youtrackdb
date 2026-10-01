@@ -965,6 +965,8 @@ public class DatabaseImportHardeningTest extends DbTestBase {
         }
         assertNotNull("v15 needs link migration", rejection);
         assertRejectionMentions(rejection, "v15 dump requires link migration");
+        assertRejectionMentions(rejection, "-migrateLinks=false");
+        assertRejectionMentions(rejection, "setMigrateLinks(false)");
         assertTrue("pre-flight must leave the target untouched",
             target.getMetadata().getSchema().existsClass("PreFlightMarker"));
       }

@@ -97,8 +97,9 @@ exits non-zero on failure — that is the observable the gates below rely on.
    cheaper than trusting a questionable legacy dump. Do not read exit 0 as a stronger
    claim than the above for legacy dumps: a record whose apply fails with a database-level
    error can be consumed but not applied on a legacy-declared dump. Legacy dumps can also
-   contain metadata-marked internal records that the importer discards. Version 15 rejects
-   those records and any record-apply failure. For a healthy dump
+   contain records marked as schema manager or index manager. The importer discards those
+   records, while records marked only `@internal` follow the normal commit path. Version 15
+   rejects all three markers and any record-apply failure. For a healthy dump
    produced by an honest exporter these arms are unreachable; if you need end-to-end
    certainty for a critical migration, verify application-level invariants (record
    counts per class, spot checks) after the import.

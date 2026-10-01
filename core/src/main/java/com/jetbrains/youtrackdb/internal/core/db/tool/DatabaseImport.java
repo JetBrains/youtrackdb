@@ -472,7 +472,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     if (exporterVersion >= 15) {
       if (!migrateLinks) {
         throw new DatabaseImportException(
-            "Import rejected: a v15 dump requires link migration. Remove -migrateLinks=false");
+            "Import rejected: a v15 dump requires link migration. Remove -migrateLinks=false"
+                + " or avoid setMigrateLinks(false)");
       }
       // Q-M2(2): schema-version is MANDATORY in a v15 dump and must sit inside the
       // importable range; missing, malformed, or out-of-range — reject naming declared vs
