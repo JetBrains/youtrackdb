@@ -27,20 +27,30 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  *     pinning; flush reuses it so filters and {@code as(...)} stay on the same alias
  * @param hasContainers AND-ed neighbour {@link HasContainer}s ({@code has} / {@code hasLabel} /
  *     {@code hasId} / {@code P.*}, including connectives)
+ * @param sourceProjection the source payload before the synthetic target changed the boundary pin
  */
 record PendingOrderedHop(
     @Nonnull Direction direction,
     @Nullable String[] edgeLabels,
     @Nonnull String fromAlias,
     @Nonnull String targetAlias,
-    @Nonnull List<HasContainer> hasContainers) {
+    @Nonnull List<HasContainer> hasContainers,
+    @Nonnull OrderedExpandAccept.SourceProjection sourceProjection) {
 
   PendingOrderedHop {
     edgeLabels = edgeLabels == null ? null : edgeLabels.clone();
     hasContainers = List.copyOf(hasContainers);
   }
 
+  PendingOrderedHop(
+      Direction direction, String[] edgeLabels, String fromAlias, String targetAlias,
+      List<HasContainer> hasContainers) {
+    this(direction, edgeLabels, fromAlias, targetAlias, hasContainers,
+        OrderedExpandAccept.SourceProjection.ELEMENT);
+  }
+
   PendingOrderedHop withHasContainers(@Nonnull List<HasContainer> containers) {
-    return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, containers);
+    return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, containers,
+        sourceProjection);
   }
 }

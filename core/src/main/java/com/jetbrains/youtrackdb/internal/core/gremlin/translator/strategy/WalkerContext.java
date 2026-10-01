@@ -80,8 +80,8 @@ final class WalkerContext implements RecognitionContext {
    *  call regardless of value. */
   private int nextParamSlot;
 
-  /** When {@code true}, this walk carries inline RIDs ({@code g.V(ids)} or {@code hasId(...)}) and
-   *  must bypass the plan cache. */
+  /** When {@code true}, this walk carries inline RIDs or unbound deferred has literals and must
+   *  bypass the plan cache. */
   private boolean ridBearing;
 
   /** RETURN-clause projection items. One entry per output column. */
@@ -736,7 +736,7 @@ final class WalkerContext implements RecognitionContext {
     ridBearing = true;
   }
 
-  /** Whether this walk is RID-bearing and must bypass the plan cache. */
+  /** Whether this walk has invocation-specific values that must bypass the plan cache. */
   boolean ridBearing() {
     return ridBearing;
   }

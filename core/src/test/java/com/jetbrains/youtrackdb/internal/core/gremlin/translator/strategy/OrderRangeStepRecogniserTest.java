@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -36,6 +37,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -1071,6 +1073,213 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .has("name", "AbeTarget2").values("name"));
   }
 
+  /** A bare select of the sorted source still feeds an element to the hop after a source cut. */
+  @Test
+  public void selectedSortedSource_thenSliceThenHop_matchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "select(s).limit(1).out(knows)",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").values("name"));
+  }
+
+  /** A bare select before the hop also keeps the sorted source for the post-hop cut. */
+  @Test
+  public void selectedSortedSource_thenHopThenSlice_matchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "select(s).out(knows).limit(1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").limit(1).values("name"));
+  }
+
+  /** A scalar selected before the hop raises VertexStep's ClassCastException in both placements. */
+  @Test
+  public void modulatedSelectBeforeOrderedHop_bothPlacementsThrowNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("hop then slice with scalar source",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").limit(1));
+    assertSelectHopThrowsNativeCast("source slice then hop with scalar source",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").by("name").out("knows"));
+  }
+
+  /** Empty post-hop cuts still pull the String payload before native RangeGlobalStep stops. */
+  @Test
+  public void zeroWidthPostHopSlice_scalarSelectThrowsNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("scalar range(1,1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").range(1, 1));
+    assertSelectHopThrowsNativeCast("scalar limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").limit(0));
+    assertSelectHopThrowsNativeCast("scalar skip(1).limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").skip(1).limit(0));
+  }
+
+  /** A multi-label map is cast even when the following cut emits no rows. */
+  @Test
+  public void zeroWidthPostHopSlice_multiLabelSelectThrowsNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("map range(1,1)",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").range(1, 1));
+    assertSelectHopThrowsNativeCast("map limit(0)",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").limit(0));
+  }
+
+  /** Empty sources and nonproductive selects never reach VertexStep's cast. */
+  @Test
+  public void zeroWidthPostHopSlice_emptyUpstreamDoesNotCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("empty source before scalar range(1,1)",
+        () -> graph.traversal().V().has("name", "Absent").as("s").order().by("name")
+            .select("s").by("name").out("knows").range(1, 1));
+    assertSelectHopEmpty("nonproductive select before range(1,1)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").select("s").by("missing")
+            .out("knows").range(1, 1));
+    assertSelectHopEmpty("empty source slice before scalar hop",
+        () -> graph.traversal().V().as("s").order().by("name").limit(0)
+            .select("s").by("name").out("knows"));
+  }
+
+  /** An actual vertex expands before the zero-width cut, but returns no rows. */
+  @Test
+  public void zeroWidthPostHopSlice_vertexPayloadReturnsEmpty() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("vertex range(1,1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").range(1, 1));
+    assertSelectHopEmpty("vertex limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").limit(0));
+  }
+
+  /** A multi-label selected map cannot be cast to Vertex in either ordered-hop placement. */
+  @Test
+  public void multiLabelSelectBeforeOrderedHop_bothPlacementsThrowNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("hop then slice with map source",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").limit(1));
+    assertSelectHopThrowsNativeCast("source slice then hop with map source",
+        () -> graph.traversal().V().as("s", "t").order().by("name").limit(1)
+            .select("s", "t").out("knows"));
+  }
+
+  /** Nonproductive by(missing) drops sources before VertexStep can cast a payload. */
+  @Test
+  public void nonproductiveSelectBeforeOrderedHop_bothPlacementsAreEmpty() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("hop then slice after absent by(missing)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").select("s").by("missing")
+            .out("knows").limit(1));
+    assertSelectHopEmpty("source slice then hop after absent by(missing)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").limit(1).select("s").by("missing")
+            .out("knows"));
+  }
+
+  /** A source with no outgoing edges keeps an empty translated result after selection and cut. */
+  @Test
+  public void selectedSortedSource_withNoNeighbours_returnsEmpty() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeValuesAllowEmpty(
+        "selected source has no outgoing neighbours",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").values("name"));
+  }
+
+  /** A second hop stays excluded even when the source carries a select label. */
+  @Test
+  public void selectedSortedSource_twoHops_declinesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    var first = graph.traversal().V().has("name", "AbeTarget1").next();
+    var second = graph.traversal().V().has("name", "ZedTarget1").next();
+    first.addEdge("knows", second);
+    graph.tx().commit();
+    assertOrderedSliceDeclinesWithRemainingSteps(
+        "selected source followed by two hops",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").out("knows").limit(1).values("name"));
+  }
+
+  /** Native select reads a side effect before a same-named path label, even with a source cut. */
+  @Test
+  public void sideEffectCollidingWithSelectedSource_declinesAndMatchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Abe", "n", 1);
+    var other = graph.addVertex(T.label, "Person", "name", "Bob", "n", 2);
+    var target = graph.addVertex(T.label, "Person", "name", "Target");
+    other.addEdge("knows", target);
+    graph.tx().commit();
+    assertOrderedSliceDeclinesWithRemainingSteps(
+        "side effect takes precedence over the selected source label",
+        () -> graph.traversal().withSideEffect("s", other).V().has("n", 1).as("s")
+            .order().by("n").limit(1).select("s").out("knows").values("name"));
+  }
+
+  /** A warm label-select template must not hide side-effect precedence in a later traversal. */
+  @Test
+  public void sideEffectCollisionAfterPlainSelectWarmup_stillDeclines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    var other = graph.addVertex(T.label, "Person", "name", "Bob");
+    var target = graph.addVertex(T.label, "Person", "name", "Target");
+    other.addEdge("knows", target);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeValues(
+        "plain select before side-effect collision",
+        () -> graph.traversal().V().has("name", "Abe").as("s").select("s").values("name"));
+    assertDeclinesOverTheSameNativeRows(
+        "same select key is also a side effect",
+        () -> graph.traversal().withSideEffect("s", other).V().has("name", "Abe")
+            .as("s").select("s").values("name"));
+  }
+
+  /** A multi-key SelectStep also reads side effects before path labels. */
+  @Test
+  public void multiKeySelectSideEffectCollision_declines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    assertDeclinesOverTheSameNativeRows("multi-key select reads a side effect",
+        () -> graph.traversal().withSideEffect("s", "value").V().as("s", "t")
+            .select("s", "t"));
+  }
+
+  /** Collision detection descends into a where child's select before a cached walk can start. */
+  @Test
+  public void childSelectSideEffectCollision_declines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    var shape = graph.traversal().withSideEffect("s", "value").V().as("s")
+        .where(__.select("s")).values("name").asAdmin();
+    // withSideEffect installs its traversal-side key during strategy application; install it
+    // explicitly for this direct pre-application check of the recursive child inspection.
+    shape.getSideEffects().register("s", () -> "value", (a, b) -> b);
+    assertThat(GremlinStepWalker.selectCollidesWithSideEffect(shape)).isTrue();
+    assertDeclinesOverTheSameNativeRows("child select reads a side effect",
+        () -> graph.traversal().withSideEffect("s", "value").V().as("s")
+            .where(__.select("s")).values("name"));
+  }
+
+  /** A side effect with a distinct key leaves ordinary select translation eligible. */
+  @Test
+  public void nonCollidingSideEffect_keepsSelectTranslated() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    support.assertEquivalent("non-colliding side effect",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedStrings,
+        () -> graph.traversal().withSideEffect("other", "value").V().as("s")
+            .select("s").values("name"));
+  }
+
   /** {@code skip} half of source-slice-then-hop: drop first sorted hub, expand from the rest. */
   @Test
   public void orderThenSkipThenHop_translatesAndMatchesNative() {
@@ -2059,6 +2268,49 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * because {@code order()} makes the sequence the answer. A discriminating-key top-N that agreed
    * as a multiset but disagreed on positions would fail this pin.
    */
+  /** Compare the user-visible exception and require the translator boundary in the on arm. */
+  private void assertSelectHopThrowsNativeCast(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal.getSteps())).isZero();
+      assertThatThrownBy(nativeTraversal::toList)
+          .as(scenario + " (native)").isInstanceOf(ClassCastException.class);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated.getSteps())).as(scenario).isEqualTo(1);
+      assertThatThrownBy(translated::toList)
+          .as(scenario + " (translated)").isInstanceOf(ClassCastException.class);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** Require exact empty results, not a decline or an exception, on both execution paths. */
+  private void assertSelectHopEmpty(String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal.getSteps())).isZero();
+      assertThat(nativeTraversal.toList()).as(scenario + " (native)").isEmpty();
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated.getSteps())).as(scenario).isEqualTo(1);
+      assertThat(translated.toList()).as(scenario + " (translated)").isEmpty();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
   private void assertTranslatesAndMatchesNativeOrderedValues(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
     var original = translatorEnabled();

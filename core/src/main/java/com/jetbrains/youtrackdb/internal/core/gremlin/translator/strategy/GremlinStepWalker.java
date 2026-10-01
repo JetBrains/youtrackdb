@@ -498,6 +498,9 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
+    if (selectCollidesWithSideEffect(traversal)) {
+      return null;
+    }
 
     // Resolve the polymorphism flag once. isPolymorphic is null-safe: it gates on an attached YTDB
     // graph + transaction before touching tx(), so a detached EmptyGraph or non-YTDB graph yields
@@ -1178,6 +1181,49 @@ final class GremlinStepWalker {
             ? Outcome.ACCEPTED
             : Outcome.DECLINE);
     return adapter;
+  }
+
+  /** Native select resolves side effects before path labels. Never cache a label-only projection
+   * for a traversal whose selected key also names a side effect. */
+  static boolean selectCollidesWithSideEffect(Traversal.Admin<?, ?> traversal) {
+    var sideEffects = traversal.getSideEffects();
+    if (sideEffects == null) {
+      return false;
+    }
+    var keys = sideEffects.keys();
+    if (keys.isEmpty()) {
+      return false;
+    }
+    return selectsAnyKey(traversal, keys);
+  }
+
+  private static boolean selectsAnyKey(Traversal.Admin<?, ?> traversal,
+      java.util.Set<String> keys) {
+    for (Step<?, ?> step : traversal.getSteps()) {
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep<?,
+          ?> one
+          && one.getScopeKeys().stream().anyMatch(keys::contains)) {
+        return true;
+      }
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep<?,
+          ?> many
+          && many.getSelectKeys().stream().anyMatch(keys::contains)) {
+        return true;
+      }
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          if (selectsAnyKey(child.asAdmin(), keys)) {
+            return true;
+          }
+        }
+        for (var child : parent.getGlobalChildren()) {
+          if (selectsAnyKey(child.asAdmin(), keys)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

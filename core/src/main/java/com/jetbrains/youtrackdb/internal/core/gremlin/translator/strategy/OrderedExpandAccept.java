@@ -2,8 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
@@ -68,6 +71,10 @@ final class OrderedExpandAccept {
     if (fromAlias == null) {
       return Outcome.DECLINE;
     }
+    var sourceProjection = sourceProjection(ctx, fromAlias);
+    if (sourceProjection == SourceProjection.UNSUPPORTED) {
+      return Outcome.DECLINE;
+    }
     var arity = GremlinPatternAssembler.resolveEdgeLabel(hop, ctx);
     if (!arity.translatable()) {
       return Outcome.DECLINE;
@@ -92,19 +99,10 @@ final class OrderedExpandAccept {
       cursor.take();
       hasContainers.addAll(collected);
     }
-    String propertyKey = null;
-    var next = cursor.peek();
-    if (next instanceof PropertiesStep<?> properties
-        && properties.getReturnType() == PropertyType.VALUE) {
-      var keys = properties.getPropertyKeys();
-      if (keys.length == 1 && keys[0] != null && !keys[0].isBlank()
-          && !WalkerContext.isReservedHasKey(keys[0])) {
-        cursor.take();
-        propertyKey = keys[0];
-      }
-    }
-    // RETURN already sources; re-pin boundary for ELEMENT projection into the expand stage.
-    ctx.pinBoundary(fromAlias, BoundaryOutputType.ELEMENT, Vertex.class);
+    String propertyKey = takeValuesKey(cursor);
+    // Bare select unwraps to a Vertex. Other selects must retain their projected scalar or map:
+    // the expand stage performs VertexStep's cast after any nonproductive rows have been dropped.
+    restoreSourceProjection(ctx, fromAlias, sourceProjection);
     // skip/limit stay on the statement (source top-N); the op only expands.
     ctx.appendListShapingOp(
         new OrderedExpandSliceListShapingOp(
@@ -115,5 +113,83 @@ final class OrderedExpandAccept {
             propertyKey,
             List.copyOf(hasContainers)));
     return Outcome.ACCEPTED;
+  }
+
+  enum SourceProjection {
+    ELEMENT, SELECT_PAYLOAD, UNSUPPORTED
+  }
+
+  /** Classify the payload before the pending hop re-pins the boundary to its synthetic target. */
+  static SourceProjection sourceProjection(RecognitionContext ctx, String alias) {
+    if (sourceIsElement(ctx, alias)) {
+      return SourceProjection.ELEMENT;
+    }
+    if (ctx instanceof WalkerContext walker
+        && ctx.boundaryOutputType() == BoundaryOutputType.MAP
+        && !walker.shaping().mapEmitColumnOrder().isEmpty()
+        && walker.shaping().mapEmitColumnOrder().stream()
+            .allMatch(label -> ctx.resolveUserLabel(label) != null)) {
+      // Modulated select and multi-label select both produce a non-Vertex payload. Keep their
+      // projection and presence checks intact so a missing by(key) drops before the hop cast.
+      return SourceProjection.SELECT_PAYLOAD;
+    }
+    return SourceProjection.UNSUPPORTED;
+  }
+
+  static boolean sourceIsElement(RecognitionContext ctx, String alias) {
+    if (ctx.boundaryOutputType() == BoundaryOutputType.ELEMENT) {
+      return true;
+    }
+    if (ctx instanceof WalkerContext walker) {
+      var shaping = walker.shaping();
+      if (ctx.boundaryOutputType() != BoundaryOutputType.MAP
+          || !shaping.unwrapSingletonMap()
+          || shaping.dropOnAbsent()
+          || !shaping.aliasPropertyPresences().isEmpty()
+          || !shaping.mapEmitColumnOrder().isEmpty()
+          || walker.returnItems.size() != 1
+          || !walker.returnItems.getFirst().toString()
+              .equals(MatchProjectionBuilder.aliasColumn(alias).toString())) {
+        return false;
+      }
+      // The sole projected cell must name a path label bound to this sorted source.
+      return walker.userLabelToAlias.entrySet().stream()
+          .anyMatch(entry -> alias.equals(entry.getValue())
+              && walker.returnAliases.getFirst().toString()
+                  .equals(MatchProjectionBuilder.columnAlias(entry.getKey()).toString()));
+    }
+    return false;
+  }
+
+  static void restoreSourceProjection(
+      RecognitionContext ctx, String alias, SourceProjection projection) {
+    if (projection == SourceProjection.SELECT_PAYLOAD) {
+      ctx.pinBoundary(alias, BoundaryOutputType.MAP, Vertex.class);
+      return;
+    }
+    repinSourceElement(ctx, alias);
+  }
+
+  static void repinSourceElement(RecognitionContext ctx, String alias) {
+    ctx.setSingleReturnColumn(alias);
+    if (ctx instanceof WalkerContext walker) {
+      ctx.setResultShaping(
+          ResultShaping.NONE.withListShapingOps(walker.shaping().listShapingOps()));
+    }
+    ctx.pinBoundary(alias, BoundaryOutputType.ELEMENT, Vertex.class);
+  }
+
+  /** Consume only a single ordinary values(key); leave all other projections for the walker gate. */
+  static @Nullable String takeValuesKey(StepCursor cursor) {
+    if (cursor.peek() instanceof PropertiesStep<?> properties
+        && properties.getReturnType() == PropertyType.VALUE) {
+      var keys = properties.getPropertyKeys();
+      if (keys.length == 1 && keys[0] != null && !keys[0].isBlank()
+          && !WalkerContext.isReservedHasKey(keys[0])) {
+        cursor.take();
+        return keys[0];
+      }
+    }
+    return null;
   }
 }

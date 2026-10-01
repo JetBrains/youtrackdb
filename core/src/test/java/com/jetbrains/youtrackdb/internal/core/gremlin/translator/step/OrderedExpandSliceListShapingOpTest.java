@@ -147,22 +147,59 @@ public class OrderedExpandSliceListShapingOpTest {
     assertThat(drain(op.apply(List.<Object>of(source).iterator()))).containsExactly(7);
   }
 
-  /** A non-Vertex upstream payload fails loud — MATCH ELEMENT projection must hand vertices. */
+  /** A projected String raises the same cast error as native VertexStep. */
   @Test
-  public void apply_nonVertexSource_throwsIllegalState() {
+  public void apply_nonVertexSource_throwsClassCast() {
     var op =
         new OrderedExpandSliceListShapingOp(
             Direction.OUT, new String[] {"knows"}, 0, 1, null, List.of());
     var shaped = op.apply(List.<Object>of("not-a-vertex").iterator());
 
-    assertThatExceptionOfType(IllegalStateException.class)
-        .isThrownBy(shaped::hasNext)
-        .withMessageContaining("OrderedExpandSlice");
+    assertThatExceptionOfType(ClassCastException.class).isThrownBy(shaped::hasNext);
   }
 
-  /** Null upstream payload is reported as {@code null} in the failure message. */
+  /** A zero-width cut still attempts the first expansion before its range rejects the row. */
   @Test
-  public void apply_nullSource_throwsIllegalState() {
+  public void apply_zeroWidthCut_castsNonVertexButLeavesEmptyInputEmpty() {
+    var op = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 1, 0, null, List.of());
+
+    assertThatExceptionOfType(ClassCastException.class)
+        .isThrownBy(() -> op.apply(List.<Object>of("scalar").iterator()).hasNext());
+    assertThat(drain(op.apply(Collections.emptyIterator()))).isEmpty();
+  }
+
+  /** A vertex source may be expanded by an empty cut without emitting its neighbour. */
+  @Test
+  public void apply_zeroWidthCut_vertexSourceEmitsNothing() {
+    var source = mock(Vertex.class);
+    var target = vertexWithName("target");
+    when(source.vertices(eq(Direction.OUT), eq("knows")))
+        .thenReturn(List.of(target).iterator());
+    var op = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, 0, null, List.of());
+
+    assertThat(drain(op.apply(List.<Object>of(source).iterator()))).isEmpty();
+  }
+
+  /** A reached cut still pulls once more, so a later invalid source cannot escape the cast. */
+  @Test
+  public void apply_positiveCut_pullsPastQuotaLikeNativeFilterStep() {
+    var source = mock(Vertex.class);
+    var neighbour = vertexWithName("target");
+    when(source.vertices(eq(Direction.OUT), eq("knows")))
+        .thenReturn(List.of(neighbour).iterator());
+    var op = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, 1, null, List.of());
+    var shaped = op.apply(List.<Object>of(source, "scalar").iterator());
+
+    assertThat(shaped.next()).isSameAs(neighbour);
+    assertThatExceptionOfType(ClassCastException.class).isThrownBy(shaped::hasNext);
+  }
+
+  /** Native VertexStep dereferences a null payload after the Vertex cast. */
+  @Test
+  public void apply_nullSource_throwsNullPointer() {
     var payloads = new ArrayList<>();
     payloads.add(null);
     var op =
@@ -170,9 +207,7 @@ public class OrderedExpandSliceListShapingOpTest {
             Direction.OUT, new String[] {"knows"}, 0, 1, null, List.of());
     var shaped = op.apply(payloads.iterator());
 
-    assertThatExceptionOfType(IllegalStateException.class)
-        .isThrownBy(shaped::hasNext)
-        .withMessageContaining("null");
+    assertThatExceptionOfType(NullPointerException.class).isThrownBy(shaped::hasNext);
   }
 
   /**

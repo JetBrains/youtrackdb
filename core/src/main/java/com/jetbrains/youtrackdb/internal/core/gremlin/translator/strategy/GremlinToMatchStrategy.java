@@ -340,6 +340,12 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
+    // Check before a template lookup: a cached path-label projection cannot stand in for a
+    // side-effect value that belongs to this invocation.
+    if (GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      return;
+    }
     // Resolve all order settings once for this compilation. The shape key below and the walk
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is

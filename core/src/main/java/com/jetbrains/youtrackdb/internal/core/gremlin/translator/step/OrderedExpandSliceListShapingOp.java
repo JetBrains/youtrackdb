@@ -112,27 +112,26 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
           return false;
         }
         while (true) {
-          if (limit >= 0 && accepted >= limit) {
-            exhausted = true;
-            return false;
-          }
           while (!neighbours.hasNext()) {
             if (!upstream.hasNext()) {
               exhausted = true;
               return false;
             }
-            var source = upstream.next();
-            if (!(source instanceof Vertex vertex)) {
-              throw new IllegalStateException(
-                  "OrderedExpandSlice expects Vertex sources, got "
-                      + (source == null ? "null" : source.getClass().getName()));
-            }
-            neighbours = expand(vertex);
+            // VertexStep casts each payload to Vertex before expanding it. Projected select
+            // scalars/maps must raise the same ClassCastException, while a nonproductive select
+            // has already dropped its source in the boundary projection.
+            neighbours = expand((Vertex) upstream.next());
           }
           var neighbour = neighbours.next();
           // Native order().hop().has().limit filters before the positional cut — same containers.
           if (!hasContainers.isEmpty() && !HasContainer.testAll(neighbour, hasContainers)) {
             continue;
+          }
+          // Native RangeGlobalStep is a FilterStep: it pulls the next surviving traverser
+          // before checking its high bound. Even an empty cut must expand (and cast) first.
+          if (limit >= 0 && accepted >= limit) {
+            exhausted = true;
+            return false;
           }
           if (dropped < skip) {
             dropped++;

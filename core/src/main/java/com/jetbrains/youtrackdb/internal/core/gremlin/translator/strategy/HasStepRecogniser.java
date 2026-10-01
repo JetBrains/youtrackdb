@@ -380,6 +380,13 @@ final class HasStepRecogniser implements StepRecogniser {
         }
       }
     }
+    for (var container : containers) {
+      if (!LABEL_KEY.equals(container.getKey())) {
+        // Deferred IDs and property literals are not rebound inside cached shaping ops.
+        // Until op parameters are supported, keep each invocation's filter in its own plan.
+        ctx.markRidBearing();
+      }
+    }
     return List.copyOf(containers);
   }
 
