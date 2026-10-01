@@ -341,8 +341,8 @@ interface RecognitionContext extends ParamSink {
   boolean hasExistsMatchExpressions();
 
   /**
-   * Marks this walk as RID-bearing ({@code g.V(ids)} start ids or a {@code hasId(...)} filter).
-   * RID-bearing shapes bypass the plan cache because their fingerprint would vary per id set.
+   * Marks this walk as non-cacheable for invocation-specific RIDs or deferred has literals.
+   * Those values are not rebound into cached templates.
    */
   void markRidBearing();
 

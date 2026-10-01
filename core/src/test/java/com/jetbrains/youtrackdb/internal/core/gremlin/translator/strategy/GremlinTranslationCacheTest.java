@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -18,6 +20,7 @@ import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -113,6 +116,175 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(sortedNames(second)).containsExactly("Bob");
     assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /** Deferred hasId cannot serve the first RID's neighbour predicate to a second RID. */
+  @Test
+  public void orderedHopHasId_twoDifferentIds_keepTheirOwnResults() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub");
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    hub.addEdge("knows", alice);
+    hub.addEdge("knows", bob);
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hits = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
+        .out("knows").hasId(alice.id()).limit(1)))).containsExactly("Alice");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
+        .out("knows").hasId(bob.id()).limit(1)))).containsExactly("Bob");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    support.assertEquivalent("first deferred RID", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .hasId(alice.id()).limit(1));
+    support.assertEquivalent("second deferred RID", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .hasId(bob.id()).limit(1));
+  }
+
+  /** Warm cache entries for bare selects and distinct by-modulators never replace each other. */
+  @Test
+  public void orderedHopSelectPayloads_alternateOverWarmCacheWithoutSharingTemplates() {
+    var source = graph.addVertex(T.label, "Person", "name", "Source", "age", 24);
+    var target = graph.addVertex(T.label, "Person", "name", "Target");
+    source.addEdge("knows", target);
+    graph.tx().commit();
+
+    var bareKey = shapeKey(() -> graph.traversal().V().has("name", "Source")
+        .as("s").order().by("name").select("s").out("knows").limit(1));
+    var nameKey = shapeKey(() -> graph.traversal().V().has("name", "Source")
+        .as("s").order().by("name").select("s").by("name").out("knows").limit(1));
+    var ageKey = shapeKey(() -> graph.traversal().V().has("name", "Source")
+        .as("s").order().by("name").select("s").by("age").out("knows").limit(1));
+    assertThat(bareKey).isNotEqualTo(nameKey).isNotEqualTo(ageKey);
+    assertThat(nameKey).isNotEqualTo(ageKey);
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    // Run two shapes at a time: another core test sets the global cache capacity to two.
+    // A third simultaneous entry would evict the first and make the hit pin depend on test order.
+    for (String modulator : List.of("name", "age")) {
+      for (int round = 0; round < 2; round++) {
+        assertCachedSelectCast(modulator + " payload, round " + round,
+            () -> graph.traversal().V().has("name", "Source")
+                .as("s").order().by("name").select("s").by(modulator)
+                .out("knows").limit(1));
+        support.assertEquivalent("bare select after " + modulator + ", round " + round,
+            Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+            TranslatorEquivalenceSupport::sortedIds,
+            () -> graph.traversal().V().has("name", "Source")
+                .as("s").order().by("name").select("s").out("knows").limit(1));
+      }
+    }
+    // Each distinct shape misses once, then hits its own entry on the next paired pass. The
+    // raw shape keys above differ from stored keys after the RID tie-break strategy runs.
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses + 3);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 5);
+  }
+
+  /** A cached select-payload traversal must translate and throw like its native counterpart. */
+  private void assertCachedSelectCast(
+      String scenario,
+      java.util.function.Supplier<
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape) {
+    support.withTranslator(false, () -> {
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(nativeTraversal)).isZero();
+      assertThatThrownBy(nativeTraversal::toList).as(scenario + " (native)")
+          .isInstanceOf(ClassCastException.class);
+    });
+    support.withTranslator(true, () -> {
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(translated)).isEqualTo(1);
+      assertThatThrownBy(translated::toList).as(scenario + " (translated)")
+          .isInstanceOf(ClassCastException.class);
+    });
+  }
+
+  /** An op with an unbound custom predicate literal cannot use an earlier op's literal. */
+  @Test
+  public void orderedHopCustomPredicate_twoDifferentLiterals_areNotCached() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub");
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    hub.addEdge("knows", alice);
+    hub.addEdge("knows", bob);
+    graph.tx().commit();
+
+    PBiPredicate<Object, Object> same = Object::equals;
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    var firstShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().order().by("name").out("knows")
+            .has("name", new P<>(same, "Alice")).limit(1).asAdmin(),
+        graphSession());
+    var secondShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().order().by("name").out("knows")
+            .has("name", new P<>(same, "Bob")).limit(1).asAdmin(),
+        graphSession());
+    assertThat(firstShape.key()).isEqualTo(secondShape.key());
+    assertThat(cache.containsTranslation(firstShape.key())).isFalse();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
+        .out("knows").has("name", new P<>(same, "Alice")).limit(1))))
+        .containsExactly("Alice");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
+        .out("knows").has("name", new P<>(same, "Bob")).limit(1))))
+        .containsExactly("Bob");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationMisses())
+        .isEqualTo(misses + (firstShape.complete() ? 2 : 0));
+    assertThat(cache.containsTranslation(firstShape.key()))
+        .as("the walk must not store a reusable op containing Alice's literal")
+        .isFalse();
+    support.assertEquivalent("first custom literal", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", new P<>(same, "Alice")).limit(1));
+    support.assertEquivalent("second custom literal", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", new P<>(same, "Bob")).limit(1));
+  }
+
+  /** A bindable filter before a sorted hop shares its template across different source values. */
+  @Test
+  public void orderedHopPreHopHas_twoValues_shareCachedTranslation() {
+    var abe = graph.addVertex(T.label, "Person", "name", "Abe");
+    var zed = graph.addVertex(T.label, "Person", "name", "Zed");
+    var firstTarget = graph.addVertex(T.label, "Person", "name", "FirstTarget");
+    var secondTarget = graph.addVertex(T.label, "Person", "name", "SecondTarget");
+    abe.addEdge("knows", firstTarget);
+    zed.addEdge("knows", secondTarget);
+    graph.tx().commit();
+
+    var firstShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("name", "Abe").order().by("name")
+            .limit(1).out("knows").asAdmin(),
+        graphSession());
+    var secondShape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("name", "Zed").order().by("name")
+            .limit(1).out("knows").asAdmin(),
+        graphSession());
+    assertThat(firstShape.complete()).isTrue();
+    assertThat(firstShape.key()).isEqualTo(secondShape.key());
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Abe")
+        .order().by("name").limit(1).out("knows")))).containsExactly("FirstTarget");
+    assertThat(cache.containsTranslation(firstShape.key())).isTrue();
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Zed")
+        .order().by("name").limit(1).out("knows")))).containsExactly("SecondTarget");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
   }
 
   /**

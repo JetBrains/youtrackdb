@@ -91,9 +91,13 @@ final class GremlinPatternAssembler {
       if (!ctx.bindStepLabels(hop, targetAlias)) {
         return Outcome.DECLINE;
       }
+      // Snapshot the source projection before pinning the synthetic neighbour. The pin describes
+      // the logical has()/hop() target, not the payload consumed by the deferred VertexStep.
+      var sourceProjection = OrderedExpandAccept.sourceProjection(ctx, fromAlias);
       ctx.setPendingOrderedHop(
           new PendingOrderedHop(
-              hop.getDirection(), arity.labels(), fromAlias, targetAlias, List.of()));
+              hop.getDirection(), arity.labels(), fromAlias, targetAlias, List.of(),
+              sourceProjection));
       ctx.pinBoundary(targetAlias, BoundaryOutputType.ELEMENT, Vertex.class);
       return Outcome.ACCEPTED;
     }

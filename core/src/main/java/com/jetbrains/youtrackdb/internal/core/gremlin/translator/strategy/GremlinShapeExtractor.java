@@ -15,6 +15,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
@@ -167,6 +168,12 @@ final class GremlinShapeExtractor {
         continue;
       }
       encoder.appendToken("S", step.getClass().getName());
+      if (step instanceof HasStep<?> hasStep) {
+        if (hasStep.getHasContainers().stream().anyMatch(
+            c -> org.apache.tinkerpop.gremlin.structure.T.id.getAccessor().equals(c.getKey()))) {
+          encoder.markIncomplete();
+        }
+      }
       var labels = GremlinStepLabels.userLabels(step);
       encoder.appendStringSeq("L", labels);
       var recogniser = recognisers.get(step.getClass());

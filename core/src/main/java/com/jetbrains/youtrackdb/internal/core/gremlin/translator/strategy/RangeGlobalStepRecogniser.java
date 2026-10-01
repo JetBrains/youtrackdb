@@ -1,15 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
-import org.apache.tinkerpop.gremlin.structure.PropertyType;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
  * Recogniser for {@code RangeGlobalStep} / {@code RangeGlobalStepPlaceholder}: {@code limit(n)},
@@ -258,25 +254,15 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (ctx.groupBy() != null) {
       return Outcome.DECLINE;
     }
-    if (!ctx.supportsListShaping()) {
+    if (!ctx.supportsListShaping()
+        || pendingHop.sourceProjection() == OrderedExpandAccept.SourceProjection.UNSUPPORTED) {
       return Outcome.DECLINE;
     }
-    // Trailing values(key) projects neighbour properties after expand (drop when absent). Peeked
-    // here so the walker list-shaping drain latch does not need to admit PropertiesStepRecogniser.
-    String propertyKey = null;
-    var next = cursor.peek();
-    if (next instanceof PropertiesStep<?> properties
-        && properties.getReturnType() == PropertyType.VALUE) {
-      var keys = properties.getPropertyKeys();
-      if (keys.length == 1 && keys[0] != null && !keys[0].isBlank()
-          && !WalkerContext.isReservedHasKey(keys[0])) {
-        cursor.take();
-        propertyKey = keys[0];
-      }
-    }
+    // The list-shaping drain consumes the same trailing values(key) shape in both slice positions.
+    String propertyKey = OrderedExpandAccept.takeValuesKey(cursor);
     ctx.takePendingOrderedHop();
-    // Re-pin boundary to source for ELEMENT projection of ordered hubs (RETURN already sources).
-    ctx.pinBoundary(pendingHop.fromAlias(), BoundaryOutputType.ELEMENT, Vertex.class);
+    OrderedExpandAccept.restoreSourceProjection(ctx, pendingHop.fromAlias(),
+        pendingHop.sourceProjection());
     ctx.appendListShapingOp(
         new OrderedExpandSliceListShapingOp(
             pendingHop.direction(),
