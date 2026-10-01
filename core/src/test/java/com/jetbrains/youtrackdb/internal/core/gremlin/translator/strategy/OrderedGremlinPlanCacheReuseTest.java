@@ -283,8 +283,8 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
           GremlinPlanFingerprint.fingerprint(eligibleChild.inputs(), translation.shaping());
       InternalExecutionPlan injected = null;
       if (call == 1) {
-        injected = GremlinPlanCache.put(privateKey, cache.peekStored(eligibleKey), db,
-            cache.getGeneration());
+        cache.putInternal(privateKey, cache.peekStored(eligibleKey), db, cache.getGeneration());
+        injected = cache.peekStored(privateKey);
         assertThat(injected).isNotNull();
       }
       var hits = cache.getHits();
@@ -454,7 +454,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       var db = graphSession(privateGraph);
       var cache = GremlinPlanCache.instance(db);
       var key = GremlinStepWalker.extractShape(ordered(privateGraph, 1, 0).asAdmin(), db).key();
-      var sharedTranslation = cache.getTranslationInternal(key, db);
+      var sharedTranslation = cache.getTranslationInternal(key, db, cache.getGeneration());
       db.getMetadata().getSchema().createClass("PrivateOrderedClass");
       assertThat(db.getTxSchemaState()).isNotNull();
       var hits = cache.getTranslationHits();
@@ -466,7 +466,8 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       assertThat(boundary(traversal).getPlan()).isSameAs(privatePlan);
       assertThat(cache.getTranslationHits()).isEqualTo(hits);
       var thirdDb = graphSession(third);
-      assertThat(cache.getTranslationInternal(key, thirdDb)).isSameAs(sharedTranslation);
+      assertThat(cache.getTranslationInternal(key, thirdDb, cache.getGeneration()))
+          .isSameAs(sharedTranslation);
       var reused = ordered(third, 1, 0);
       GremlinToMatchStrategy.instance().apply(reused.asAdmin());
       assertThat(boundary(reused).getPlan()).isSameAs(template).isNotSameAs(privatePlan);
