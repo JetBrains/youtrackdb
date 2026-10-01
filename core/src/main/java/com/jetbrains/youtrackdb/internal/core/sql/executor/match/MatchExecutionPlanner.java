@@ -712,7 +712,9 @@ public class MatchExecutionPlanner {
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: reuse SELECT's FetchFromIndexValues path (IndexOrderedPlanner needs a hop).
-      if (indexOrderedCandidate == null) {
+      // UNWIND / GROUP BY change grain after the root fetch — injecting and eliding MATCH ORDER BY
+      // would sort the wrong row set. Skip SingleNode entirely for those shapes.
+      if (indexOrderedCandidate == null && this.unwind == null && this.groupBy == null) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,
@@ -806,7 +808,11 @@ public class MatchExecutionPlanner {
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
             && indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct) {
+            && !this.returnDistinct
+            && !this.returnElements
+            && !this.returnPaths
+            && !this.returnPatterns
+            && !this.returnPathElements) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // indexOrderedUpstream: OrderByStep checks runtime context variable
@@ -872,6 +878,14 @@ public class MatchExecutionPlanner {
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
+      // addOrderByProjections may replace ORDER BY items with minted aliases; rebind the hint so
+      // OrderByStep.copy() still finds primaryKeySortedInput inside the cached plan's orderBy.
+      if (info.primaryKeySortedInput != null
+          && info.orderBy != null
+          && !info.orderBy.getItems().isEmpty()
+          && !info.orderBy.getItems().contains(info.primaryKeySortedInput)) {
+        info.primaryKeySortedInput = info.orderBy.getItems().getFirst();
+      }
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
     }
 

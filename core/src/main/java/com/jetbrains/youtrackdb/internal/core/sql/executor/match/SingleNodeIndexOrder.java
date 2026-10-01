@@ -87,7 +87,7 @@ final class SingleNodeIndexOrder {
         || !IndexOrderedPlanner.isDefaultCollate(primary.getDeclaredCollate())) {
       return null;
     }
-    var resolved = resolveOrderByToAliasProperty(primary, returnItems, returnAliases);
+    var resolved = resolveOrderByToAliasProperty(primary, alias, returnItems, returnAliases);
     if (resolved == null || !alias.equals(resolved[0])) {
       return null;
     }
@@ -141,6 +141,9 @@ final class SingleNodeIndexOrder {
     var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
     selectItem.setNullOrdering(primary.getNullOrdering());
     selectItem.setDeclaredCollate(primary.getDeclaredCollate());
+    // Keep GremlinOrderComparator when the MATCH item came from the Gremlin→MATCH translator;
+    // a fresh projection-alias item would otherwise use DefaultComparator after elision.
+    selectItem.setGremlinToMatchTranslatorProduced(primary.isGremlinToMatchTranslatorProduced());
     var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
 
     if (items.size() == 1) {
@@ -315,11 +318,25 @@ final class SingleNodeIndexOrder {
 
   @Nullable private static String[] resolveOrderByToAliasProperty(
       SQLOrderByItem orderItem,
+      @Nonnull String patternAlias,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases) {
     var orderAlias = orderItem.getAlias();
     if (orderAlias == null) {
       return null;
+    }
+    // RETURN can rebind the pattern alias (RETURN s.child AS s). ORDER BY s.score must not be
+    // treated as the pattern node's score — refuse SingleNode inject/elision in that case.
+    if (returnAliases != null && returnItems != null && patternAlias.equals(orderAlias)) {
+      for (int i = 0; i < returnAliases.size(); i++) {
+        var retAlias = returnAliases.get(i);
+        if (retAlias == null || !patternAlias.equals(retAlias.getStringValue())) {
+          continue;
+        }
+        if (!isBareAliasProjection(returnItems.get(i), patternAlias)) {
+          return null;
+        }
+      }
     }
     var modifier = orderItem.getModifier();
     if (modifier != null) {
@@ -330,14 +347,26 @@ final class SingleNodeIndexOrder {
       return null;
     }
     if (returnAliases != null && returnItems != null) {
+      // Duplicate RETURN aliases: ORDER BY uses the last expression (same as projection).
+      String[] resolved = null;
       for (int i = 0; i < returnAliases.size(); i++) {
         var retAlias = returnAliases.get(i);
         if (retAlias != null && retAlias.getStringValue().equals(orderAlias)) {
-          return resolveSimpleDotExpression(returnItems.get(i));
+          resolved = resolveSimpleDotExpression(returnItems.get(i));
         }
       }
+      return resolved;
     }
     return null;
+  }
+
+  /**
+   * True when {@code expr} is exactly the bare pattern alias (no property path), so {@code RETURN
+   * alias} / {@code RETURN alias AS alias} does not rebind the name to another entity.
+   */
+  private static boolean isBareAliasProjection(SQLExpression expr, String patternAlias) {
+    var field = extractSimpleFieldName(expr);
+    return patternAlias.equals(field);
   }
 
   @Nullable private static String[] resolveSimpleDotExpression(SQLExpression expr) {

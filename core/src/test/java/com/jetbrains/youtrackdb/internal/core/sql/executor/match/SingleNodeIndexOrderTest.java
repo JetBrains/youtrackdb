@@ -579,6 +579,106 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     assertThat(actual).isEqualTo(expectedScoredRids(false));
   }
 
+  /**
+   * {@code RETURN s.child AS s} rebinds the pattern alias. ORDER BY s.score must sort by the
+   * child's score. SingleNode must not inject/elide using the parent node's index — that sorted by
+   * parent score and dropped MATCH OrderBy.
+   */
+  @Test
+  public void bareMatch_returnAliasShadowsPattern_doesNotInjectOrElide() {
+    session.execute("CREATE CLASS ShadowParent EXTENDS V").close();
+    session.execute("CREATE CLASS ShadowChild EXTENDS V").close();
+    session.execute("CREATE PROPERTY ShadowParent.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowParent.child LINK ShadowChild").close();
+    session.execute("CREATE PROPERTY ShadowChild.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowChild.tag STRING").close();
+    session.execute("CREATE INDEX ShadowParent_score ON ShadowParent (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX ShadowChild SET score = 1, tag = 'low-child'").close();
+    session.execute("CREATE VERTEX ShadowChild SET score = 100, tag = 'high-child'").close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 10, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 1)")
+        .close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 1, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 100)")
+        .close();
+    session.commit();
+
+    var query = "MATCH {class: ShadowParent, as: s}"
+        + " RETURN s.child.tag AS tag, s.child AS s ORDER BY s.score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("shadowed alias must not open parent score VALUES / elide MATCH OrderBy:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES ASC ShadowParent_score")
+        .contains("+ ORDER BY");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tag"))));
+    }
+    // Child scores 1 then 100 — not parent scores 1 then 10 (that would be high-child, low-child).
+    assertThat(tags).containsExactly("low-child", "high-child");
+  }
+
+  /**
+   * UNWIND changes cardinality after the root fetch. SingleNode must not inject ORDER BY into
+   * MatchFirst / elide MATCH OrderBy — LIMIT applies to expanded rows.
+   */
+  @Test
+  public void bareMatch_unwindBeforeOrderBy_doesNotInjectRootSelectOrder() {
+    session.execute("CREATE CLASS UWItem EXTENDS V").close();
+    session.execute("CREATE PROPERTY UWItem.tags EMBEDDEDLIST STRING").close();
+    session.execute("CREATE PROPERTY UWItem.k LONG").close();
+    session.execute("CREATE INDEX UWItem_k ON UWItem (k) NOTUNIQUE").close();
+    session.begin();
+    session
+        .execute(
+            "CREATE VERTEX UWItem SET k = 2, name = 'alice', tags = ['zulu', 'bravo', 'alpha']")
+        .close();
+    session.execute("CREATE VERTEX UWItem SET k = 1, name = 'bob', tags = ['yankee', 'charlie']")
+        .close();
+    session.execute("CREATE VERTEX UWItem SET k = 3, name = 'carol', tags = ['delta']").close();
+    session.commit();
+
+    var query = "MATCH {class: UWItem, as: p} RETURN p.name AS name, p.tags AS tags"
+        + " ORDER BY tags ASC UNWIND tags LIMIT 3";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("UNWIND must keep MATCH OrderBy off the root SELECT:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES")
+        .contains("+ UNWIND")
+        .contains("+ ORDER BY");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tags"))));
+    }
+    assertThat(tags).containsExactly("alpha", "bravo", "charlie");
+  }
+
+  /**
+   * GROUP BY changes grain before ORDER BY. SingleNode must not inject or elide root SELECT
+   * ORDER BY; groups are ordered by the grouping key.
+   */
+  @Test
+  public void bareMatch_groupBy_skipsRootSelectOrderInject() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
+        + " GROUP BY score ORDER BY score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("GROUP BY must not open SingleNode VALUES elision path:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES ASC Scored_score");
+
+    var scores = new ArrayList<Object>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> scores.add(row.getProperty("score")));
+    }
+    assertThat(scores).containsExactly(null, 1, 2, 3);
+  }
+
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {
     return source.V().hasLabel("IndexedItem")
         .order().by("timestamp", Order.desc)
