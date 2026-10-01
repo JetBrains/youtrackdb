@@ -51,7 +51,12 @@ public interface YTDBGraph extends Graph {
   ///
   /// @param ibuFilesSupplier        Lamba that provides the list of backup files already created.
   /// @param ibuInputStreamSupplier  Lamba that provides the input stream for the backup file.
-  /// @param ibuOutputStreamSupplier Lamba that provides the output stream for the backup file.
+  /// @param ibuOutputStreamSupplier Lambda that provides the output stream for the backup file.
+  /// The output stream may implement [BackupForceCapability]. It must make all written bytes and
+  /// the file length durable before its force returns. It must also publish one write request
+  /// inside one aligned 512-byte unit block completely or not at all. A stream without that
+  /// guarantee must not implement the capability. Backup then records an absent barrier flag.
+  ///
   /// @param ibuFileRemover          Lamba that removes the backup file from the backup storage.
   ///
   void backup(final Supplier<Iterator<String>> ibuFilesSupplier,
