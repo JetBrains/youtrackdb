@@ -852,12 +852,8 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected StartupMetadata checkIfStorageDirty() throws IOException {
-    if (startupMetadata.exists()) {
-      startupMetadata.open(YouTrackDBConstants.getRawVersion());
-    } else {
-      startupMetadata.create(YouTrackDBConstants.getRawVersion());
-      startupMetadata.makeDirty(YouTrackDBConstants.getRawVersion());
-    }
+    // open also handles a missing main with a valid backup under the main-file lock.
+    startupMetadata.open(YouTrackDBConstants.getRawVersion());
 
     return new StartupMetadata(startupMetadata.getLastTxId());
   }

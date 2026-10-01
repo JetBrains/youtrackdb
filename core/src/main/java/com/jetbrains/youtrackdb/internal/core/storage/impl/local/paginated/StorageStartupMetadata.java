@@ -30,10 +30,8 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -64,6 +62,8 @@ public class StorageStartupMetadata {
 
   private FileChannel channel;
   private FileLock fileLock;
+  // Updated at each write phase. A failed main write leaves the backup as the only good copy.
+  private boolean mainKnownGood;
 
   private volatile boolean dirtyFlag;
   private volatile long lastTxId;
@@ -99,10 +99,9 @@ public class StorageStartupMetadata {
       lastTxId = -1;
       this.openedAtVersion = openedAtVersion;
 
-      final var buffer = serialize();
-      buffer.rewind();
-
-      update(buffer);
+      // This is a fresh file, with no earlier state to preserve.
+      mainKnownGood = false;
+      update(serialize(), true);
 
     } finally {
       lock.unlock();
@@ -110,6 +109,21 @@ public class StorageStartupMetadata {
   }
 
   private void update(ByteBuffer buffer) throws IOException {
+    update(buffer, false);
+  }
+
+  private void update(ByteBuffer buffer, boolean initialWrite) throws IOException {
+    if (channel == null) {
+      throw new NullPointerException("Startup metadata is not open");
+    }
+    if (!initialWrite && !mainKnownGood) {
+      final var backup = readValidBackup();
+      if (backup == null) {
+        throw new IOException("No valid startup metadata copy remains for a new write");
+      }
+      repairMain(backup);
+    }
+
     Files.deleteIfExists(backupPath);
 
     try (final var backupChannel =
@@ -122,10 +136,76 @@ public class StorageStartupMetadata {
       IOUtils.writeByteBuffer(buffer, backupChannel, 0);
     }
 
+    // The completed backup protects the state until the main write completes.
+    mainKnownGood = false;
     channel.truncate(0);
+    buffer.rewind();
     IOUtils.writeByteBuffer(buffer, channel, 0);
+    mainKnownGood = true;
 
     Files.deleteIfExists(backupPath);
+  }
+
+  private void repairMain(ByteBuffer backup) throws IOException {
+    // Keep the lock on this inode for the entire repair, including failures.
+    mainKnownGood = false;
+    channel.truncate(0);
+    IOUtils.writeByteBuffer(backup, channel, 0);
+    mainKnownGood = true;
+  }
+
+  private ByteBuffer readValidBackup() throws IOException {
+    if (!Files.exists(backupPath)) {
+      return null;
+    }
+    try (var backupChannel = FileChannel.open(backupPath, StandardOpenOption.READ)) {
+      return readChecksummed(backupChannel);
+    }
+  }
+
+  private ByteBuffer readChecksummed(FileChannel source) throws IOException {
+    final var size = source.size();
+    if (size < 25 || size > Integer.MAX_VALUE) {
+      return null;
+    }
+    final var buffer = ByteBuffer.allocate((int) size);
+    IOUtils.readByteBuffer(buffer, source, 0, true);
+    buffer.rewind();
+    if (XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED)
+        != buffer.getLong(0)) {
+      return null;
+    }
+    final var version = buffer.getInt(8);
+    if (version != VERSION && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
+      throw new IllegalStateException(
+          "Invalid version of the binary format of startup metadata file found "
+              + version + " but expected " + VERSION + " or " + VERSION_WITHOUT_DB_OPEN_VERSION);
+    }
+    // Version 3 has a fixed size. Version 4 has a signed version-string length at byte 25.
+    if (version == VERSION_WITHOUT_DB_OPEN_VERSION) {
+      return size == 25 ? buffer : null;
+    }
+    if (size < 29) {
+      return null;
+    }
+    final var length = buffer.getInt(25);
+    return length >= -1 && size == 29L + Math.max(0, length) ? buffer : null;
+  }
+
+  private void readState(ByteBuffer buffer) {
+    buffer.position(12);
+    dirtyFlag = buffer.get() > 0;
+    lastTxId = buffer.getLong();
+    openedAtVersion = null;
+    if (buffer.getInt(8) == VERSION) {
+      final var length = buffer.getInt(25);
+      if (length > 0) {
+        final var raw = new byte[length];
+        buffer.position(29);
+        buffer.get(raw);
+        openedAtVersion = new String(raw, StandardCharsets.UTF_8);
+      }
+    }
   }
 
   private void lockFile() throws IOException {
@@ -153,115 +233,70 @@ public class StorageStartupMetadata {
   public void open(final String createdAtVersion) throws IOException {
     lock.lock();
     try {
-      while (true) {
-        if (!Files.exists(filePath)) {
-          if (Files.exists(backupPath)) {
-            try {
-              Files.move(backupPath, filePath, StandardCopyOption.ATOMIC_MOVE);
-            } catch (final AtomicMoveNotSupportedException e) {
-              Files.move(backupPath, filePath);
-            }
-          } else {
-            LogManager.instance()
-                .info(this, "File with startup metadata does not exist, creating new one");
-            create(createdAtVersion);
-            return;
-          }
-        }
-
-        channel =
-            FileChannel.open(
-                filePath,
-                StandardOpenOption.SYNC,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.READ,
-                StandardOpenOption.CREATE);
-
-        final var size = channel.size();
-
-        if (size < 9) {
-          var buffer = ByteBuffer.allocate(1);
-          IOUtils.readByteBuffer(buffer, channel, 0, true);
-
-          buffer.position(0);
-          dirtyFlag = buffer.get() > 0;
-        } else if (size == 9) {
-          var buffer = ByteBuffer.allocate(8 + 1);
-          IOUtils.readByteBuffer(buffer, channel, 0, true);
-
-          buffer.position(0);
-          dirtyFlag = buffer.get() > 0;
-          lastTxId = buffer.getLong();
-        } else {
-          final var buffer = ByteBuffer.allocate((int) size);
-          IOUtils.readByteBuffer(buffer, channel);
-
-          buffer.rewind();
-
-          final var xxHash = XX_HASH_64.hash(buffer, 8, buffer.capacity() - 8, XX_HASH_SEED);
-          if (xxHash != buffer.getLong(0)) {
-            if (!Files.exists(backupPath)) {
-              LogManager.instance()
-                  .error(
-                      this,
-                      "File with startup metadata is broken and can not be used, "
-                          + "creation of new one",
-                      null);
-              channel.close();
-              create(createdAtVersion);
-              return;
-            } else {
-              LogManager.instance()
-                  .error(
-                      this,
-                      "File with startup metadata is broken and can not be used, "
-                          + "will try to use backup version",
-                      null);
-            }
-
-            channel.close();
-            Files.deleteIfExists(filePath);
-
-            continue;
-          }
-
-          buffer.position(8);
-          final var version = buffer.getInt();
-          if (version != VERSION && version != VERSION_WITHOUT_DB_OPEN_VERSION) {
-            throw new IllegalStateException(
-                "Invalid version of the binary format of startup metadata file found "
-                    + version
-                    + " but expected "
-                    + VERSION
-                    + " or "
-                    + VERSION_WITHOUT_DB_OPEN_VERSION);
-          }
-
-          dirtyFlag = buffer.get() > 0;
-          lastTxId = buffer.getLong();
-
-          final var metadataLen = buffer.getInt();
-          assert metadataLen < 0;
-
-          if (version == VERSION) {
-            final var openedAtVersionLen = buffer.getInt();
-
-            if (openedAtVersionLen > 0) {
-              final var rawOpenedAtVersion = new byte[openedAtVersionLen];
-              buffer.get(rawOpenedAtVersion);
-
-              this.openedAtVersion = new String(rawOpenedAtVersion, StandardCharsets.UTF_8);
-            }
-          }
-        }
-
+      final var missing = !Files.exists(filePath);
+      channel = FileChannel.open(filePath, StandardOpenOption.SYNC, StandardOpenOption.WRITE,
+          StandardOpenOption.READ, StandardOpenOption.CREATE);
+      try {
+        // The main inode must be locked before reading or changing either copy.
         if (GlobalConfiguration.FILE_LOCK.getValueAsBoolean()) {
           lockFile();
         }
 
-        break;
-      }
+        final var size = channel.size();
+        final var main = readChecksummed(channel);
+        if (main != null) {
+          readState(main);
+          mainKnownGood = true;
+          Files.deleteIfExists(backupPath);
+          return;
+        }
 
+        final var backup = readValidBackup();
+        if (backup != null) {
+          repairMain(backup);
+          readState(backup);
+          Files.deleteIfExists(backupPath);
+          LogManager.instance().warn(this, "Recovered startup metadata from backup copy");
+          return;
+        }
+
+        if (!missing && size == 1) {
+          final var legacy = ByteBuffer.allocate(1);
+          IOUtils.readByteBuffer(legacy, channel, 0, true);
+          dirtyFlag = legacy.get(0) > 0;
+          mainKnownGood = true;
+          return;
+        }
+        if (size == 9) {
+          final var legacy = ByteBuffer.allocate(9);
+          IOUtils.readByteBuffer(legacy, channel, 0, true);
+          dirtyFlag = legacy.get(0) > 0;
+          lastTxId = legacy.getLong(1);
+          mainKnownGood = true;
+          return;
+        }
+
+        if (missing) {
+          LogManager.instance().info(this,
+              "File with startup metadata does not exist, creating new one");
+        } else {
+          LogManager.instance().error(this,
+              "File with startup metadata is broken and can not be used, creation of new one",
+              null);
+        }
+        dirtyFlag = true;
+        lastTxId = -1;
+        openedAtVersion = createdAtVersion;
+        // Neither copy is usable. Initialize through the locked inode without replacing it.
+        update(serialize(), true);
+      } catch (IOException | RuntimeException e) {
+        try {
+          close();
+        } catch (IOException closeError) {
+          e.addSuppressed(closeError);
+        }
+        throw e;
+      }
     } finally {
       lock.unlock();
     }
