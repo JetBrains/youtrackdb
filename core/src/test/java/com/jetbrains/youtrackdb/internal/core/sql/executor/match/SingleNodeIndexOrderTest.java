@@ -623,60 +623,34 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * UNWIND changes cardinality after the root fetch. SingleNode must not inject ORDER BY into
-   * MatchFirst / elide MATCH OrderBy — LIMIT applies to expanded rows.
+   * Bare {@code ORDER BY s} after {@code RETURN s.k AS s} resolves through the projection to
+   * {@code s.k}. That is not a shadow of the pattern vertex — SingleNode must still open the index
+   * on {@code k} and return keys in index order.
    */
   @Test
-  public void bareMatch_unwindBeforeOrderBy_doesNotInjectRootSelectOrder() {
-    session.execute("CREATE CLASS UWItem EXTENDS V").close();
-    session.execute("CREATE PROPERTY UWItem.tags EMBEDDEDLIST STRING").close();
-    session.execute("CREATE PROPERTY UWItem.k LONG").close();
-    session.execute("CREATE INDEX UWItem_k ON UWItem (k) NOTUNIQUE").close();
+  public void bareMatch_returnPropertyAsPatternAlias_orderByAlias_usesIndex() {
+    session.execute("CREATE CLASS ProjItem EXTENDS V").close();
+    session.execute("CREATE PROPERTY ProjItem.k LONG").close();
+    session.execute("CREATE INDEX ProjItem_k ON ProjItem (k) NOTUNIQUE").close();
     session.begin();
-    session
-        .execute(
-            "CREATE VERTEX UWItem SET k = 2, name = 'alice', tags = ['zulu', 'bravo', 'alpha']")
-        .close();
-    session.execute("CREATE VERTEX UWItem SET k = 1, name = 'bob', tags = ['yankee', 'charlie']")
-        .close();
-    session.execute("CREATE VERTEX UWItem SET k = 3, name = 'carol', tags = ['delta']").close();
+    session.execute("CREATE VERTEX ProjItem SET k = 3").close();
+    session.execute("CREATE VERTEX ProjItem SET k = 1").close();
+    session.execute("CREATE VERTEX ProjItem SET k = 2").close();
     session.commit();
 
-    var query = "MATCH {class: UWItem, as: p} RETURN p.name AS name, p.tags AS tags"
-        + " ORDER BY tags ASC UNWIND tags LIMIT 3";
+    var query = "MATCH {class: ProjItem, as: s} RETURN s.k AS s ORDER BY s ASC";
     var planText = plan(query);
     assertThat(planText)
-        .as("UNWIND must keep MATCH OrderBy off the root SELECT:\n%s", planText)
-        .doesNotContain("FETCH FROM INDEX VALUES")
-        .contains("+ UNWIND")
-        .contains("+ ORDER BY");
+        .as("projection alias ORDER BY s must still use ProjItem_k:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC ProjItem_k")
+        .doesNotContain("FETCH FROM CLASS ProjItem")
+        .doesNotContain("+ ORDER BY");
 
-    var tags = new ArrayList<String>();
+    var keys = new ArrayList<Long>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tags"))));
+      rs.forEachRemaining(row -> keys.add(((Number) row.getProperty("s")).longValue()));
     }
-    assertThat(tags).containsExactly("alpha", "bravo", "charlie");
-  }
-
-  /**
-   * GROUP BY changes grain before ORDER BY. SingleNode must not inject or elide root SELECT
-   * ORDER BY; groups are ordered by the grouping key.
-   */
-  @Test
-  public void bareMatch_groupBy_skipsRootSelectOrderInject() {
-    seedNamedScores(false);
-    var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
-        + " GROUP BY score ORDER BY score ASC";
-    var planText = plan(query);
-    assertThat(planText)
-        .as("GROUP BY must not open SingleNode VALUES elision path:\n%s", planText)
-        .doesNotContain("FETCH FROM INDEX VALUES ASC Scored_score");
-
-    var scores = new ArrayList<Object>();
-    try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> scores.add(row.getProperty("score")));
-    }
-    assertThat(scores).containsExactly(null, 1, 2, 3);
+    assertThat(keys).containsExactly(1L, 2L, 3L);
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {

@@ -325,9 +325,15 @@ final class SingleNodeIndexOrder {
     if (orderAlias == null) {
       return null;
     }
-    // RETURN can rebind the pattern alias (RETURN s.child AS s). ORDER BY s.score must not be
-    // treated as the pattern node's score — refuse SingleNode inject/elision in that case.
-    if (returnAliases != null && returnItems != null && patternAlias.equals(orderAlias)) {
+    var modifier = orderItem.getModifier();
+    // RETURN can rebind the pattern alias (RETURN s.child AS s). ORDER BY s.score would then
+    // resolve as the pattern node's score via the modifier branch below — refuse that case.
+    // Bare ORDER BY s (no modifier) falls through to projection resolution, so safe shapes like
+    // RETURN s.k AS s ORDER BY s still open the index on k.
+    if (modifier != null
+        && returnAliases != null
+        && returnItems != null
+        && patternAlias.equals(orderAlias)) {
       for (int i = 0; i < returnAliases.size(); i++) {
         var retAlias = returnAliases.get(i);
         if (retAlias == null || !patternAlias.equals(retAlias.getStringValue())) {
@@ -338,7 +344,6 @@ final class SingleNodeIndexOrder {
         }
       }
     }
-    var modifier = orderItem.getModifier();
     if (modifier != null) {
       var propertyName = modifier.getSimpleSuffixPropertyName();
       if (propertyName != null) {

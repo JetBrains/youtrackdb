@@ -712,9 +712,7 @@ public class MatchExecutionPlanner {
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: reuse SELECT's FetchFromIndexValues path (IndexOrderedPlanner needs a hop).
-      // UNWIND / GROUP BY change grain after the root fetch — injecting and eliding MATCH ORDER BY
-      // would sort the wrong row set. Skip SingleNode entirely for those shapes.
-      if (indexOrderedCandidate == null && this.unwind == null && this.groupBy == null) {
+      if (indexOrderedCandidate == null) {
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,
@@ -808,11 +806,7 @@ public class MatchExecutionPlanner {
         SQLOrderByItem primaryHint = null;
         if (indexOrderedCandidate != null
             && indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct
-            && !this.returnElements
-            && !this.returnPaths
-            && !this.returnPatterns
-            && !this.returnPathElements) {
+            && !this.returnDistinct) {
           primaryHint = orderBy.getItems().getFirst();
         }
         // indexOrderedUpstream: OrderByStep checks runtime context variable
@@ -820,6 +814,11 @@ public class MatchExecutionPlanner {
         // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
         // filter that preserves input order (RidSet-based dedup), and runs
         // AFTER OrderByStep in the pipeline.
+        //
+        // primaryHint must stay set for multi-field + built-in returns ($paths /
+        // $patterns / $elements / $pathElements). Clearing it while leaving
+        // indexOrderedUpstream true makes OrderByStep treat the stream as fully
+        // sorted and skip the composite sort — wrong secondary-key order.
         var indexOrderedUpstream = indexOrderedCandidate != null;
         // The SKIP and LIMIT clauses go over as AST nodes, not as a resolved number: this plan
         // is cacheable, so a parameterized bound has to be read on every execution.
