@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -8,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -765,6 +769,421 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         .isNull();
     assertThat(cache.getHits()).isGreaterThanOrEqualTo(0);
     assertThat(cache.getMisses()).isGreaterThanOrEqualTo(0);
+  }
+
+  /** A timeout flip invalidates once before the generation is captured, then a warm hit stays warm. */
+  @Test
+  public void changedTimeoutThenSameShapeTwiceHasOnePlanMiss() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var config = graphSession().getConfiguration();
+    var old = config.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    var cache = GremlinPlanCache.instance(graphSession());
+    try {
+      config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, old + 1);
+      var generation = cache.getInvalidationCounter();
+      var misses = cache.getMisses();
+      var translationHits = cache.getTranslationHits();
+      // Apply without executing: this test counts cache/planner lookups, not result projection.
+      var first = graph.traversal().V().has("age", 30).asAdmin();
+      GremlinToMatchStrategy.instance().apply(first);
+      assertThat(first.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      var second = graph.traversal().V().has("age", 40).asAdmin();
+      GremlinToMatchStrategy.instance().apply(second);
+      assertThat(second.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(cache.getInvalidationCounter()).isEqualTo(generation + 1);
+      assertThat(cache.getMisses()).as("one cold planner lookup, not two").isEqualTo(misses + 1);
+      assertThat(cache.getTranslationHits()).isEqualTo(translationHits + 1);
+    } finally {
+      config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, old);
+    }
+  }
+
+  /** A store before invalidation is cleared, while a late store removes its own stale entry. */
+  @Test
+  public void translationStoreBeforeAndAfterInvalidationNeverServesOldGeneration() {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    cache.prepare(session);
+    var old = cache.getInvalidationCounter();
+    cache.putTranslationInternal("before", GremlinTranslationTemplate.DECLINE, session, old);
+    assertThat(cache.getTranslationInternal("before", session, old)).isNotNull();
+    cache.invalidate();
+    assertThat(cache.containsTranslation("before")).isFalse();
+    cache.putTranslationInternal("after", GremlinTranslationTemplate.DECLINE, session, old);
+    assertThat(cache.containsTranslation("after")).isFalse();
+    cache.putTranslationInternal("after", GremlinTranslationTemplate.DECLINE, session,
+        cache.getInvalidationCounter());
+    assertThat(cache.containsTranslation("after")).isTrue();
+    assertThat(cache.getTranslationInternal("after", session, old))
+        .as("old bindings must reject even a new live entry").isNull();
+  }
+
+  /** A real apply parked in value harvesting misses both entries installed after schema DDL. */
+  @Test
+  public void parkedReaderRejectsNewEntryAfterInvalidation() throws Exception {
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var shape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("age", 30).has("age", 30).asAdmin(), session).key();
+    var fp = fingerprint(walk(() -> graph.traversal().V().has("age", 30).has("age", 30)));
+    var harvesting = new CountDownLatch(1);
+    var published = new CountDownLatch(1);
+    var armed = new java.util.concurrent.atomic.AtomicBoolean();
+    var reads = new java.util.concurrent.atomic.AtomicInteger();
+    // The first predicate binding is already harvested. Park the second predicate after
+    // its value class is encoded, before either cache lookup.
+    var predicate = new P<Integer>(P.<Integer>eq(30).getBiPredicate(), 30) {
+      @Override
+      public Integer getValue() {
+        if (armed.get() && reads.incrementAndGet() == 2) {
+          harvesting.countDown();
+          awaitLatch(published);
+        }
+        return super.getValue();
+      }
+    };
+    var reader = graph.traversal().V().has("age", 30).has("age", predicate).asAdmin();
+    var failure = new AtomicReference<Throwable>();
+    var worker = new Thread(() -> {
+      try {
+        awaitLatch(harvesting);
+        // This is real committed schema DDL, not a direct call to the cache listener.
+        var tx = (YTDBTransaction) graph.tx();
+        tx.readWrite();
+        tx.getDatabaseSession().getMetadata().getSchema().createClass("ReaderNewSchema");
+        tx.commit();
+        var fresh = graph.traversal().V().has("age", 40).has("age", 40).asAdmin();
+        GremlinToMatchStrategy.instance().apply(fresh);
+        assertThat(fresh.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        assertThat(cache.containsTranslation(shape)).isTrue();
+        assertThat(cache.contains(fp)).isTrue();
+      } catch (Throwable t) {
+        failure.set(t);
+      } finally {
+        published.countDown();
+      }
+    });
+    var translationMisses = cache.getTranslationMisses();
+    var planMisses = cache.getMisses();
+    var before = cache.getInvalidationCounter();
+    worker.start();
+    try {
+      armed.set(true);
+      GremlinToMatchStrategy.instance().apply(reader);
+    } finally {
+      published.countDown();
+      worker.join(TimeUnit.SECONDS.toMillis(10));
+    }
+    assertThat(worker.isAlive()).isFalse();
+    assertThat(failure.get()).isNull();
+    assertThat(reads.get()).isGreaterThanOrEqualTo(2);
+    assertThat(cache.getInvalidationCounter()).isGreaterThan(before);
+    assertThat(reader.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses + 2);
+    assertThat(cache.getMisses()).isEqualTo(planMisses + 2);
+  }
+
+  /** A reader rejects stale publications before their writers reach guarded removal. */
+  @Test
+  public void readersRejectPublishedStaleEntriesBeforeCleanup() {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var old = cache.getInvalidationCounter();
+    cache.invalidate();
+    var plan = mock(InternalExecutionPlan.class);
+    when(plan.canBeCached()).thenReturn(true);
+    when(plan.copy(any())).thenAnswer(invocation -> mock(InternalExecutionPlan.class));
+    cache.afterPlanPublication = () -> {
+      assertThat(cache.contains("pending")).isTrue();
+      assertThat(cache.planEntry("pending", session, old)).isNull();
+    };
+    cache.afterTranslationPublication = () -> {
+      assertThat(cache.containsTranslation("pending")).isTrue();
+      assertThat(cache.getTranslationInternal("pending", session, old)).isNull();
+    };
+    try {
+      cache.putInternal("pending", plan, session, old);
+      cache.putTranslationInternal("pending", GremlinTranslationTemplate.DECLINE, session, old);
+    } finally {
+      cache.afterPlanPublication = null;
+      cache.afterTranslationPublication = null;
+    }
+    assertThat(cache.contains("pending")).isFalse();
+    assertThat(cache.containsTranslation("pending")).isFalse();
+  }
+
+  /** The real strategy carries a plan hit's generation into its translation publication. */
+  @Test
+  public void stalePlanCopiedIntoTranslationKeepsPlanGeneration() {
+    graph.addVertex(T.label, "Person", "age", 30);
+    graph.tx().commit();
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var translation = walk(() -> graph.traversal().V().has("age", 30));
+    var shape = GremlinStepWalker.extractShape(
+        graph.traversal().V().has("age", 30).asAdmin(), session).key();
+    var generation = cache.getInvalidationCounter();
+    var seeded = GremlinToMatchStrategy.buildPlanEntry(session, translation, generation);
+    assertThat(cache.peekStored(fingerprint(translation))).isSameAs(seeded.value);
+    assertThat(cache.containsTranslation(shape)).isFalse();
+    var planHits = cache.getHits();
+    var reachedPublication = new java.util.concurrent.atomic.AtomicBoolean();
+    var builder = new GremlinToMatchStrategy.MatchPlanBuilder() {
+      @Override
+      public InternalExecutionPlan buildPlan(
+          com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
+          GremlinToMatchTranslator.TranslationResult result, long captured) {
+        return GremlinToMatchStrategy.buildPlan(db, result, captured);
+      }
+
+      @Override
+      public GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
+          com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
+          GremlinToMatchTranslator.TranslationResult result, long captured) {
+        return GremlinToMatchStrategy.buildPlanEntry(db, result, captured);
+      }
+    };
+    var strategy = new GremlinToMatchStrategy(t -> translation, builder, true, () -> {
+      reachedPublication.set(true);
+      assertThat(cache.contains(fingerprint(translation)))
+          .as("the plan-cache hit still exists when the strategy selects copy-on-open")
+          .isTrue();
+      cache.onSchemaUpdate(null, "after-plan-hit", null);
+    });
+    var reader = graph.traversal().V().has("age", 40).asAdmin();
+    strategy.apply(reader);
+    assertThat(reader.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(reachedPublication.get()).isTrue();
+    assertThat(cache.getHits()).isEqualTo(planHits + 1);
+    assertThat(cache.containsTranslation(shape)).isFalse();
+    assertThat(cache.getTranslationInternal(shape, session, cache.getInvalidationCounter()))
+        .isNull();
+  }
+
+  /** A builder parked inside copy publishes only after invalidation and removes its old entry. */
+  @Test
+  public void planStoreDuringInvalidationRemovesOnlyItsOwnPublication() throws Exception {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    cache.prepare(session);
+    var captured = cache.getInvalidationCounter();
+    var copying = new CountDownLatch(1);
+    var invalidated = new CountDownLatch(1);
+    var plan = mock(InternalExecutionPlan.class);
+    when(plan.canBeCached()).thenReturn(true);
+    when(plan.copy(any())).thenAnswer(invocation -> {
+      copying.countDown();
+      awaitLatch(invalidated);
+      return mock(InternalExecutionPlan.class);
+    });
+    var worker = new Thread(() -> {
+      awaitLatch(copying);
+      cache.invalidate();
+      invalidated.countDown();
+    });
+    worker.start();
+    try {
+      cache.putInternal("parked", plan, session, captured);
+      assertThat(cache.contains("parked")).isFalse();
+      assertThat(cache.getInvalidationCounter()).isEqualTo(captured + 1);
+    } finally {
+      copying.countDown();
+      invalidated.countDown();
+      worker.join(TimeUnit.SECONDS.toMillis(10));
+    }
+    assertThat(worker.isAlive()).isFalse();
+    // Force a late builder to publish under the old generation, then show that a fresh
+    // builder can publish this same fingerprint without being removed by that stale store.
+    cache.putInternal("parked", plan, session, captured);
+    assertThat(cache.contains("parked")).isFalse();
+    var fresh = cache.getInvalidationCounter();
+    cache.putInternal("parked", plan, session, fresh);
+    assertThat(cache.contains("parked")).isTrue();
+    assertThat(cache.planEntry("parked", session, captured)).isNull();
+    assertThat(cache.planEntry("parked", session, fresh)).isNotNull();
+  }
+
+  /** A stale plan writer cannot remove a replacement published between its put and its check. */
+  @Test
+  public void stalePlanCleanupPreservesReplacement() {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var old = cache.getInvalidationCounter();
+    cache.invalidate();
+    var fresh = cache.getInvalidationCounter();
+    var plan = mock(InternalExecutionPlan.class);
+    when(plan.canBeCached()).thenReturn(true);
+    when(plan.copy(any())).thenAnswer(invocation -> mock(InternalExecutionPlan.class));
+    var replacement = new AtomicReference<InternalExecutionPlan>();
+    cache.afterPlanPublication = () -> {
+      cache.afterPlanPublication = null;
+      // A is published with the old generation. B replaces it before A's guarded removal.
+      assertThat(cache.peekStored("replacement")).isNotNull();
+      cache.putInternal("replacement", plan, session, fresh);
+      replacement.set(cache.peekStored("replacement"));
+    };
+    try {
+      cache.putInternal("replacement", plan, session, old);
+      assertThat(cache.peekStored("replacement")).isSameAs(replacement.get());
+      assertThat(cache.planEntry("replacement", session, fresh).value)
+          .isSameAs(replacement.get());
+    } finally {
+      cache.afterPlanPublication = null;
+    }
+  }
+
+  /** A Decline payload is shared, but stale cleanup compares publication holders by identity. */
+  @Test
+  public void staleDeclineCleanupPreservesFreshDecline() {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var old = cache.getInvalidationCounter();
+    cache.invalidate();
+    var fresh = cache.getInvalidationCounter();
+    cache.afterTranslationPublication = () -> {
+      cache.afterTranslationPublication = null;
+      assertThat(cache.containsTranslation("decline")).isTrue();
+      cache.putTranslationInternal("decline", GremlinTranslationTemplate.DECLINE, session, fresh);
+    };
+    try {
+      cache.putTranslationInternal("decline", GremlinTranslationTemplate.DECLINE, session, old);
+      assertThat(cache.containsTranslation("decline")).isTrue();
+      assertThat(cache.getTranslationInternal("decline", session, fresh))
+          .isSameAs(GremlinTranslationTemplate.DECLINE);
+    } finally {
+      cache.afterTranslationPublication = null;
+    }
+  }
+
+  /** A store after counter publication but before either clear is rejected as stale. */
+  @Test
+  public void storesDuringPausedInvalidationCannotLeaveOldEntries() throws Exception {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var old = cache.getInvalidationCounter();
+    var incremented = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var error = new AtomicReference<Throwable>();
+    cache.afterCounterIncrement = () -> {
+      incremented.countDown();
+      awaitLatch(release);
+    };
+    var invalidator = new Thread(() -> {
+      try {
+        cache.onSchemaUpdate(null, "paused-schema-change", null);
+      } catch (Throwable t) {
+        error.set(t);
+      }
+    });
+    invalidator.start();
+    try {
+      assertThat(incremented.await(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(cache.getInvalidationCounter()).isEqualTo(old + 1);
+      var plan = mock(InternalExecutionPlan.class);
+      when(plan.canBeCached()).thenReturn(true);
+      when(plan.copy(any())).thenAnswer(invocation -> mock(InternalExecutionPlan.class));
+      cache.putInternal("during", plan, session, old);
+      cache.putTranslationInternal("during", GremlinTranslationTemplate.DECLINE, session, old);
+      assertThat(cache.contains("during")).isFalse();
+      assertThat(cache.containsTranslation("during")).isFalse();
+    } finally {
+      release.countDown();
+      invalidator.join(TimeUnit.SECONDS.toMillis(10));
+      cache.afterCounterIncrement = null;
+    }
+    assertThat(invalidator.isAlive()).isFalse();
+    assertThat(error.get()).isNull();
+    assertThat(cache.contains("during")).isFalse();
+    assertThat(cache.containsTranslation("during")).isFalse();
+  }
+
+  /** Two invalidations overlap, and the delayed first clear also drops an intervening store. */
+  @Test
+  public void twoConcurrentInvalidationsAdvanceCounterTwice() throws Exception {
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var before = cache.getInvalidationCounter();
+    var plan = mock(InternalExecutionPlan.class);
+    when(plan.canBeCached()).thenReturn(true);
+    when(plan.copy(any())).thenAnswer(invocation -> mock(InternalExecutionPlan.class));
+    var firstIncremented = new CountDownLatch(1);
+    var releaseFirst = new CountDownLatch(1);
+    var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var error = new AtomicReference<Throwable>();
+    cache.afterCounterIncrement = () -> {
+      if (first.compareAndSet(true, false)) {
+        firstIncremented.countDown();
+        awaitLatch(releaseFirst);
+      }
+    };
+    var a = new Thread(() -> {
+      try {
+        cache.invalidate();
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
+      }
+    });
+    var b = new Thread(() -> {
+      try {
+        cache.invalidate();
+      } catch (Throwable t) {
+        error.compareAndSet(null, t);
+      }
+    });
+    a.start();
+    try {
+      assertThat(firstIncremented.await(10, TimeUnit.SECONDS)).isTrue();
+      assertThat(cache.getInvalidationCounter()).isEqualTo(before + 1);
+      cache.putInternal("first", plan, session, before);
+      cache.putTranslationInternal("first", GremlinTranslationTemplate.DECLINE, session,
+          before);
+      assertThat(cache.planEntry("first", session, before)).isNull();
+      assertThat(cache.getTranslationInternal("first", session, before)).isNull();
+      b.start();
+      b.join(TimeUnit.SECONDS.toMillis(10));
+      assertThat(b.isAlive()).isFalse();
+      assertThat(cache.getInvalidationCounter()).isEqualTo(before + 2);
+      cache.putInternal("second", plan, session, before + 1);
+      cache.putTranslationInternal("second", GremlinTranslationTemplate.DECLINE, session,
+          before + 1);
+      assertThat(cache.planEntry("second", session, before + 1)).isNull();
+      assertThat(cache.getTranslationInternal("second", session, before + 1)).isNull();
+      // The second invalidation has cleared. A live store now precedes the first clear.
+      cache.putInternal("fresh", plan, session, before + 2);
+      cache.putTranslationInternal("fresh", GremlinTranslationTemplate.DECLINE, session,
+          before + 2);
+      assertThat(cache.contains("fresh")).isTrue();
+      assertThat(cache.containsTranslation("fresh")).isTrue();
+    } finally {
+      releaseFirst.countDown();
+      a.join(TimeUnit.SECONDS.toMillis(10));
+      b.join(TimeUnit.SECONDS.toMillis(10));
+      cache.afterCounterIncrement = null;
+    }
+    assertThat(a.isAlive()).isFalse();
+    assertThat(b.isAlive()).isFalse();
+    assertThat(error.get()).isNull();
+    assertThat(cache.getInvalidationCounter()).isEqualTo(before + 2);
+    assertThat(cache.contains("fresh")).isFalse();
+    assertThat(cache.containsTranslation("fresh")).isFalse();
+    assertThat(cache.planEntry("first", session, before)).isNull();
+    assertThat(cache.planEntry("second", session, before + 1)).isNull();
+    assertThat(cache.getTranslationInternal("first", session, before)).isNull();
+    assertThat(cache.getTranslationInternal("second", session, before + 1)).isNull();
+  }
+
+  private static void awaitLatch(CountDownLatch latch) {
+    try {
+      if (!latch.await(10, TimeUnit.SECONDS)) {
+        throw new AssertionError("timed out waiting for cache worker");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
   }
 
   // ---------------------------------------------------------------------------
