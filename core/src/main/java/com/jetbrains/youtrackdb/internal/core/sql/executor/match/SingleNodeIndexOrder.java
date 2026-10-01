@@ -40,13 +40,19 @@ final class SingleNodeIndexOrder {
 
   /**
    * When present, the synthetic root SELECT should carry {@link #selectOrderBy()} so the SELECT
-   * planner can open an ordered index scan. {@link #orderFullyCovered()} is true when MATCH must not
-   * append a second {@code OrderByStep} — the scan already yields the full requested order.
+   * planner can open an ordered index scan.
+   *
+   * <p>{@link #orderFullyCovered()} is true only for a single ORDER BY key — MATCH drops its
+   * OrderByStep. A trailing {@code @rid} never claims coverage: MATCH keeps OrderByStep and
+   * {@link #ridTieBreakAccepted()} tells the planner to set {@code indexOrderedUpstream} so
+   * OrderByStep can pass through when the transaction is clean (same runtime contract as
+   * {@link IndexOrderedEdgeStep}).
    */
   record Candidate(
       @Nonnull String alias,
       @Nonnull SQLOrderBy selectOrderBy,
-      boolean orderFullyCovered) {
+      boolean orderFullyCovered,
+      boolean ridTieBreakAccepted) {
   }
 
   /**
@@ -147,7 +153,7 @@ final class SingleNodeIndexOrder {
     var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
 
     if (items.size() == 1) {
-      return new Candidate(alias, selectOrderBy, true);
+      return new Candidate(alias, selectOrderBy, true, false);
     }
     if (items.size() != 2) {
       return null;
@@ -167,10 +173,12 @@ final class SingleNodeIndexOrder {
             returnPaths,
             returnPatterns,
             returnPathElements);
-    // Always open the ordered index for the primary key when the filter is safe. Keep MATCH
-    // OrderByStep when the RID secondary is not index-native (e.g. DESC with null keys still in
-    // the index) — orderFullyCovered=false.
-    return new Candidate(alias, selectOrderBy, ridAccepted);
+    // Always open the primary-key VALUES scan. Never elide MATCH OrderBy for two keys
+    // (orderFullyCovered=false): dirty-tx index entries can break @rid order within a key group.
+    // When ridAccepted, the planner sets indexOrderedUpstream and MatchFirstStep signals
+    // PRE_SORTED only for a clean transaction — OrderByStep then pass-throughs (IndexOrdered
+    // contract).
+    return new Candidate(alias, selectOrderBy, false, ridAccepted);
   }
 
   /**
@@ -328,20 +336,23 @@ final class SingleNodeIndexOrder {
     var modifier = orderItem.getModifier();
     // RETURN can rebind the pattern alias (RETURN s.child AS s). ORDER BY s.score would then
     // resolve as the pattern node's score via the modifier branch below — refuse that case.
-    // Bare ORDER BY s (no modifier) falls through to projection resolution, so safe shapes like
-    // RETURN s.k AS s ORDER BY s still open the index on k.
+    // Projection last-wins: only the last RETURN item that binds the alias matters, so
+    // RETURN s.k AS s, s AS s ORDER BY s.k still sees bare s and opens the index.
+    // Bare ORDER BY s (no modifier) falls through to projection resolution.
     if (modifier != null
         && returnAliases != null
         && returnItems != null
         && patternAlias.equals(orderAlias)) {
+      int lastBinding = -1;
       for (int i = 0; i < returnAliases.size(); i++) {
         var retAlias = returnAliases.get(i);
-        if (retAlias == null || !patternAlias.equals(retAlias.getStringValue())) {
-          continue;
+        if (retAlias != null && patternAlias.equals(retAlias.getStringValue())) {
+          lastBinding = i;
         }
-        if (!isBareAliasProjection(returnItems.get(i), patternAlias)) {
-          return null;
-        }
+      }
+      if (lastBinding >= 0
+          && !isBareAliasProjection(returnItems.get(lastBinding), patternAlias)) {
+        return null;
       }
     }
     if (modifier != null) {

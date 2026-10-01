@@ -294,19 +294,19 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * Ascending MATCH with an explicit {@code @rid} secondary that the index scan already produces
-   * streams under a lowered heap cap and matches the full RID oracle.
+   * Ascending MATCH with an explicit {@code @rid} secondary: VALUES scan + OrderByStep present, but
+   * clean-tx pass-through streams under a lowered heap cap (IndexOrdered-style PRE_SORTED signal).
    */
   @Test
   @Category(SequentialTest.class)
-  public void bareMatchAscWithRid_streamsUnderLowHeapCap() {
+  public void bareMatchAscWithRid_streamsUnderLowHeapCapWhenTxClean() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s} RETURN s"
         + " ORDER BY s.score ASC, s.@rid ASC";
     assertThat(plan(query))
         .contains("FETCH FROM INDEX VALUES ASC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
     GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
@@ -319,6 +319,48 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
+  }
+
+  /**
+   * Inside an open transaction, an uncommitted row can sit anywhere in its score group in the
+   * index. MatchFirstStep withdraws PRE_SORTED so OrderByStep sorts; equal-score ties follow
+   * {@code @rid}, including the pending row.
+   */
+  @Test
+  public void bareMatchAscWithRid_pendingTx_keepsRidTieBreakOrder() {
+    seedNamedScores(false);
+    session.begin();
+    session.execute("CREATE VERTEX Scored SET score = 1, name = 'pending'").close();
+
+    var query = "MATCH {class: Scored, as: s} RETURN s"
+        + " ORDER BY s.score ASC, s.@rid ASC";
+    assertThat(plan(query))
+        .contains("FETCH FROM INDEX VALUES ASC Scored_score")
+        .contains("+ ORDER BY");
+
+    // Oracle from the same tx visibility as MATCH (graph.traversal can miss SQL-created pending).
+    var expectedRows = new ArrayList<Object[]>();
+    try (var rs = session.query("SELECT @rid AS r, score FROM Scored")) {
+      rs.forEachRemaining(row -> expectedRows.add(new Object[] {
+          row.getProperty("score"),
+          row.getProperty("r")
+      }));
+    }
+    expectedRows.sort(
+        Comparator
+            .<Object[], Object>comparing(r -> r[0], SingleNodeIndexOrderTest::compareNullsFirst)
+            .thenComparing(r -> r[1], SingleNodeIndexOrderTest::compareNullsFirst));
+    var expected = expectedRows.stream().map(r -> r[1].toString()).toList();
+    assertThat(expected).as("fixture plus pending row").hasSize(6);
+
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
+    }
+    assertThat(actual)
+        .as("pending row must sit in @rid order inside score=1, not provisional index order")
+        .isEqualTo(expected);
+    session.rollback();
   }
 
   /**
@@ -463,8 +505,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /**
    * When the class also has a composite {@code (score, name)} index, sort-only planning must still
    * open the single-field {@code (score)} index. Picking the composite would order equal-score ties
-   * by {@code name} while MATCH claims RID coverage and drops its OrderByStep — on≠off for Gremlin
-   * RID tie-break and wrong MATCH {@code ORDER BY score, @rid}.
+   * by {@code name} while MATCH OrderBy finishes {@code @rid} — on≠off for Gremlin RID tie-break
+   * and wrong MATCH {@code ORDER BY score, @rid}.
    *
    * <p>{@code getIndexesInternal()} returns a {@code HashSet}, so creating the composite before the
    * single-field index does not force iteration order; the plan assertions below are what catch a
@@ -493,7 +535,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         .contains("FETCH FROM INDEX VALUES ASC ScoredComp_score")
         .doesNotContain("ScoredComp_score_name")
         .doesNotContain("FETCH FROM CLASS ScoredComp")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var expected = new ArrayList<Object[]>();
     for (var v : graph.traversal().V().hasLabel("ScoredComp").toList()) {
@@ -515,21 +557,21 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * DESC + {@code @rid} with {@code score IS NOT NULL}: null keys are excluded from the result, so
-   * {@code acceptsRidTieBreak} admits full coverage. Plan streams the index values scan and omits
-   * MATCH OrderByStep; RID sequence matches the DESC oracle over the non-null scores only.
+   * DESC + {@code @rid} with {@code score IS NOT NULL}: VALUES scan and OrderByStep; clean-tx
+   * pass-through still matches the DESC RID oracle over non-null scores.
    */
   @Test
-  public void bareMatchDescWithRid_isNotNullFilter_fullyCoversIndexOrder() {
+  public void bareMatchDescWithRid_isNotNullFilter_usesIndexAndKeepsOrderBy() {
     seedNamedScores(false);
     var query = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s"
         + " ORDER BY s.score DESC, s.@rid DESC";
     var planText = plan(query);
     assertThat(planText)
-        .as("presence filter admits covered DESC+RID:\n%s", planText)
+        .as("presence filter admits score VALUES + OrderBy (pass-through when tx clean):\n%s",
+            planText)
         .contains("FETCH FROM INDEX VALUES DESC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored")
-        .doesNotContain("+ ORDER BY");
+        .contains("+ ORDER BY");
 
     var expected = expectedScoredRids(false).stream()
         .filter(rid -> {
@@ -649,6 +691,36 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var keys = new ArrayList<Long>();
     try (var rs = session.query(query)) {
       rs.forEachRemaining(row -> keys.add(((Number) row.getProperty("s")).longValue()));
+    }
+    assertThat(keys).containsExactly(1L, 2L, 3L);
+  }
+
+  /**
+   * Last RETURN binding wins: {@code RETURN s.k AS s, s AS s} restores the pattern alias, so
+   * {@code ORDER BY s.k} may open the index (same as develop before the first-wins shadow check).
+   */
+  @Test
+  public void bareMatch_returnPropertyThenBareAlias_orderByProperty_usesIndex() {
+    session.execute("CREATE CLASS LastWin EXTENDS V").close();
+    session.execute("CREATE PROPERTY LastWin.k LONG").close();
+    session.execute("CREATE INDEX LastWin_k ON LastWin (k) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX LastWin SET k = 3").close();
+    session.execute("CREATE VERTEX LastWin SET k = 1").close();
+    session.execute("CREATE VERTEX LastWin SET k = 2").close();
+    session.commit();
+
+    var query = "MATCH {class: LastWin, as: s} RETURN s.k AS s, s AS s ORDER BY s.k ASC LIMIT 3";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("last-wins bare s must still admit LastWin_k VALUES:\n%s", planText)
+        .contains("FETCH FROM INDEX VALUES ASC LastWin_k")
+        .doesNotContain("FETCH FROM CLASS LastWin");
+
+    var keys = new ArrayList<Long>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(
+          row -> keys.add(((Number) row.getVertex("s").getProperty("k")).longValue()));
     }
     assertThat(keys).containsExactly(1L, 2L, 3L);
   }

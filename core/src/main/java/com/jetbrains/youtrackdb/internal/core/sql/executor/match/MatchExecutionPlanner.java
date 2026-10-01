@@ -871,6 +871,13 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
+      // Single-node VALUES + accepted @rid: keep OrderByStep, but allow pass-through when
+      // MatchFirstStep signals PRE_SORTED (clean tx). Same contract as IndexOrderedEdgeStep.
+      if (singleNodeIndexOrder != null
+          && singleNodeIndexOrder.ridTieBreakAccepted()
+          && this.groupBy == null) {
+        info.indexOrderedUpstream = true;
+      }
       // Single-node root already streamed the full ORDER BY from the index values scan.
       if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
         info.orderBy = null;
@@ -2356,11 +2363,16 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
+        var signalRidIndexOrder =
+            singleNodeIndexOrder != null
+                && singleNodeIndexOrder.alias().equals(node.alias)
+                && singleNodeIndexOrder.ridTieBreakAccepted();
         plan.chain(
             new MatchFirstStep(
                 context,
                 node,
                 select.createExecutionPlan(context, profilingEnabled),
+                signalRidIndexOrder,
                 profilingEnabled));
       }
     }
