@@ -801,7 +801,7 @@ public class MatchExecutionPlanner {
         result.chain(new UnwindStep(unwind, context, enableProfiling));
       }
 
-      if (this.orderBy != null && !elideMatchOrderBy(singleNodeIndexOrder)) {
+      if (this.orderBy != null && !elideMatchOrderBy(singleNodeIndexOrder, context)) {
         // Multi-field + candidate → primary key cutoff hint for early
         // termination in the bounded heap / group sort on the unbounded path.
         // Disabled when RETURN DISTINCT: early termination stops reading
@@ -839,7 +839,7 @@ public class MatchExecutionPlanner {
       }
 
       // When elision pushed SKIP/LIMIT onto the synthetic root SELECT, do not apply again.
-      if (!singleNodeRootConsumedSkipLimit(singleNodeIndexOrder)) {
+      if (!singleNodeRootConsumedSkipLimit(singleNodeIndexOrder, context)) {
         if (this.skip != null && skip.getValue(context) >= 0) {
           result.chain(new SkipExecutionStep(skip, context, enableProfiling));
         }
@@ -898,15 +898,23 @@ public class MatchExecutionPlanner {
       }
       // Narrow elision: drop MATCH ORDER BY only when root SELECT owns full order grain
       // (and SKIP/LIMIT were pushed onto that SELECT when present).
-      if (elideMatchOrderBy(singleNodeIndexOrder)) {
+      if (elideMatchOrderBy(singleNodeIndexOrder, context)) {
         info.orderBy = null;
-        if (singleNodeRootConsumedSkipLimit(singleNodeIndexOrder)) {
+        if (singleNodeRootConsumedSkipLimit(singleNodeIndexOrder, context)) {
           info.skip = null;
           info.limit = null;
         }
       }
 
       SelectExecutionPlanner.optimizeQuery(info, context);
+      // addOrderByProjections may replace ORDER BY items with minted aliases; rebind the hint so
+      // OrderByStep.copy() still finds primaryKeySortedInput inside the cached plan's orderBy.
+      if (info.primaryKeySortedInput != null
+          && info.orderBy != null
+          && !info.orderBy.getItems().isEmpty()
+          && !info.orderBy.getItems().contains(info.primaryKeySortedInput)) {
+        info.primaryKeySortedInput = info.orderBy.getItems().getFirst();
+      }
       SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
     }
 
@@ -2380,7 +2388,7 @@ public class MatchExecutionPlanner {
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
         // Narrow elision pushes SKIP/LIMIT onto the synthetic SELECT so its OrderByStep /
         // VALUES+Limit bounds like standalone SELECT … ORDER BY … LIMIT.
-        if (selectOrderBy != null && elideMatchOrderBy(singleNodeIndexOrder)) {
+        if (selectOrderBy != null && elideMatchOrderBy(singleNodeIndexOrder, context)) {
           if (this.skip != null) {
             select.setSkip(this.skip.copy());
           }
@@ -2401,32 +2409,61 @@ public class MatchExecutionPlanner {
 
   /**
    * True when MATCH may drop its {@code OrderByStep}: SingleNode reports full coverage and SKIP /
-   * LIMIT either are absent or can share the root SELECT grain (no DISTINCT / GROUP BY / UNWIND).
-   * Wide inject may still have put property ORDER BY on the root for VALUES even when this is
-   * false.
+   * LIMIT either are absent or can share the root SELECT grain (no DISTINCT / GROUP BY / UNWIND /
+   * NOT patterns / aggregates / expand). Wide inject may still have put property ORDER BY on the
+   * root for VALUES even when this is false.
    */
-  private boolean elideMatchOrderBy(@Nullable SingleNodeIndexOrder.Candidate candidate) {
+  private boolean elideMatchOrderBy(
+      @Nullable SingleNodeIndexOrder.Candidate candidate, CommandContext context) {
     if (candidate == null || !candidate.orderFullyCovered()) {
       return false;
     }
     if (this.skip == null && this.limit == null) {
       return true;
     }
-    return canPushSkipLimitIntoSingleNodeRoot();
+    return canPushSkipLimitIntoSingleNodeRoot(context);
   }
 
   /**
-   * SKIP/LIMIT may move onto the synthetic root SELECT when nothing downstream changes row count
-   * before those clauses (no DISTINCT / GROUP BY / UNWIND).
+   * SKIP/LIMIT may move onto the synthetic root SELECT only when nothing between the root fetch and
+   * those clauses changes which rows qualify or how many rows feed an aggregate: no DISTINCT /
+   * GROUP BY / UNWIND / NOT patterns / aggregates / expand.
    */
-  private boolean canPushSkipLimitIntoSingleNodeRoot() {
-    return !returnDistinct && groupBy == null && unwind == null;
+  private boolean canPushSkipLimitIntoSingleNodeRoot(CommandContext context) {
+    if (returnDistinct || groupBy != null || unwind != null) {
+      return false;
+    }
+    if (notMatchExpressions != null && !notMatchExpressions.isEmpty()) {
+      return false;
+    }
+    return !returnHasAggregateOrExpand(context);
+  }
+
+  /**
+   * True when a custom RETURN expression is an aggregate or {@code expand(...)} — both change row
+   * multiplicity relative to the root SELECT, so root-level SKIP/LIMIT would cut the wrong set.
+   */
+  private boolean returnHasAggregateOrExpand(CommandContext context) {
+    if (returnItems == null || returnItems.isEmpty()) {
+      return false;
+    }
+    var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
+    if (session == null) {
+      // Fail closed: without a session we cannot prove aggregates are absent.
+      return true;
+    }
+    for (var item : returnItems) {
+      if (item != null && (item.isExpand() || item.isAggregate(session))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private boolean singleNodeRootConsumedSkipLimit(
-      @Nullable SingleNodeIndexOrder.Candidate candidate) {
-    return elideMatchOrderBy(candidate)
-        && canPushSkipLimitIntoSingleNodeRoot()
+      @Nullable SingleNodeIndexOrder.Candidate candidate, CommandContext context) {
+    return elideMatchOrderBy(candidate, context)
+        && canPushSkipLimitIntoSingleNodeRoot(context)
         && (this.skip != null || this.limit != null);
   }
 

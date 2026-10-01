@@ -95,16 +95,26 @@ final class SingleNodeIndexOrder {
     var items = orderBy.getItems();
     var propertyNames = new ArrayList<String>();
     var selectItems = new ArrayList<SQLOrderByItem>();
+    Boolean propertyDirectionAsc = null;
     for (var i = 0; i < items.size(); i++) {
       var item = items.get(i);
       if (item.getCollate() != null
           || !IndexOrderedPlanner.isDefaultCollate(item.getDeclaredCollate())) {
         return null;
       }
-      var resolved = resolveOrderByToAliasProperty(item, returnItems, returnAliases);
+      var resolved = resolveOrderByToAliasProperty(
+          item, alias, returnItems, returnAliases);
       if (resolved != null && alias.equals(resolved[0])) {
         var propertyName = resolved[1];
         var orderAsc = SQLOrderByItem.ASC.equals(item.getType()) || item.getType() == null;
+        if (propertyDirectionAsc == null) {
+          propertyDirectionAsc = orderAsc;
+        } else if (propertyDirectionAsc != orderAsc) {
+          // Mixed ASC/DESC among property keys cannot be served by one index VALUES scan; a
+          // trailing @rid would then claim coverage incorrectly. Refuse the whole candidate when
+          // a later pass would need RID elision — handled below once ridTrailing is known.
+          propertyDirectionAsc = null; // mark mixed; see ridTrailing handling
+        }
         var selectItem =
             ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
         selectItem.setNullOrdering(item.getNullOrdering());
@@ -132,11 +142,18 @@ final class SingleNodeIndexOrder {
     if (ridTrailing && propertyNames.size() != items.size() - 1) {
       return null;
     }
+    var mixedPropertyDirections = propertyDirectionAsc == null && selectItems.size() > 1;
     var selectOrderBy = ProjectionExpressionFactories.orderBy(selectItems);
 
     if (!ridTrailing) {
       // SELECT applies the bare property keys (index stream or its own OrderByStep).
       return new Candidate(alias, selectOrderBy, true);
+    }
+    // Mixed property directions: index VALUES is uni-directional, so @rid coverage is impossible.
+    // Without an exact-width index, injecting ORDER BY would force an unbounded root SELECT sort
+    // while MATCH still keeps OrderBy+LIMIT — refuse and leave MATCH as the sole sorter.
+    if (mixedPropertyDirections) {
+      return null;
     }
 
     // Trailing @rid: inject property ORDER BY for the SELECT fetch queue; elide MATCH OrderByStep
@@ -145,27 +162,31 @@ final class SingleNodeIndexOrder {
     var primaryAsc = SQLOrderByItem.ASC.equals(items.getFirst().getType())
         || items.getFirst().getType() == null;
     if (!isRecordIdItemOf(items.getLast(), alias, primaryAsc)) {
-      return new Candidate(alias, selectOrderBy, false);
+      return null;
     }
 
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     if (session == null) {
-      return new Candidate(alias, selectOrderBy, false);
+      return null;
     }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null) {
-      return new Candidate(alias, selectOrderBy, false);
+      return null;
     }
     var clazz = schema.getClassInternal(className);
     if (clazz == null) {
-      return new Candidate(alias, selectOrderBy, false);
+      return null;
     }
 
     Index matchedIndex = findExactWidthOrderIndex(clazz.getIndexesInternal(), propertyNames);
+    // No index to stream primary order: MATCH must own the (bounded) sort. Injecting ORDER BY
+    // into the root SELECT would sort the whole class before MATCH's LIMIT heap.
+    if (matchedIndex == null) {
+      return null;
+    }
     var aliasFilter = aliasFilters.get(alias);
     var ridAccepted =
-        matchedIndex != null
-            && filterCannotStealOrderIndex(aliasFilter, propertyNames)
+        filterCannotStealOrderIndex(aliasFilter, propertyNames)
             && acceptsRidTieBreak(
                 matchedIndex,
                 propertyNames,
@@ -348,11 +369,25 @@ final class SingleNodeIndexOrder {
 
   @Nullable private static String[] resolveOrderByToAliasProperty(
       SQLOrderByItem orderItem,
+      @Nonnull String patternAlias,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases) {
     var orderAlias = orderItem.getAlias();
     if (orderAlias == null) {
       return null;
+    }
+    // RETURN can rebind the pattern alias (RETURN s.child AS s). ORDER BY s.score must not be
+    // treated as the pattern node's score in that case — refuse SingleNode inject.
+    if (returnAliases != null && returnItems != null && patternAlias.equals(orderAlias)) {
+      for (int i = 0; i < returnAliases.size(); i++) {
+        var retAlias = returnAliases.get(i);
+        if (retAlias == null || !patternAlias.equals(retAlias.getStringValue())) {
+          continue;
+        }
+        if (!isBareAliasProjection(returnItems.get(i), patternAlias)) {
+          return null;
+        }
+      }
     }
     var modifier = orderItem.getModifier();
     if (modifier != null) {
@@ -374,6 +409,15 @@ final class SingleNodeIndexOrder {
       return resolved;
     }
     return null;
+  }
+
+  /**
+   * True when {@code expr} is exactly the bare pattern alias (no property path), so {@code RETURN
+   * alias} / {@code RETURN alias AS alias} does not rebind the name to another entity.
+   */
+  private static boolean isBareAliasProjection(SQLExpression expr, String patternAlias) {
+    var field = extractSimpleFieldName(expr);
+    return patternAlias.equals(field);
   }
 
   @Nullable private static String[] resolveSimpleDotExpression(SQLExpression expr) {

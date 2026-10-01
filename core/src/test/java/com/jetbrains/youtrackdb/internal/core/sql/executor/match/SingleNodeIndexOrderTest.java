@@ -351,7 +351,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
 
   /**
    * Narrow elision pushes LIMIT onto the synthetic root SELECT, so ORDER BY without a covering
-   * index still uses a bounded heap (top-N) and succeeds under a heap cap equal to LIMIT.
+   * index still uses a bounded heap (top-N) and succeeds under a heap cap equal to LIMIT. Asserts
+   * which rows, not only the row count.
    */
   @Test
   @Category(SequentialTest.class)
@@ -366,10 +367,26 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       try (var rs = session.query(query)) {
         rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
       }
-      assertThat(names).hasSize(2);
+      assertThat(names).containsExactly("a", "b");
     } finally {
       GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
     }
+  }
+
+  /**
+   * SKIP must ride with LIMIT on the pushed root SELECT: after name ASC, SKIP 1 LIMIT 1 yields
+   * the second name, not the first.
+   */
+  @Test
+  public void bareMatch_orderByWithoutIndex_skipAndLimitSelectCorrectRow() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name"
+        + " ORDER BY s.name ASC SKIP 1 LIMIT 1";
+    var names = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(names).containsExactly("b");
   }
 
   /**
@@ -895,6 +912,197 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> selectNames.add(String.valueOf((Object) row.getProperty("name"))));
     }
     assertThat(matchNames).containsExactly("a", "c").isEqualTo(selectNames);
+  }
+
+  /**
+   * LIMIT must stay after a NOT anti-join. Pushing LIMIT onto the root SELECT would keep only the
+   * lowest-score vertex; if that vertex has an outgoing edge, NOT removes it and the query returns
+   * empty. Correct: first vertex without outgoing edges after ORDER BY score.
+   */
+  @Test
+  public void bareMatch_notPattern_limitAppliesAfterAntiJoin() {
+    session.execute("CREATE CLASS NotNode EXTENDS V").close();
+    session.execute("CREATE PROPERTY NotNode.score INTEGER").close();
+    session.execute("CREATE INDEX NotNode_score ON NotNode (score) NOTUNIQUE").close();
+    session.execute("CREATE CLASS NotEdge EXTENDS E").close();
+    session.begin();
+    session.execute("CREATE VERTEX NotNode SET score = 1, name = 'has-edge'").close();
+    session.execute("CREATE VERTEX NotNode SET score = 2, name = 'no-edge'").close();
+    session.execute(
+        "CREATE EDGE NotEdge FROM (SELECT FROM NotNode WHERE score = 1)"
+            + " TO (SELECT FROM NotNode WHERE score = 2)")
+        .close();
+    session.commit();
+
+    var query = "MATCH {class: NotNode, as: a}, NOT {as: a}-->{}"
+        + " RETURN a.name AS name ORDER BY a.score ASC LIMIT 1";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("NOT+LIMIT must keep MATCH OrderBy / not push LIMIT into MatchFirst:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    var names = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(names).containsExactly("no-edge");
+  }
+
+  /**
+   * Aggregate without GROUP BY must see every root row. Pushing LIMIT under the aggregate would
+   * sum only the first ORDER BY row (1) instead of 1+2+3.
+   */
+  @Test
+  public void bareMatch_aggregateNoGroupBy_limitDoesNotCutAggregateInput() {
+    session.execute("CREATE CLASS AggScore EXTENDS V").close();
+    session.execute("CREATE PROPERTY AggScore.score INTEGER").close();
+    session.execute("CREATE INDEX AggScore_score ON AggScore (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX AggScore SET score = 1").close();
+    session.execute("CREATE VERTEX AggScore SET score = 2").close();
+    session.execute("CREATE VERTEX AggScore SET score = 3").close();
+    session.commit();
+
+    var query = "MATCH {class: AggScore, as: s} RETURN sum(s.score) AS total"
+        + " ORDER BY s.score ASC LIMIT 1";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("aggregate+LIMIT must keep MATCH OrderBy:\n%s", planText)
+        .contains("+ ORDER BY");
+
+    try (var rs = session.query(query)) {
+      assertThat(rs.hasNext()).isTrue();
+      assertThat(((Number) rs.next().getProperty("total")).longValue()).isEqualTo(6L);
+      assertThat(rs.hasNext()).isFalse();
+    }
+  }
+
+  /**
+   * Mixed ASC/DESC among property keys cannot ride an index VALUES scan for a trailing {@code
+   * @rid}. Refuse SingleNode inject so MATCH keeps the full sort (including {@code @rid}).
+   */
+  @Test
+  public void bareMatch_mixedDirectionRid_keepsMatchSort() {
+    seedNamedScores(false);
+    var query = "MATCH {class: Scored, as: s} RETURN s.name AS name, s.score AS score"
+        + " ORDER BY s.score DESC, s.name ASC, s.@rid DESC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("mixed property directions + @rid must not elide MATCH OrderBy:\n%s", planText)
+        .contains("+ ORDER BY")
+        .doesNotContain("FETCH FROM INDEX VALUES");
+
+    var expected = new ArrayList<String>();
+    try (var rs = session.query(
+        "SELECT name FROM Scored ORDER BY score DESC, name ASC, @rid DESC")) {
+      rs.forEachRemaining(row -> expected.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    var actual = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> actual.add(String.valueOf((Object) row.getProperty("name"))));
+    }
+    assertThat(actual).isEqualTo(expected);
+  }
+
+  /**
+   * {@code RETURN s.child AS s} rebinds the pattern alias. ORDER BY s.score must sort by the
+   * child's score, not the parent's — SingleNode must not inject using the pattern node.
+   */
+  @Test
+  public void bareMatch_returnAliasShadowsPattern_sortsByProjectedEntity() {
+    session.execute("CREATE CLASS ShadowParent EXTENDS V").close();
+    session.execute("CREATE CLASS ShadowChild EXTENDS V").close();
+    session.execute("CREATE PROPERTY ShadowParent.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowParent.child LINK ShadowChild").close();
+    session.execute("CREATE PROPERTY ShadowChild.score INTEGER").close();
+    session.execute("CREATE PROPERTY ShadowChild.tag STRING").close();
+    session.execute("CREATE INDEX ShadowParent_score ON ShadowParent (score) NOTUNIQUE").close();
+    session.begin();
+    session.execute("CREATE VERTEX ShadowChild SET score = 1, tag = 'low-child'").close();
+    session.execute("CREATE VERTEX ShadowChild SET score = 100, tag = 'high-child'").close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 10, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 1)")
+        .close();
+    session.execute(
+        "CREATE VERTEX ShadowParent SET score = 1, child = "
+            + "(SELECT FROM ShadowChild WHERE score = 100)")
+        .close();
+    session.commit();
+
+    // Keep ORDER BY on the shadowed alias; project tag beside it for a stable assertion.
+    var query = "MATCH {class: ShadowParent, as: s}"
+        + " RETURN s.child.tag AS tag, s.child AS s ORDER BY s.score ASC";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("shadowed alias must not open parent score VALUES:\n%s", planText)
+        .doesNotContain("FETCH FROM INDEX VALUES ASC ShadowParent_score")
+        .contains("+ ORDER BY");
+
+    var tags = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> tags.add(String.valueOf((Object) row.getProperty("tag"))));
+    }
+    assertThat(tags).containsExactly("low-child", "high-child");
+  }
+
+  /**
+   * primaryKeySortedInput must survive SELECT ORDER BY rewrite so plan-cache {@code copy()} does
+   * not throw when the projection adds expression aliases beside a RID secondary.
+   */
+  @Test
+  public void bareMatch_primaryKeyHint_survivesPlanCacheCopy() {
+    seedNamedScores(false);
+    // Distinct scores avoid RID-tie ambiguity; expression alias `d` forces ORDER BY rewrite.
+    var query = "MATCH {class: Scored, as: s, where: (name = 'a' OR name = 'c' OR name = 'd')}"
+        + " RETURN s.name AS n, s.score * 2 AS d"
+        + " ORDER BY s.score ASC, s.@rid ASC LIMIT 2";
+    // Warm the plan cache, then execute again from the cached plan (copy path).
+    try (var rs = session.query(query)) {
+      assertThat(rs.stream().count()).isEqualTo(2);
+    }
+    var names = new ArrayList<String>();
+    try (var rs = session.query(query)) {
+      rs.forEachRemaining(row -> names.add(String.valueOf((Object) row.getProperty("n"))));
+    }
+    assertThat(names).containsExactly("a", "c");
+  }
+
+  /**
+   * No index on the ORDER BY key plus trailing {@code @rid}: do not inject an unbounded root
+   * SELECT sort while MATCH keeps OrderBy+LIMIT. MATCH alone does the bounded top-N under the
+   * heap cap.
+   */
+  @Test
+  @Category(SequentialTest.class)
+  public void bareMatch_noIndexRidTrailing_limitStaysBoundedOnMatch() {
+    session.execute("CREATE CLASS PlainKey EXTENDS V").close();
+    session.execute("CREATE PROPERTY PlainKey.k LONG").close();
+    session.begin();
+    for (var i = 0; i < 1000; i++) {
+      session.execute("CREATE VERTEX PlainKey SET k = " + i).close();
+    }
+    session.commit();
+
+    var query = "MATCH {class: PlainKey, as: c} RETURN c.k AS k"
+        + " ORDER BY c.k ASC, c.@rid ASC LIMIT 10";
+    var planText = plan(query);
+    assertThat(planText)
+        .as("no-index + @rid must not inject root SELECT OrderBy:\n%s", planText)
+        .contains("+ ORDER BY")
+        .doesNotContain("FETCH FROM INDEX VALUES");
+
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(10);
+    try {
+      var keys = new ArrayList<Long>();
+      try (var rs = session.query(query)) {
+        rs.forEachRemaining(row -> keys.add(((Number) row.getProperty("k")).longValue()));
+      }
+      assertThat(keys).containsExactly(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {

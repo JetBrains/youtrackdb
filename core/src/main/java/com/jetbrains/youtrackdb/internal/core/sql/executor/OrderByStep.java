@@ -21,19 +21,25 @@ import java.util.PriorityQueue;
 import javax.annotation.Nullable;
 
 /**
- * Intermediate <b>blocking</b> step that sorts all upstream records according to an
- * ORDER BY clause.
+ * Intermediate <b>blocking</b> step that sorts upstream records according to an ORDER BY
+ * clause.
  *
- * <p>This step must consume the entire upstream before producing any output (it cannot
- * stream sorted results lazily). The sorted records are cached in-memory.
+ * <p>Sorted records are cached in-memory. The step does not stream sorted output lazily:
+ * it buffers until the sort finishes (or early-terminates — see below) before producing
+ * rows.
  *
  * <h2>Bounded path (ORDER BY + LIMIT)</h2>
  * When {@code maxResults} is set (derived from SKIP + LIMIT), a bounded min-heap
  * (priority queue) of size {@code maxResults} is used. Each incoming row is compared
  * against the heap's worst element (O(1) peek). Rows that rank higher replace the
  * worst element (O(log N) re-heapify); rows that rank lower are discarded immediately.
- * After all upstream rows are consumed, the heap is drained and sorted to produce the
- * final ordered output.
+ * After upstream is exhausted (or early-terminated), the heap is drained and sorted to
+ * produce the final ordered output.
+ *
+ * <p>When {@link #primaryKeySortedInput} is set and the input is known to be sorted by
+ * that primary key, the bounded path may stop reading once the primary key of a new row
+ * is strictly worse than the heap's worst element — later rows cannot enter the top-N.
+ * That early stop is the exception to "consume the entire upstream."
  *
  * <p>This reduces memory from O(|all results|) to O(N) and time from
  * O(|results| &times; log(|results|)) to O(|results| &times; log(N)).
@@ -46,7 +52,8 @@ import javax.annotation.Nullable;
  * the row count of the first execution.
  *
  * <h2>Unbounded path (ORDER BY without LIMIT)</h2>
- * All upstream rows are collected into a list and sorted once. The step respects
+ * All upstream rows are collected into a list and sorted once (or sorted only within
+ * equal-primary groups when {@link #primaryKeySortedInput} applies). The step respects
  * {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} and throws a
  * {@link CommandExecutionException} if the result set exceeds the configured limit.
  *
@@ -86,8 +93,11 @@ public class OrderByStep extends AbstractExecutionStep {
    * item (typically the first field).
    *
    * <p>Bounded heap: stop reading when this item's value is strictly "worse"
-   * than the worst heap element (all later rows are worse). Requires
-   * {@link #indexOrderedUpstream} and a runtime pre-sorted signal.
+   * than the worst heap element (all later rows are worse). For IndexOrdered
+   * that also requires {@link #indexOrderedUpstream} and a runtime pre-sorted
+   * signal; for SingleNode the planner sets this hint without
+   * {@code indexOrderedUpstream} when the synthetic root SELECT already streams
+   * the primary key.
    *
    * <p>Unbounded path: when the planner guarantees primary order (SingleNode
    * index values, or IndexOrdered with a runtime pre-sorted signal), sort only
@@ -96,7 +106,9 @@ public class OrderByStep extends AbstractExecutionStep {
    *
    * <p>Set by the MATCH planner for IndexOrdered multi-field ORDER BY and for
    * edge-free SingleNode when the root SELECT streams the primary key but MATCH
-   * still needs a secondary (e.g. {@code @rid}) sort.
+   * still needs a secondary (e.g. {@code @rid}) sort. The hint must remain one
+   * of {@link #orderBy}'s items after any ORDER BY rewrite (plan-cache
+   * {@link #copy()} asserts that).
    */
   @Nullable private final SQLOrderByItem primaryKeySortedInput;
 
