@@ -624,8 +624,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
    * proves tampering or corruption), and the CS43 gzip full-consumption sequence.
    */
   private void verifyV15StructuralStrictness() throws IOException {
-    final var exporterOrder = List.of(
-        "info", "collections", "schema", "records", "brokenRids", "indexes", "manifest");
+    final var exporterOrder = DatabaseExport.SECTION_ORDER;
     for (final var required : exporterOrder) {
       final var occurrences = sectionOccurrences.getOrDefault(required, 0);
       if (occurrences == 0) {
