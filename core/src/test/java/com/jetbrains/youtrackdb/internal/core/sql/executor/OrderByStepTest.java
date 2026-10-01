@@ -805,6 +805,33 @@ public class OrderByStepTest extends DbTestBase {
     Assert.assertEquals("z", results.get(3).getProperty("tag"));
   }
 
+  /**
+   * Group-sort path must enforce the same heap cap as a full unbounded sort: buffering more rows
+   * than {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP} throws, even when rows share one primary
+   * key (one large group).
+   */
+  @Test(expected = CommandExecutionException.class)
+  public void unboundedPrimaryGroupSort_enforcesHeapCap() {
+    var ctx = ctx();
+    var orderBy = orderByPrimaryAndTag();
+    var step =
+        new OrderByStep(orderBy, null, orderBy.getItems().getFirst(), false, ctx, -1, false);
+
+    var rows = new ArrayList<Result>();
+    for (var i = 0; i < 5; i++) {
+      rows.add(taggedRow(ctx, 1, "t" + i));
+    }
+    step.setPrevious(upstream(ctx, rows));
+
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(2);
+    try {
+      collect(step.start(ctx), ctx);
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
+  }
+
   private static Result taggedRow(CommandContext ctx, int primary, String tag) {
     var r = new ResultInternal(ctx.getDatabaseSession());
     r.setProperty(SORT_FIELD, primary);

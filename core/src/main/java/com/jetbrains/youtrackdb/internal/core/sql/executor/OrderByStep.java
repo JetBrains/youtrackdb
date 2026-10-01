@@ -401,8 +401,9 @@ public class OrderByStep extends AbstractExecutionStep {
   }
 
   /**
-   * Drains a primary-sorted upstream, sorting each equal-primary run by the full ORDER BY.
-   * Same heap cap as the full-sort path (total buffered rows).
+   * Drains a primary-sorted upstream, sorting each equal-primary run by the full ORDER BY in
+   * place on a single result list (no per-group copy into a second buffer). Same heap cap as the
+   * full-sort path (total buffered rows).
    */
   private List<Result> initUnboundedPrimaryGroups(
       ExecutionStream upstream,
@@ -411,44 +412,41 @@ public class OrderByStep extends AbstractExecutionStep {
       long maxElementsAllowed,
       ResolvedOrderByNullsPlacement nullsDefault) {
     List<Result> output = new ArrayList<>();
-    List<Result> group = new ArrayList<>();
-    var total = 0;
+    var groupStart = 0;
     try {
       while (upstream.hasNext(ctx)) {
         if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
           sendTimeout();
         }
         var item = upstream.next(ctx);
-        total++;
-        if (maxElementsAllowed >= 0 && maxElementsAllowed < total) {
+        if (maxElementsAllowed >= 0 && maxElementsAllowed < output.size() + 1) {
           throw heapCapExceeded(ctx, maxElementsAllowed);
         }
-        if (!group.isEmpty()
-            && primaryKeySortedInput.compare(group.getFirst(), item, ctx, nullsDefault) != 0) {
-          flushPrimaryGroup(group, output, ctx, nullsDefault);
+        if (groupStart < output.size()
+            && primaryKeySortedInput.compare(output.get(groupStart), item, ctx, nullsDefault)
+                != 0) {
+          sortPrimaryGroupInPlace(output, groupStart, output.size(), ctx, nullsDefault);
+          groupStart = output.size();
         }
-        group.add(item);
+        output.add(item);
       }
-      flushPrimaryGroup(group, output, ctx, nullsDefault);
+      sortPrimaryGroupInPlace(output, groupStart, output.size(), ctx, nullsDefault);
       return output;
     } finally {
       upstream.close(ctx);
     }
   }
 
-  private void flushPrimaryGroup(
-      List<Result> group,
+  /** Sorts {@code output[from, to)} by the full ORDER BY when the run has more than one row. */
+  private void sortPrimaryGroupInPlace(
       List<Result> output,
+      int from,
+      int to,
       CommandContext ctx,
       ResolvedOrderByNullsPlacement nullsDefault) {
-    if (group.isEmpty()) {
-      return;
+    if (to - from > 1) {
+      output.subList(from, to).sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
     }
-    if (group.size() > 1) {
-      group.sort((a, b) -> orderBy.compare(a, b, ctx, nullsDefault));
-    }
-    output.addAll(group);
-    group.clear();
   }
 
   private static CommandExecutionException heapCapExceeded(
