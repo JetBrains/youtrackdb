@@ -15,6 +15,11 @@ public final class RecoveryPageContext {
   private final Map<Integer, Map<Long, LogSequenceNumber>> gapPages = new HashMap<>();
   private Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredPages = Map.of();
   private LogSequenceNumber currentRecord;
+  private boolean unitHasStartRecord;
+
+  public void setUnitHasStartRecord(boolean hasStartRecord) {
+    unitHasStartRecord = hasStartRecord;
+  }
 
   public void setDeclaredPages(Map<Integer, TreeMap<Long, LogSequenceNumber>> pages) {
     declaredPages = pages == null ? Map.of() : pages;
@@ -24,9 +29,12 @@ public final class RecoveryPageContext {
     currentRecord = position;
   }
 
-  /** Records pages created by replay before their asynchronous validation writes complete. */
+  /**
+   * Records pages created by complete units before asynchronous validation writes complete.
+   * A WAL cut can remove a headless unit's earlier changes, so its gaps cannot authorize rebuilds.
+   */
   public void addCreatedPage(int fileId, long pageIndex) {
-    if (currentRecord != null) {
+    if (unitHasStartRecord && currentRecord != null) {
       gapPages.computeIfAbsent(fileId, ignored -> new HashMap<>())
           .put(pageIndex, currentRecord);
     }

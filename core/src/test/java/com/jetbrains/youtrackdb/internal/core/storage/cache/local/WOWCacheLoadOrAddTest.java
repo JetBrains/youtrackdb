@@ -375,8 +375,8 @@ public class WOWCacheLoadOrAddTest {
   }
 
   /**
-   * A later atomic unit may read a gap before its queued validation write. The first load
-   * consumes the gap provenance, and deletion removes all remaining gap provenance.
+   * A later atomic unit may read a complete unit's gap before its queued validation write.
+   * The first load consumes the gap provenance, and deletion removes the remaining entries.
    */
   @Test
   public void gapCreatedByEarlierUnitIsRebuiltOnceBeforeValidation() throws Exception {
@@ -399,8 +399,11 @@ public class WOWCacheLoadOrAddTest {
     });
     try {
       assertTrue(started.await(10, TimeUnit.SECONDS));
+      context.setUnitHasStartRecord(true);
       context.setCurrentRecord(new LogSequenceNumber(3, 10));
       wowCache.loadOrAdd(fileId, 2, true).decrementReadersReferrer();
+      // The creating unit has ended. Its gap provenance must remain available.
+      context.setUnitHasStartRecord(false);
       context.setCurrentRecord(new LogSequenceNumber(3, 30));
       var page = wowCache.loadOrAdd(fileId, 1, true);
       try {
@@ -414,6 +417,52 @@ public class WOWCacheLoadOrAddTest {
       blocker.get(10, TimeUnit.SECONDS);
       wowCache.deleteFile(fileId);
       assertNull(context.consumeGapPage(wowCache.internalFileId(fileId), 0));
+    } finally {
+      release.countDown();
+      wowCache.setRecoveryPageContext(null);
+    }
+  }
+
+  /**
+   * A headless WAL unit can gap-fill a shortened file, but its missing start means earlier
+   * page changes may have been cut. An unstamped intermediate page with no DWL copy must
+   * take the broken-page path instead of being silently rebuilt as empty.
+   */
+  @Test
+  public void headlessUnitGapFillDoesNotRebuildIntermediateBrokenPage() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    var context = new RecoveryPageContext();
+    wowCache.setRecoveryPageContext(context);
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    var executorMethod = WOWCache.class.getDeclaredMethod("commitExecutor");
+    executorMethod.setAccessible(true);
+    var executor = (ScheduledExecutorService) executorMethod.invoke(wowCache);
+    var started = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var blocker = executor.submit(() -> {
+      started.countDown();
+      try {
+        release.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    });
+    try {
+      assertTrue(started.await(10, TimeUnit.SECONDS));
+      context.setUnitHasStartRecord(false);
+      context.setCurrentRecord(new LogSequenceNumber(3, 10));
+      wowCache.loadOrAdd(fileId, 2, true).decrementReadersReferrer();
+      assertNull(context.consumeGapPage(wowCache.internalFileId(fileId), 2));
+      context.setCurrentRecord(new LogSequenceNumber(3, 30));
+      try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
+        var broken = assertThrows(StorageException.class,
+            () -> wowCache.loadOrAdd(fileId, 1, true));
+        assertTrue(broken.getMessage().contains("verification failed for page `1`"));
+        assertFalse(warnings.warnedWithAll("rebuilt", FILE_NAME));
+      }
+      assertNull(context.consumeGapPage(wowCache.internalFileId(fileId), 1));
+      release.countDown();
+      blocker.get(10, TimeUnit.SECONDS);
     } finally {
       release.countDown();
       wowCache.setRecoveryPageContext(null);

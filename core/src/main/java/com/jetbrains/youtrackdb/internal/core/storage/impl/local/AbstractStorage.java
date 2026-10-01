@@ -9306,10 +9306,11 @@ public abstract class AbstractStorage
     final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
     if (recoveryContext != null) {
       // A fuzzy-checkpoint WAL cut can leave only the tail of a committed unit. Its
-      // allocation records do not prove that all earlier page changes remain in WAL.
+      // allocations and gap fills do not prove that earlier page changes remain in WAL.
       // Still preload every declared page for the dirty-table and flush contract.
-      recoveryContext.setDeclaredPages(
-          atomicUnit.getFirst() instanceof AtomicUnitStartRecord ? declaredAllocationPages : null);
+      final boolean hasStartRecord = atomicUnit.getFirst() instanceof AtomicUnitStartRecord;
+      recoveryContext.setUnitHasStartRecord(hasStartRecord);
+      recoveryContext.setDeclaredPages(hasStartRecord ? declaredAllocationPages : null);
     }
     try {
       // An ascending load prevents a high-index allocation from gap-filling past an
@@ -9338,6 +9339,7 @@ public abstract class AbstractStorage
       if (recoveryContext != null) {
         recoveryContext.setDeclaredPages(null);
         recoveryContext.setCurrentRecord(null);
+        recoveryContext.setUnitHasStartRecord(false);
       }
     }
   }

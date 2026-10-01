@@ -500,8 +500,10 @@ public class RestoreAtomicUnitPageOperationTest {
   public void laterUnitConsumesGapOnReadCacheHit() throws Exception {
     var context = new RecoveryPageContext();
     var creation = new LogSequenceNumber(3, 10);
+    context.setUnitHasStartRecord(true);
     context.setCurrentRecord(creation);
     context.addCreatedPage(DURABLE_INTERNAL_ID, 0);
+    context.setUnitHasStartRecord(false);
     var page = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0,
         new LogSequenceNumber(-1, -1));
     when(readCache.loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, creation))
@@ -539,6 +541,7 @@ public class RestoreAtomicUnitPageOperationTest {
         new LogSequenceNumber(-1, -1));
     when(readCache.loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, position))
         .thenAnswer(inv -> {
+          context.addCreatedPage(DURABLE_INTERNAL_ID, 1);
           if (context.declaredPosition(DURABLE_INTERNAL_ID, 0) == null) {
             throw new StorageException("testStorage", "broken page without DWL copy");
           }
@@ -555,6 +558,7 @@ public class RestoreAtomicUnitPageOperationTest {
         () -> method.invoke(storage, headless, new ModifiableBoolean(), context));
     assertTrue(failure.getCause() instanceof StorageException);
     assertEquals(null, context.declaredPosition(DURABLE_INTERNAL_ID, 0));
+    assertEquals(null, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
     verify(readCache, never()).releaseFromWrite(page, writeCache, true);
 
     var complete = new ArrayList<WALRecord>();
@@ -564,6 +568,10 @@ public class RestoreAtomicUnitPageOperationTest {
     method.invoke(storage, complete, new ModifiableBoolean(), context);
     verify(readCache).releaseFromWrite(page, writeCache, true);
     assertEquals(null, context.declaredPosition(DURABLE_INTERNAL_ID, 0));
+    assertEquals(position, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
+    context.setCurrentRecord(position);
+    context.addCreatedPage(DURABLE_INTERNAL_ID, 1);
+    assertEquals(null, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
   }
 
   /** A replay starting after a WAL cut still dispatches a unit without its start record. */
