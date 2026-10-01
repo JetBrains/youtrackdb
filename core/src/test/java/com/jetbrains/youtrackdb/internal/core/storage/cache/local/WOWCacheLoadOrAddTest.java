@@ -5,19 +5,28 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -27,12 +36,19 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -182,6 +198,225 @@ public class WOWCacheLoadOrAddTest {
                   }
                 });
       }
+    }
+  }
+
+  private void overwritePage(long fileId, byte[] contents) throws IOException {
+    var diskPath = storagePath.resolve(wowCache.nativeFileNameById(fileId));
+    try (var channel = FileChannel.open(diskPath, StandardOpenOption.WRITE)) {
+      channel.write(ByteBuffer.wrap(contents), File.HEADER_SIZE);
+    }
+  }
+
+  private RecoveryPageContext declare(int internalId, long pageIndex,
+      LogSequenceNumber position) {
+    var context = new RecoveryPageContext();
+    var pages = new TreeMap<Long, LogSequenceNumber>();
+    pages.put(pageIndex, position);
+    context.setDeclaredPages(Map.of(internalId, pages));
+    wowCache.setRecoveryPageContext(context);
+    return context;
+  }
+
+  /**
+   * Only a declared page with no DWL copy may be rebuilt. A checksum error and a missing
+   * magic number both become an empty page with an unset header LSN during crash replay.
+   */
+  @Test
+  public void declaredInvalidMagicAndChecksumRebuildWithoutDwlCopy() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    wowCache.loadOrAdd(fileId, 0, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    var position = new LogSequenceNumber(2, 12);
+    declare(wowCache.internalFileId(fileId), 0, position);
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
+      overwritePage(fileId, new byte[PAGE_SIZE]);
+      var rebuilt = wowCache.loadOrAdd(fileId, 0, true);
+      try {
+        assertEquals(new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(rebuilt.getBuffer()));
+        assertEquals(0, rebuilt.getBuffer().getLong(0));
+        wowCache.updateDirtyPagesTable(rebuilt, position);
+        wowCache.store(fileId, 0, rebuilt);
+        var dirtyField = WOWCache.class.getDeclaredField("dirtyPages");
+        dirtyField.setAccessible(true);
+        var dirty = (ConcurrentHashMap<?, ?>) dirtyField.get(wowCache);
+        assertEquals(position, dirty.get(new PageKey(wowCache.internalFileId(fileId), 0)));
+        var cachedField = WOWCache.class.getDeclaredField("writeCachePages");
+        cachedField.setAccessible(true);
+        var cached = (ConcurrentHashMap<?, ?>) cachedField.get(wowCache);
+        assertSame(rebuilt, cached.get(new PageKey(wowCache.internalFileId(fileId), 0)));
+      } finally {
+        rebuilt.decrementReadersReferrer();
+      }
+      assertTrue(warnings.warnedWithAll(FILE_NAME, "page 0", storageName,
+          "empty page", "logged changes, if any"));
+      wowCache.flush(fileId);
+      assertNull(wowCache.getMinimalNotFlushedSegment());
+
+      // Break only the CRC-covered data. The magic remains valid.
+      var stamped = wowCache.loadOrAdd(fileId, 0, true);
+      stamped.decrementReadersReferrer();
+      var bytes = Files.readAllBytes(storagePath.resolve(wowCache.nativeFileNameById(fileId)));
+      bytes[File.HEADER_SIZE + DurablePage.NEXT_FREE_POSITION] ^= 1;
+      overwritePage(fileId, java.util.Arrays.copyOfRange(bytes,
+          File.HEADER_SIZE, File.HEADER_SIZE + PAGE_SIZE));
+      var checksumRebuilt = wowCache.loadOrAdd(fileId, 0, true);
+      try {
+        assertEquals(new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(checksumRebuilt.getBuffer()));
+      } finally {
+        checksumRebuilt.decrementReadersReferrer();
+      }
+    } finally {
+      wowCache.setRecoveryPageContext(null);
+    }
+  }
+
+  /** A valid declared page stays unchanged, and a corrupt undeclared page still fails. */
+  @Test
+  public void validDeclaredPageIsPreservedAndUndeclaredDamageIsRejected() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    wowCache.loadOrAdd(fileId, 0, false).decrementReadersReferrer();
+    wowCache.loadOrAdd(fileId, 1, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    var diskPath = storagePath.resolve(wowCache.nativeFileNameById(fileId));
+    var original = Files.readAllBytes(diskPath);
+    declare(wowCache.internalFileId(fileId), 0, new LogSequenceNumber(1, 5));
+    try {
+      var page = wowCache.loadOrAdd(fileId, 0, true);
+      try {
+        var actual = new byte[PAGE_SIZE];
+        page.getBuffer().duplicate().clear().get(actual);
+        assertArrayEquals(java.util.Arrays.copyOfRange(original,
+            File.HEADER_SIZE, File.HEADER_SIZE + PAGE_SIZE), actual);
+      } finally {
+        page.decrementReadersReferrer();
+      }
+      try (var channel = FileChannel.open(diskPath, StandardOpenOption.WRITE)) {
+        channel.write(ByteBuffer.wrap(new byte[PAGE_SIZE]), File.HEADER_SIZE + PAGE_SIZE);
+      }
+      assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 1, true));
+    } finally {
+      wowCache.setRecoveryPageContext(null);
+    }
+    overwritePage(fileId, new byte[PAGE_SIZE]);
+    assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 0, true));
+  }
+
+  /** A valid DWL copy wins over an empty rebuild even for a declared page. */
+  @Test
+  public void declaredPageUsesValidDwlCopyInsteadOfRebuilding() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    wowCache.loadOrAdd(fileId, 0, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    var diskBytes = Files.readAllBytes(storagePath.resolve(wowCache.nativeFileNameById(fileId)));
+    var valid = java.util.Arrays.copyOfRange(diskBytes,
+        File.HEADER_SIZE, File.HEADER_SIZE + PAGE_SIZE);
+    var doubleWriteLog = mock(DoubleWriteLog.class);
+    var field = WOWCache.class.getDeclaredField("doubleWriteLog");
+    field.setAccessible(true);
+    field.set(wowCache, doubleWriteLog);
+    when(doubleWriteLog.loadPage(eq(wowCache.internalFileId(fileId)), eq(0), any()))
+        .thenAnswer(inv -> {
+          var pointer = bufferPool.acquireDirect(false, Intention.LOAD_PAGE_FROM_DISK);
+          pointer.getNativeByteBuffer().put(valid).clear();
+          return pointer;
+        });
+    declare(wowCache.internalFileId(fileId), 0, new LogSequenceNumber(1, 5));
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    overwritePage(fileId, new byte[PAGE_SIZE]);
+    try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
+      var loaded = wowCache.loadOrAdd(fileId, 0, true);
+      try {
+        var actual = new byte[PAGE_SIZE];
+        loaded.getBuffer().duplicate().clear().get(actual);
+        assertArrayEquals(valid, actual);
+        assertFalse(warnings.warnedWithAll("rebuilt", FILE_NAME));
+      } finally {
+        loaded.decrementReadersReferrer();
+      }
+      when(doubleWriteLog.loadPage(eq(wowCache.internalFileId(fileId)), eq(0), any()))
+          .thenAnswer(inv -> {
+            var pointer = bufferPool.acquireDirect(false, Intention.LOAD_PAGE_FROM_DISK);
+            pointer.getNativeByteBuffer().clear().put(new byte[PAGE_SIZE]).clear();
+            return pointer;
+          });
+      assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 0, true));
+      assertFalse(warnings.warnedWithAll("rebuilt", FILE_NAME));
+    } finally {
+      wowCache.setRecoveryPageContext(null);
+    }
+  }
+
+  /** Off, Store, and disabled verification never enter the recovery rebuild path. */
+  @Test
+  public void skippedVerificationDoesNotRebuildDeclaredPage() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    wowCache.loadOrAdd(fileId, 0, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    overwritePage(fileId, new byte[PAGE_SIZE]);
+    declare(wowCache.internalFileId(fileId), 0, new LogSequenceNumber(1, 5));
+    try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
+      for (var mode : new ChecksumMode[] {ChecksumMode.Off, ChecksumMode.Store}) {
+        wowCache.setChecksumMode(mode);
+        var page = wowCache.loadOrAdd(fileId, 0, true);
+        page.decrementReadersReferrer();
+      }
+      wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+      var page = wowCache.loadOrAdd(fileId, 0, false);
+      page.decrementReadersReferrer();
+      assertFalse(warnings.warnedWithAll("rebuilt", FILE_NAME));
+    } finally {
+      wowCache.setRecoveryPageContext(null);
+    }
+  }
+
+  /**
+   * A later atomic unit may read a gap before its queued validation write. The first load
+   * consumes the gap provenance, and deletion removes all remaining gap provenance.
+   */
+  @Test
+  public void gapCreatedByEarlierUnitIsRebuiltOnceBeforeValidation() throws Exception {
+    var fileId = wowCache.addFile(FILE_NAME);
+    var context = new RecoveryPageContext();
+    wowCache.setRecoveryPageContext(context);
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    var executorMethod = WOWCache.class.getDeclaredMethod("commitExecutor");
+    executorMethod.setAccessible(true);
+    var executor = (ScheduledExecutorService) executorMethod.invoke(wowCache);
+    var started = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var blocker = executor.submit(() -> {
+      started.countDown();
+      try {
+        release.await();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    });
+    try {
+      assertTrue(started.await(10, TimeUnit.SECONDS));
+      context.setCurrentRecord(new LogSequenceNumber(3, 10));
+      wowCache.loadOrAdd(fileId, 2, true).decrementReadersReferrer();
+      context.setCurrentRecord(new LogSequenceNumber(3, 30));
+      var page = wowCache.loadOrAdd(fileId, 1, true);
+      try {
+        assertEquals(new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(page.getBuffer()));
+        assertNull(context.consumeGapPage(wowCache.internalFileId(fileId), 1));
+      } finally {
+        page.decrementReadersReferrer();
+      }
+      release.countDown();
+      blocker.get(10, TimeUnit.SECONDS);
+      wowCache.deleteFile(fileId);
+      assertNull(context.consumeGapPage(wowCache.internalFileId(fileId), 0));
+    } finally {
+      release.countDown();
+      wowCache.setRecoveryPageContext(null);
     }
   }
 

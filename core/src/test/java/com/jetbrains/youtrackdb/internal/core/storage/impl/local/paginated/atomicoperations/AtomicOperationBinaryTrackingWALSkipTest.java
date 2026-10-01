@@ -598,7 +598,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
     // The pre-scan materializes the page once and redo loads it a second time.
     verify(restoreReadCache, org.mockito.Mockito.times(2)).loadOrAddForWrite(
         eq(durableFileId), eq(0L), eq(restoreWriteCache), eq(true), any());
-    verify(restoreReadCache).releaseFromWrite(restoreCacheEntry, restoreWriteCache, false);
+    // Declared preloads now publish even an unchanged page so the dirty entry can flush.
+    verify(restoreReadCache, org.mockito.Mockito.times(2)).releaseFromWrite(
+        restoreCacheEntry, restoreWriteCache, true);
     assertThat(atLeastOnePageUpdate.getValue()).isTrue();
 
     // Durable file was re-created (exists("durable-file.dat") returns false)

@@ -118,6 +118,10 @@ public interface WriteCache {
 
   void restoreModeOff();
 
+  /** Installs crash-replay provenance on the calling thread. Null clears it. */
+  default void setRecoveryPageContext(RecoveryPageContext context) {
+  }
+
   void store(long fileId, long pageIndex, CachePointer dataPointer);
 
   void checkCacheOverflow() throws InterruptedException;
