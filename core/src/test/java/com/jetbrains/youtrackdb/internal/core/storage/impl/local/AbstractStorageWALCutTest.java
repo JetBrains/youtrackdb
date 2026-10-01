@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -30,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -43,7 +45,7 @@ public class AbstractStorageWALCutTest {
   private LogSequenceNumber checkpointLsn;
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
     writeAheadLog = mock(WriteAheadLog.class);
     writeCache = mock(WriteCache.class);
@@ -53,6 +55,13 @@ public class AbstractStorageWALCutTest {
     storage.writeAheadLog = writeAheadLog;
     storage.writeCache = writeCache;
     storage.atomicOperationsTable = atomicOperationsTable;
+    // CALLS_REAL_METHODS skips constructor field initializers.
+    for (var field : new String[] {"idGen", "atomicOperationsManager"}) {
+      setPrivateField(storage, field,
+          mock(AbstractStorage.class.getDeclaredField(field).getType()));
+    }
+    setPrivateField(storage, "checkpointFloorTestAction", new AtomicReference<>());
+    setPrivateField(storage, "afterCloseAtomicTestAction", new AtomicReference<>());
 
     when(writeAheadLog.log(any())).thenReturn(checkpointLsn);
     when(atomicOperationsTable.getSegmentEarliestOperationInProgress()).thenReturn(-1L);
@@ -307,7 +316,7 @@ public class AbstractStorageWALCutTest {
     final var dirtyFailure = new IOException("injected metadata write failure");
     final var metadataCloseFailure = new IOException("injected metadata close failure");
     doThrow(cacheFailure).when(storage.readCache).closeStorage(writeCache);
-    doThrow(dirtyFailure).when(storage).makeStorageDirty();
+    doNothing().doThrow(dirtyFailure).when(storage).makeStorageDirty();
     doThrow(metadataCloseFailure).when(storage).postCloseSteps(false, true, 0L);
 
     assertThatThrownBy(storage::doShutdown)

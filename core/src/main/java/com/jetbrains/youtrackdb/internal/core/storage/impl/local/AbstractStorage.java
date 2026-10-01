@@ -229,6 +229,30 @@ public abstract class AbstractStorage
     PageIsBrokenListener {
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractStorage.class);
+  private final AtomicReference<Consumer<AbstractStorage>> checkpointFloorTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<AbstractStorage>> afterCloseAtomicTestAction =
+      new AtomicReference<>();
+
+  /** Installs a one-shot observation point after this storage saves its checkpoint floor. */
+  public void setCheckpointFloorActionForTesting(Consumer<AbstractStorage> action) {
+    if (!checkpointFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A checkpoint floor test action is already installed");
+    }
+  }
+
+  /** Installs a one-shot observation point after this storage commits its close operation. */
+  public void setAfterCloseAtomicActionForTesting(Consumer<AbstractStorage> action) {
+    if (!afterCloseAtomicTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A close operation test action is already installed");
+    }
+  }
+
+  public void clearCheckpointActionsForTesting() {
+    checkpointFloorTestAction.set(null);
+    afterCloseAtomicTestAction.set(null);
+  }
+
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
 
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
@@ -7752,6 +7776,13 @@ public abstract class AbstractStorage
       if (cacheSegment != null && (protectedSegment < 0 || cacheSegment < protectedSegment)) {
         protectedSegment = cacheSegment;
       }
+      // The durable floor must cover every issued identifier before any WAL segment is cut.
+      // This direct metadata write does not enter the frozen atomic-operation path.
+      saveCheckpointFloor(idGen.getLastId());
+      final var floorAction = checkpointFloorTestAction.getAndSet(null);
+      if (floorAction != null) {
+        floorAction.accept(this);
+      }
 
       if (protectedSegment >= 0) {
         writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
@@ -7818,6 +7849,10 @@ public abstract class AbstractStorage
   }
 
   protected void clearStorageDirty() throws IOException {
+  }
+
+  /** Memory storage has no durable timestamp floor. */
+  protected void saveCheckpointFloor(long lastIssued) throws IOException {
   }
 
   protected boolean isDirty() {
@@ -8605,7 +8640,16 @@ public abstract class AbstractStorage
               }
             }
           }
-          flushAllData();
+          final var checkpointFreeze =
+              atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+          try {
+            flushAllData();
+            // The later close operation takes a timestamp. Keep recovery enabled while the
+            // freezer must be released for that operation to run.
+            makeStorageDirty();
+          } finally {
+            atomicOperationsManager.unfreezeWriteOperations(checkpointFreeze);
+          }
         } catch (RuntimeException | Error failure) {
           // Neither the monitor nor any index resources have been torn down yet.
           for (var mgr : blocked) {
@@ -8641,6 +8685,10 @@ public abstract class AbstractStorage
               }
               ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
             });
+        final var closeAction = afterCloseAtomicTestAction.getAndSet(null);
+        if (closeAction != null) {
+          closeAction.accept(this);
+        }
       } else {
         LogManager.instance()
             .error(
@@ -8649,68 +8697,80 @@ public abstract class AbstractStorage
                 null);
       }
 
-      linkCollectionsBTreeManager.close();
-
-      // we close all files inside cache system so we only clear collection metadata
-      collections.clear();
-      collectionMap.clear();
-      indexEngines.clear();
-      indexEngineNameMap.clear();
-      sharedSnapshotIndex.clear();
-      visibilityIndex.clear();
-      snapshotIndexSize.set(0);
-      sharedEdgeSnapshotIndex.clear();
-      edgeVisibilityIndex.clear();
-      edgeSnapshotIndexSize.set(0);
-      sharedIndexesSnapshot.clear();
-      indexesSnapshotVisibilityIndex.clear();
-      sharedNullIndexesSnapshot.clear();
-      nullIndexSnapshotVisibilityIndex.clear();
-      indexesSnapshotEntriesCount.set(0);
-
-      if (writeCache != null) {
-        writeCache.removeBackgroundExceptionListener(this);
-        writeCache.removePageIsBrokenListener(this);
-      }
-
-      writeAheadLog.removeCheckpointListener(this);
-
+      // Re-acquire the pause after the close-time atomic operation. Background GC can still
+      // enter the freezer despite CLOSING. The final floor and indication clear in
+      // postCloseSteps must therefore run under this second pause as well.
+      final var closeFreeze = !isInError()
+          ? atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null)
+          : -1;
       Exception cacheCloseFailure = null;
       try {
-        if (readCache != null) {
-          readCache.closeStorage(writeCache);
+        linkCollectionsBTreeManager.close();
+
+        // we close all files inside cache system so we only clear collection metadata
+        collections.clear();
+        collectionMap.clear();
+        indexEngines.clear();
+        indexEngineNameMap.clear();
+        sharedSnapshotIndex.clear();
+        visibilityIndex.clear();
+        snapshotIndexSize.set(0);
+        sharedEdgeSnapshotIndex.clear();
+        edgeVisibilityIndex.clear();
+        edgeSnapshotIndexSize.set(0);
+        sharedIndexesSnapshot.clear();
+        indexesSnapshotVisibilityIndex.clear();
+        sharedNullIndexesSnapshot.clear();
+        nullIndexSnapshotVisibilityIndex.clear();
+        indexesSnapshotEntriesCount.set(0);
+
+        if (writeCache != null) {
+          writeCache.removeBackgroundExceptionListener(this);
+          writeCache.removePageIsBrokenListener(this);
         }
-      } catch (Exception e) {
-        cacheCloseFailure = e;
-        LogManager.instance().error(this, "Error during closing of disk cache", e);
-        // The checkpoint may have cleared the marker. Restore it before final metadata close.
-        // If this write fails, the marker cannot be guaranteed, but postCloseSteps must not
-        // clear it again. Preserve the cache error and continue closing WAL and metadata.
+
+        writeAheadLog.removeCheckpointListener(this);
+
         try {
-          makeStorageDirty();
-        } catch (Exception dirtyFailure) {
-          e.addSuppressed(dirtyFailure);
+          if (readCache != null) {
+            readCache.closeStorage(writeCache);
+          }
+        } catch (Exception e) {
+          cacheCloseFailure = e;
+          LogManager.instance().error(this, "Error during closing of disk cache", e);
+          // The checkpoint may have cleared the marker. Restore it before final metadata close.
+          // If this write fails, the marker cannot be guaranteed, but postCloseSteps must not
+          // clear it again. Preserve the cache error and continue closing WAL and metadata.
+          try {
+            makeStorageDirty();
+          } catch (Exception dirtyFailure) {
+            e.addSuppressed(dirtyFailure);
+          }
         }
-      }
 
-      try {
-        writeAheadLog.close();
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Error during closing of write ahead log", e);
-      }
-
-      if (cacheCloseFailure != null) {
         try {
-          postCloseSteps(false, true, idGen.getLastId());
-        } catch (Exception metadataFailure) {
-          cacheCloseFailure.addSuppressed(metadataFailure);
+          writeAheadLog.close();
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error during closing of write ahead log", e);
         }
-      } else {
-        postCloseSteps(false, isInError(), idGen.getLastId());
-      }
 
-      migration = new CountDownLatch(1);
-      status = STATUS.CLOSED;
+        if (cacheCloseFailure != null) {
+          try {
+            postCloseSteps(false, true, idGen.getLastId());
+          } catch (Exception metadataFailure) {
+            cacheCloseFailure.addSuppressed(metadataFailure);
+          }
+        } else {
+          postCloseSteps(false, isInError(), idGen.getLastId());
+        }
+
+        migration = new CountDownLatch(1);
+        status = STATUS.CLOSED;
+      } finally {
+        if (closeFreeze >= 0) {
+          atomicOperationsManager.unfreezeWriteOperations(closeFreeze);
+        }
+      }
       if (cacheCloseFailure != null) {
         throw BaseException.wrapException(
             new StorageException(name, "Error during closing of disk cache"),
