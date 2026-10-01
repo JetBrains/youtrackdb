@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -347,6 +348,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentHashMap<PageKey, LogSequenceNumber> dirtyPages =
       new ConcurrentHashMap<>();
+
+  // Replay state is confined to the replay thread. Flush and validation tasks never read it.
+  private final ThreadLocal<RecoveryPageContext> recoveryPageContext = new ThreadLocal<>();
 
   /**
    * Copy of content of {@link #dirtyPages} table at the moment when
@@ -1266,6 +1270,15 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public void setRecoveryPageContext(RecoveryPageContext context) {
+    if (context == null) {
+      recoveryPageContext.remove();
+    } else {
+      recoveryPageContext.set(context);
+    }
+  }
+
+  @Override
   public void restoreModeOn() throws IOException {
     filesLock.acquireWriteLock();
     try {
@@ -1608,6 +1621,8 @@ public final class WOWCache extends AbstractWriteCache
    */
   private CachePointer loadOrAddLoadBranch(
       final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var context = recoveryPageContext.get();
+    final var gapPosition = context == null ? null : context.consumeGapPage(intId, pageIndex);
     final var pageKey = new PageKey(intId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
@@ -1620,7 +1635,9 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     try {
-      final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+      final var filePagePointer = loadFileContent(
+          intId, pageIndex, verifyChecksums,
+          context == null ? null : context.declaredPosition(intId, pageIndex), gapPosition);
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
@@ -1678,6 +1695,10 @@ public final class WOWCache extends AbstractWriteCache
               + allocatedIndex
               + " does not match requested pageIndex "
               + pageIndex);
+    }
+    final var context = recoveryPageContext.get();
+    if (context != null) {
+      context.addCreatedPage(intId, pageIndex);
     }
     commitExecutor()
         .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
@@ -1742,7 +1763,11 @@ public final class WOWCache extends AbstractWriteCache
     // pages stamp in ascending order. Each task is idempotent (writeValidPageInFile
     // only writes if the underlying file is shorter than the page offset), so a
     // resubmission against an already-stamped page is a no-op.
+    final var context = recoveryPageContext.get();
     for (long gapPage = currentSize; gapPage <= pageIndex; gapPage++) {
+      if (context != null) {
+        context.addCreatedPage(intId, gapPage);
+      }
       commitExecutor()
           .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
     }
@@ -2052,6 +2077,10 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
+        final var context = recoveryPageContext.get();
+        if (context != null) {
+          context.removeFile(intId);
+        }
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
           final var updated = new IntOpenHashSet(nonDurableFileIds);
@@ -3578,6 +3607,12 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, null, null);
+  }
+
+  @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
+      final boolean verifyChecksums, @Nullable LogSequenceNumber declaredPosition,
+      @Nullable LogSequenceNumber gapPosition) throws IOException {
     final var fileId = composeFileId(id, internalFileId);
     try {
       final var entry = files.acquire(fileId);
@@ -3611,7 +3646,22 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                assertPageIsBroken(pageIndex, fileId, pageFrame);
+                if (declaredPosition != null || gapPosition != null) {
+                  // Only the replay write-load supplies provenance. Do not stamp the
+                  // allocation LSN into the header: redo must still see an empty page.
+                  buffer.clear();
+                  buffer.put(new byte[pageSize]);
+                  DurablePage.setLogSequenceNumberForPage(
+                      buffer, new LogSequenceNumber(-1, -1));
+                  LogManager.instance().warn(this,
+                      "Crash recovery rebuilt new page %d of file '%s' in storage '%s' as an"
+                          + " empty page. The page failed verification and the double write log"
+                          + " has no copy of it. WAL replay applies this page's logged changes,"
+                          + " if any.",
+                      pageIndex, fileNameById(fileId), storageName);
+                } else {
+                  assertPageIsBroken(pageIndex, fileId, pageFrame);
+                }
               } else {
                 // Copy recovered data from double-write log into the PageFrame's buffer
                 // and release the temporary double-write pointer back to ByteBufferPool.
