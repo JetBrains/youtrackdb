@@ -42,6 +42,7 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -56,6 +57,24 @@ import javax.annotation.Nullable;
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
+
+  private final AtomicReference<Runnable> beforeTimestampTestAction = new AtomicReference<>();
+
+  /** Installs a one-shot pause point after admission to this storage's writer window. */
+  public void setBeforeTimestampActionForTesting(Runnable action) {
+    if (!beforeTimestampTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A timestamp test action is already installed");
+    }
+  }
+
+  public void setFreezeRegisteredActionForTesting(Runnable action) {
+    writeOperationsFreezer.setFreezeRegisteredActionForTesting(action);
+  }
+
+  public void clearTestActions() {
+    beforeTimestampTestAction.set(null);
+    writeOperationsFreezer.clearFreezeRegisteredActionForTesting();
+  }
 
   private final AbstractStorage storage;
 
@@ -150,6 +169,12 @@ public class AtomicOperationsManager {
     try {
       writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
       freezerEntered = true;
+      if (beforeTimestampTestAction.get() != null) {
+        final var beforeTimestamp = beforeTimestampTestAction.getAndSet(null);
+        if (beforeTimestamp != null) {
+          beforeTimestamp.run();
+        }
+      }
 
       // Register timestamps under the segment lock in increasing order. Read the WAL segment
       // first so a failed segment read cannot leave an unregistered timestamp in a snapshot.

@@ -67,6 +67,8 @@ public class StorageStartupMetadata {
 
   private volatile boolean dirtyFlag;
   private volatile long lastTxId;
+  // Unlike lastTxId, this value advances only after a complete main-file write.
+  private long confirmedLastTxId = -1;
   private volatile String openedAtVersion;
 
   private final Lock lock = new ReentrantLock();
@@ -144,6 +146,7 @@ public class StorageStartupMetadata {
     mainKnownGood = true;
 
     Files.deleteIfExists(backupPath);
+    confirmedLastTxId = lastTxId;
   }
 
   private void repairMain(ByteBuffer backup) throws IOException {
@@ -247,6 +250,7 @@ public class StorageStartupMetadata {
         if (main != null) {
           readState(main);
           mainKnownGood = true;
+          confirmedLastTxId = lastTxId;
           Files.deleteIfExists(backupPath);
           return;
         }
@@ -255,6 +259,7 @@ public class StorageStartupMetadata {
         if (backup != null) {
           repairMain(backup);
           readState(backup);
+          confirmedLastTxId = lastTxId;
           Files.deleteIfExists(backupPath);
           LogManager.instance().warn(this, "Recovered startup metadata from backup copy");
           return;
@@ -265,6 +270,7 @@ public class StorageStartupMetadata {
           IOUtils.readByteBuffer(legacy, channel, 0, true);
           dirtyFlag = legacy.get(0) > 0;
           mainKnownGood = true;
+          confirmedLastTxId = lastTxId;
           return;
         }
         if (size == 9) {
@@ -273,6 +279,7 @@ public class StorageStartupMetadata {
           dirtyFlag = legacy.get(0) > 0;
           lastTxId = legacy.getLong(1);
           mainKnownGood = true;
+          confirmedLastTxId = lastTxId;
           return;
         }
 
@@ -391,6 +398,20 @@ public class StorageStartupMetadata {
     try {
       this.lastTxId = lastTxId;
 
+      update(serialize());
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /** Saves a checkpoint floor only if a complete main copy already on disk does not cover it. */
+  public void publishLastTxIdFloor(long floor) throws IOException {
+    lock.lock();
+    try {
+      if (mainKnownGood && confirmedLastTxId >= floor) {
+        return;
+      }
+      lastTxId = Math.max(lastTxId, Math.max(confirmedLastTxId, floor));
       update(serialize());
     } finally {
       lock.unlock();

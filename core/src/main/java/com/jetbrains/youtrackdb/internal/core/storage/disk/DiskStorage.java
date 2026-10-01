@@ -153,6 +153,9 @@ public class DiskStorage extends AbstractStorage {
   private static final AtomicBoolean fsyncWarningLogged = new AtomicBoolean();
   private static final AtomicReference<Consumer<DiskStorage>> RESTORE_BARRIER_TEST_ACTION =
       new AtomicReference<>();
+  private final AtomicReference<IOException> checkpointFloorFailureForTesting =
+      new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeFinalFloorTestAction = new AtomicReference<>();
 
   private static final String BACKUP_LOCK = "backup.ibl";
 
@@ -866,7 +869,11 @@ public class DiskStorage extends AbstractStorage {
       startupMetadata.delete();
     } else {
       if (!internalError) {
-        startupMetadata.setLastTxId(lastTxId);
+        final var beforeFinalFloor = beforeFinalFloorTestAction.getAndSet(null);
+        if (beforeFinalFloor != null) {
+          beforeFinalFloor.run();
+        }
+        startupMetadata.publishLastTxIdFloor(lastTxId);
         startupMetadata.clearDirty();
       }
       startupMetadata.close();
@@ -943,6 +950,33 @@ public class DiskStorage extends AbstractStorage {
             + "' located in: "
             + dbDir
             + ". Database files seem locked");
+  }
+
+  /** Installs a one-shot failure before the checkpoint writes the startup metadata floor. */
+  public void failNextCheckpointFloorSaveForTesting(IOException failure) {
+    if (!checkpointFloorFailureForTesting.compareAndSet(null, failure)) {
+      throw new IllegalStateException("A checkpoint floor failure is already installed");
+    }
+  }
+
+  public void setBeforeFinalFloorActionForTesting(Runnable action) {
+    if (!beforeFinalFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A final floor test action is already installed");
+    }
+  }
+
+  public void clearFloorActionsForTesting() {
+    checkpointFloorFailureForTesting.set(null);
+    beforeFinalFloorTestAction.set(null);
+  }
+
+  @Override
+  protected void saveCheckpointFloor(long lastIssued) throws IOException {
+    final var failure = checkpointFloorFailureForTesting.getAndSet(null);
+    if (failure != null) {
+      throw failure;
+    }
+    startupMetadata.publishLastTxIdFloor(lastIssued);
   }
 
   @Override

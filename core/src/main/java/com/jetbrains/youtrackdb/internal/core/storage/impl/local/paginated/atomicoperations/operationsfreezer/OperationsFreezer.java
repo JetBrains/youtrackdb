@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Supplier;
@@ -20,6 +21,18 @@ public final class OperationsFreezer {
 
   private final LongAdder operationsCount = new LongAdder();
   private final AtomicInteger freezeRequests = new AtomicInteger();
+  private final AtomicReference<Runnable> freezeRegisteredTestAction = new AtomicReference<>();
+
+  /** Observes registration before this freezer drains active writers. */
+  public void setFreezeRegisteredActionForTesting(Runnable action) {
+    if (!freezeRegisteredTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A freeze registration test action is already installed");
+    }
+  }
+
+  public void clearFreezeRegisteredActionForTesting() {
+    freezeRegisteredTestAction.set(null);
+  }
 
   /**
    * The number of currently registered {@link FreezeKind#OPERATOR} freezes. The schema-commit
@@ -202,6 +215,11 @@ public final class OperationsFreezer {
 
     if (throwException != null) {
       freezeParametersIdMap.put(id, new FreezeParameters(throwException));
+    }
+
+    final var registeredAction = freezeRegisteredTestAction.getAndSet(null);
+    if (registeredAction != null) {
+      registeredAction.run();
     }
 
     if (kind == FreezeKind.OPERATOR) {
