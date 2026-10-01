@@ -12,7 +12,7 @@ import javax.annotation.Nullable;
 /**
  * Shared skeleton for shared-context caches invalidated by metadata changes.
  *
- * <p>The cache owns the Guava storage, the common invalidate timestamp, hit/miss counters, and the
+ * <p>The cache owns the Guava storage, the common invalidate timestamp and counter, hit/miss counters, and the
  * {@link MetadataUpdateListener} fan-in. Concrete caches keep only their key/value semantics and
  * copy policy. Counters are lifetime totals (invalidate clears entries, not stats).
  */
@@ -21,6 +21,7 @@ public abstract class AbstractMetadataUpdateCache<K, V> implements MetadataUpdat
   protected final int capacity;
   @Nullable protected final Cache<K, V> cache;
   private final AtomicLong lastInvalidation = new AtomicLong(-1);
+  private final AtomicLong invalidationCounter = new AtomicLong();
   private final LongAdder hits = new LongAdder();
   private final LongAdder misses = new LongAdder();
 
@@ -31,6 +32,11 @@ public abstract class AbstractMetadataUpdateCache<K, V> implements MetadataUpdat
 
   public long getLastInvalidation() {
     return lastInvalidation.get();
+  }
+
+  /** Monotone metadata generation for caches that validate entries on every read. */
+  public long getInvalidationCounter() {
+    return invalidationCounter.get();
   }
 
   /** Lifetime count of lookups that returned a cached entry. */
@@ -85,10 +91,17 @@ public abstract class AbstractMetadataUpdateCache<K, V> implements MetadataUpdat
   }
 
   public void invalidate() {
+    // Publish the new generation before clearing either map. Never allow 64-bit wraparound.
+    invalidationCounter.updateAndGet(Math::incrementExact);
+    afterGenerationAdvanced();
     if (cache != null) {
       cache.invalidateAll();
     }
     lastInvalidation.set(System.nanoTime());
+  }
+
+  /** Optional invalidation-phase hook for a cache-specific concurrency test. */
+  protected void afterGenerationAdvanced() {
   }
 
   @Override
