@@ -796,6 +796,7 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
         // WC61/WC62 (review-fix): legacy dumps get NO structural verification; the
         // schema-version rejection row is scoped to v15 dumps
         "no structural verification", "supported range (v15 dumps)",
+        "records marked only `@internal` follow the normal commit path",
         // WC63 (review-fix): only a KILLED/CRASHED export orphans temp files
         "killed or crashed",
         // CN61 (cumulative review): live-export consistency envelope — quiesce DDL; an
@@ -803,6 +804,10 @@ public class DatabaseImportInfoMatrixTest extends DbTestBase {
         "quiesce", "point-in-time",
         // M2.b-4: the best-effort acknowledgment flag
         "-acceptBestEffortDump=true",
+        // Track 1: the operator can recognize each new v15 rejection and remediate it.
+        "exporter order", "internal, schema manager, or index manager",
+        "___exportImportRIDMap", "Drop this leftover helper class",
+        "-migrateLinks=false", "number of committed records",
         // CN59: genesis-incomplete refusal guidance incl. the OSystem case
         "genesis", "OSystem",
         // CS59/FM-M18: crash-orphaned export residue is deletable

@@ -86,6 +86,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
@@ -99,6 +100,8 @@ import org.slf4j.LoggerFactory;
 public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   private static final Logger logger = LoggerFactory.getLogger(DatabaseImport.class);
+  private static final Pattern RECORD_RID =
+      Pattern.compile("\\\"@rid\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
   public static final String EXPORT_IMPORT_CLASS_NAME = "___exportImportRIDMap";
   public static final String EXPORT_IMPORT_INDEX_NAME = EXPORT_IMPORT_CLASS_NAME + "Index";
 
@@ -106,6 +109,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private final Map<SchemaProperty, String> linkedClasses = new HashMap<>();
   private final Map<String, List<String>> superClasses = new HashMap<>();
+  // Schema application has deferred inheritance and linked-class passes. Keep the active
+  // source class for v15 failures in those passes as well as in the initial class loop.
+  private String schemaImportClass;
+  private String schemaImportStep;
   private JSONReader jsonReader;
   private JSONSerializerJackson jsonSerializer = JSONSerializerJackson.IMPORT_INSTANCE;
   private int exporterVersion = -1;
@@ -148,12 +155,16 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   /** Section-tag occurrence counts for the v15 presence/duplicate checks (WI10c). */
   private final Map<String, Integer> sectionOccurrences = new HashMap<>();
 
+  /** Actual top-level keys, including the brokenRids key consumed inside importRecords. */
+  private final List<String> sectionOrder = new ArrayList<>();
+
   // Importer-tallied consumption counts (CN51): what THIS import actually parsed from the
   // dump, cross-checked against the manifest's exporter-tallied declarations — never derived
   // from target-database queries.
   private long parsedSchemaClassCount;
   private long parsedIndexCount;
   private long parsedRecordCount;
+  private long writtenRecordCount;
   private long parsedBrokenRidCount;
 
   // The manifest's declared totals; -1 = not declared.
@@ -326,6 +337,10 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                   + " always begins with its info section)");
         }
         sectionOccurrences.merge(tag, 1, Integer::sum);
+        if (exporterVersion >= 15 || "info".equals(tag)) {
+          // info establishes the version and must be recorded before dispatch.
+          sectionOrder.add(tag);
+        }
 
         switch (tag) {
           case "info" -> {
@@ -455,6 +470,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               + " with a release supporting exporter version " + exporterVersion);
     }
     if (exporterVersion >= 15) {
+      if (!migrateLinks) {
+        throw new DatabaseImportException(
+            "Import rejected: a v15 dump requires link migration. Remove -migrateLinks=false"
+                + " or avoid setMigrateLinks(false)");
+      }
       // Q-M2(2): schema-version is MANDATORY in a v15 dump and must sit inside the
       // importable range; missing, malformed, or out-of-range — reject naming declared vs
       // supported. The declared-legacy path never reaches these arms (FM-M12).
@@ -605,8 +625,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
    * proves tampering or corruption), and the CS43 gzip full-consumption sequence.
    */
   private void verifyV15StructuralStrictness() throws IOException {
-    for (final var required : List.of(
-        "info", "collections", "schema", "records", "indexes", "brokenRids", "manifest")) {
+    final var exporterOrder = DatabaseExport.SECTION_ORDER;
+    for (final var required : exporterOrder) {
       final var occurrences = sectionOccurrences.getOrDefault(required, 0);
       if (occurrences == 0) {
         throw new DatabaseImportException(
@@ -621,9 +641,21 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
     }
 
+    if (!sectionOrder.equals(exporterOrder)) {
+      throw new DatabaseImportException(
+          "Import rejected: v15 dump sections are out of exporter order. Expected "
+              + String.join(", ", exporterOrder));
+    }
+
     verifyManifestCount("classes", manifestClasses, parsedSchemaClassCount);
     verifyManifestCount("indexes", manifestIndexes, parsedIndexCount);
     verifyManifestCount("records", manifestRecords, parsedRecordCount);
+    if (writtenRecordCount != manifestRecords) {
+      throw new DatabaseImportException(
+          "Import rejected: the v15 dump's manifest declares " + manifestRecords
+              + " records but the import wrote " + writtenRecordCount
+              + ". The partially imported target database is condemned");
+    }
     verifyManifestCount("brokenRids", manifestBrokenRids, parsedBrokenRidCount);
 
     if (parsedBrokenRidCount > 0 && !bestEffortDump) {
@@ -1023,6 +1055,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private void setLinkedClasses() {
     for (final var linkedClass : linkedClasses.entrySet()) {
+      if (exporterVersion >= 15) {
+        schemaImportClass = linkedClass.getKey().getOwnerClass().getName();
+      }
       linkedClass
           .getKey()
           .setLinkedClass(session.getMetadata().getSchema().getClass(
@@ -1030,12 +1065,43 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     }
   }
 
+  private String schemaImportFailureMessage() {
+    var context = schemaImportClass == null
+        ? " while " + schemaImportStep
+        : " while importing class '" + schemaImportClass + "'";
+    return "Import rejected: v15 dump schema could not be applied" + context;
+  }
+
   private void importSchema(boolean collectionsImported) throws IOException, ParseException {
+    schemaImportClass = null;
+    schemaImportStep = "preparing schema";
+    try {
+      applySchema(collectionsImported);
+    } catch (final IOException | ParseException | RuntimeException e) {
+      if (exporterVersion >= 15 && !(e instanceof DatabaseImportException)) {
+        throw v15Failure(schemaImportFailureMessage(), e);
+      }
+      throw e;
+    } finally {
+      schemaImportClass = null;
+      schemaImportStep = null;
+    }
+  }
+
+  /** Preserve the named rejection even when its cause is a high-level database exception. */
+  private DatabaseImportException v15Failure(String message, Throwable cause) {
+    var rejection = new DatabaseImportException(message);
+    rejection.initCause(cause);
+    return rejection;
+  }
+
+  private void applySchema(boolean collectionsImported) throws IOException, ParseException {
     if (!collectionsImported) {
       removeDefaultCollections();
     }
 
     listener.onMessage("\nImporting database schema...");
+    schemaImportStep = "reading schema header";
 
     jsonReader.readNext(JSONReader.BEGIN_OBJECT);
     @SuppressWarnings("unused")
@@ -1105,6 +1171,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     jsonReader.checkContent("\"classes\"").readNext(JSONReader.BEGIN_COLLECTION);
 
     long classImported = 0;
+    schemaImportStep = "reading schema classes";
 
     try {
 
@@ -1126,7 +1193,17 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 .checkContent("\"name\"")
                 .readString(JSONReader.COMMA_SEPARATOR);
         // CN51 consumption tally: every class OBJECT parsed from the dump counts.
+        schemaImportClass = className;
         parsedSchemaClassCount++;
+        // Dotted source names are renamed during import. Check the resulting name before
+        // creating the class, or an empty source class could become the temporary RID map.
+        if (exporterVersion >= 15
+            && EXPORT_IMPORT_CLASS_NAME.equals(className.replace('.', '_'))) {
+          throw new DatabaseImportException(
+              "Import rejected: v15 dump schema class '" + className
+                  + "' resolves to reserved class '" + EXPORT_IMPORT_CLASS_NAME
+                  + "'. Drop this leftover helper class from the source database and export again");
+        }
 
         final var collectionIdsTag =
             exporterVersion >= 14 ? "\"collection-ids\"" : "\"cluster-ids\"";
@@ -1296,6 +1373,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         }
 
         classImported++;
+        schemaImportClass = null;
 
         jsonReader.readNext(JSONReader.NEXT_IN_ARRAY);
         // CS80: EOF-bounded — see truncatedDump
@@ -1304,8 +1382,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         throw truncatedDump("the schema's classes list");
       }
 
+      schemaImportStep = "rebuilding class inheritance";
       this.rebuildCompleteClassInheritance();
+      schemaImportClass = null;
+      schemaImportStep = "linking classes";
       this.setLinkedClasses();
+      schemaImportClass = null;
+      schemaImportStep = "finishing schema";
 
       if (exporterVersion < 11) {
         var role = session.getMetadata().getSchema().getClass(Role.CLASS_NAME);
@@ -1324,6 +1407,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       // honest acceptance.
       throw truncation;
     } catch (final Exception e) {
+      if (exporterVersion >= 15) {
+        throw v15Failure(schemaImportFailureMessage(), e);
+      }
       LogManager.instance().error(this, "Error on importing schema", e);
       listener.onMessage("ERROR (" + classImported + " entries): " + e);
     }
@@ -1331,6 +1417,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private void rebuildCompleteClassInheritance() {
     for (final var entry : superClasses.entrySet()) {
+      schemaImportClass = entry.getKey();
       final var cls = session.getMetadata().getSchema().getClass(entry.getKey());
 
       for (final var superClassName : entry.getValue()) {
@@ -1570,13 +1657,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     session.disableLinkConsistencyCheck();
     session.begin();
     var ok = true;
+    var recordApplied = false;
     RID rid = null;
     RID originalRid = null;
+    String recordJson = null;
     try {
 
       // commenting this out for now, because it can clear large LinkBags:
       // var recordJson = jsonReader.readRecordString(this.maxRidbagStringSizeBeforeLazyImport).getKey().trim();
-      var recordJson = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
+      recordJson = jsonReader.readNext(JSONReader.NEXT_IN_ARRAY).getValue();
 
       if (recordJson.isEmpty()) {
         return null;
@@ -1590,6 +1679,22 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       final var metadata = parsed.second();
       rid = record.getIdentity();
       originalRid = metadata.recordId();
+
+      // The importer creates and later drops this class. A dump record placed in it would
+      // pass the manifest count but disappear when the temporary RID map is removed.
+      if (exporterVersion >= 15
+          && EXPORT_IMPORT_CLASS_NAME.equals(metadata.className())) {
+        throw new DatabaseImportException(
+            "Import rejected: v15 dump record " + originalRid + " uses reserved class '"
+                + EXPORT_IMPORT_CLASS_NAME + "'");
+      }
+
+      if (exporterVersion >= 15 && metadata.entityType() != null
+          && metadata.entityType() != JSONSerializerJackson.EntityType.PUBLIC) {
+        throw new DatabaseImportException(
+            "Import rejected: v15 dump record " + originalRid + " is marked as an internal"
+                + " record (" + metadata.entityType() + ")");
+      }
 
       if (originalRid != null
           && MetadataDefault.INDEX_BUILD_STATE_COLLECTION_NAME.equals(
@@ -1651,6 +1756,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
           }
         }
       }
+      recordApplied = rid != null;
 
     } catch (Throwable t) {
       ok = false;
@@ -1663,13 +1769,37 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                   + "column " + jsonReader.getColumnNumber(),
               t);
 
+      if (exporterVersion >= 15) {
+        if (t instanceof DatabaseImportException rejection) {
+          throw rejection;
+        }
+        // Deserialization may fail before it returns metadata. Retain the raw RID in the
+        // rejection so an operator can locate even that damaged source entry.
+        final var ridMatcher = RECORD_RID.matcher(recordJson == null ? "" : recordJson);
+        final var failedRid = originalRid != null ? originalRid.toString()
+            : ridMatcher.find() ? ridMatcher.group(1) : "unknown";
+        throw v15Failure(
+            "Import rejected: v15 dump record " + failedRid + " could not be written", t);
+      }
       if (!(t instanceof DatabaseException)) {
         throw t;
       }
     } finally {
       try {
         if (ok) {
-          session.commit();
+          try {
+            session.commit();
+          } catch (final Exception e) {
+            if (exporterVersion >= 15) {
+              throw v15Failure(
+                  "Import rejected: v15 dump record " + originalRid + " could not be written", e);
+            }
+            throw e;
+          }
+          if (exporterVersion >= 15 && recordApplied) {
+            // Count only a completed record transaction, not the later RID-map write.
+            writtenRecordCount++;
+          }
         } else {
           session.rollback();
         }
@@ -1893,12 +2023,19 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     session.getMetadata().reload();
 
     final Set<RID> brokenRids = new HashSet<>();
-    // This consumes the dump's brokenRids SECTION inline — it directly follows the records
-    // section in every >= 12 dump, so its tag never passes through the section loop. Record
-    // the occurrence here for the v15 presence/duplicate tracking (WI10c); a SECOND
-    // brokenRids section spliced elsewhere in the dump goes through the loop and trips the
-    // duplicate check.
-    if (exporterVersion >= 12) {
+    // The reader normally skips the key while seeking '['. Under v15, read the real
+    // top-level key so the order check cannot mistake another array for brokenRids.
+    if (exporterVersion >= 15) {
+      final var brokenRidsTag = stripSurroundingQuotes(
+          jsonReader.readString(JSONReader.FIELD_ASSIGNMENT).trim().replaceFirst("^,\\s*", ""));
+      sectionOccurrences.merge(brokenRidsTag, 1, Integer::sum);
+      sectionOrder.add(brokenRidsTag);
+      if (!"brokenRids".equals(brokenRidsTag)) {
+        throw new DatabaseImportException(
+            "Import rejected: v15 dump expected the brokenRids section after records but found '"
+                + brokenRidsTag + "'");
+      }
+    } else if (exporterVersion >= 12) {
       sectionOccurrences.merge("brokenRids", 1, Integer::sum);
     }
     processBrokenRids(brokenRids);
