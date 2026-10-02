@@ -129,10 +129,10 @@ shape declines along with anything else unrecognized.
 | Predicate ops | `P.inside(lo, hi)` | `AND(GT lo, LT hi)` | Track 4 |
 | Predicate ops | `P.outside(lo, hi)` | `OR(LT lo, GT hi)` | Track 4 |
 | Predicate ops | `Text.containing` / `notContaining` (and the equivalent `TextP.containing` / `TextP.notContaining`) | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
-| Logical filters | `AndStep` (`ConnectiveStrategy` form) | per-child sub-walker; pure-filter children → AND-composed `SQLBooleanExpression` in WHERE; edge-bearing children → pattern fragments appended to positive pattern (MATCH IR composes them by AND naturally); mixed children supported | Track 4 |
-| Logical filters | `OrStep` (`ConnectiveStrategy` form) | all children must be pure-filter (sub-walker contributes no pattern fragments / NOT expressions); booleans OR-composed via `MatchWhereBuilder.or(...)`; declines on any edge-bearing child because MATCH IR has no OR at the pattern-fragment level (Phase 2 path: union-of-plans via `MultiPlanMatchStep`) | Track 4 |
-| Logical filters | `NotStep` (one recognizer, branches by sub-traversal shape) | pure-filter sub-traversal → `MatchWhereBuilder.not(...)` merged into current node `where`; edge-bearing sub-traversal → new `SQLMatchExpression` added to `notMatchExpressions` | Track 4 |
-| Logical filters | `WhereTraversalStep` (pure filter / edge pattern) | inline filter on `where` / extra `SQLMatchExpression` | Track 4 |
+| Logical filters | `AndStep` (`ConnectiveStrategy` form) | Pure-filter children add conjunctive boundary filters. Each allowed vertex-hop child adds a detached positive exists check. The check keeps the outer row once if its pattern has a match. Mixed children are supported. | Track 4 |
+| Logical filters | `OrStep` (`ConnectiveStrategy` form) | Pure-filter children compose with `MatchWhereBuilder.or(...)`. An arm with a vertex hop or any captured NOT or exists check declines. OR across detached checks is not supported. | Track 4 |
+| Logical filters | `NotStep` | Pure-filter children use `MatchWhereBuilder.not(...)` in the boundary filter. An allowed vertex-hop child adds a detached `SQLMatchExpression` to `notMatchExpressions`. Nested captured checks decline. | Track 4 |
+| Logical filters | `WhereTraversalStep` / `TraversalFilterStep` | Ordinary `where(traversal)` uses `TraversalFilterStep`. Pure filters merge into the boundary filter. Allowed vertex-hop children add detached checks to `existsMatchExpressions`. The `WhereTraversalStep` accept path is currently unreachable. | Track 4 |
 | Logical filters | `WherePredicateStep` (`where(P.eq("a"))`) | `WHERE` referencing `$matched.<label>` | Track 4 |
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 5 |
 | Dedup | `dedup()` (no labels) | `info.distinct = true` → `DistinctExecutionStep` | Track 5 |
@@ -161,11 +161,11 @@ shape declines along with anything else unrecognized.
 | List shaping | `reverse()` (terminator) | per-traverser value transform: `String` → `StringBuilder.reverse().toString()`; `Iterable`/`Iterator`/array → `IteratorUtils.asList` + `Collections.reverse`; else unchanged (TP 3.8 `ReverseStep.map` semantics — NOT stream-order reverse) | Track 6 |
 | Pagination | `tail(n)` (terminator) | bounded ring buffer in boundary step: drains the entire input stream keeping the last `n` rows in arrival order, then emits them in arrival order (matches TP `TailGlobalStep` — distinct from `ORDER BY ... LIMIT`, which uses value order) | Track 6 |
 
-**Always-transparent steps** that TinkerPop's optimization phase injects
-between recognized steps without changing semantics — currently
-`NoOpBarrierStep` from `LazyBarrierStrategy` — are also recognized
-("claim without context mutation") so they don't break multi-hop
-recognition.
+**Transparent steps.** `LazyBarrierStrategy` may insert a `NoOpBarrierStep`
+between recognized steps. A barrier with positive capacity is transparent to
+the step cursor and does not break multi-hop recognition. `barrier(0)` has no
+capacity and emits no rows. It reaches normal dispatch and the translation
+declines.
 
 ## Class Design
 
@@ -304,6 +304,7 @@ classDiagram
         +aliasRids Map
         +matchExpressions List
         +notMatchExpressions List
+        +existsMatchExpressions List
         +returnItems List
         +returnAliases List
         +returnNestedProjections List
@@ -392,15 +393,14 @@ recognizers.
 **One map entry per Step class — variants handled inside the
 recognizer.** Each recognizer is responsible for every variant of its
 step class internally. `VertexStepRecogniser` covers OUT / IN / BOTH;
-`HasStepRecogniser` unpacks `HasContainer`s for the property /
-predicate shapes; **`NotStepRecogniser` branches by sub-traversal
-shape** (`hasEdgeHops(subTraversal)`) — pure-filter form folds into
-`aliasFilters[boundaryAlias]` via `WHERE NOT (...)`; edge-bearing form
-appends a `SQLMatchExpression` to `notMatchExpressions` for the planner
-to execute as an anti-join. The branch lives in one place; the two
-variants share the sub-traversal shape detector and the no-mutation
-discipline below. Two tracks attempting to register two recognizers
-for the same Step class is caught at registration time by a
+`HasStepRecogniser` unpacks `HasContainer`s for property and predicate
+shapes. `NotStepRecogniser` first handles the `hasNot(key)` presence form.
+For a logical NOT, it walks the child through `GremlinStepWalker.subWalk`.
+A pure-filter child adds a negated expression to
+`aliasFilters[boundaryAlias]`. An allowed vertex-hop child adds a detached
+`SQLMatchExpression` to `notMatchExpressions`. The shared
+`DetachedChildGrammar` checks children that need detached checks before the
+sub-walk commits them. Two recognizers for the same step class trigger a
 duplicate-key assertion.
 
 **No-mutation-on-decline discipline.** Every recognizer follows
@@ -1293,23 +1293,27 @@ flow through it.
 **What binds, what stays in the key.** The split mirrors YQL:
 
 - **Bound, out of the key**: predicate comparison values — the
-  right-hand side of `has(key, value)`, `P.eq/gt/lt/between/within(...)`,
-  RID arguments. These carry the high cardinality that would otherwise
-  thrash the cache.
+  right-hand side of `has(key, value)`, `P.eq/gt/lt/between/within(...)`.
+  These carry the high cardinality that would otherwise thrash the cache.
 - **In the key**: structural tokens such as class/label names
   (`"Post"`), property keys (`"id"`), edge labels, traversal direction,
   and the step shape itself. They select the index and the plan, so they
   must distinguish one cached plan from another, and they are
   low-cardinality, so keeping them in the key costs little.
 
-`SQLPositionalParameter.toGenericStatement` renders each slot as
-`PARAMETER_PLACEHOLDER`, so the generic-statement rendering of the built
-MATCH IR is value-independent by construction: class and property names
-print literally, values print as `?`. The `GremlinPlanCache` key is this
-structural fingerprint (equivalently, a normalised traversal bytecode
-that elides `P`-values). Building the IR from bytecode is cheap; the
-cache spares only the expensive planner pass (`estimateRootEntries`,
-topological sort, cost model).
+RID (record ID) arguments from `g.V(id)` and `hasId(...)` stay inline in the query text.
+A RID-bearing traversal skips the plan cache and builds a fresh plan each time.
+
+`SQLPositionalParameter.toGenericStatement` renders a bound value as a
+placeholder. `GremlinPlanFingerprint` builds the `GremlinPlanCache` key from
+the MATCH intermediate representation (IR) and result shape. Structural
+names stay in the key. Bound values do not. Its `;N:` section renders
+`notMatchExpressions` with synthetic values that identify each parameter
+slot. Its `;X:` section does the same for `existsMatchExpressions`.
+Reordering predicates can change which slot a detached check reads. The
+slot-specific markers keep those plans separate without putting actual
+values in the key. The cache avoids a repeated planner pass
+(`estimateRootEntries`, topological sort, cost model).
 
 **Execution.** The terminating boundary step installs the per-walk
 parameter map into the command context with `ctx.setInputParameters(map)`
@@ -1376,170 +1380,125 @@ violates the "Cucumber suite stays green" invariant.
 
 ## Logical filter steps with sub-traversals
 
-TinkerPop has barrier-style filter steps that wrap entire traversals:
-`AndStep` / `OrStep` (the `ConnectiveStrategy` form), `NotStep`,
-`WhereTraversalStep`, and `WherePredicateStep`. These are distinct from
-the `P<T>`-level boolean composition handled by the predicate adapter —
-they describe filtering at the **step** layer, where each child carries
-its own sub-traversal of arbitrary recognized filter steps.
+`AndStep`, `OrStep`, and `NotStep` hold child traversals. Ordinary
+`where(traversal)` and `filter(traversal)` use `TraversalFilterStep` in this
+fork. `WherePredicateStep` handles label comparisons. These step-level
+filters differ from boolean predicates inside a single `has(...)` step.
+`GremlinStepWalker.subWalk` visits every child step with a
+`SubTraversalPredicateAdapter`. The adapter captures filters, hops, and
+detached checks without adding them to the outer walk. Each recognizer
+commits only an accepted child.
 
-**`AndStep` / `OrStep` — sub-walker dispatch with asymmetric child
-support.** Both steps wrap N sub-traversals. TinkerPop's
-`ConnectiveStrategy` rewrites the boolean-flat form (`and(P, P)`) into
-this step form, so what the recognizer sees is the step-level shape.
-Sub-traversals are **not** restricted to `HasStep` chains — any
-combination of recognized filter / predicate / edge steps is allowed
-inside each child, as long as every step in every child is itself in
-the recognized set.
+### Detached child grammar
 
-For every child the translator runs a **sub-walker** against the same
-recognizer registry the top-level walker uses, with a fresh
-`SubWalkerContext` that inherits the parent's `boundaryAlias` (so the
-child's filters apply to the right alias) but accumulates its own
-pattern fragments, alias filters, and NOT expressions. The sub-walker
-classifies its output:
+`DetachedChildGrammar` checks a child when `needsCheck` finds a vertex hop,
+an independent `GraphStep` source, a `ProjectStep`, or such a step inside a
+nested child. `accepts` admits linear chains of `VertexStep`,
+`VertexStepPlaceholder`, `EdgeVertexStep`, and `EdgeOtherVertexStep` hops.
+It also admits `HasStep`, positive-capacity `NoOpBarrierStep`, supported
+`TraversalFilterStep` children, supported `NotStep` children, and `AndStep`
+children whose arms all pass the same grammar. A plain `dedup()`, a
+positive zero-offset `limit(n)`, a one-key `values(key)` or
+`properties(key)`, and `where(P.eq(label))` can appear only at the end.
+The limit must have `n > 0`. A labelled hop declines when a child or outer
+step reads its label, since a detached check cannot publish that binding.
+Labels on other child steps also decline.
 
-- **Pure-filter child** — produced one `SQLBooleanExpression` and
-  contributed nothing to pattern fragments or NOT expressions.
-- **Edge-bearing child** — added one or more `SQLMatchExpression`
-  entries (positive pattern fragments) and/or `notMatchExpressions`.
+The grammar declines independent `V()` sources, `project(...)` and other
+map payloads, branches such as `OrStep` or `union`, a child-local `skip`
+or `range` with a nonzero offset, `limit(0)`, and a nonterminal slice.
+A child that ends in `count()`, `group()`, or `groupCount()` after a hop,
+filter, or nested check also declines. These reductions can yield a value
+when the checked input is empty. `GremlinStepWalker.subWalk` checks the
+captured limit and skip clauses after dispatch. A supported child step
+outside the grammar can therefore still decline in a detached check.
+For example, `where(V().out("l"))` declines. An unsupported step anywhere
+in a child declines the whole enclosing traversal under D3.
 
-`AndStep` and `OrStep` then diverge in how they combine these
-classifications, because MATCH IR composes pattern fragments by AND
-(implicit) and has no OR construct at the pattern-fragment level:
+`SubTraversalPredicateAdapter.boundaryClassName` uses the local class of a
+child hop target for its predicates. It uses the parent class only while
+the child filters the original boundary. A target must not inherit the
+origin's class.
 
-### `AndStep` — supports both pure-filter and edge-bearing children
+### Positive checks in `AndStep` and `TraversalFilterStep`
 
-AND distributes naturally over MATCH IR:
+`ConnectiveStepSupport` merges pure-filter children into the boundary
+`WHERE` clause. It forwards detached NOT and exists checks from nested
+conjunctive filters. For each allowed linear hop child of `AndStep`, it
+adds one `SQLMatchExpression` to `MatchPlanInputs.existsMatchExpressions`.
+`TraversalFilterStep` uses the same rule for `where(traversal)` and
+`filter(traversal)`. A detached positive exists check tests each outer
+row and keeps it once if the child has any match. `FilterExistsMatchPatternStep`
+stops at the first match. It does not add hop targets to the positive
+pattern or multiply the outer row. Thus `where(out("l").has("k", v))`
+adds one exists check. `and(out("a"), out("b"))` adds two checks, and both
+must match. Pure-filter arms can occur alongside hop arms.
 
-- Pure-filter children → `SQLBooleanExpression`s AND-composed via
-  `MatchWhereBuilder.and(...)`, merged into the boundary alias's
-  `where` slot in `aliasFilters`.
-- Edge-bearing children → their pattern fragments and NOT expressions
-  are appended to the parent's `MatchPlanInputs`. MATCH IR composes
-  multiple `SQLMatchExpression` entries by AND (cartesian-product /
-  join), so the parent pattern naturally absorbs the children's
-  fragments.
-- Mixed children — apply both rules per child class. A single AndStep
-  can contribute both extra pattern fragments and extra WHERE
-  conjuncts.
+A detached hop check needs an origin alias already in the positive pattern.
+The origin cannot have child-local filters or a child-local class change.
+`ConnectiveStepSupport.detachedExists` also declines a hop child that
+captures another NOT or exists check. Each captured edge must belong to
+the linear detached expression. After an exists check, a later positive
+hop declines in `GremlinStepWalker.dispatchAll`. A later `union` declines
+in `UnionStepRecogniser`. Neither shape can move the check to a different
+point in the positive pattern.
 
-### `OrStep` — pure-filter children only
+### `OrStep` — boundary filters only
 
-YTDB IR has full OR support **inside WHERE expressions** —
-`SQLOrBlock` composes `SQLBooleanExpression` trees, which is exactly
-what `MatchWhereBuilder.or(...)` produces. What it does **not** have
-is OR between pattern fragments inside a single MATCH statement:
-multiple `SQLMatchExpression` entries separated by `,` are always
-AND-composed (cartesian-product / join) — there is no MATCH-level
-`P1 OR P2` syntax in the grammar.
-
-So `OrStep` with pure-filter children translates cleanly through
-WHERE-side OR composition. `OrStep` with at least one **edge-bearing**
-child cannot be expressed as a single MATCH statement because the
-edge-bearing child contributes a pattern fragment (not a
-`SQLBooleanExpression`), and there is no in-statement way to OR a
-pattern fragment with a WHERE conjunct or with another pattern
-fragment.
-
-The translator therefore restricts `OrStep` to **all-children-pure-filter**
-shapes in Phase 1:
-
-- All children must produce only `SQLBooleanExpression` (no pattern
-  fragments, no NOT expressions in the sub-walker output).
-- The N booleans compose via `MatchWhereBuilder.or(...)` and merge
-  into the boundary alias's `where`.
-- If **any** child carries edges (or contains a nested AndStep / OrStep
-  / NotStep / WhereTraversalStep that itself carries edges — the
-  `hasEdges` flag propagates recursively up sub-walker results), the
-  `OrStep` is unrecognized and under D3 the enclosing traversal
-  declines. The native pipeline handles it correctly via TinkerPop's
-  step-level OR evaluation.
-
-The asymmetry is load-bearing: AND distributes, OR does not. Track 4
-ships `AndStepRecogniser` and `OrStepRecogniser` as two separate
-recognizer files so the asymmetry is visible in code, not buried in
-shared branching.
+`OrStepRecogniser` accepts arms only when each arm supplies one boundary
+`SQLBooleanExpression`. `ConnectiveStepSupport.collectOrExpressions`
+combines those expressions with `MatchWhereBuilder.or(...)`. It declines
+an arm with a captured vertex hop, NOT check, or exists check, including
+a nested arm that captures a check. Plan-level checks apply to every row
+conjunctively. They cannot act as one OR operand. For example,
+`or(out("l"), has("k", v))` declines. An OR of two supported `has(...)`
+filters translates. The native TinkerPop pipeline handles a declined OR.
 
 ### Phase 2 paths for edge-bearing `OrStep`
 
-If `or(__.outE(...), filter)` shapes come up as a real need, three
-Phase 2 paths exist. The trade-offs differ — which one fits depends
-on the actual use case:
+OR over a hop child remains deferred. A future implementation could use
+independent plans with boundary dedup, a correlated exists subquery in
+`WHERE`, or optional patterns with null checks. These paths require a
+separate design. None is part of the current translator.
 
-1. **Union-of-plans.** Emit each OR child as its own
-   `SelectExecutionPlan`, concatenate the result streams through
-   `MultiPlanMatchStep` (the same boundary primitive that backs
-   `union()` from Track 6), and dedup on the parent's boundary alias
-   to preserve OR's set semantics. Clean composition; cost is the
-   per-child planning overhead and the boundary-side dedup. Best fit
-   when children have very different selectivities.
-2. **Subquery in WHERE.** Wrap each edge-bearing child as a
-   correlated subquery —
-   `(SELECT count(*) FROM (MATCH child-pattern WHERE x = a) LIMIT 1) > 0` —
-   and OR it with the filter-only children via `SQLOrBlock`. Reuses
-   the existing WHERE OR mechanism inside a single plan; cost is
-   per-row subquery evaluation unless the planner has correlated
-   subquery rewriting. Best fit when children share most of their
-   sub-pattern with the main pattern.
-3. **Optional pattern + null check.** Emit each edge-bearing child as
-   an `optional: true` path-item and OR the alias-not-null checks in
-   WHERE. Requires the Phase 2 `optional` recognizer to land first
-   (see Out-of-scope row "Optional sub-traversal"). Best fit if the
-   `optional` mechanism is going to ship anyway for `optional(...)`
-   support.
+### `NotStep` — boundary negation or detached negative check
 
-Phase 1 declines and the native pipeline keeps working — zero
-regression.
+`NotStepRecogniser` handles the `hasNot(key)` presence form first. A
+pure-filter logical child becomes `MatchWhereBuilder.not(...)` on the
+boundary filter. A supported hop child becomes an expression in
+`MatchPlanInputs.notMatchExpressions`. Its origin alias must already be
+in the positive pattern and cannot carry a child-local filter or class.
+A child that captures another NOT or exists check declines. Thus
+`not(out("l").dedup())` can translate, because terminal plain `dedup()`
+does not change whether the child has a match. `not(where(out("l")))`
+declines because its child captures an exists check.
 
-### Unrecognized step inside any child
+`MatchExecutionPlanner.manageNotPatterns` selects a hash anti-join when
+its constraints permit one. Otherwise it uses `FilterNotMatchPatternStep`
+for a per-row negative check. `MatchExecutionPlanner.manageExistsPatterns`
+uses `FilterExistsMatchPatternStep` for each positive check. Both filters
+call `DetachedMatchPatternProbe.matches`. The probe saves the outer
+`$matched` value, publishes a copy of the current row, tests for a match,
+and restores the outer value. If no outer value exists, it uses a child
+context instead. Hop aliases stay inside the check. The planner also
+counts NOT and exists origin aliases as used in
+`MatchExecutionPlanner.collectDownstreamAliases`. A positive-pattern
+hash semi-join must retain an alias that a later check needs.
 
-For both `AndStep` and `OrStep`: a child that contains a step outside
-the recognized set makes the sub-walker decline. The enclosing
-`AndStep` / `OrStep` is then unrecognized and under D3 the entire
-top-level traversal declines.
+### `WhereTraversalStep` and `WherePredicateStep`
 
-**`NotStep` — one recognizer, two sub-traversal shapes.** TinkerPop
-emits a single `NotStep` class for every `not(...)`; the recognizer
-inspects the wrapped sub-traversal once and routes to the appropriate
-MATCH IR slot:
+`WhereTraversalStepRecogniser` has a positive-filter path, but that path
+is currently unreachable. TinkerPop constructs `WhereTraversalStep` with
+child scope steps for its start or end label. The walker does not recognize
+those scope steps. The child therefore declines. Ordinary
+`where(traversal)` reaches `TraversalFilterStepRecogniser` instead. Its
+pure-filter child merges into `WHERE`. Its allowed hop child adds a
+detached exists check as described above.
 
-- *Pure-filter sub-traversal* (no edge hops — `not(__.has(...))`,
-  `not(__.hasLabel(...))`, `hasNot(key)` after TinkerPop's desugar to
-  `NotStep(__.values(key))`): translated to a `SQLBooleanExpression`,
-  wrapped in `MatchWhereBuilder.not(...)`, and AND-merged into the
-  current node's `where` slot in `aliasFilters`.
-- *Edge-bearing sub-traversal* (`not(__.out("knows"))`,
-  `not(__.out("knows").has("city","NY"))`): translated to a fresh
-  `SQLMatchExpression` and appended to
-  `MatchPlanInputs.notMatchExpressions`. The first alias of the NOT
-  pattern must already exist in the positive pattern (planner
-  constraint — see `MatchExecutionPlanner.manageNotPatterns`); the
-  recognizer pre-validates this against `ctx.boundaryAlias` and
-  declines under D3 if the precondition fails, surfacing the
-  precondition as a translation-time decline rather than a runtime
-  exception inside the planner.
-
-The shape predicate is `hasEdgeHops(subTraversal)` — a structural walk
-that returns true on the first `VertexStep` encountered. Both branches
-share the recognizer's no-mutation-on-decline contract: the sub-traversal
-is translated through a pure function first, then merged into `ctx`
-only when the translation succeeds.
-
-**`WhereTraversalStep`** is the positive counterpart of `NotStep`: a
-sub-traversal that must yield ≥1 result for the current row to pass.
-Pure-filter sub-traversals merge into the current node's `where`;
-edge-bearing sub-traversals join the positive pattern as additional
-`SQLMatchExpression` linked to existing aliases.
-
-**`WherePredicateStep`** (`where(P.eq("a"))` style) compares two
-step-labels. Translates to a `where` clause referencing
-`$matched.<label>` accessors — the same accessor MATCH uses internally
-for cross-alias references.
-
-A sub-traversal that contains a step outside the recognized set declines
-the enclosing logical-filter step, which under D3 all-or-nothing declines
-the entire enclosing traversal — there is no "partial sub-traversal" form.
+`WherePredicateStep` handles `where(P.eq("a"))` by referring to the
+bound label through `$matched.<label>`. Inside a detached child, only the
+terminal equality form admitted by `DetachedChildGrammar` can use this
+path. A missing outer label declines.
 
 ## Strategy idempotency
 
@@ -2115,7 +2074,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
 | Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
-| OR over edge-bearing sub-traversals | `or(__.out(L), __.has(...))` and any `OrStep` whose sub-traversal (transitively) carries a vertex hop or NOT-pattern | YTDB IR has full OR inside WHERE (`SQLOrBlock`), but no OR between pattern fragments inside a single MATCH — fragments are always AND-composed. Edge-bearing OR children produce pattern fragments, not boolean expressions, so a single MATCH cannot express their OR. Phase 1 declines and the native TinkerPop pipeline handles it. | Three Phase 2 paths exist: union-of-plans via `MultiPlanMatchStep` + boundary dedup; correlated subquery in WHERE via `SQLBaseExpression.extractSubQueries`; optional-pattern with WHERE null-check (needs Phase 2 `optional` first) |
+| OR over detached checks | `or(__.out(L), __.has(...))` and any `OrStep` arm with a hop or captured NOT or exists check | `SQLOrBlock` composes boundary filters. A hop arm needs a detached exists check. The planner applies detached checks conjunctively, so it cannot use one as an OR operand. Translation declines and native TinkerPop handles the traversal. | Design a union of plans with boundary dedup, a correlated exists subquery in `WHERE`, or optional patterns with null checks. |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |

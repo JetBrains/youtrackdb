@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import java.util.ArrayList;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 
@@ -13,10 +15,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
  *       — captured alias filters AND-composed into the parent boundary via {@link
  *       RecognitionContext#putAliasFilter}; a boundary re-type from a folded {@code hasLabel(L)}
  *       captured in the child's pattern buffer is committed through {@link RecognitionContext#addNode}.
- *   <li><b>Edge-bearing children</b> decline the whole {@code AndStep}, including a mixed AND whose
- *       other arms are pure filters. Appending the hop would turn the existence test into a join
- *       that emits one row per matching path — see {@link ConnectiveStepSupport#anyEdgeBearing} for
- *       the full reasoning and for why {@code RETURN DISTINCT} is not the repair.
+ *   <li><b>Edge-bearing children</b> contribute detached exists checks, one per child. A filter
+ *       check does not multiply rows in the positive pattern.
  * </ul>
  */
 final class AndStepRecogniser implements StepRecogniser {
@@ -41,16 +41,26 @@ final class AndStepRecogniser implements StepRecogniser {
     if (adapters == null) {
       return Outcome.DECLINE;
     }
-    // Check every child before committing any of them: a mixed AND must commit nothing to the outer
-    // pattern or filters when one arm is edge-bearing, rather than commit the pure-filter arms and
-    // then decline. The child walks above have already forwarded any bound parameter, RID marking,
-    // and minted alias to the parent; those are walk-global and survive only if the enclosing walk
-    // translates, which a DECLINE here prevents.
-    if (ConnectiveStepSupport.anyEdgeBearing(adapters)) {
-      return Outcome.DECLINE;
+    // Validate every detached check before committing any child, so a failed arm never leaves
+    // another arm's filters on the parent. Child walks have already forwarded parameter binding
+    // and alias minting, which cannot change the result of a declined outer walk.
+    var exists = new ArrayList<SQLMatchExpression>();
+    for (var adapter : adapters) {
+      if (adapter.hasEdges()) {
+        var expression = ConnectiveStepSupport.detachedExists(ctx, adapter);
+        if (expression == null) {
+          return Outcome.DECLINE;
+        }
+        exists.add(expression);
+      }
     }
     for (var adapter : adapters) {
-      ConnectiveStepSupport.commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
+      if (!adapter.hasEdges()) {
+        ConnectiveStepSupport.commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
+      }
+    }
+    for (var expression : exists) {
+      ctx.addExistsMatchExpression(expression);
     }
     return Outcome.ACCEPTED;
   }

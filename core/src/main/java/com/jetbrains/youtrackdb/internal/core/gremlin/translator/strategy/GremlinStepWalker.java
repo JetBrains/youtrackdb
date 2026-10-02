@@ -173,6 +173,7 @@ final class GremlinStepWalker {
    * Teaching it to do so would recover them, and is the obvious next move if the surface turns out
    * to matter.
    */
+  // Only barriers with positive capacity pass through. A barrier(0) emits no traversers.
   static final Set<Class<?>> TRANSPARENT_STEPS =
       Set.of(NoOpBarrierStep.class);
 
@@ -498,6 +499,11 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
+    // Child labels do not escape a detached expression. A reader on the outer traversal could
+    // otherwise observe the binding that the expression discarded.
+    if (DetachedChildGrammar.hasOuterLabelReader(traversal)) {
+      return null;
+    }
 
     // Resolve the polymorphism flag once. isPolymorphic is null-safe: it gates on an attached YTDB
     // graph + transaction before touching tx(), so a detached EmptyGraph or non-YTDB graph yields
@@ -663,7 +669,15 @@ final class GremlinStepWalker {
       // merely that some stage is captured afterwards — see listShapingOpsSurvived. The list is
       // immutable, so holding this reference across the call is safe.
       List<ListShapingOp> opsBefore = ctx.listShapingOps();
+      // An already captured exists check runs after the entire positive MATCH pattern. Refuse a
+      // subsequent positive hop rather than repeating that check for each new path.
+      int edgesBefore = ctx instanceof WalkerContext walker && walker.hasExistsMatchExpressions()
+          ? walker.patternBuilder.edgeCount() : -1;
       Outcome outcome = recogniser.recognize(cursor, ctx);
+      if (edgesBefore >= 0 && ctx instanceof WalkerContext walker
+          && walker.patternBuilder.edgeCount() > edgesBefore) {
+        return false;
+      }
       if (outcome == Outcome.DECLINE) {
         return false;
       }
@@ -1137,16 +1151,21 @@ final class GremlinStepWalker {
    * <p>An empty child declines up front, mirroring {@link #walk}'s empty-traversal gate — a combinator
    * child with no steps expresses no filter. Otherwise the adapter's {@link
    * SubTraversalPredicateAdapter#outcome()} is {@link Outcome#ACCEPTED} when every child step was
-   * recognised and {@link Outcome#DECLINE} on the first unrecognised one.
+   * recognised and a detached child passes the recursive structural grammar. The grammar runs
+   * before any partial check is built or forwarded, even when the child has no hops of its own.
    */
   static SubTraversalPredicateAdapter subWalk(
       Traversal.Admin<?, ?> child,
       RecognitionContext parent,
       Map<Class<?>, StepRecogniser> recognisers) {
     var adapter = new SubTraversalPredicateAdapter(parent, recognisers);
+    if (DetachedChildGrammar.needsCheck(child) && !DetachedChildGrammar.accepts(child)) {
+      adapter.markOutcome(Outcome.DECLINE);
+      return adapter;
+    }
     var steps = new ArrayList<>(child.getSteps());
-    // Anonymous child traversals inside where/and/or/not sometimes carry a leading GraphStep
-    // placeholder; the sub-walk's meaningful steps start after it.
+    // The grammar has rejected every independent GraphStep. This strip is only for the existing
+    // hop-free child path, whose source has no detached chain to forward.
     while (!steps.isEmpty() && steps.getFirst() instanceof GraphStep) {
       steps.removeFirst();
     }
@@ -1157,10 +1176,32 @@ final class GremlinStepWalker {
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // NO_CHILD_SCOPE, not 0: the sub-walk's adapter answers atTraversalStart() with a hard false
     // and swallows every write, so the boundary term has nothing to add here.
-    adapter.markOutcome(
-        dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE)
-            ? Outcome.ACCEPTED
-            : Outcome.DECLINE);
+    var accepted = dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE);
+    // Slices select child rows, but their captured clauses never reach the detached expression.
+    // Reducers emit a value even for empty input, so any captured hop, predicate, or nested check
+    // before one cannot be committed as a filter. An unconstrained pure-filter child such as
+    // values(k).count() has no such contribution and can still translate as a tautological check.
+    // Preserve partial captures on a failed dispatch for callers inspecting the capture boundary.
+    boolean constrained = adapter.hasEdges() || !adapter.capturedAliasFilters().isEmpty()
+        || !adapter.capturedPattern().registeredAliasClasses().isEmpty()
+        || !adapter.capturedNotExpressions().isEmpty()
+        || !adapter.capturedExistsExpressions().isEmpty();
+    if (constrained) {
+      for (var step : steps) {
+        if (step instanceof CountGlobalStep<?> || step instanceof GroupStep<?, ?, ?>
+            || step instanceof GroupCountStep<?, ?>) {
+          accepted = false;
+          break;
+        }
+      }
+    }
+    // A positive terminal limit cannot remove the last traverser from a nonempty chain. Its
+    // captured statement-level clause stays inside the adapter and is never emitted for a child.
+    boolean inertLimit = adapter.limit() != null && adapter.skip() == null
+        && DetachedChildGrammar.needsCheck(child)
+        && DetachedChildGrammar.terminalPositiveLimit(child);
+    adapter.markOutcome(accepted && (adapter.limit() == null || inertLimit)
+        && adapter.skip() == null ? Outcome.ACCEPTED : Outcome.DECLINE);
     return adapter;
   }
 
@@ -1243,7 +1284,7 @@ final class GremlinStepWalker {
     }
 
     // Only the fields a single-node g.V() translation actually carries are set; the rest keep their
-    // null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in the
+    // null/false defaults (matchExpressions and detached checks normalise to empty lists in the
     // compact constructor). The builder names each field so a future track adding one cannot silently
     // transpose a positional argument.
     var inputs =
@@ -1252,6 +1293,7 @@ final class GremlinStepWalker {
             .aliasFilters(finalAliasFilters)
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
+            .existsMatchExpressions(List.copyOf(ctx.existsMatchExpressions))
             .returnItems(ctx.returnItems)
             .returnAliases(ctx.returnAliases)
             .returnNestedProjections(ctx.returnNestedProjections)

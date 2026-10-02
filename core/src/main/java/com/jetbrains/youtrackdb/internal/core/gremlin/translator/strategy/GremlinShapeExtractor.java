@@ -152,15 +152,15 @@ final class GremlinShapeExtractor {
     }
     int counted = 0;
     for (Step<?, ?> step : traversal.getSteps()) {
-      if (!transparentSteps.contains(step.getClass())) {
+      if (!isTransparent(step)) {
         counted++;
       }
     }
     encoder.appendToken("T", Integer.toString(counted));
     for (Step<?, ?> step : traversal.getSteps()) {
-      if (transparentSteps.contains(step.getClass())) {
-        // Transparent steps (barriers, …) stay out of the counted step list, but must still
-        // discriminate the shape key — labelled or not. An unlabelled barrier that closes the
+      if (isTransparent(step)) {
+        // Positive-capacity barriers stay out of the counted step list, but must still
+        // discriminate the shape key — labelled or not. barrier(0) encodes as a normal step. An unlabelled barrier that closes the
         // fold changes comparison semantics vs the folded spelling.
         encoder.appendToken("TB", step.getClass().getName());
         encoder.appendStringSeq("L", GremlinStepLabels.userLabels(step));
@@ -182,6 +182,10 @@ final class GremlinShapeExtractor {
         }
       }
     }
+  }
+
+  private boolean isTransparent(Step<?, ?> step) {
+    return transparentSteps.contains(step.getClass()) && StepStreamCursor.hasCapacity(step);
   }
 
   /**

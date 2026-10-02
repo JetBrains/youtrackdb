@@ -95,6 +95,35 @@ public class GremlinPlanFingerprintTest {
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(fpLikes, ResultShaping.NONE));
   }
 
+  /** A positive detached check and a negative check of the same chain need different cache keys. */
+  @Test
+  public void existsAndNotSameChain_haveDifferentFingerprint() {
+    var expression = parse("MATCH {class: V, as: a}, NOT {as: a}.out('link'){as: b} RETURN a")
+        .getNotMatchExpressions();
+    var positive = MatchPlanInputs.builder(patternWithAlias("a"))
+        .existsMatchExpressions(expression).build();
+    var negative = MatchPlanInputs.builder(patternWithAlias("a"))
+        .notMatchExpressions(expression).build();
+    assertDistinct("exists versus NOT", positive, negative);
+  }
+
+  /** Both input-rewrite paths retain the detached check instead of dropping the filter. */
+  @Test
+  public void countAndUnionRewrites_preserveExistsInput() {
+    var statement = parse("MATCH {class: V, as: a}, NOT {as: a}.out('link'){as: b} RETURN a");
+    var inputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .existsMatchExpressions(statement.getNotMatchExpressions())
+        .returnItems(statement.getReturnItems())
+        .returnAliases(statement.getReturnAliases())
+        .returnNestedProjections(statement.getReturnNestedProjections())
+        .build();
+
+    assertThat(PostConcatSupport.rewriteToCountStar(inputs).existsMatchExpressions())
+        .hasSize(1);
+    assertThat(UnionStepRecogniser.rewriteReturnAlias(inputs, "a", "b")
+        .existsMatchExpressions()).hasSize(1);
+  }
+
   /** Explicit null placement in ORDER BY distinguishes the built-plan cache fingerprint. */
   @Test
   public void orderByNullPlacement_distinguishesFingerprint() {

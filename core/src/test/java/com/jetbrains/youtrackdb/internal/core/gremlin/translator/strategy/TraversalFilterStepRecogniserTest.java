@@ -90,18 +90,19 @@ public class TraversalFilterStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * {@code where(out(knows))} (also {@code filter(out(knows))}) declines: the hop would join rather
-   * than test existence, emitting the source once per matching target instead of once.
+   * {@code where(out(knows))} (also {@code filter(out(knows))}) captures an exists expression,
+   * rather than joining the child hop into the positive pattern and multiplying rows.
    */
   @Test
-  public void whereTraversal_outKnows_declines() {
+  public void whereTraversal_outKnows_capturesExists() {
     var admin = graph.traversal().V().where(__.out("knows")).asAdmin();
     var ctx = contextWithRegistry(null);
     var cursor = cursorAfterStart(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.existsMatchExpressions).hasSize(1);
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }

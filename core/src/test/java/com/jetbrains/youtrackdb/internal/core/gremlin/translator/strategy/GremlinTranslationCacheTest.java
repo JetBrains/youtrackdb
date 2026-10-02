@@ -57,6 +57,37 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     GlobalConfiguration.QUERY_ORDER_BY_NULLS_PLACEMENT_DESC.setValue(previousDescending);
   }
 
+  /** A barrier(0) never reuses the positive-capacity barrier plan, in children or at top level. */
+  @Test
+  public void zeroCapacityBarrier_afterCachedPositiveBarrier_declinesInBothPositions() {
+    var source = graph.addVertex(T.label, "Source", "name", "Linked");
+    graph.addVertex(T.label, "Source", "name", "Isolated");
+    source.addEdge("link", graph.addVertex(T.label, "Target"));
+    graph.tx().commit();
+
+    support.assertEquivalent("warm child barrier",
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED,
+        TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("Source")
+            .where(__.out("link").barrier(1)));
+    support.assertEquivalent("zero child barrier",
+        TranslatorEquivalenceSupport.Recognition.DECLINED,
+        TranslatorEquivalenceSupport.Cardinality.MAY_BE_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("Source")
+            .where(__.out("link").barrier(0)));
+    support.assertEquivalent("warm top barrier",
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED,
+        TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("Source").barrier(1).out("link"));
+    support.assertEquivalent("zero top barrier", TranslatorEquivalenceSupport.Recognition.DECLINED,
+        TranslatorEquivalenceSupport.Cardinality.MAY_BE_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("Source").barrier(0).out("link"));
+  }
+
   /**
    * Two walks that differ only in the {@code has()} value share a translation-cache entry, and the
    * second walk returns the second value's row — the harvested binding rebinds the cached plan.
@@ -79,6 +110,115 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(sortedNames(second)).containsExactly("Bob");
     assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /**
+   * Reordering the outer predicate and detached NOT child swaps parameter slots. The second
+   * traversal must not reuse a plan with the first traversal's outer and child slots reversed.
+   */
+  @Test
+  public void reorderedOuterAndNotChildValues_keepTheirOwnBindings() {
+    var a = graph.addVertex(T.label, "Person", "name", "A", "v", 1);
+    var b = graph.addVertex(T.label, "Person", "name", "B", "v", 2);
+    var c = graph.addVertex(T.label, "Person", "name", "C", "v", 1);
+    var d = graph.addVertex(T.label, "Person", "name", "D", "v", 2);
+    a.addEdge("link", graph.addVertex(T.label, "Target", "v", 2));
+    b.addEdge("link", graph.addVertex(T.label, "Target", "v", 1));
+    c.addEdge("link", graph.addVertex(T.label, "Target", "v", 1));
+    d.addEdge("link", graph.addVertex(T.label, "Target", "v", 2));
+    graph.tx().commit();
+
+    var first = GremlinStepWalker.production().walk(graph.traversal().V().hasLabel("Person")
+        .has("v", 1).barrier().not(__.out("link").has("v", 2)).asAdmin());
+    var second = GremlinStepWalker.production().walk(graph.traversal().V().hasLabel("Person")
+        .not(__.out("link").has("v", 1)).barrier().has("v", 2).asAdmin());
+    assertThat(first).isNotNull();
+    assertThat(second).isNotNull();
+    assertThat(GremlinPlanFingerprint.fingerprint(first.inputs(), first.shaping()))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(second.inputs(), second.shaping()));
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .has("v", 1).barrier().not(__.out("link").has("v", 2)))))
+        .containsExactly("C");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .not(__.out("link").has("v", 1)).barrier().has("v", 2))))
+        .containsExactly("D");
+    var hitsBefore = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .has("v", 2).barrier().not(__.out("link").has("v", 1)))))
+        .containsExactly("D");
+    assertThat(cache.getTranslationHits()).isGreaterThan(hitsBefore);
+    support.withTranslator(false, () -> {
+      assertThat(sortedNames(graph.traversal().V().hasLabel("Person")
+          .has("v", 1).barrier().not(__.out("link").has("v", 2)).toList()))
+          .containsExactly("C");
+      assertThat(sortedNames(graph.traversal().V().hasLabel("Person")
+          .not(__.out("link").has("v", 1)).barrier().has("v", 2).toList()))
+          .containsExactly("D");
+    });
+  }
+
+  /** A cached exists template must rebind the child predicate and keep the second vertex. */
+  @Test
+  public void existsChild_freshValue_replaysCachedTemplate() {
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("link", graph.addVertex(T.label, "Target", "tag", "one"));
+    b.addEdge("link", graph.addVertex(T.label, "Target", "tag", "two"));
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hitsBefore = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("tag", "one"))))).containsExactly("A");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("tag", "two"))))).containsExactly("B");
+    assertThat(cache.getTranslationHits()).isGreaterThan(hitsBefore);
+  }
+
+  /** Different child predicates and opposite polarities must not share a cached plan. */
+  @Test
+  public void existsDifferentChildrenAndNot_doNotShareCacheEntries() {
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("link", graph.addVertex(T.label, "Target", "tag", "one"));
+    graph.tx().commit();
+
+    var cache = GremlinPlanCache.instance(graphSession());
+    var misses = cache.getTranslationMisses();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("tag", "one"))))).containsExactly("A");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("name", "Other"))))).isEmpty();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .not(__.out("link").has("tag", "one"))))).containsExactly("B");
+    assertThat(cache.getTranslationMisses()).isGreaterThanOrEqualTo(misses + 3);
+  }
+
+  /** An exists expression must tie its parameter slot to the child predicate in the plan key. */
+  @Test
+  public void reorderedOuterAndExistsChild_predicatesKeepTheirSlots() {
+    var a = graph.addVertex(T.label, "Person", "name", "A", "v", 1);
+    var b = graph.addVertex(T.label, "Person", "name", "B", "v", 2);
+    a.addEdge("link", graph.addVertex(T.label, "Target", "v", 2));
+    b.addEdge("link", graph.addVertex(T.label, "Target", "v", 1));
+    graph.tx().commit();
+
+    var first = GremlinStepWalker.production().walk(graph.traversal().V().hasLabel("Person")
+        .has("v", 1).where(__.out("link").has("v", 2)).asAdmin());
+    var second = GremlinStepWalker.production().walk(graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("v", 1)).has("v", 2).asAdmin());
+    assertThat(first).isNotNull();
+    assertThat(second).isNotNull();
+    assertThat(GremlinPlanFingerprint.fingerprint(first.inputs(), first.shaping()))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(second.inputs(), second.shaping()));
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .has("v", 1).where(__.out("link").has("v", 2)))))
+        .containsExactly("A");
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person")
+        .where(__.out("link").has("v", 1)).has("v", 2))))
+        .containsExactly("B");
   }
 
   /**

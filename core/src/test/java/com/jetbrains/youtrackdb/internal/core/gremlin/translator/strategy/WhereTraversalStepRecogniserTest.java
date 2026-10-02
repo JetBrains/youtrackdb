@@ -54,19 +54,18 @@ public class WhereTraversalStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * {@code where(out(knows))} declines. Appending the hop to the positive pattern turns the
-   * existence test into a join that emits the source once per matching target, so the filter has to
-   * stay on the native pipeline; the context must carry no hop alias and no edge afterwards.
+   * {@code where(out(knows))} appends one detached exists check without adding a positive hop.
    */
   @Test
-  public void edgeBearingChild_declines() {
+  public void edgeBearingChild_appendsExistsCheck() {
     var admin = graph.traversal().V().where(__.out("knows")).asAdmin();
     var ctx = contextWithRegistry(true, null);
     var cursor = cursorAtTraversalFilter(admin);
 
     var outcome = TraversalFilterStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.existsMatchExpressions).hasSize(1);
     assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isFalse();
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
     assertThat(ctx.aliasFilters).isEmpty();

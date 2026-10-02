@@ -1134,9 +1134,8 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // UnionTraversalEquivalenceTest#unionChildPostHopFilter_returnsSameMultisetAsNative,
   // which is where the fork's own boundary-step accounting already is.
   //
-  // The where(...)-fragment cases share the section for shape reasons only. All of
-  // them now decline on the edge-bearing filter gate and build no plan, so what
-  // they witness is the decline and the native multiset, not the binding rule.
+  // The where(...)-fragment cases use detached exists checks. They verify that
+  // target predicates are bound without joining the child hop into the positive pattern.
   // ---------------------------------------------------------------------------
 
   /**
@@ -1172,23 +1171,14 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * {@code g.V(marko, josh).where(__.out().has("name", "vadas"))} declines to the native pipeline
+   * {@code g.V(marko, josh).where(__.out().has("name", "vadas"))} translates
    * and returns native's {@code [marko]}: marko has an out-neighbour named vadas and josh does not.
    *
-   * <p>The shape used to translate, with the fragment's hop appended to the positive pattern. That
-   * reading is a join, so it agreed with native only while at most one target matched the
-   * fragment's predicate — exactly one of marko's three out-neighbours is named vadas, which is why
-   * the case was green. The sibling case below drives the same fragment with a predicate that
-   * matches two, and it is that one that would have failed.
-   *
-   * <p>The result assertion is what keeps this case honest. For a declined expectation {@link
-   * #assertEquivalent} compares two runs that both execute natively, so its multiset equality holds
-   * however the fixture drifts; pinning {@code [marko]} is the only assertion here that a seed
-   * change can break. The name no longer says {@code pinnedOrigin} because root selection does not
-   * run for a shape that builds no plan.
+   * <p>The detached exists check applies the target predicate without adding the hop to the
+   * positive pattern. The explicit result pin shows that marko passes once.
    */
   @Test
-  public void whereFragmentPostHopFilter_singleMatchingTarget_declinesAndMatchesNative() {
+  public void whereFragmentPostHopFilter_singleMatchingTarget_translatesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     var joshId = modern.josh().id();
@@ -1200,22 +1190,16 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .as("marko has an out-neighbour named vadas and josh does not")
         .containsExactly(markoId.toString());
     assertEquivalent(
-        "g.V(marko, josh).where(out().has(name, vadas))", Recognition.DECLINED, traversal);
+        "g.V(marko, josh).where(out().has(name, vadas))", Recognition.RECOGNIZED, traversal);
   }
 
   /**
    * The same {@code where(...)} fragment with a predicate matching <em>two</em> of marko's
-   * out-neighbours returns marko once, from native and from the translator-on run alike, because the
-   * edge-bearing filter declines.
-   *
-   * <p>This is the case that pins the decline's purpose. Appending the fragment's hop makes the
-   * translation a join that emits one row per matching path, so before the decline this returned
-   * marko twice while native returned it once — the same element set, a wrong multiset. Both
-   * candidate repairs were unsound: {@code RETURN DISTINCT} also collapses the path multiplicity a
-   * prefix hop legitimately produces, and a captured sub-walk cannot express result shaping at all.
+   * out-neighbours returns marko once from native and from the detached exists check. The two
+   * matching targets distinguish a filter from an accidental positive-pattern join.
    */
   @Test
-  public void whereFragmentWithSeveralMatchingTargets_declinesAndMatchesNative() {
+  public void whereFragmentWithSeveralMatchingTargets_translatesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     Supplier<GraphTraversal<?, ?>> traversal =
@@ -1233,14 +1217,14 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .containsExactly(markoId.toString());
     assertThat(translated)
         .as("marko has two Person out-neighbours (vadas and josh), so a join reading would emit "
-            + "him twice; the decline keeps the native multiset")
+            + "him twice; the detached check keeps the native multiset")
         .containsExactly(markoId.toString());
     assertEquivalent(
-        "g.V(marko).where(out().hasLabel(Person))", Recognition.DECLINED, traversal);
+        "g.V(marko).where(out().hasLabel(Person))", Recognition.RECOGNIZED, traversal);
   }
 
   /**
-   * {@code g.V(marko).out("knows").where(__.out("created"))} declines and returns native's
+   * {@code g.V(marko).out("knows").where(__.out("created"))} translates and returns native's
    * {@code [josh]}. The {@code where} sits on a hop target rather than on the scan origin, which is
    * the shape that rules out the {@code RETURN DISTINCT} repair: the RETURN column is the hop's
    * target, and deduplicating it would also collapse the duplicates a prefix hop legitimately
@@ -1248,7 +1232,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * join reading emits him twice where native emits him once.
    */
   @Test
-  public void wherePostHop_edgeBearingChild_declinesAndMatchesNative() {
+  public void wherePostHop_edgeBearingChild_translatesAndMatchesNative() {
     var modern = ModernGraphFixture.seed(graph, session);
     var markoId = modern.marko().id();
     var joshId = modern.josh().id();
@@ -1263,7 +1247,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .as("native: josh is marko's only knows-neighbour that created something, and he passes once")
         .containsExactly(joshId.toString());
     assertEquivalent(
-        "g.V(marko).out(knows).where(out(created))", Recognition.DECLINED, traversal);
+        "g.V(marko).out(knows).where(out(created))", Recognition.RECOGNIZED, traversal);
   }
 
   /**

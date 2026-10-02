@@ -11,7 +11,13 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -399,6 +405,158 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
         .collect(Collectors.toSet());
     assertEquals(Set.of("n1:t1", "n1:t2"), names);
     session.commit();
+  }
+
+  /**
+   * A NOT check rooted at the diamond's second middle alias needs that alias even though RETURN
+   * reads only the endpoints. When the second branch is a hash semi-join, it omits the middle
+   * alias and the NOT check sees no origin. The inner join must retain it, then exclude the n3
+   * branch (n3 has a Friend edge to n5) while keeping the n2 branch and its two tags.
+   * The first branch binds only b=n2, while the second can bind c=n2 or c=n3. A check
+   * mistakenly anchored to b would retain the extra c=n3 row for t1.
+   */
+  @Test
+  public void diamondPattern_notOriginInUnreturnedMiddleAlias_isPreserved() {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.begin();
+      var query = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:b, where:(name='n2')}.out('Likes'){class:Tag, as:t},"
+          + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t},"
+          + " NOT {as:c}.out('Friend'){as:excluded, where:(name='n5')}"
+          + " RETURN a.name as aName, t.name as tName";
+      var result = session.query(query);
+      var plan = result.getExecutionPlan().prettyPrint(0, 2);
+      assertTrue("the diamond should keep its second branch as a hash inner join:\n" + plan,
+          plan.contains("HASH INNER_JOIN"));
+      var rows = result.stream()
+          .map(r -> r.getProperty("aName") + ":" + r.getProperty("tName"))
+          .toList();
+      assertEquals("only b=n2 is eligible; NOT removes c=n3 at t1",
+          List.of("n1:t1", "n1:t2"),
+          rows.stream().sorted().toList());
+      result.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
+  }
+
+  /**
+   * A hash-merged c must be visible through $matched during either detached check. With
+   * hash join disabled, the nested-loop plan must return the same five EXISTS or zero NOT rows.
+   * Distinct SQL comments prevent the plan cache from reusing a threshold-dependent plan.
+   */
+  @Test
+  public void detachedChecks_correlatedHashMergedAlias_agreeWithNestedLoop() throws Exception {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      session.begin();
+      var positiveSql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+          + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}";
+      var check = "{as:a}.out('Friend'){as:x, where:(@rid = $matched.c.@rid)}";
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      for (var threshold : List.of(10_000L, 0L)) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+        var positive = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+            (positiveSql + " RETURN a.name, b.name, c.name, t.name")
+                .getBytes(StandardCharsets.UTF_8)))
+            .parse();
+        var exists = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+            ("MATCH " + check + " RETURN a").getBytes(StandardCharsets.UTF_8))).parse();
+        var pattern = new Pattern();
+        positive.getMatchExpressions().forEach(pattern::addExpression);
+        var inputs = MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "Person", "t", "Tag"))
+            .aliasFilters(Map.of("a", positive.getMatchExpressions().getFirst().getOrigin()
+                .getFilter()))
+            .existsMatchExpressions(exists.getMatchExpressions())
+            .returnItems(positive.getReturnItems())
+            .returnAliases(positive.getReturnAliases())
+            .returnNestedProjections(positive.getReturnNestedProjections())
+            .build();
+        var ctx = new BasicCommandContext();
+        ctx.setDatabaseSession(session);
+        var plan = new MatchExecutionPlanner(inputs).createExecutionPlan(ctx, false, false);
+        assertTrue("EXISTS should retain c: " + plan.prettyPrint(0, 2),
+            threshold == 0 || plan.prettyPrint(0, 2).contains("HASH INNER_JOIN"));
+        var stream = plan.start();
+        try {
+          assertEquals("EXISTS at threshold " + threshold, 5, stream.stream(ctx).count());
+        } finally {
+          stream.close(ctx);
+          plan.close();
+        }
+        try (var notRows = session.query(positiveSql + ", NOT " + check
+            + " RETURN a.name, b.name, c.name, t.name"
+            + " /* detached NOT threshold " + threshold + " */")) {
+          assertEquals("NOT at threshold " + threshold, 0, notRows.stream().count());
+        }
+      }
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
+  }
+
+  /**
+   * Programmatic EXISTS on an unreturned diamond middle alias forces a hash inner join.
+   * Both b branches reach t1. Only c=n3 reaches n5 and passes the check, so the
+   * two t1 rows survive without collapsing the c binding in a semi-join.
+   */
+  @Test
+  public void diamondPattern_existsOriginInUnreturnedMiddleAlias_isPreserved() throws Exception {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.begin();
+      var positiveSql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+          + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+          + " RETURN a.name as aName, t.name as tName";
+      var checkSql = "MATCH {as:c}.out('Friend'){as:excluded, where:(name='n5')} RETURN c";
+      var positive = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+          positiveSql.getBytes(StandardCharsets.UTF_8))).parse();
+      var check = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+          checkSql.getBytes(StandardCharsets.UTF_8))).parse();
+      var pattern = new Pattern();
+      positive.getMatchExpressions().forEach(pattern::addExpression);
+      var inputs = MatchPlanInputs.builder(pattern)
+          .aliasClasses(Map.of("a", "Person", "t", "Tag"))
+          .aliasFilters(Map.of("a", positive.getMatchExpressions().getFirst().getOrigin()
+              .getFilter()))
+          .existsMatchExpressions(check.getMatchExpressions())
+          .returnItems(positive.getReturnItems())
+          .returnAliases(positive.getReturnAliases())
+          .returnNestedProjections(positive.getReturnNestedProjections())
+          .build();
+      var ctx = new BasicCommandContext();
+      ctx.setDatabaseSession(session);
+      var plan = new MatchExecutionPlanner(inputs).createExecutionPlan(ctx, false, false);
+      var explain = plan.prettyPrint(0, 2);
+      assertTrue("exists origin must be available after the diamond join:\n" + explain,
+          explain.contains("HASH INNER_JOIN") && explain.contains("+ EXISTS ("));
+      var stream = plan.start();
+      var rows = stream.stream(ctx)
+          .map(row -> row.getProperty("aName") + ":" + row.getProperty("tName"))
+          .sorted().toList();
+      assertEquals(List.of("n1:t1", "n1:t1"), rows);
+      stream.close(ctx);
+      plan.close();
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
   }
 
   /**

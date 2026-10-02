@@ -314,6 +314,12 @@ interface RecognitionContext extends ParamSink {
    */
   void addNotMatchExpression(SQLMatchExpression expression);
 
+  /** Captures a detached positive existence check for the enclosing conjunctive filter. */
+  void addExistsMatchExpression(SQLMatchExpression expression);
+
+  /** Whether the current context has a pending detached positive check. */
+  boolean hasExistsMatchExpressions();
+
   /**
    * Marks this walk as RID-bearing ({@code g.V(ids)} start ids or a {@code hasId(...)} filter).
    * RID-bearing shapes bypass the plan cache because their fingerprint would vary per id set.

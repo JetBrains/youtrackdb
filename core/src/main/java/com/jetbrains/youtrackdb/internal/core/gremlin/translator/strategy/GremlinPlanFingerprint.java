@@ -9,9 +9,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 
@@ -19,12 +21,13 @@ import javax.annotation.Nonnull;
  * Synthesises a value-independent fingerprint from post-walk {@link MatchPlanInputs} for the
  * {@link GremlinPlanCache}. The key enumerates every planner-visible field on the record: positive
  * pattern topology (including per-node {@code optional}), alias classes, alias filters, positive
- * {@code matchExpressions}, detached NOT expressions, return projection (items / aliases / nested
+ * {@code matchExpressions}, detached NOT and exists expressions, return projection (items / aliases / nested
  * projections), result-shaping ({@code GROUP BY} / {@code ORDER BY} / {@code UNWIND} / {@code LIMIT}
  * / {@code SKIP} / {@code DISTINCT}), and return-mode flags ({@code $elements} / {@code $paths} /
  * {@code $patterns} / {@code $pathElements}). It never uses {@link
  * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement#toGenericStatement()}, which
- * omits {@code notMatchExpressions}. Positional parameters render as {@code ?}; structural tokens
+ * omits {@code notMatchExpressions}. Detached NOT and exists checks use synthetic slot markers
+ * so reordered predicates cannot bind the outer value to the child or vice versa. Structural tokens
  * (class names, {@code ~label}, RIDs, type-guard literals) stay verbatim so distinct labels and NOT
  * shapes do not collide. Limit / skip literals stay in the key (they are not positional slots), so
  * {@code limit(2)} and {@code limit(5)} cannot share a cached plan.
@@ -72,6 +75,7 @@ final class GremlinPlanFingerprint {
     appendAliasFilters(sb, inputs.aliasFilters());
     appendMatchExpressions(sb, inputs.matchExpressions());
     appendNotExpressions(sb, inputs.notMatchExpressions());
+    appendExistsExpressions(sb, inputs.existsMatchExpressions());
     appendReturnProjection(sb, inputs);
     appendResultShaping(sb, inputs);
     appendReturnModes(sb, inputs);
@@ -127,13 +131,23 @@ final class GremlinPlanFingerprint {
   }
 
   private static void appendMatchExpressionStructural(StringBuilder sb, SQLMatchExpression expr) {
-    if (expr.getOrigin() != null) {
-      expr.getOrigin().toString(NO_PARAMS, sb);
-    }
-    for (var item : expr.getItems()) {
-      appendPathItemStructural(sb, item);
-    }
+    expr.toString(NO_PARAMS, sb);
   }
+
+  /** Resolve each positional parameter to a synthetic, slot-specific value while rendering.
+   * Actual values never enter the key. The marker is quoted by SQLPositionalParameter, so it
+   * remains distinguishable from SQL syntax and other slot numbers. */
+  private static final Map<Object, Object> SLOT_MARKERS = new AbstractMap<>() {
+    @Override
+    public Object get(Object key) {
+      return key instanceof Integer slot ? "$g2m_slot_" + slot + "$" : null;
+    }
+
+    @Override
+    public Set<Entry<Object, Object>> entrySet() {
+      return Set.of();
+    }
+  };
 
   /**
    * Appends each alias filter, rendered with {@code toString(NO_PARAMS, …)} rather than
@@ -169,7 +183,15 @@ final class GremlinPlanFingerprint {
       List<SQLMatchExpression> notExprs) {
     sb.append(";N:");
     for (var notExpr : notExprs) {
-      appendRendered(sb, scratch -> appendMatchExpressionStructural(scratch, notExpr));
+      appendRendered(sb, scratch -> notExpr.toString(SLOT_MARKERS, scratch));
+    }
+  }
+
+  private static void appendExistsExpressions(StringBuilder sb,
+      List<SQLMatchExpression> existsExprs) {
+    sb.append(";X:");
+    for (var expression : existsExprs) {
+      appendRendered(sb, scratch -> expression.toString(SLOT_MARKERS, scratch));
     }
   }
 

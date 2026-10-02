@@ -129,7 +129,8 @@ import org.slf4j.LoggerFactory;
  *                  MatchPrefetchStep (small aliases)
  *                  MatchFirstStep (initial scan)
  *                  MatchStep / OptionalMatchStep (per edge)
- *                  FilterNotMatchPatternStep (NOT patterns)
+ *                  FilterExistsMatchPatternStep (detached positive checks)
+ *                  FilterNotMatchPatternStep / hash anti-join (NOT patterns)
  *                  RemoveEmptyOptionalsStep (optional cleanup)
  *                  ReturnMatch*Step (projection)
  *                                   │
@@ -174,8 +175,9 @@ import org.slf4j.LoggerFactory;
  *    - Each subsequent edge becomes either a {@link MatchStep} or an
  *      {@link OptionalMatchStep}.
  *
- * <p>6. **NOT patterns** — any `NOT { … }` sub-patterns are appended as
- *    {@link FilterNotMatchPatternStep}s that discard rows matching the negative pattern.
+ * <p>6. **Detached checks** — programmatic exists expressions keep matching rows via
+ *    {@link FilterExistsMatchPatternStep}. `NOT { … }` sub-patterns discard matching rows via
+ *    {@link FilterNotMatchPatternStep} or a hash anti-join.
  *
  * <p>7. **Optional cleanup** — if the query contains optional nodes, a
  *    {@link RemoveEmptyOptionalsStep} replaces sentinel
@@ -263,6 +265,9 @@ public class MatchExecutionPlanner {
 
   /** Negative `NOT MATCH` expressions that filter out matching rows. */
   protected List<SQLMatchExpression> notMatchExpressions;
+
+  /** Detached positive patterns that keep each incoming row with at least one matching path. */
+  protected List<SQLMatchExpression> existsMatchExpressions;
 
   /** Expressions to evaluate in the `RETURN` clause. */
   protected List<SQLExpression> returnItems;
@@ -454,6 +459,7 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters) {
     this.matchExpressions = List.of();
     this.notMatchExpressions = List.of();
+    this.existsMatchExpressions = List.of();
     this.returnItems = List.of();
     this.returnAliases = List.of();
     this.returnNestedProjections = List.of();
@@ -485,6 +491,7 @@ public class MatchExecutionPlanner {
     this.notMatchExpressions =
         stm.getNotMatchExpressions().stream().map(SQLMatchExpression::copy)
             .collect(Collectors.toList());
+    this.existsMatchExpressions = List.of();
     this.returnItems =
         stm.getReturnItems().stream().map(SQLExpression::copy).collect(Collectors.toList());
     this.returnAliases =
@@ -551,6 +558,7 @@ public class MatchExecutionPlanner {
     // the caller mutating its own list reference after construction.
     this.matchExpressions = new ArrayList<>(inputs.matchExpressions());
     this.notMatchExpressions = new ArrayList<>(inputs.notMatchExpressions());
+    this.existsMatchExpressions = new ArrayList<>(inputs.existsMatchExpressions());
     this.returnItems = new ArrayList<>(inputs.returnItems());
     this.returnAliases = new ArrayList<>(inputs.returnAliases());
     this.returnNestedProjections = new ArrayList<>(inputs.returnNestedProjections());
@@ -765,7 +773,8 @@ public class MatchExecutionPlanner {
       }
     }
 
-    // Phase 6: Append NOT-pattern filter steps (nested-loop or hash anti-join)
+    // Phase 6: Detached checks run after the positive pattern and before projection.
+    manageExistsPatterns(result, pattern, existsMatchExpressions, context, enableProfiling);
     manageNotPatterns(
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
         aliasPinnedRids, context, enableProfiling);
@@ -1007,7 +1016,7 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Single-node {@code RETURN count(*)} with no edges and no NOT patterns maps to {@link
+   * Single-node {@code RETURN count(*)} with no edges or detached checks maps to {@link
    * com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep} via the shared helper.
    * Unfiltered patterns count polymorphically; a lone exact {@code @class = className} filter
    * counts leaf-exact (Gremlin non-polymorphic {@code hasLabel}). Other filters / multi-node /
@@ -1032,7 +1041,8 @@ public class MatchExecutionPlanner {
     if (pattern == null || pattern.numOfEdges != 0 || pattern.aliasToNode.size() != 1) {
       return false;
     }
-    if (notMatchExpressions != null && !notMatchExpressions.isEmpty()) {
+    if ((notMatchExpressions != null && !notMatchExpressions.isEmpty())
+        || (existsMatchExpressions != null && !existsMatchExpressions.isEmpty())) {
       return false;
     }
     if (subPatterns != null && subPatterns.size() > 1) {
@@ -1101,7 +1111,7 @@ public class MatchExecutionPlanner {
    * @param notMatchExpressions  the list of negative match expressions
    * @param aliasClasses         per-alias class names (needed for hash join build-side)
    * @param aliasFilters         per-alias WHERE clauses
-   * @param aliasPinnedRids            per-alias RID constraints
+   * @param aliasPinnedRids      per-alias RID constraints
    * @param context              the command context
    * @param enableProfiling      whether to enable step profiling
    */
@@ -1115,39 +1125,7 @@ public class MatchExecutionPlanner {
       CommandContext context,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
-      if (pattern.aliasToNode.get(exp.getOrigin().getAlias()) == null) {
-        throw new CommandExecutionException(context.getDatabaseSession(),
-            "This kind of NOT expression is not supported (yet). "
-                + "The first alias in a NOT expression has to be present in the positive pattern");
-      }
-
-      if (exp.getOrigin().getFilter() != null) {
-        throw new CommandExecutionException(context.getDatabaseSession(),
-            "This kind of NOT expression is not supported (yet): "
-                + "WHERE condition on the initial alias");
-        // TODO implement this
-      }
-
-      // Build the NOT pattern's MatchStep chain (shared by both strategies)
-      var lastFilter = exp.getOrigin();
-      List<AbstractExecutionStep> matchSteps = new ArrayList<>();
-      for (var item : exp.getItems()) {
-        if (item instanceof SQLMultiMatchPathItem) {
-          throw new CommandExecutionException(context.getDatabaseSession(),
-              "This kind of NOT expression is not supported (yet): " + item);
-        }
-        var edge = new PatternEdge();
-        edge.item = item;
-        edge.out = new PatternNode();
-        edge.out.alias = lastFilter.getAlias();
-        edge.in = new PatternNode();
-        edge.in.alias = item.getFilter().getAlias();
-        var traversal = new EdgeTraversal(edge, true);
-        var step = new MatchStep(context, traversal, enableProfiling);
-        matchSteps.add(step);
-        lastFilter = item.getFilter();
-      }
-
+      var matchSteps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
       if (canUseHashJoin(
           exp, aliasClasses, aliasFilters, aliasPinnedRids, context)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
@@ -1162,6 +1140,57 @@ public class MatchExecutionPlanner {
         result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
       }
     }
+  }
+
+  /** Adds nested-loop existence checks without using the NOT-only hash anti-join strategy. */
+  private static void manageExistsPatterns(
+      SelectExecutionPlan result,
+      Pattern pattern,
+      List<SQLMatchExpression> existsMatchExpressions,
+      CommandContext context,
+      boolean enableProfiling) {
+    for (var exp : existsMatchExpressions) {
+      var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
+      result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+    }
+  }
+
+  /** Validates a detached check and builds its linear MATCH traversal chain. */
+  private static List<AbstractExecutionStep> buildDetachedPatternSteps(
+      SQLMatchExpression exp,
+      Pattern pattern,
+      String kind,
+      CommandContext context,
+      boolean enableProfiling) {
+    if (pattern.aliasToNode.get(exp.getOrigin().getAlias()) == null) {
+      throw new CommandExecutionException(context.getDatabaseSession(),
+          "This kind of " + kind + " expression is not supported (yet). "
+              + "The first alias in a " + kind
+              + " expression has to be present in the positive pattern");
+    }
+    if (exp.getOrigin().getFilter() != null) {
+      throw new CommandExecutionException(context.getDatabaseSession(),
+          "This kind of " + kind + " expression is not supported (yet): "
+              + "WHERE condition on the initial alias");
+    }
+
+    var lastFilter = exp.getOrigin();
+    List<AbstractExecutionStep> steps = new ArrayList<>();
+    for (var item : exp.getItems()) {
+      if (item instanceof SQLMultiMatchPathItem) {
+        throw new CommandExecutionException(context.getDatabaseSession(),
+            "This kind of " + kind + " expression is not supported (yet): " + item);
+      }
+      var edge = new PatternEdge();
+      edge.item = item;
+      edge.out = new PatternNode();
+      edge.out.alias = lastFilter.getAlias();
+      edge.in = new PatternNode();
+      edge.in.alias = item.getFilter().getAlias();
+      steps.add(new MatchStep(context, new EdgeTraversal(edge, true), enableProfiling));
+      lastFilter = item.getFilter();
+    }
+    return steps;
   }
 
   /**
@@ -1351,7 +1380,7 @@ public class MatchExecutionPlanner {
 
   /**
    * Determines which pattern aliases are referenced downstream of the MATCH traversal —
-   * in the RETURN clause, GROUP BY, ORDER BY, and UNWIND. This is needed to decide if
+   * in the RETURN clause, GROUP BY, ORDER BY, UNWIND, and detached checks. This decides if
    * a branch's non-shared aliases can be elided via semi-join (i.e., if they are not
    * referenced downstream, the branch only needs to be probed for existence).
    *
@@ -1390,6 +1419,15 @@ public class MatchExecutionPlanner {
     for (var alias : allPatternAliases) {
       compiled.put(alias, java.util.regex.Pattern.compile(
           "\\b" + java.util.regex.Pattern.quote(alias) + "\\b"));
+    }
+
+    // A detached check runs after the positive pattern and needs its origin even if RETURN
+    // does not read it. A semi-join would otherwise discard the alias before the check.
+    for (var check : notMatchExpressions) {
+      referenced.add(check.getOrigin().getAlias());
+    }
+    for (var check : existsMatchExpressions) {
+      referenced.add(check.getOrigin().getAlias());
     }
 
     // Scan RETURN expressions

@@ -23,9 +23,8 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  *   <li><b>{@code where(traversal)}</b> — in this fork also arrives as {@code TraversalFilterStep} over a
  *       general child sub-traversal (the positive counterpart of {@link NotStepRecogniser}'s logical
  *       {@code not(traversal)}). Pure-filter children merge into the boundary {@code WHERE};
- *       edge-bearing children decline the whole filter, because appending the hop would emit one row
- *       per matching path instead of testing existence (see {@link
- *       ConnectiveStepSupport#anyEdgeBearing}).
+ *       edge-bearing linear children contribute a detached exists check, which tests the hop without
+ *       multiplying rows in the positive pattern.
  * </ul>
  *
  * <p>Every other {@code TraversalFilterStep} declines.
@@ -90,9 +89,9 @@ final class TraversalFilterStepRecogniser implements StepRecogniser {
    * declines for the same reason the predicate adapter declines it: as a bare {@code IS DEFINED}
    * identifier it would resolve as a context variable, a hidden token, or record metadata rather than
    * a plain property. {@code valueMap} / {@code propertyMap} are a distinct {@code PropertyMapStep}
-   * class this never matches.
+   * class this never matches. The detached-child grammar also reads this exact desugar.
    */
-  private static @Nullable String presenceKey(TraversalFilterStep<?> step) {
+  static @Nullable String presenceKey(TraversalFilterStep<?> step) {
     var filterTraversal = step.getFilterTraversal();
     if (filterTraversal == null) {
       return null;
