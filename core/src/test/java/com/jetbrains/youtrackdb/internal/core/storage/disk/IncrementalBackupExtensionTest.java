@@ -12,14 +12,30 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
+import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -94,8 +110,8 @@ public class IncrementalBackupExtensionTest {
   /**
    * One incremental backup removes recognized incomplete trailing output.
    *
-   * <p>An interrupted backup of this build can leave a complete header of this database over
-   * broken content. The scenario appends such a unit after one full backup. The expected outcome
+   * <p>A version 3 unit can have a complete header over broken content. The scenario appends
+   * such a unit after one full backup. The expected outcome
    * has three parts. The backup removes that trailing unit. The backup writes one new unit. The
    * full backup of the chain survives.
    */
@@ -104,7 +120,12 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       var fullBackupUnit = storage.fullBackup(backupPath);
-      var incompleteUnit = writeTrailingUnit(storage.getUuid(), false);
+      var incompleteUnit = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var damaged = Files.readAllBytes(backupPath.resolve(incompleteUnit));
+      damaged[0] ^= 1;
+      Files.write(backupPath.resolve(incompleteUnit), damaged);
 
       addOneRecord(youTrackDB);
       var newUnit = storage.backup(backupPath);
@@ -365,6 +386,813 @@ public class IncrementalBackupExtensionTest {
           "the refused backup must keep every existing unit unchanged",
           contentBeforeBackup,
           unitContent());
+    }
+  }
+
+  /** A v3 full unit followed by real v4 increments extends and replays as one mixed chain. */
+  @Test
+  public void mixedVersionChainExtendsAndRestoresPastPaddingAndTail() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      BackupUnitFiles.rewriteVersion4AsVersion3(backupPath.resolve(full));
+      addOneRecord(youTrackDB);
+      var first = storage.backup(backupPath);
+      assertEquals(BackupUnitFiles.VERSION_3,
+          inspectUnit(full, storage.getUuid()).metadata().backupFormatVersion());
+      assertEquals(BackupUnitFiles.VERSION_4,
+          inspectUnit(first, storage.getUuid()).metadata().backupFormatVersion());
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      youTrackDB.internal.restore("mixedVersionRestore", backupPath.toString(), null, null);
+      try (var restored = youTrackDB.open("mixedVersionRestore", ADMIN, PASSWORD)) {
+        assertEquals(3, restored.query("select from " + RECORD_CLASS).stream().count());
+      }
+    }
+  }
+
+  /** A plain output stream records no barrier and emits one information-level signal. */
+  @Test
+  public void plainOutputStreamWritesAnAbsentBarrier() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new ByteArrayOutputStream();
+      var logger = Logger.getLogger(DiskStorage.class.getName());
+      var previousLevel = logger.getLevel();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      Handler handler = new Handler() {
+        @Override
+        public void publish(LogRecord record) {
+          records.add(record);
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+      };
+      handler.setLevel(Level.ALL);
+      logger.addHandler(handler);
+      logger.setLevel(Level.ALL);
+      String name;
+      try {
+        name = storage.backup(() -> List.<String>of().iterator(),
+            file -> InputStream.nullInputStream(), file -> output, file -> {
+            });
+      } finally {
+        logger.removeHandler(handler);
+        logger.setLevel(previousLevel);
+      }
+      assertEquals("the missing force capability must be reported once at INFO", 1,
+          records.stream().filter(record -> record.getLevel() == Level.INFO
+              && record.getMessage().contains("has no force capability")).count());
+      var unit = output.toByteArray();
+      assertFalse(DiskStorage.hasBackupBarrier(
+          java.util.Arrays.copyOfRange(unit, unit.length - DiskStorage.IBU_V4_METADATA_SIZE,
+              unit.length)));
+      assertEquals("the full hash must cover every preceding byte",
+          DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - Long.BYTES,
+              DiskStorage.XX_HASH_SEED),
+          ByteBuffer.wrap(unit, unit.length - Long.BYTES, Long.BYTES).getLong());
+      assertNotNull(DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
+          new ByteArrayInputStream(unit), null).metadata());
+    }
+  }
+
+  /** A custom stream can publish only flushed bytes and discard pending bytes on close. */
+  @Test
+  public void backupFlushesTheFinalTailBeforeClosingCustomOutput() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new FlushPublishedOutput();
+      var name = storage.backup(() -> List.<String>of().iterator(),
+          file -> InputStream.nullInputStream(), file -> output, file -> {
+          });
+      var published = output.published.toByteArray();
+      assertTrue("close must have discarded no tail bytes", output.closed);
+      assertNotNull("the published bytes must form a complete v4 unit",
+          DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
+              new ByteArrayInputStream(published), null).metadata());
+      assertEquals(BackupUnitFiles.VERSION_4,
+          DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
+              new ByteArrayInputStream(published), null).metadata().backupFormatVersion());
+    }
+  }
+
+  /** Real full and incremental ZIP writes leave a zero-filled gap before a sector-local v4 tail. */
+  @Test
+  public void realBackupTailsStayInsideOneSectorWithZeroPadding() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      for (var index = 0; index < 2; index++) {
+        var name = index == 0 ? storage.fullBackup(backupPath) : storage.backup(backupPath);
+        var unit = Files.readAllBytes(backupPath.resolve(name));
+        var tailStart = unit.length - DiskStorage.IBU_V4_METADATA_SIZE;
+        assertTrue("the real tail must fit inside one sector",
+            tailStart % DiskStorage.IBU_SECTOR_SIZE + DiskStorage.IBU_V4_METADATA_SIZE
+                <= DiskStorage.IBU_SECTOR_SIZE);
+        var zipEnd = zipEndBeforeTail(unit, tailStart);
+        assertTrue("the ZIP end marker must precede the tail", zipEnd <= tailStart);
+        for (var byteIndex = zipEnd; byteIndex < tailStart; byteIndex++) {
+          assertEquals("the gap after the ZIP must contain zero padding", 0, unit[byteIndex]);
+        }
+        assertNotNull(inspectUnit(name, storage.getUuid()).metadata());
+        addOneRecord(youTrackDB);
+      }
+    }
+  }
+
+  /** The ZIP end record is the final 22 bytes of an archive without a comment. */
+  private static int zipEndBeforeTail(byte[] unit, int tailStart) {
+    for (var index = tailStart - 22; index >= 0; index--) {
+      if ((unit[index] & 0xff) == 0x50 && (unit[index + 1] & 0xff) == 0x4b
+          && (unit[index + 2] & 0xff) == 0x05 && (unit[index + 3] & 0xff) == 0x06
+          && unit[index + 20] == 0 && unit[index + 21] == 0) {
+        return index + 22;
+      }
+    }
+    throw new AssertionError("no ZIP end record before the backup tail");
+  }
+
+  /** A force error fails backup before the one-request tail publication. */
+  @Test
+  public void failedForceWritesNoTail() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      output.failForce = true;
+      assertThrows(RuntimeException.class, () -> storage.backup(
+          () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> output, file -> {
+          }));
+      assertEquals(0, output.tailRequests);
+      assertTrue(output.forceCalls > 0);
+    }
+  }
+
+  /** A one-shot ZIP finalization error fails backup even if later writes and force work. */
+  @Test
+  public void failedZipFinalizationWritesNoTail() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      output.failCentralDirectory = true;
+      assertThrows(RuntimeException.class, () -> storage.backup(
+          () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> output, file -> {
+          }));
+      assertTrue("the central directory must hit the injected write error", output.failedWrite);
+      assertEquals(0, output.tailRequests);
+      // The one-shot error does not poison later writes or force calls.
+      output.write(new byte[] {1, 2, 3});
+      output.forceBackupData();
+      assertEquals(1, output.forceCalls);
+    }
+  }
+
+  /** Body and finalization write failures keep the body error and report the second error. */
+  @Test
+  public void failedBodyWriteKeepsFinalizationFailureSuppressed() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      output.failFirstWrites = 2;
+      var failure = assertThrows(RuntimeException.class, () -> storage.backup(
+          () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> output, file -> {
+          }));
+      var bodyFailure = failure.getCause();
+      assertNotNull("the backup must retain the body IOException", bodyFailure);
+      assertEquals("injected write 1", bodyFailure.getMessage());
+      assertEquals("the later ZIP failure must be suppressed on the body failure", 1,
+          bodyFailure.getSuppressed().length);
+      assertEquals("injected write 2", bodyFailure.getSuppressed()[0].getMessage());
+      assertEquals(0, output.tailRequests);
+    }
+  }
+
+  /** A close error cannot mask a failed local durability force. */
+  @Test
+  public void localOutputCloseKeepsForceFailurePrimary() throws Exception {
+    var path = backupPath.resolve("closed-channel");
+    var channel = FileChannel.open(path, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    channel.close();
+    var type = Class.forName(DiskStorage.class.getName() + "$LocalBackupOutputStream");
+    var constructor = type.getDeclaredConstructor(OutputStream.class, FileChannel.class,
+        Path.class);
+    constructor.setAccessible(true);
+    OutputStream delegate = new OutputStream() {
+      @Override
+      public void write(int value) {
+      }
+
+      @Override
+      public void close() throws IOException {
+        throw new IOException("injected close error");
+      }
+    };
+    var output = (OutputStream) constructor.newInstance(delegate, channel, backupPath);
+    var forceFailure = assertThrows(IOException.class, output::close);
+    assertEquals("the closed file channel must cause the force failure",
+        java.nio.channels.ClosedChannelException.class, forceFailure.getClass());
+    assertEquals(1, forceFailure.getSuppressed().length);
+    assertEquals("injected close error", forceFailure.getSuppressed()[0].getMessage());
+  }
+
+  /** A forced output publishes a present barrier after a complete, flushed ZIP payload. */
+  @Test
+  public void forcedOutputPublishesOneTailRequest() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      var name = storage.backup(() -> List.<String>of().iterator(),
+          file -> InputStream.nullInputStream(), file -> output, file -> {
+          });
+      assertEquals(1, output.forceCalls);
+      assertEquals(1, output.tailRequests);
+      var forceIndex = output.events.indexOf("force");
+      assertTrue("the ZIP must finish before the force", output.events.contains("zipComplete"));
+      assertTrue(output.events.indexOf("zipComplete") < forceIndex - 1);
+      assertEquals("flush", output.events.get(forceIndex - 1));
+      assertEquals("only the tail and its flush may follow the force",
+          List.of("force", "tail", "flush"),
+          output.events.subList(forceIndex, output.events.size()));
+      assertEquals("nothing may be written after the tail", 0, output.writesAfterTail);
+      var unit = output.bytes.toByteArray();
+      assertTrue(DiskStorage.hasBackupBarrier(
+          java.util.Arrays.copyOfRange(unit, unit.length - DiskStorage.IBU_V4_METADATA_SIZE,
+              unit.length)));
+      assertNotNull(DiskStorage.inspectBackupUnit(name, SOURCE, storage.getUuid(),
+          new ByteArrayInputStream(unit), null).metadata());
+    }
+  }
+
+  /** Restore refuses a bad metadata checksum even when the full hash still agrees. */
+  @Test
+  public void restoreRejectsVersionFourMetadataChecksumFailure() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var name = storage.fullBackup(backupPath);
+      var path = backupPath.resolve(name);
+      var unit = Files.readAllBytes(path);
+      ByteBuffer.wrap(unit, unit.length - DiskStorage.IBU_V4_METADATA_SIZE, Long.BYTES)
+          .putLong(0);
+      ByteBuffer.wrap(unit, unit.length - Long.BYTES, Long.BYTES).putLong(
+          DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - Long.BYTES,
+              DiskStorage.XX_HASH_SEED));
+      Files.write(path, unit);
+      var before = unitContent();
+      assertThrows(UnsupportedBackupException.class, () -> youTrackDB.internal.restore(
+          "badMetadataChecksum", backupPath.toString(), null, null));
+      assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+      assertTrue("the damaged head must survive the refused extension", Files.exists(path));
+      assertEquals("the metadata check alone must never cause removal", before, unitContent());
+    }
+  }
+
+  /** Restore refuses a durable intermediate tail image with a zero full hash. */
+  @Test
+  public void restoreRejectsIntermediateTailImage() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var name = storage.fullBackup(backupPath);
+      var path = backupPath.resolve(name);
+      var unit = Files.readAllBytes(path);
+      java.util.Arrays.fill(unit, unit.length - Long.BYTES, unit.length, (byte) 0);
+      Files.write(path, unit);
+      assertThrows(UnsupportedBackupException.class, () -> youTrackDB.internal.restore(
+          "zeroFinalHash", backupPath.toString(), null, null));
+    }
+  }
+
+  /** A v3 incomplete head stays removable after a v4 full backup. */
+  @Test
+  public void versionThreeIncompleteHeadIsRemoved() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var incomplete = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var bytes = Files.readAllBytes(backupPath.resolve(incomplete));
+      bytes[0] ^= 1;
+      Files.write(backupPath.resolve(incomplete), bytes);
+      assertNotNull(storage.backup(backupPath));
+      assertFalse(Files.exists(backupPath.resolve(incomplete)));
+    }
+  }
+
+  /** Version 1, version 2 and an unknown version refuse extension without any removal. */
+  @Test
+  public void unsupportedVersionsNeverRemoveExistingUnits() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      for (var version : new int[] {1, BackupUnitFiles.VERSION_2, 99}) {
+        writeTrailingUnitOfFormat(storage.getUuid(), version,
+            BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+            BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+        var before = unitContent();
+        assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
+        assertEquals(before, unitContent());
+      }
+    }
+  }
+
+  /** A v4 chain with a forced head reads only 86 bytes per unit from the file itself. */
+  @Test
+  public void extensionReadsOnlyFileTailsForVersionFourChain() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      var reader = new CountingTailSupplier();
+      storage.backup(this::unitIterator, reader, this::openOutput,
+          name -> {
+            throw new AssertionError("no file should be removed");
+          });
+      assertEquals("all three units must be read through the positioned file channel",
+          3 * DiskStorage.IBU_V4_METADATA_SIZE, reader.fileBytesRead);
+      assertEquals("a tail-only unit must not open its full input stream", 0,
+          reader.fullStreamsOpened);
+    }
+  }
+
+  /** A mixed v3/v4 chain admits the older v3 unit from its tail below the v4 head. */
+  @Test
+  public void mixedChainReadsOnlyTailsBelowVersionFourHead() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      BackupUnitFiles.rewriteVersion4AsVersion3(backupPath.resolve(full));
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      var reader = new CountingTailSupplier();
+      storage.backup(this::unitIterator, reader, this::openOutput,
+          name -> {
+            throw new AssertionError("no file should be removed");
+          });
+      assertEquals(2 * DiskStorage.IBU_V4_METADATA_SIZE, reader.fileBytesRead);
+      assertEquals("version 3 below the head must not open a full stream", 0,
+          reader.fullStreamsOpened);
+    }
+  }
+
+  /** A corrupt payload of a forced v4 head passes extension, but restore rejects that chain. */
+  @Test
+  public void forcedVersionFourHeadSkipsPayloadAndRestoreRejectsDamage() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var head = storage.fullBackup(backupPath);
+      var path = backupPath.resolve(head);
+      var damaged = Files.readAllBytes(path);
+      damaged[0] ^= 1;
+      Files.write(path, damaged);
+      addOneRecord(youTrackDB);
+      var extension = storage.backup(backupPath);
+      assertTrue(Files.exists(path));
+      assertTrue(Files.exists(backupPath.resolve(extension)));
+      assertThrows(UnsupportedBackupException.class, () -> youTrackDB.internal.restore(
+          "damagedHeadRestore", backupPath.toString(), null, null));
+    }
+  }
+
+  /** A plain input supplier fully inspects a broken v4 head and signals one fallback. */
+  @Test
+  public void missingTailCapabilityChecksWholeHeadAndSignalsOnce() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var broken = writeTrailingUnit(storage.getUuid(), false);
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      withDiskStorageLogs(records, () -> storage.backup(this::unitIterator,
+          this::openInput, this::openOutput, this::removeUnit));
+      assertFalse(Files.exists(backupPath.resolve(broken)));
+      assertEquals("one signal names the supplier, even when several units need inspection", 1,
+          records.stream().filter(r -> r.getLevel() == Level.INFO
+              && r.getMessage().contains("has no tail read capability")
+              && r.getMessage().contains("IncrementalBackupExtensionTest")).count());
+    }
+  }
+
+  /** Without tail reads, a damaged v3 head is removed after a full hash check and a signal. */
+  @Test
+  public void plainInputSupplierRemovesDamagedVersionThreeHeadAndSignals() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      var head = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var path = backupPath.resolve(head);
+      var bytes = Files.readAllBytes(path);
+      bytes[0] ^= 1;
+      Files.write(path, bytes);
+      var removed = new ArrayList<String>();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+
+      withDiskStorageLogs(records, () -> storage.backup(this::unitIterator,
+          this::openInput, this::openOutput, name -> {
+            removed.add(name);
+            removeUnit(name);
+          }));
+
+      assertEquals("the damaged v3 head must be the only removed unit", List.of(head), removed);
+      assertTrue("the full backup must remain", Files.exists(backupPath.resolve(full)));
+      assertTrue("the missing tail capability must be signaled at INFO",
+          records.stream().anyMatch(r -> r.getLevel() == Level.INFO
+              && r.getMessage().contains("has no tail read capability")
+              && r.getMessage().contains("IncrementalBackupExtensionTest")));
+    }
+  }
+
+  /** Without tail reads, a forced v4 head with damaged payload remains removable. */
+  @Test
+  public void plainInputSupplierFullyInspectsForcedVersionFourHead() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var head = storage.fullBackup(backupPath);
+      var path = backupPath.resolve(head);
+      var bytes = Files.readAllBytes(path);
+      bytes[0] ^= 1;
+      Files.write(path, bytes);
+      var removed = new ArrayList<String>();
+      var replacement = storage.backup(this::unitIterator, this::openInput,
+          this::openOutput, name -> {
+            removed.add(name);
+            removeUnit(name);
+          });
+      // A replacement may reuse the name of a removed unit within the same clock second.
+      assertEquals("only the failed full hash allows head removal", List.of(head), removed);
+      assertTrue(Files.exists(backupPath.resolve(replacement)));
+    }
+  }
+
+  /** Without tail reads, Case A residue blocks extension and leaves all files unchanged. */
+  @Test
+  public void plainInputSupplierRefusesMissingTailWithoutDeletion() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var name = BackupUnitFiles.unitFileName(storage.getUuid(), SOURCE, 1,
+          BackupUnitFiles.FUTURE_DATE_STAMP);
+      Files.write(backupPath.resolve(name), new byte[12]);
+      var before = unitContent();
+      assertThrows(UnsupportedBackupException.class, () -> storage.backup(this::unitIterator,
+          this::openInput, this::openOutput, this::removeUnit));
+      assertEquals(before, unitContent());
+    }
+  }
+
+  /** An absent barrier makes a v4 head use its full hash and signals that fallback. */
+  @Test
+  public void absentBarrierChecksWholeVersionFourHeadAndSignals() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var broken = writeTrailingUnit(storage.getUuid(), false);
+      var reader = new CountingTailSupplier();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      withDiskStorageLogs(records, () -> storage.backup(this::unitIterator, reader,
+          this::openOutput, this::removeUnit));
+      assertFalse(Files.exists(backupPath.resolve(broken)));
+      assertEquals(1, reader.fullStreamsOpened);
+      assertTrue(records.stream().anyMatch(r -> r.getLevel() == Level.INFO
+          && r.getMessage().contains(broken) && r.getMessage().contains("no force barrier")));
+    }
+  }
+
+  /** A valid v4 head without a barrier gets a full inspection before admission. */
+  @Test
+  public void absentBarrierOnValidHeadStillRequiresFullInspection() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var head = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_4,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var reader = new CountingTailSupplier();
+      storage.backup(this::unitIterator, reader, this::openOutput, this::removeUnit);
+      assertTrue(Files.exists(backupPath.resolve(head)));
+      assertEquals(1, reader.fullStreamsOpened);
+    }
+  }
+
+  /** A failed metadata checksum below a valid head needs full inspection and blocks extension. */
+  @Test
+  public void badChecksumBelowHeadUsesFullInspectionAndDeletesNothing() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      var path = backupPath.resolve(full);
+      var bytes = Files.readAllBytes(path);
+      bytes[bytes.length - DiskStorage.IBU_V4_METADATA_SIZE] ^= 1;
+      ByteBuffer.wrap(bytes, bytes.length - Long.BYTES, Long.BYTES).putLong(
+          DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - Long.BYTES,
+              DiskStorage.XX_HASH_SEED));
+      Files.write(path, bytes);
+      var before = unitContent();
+      var reader = new CountingTailSupplier();
+      assertThrows(UnsupportedBackupException.class, () -> storage.backup(this::unitIterator,
+          reader, this::openOutput, this::removeUnit));
+      assertEquals(before, unitContent());
+      assertEquals("the bad older unit must receive a full hash check", 1,
+          reader.fullStreamsOpened);
+    }
+  }
+
+  /** A v3 head needs a full hash and an information-level explanation. */
+  @Test
+  public void versionThreeHeadChecksWholeUnitAndSignalsReason() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var head = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var reader = new CountingTailSupplier();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      withDiskStorageLogs(records, () -> storage.backup(this::unitIterator, reader,
+          this::openOutput, name -> {
+            throw new AssertionError("valid head must remain");
+          }));
+      assertEquals(1, reader.fullStreamsOpened);
+      assertTrue(records.stream().anyMatch(r -> r.getLevel() == Level.INFO
+          && r.getMessage().contains(head) && r.getMessage().contains("version 3")
+          && r.getMessage().contains("no metadata checksum")));
+    }
+  }
+
+  /** A failed metadata checksum requires full inspection before an incomplete unit can leave. */
+  @Test
+  public void failedMetadataChecksumSignalsAndNeedsFullInspectionForRemoval() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var broken = writeTrailingUnit(storage.getUuid(), false);
+      var path = backupPath.resolve(broken);
+      var bytes = Files.readAllBytes(path);
+      bytes[bytes.length - DiskStorage.IBU_V4_METADATA_SIZE] ^= 1;
+      Files.write(path, bytes);
+      var reader = new CountingTailSupplier();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      withDiskStorageLogs(records, () -> storage.backup(this::unitIterator, reader,
+          this::openOutput, this::removeUnit));
+      assertFalse(Files.exists(path));
+      assertEquals(1, reader.fullStreamsOpened);
+      assertTrue(records.stream().anyMatch(r -> r.getLevel() == Level.WARNING
+          && r.getMessage().contains(broken) && r.getMessage().contains("Metadata checksum")));
+    }
+  }
+
+  /** A short or zero tail cannot classify interrupted output, so no file is removed. */
+  @Test
+  public void missingAndZeroTailsRefuseExtensionWithoutDeletion() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      storage.fullBackup(backupPath);
+      var name = BackupUnitFiles.unitFileName(storage.getUuid(), SOURCE, 1,
+          BackupUnitFiles.FUTURE_DATE_STAMP);
+      for (var count : new int[] {12, DiskStorage.IBU_V4_METADATA_SIZE}) {
+        Files.write(backupPath.resolve(name), new byte[count]);
+        var before = unitContent();
+        var reader = new CountingTailSupplier();
+        assertThrows(UnsupportedBackupException.class, () -> storage.backup(
+            this::unitIterator, reader, file -> new ByteArrayOutputStream(),
+            this::removeUnit));
+        assertEquals(before, unitContent());
+        assertEquals(1, reader.fullStreamsOpened);
+      }
+    }
+  }
+
+  /** A tail read error after finding removable output fails before removing any unit. */
+  @Test
+  public void tailReadErrorKeepsEveryUnitEvenAfterFindingIncompleteHead() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      var broken = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var path = backupPath.resolve(broken);
+      var bytes = Files.readAllBytes(path);
+      bytes[0] ^= 1;
+      Files.write(path, bytes);
+      var before = unitContent();
+      var reader = new CountingTailSupplier();
+      reader.failUnit = full;
+      assertThrows(RuntimeException.class, () -> storage.backup(this::unitIterator,
+          reader, name -> new ByteArrayOutputStream(), this::removeUnit));
+      assertEquals(before, unitContent());
+      assertEquals(1, reader.fullStreamsOpened);
+    }
+  }
+
+  private java.util.Iterator<String> unitIterator() {
+    try {
+      return unitNames().iterator();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private InputStream openInput(String name) {
+    try {
+      return Files.newInputStream(backupPath.resolve(name));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private OutputStream openOutput(String name) {
+    try {
+      return Files.newOutputStream(backupPath.resolve(name), StandardOpenOption.CREATE_NEW);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void removeUnit(String name) {
+    try {
+      Files.delete(backupPath.resolve(name));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  /** Captures extension fallback signals without changing global logging after the test. */
+  private void withDiskStorageLogs(List<LogRecord> records, ThrowingAction action)
+      throws Exception {
+    var logger = Logger.getLogger(DiskStorage.class.getName());
+    var previousLevel = logger.getLevel();
+    Handler handler = new Handler() {
+      @Override
+      public void publish(LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    handler.setLevel(Level.ALL);
+    logger.addHandler(handler);
+    logger.setLevel(Level.ALL);
+    try {
+      action.run();
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+    }
+  }
+
+  @FunctionalInterface
+  private interface ThrowingAction {
+
+    void run() throws Exception;
+  }
+
+  /** Reads tails through the production channel helper and counts bytes returned by the file. */
+  private final class CountingTailSupplier
+      implements Function<String, InputStream>, BackupTailReadCapability {
+    private String failUnit;
+    private long fileBytesRead;
+    private int fullStreamsOpened;
+
+    @Override
+    public byte[] readBackupTail(String name, int count) throws IOException {
+      if (name.equals(failUnit)) {
+        throw new IOException("injected tail read error");
+      }
+      try (var channel = new BackupTailReadTest.CountingChannel(
+          FileChannel.open(backupPath.resolve(name), StandardOpenOption.READ))) {
+        var tail = DiskStorage.readLocalBackupTail(channel, count);
+        fileBytesRead += channel.bytesRead;
+        return tail;
+      }
+    }
+
+    @Override
+    public InputStream apply(String name) {
+      fullStreamsOpened++;
+      try {
+        return Files.newInputStream(backupPath.resolve(name));
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+
+  /** Records ZIP completion, flush, force, tail publication and any later writes. */
+  private static final class RecordingOutput extends OutputStream implements BackupForceCapability {
+    private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    private final List<String> events = new ArrayList<>();
+    private boolean failForce;
+    private boolean failCentralDirectory;
+    private boolean failedWrite;
+    private int failFirstWrites;
+    private int injectedWriteCount;
+    private int lastFour;
+    private int eocdBytesRemaining = -1;
+    private int tailRequests;
+    private int forceCalls;
+    private int writesAfterTail;
+    private boolean tailPublished;
+
+    @Override
+    public void write(int value) throws IOException {
+      if (failFirstWrites > 0) {
+        failFirstWrites--;
+        throw new IOException("injected write " + ++injectedWriteCount);
+      }
+      if (tailPublished) {
+        writesAfterTail++;
+      }
+      lastFour = (lastFour << 8) | (value & 0xff);
+      if (failCentralDirectory && !failedWrite && lastFour == 0x504b0102) {
+        failedWrite = true;
+        throw new IOException("injected central directory write error");
+      }
+      bytes.write(value);
+      if (eocdBytesRemaining > 0 && --eocdBytesRemaining == 0) {
+        events.add("zipComplete");
+      }
+      if (lastFour == 0x504b0506 && eocdBytesRemaining < 0) {
+        eocdBytesRemaining = 18;
+      }
+    }
+
+    @Override
+    public void write(byte[] data, int offset, int length) throws IOException {
+      var isTail = length == DiskStorage.IBU_V4_METADATA_SIZE
+          && data[offset + Long.BYTES + Integer.BYTES] == 0
+          && data[offset + Long.BYTES + Integer.BYTES + 1] == BackupUnitFiles.VERSION_4;
+      if (isTail) {
+        tailRequests++;
+      }
+      for (var i = offset; i < offset + length; i++) {
+        write(data[i]);
+      }
+      if (isTail) {
+        tailPublished = true;
+        events.add("tail");
+      }
+    }
+
+    @Override
+    public void flush() {
+      events.add("flush");
+    }
+
+    @Override
+    public void forceBackupData() throws IOException {
+      events.add("force");
+      forceCalls++;
+      if (failForce) {
+        throw new IOException("injected force error");
+      }
+    }
+  }
+
+  /** Publishes pending bytes on flush and discards any remaining bytes on close. */
+  private static final class FlushPublishedOutput extends OutputStream {
+    private final ByteArrayOutputStream pending = new ByteArrayOutputStream();
+    private final ByteArrayOutputStream published = new ByteArrayOutputStream();
+    private boolean closed;
+
+    @Override
+    public void write(int value) {
+      pending.write(value);
+    }
+
+    @Override
+    public void write(byte[] value, int offset, int length) {
+      pending.write(value, offset, length);
+    }
+
+    @Override
+    public void flush() throws IOException {
+      pending.writeTo(published);
+      pending.reset();
+    }
+
+    @Override
+    public void close() {
+      pending.reset();
+      closed = true;
     }
   }
 

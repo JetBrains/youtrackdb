@@ -1265,6 +1265,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
         var dataOutputStream = new DataOutputStream(outputStream)) {
+      if (backupFormatVersion == BackupUnitFiles.VERSION_4) {
+        dataOutputStream.writeLong(0);
+        dataOutputStream.writeInt(DiskStorage.BARRIER_ABSENT);
+      }
       dataOutputStream.writeShort(backupFormatVersion);
       dataOutputStream.writeLong(uuid.getLeastSignificantBits());
       dataOutputStream.writeLong(uuid.getMostSignificantBits());
@@ -1280,7 +1284,13 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.flush();
 
       final var metadata = outputStream.toByteArray();
+      if (backupFormatVersion == BackupUnitFiles.VERSION_4) {
+        java.nio.ByteBuffer.wrap(metadata).putLong(DiskStorage.XX_HASH_64.hash(metadata,
+            Long.BYTES, metadata.length - Long.BYTES, DiskStorage.METADATA_HASH_SEED));
+      }
       xxHash64.update(metadata, 0, metadata.length);
+      outputStream.reset();
+      outputStream.write(metadata);
       dataOutputStream.writeLong(validHash ? xxHash64.getValue() : xxHash64.getValue() + 1);
       dataOutputStream.flush();
 
@@ -1454,7 +1464,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.VERSION_2,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), false);
 
@@ -1675,7 +1685,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION - 1,
+        backupUnitWithHeader(uuid, 1, BackupUnitFiles.VERSION_2,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
             identity.creationEvidence(), true);
 

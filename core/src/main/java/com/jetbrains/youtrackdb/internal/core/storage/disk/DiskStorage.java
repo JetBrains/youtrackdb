@@ -46,6 +46,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.InvalidStorageEncryption
 import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
+import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
@@ -78,6 +80,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -163,7 +166,12 @@ public class DiskStorage extends AbstractStorage {
       ThreadLocal.withInitial(DiskStorage::getCipherInstance);
 
   static final String IBU_EXTENSION = ".ibu";
-  /// The metadata is located at the tail and has the following format:
+  /// The v3 tail is a 74-byte block at the end of the unit. The v4 tail prefixes this block
+  /// with an 8-byte metadata checksum and a 4-byte force-barrier flag. The shared block stores
+  /// version 4 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
+  /// the full hash. The full hash covers every preceding byte, including ZIP, padding, checksum
+  /// and flag. Zero padding places the 86-byte v4 tail inside one aligned 512-byte file sector.
+  /// The shared block has the following format:
   ///
   /// 1. Version of the backup metadata format is stored as a short value.
   /// 2. Database UUID (generated during database creation) is stored as two long values with 16
@@ -185,6 +193,25 @@ public class DiskStorage extends AbstractStorage {
   private static final int IBU_METADATA_SIZE =
       Short.BYTES + 2 * Long.BYTES + Integer.BYTES + 2 * (Long.BYTES + Integer.BYTES)
           + Long.BYTES + 3 * Integer.BYTES + Long.BYTES;
+
+  static final int IBU_V4_METADATA_SIZE = IBU_METADATA_SIZE + Long.BYTES + Integer.BYTES;
+  static final int IBU_SECTOR_SIZE = 512;
+  static final long METADATA_HASH_SEED = 0x4D45544144415441L;
+  static final int BARRIER_PRESENT = 0x42415252;
+  static final int BARRIER_ABSENT = 0;
+
+  /** Only the exact marker claims that the payload force completed. */
+  static boolean hasBackupBarrier(byte[] tail) {
+    return tail.length == IBU_V4_METADATA_SIZE
+        && IntegerSerializer.deserializeLiteral(tail, Long.BYTES) == BARRIER_PRESENT;
+  }
+
+  private static boolean metadataChecksumMatches(byte[] tail) {
+    return tail.length == IBU_V4_METADATA_SIZE
+        && LongSerializer.deserializeLiteral(tail, 0)
+            == XX_HASH_64.hash(tail, Long.BYTES,
+                Integer.BYTES + IBU_METADATA_HASH_CODE_OFFSET, METADATA_HASH_SEED);
+  }
 
   private static final int IBU_METADATA_VERSION_OFFSET = 0;
 
@@ -218,10 +245,10 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>Version 3 added the semantic database format and the creation completion evidence. This
-   * build reads and writes that version only, so every earlier unit stays unsupported.
+   * <p>This build writes version 4 and reads versions 3 and 4. Versions 1 and 2 are unsupported.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 3;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 4;
+  static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
 
   /**
    * States that the creation of the backed-up database finished.
@@ -1333,9 +1360,21 @@ public class DiskStorage extends AbstractStorage {
           try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
             var xxHashStream = new XXHashOutputStream(fileStream);
             var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
-
+            writeBackupPadding(xxHashStream);
+            xxHashStream.flush();
+            var barrierPresent = false;
+            if (fileStream instanceof BackupForceCapability forceCapability) {
+              forceCapability.forceBackupData();
+              barrierPresent = true;
+            } else {
+              LogManager.instance().info(this,
+                  "Backup output stream for %s has no force capability. The barrier flag is absent.",
+                  ibuNextFile);
+            }
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn,
-                getIdGen().getLastId(), semanticIdentity);
+                getIdGen().getLastId(), semanticIdentity, barrierPresent);
+            // A custom supplier may publish writes only when flushed, rather than on close.
+            xxHashStream.flush();
           }
 
           LogManager.instance()
@@ -1367,10 +1406,12 @@ public class DiskStorage extends AbstractStorage {
    * its own incomplete output joins the removable set. The walk then continues below the head,
    * because one unsupported older unit refuses the extension of the whole chain.
    *
-   * <p>The two inspections of this walk differ on purpose. Every unit down to the head keeps the
-   * full content check, because an interrupted backup writes exactly there. Every older unit gets
-   * the header-only admission of {@link #inspectBackupUnitHeader}, which reads no content hash.
-   * One extension therefore never hashes the complete chain.
+   * <p>With a tail read capability, a v4 head candidate with a valid metadata checksum and a
+   * present barrier needs only header admission. A v3 head candidate, a v4 candidate without a
+   * barrier, and a candidate with a failed metadata checksum need full inspection. Units below
+   * the head use header admission from the tail, except when a failed checksum needs full
+   * inspection. Without the capability, head candidates receive full inspection and older
+   * units receive {@link #inspectBackupUnitHeader} through a complete read.
    *
    * <p>An unreadable or unclassifiable unit refuses the extension. Such a unit can hold an old
    * backup of real value, so this build never removes it. An operator resolves that unit and then
@@ -1387,15 +1428,55 @@ public class DiskStorage extends AbstractStorage {
     var remainingFiles = new ArrayList<>(existingFiles);
     var removableFiles = new ArrayList<String>();
     BackupMetadata chainHead = null;
+    var tailReader = ibuInputStreamSupplier instanceof BackupTailReadCapability reader
+        ? reader : null;
+    if (tailReader == null && !remainingFiles.isEmpty()) {
+      LogManager.instance().info(this,
+          "Backup input supplier %s has no tail read capability. Reading complete units.",
+          ibuInputStreamSupplier.getClass().getName());
+    }
 
     while (!remainingFiles.isEmpty()) {
       var ibuLastFile = remainingFiles.removeLast();
       var headFound = chainHead != null;
       BackupUnitInspection inspection;
-      try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
-        inspection = headFound
-            ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream)
-            : inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null);
+      if (tailReader == null) {
+        try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
+          inspection = headFound
+              ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream)
+              : inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null,
+                  header -> signalHeadInspectionFallback(ibuLastFile, header));
+        }
+      } else {
+        // Read the tail before opening any stream. A failed tail read propagates before removal.
+        var tail = tailReader.readBackupTail(ibuLastFile, IBU_V4_METADATA_SIZE);
+        var needsFullInspection = tail.length < IBU_METADATA_SIZE || isZeroTail(tail);
+        if (needsFullInspection) {
+          LogManager.instance().warn(this,
+              "Backup unit %s has a missing or empty tail. Inspecting the complete unit.",
+              ibuLastFile);
+        }
+        if (!needsFullInspection) {
+          var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
+          if (version == CURRENT_BACKUP_FORMAT_VERSION) {
+            if (!metadataChecksumMatches(tail)) {
+              needsFullInspection = true;
+            } else if (!headFound && !hasBackupBarrier(tail)) {
+              signalHeadInspectionFallback(ibuLastFile, tail);
+              needsFullInspection = true;
+            }
+          } else if (version == SUPPORTED_OLD_BACKUP_FORMAT_VERSION && !headFound) {
+            signalHeadInspectionFallback(ibuLastFile, tail);
+            needsFullInspection = true;
+          }
+        }
+        if (needsFullInspection) {
+          try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
+            inspection = inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null);
+          }
+        } else {
+          inspection = inspectBackupUnitTail(ibuLastFile, getName(), uuid, tail);
+        }
       }
 
       switch (inspection.classification()) {
@@ -1406,8 +1487,8 @@ public class DiskStorage extends AbstractStorage {
         }
         case RECOGNIZED_INCOMPLETE -> {
           if (headFound) {
-            // Defense in depth. The header-only admission of an older unit runs no content
-            // check, so no removal ever covers a unit below the head of the chain.
+            // A unit below the head is never removable, even when a failed metadata checksum
+            // triggered a full inspection that found an incomplete unit.
             throw refusedChainExtension(ibuLastFile, inspection.detail());
           }
           removableFiles.add(ibuLastFile);
@@ -1417,6 +1498,32 @@ public class DiskStorage extends AbstractStorage {
     }
 
     return new ChainExtension(chainHead, removableFiles);
+  }
+
+  private void signalHeadInspectionFallback(String unit, @Nullable byte[] header) {
+    if (header == null) {
+      return;
+    }
+    var version = ShortSerializer.deserializeLiteral(header, header.length - IBU_METADATA_SIZE);
+    if (version == SUPPORTED_OLD_BACKUP_FORMAT_VERSION) {
+      LogManager.instance().info(this,
+          "Backup unit %s is a version 3 head candidate. Inspecting the complete unit because"
+              + " version 3 has no metadata checksum or force barrier.",
+          unit);
+    } else if (version == CURRENT_BACKUP_FORMAT_VERSION
+        && metadataChecksumMatches(header) && !hasBackupBarrier(header)) {
+      LogManager.instance().info(this,
+          "Backup unit %s has no force barrier. Inspecting the complete head candidate.", unit);
+    }
+  }
+
+  private static boolean isZeroTail(byte[] tail) {
+    for (var value : tail) {
+      if (value != 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Builds the refusal of one chain extension. The refusal changes no backup unit file. */
@@ -1457,10 +1564,29 @@ public class DiskStorage extends AbstractStorage {
         CREATION_COMPLETED_EVIDENCE);
   }
 
+  /** Returns the minimum zero padding that places the complete tail in one aligned sector. */
+  static int backupPadding(long payloadLength) {
+    if (IBU_V4_METADATA_SIZE > IBU_SECTOR_SIZE) {
+      throw new IllegalStateException("Backup tail exceeds one sector");
+    }
+    var sectorOffset = (int) (payloadLength % IBU_SECTOR_SIZE);
+    return sectorOffset + IBU_V4_METADATA_SIZE <= IBU_SECTOR_SIZE
+        ? 0 : IBU_SECTOR_SIZE - sectorOffset;
+  }
+
+  /** Zero padding puts the complete tail in one sector counted from the start of the unit. */
+  private static void writeBackupPadding(XXHashOutputStream stream) throws IOException {
+    stream.write(new byte[backupPadding(stream.byteCount)]);
+  }
+
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
-      long lastTxId, BackupSemanticIdentity semanticIdentity) throws IOException {
-    var dataOutputStream = new DataOutputStream(xxHashStream);
+      long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent)
+      throws IOException {
+    var tailBytes = new ByteArrayOutputStream(IBU_V4_METADATA_SIZE);
+    var dataOutputStream = new DataOutputStream(tailBytes);
+    dataOutputStream.writeLong(0); // Filled after the fields covered by the metadata checksum.
+    dataOutputStream.writeInt(barrierPresent ? BARRIER_PRESENT : BARRIER_ABSENT);
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
@@ -1484,10 +1610,15 @@ public class DiskStorage extends AbstractStorage {
     dataOutputStream.writeInt(semanticIdentity.creationEvidence());
 
     dataOutputStream.flush();
-
-    var hashCode = xxHashStream.xxHash64.getValue();
-    dataOutputStream.writeLong(hashCode);
-    dataOutputStream.flush();
+    var tail = tailBytes.toByteArray();
+    var metadataChecksum = XX_HASH_64.hash(tail, Long.BYTES,
+        Integer.BYTES + IBU_METADATA_HASH_CODE_OFFSET, METADATA_HASH_SEED);
+    ByteBuffer.wrap(tail).putLong(metadataChecksum);
+    xxHashStream.xxHash64.update(tail, 0, tail.length);
+    var completeTail = ByteBuffer.allocate(IBU_V4_METADATA_SIZE)
+        .put(tail).putLong(xxHashStream.xxHash64.getValue()).array();
+    // Exactly one downstream write publishes the entire sector-local tail.
+    xxHashStream.write(completeTail);
   }
 
   private String createIbuFileName(int backupNumber, String uuid) {
@@ -1514,8 +1645,9 @@ public class DiskStorage extends AbstractStorage {
    * Reads one backup unit, copies the read bytes, and classifies the unit.
    *
    * <p>The classification separates three cases. A supported unit passes every header check and
-   * every content check. A recognized incomplete unit carries the complete supported header of
-   * this database and fails the content check. Every other unit is unclassifiable.
+   * every content check. A recognized incomplete unit carries the supported identity of this
+   * database and fails its full hash. A version 4 metadata checksum mismatch with a valid full
+   * hash is unclassifiable and never removable.
    *
    * <p>The unclassifiable outcome covers an old header and a header of another build. It also
    * covers a header without accepted creation completion evidence. It covers a disagreeing file
@@ -1535,33 +1667,41 @@ public class DiskStorage extends AbstractStorage {
       @Nullable UUID dbUUID,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream)
       throws IOException {
+    return inspectBackupUnit(ibuFileName, storageName, dbUUID, inputStream, copyStream, null);
+  }
+
+  private static BackupUnitInspection inspectBackupUnit(String ibuFileName, String storageName,
+      @Nullable UUID dbUUID, InputStream inputStream, @Nullable OutputStream copyStream,
+      @Nullable Consumer<byte[]> tailObserver) throws IOException {
     try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       var trailer =
           readBackupUnitTrailer(ibuFileName, storageName, inputStream, copyStream, xxHash64);
+      if (tailObserver != null) {
+        tailObserver.accept(trailer.header());
+      }
       if (trailer.header() == null) {
         return unclassifiableUnit(trailer.failureDetail());
       }
 
-      // The stored hash code stays outside its own calculation, so the hash covers the content
-      // and the header up to that stored value.
-      xxHash64.update(trailer.header(), 0, IBU_METADATA_HASH_CODE_OFFSET);
+      // The stored hash stays outside its own calculation for both tail sizes.
+      xxHash64.update(trailer.header(), 0, trailer.header().length - Long.BYTES);
       return classifyBackupUnit(ibuFileName, storageName, dbUUID, trailer.header(),
           xxHash64.getValue());
     }
   }
 
   /**
-   * Reads the header of one backup unit and admits that header without any content check.
+   * Reads one backup unit and admits its header without a full hash check when the metadata
+   * checksum agrees.
    *
-   * <p>This inspection serves one unit below the head of an existing chain. The boundary between
-   * the two inspections of the extension is deliberate. The trailing units down to the head keep
-   * the full content check, because an interrupted backup writes exactly there. Every older unit
-   * passed that same content check when the backup of the unit above it read the whole chain.
-   * This header-only admission therefore keeps the cost of one extension bounded.
+   * <p>This stream-based inspection serves a supplier without the tail read capability. It reads
+   * every byte of the unit but skips the full hash check when the header passes admission. A
+   * supplier with the capability reads only the tail for this admission.
    *
    * <p>The admission checks the backup format version, the database feature format, the storage
-   * layout version, the creation completion evidence, and the database identifier (UUID). The
-   * outcome is supported or unclassifiable, because no content check runs here.
+   * layout version, the creation completion evidence, and the database identifier (UUID). A
+   * failed version 4 metadata checksum triggers the full hash check. Only that fallback can
+   * classify recognized incomplete output here.
    *
    * @param ibuFileName the name of the inspected unit
    * @param storageName the database name that owns the inspection, used in the log only
@@ -1570,11 +1710,30 @@ public class DiskStorage extends AbstractStorage {
    */
   static BackupUnitInspection inspectBackupUnitHeader(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, @Nonnull InputStream inputStream) throws IOException {
-    var trailer = readBackupUnitTrailer(ibuFileName, storageName, inputStream, null, null);
-    if (trailer.header() == null) {
-      return unclassifiableUnit(trailer.failureDetail());
+    try (var hash = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
+      var trailer = readBackupUnitTrailer(ibuFileName, storageName, inputStream, null, hash);
+      if (trailer.header() == null) {
+        return unclassifiableUnit(trailer.failureDetail());
+      }
+      var header = trailer.header();
+      // A failed metadata checksum needs the full inspection even below the chain head.
+      if (ShortSerializer.deserializeLiteral(header, header.length - IBU_METADATA_SIZE)
+          == CURRENT_BACKUP_FORMAT_VERSION && !metadataChecksumMatches(header)) {
+        hash.update(header, 0, header.length - Long.BYTES);
+        return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue());
+      }
+      return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, null);
     }
-    return classifyBackupUnit(ibuFileName, storageName, dbUUID, trailer.header(), null);
+  }
+
+  /** Admits a tail without reading the payload or checking the full hash. */
+  private static BackupUnitInspection inspectBackupUnitTail(String unit, String storageName,
+      UUID uuid, byte[] tail) {
+    var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
+    var size = version == CURRENT_BACKUP_FORMAT_VERSION ? IBU_V4_METADATA_SIZE : IBU_METADATA_SIZE;
+    // The caller sends short or damaged v4 tails to the full inspection instead.
+    return classifyBackupUnit(unit, storageName, uuid,
+        Arrays.copyOfRange(tail, tail.length - size, tail.length), null);
   }
 
   /**
@@ -1586,81 +1745,49 @@ public class DiskStorage extends AbstractStorage {
   private static BackupUnitTrailer readBackupUnitTrailer(String ibuFileName, String storageName,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream,
       @Nullable StreamingXXHash64 xxHash64) throws IOException {
-    byte[] metaDataCandidate = null;
-
-    var buffer = new byte[(64 << 10)];
-    var read = 0;
-
-    while (true) {
-      read = inputStream.read(buffer);
-
-      if (read == -1) {
-        break;
-      } else if (read == 0) {
+    var tail = new byte[IBU_V4_METADATA_SIZE];
+    var tailLength = 0;
+    var buffer = new byte[64 << 10];
+    int read;
+    while ((read = inputStream.read(buffer)) != -1) {
+      if (read == 0) {
         continue;
       }
-
-      if (metaDataCandidate == null) {
-        if (read < IBU_METADATA_SIZE) {
-          //read till we will not have to read metadata information
-          var bytesLeftToRead = IBU_METADATA_SIZE - read;
-          while (bytesLeftToRead > 0) {
-            var r = inputStream.read(buffer, read, buffer.length - read);
-            if (r == -1) {
-              LogManager.instance().warn(DiskStorage.class, storageName,
-                  "Size of the file %s is less than needed to store information about metadata. "
-                      + "Size should be at least %d but real size is %d.",
-                  ibuFileName,
-                  IBU_METADATA_SIZE, read);
-              return new BackupUnitTrailer(null,
-                  "The file holds fewer bytes than one backup header needs.");
-            }
-
-            read += r;
-            bytesLeftToRead -= r;
-          }
-        }
-
-        metaDataCandidate = new byte[IBU_METADATA_SIZE];
-        System.arraycopy(buffer, read - IBU_METADATA_SIZE, metaDataCandidate, 0,
-            IBU_METADATA_SIZE);
-
-        //calculate hash code everything except metadata
-        //hash code from metadata will be calculated at the end
-        updateHash(xxHash64, buffer, 0, read - IBU_METADATA_SIZE);
-      } else {
-        if (read >= IBU_METADATA_SIZE) {
-          //tail of data, not metadata for sure
-          updateHash(xxHash64, metaDataCandidate, 0, IBU_METADATA_SIZE);
-          //hash code from metadata will be calculated at the end
-          updateHash(xxHash64, buffer, 0, read - IBU_METADATA_SIZE);
-          //potential metadata content
-          System.arraycopy(buffer, read - IBU_METADATA_SIZE,
-              metaDataCandidate, 0, IBU_METADATA_SIZE);
+      // Keep the last 86 bytes. For v3, the extra 12 bytes return to the hash below.
+      if (tailLength + read >= tail.length) {
+        var displaced = tailLength + read - tail.length;
+        var fromTail = Math.min(displaced, tailLength);
+        updateHash(xxHash64, tail, 0, fromTail);
+        updateHash(xxHash64, buffer, 0, displaced - fromTail);
+        if (read >= tail.length) {
+          System.arraycopy(buffer, read - tail.length, tail, 0, tail.length);
         } else {
-          //part of metadata that will be replaced
-          updateHash(xxHash64, metaDataCandidate, 0, read);
-          //shift metadata to the left
-          System.arraycopy(metaDataCandidate, read, metaDataCandidate, 0,
-              IBU_METADATA_SIZE - read);
-          //add new bytes that can be treated as metadata if they are the last ones
-          System.arraycopy(buffer, 0, metaDataCandidate, IBU_METADATA_SIZE - read, read);
+          System.arraycopy(tail, fromTail, tail, 0, tailLength - fromTail);
+          System.arraycopy(buffer, 0, tail, tailLength - fromTail, read);
         }
+        tailLength = tail.length;
+      } else {
+        System.arraycopy(buffer, 0, tail, tailLength, read);
+        tailLength += read;
       }
-
-      if (copyStream != null && read > 0) {
+      if (copyStream != null) {
         copyStream.write(buffer, 0, read);
       }
     }
-
-    if (metaDataCandidate == null) {
-      LogManager.instance()
-          .warn(DiskStorage.class, storageName, "File %s does not contain backup metadata.",
-              ibuFileName);
-      return new BackupUnitTrailer(null, "The file contains no backup header at all.");
+    if (tailLength < IBU_METADATA_SIZE) {
+      LogManager.instance().warn(DiskStorage.class, storageName,
+          "File %s does not contain a complete backup header.", ibuFileName);
+      return new BackupUnitTrailer(null,
+          "The file holds fewer bytes than one backup header needs.");
     }
 
-    return new BackupUnitTrailer(metaDataCandidate, null);
+    var sharedOffset = tailLength - IBU_METADATA_SIZE;
+    var version = ShortSerializer.deserializeLiteral(tail, sharedOffset);
+    if (version == CURRENT_BACKUP_FORMAT_VERSION && tailLength == IBU_V4_METADATA_SIZE) {
+      return new BackupUnitTrailer(tail, null);
+    }
+    updateHash(xxHash64, tail, 0, sharedOffset);
+    return new BackupUnitTrailer(Arrays.copyOfRange(tail, sharedOffset, tailLength), null);
   }
 
   /** Updates one optional hash, so a header-only read skips every hash update. */
@@ -1683,31 +1810,35 @@ public class DiskStorage extends AbstractStorage {
    */
   private static BackupUnitInspection classifyBackupUnit(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, byte[] metaDataCandidate, @Nullable Long calculatedHashCode) {
-    var metadataVersion = ShortSerializer.deserializeLiteral(metaDataCandidate,
-        IBU_METADATA_VERSION_OFFSET);
-    var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var sharedOffset = metaDataCandidate.length - IBU_METADATA_SIZE;
+    var shared = Arrays.copyOfRange(metaDataCandidate, sharedOffset, metaDataCandidate.length);
+    var metadataVersion = ShortSerializer.deserializeLiteral(shared, IBU_METADATA_VERSION_OFFSET);
+    // The v4 checksum protects the barrier and every shared field except the full hash.
+    var checksumMatches = metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
+        || metadataChecksumMatches(metaDataCandidate);
+    var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_UUID_LOW_OFFSET);
-    var metadataUUIDHigherBits = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataUUIDHigherBits = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_UUID_HIGH_OFFSET);
-    var metadataSequenceNumber = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataSequenceNumber = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_SEQUENCE_OFFSET);
-    var metadataStartLsnSegment = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataStartLsnSegment = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_FIRST_LSN_SEGMENT_OFFSET);
-    var metadataStartLsnPosition = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataStartLsnPosition = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_START_LSN_POSITION_OFFSET);
-    var metadataLastLsnSegment = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataLastLsnSegment = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_LAST_LSN_SEGMENT_OFFSET);
-    var metadataEndLsnPosition = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataEndLsnPosition = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_LAST_LSN_POSITION_OFFSET);
-    var metadataLastTxId = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataLastTxId = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_LAST_TX_ID_OFFSET);
-    var metadataFeatureFormat = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataFeatureFormat = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_FEATURE_FORMAT_OFFSET);
-    var metadataLayoutVersion = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataLayoutVersion = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_LAYOUT_VERSION_OFFSET);
-    var metadataCreationEvidence = IntegerSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataCreationEvidence = IntegerSerializer.deserializeLiteral(shared,
         IBU_METADATA_CREATION_EVIDENCE_OFFSET);
-    var metadataHashCode = LongSerializer.deserializeLiteral(metaDataCandidate,
+    var metadataHashCode = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_HASH_CODE_OFFSET);
 
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
@@ -1715,11 +1846,18 @@ public class DiskStorage extends AbstractStorage {
     // A recognized unit carries the complete supported header of this very database. Only such
     // a unit becomes removable output of an interrupted backup of this build. Every other unit
     // can hold a valuable old backup, so no automatic removal ever covers it.
-    var recognized = metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
+    var recognized = (metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
+        || metadataVersion == SUPPORTED_OLD_BACKUP_FORMAT_VERSION)
         && semanticIdentity.equals(supportedBackupSemanticIdentity())
         && dbUUID != null
         && dbUUID.getLeastSignificantBits() == metadataUUIDLowerBits
         && dbUUID.getMostSignificantBits() == metadataUUIDHigherBits;
+
+    if (!checksumMatches) {
+      LogManager.instance().warn(DiskStorage.class, storageName,
+          "Metadata checksum of backup unit %s does not match.",
+          ibuFileName);
+    }
 
     // The failed content check of a recognized header is the only removable outcome. Every
     // other failure below keeps its unit, because that unit can hold a valuable old backup.
@@ -1730,6 +1868,11 @@ public class DiskStorage extends AbstractStorage {
               ibuFileName, calculatedHashCode, metadataHashCode);
       return incompleteOrUnclassifiableUnit(recognized,
           "The stored hash code of the file does not match its content.");
+    }
+
+    if (!checksumMatches) {
+      // A failed metadata check alone cannot justify removing a unit with a valid full hash.
+      return unclassifiableUnit("The metadata checksum of the file does not match its header.");
     }
 
     if (dbUUID != null) {
@@ -1751,14 +1894,14 @@ public class DiskStorage extends AbstractStorage {
       return unclassifiableUnit("The file name carries no database identifier (UUID).");
     }
 
-    if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+    if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
+        && metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION) {
       LogManager.instance()
           .warn(DiskStorage.class, storageName,
-              "Version of the file %s stored in metadata %d does not match supported version %d.",
-              ibuFileName, metadataVersion, CURRENT_BACKUP_FORMAT_VERSION);
+              "Version of the file %s stored in metadata %d is unsupported.",
+              ibuFileName, metadataVersion);
       return unclassifiableUnit("The header carries backup format version "
-          + metadataVersion + ", and this build supports backup format version "
-          + CURRENT_BACKUP_FORMAT_VERSION + " only.");
+          + metadataVersion + ", and this build supports versions 3 and 4 only.");
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -1871,7 +2014,7 @@ public class DiskStorage extends AbstractStorage {
   }
 
   /**
-   * Builds the inspection of one unit that failed its content check.
+   * Builds the inspection of one unit that failed its full hash.
    *
    * @param recognized true when the unit carries the complete supported header of this database
    */
@@ -1891,6 +2034,7 @@ public class DiskStorage extends AbstractStorage {
       throws IOException {
     final var zipOutputStream = new ZipOutputStream(stream,
         Charset.forName(configuration.getCharset()));
+    LogSequenceNumber backupLastLsn;
     try {
       final long startSegment;
       final LogSequenceNumber freezeLsn;
@@ -1946,18 +2090,28 @@ public class DiskStorage extends AbstractStorage {
           lastLsn = lastWALLsn;
         }
 
-        return lastLsn;
+        backupLastLsn = lastLsn;
       } finally {
         writeAheadLog.removeCutTillLimit(freezeLsn);
       }
-    } finally {
+    } catch (IOException | RuntimeException | Error failure) {
       try {
-        zipOutputStream.finish();
-        zipOutputStream.flush();
-      } catch (IOException e) {
-        LogManager.instance().warn(this, "Failed to flush data during incremental backup. ", e);
+        finishBackupZip(zipOutputStream);
+      } catch (IOException | RuntimeException | Error finalizationFailure) {
+        if (failure != finalizationFailure) {
+          failure.addSuppressed(finalizationFailure);
+        }
       }
+      throw failure;
     }
+    // A finalization failure on an otherwise successful body must also stop tail publication.
+    finishBackupZip(zipOutputStream);
+    return backupLastLsn;
+  }
+
+  private static void finishBackupZip(ZipOutputStream zipOutputStream) throws IOException {
+    zipOutputStream.finish();
+    zipOutputStream.flush();
   }
 
   private void checkBackupIsNotPerformedInStorageDir(final Path backupDirectory) {
@@ -2948,7 +3102,7 @@ public class DiskStorage extends AbstractStorage {
     /** The unit passes every header check and every content check. */
     SUPPORTED,
     /**
-     * The unit carries the complete supported header of this database and fails a content check.
+     * The unit carries the supported identity of this database and fails the full hash check.
      *
      * <p>Such a unit is incomplete output of an interrupted backup of this build. An incremental
      * backup removes such trailing output before the backup extends the chain.
@@ -2957,10 +3111,10 @@ public class DiskStorage extends AbstractStorage {
     /**
      * This build cannot classify the unit.
      *
-     * <p>Five cases reach this outcome. An old header and a header of another build reach it.
-     * A header without accepted creation completion evidence reaches it. A file name that
-     * disagrees with the header and unreadable output reach it as well. Such a unit stays in
-     * place forever, because the unit can hold a valuable backup of another build.
+     * <p>An old header, a header of another build, and a header without accepted creation
+     * completion evidence reach this outcome. A file name that disagrees with the header,
+     * unreadable output, and a version 4 metadata checksum mismatch reach it as well. Such a
+     * unit stays in place forever, because it can hold a valuable backup of another build.
      */
     UNCLASSIFIABLE
   }
@@ -2969,7 +3123,7 @@ public class DiskStorage extends AbstractStorage {
    * Reports the outcome of one backup unit inspection.
    *
    * @param metadata the metadata of one supported unit, and null for every rejected unit
-   * @param contentCheckFailed true when the stored hash disagrees with the unit content
+   * @param contentCheckFailed true when the stored full hash disagrees
    * @param detail one sentence that names the outcome for a log entry or a failure message
    */
   record BackupUnitInspection(BackupUnitClassification classification,
@@ -3003,6 +3157,7 @@ public class DiskStorage extends AbstractStorage {
 
   private static final class XXHashOutputStream extends ProxyOutputStream {
 
+    private long byteCount;
     private final StreamingXXHash64 xxHash64 =
         XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED);
 
@@ -3013,19 +3168,22 @@ public class DiskStorage extends AbstractStorage {
     @Override
     public void write(byte[] bts) throws IOException {
       xxHash64.update(bts, 0, bts.length);
-      super.write(bts);
+      out.write(bts);
+      byteCount += bts.length;
     }
 
     @Override
     public void write(byte[] bts, int st, int end) throws IOException {
-      xxHash64.update(bts, st, end - st);
-      super.write(bts, st, end);
+      xxHash64.update(bts, st, end);
+      out.write(bts, st, end);
+      byteCount += end;
     }
 
     @Override
     public void write(int b) throws IOException {
       xxHash64.update(new byte[] {(byte) b}, 0, 1);
-      super.write(b);
+      out.write(b);
+      byteCount++;
     }
 
     @Override
@@ -3077,9 +3235,26 @@ public class DiskStorage extends AbstractStorage {
     }
   }
 
-  private record IBULocalFileInputStreamSupplier(Path backupDirectory,
-      String databaseName) implements
-      Function<String, InputStream> {
+  /** Opens a local file channel so tests can count bytes read by the production supplier. */
+  interface BackupChannelOpener {
+
+    FileChannel open(Path path) throws IOException;
+  }
+
+  static record IBULocalFileInputStreamSupplier(Path backupDirectory,
+      String databaseName, BackupChannelOpener channelOpener) implements
+      Function<String, InputStream>, BackupTailReadCapability {
+
+    IBULocalFileInputStreamSupplier(Path backupDirectory, String databaseName) {
+      this(backupDirectory, databaseName, path -> FileChannel.open(path, StandardOpenOption.READ));
+    }
+
+    @Override
+    public byte[] readBackupTail(String ibuFileName, int byteCount) throws IOException {
+      try (var channel = channelOpener.open(backupDirectory.resolve(ibuFileName))) {
+        return readLocalBackupTail(channel, byteCount);
+      }
+    }
 
     @Override
     public InputStream apply(String ibuFileName) {
@@ -3092,6 +3267,28 @@ public class DiskStorage extends AbstractStorage {
             "Can open backup unit file " + ibuPath + " to read it."), e, databaseName);
       }
     }
+  }
+
+  /** Reads no more than the requested bytes, even for a file shorter than the v4 tail. */
+  static byte[] readLocalBackupTail(FileChannel channel, int byteCount) throws IOException {
+    if (byteCount < 0) {
+      throw new IllegalArgumentException("The tail byte count must not be negative.");
+    }
+    var size = channel.size();
+    var length = (int) Math.min(size, byteCount);
+    var buffer = ByteBuffer.allocate(length);
+    var position = size - length;
+    while (buffer.hasRemaining()) {
+      var read = channel.read(buffer, position);
+      if (read < 0) {
+        throw new IOException("Backup unit ended before its requested tail could be read.");
+      }
+      if (read == 0) {
+        throw new IOException("Backup unit tail read made no progress.");
+      }
+      position += read;
+    }
+    return buffer.array();
   }
 
   private record IBULocalFileOutputStreamSupplier(Path backupDirectory,
@@ -3111,26 +3308,55 @@ public class DiskStorage extends AbstractStorage {
           fileChannel.close();
           throw e;
         }
-        return new ProxyOutputStream(os) {
-          @Override
-          public void close() throws IOException {
-            fileChannel.force(true);
-            super.close();
-
-            //trying to fsync directory changes making it visible to other processes
-            try (var directoryChannel = FileChannel.open(backupDirectory)) {
-              directoryChannel.force(true);
-            } catch (IOException ignored) {
-              //ignore if attempt is failed.
-            }
-
-          }
-        };
+        return new LocalBackupOutputStream(os, fileChannel, backupDirectory);
       } catch (IOException e) {
         throw BaseException.wrapException(
             new DatabaseException(databaseName,
                 "Can create new backup unit file " + ibuPath + " ."),
             e, databaseName);
+      }
+    }
+  }
+
+  private static final class LocalBackupOutputStream extends ProxyOutputStream
+      implements BackupForceCapability {
+
+    private final FileChannel channel;
+    private final Path backupDirectory;
+
+    private LocalBackupOutputStream(OutputStream output, FileChannel channel,
+        Path backupDirectory) {
+      super(output);
+      this.channel = channel;
+      this.backupDirectory = backupDirectory;
+    }
+
+    @Override
+    public void forceBackupData() throws IOException {
+      flush();
+      channel.force(true);
+    }
+
+    @Override
+    public void close() throws IOException {
+      try {
+        forceBackupData();
+      } catch (IOException | RuntimeException | Error forceFailure) {
+        try {
+          super.close();
+        } catch (IOException | RuntimeException | Error closeFailure) {
+          if (forceFailure != closeFailure) {
+            forceFailure.addSuppressed(closeFailure);
+          }
+        }
+        throw forceFailure;
+      }
+      super.close();
+      // Directory synchronization makes the new file name durable where supported.
+      try (var directoryChannel = FileChannel.open(backupDirectory)) {
+        directoryChannel.force(true);
+      } catch (IOException ignored) {
+        // Directory synchronization is not supported on every file system.
       }
     }
   }
