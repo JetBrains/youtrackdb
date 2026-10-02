@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,19 +52,16 @@ final class ConnectiveStepSupport {
    * Commits a pure-filter child: AND-composes captured alias filters into {@code ctx}, applies any
    * boundary-node re-types the child captured in its pattern buffer (a folded {@code hasLabel(L)}
    * re-types through {@code addNode} without flipping {@link SubTraversalPredicateAdapter#hasEdges()}),
-   * and forwards any detached anti-join the child captured from a {@code not(hop)}.
+   * and forwards detached checks captured from nested conjunctive filters.
    *
-   * <p>Forwarding the anti-join is sound on this path and only on this path. Both callers are
+   * <p>Forwarding detached checks is sound on this path and only on this path. Both callers are
    * conjunctive — an AND arm and a positive {@code where} / {@code filter} child both have to hold
-   * for the row to pass — and the plan-level {@code notMatchExpressions} sink applies its
+   * for the row to pass — and the plan-level NOT and exists sinks apply their
    * expressions conjunctively over the whole match, so the two agree. The OR path must not forward
    * (see {@link #collectOrExpressions}), and neither may an enclosing {@code not(...)}.
    *
-   * <p>Only {@code boundary} may be re-typed. A hop target always arrives with an {@code addEdge}
-   * that flips {@code hasEdges} and sends the child down the decline, so any other alias reaching
-   * here means a recogniser registered a node the parent's pattern has no edge to — a disconnected
-   * pattern rather than a filter. The assert states that as an invariant rather than committing the
-   * node silently; {@link #singleCapturedFilter} declines the same case on the OR path.
+   * <p>Only {@code boundary} may be re-typed on this pure-filter path. Hop targets travel in
+   * detached exists checks, not in the positive pattern.
    */
   static void commitPureFilterChild(
       RecognitionContext ctx, SubTraversalPredicateAdapter adapter, String boundary) {
@@ -78,55 +76,45 @@ final class ConnectiveStepSupport {
     for (var notExpression : adapter.capturedNotExpressions()) {
       ctx.addNotMatchExpression(notExpression);
     }
+    for (var existsExpression : adapter.capturedExistsExpressions()) {
+      ctx.addExistsMatchExpression(existsExpression);
+    }
   }
 
   /**
-   * Whether any accepted child contributed a hop, which makes the whole positive filter
-   * inexpressible and forces a decline to the native pipeline.
-   *
-   * <h2>Why an edge-bearing positive filter cannot be translated</h2>
-   *
-   * <p>A native {@code where(t)} / {@code and(t1, t2)} is an <b>existence test</b>: the incoming
-   * element passes through once when every child yields at least one result, and the child's own
-   * results are discarded. Committing the child's hop into the positive pattern instead makes the
-   * translation a <b>join</b>, so the plan emits one row per matching path. On the modern graph
-   * {@code g.V(marko).where(__.out())} returns marko once natively and once per out-edge
-   * translated; {@code g.V().and(__.out("a"), __.out("b"))} multiplies the two fan-outs. The
-   * element set is right and the multiset is wrong, which is the silent-wrong-answer shape, so the
-   * shape has to leave the translator until the semi-join is modelled.
-   *
-   * <p>Neither repair available today is sound. {@code RETURN DISTINCT} would collapse the
-   * over-emitted rows, but it applies to the whole projection and therefore also collapses the path
-   * multiplicity a prefix hop legitimately produces — {@code g.V().out()} yields a target once per
-   * in-path, and native Gremlin keeps those duplicates. Expressing the fix inside the child is not
-   * possible either: a captured sub-walk cannot contribute result shaping at all, because {@link
-   * SubTraversalPredicateAdapter} keeps {@code setReturnDistinct} and the slice setters local to
-   * the child (for containment gates) and never forwards them, so only alias filters and pattern
-   * writes survive into the parent.
-   *
-   * <p>{@code not(t)} is the exception: it keeps translating an edge-bearing child, because an
-   * anti-join emits its input at most once and so never over-emits. The four connective surfaces
-   * therefore agree on <em>conjunctive composition</em>, not on keeping hops native — a
-   * {@code not(hop)} still translates wherever the surrounding context is a conjunction, and
-   * declines wherever it is not ({@link #collectOrExpressions} on the OR path, {@link
-   * NotStepRecogniser} for a nested {@code not}).
+   * Builds one detached exists expression for a linear hop child. The origin is already in the
+   * positive pattern and has no child-local filter or class. Nested detached checks cannot be
+   * pushed through the child's hop chain. Every captured edge must belong to the chain, or a
+   * branching or disconnected fragment would silently lose a predicate.
    */
-  static boolean anyEdgeBearing(List<SubTraversalPredicateAdapter> adapters) {
-    for (var adapter : adapters) {
-      if (adapter.hasEdges()) {
-        return true;
-      }
+  static SQLMatchExpression detachedExists(
+      RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
+    var boundary = ctx.boundaryAlias();
+    if (boundary == null || !ctx.positivePatternHasAlias(boundary)
+        || adapter.capturedAliasFilters().containsKey(boundary)
+        || adapter.capturedPattern().registeredAliasClasses().containsKey(boundary)
+        || !adapter.capturedNotExpressions().isEmpty()
+        || !adapter.capturedExistsExpressions().isEmpty()) {
+      return null;
     }
-    return false;
+    try {
+      var expression = adapter.capturedPattern().buildNotExpression(
+          boundary, adapter.capturedAliasFilters(), WalkerContext.VERTEX_ROOT_CLASS);
+      // A disconnected fragment or a cycle could otherwise be silently omitted by the linear
+      // builder. Each captured pattern edge must appear exactly once in the detached chain.
+      return expression.getItems().size() == adapter.capturedPattern().edgeCount()
+          ? expression : null;
+    } catch (IllegalArgumentException e) {
+      return null;
+    }
   }
 
   /**
    * Commits a single accepted child sub-walk from a positive filter ({@code where(traversal)} /
    * {@code filter(traversal)} / {@link
    * org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversalStep}): pure-filter
-   * children merge into the boundary {@code WHERE}, edge-bearing children decline the whole filter
-   * (see {@link #anyEdgeBearing} for why). Nothing is written to {@code ctx} on the decline path, so
-   * a declining filter leaves the outer context exactly as it found it.
+   * children merge into the boundary {@code WHERE}, while linear hop children append a detached
+   * exists check. An invalid child declines without changing the outer context.
    */
   static Outcome commitPositiveFilterChild(
       RecognitionContext ctx, SubTraversalPredicateAdapter adapter) {
@@ -134,7 +122,12 @@ final class ConnectiveStepSupport {
       return Outcome.DECLINE;
     }
     if (adapter.hasEdges()) {
-      return Outcome.DECLINE;
+      var expression = detachedExists(ctx, adapter);
+      if (expression == null) {
+        return Outcome.DECLINE;
+      }
+      ctx.addExistsMatchExpression(expression);
+      return Outcome.ACCEPTED;
     }
     commitPureFilterChild(ctx, adapter, ctx.boundaryAlias());
     return Outcome.ACCEPTED;
@@ -143,7 +136,7 @@ final class ConnectiveStepSupport {
   /**
    * Collects one composable {@link SQLBooleanExpression} per accepted pure-filter child from the
    * child's captured boundary filters. Returns {@code null} when any child is edge-bearing, when a
-   * child captured a detached anti-join, when a child contributed no filter, or when
+   * child captured a detached check, when a child contributed no filter, or when
    * {@code boundary} is {@code null}.
    *
    * <p>The anti-join check is what keeps a {@code not(hop)} arm out of a disjunction. An OR arm has
@@ -165,7 +158,8 @@ final class ConnectiveStepSupport {
     }
     var exprs = new ArrayList<SQLBooleanExpression>();
     for (var adapter : adapters) {
-      if (adapter.hasEdges() || !adapter.capturedNotExpressions().isEmpty()) {
+      if (adapter.hasEdges() || !adapter.capturedNotExpressions().isEmpty()
+          || !adapter.capturedExistsExpressions().isEmpty()) {
         return null;
       }
       var expr = singleCapturedFilter(adapter, boundary);

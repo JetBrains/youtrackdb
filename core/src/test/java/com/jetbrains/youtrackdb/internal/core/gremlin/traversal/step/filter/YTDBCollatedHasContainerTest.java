@@ -820,7 +820,7 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
 
   /**
    * Native and translated routes return the same multisets for supported collation behavior.
-   * Edge-bearing {@code where} and {@code path()} still decline; bare {@code g.V(rid).has(...)}
+   * Edge-bearing {@code where} translates through a detached exists check; {@code path()} declines. Bare {@code g.V(rid).has(...)}
    * translates (same RID start path as hop-after-RID).
    */
   @Test
@@ -858,7 +858,7 @@ public class YTDBCollatedHasContainerTest extends GraphBaseTest {
     assertTranslatedVertexParity(
         () -> graph.traversal().V(bob.id()).has("name", "BOB").asAdmin(),
         List.of(bob.id()));
-    assertDeclinedVertexParity(
+    assertTranslatedVertexParity(
         () -> graph.traversal().V(source.id())
             .where(__.out("knows").has("name", "BOB")).asAdmin(),
         List.of(source.id()));

@@ -31,9 +31,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * every contribution the child makes rather than committing it to the parent. The combinator
  * recogniser (a later track) drives one adapter per child through {@link RecognitionContext#walkChild},
  * inspects the captured classification, and commits the captured state to its own context in the way
- * its connective requires (AND merges pure-filter clauses, OR composes them out-of-band, NOT detaches
- * edge fragments). This step lands only the adapter and the sub-walk seam; the combinator recognisers
- * that consume it land in later steps.
+ * its connective requires (AND merges pure-filter clauses and detached exists checks, OR composes
+ * pure-filter booleans, NOT detaches edge fragments).
  *
  * <h2>Why a delegating capture context, not a fresh one</h2>
  *
@@ -46,8 +45,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  *       <em>same</em> vertex" and dropping every source whose two targets differ. The adapter forwards
  *       {@link #nextAnonVertexAlias()} / {@link #nextEdgeAlias()} to the parent so the whole walk
  *       shares one alias space.
- *   <li><b>{@link #boundaryAlias()} reads the parent's boundary</b>, so a child's filters and hops key
- *       on the alias the child is actually filtering.
+ *   <li><b>{@link #boundaryAlias()} starts at the parent's boundary</b>, then follows the child's
+ *       own hop target so filters and schema checks use the alias they actually filter.
  *   <li><b>{@link #pinBoundary} / {@link #setSingleReturnColumn} are swallowed.</b> A hop child
  *       dispatches {@link VertexHopRecogniser}, which re-pins the boundary and single RETURN column to
  *       its own target; on a delegating context that would move the outer traversal's result column
@@ -63,14 +62,14 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * combinator reads the buffers and commits them itself, per-connective. This is the capture boundary
  * the {@code decline_doesNotCommitPartialStateToOuterContext} unit test pins.
  *
- * <p>A detached anti-join from {@code not(hop)} is captured too, in {@link
- * #capturedNotExpressions()}. Forwarding it straight to the parent was a silent wrong answer under
+ * <p>Detached checks, including an anti-join from {@code not(hop)}, are captured in {@link
+ * #capturedNotExpressions()} or {@link #capturedExistsExpressions()}. Forwarding a check straight to the parent is a wrong answer under
  * OR: the expression reached the plan's top-level {@code notMatchExpressions} sink, where the
  * planner applies it conjunctively over the whole match, while the OR arm that produced it read
  * back only its own boundary filter. {@code g.V().or(__.not(__.out("a")).has("name", "x"),
  * __.has("age", 30))} then answered {@code (no out-a) AND (name = x OR age = 30)} instead of the
  * disjunction the user wrote, dropping every row that passed only the second arm. Capturing it lets
- * each connective decide: AND and the positive filters forward it (they are conjunctive, so the
+ * each connective decide: AND and the positive filters forward detached checks (they are conjunctive, so the
  * plan-level sink is the right destination), OR and an enclosing NOT decline.
  *
  * <p>Three contributions still write straight through to the parent, deliberately: {@link
@@ -94,8 +93,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  *       edge fragment).
  * </ul>
  *
- * The distinction drives every combinator: AND supports both, OR declines any edge-bearing child, NOT
- * routes pure-filter to {@code WHERE NOT} and edge-bearing to a detached anti-join pattern. Keying it
+ * The distinction drives every combinator: AND detaches edge-bearing children as exists checks,
+ * OR declines any edge-bearing child, and NOT routes edge-bearing children to an anti-join pattern. Keying it
  * on the edge/hop contribution (not on any {@code addNode}) is what keeps an all-pure-filter {@code
  * or(hasLabel, hasLabel)} translatable and a {@code not(hasLabel)} on the {@code WHERE NOT} path.
  */
@@ -123,8 +122,8 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  via {@link #addEdgeAsNode}. */
   private final Map<String, SQLWhereClause> capturedEdgeFilters = new LinkedHashMap<>();
 
-  /** Captured pattern fragments the child contributed — the edge-bearing output an AND child forwards
-   *  to the parent pattern and a NOT child detaches into an anti-join. Buffered here so a declined
+  /** Captured pattern fragments the child contributed — a positive or NOT filter detaches an
+   *  edge-bearing child into a row check. Buffered here so a declined
    *  child never leaves a partial fragment on the parent's pattern builder. */
   private final MatchPatternBuilder capturedPattern = new MatchPatternBuilder();
 
@@ -132,6 +131,9 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  rather than forwarded so the enclosing connective decides whether a conjunctive plan-level NOT
    *  is the right reading of its own semantics — see the class Javadoc "Capture boundary". */
   private final List<SQLMatchExpression> capturedNotExpressions = new ArrayList<>();
+
+  /** Detached positive checks stay local until a conjunctive enclosing filter forwards them. */
+  private final List<SQLMatchExpression> capturedExistsExpressions = new ArrayList<>();
 
   /** Whether the child contributed an edge/hop ({@link #addEdge} or {@link #addEdgeAsNode}).
    *  {@code false} marks a pure-filter child; {@code true} an edge-bearing one. A bare {@link
@@ -155,8 +157,7 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   /**
    * Local {@code LIMIT} from a child's {@code limit}/{@code range}. Captured so containment guards
-   * and the post-cardinality allow-list see the child's own cut; never forwarded to the parent,
-   * because a filter child does not shape the outer statement.
+   * see the child's own cut and the sub-walk declines it rather than silently discarding it.
    */
   @Nullable private SQLLimit capturedLimit;
 
@@ -217,6 +218,10 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return capturedNotExpressions;
   }
 
+  List<SQLMatchExpression> capturedExistsExpressions() {
+    return capturedExistsExpressions;
+  }
+
   // --- RecognitionContext: reads and alias minting delegate to the parent ---------------------
 
   @Override
@@ -257,7 +262,15 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Nullable @Override
   public String boundaryClassName() {
-    return parent.boundaryClassName();
+    var alias = boundaryAlias();
+    if (alias == null) {
+      return null;
+    }
+    // Once a child hops, the parent's class describes the origin, not the target. Prefer local
+    // target nodes and re-types; use the parent only when the child still filters its boundary.
+    var localClass = capturedPattern.registeredAliasClasses().get(alias);
+    return localClass != null || !alias.equals(parent.boundaryAlias())
+        ? localClass : parent.boundaryClassName();
   }
 
   @Nullable @Override
@@ -426,6 +439,16 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // Captured, not forwarded — the enclosing connective owns the decision. See the class Javadoc
     // "Capture boundary" for the OR shape a straight forward answered wrongly.
     capturedNotExpressions.add(expression);
+  }
+
+  @Override
+  public void addExistsMatchExpression(SQLMatchExpression expression) {
+    capturedExistsExpressions.add(expression);
+  }
+
+  @Override
+  public boolean hasExistsMatchExpressions() {
+    return !capturedExistsExpressions.isEmpty();
   }
 
   @Override

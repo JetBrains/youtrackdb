@@ -51,8 +51,8 @@ import org.junit.Test;
  *       {@code outE.has.inV} / {@code inE.has.outV} translate. Edge {@code as(k)} + {@code select(k)}
  *       or bare multi-label {@code select(e, v)} emit an {@code Edge} for the edge alias
  *       ({@code ResultShaping.edgeMapKeys}).
- *   <li><b>Edge-bearing combinator child</b> — {@code and}/{@code or}/{@code where}/{@code filter}
- *       with a hop inside declines (existence would join-fan-out); pure property children translate.
+ *   <li><b>Edge-bearing disjunction</b> — {@code or} with a hop child declines. Linear hop
+ *       children of conjunctive {@code and}/{@code where}/{@code filter} use detached exists checks.
  *   <li><b>Labelled {@code where(as(a)…)}</b> — scope steps unregistered → decline.
  *   <li><b>{@code where(P).by(...)}</b> — modulateBy property projection out of Phase 1.
  *   <li><b>{@code dedup().by(property)}</b> / prior-label {@code dedup(a)} — decline (first-wins
@@ -615,24 +615,24 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().out("created").dedup().count());
   }
 
-  /** Edge-bearing and() child declines. */
+  /** Edge-bearing and() child contributes a detached exists check. */
   @Test
-  public void and_out_child_declines() {
+  public void and_out_child_translates() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().and(out(knows), hasLabel(Person))",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .and(__.out("knows"), __.hasLabel("Person")));
   }
 
-  /** Edge-bearing where() child declines. */
+  /** Edge-bearing where() child contributes a detached exists check. */
   @Test
-  public void where_out_child_declines() {
+  public void where_out_child_translates() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalent(
         "g.V().where(out(knows)).hasLabel(Person)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .where(__.out("knows"))
             .hasLabel("Person"));

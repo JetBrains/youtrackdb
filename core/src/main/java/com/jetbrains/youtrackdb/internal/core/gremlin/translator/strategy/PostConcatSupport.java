@@ -32,6 +32,7 @@ final class PostConcatSupport {
         .aliasFilters(inputs.aliasFilters())
         .matchExpressions(inputs.matchExpressions())
         .notMatchExpressions(inputs.notMatchExpressions())
+        .existsMatchExpressions(inputs.existsMatchExpressions())
         .returnItems(List.of(MatchProjectionBuilder.countStar()))
         .returnAliases(aliases)
         .returnNestedProjections(nested)

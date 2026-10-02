@@ -72,6 +72,9 @@ final class WalkerContext implements RecognitionContext {
    *  {@link GremlinStepWalker}'s {@code buildResult} as {@code MatchPlanInputs.notMatchExpressions}. */
   final List<SQLMatchExpression> notMatchExpressions = new ArrayList<>();
 
+  /** Detached positive checks applied as row filters after the positive pattern. */
+  final List<SQLMatchExpression> existsMatchExpressions = new ArrayList<>();
+
   /** Positional-parameter values collected during the walk, keyed by slot ({@code 0}, {@code 1}, …).
    *  Insertion order matches slot allocation order for deterministic rebinding on cache hit. */
   final LinkedHashMap<Integer, Object> inputParameters = new LinkedHashMap<>();
@@ -716,6 +719,16 @@ final class WalkerContext implements RecognitionContext {
   @Override
   public void addNotMatchExpression(SQLMatchExpression expression) {
     notMatchExpressions.add(expression);
+  }
+
+  @Override
+  public void addExistsMatchExpression(SQLMatchExpression expression) {
+    existsMatchExpressions.add(expression);
+  }
+
+  @Override
+  public boolean hasExistsMatchExpressions() {
+    return !existsMatchExpressions.isEmpty();
   }
 
   @Override

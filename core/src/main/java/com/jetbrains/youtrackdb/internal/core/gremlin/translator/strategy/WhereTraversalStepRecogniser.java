@@ -6,9 +6,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WhereTraversal
 /**
  * Recogniser for {@link WhereTraversalStep} — the positive counterpart of {@code not(traversal)}: a
  * child sub-traversal that must yield at least one result for the current row to pass. Pure-filter
- * children merge into the boundary alias {@code WHERE}; edge-bearing children decline the whole
- * filter, because appending the hop would emit one row per matching path instead of testing
- * existence (see {@link ConnectiveStepSupport#anyEdgeBearing}). Both paths are shared with {@link
+ * children merge into the boundary alias {@code WHERE}; linear hop children append a detached
+ * exists check, which keeps the incoming row once without joining its hop. Both paths are shared with {@link
  * AndStepRecogniser} through {@link ConnectiveStepSupport#commitPositiveFilterChild}.
  *
  * <p>Neither path is reachable from a traversal today. TinkerPop builds this step class only when

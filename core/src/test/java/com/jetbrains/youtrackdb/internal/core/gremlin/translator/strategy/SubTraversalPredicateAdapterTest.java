@@ -19,6 +19,7 @@ import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy;
@@ -87,6 +88,23 @@ public class SubTraversalPredicateAdapterTest {
     assertThat(adapter.isVertexClass("Person")).isTrue();
     assertThat(adapter.nextAnonVertexAlias()).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(adapter.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
+  }
+
+  /** A hop target takes its schema class from its local alias, never the source's class. */
+  @Test
+  public void hoppedBoundary_usesCapturedTargetClassInsteadOfParentClass() {
+    var parent = mock(RecognitionContext.class);
+    when(parent.boundaryAlias()).thenReturn(BOUNDARY_ALIAS);
+    when(parent.boundaryClassName()).thenReturn("Source");
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    assertThat(adapter.boundaryClassName()).isEqualTo("Source");
+
+    adapter.addNode(FIRST_ANON_ALIAS, "V");
+    adapter.pinBoundary(FIRST_ANON_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    assertThat(adapter.boundaryClassName()).isEqualTo("V");
+    adapter.addNode(FIRST_ANON_ALIAS, "Target");
+    assertThat(adapter.boundaryClassName()).isEqualTo("Target");
+    assertThat(parent.boundaryClassName()).isEqualTo("Source");
   }
 
   /**
@@ -209,7 +227,7 @@ public class SubTraversalPredicateAdapterTest {
    * The capture-boundary invariant: a child whose recognised prefix contributes to the
    * sub-context and then hits an unrecognised step declines the whole child, and the parent's
    * committed state is left exactly as it was. The fixture recogniser (registered for {@code
-   * VertexStep}) contributes an alias filter and a pattern node into the sub-context; the trailing
+   * HasStep}) contributes an alias filter and a pattern node into the sub-context; the trailing
    * {@code count()} has no recogniser, so the child declines. The returned adapter still shows the
    * partial contribution reached the sub-context (proving the test is not vacuous), while the parent's
    * alias filters, pattern, boundary, and RETURN column are untouched.
@@ -223,11 +241,10 @@ public class SubTraversalPredicateAdapterTest {
           ctx.addNode(ctx.nextAnonVertexAlias(), "V");
           return Outcome.ACCEPTED;
         };
-    var parent = parentWithBoundary(Map.of(VertexStep.class, contributing));
+    var parent = parentWithBoundary(Map.of(HasStep.class, contributing));
 
-    // out("a") is claimed by the contributing fixture; the trailing count() has no recogniser, so the
-    // child declines after a partial contribution.
-    var sub = parent.walkChild(__.out("a").count().asAdmin());
+    // The hop-free HasStep contributes before the unrecognised count() declines.
+    var sub = parent.walkChild(__.has("age", 1).count().asAdmin());
 
     assertThat(sub.outcome()).as("an unrecognised child step declines the whole child")
         .isEqualTo(Outcome.DECLINE);
@@ -347,13 +364,11 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
-   * {@link ConnectiveStepSupport#commitPositiveFilterChild} declines an edge-bearing child and
-   * writes nothing to the parent — neither the hop fragment nor the target filter the child
-   * captured. Committing the hop would translate the existence test as a join, so the whole filter
-   * has to withdraw and leave the parent context exactly as it found it.
+   * {@link ConnectiveStepSupport#commitPositiveFilterChild} captures a detached exists check for
+   * an edge-bearing child. It leaves the hop fragment and target filter off the positive pattern.
    */
   @Test
-  public void commitPositiveFilterChild_edgeBearingChild_declinesWithoutMutatingParent() {
+  public void commitPositiveFilterChild_edgeBearingChild_appendsExists() {
     var parent = parentWithBoundary(Map.of());
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
     adapter.addEdge(
@@ -365,7 +380,8 @@ public class SubTraversalPredicateAdapterTest {
 
     var outcome = ConnectiveStepSupport.commitPositiveFilterChild(parent, adapter);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(parent.existsMatchExpressions).hasSize(1);
     assertThat(parent.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isFalse();
     assertThat(parent.aliasFilters).isEmpty();
   }
@@ -437,8 +453,8 @@ public class SubTraversalPredicateAdapterTest {
    * same vertex". The live shape that depends on this is a connective whose arms each hold a hop
    * inside a {@code not}, with a barrier keeping the connective intact:
    * {@code and(__.not(__.out("a")).barrier(), __.not(__.out("b")).barrier())} still translates,
-   * while a bare {@code and(__.out("a"), __.out("b"))} declines on the edge-bearing gate before the
-   * second alias is minted. Here the second child gets {@code $g2m_anon_1}.
+   * and a bare {@code and(__.out("a"), __.out("b"))} uses detached exists checks for both arms.
+   * Each child mints its own alias. Here the second child gets {@code $g2m_anon_1}.
    *
    * <p>The barrier is not decoration and the first assertion below observes it. Without one,
    * {@code InlineFilterStrategy} unwraps the connective into two top-level {@code NotStep}s, which

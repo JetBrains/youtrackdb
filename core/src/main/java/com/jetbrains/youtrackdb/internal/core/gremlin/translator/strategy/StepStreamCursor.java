@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 
 /**
  * The {@link StepCursor} implementation over a traversal's step list. Holds the backing list, the set
@@ -17,7 +18,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  * <h2>Transparent steps</h2>
  *
  * A step whose exact class is in {@code transparentSteps} (today {@code NoOpBarrierStep}, the barrier
- * {@code LazyBarrierStrategy} wedges between chained hops) is skipped by every operation and counted
+ * {@code LazyBarrierStrategy} wedges between chained hops) and whose barrier has positive capacity
+ * is skipped by every operation and counted
  * as consumed. Skipping happens at the head before each read: a leading run, a run interleaved inside
  * a {@link #takeWhile}, and a trailing run at the end of the stream are all skipped, so once the
  * significant steps are consumed the position reaches the end of the list and the walker's
@@ -184,7 +186,12 @@ final class StepStreamCursor implements StepCursor {
   }
 
   private boolean isTransparent(Step<?, ?> step) {
-    return transparentSteps.contains(step.getClass());
+    return transparentSteps.contains(step.getClass()) && hasCapacity(step);
+  }
+
+  /** A zero-capacity barrier emits nothing, so it must reach normal decline dispatch. */
+  static boolean hasCapacity(Step<?, ?> step) {
+    return !(step instanceof NoOpBarrierStep<?> barrier) || barrier.getMaxBarrierSize() > 0;
   }
 
   /** Casts element {@code i} to {@code Step<?, ?>} — a reifiable cast, so no unchecked warning. */

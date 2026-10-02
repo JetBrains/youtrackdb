@@ -79,7 +79,8 @@ final class NotStepRecogniser implements StepRecogniser {
     // carry one out: the pure-filter branch reads a single boundary WHERE, and buildNotExpression
     // takes only the captured pattern plus its alias filters. Accepting would negate the rest of the
     // child and silently drop the inner anti-join.
-    if (!adapter.capturedNotExpressions().isEmpty()) {
+    if (!adapter.capturedNotExpressions().isEmpty()
+        || !adapter.capturedExistsExpressions().isEmpty()) {
       return Outcome.DECLINE;
     }
 
@@ -126,7 +127,7 @@ final class NotStepRecogniser implements StepRecogniser {
    * an optimisation strategy may rewrite the child to {@code properties(key)} before g2m runs, and
    * both mean "the element does not have the property", which maps to {@code IS NOT DEFINED}.
    */
-  private static @Nullable String hasNotPresenceKey(NotStep<?> step) {
+  static @Nullable String hasNotPresenceKey(NotStep<?> step) {
     var children = step.getLocalChildren();
     if (children.size() != 1) {
       return null;

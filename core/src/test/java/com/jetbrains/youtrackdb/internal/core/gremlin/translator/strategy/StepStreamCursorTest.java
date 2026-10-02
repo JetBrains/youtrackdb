@@ -30,6 +30,25 @@ public class StepStreamCursorTest extends GraphBaseTest {
 
   private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
 
+  /** A zero-capacity barrier must be a significant step in peek, lookahead and take. */
+  @Test
+  public void zeroCapacityBarrier_isNotTransparent() {
+    var admin = graph.traversal().V().asAdmin();
+    var zero = new NoOpBarrierStep<>(admin, 0);
+    var positive = new NoOpBarrierStep<>(admin, 1);
+    var has = new HasStep<>(admin, new HasContainer("k", P.eq(1)));
+    var cursor = new StepStreamCursor(List.of(positive, zero, positive, has), TRANSPARENT);
+
+    assertThat(cursor.peek(0)).isSameAs(zero);
+    assertThat(cursor.peek(1)).isSameAs(has);
+    assertThat(cursor.take()).isSameAs(zero);
+    assertThat(cursor.position()).isEqualTo(2);
+    assertThat(cursor.peek()).isSameAs(has);
+    assertThat(StepStreamCursor.hasCapacity(zero)).isFalse();
+    assertThat(StepStreamCursor.hasCapacity(positive)).isTrue();
+    assertThat(StepStreamCursor.hasCapacity(has)).isTrue();
+  }
+
   /**
    * {@code peek} and {@code take} skip a leading run of transparent steps and count them as consumed:
    * the first significant step is returned, and {@code position()} has advanced past the skipped
