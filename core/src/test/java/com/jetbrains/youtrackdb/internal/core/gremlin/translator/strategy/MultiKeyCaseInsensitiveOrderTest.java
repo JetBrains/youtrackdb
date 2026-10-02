@@ -1,9 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -21,7 +24,7 @@ import org.junit.Test;
 public class MultiKeyCaseInsensitiveOrderTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
-      new TranslatorEquivalenceSupport(() -> session);
+      new TranslatorEquivalenceSupport(this::graphSession);
 
   private void seedPersonCiNameDefaultNick() {
     var person = session.createVertexClass("Person");
@@ -233,13 +236,73 @@ public class MultiKeyCaseInsensitiveOrderTest extends GraphBaseTest {
         "{name=ada, nickname=zed}");
   }
 
+  /**
+   * Each arm changes only the executing graph session: ON splices a translated boundary and OFF
+   * stays native. Both normal completion and a supplier error restore the prior local override,
+   * without changing the global flag while the arm runs or after it returns.
+   */
+  @Test
+  public void runTranslatorArm_isolatesFlagProvesBothPathsAndRestoresAfterError() {
+    seedPersonCiNameDefaultNick();
+    graph.addVertex(T.label, "Person", "name", "Bob", "nickname", "zed");
+    graph.addVertex(T.label, "Person", "name", "bob", "nickname", "Alpha");
+    graph.tx().commit();
+
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    var globalBefore = flag.getValue();
+    var configuration = graphSession().getConfiguration();
+    var original = configuration.setValue(flag, false);
+    try {
+      for (var enabled : List.of(true, false)) {
+        // Start opposite to the arm so a hardcoded restore cannot satisfy both cases.
+        configuration.setValue(flag, !enabled);
+        var rows = runTranslatorArm(enabled, () -> {
+          assertThat(configuration.getValueAsBoolean(flag)).isEqualTo(enabled);
+          assertThat(flag.<Object>getValue()).isEqualTo(globalBefore);
+          var admin = graph.traversal().V().hasLabel("Person")
+              .order().by("name").by("nickname")
+              .project("name", "nickname").by("name").by("nickname").asAdmin();
+          admin.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin))
+              .as("translated boundary count with translator enabled=%s", enabled)
+              .isEqualTo(enabled ? 1 : 0);
+          return admin;
+        });
+        assertThat(rows).containsExactly(
+            "{name=bob, nickname=Alpha}", "{name=Bob, nickname=zed}");
+        assertThat(configuration.getValueAsBoolean(flag)).isEqualTo(!enabled);
+        assertThat(flag.<Object>getValue()).isEqualTo(globalBefore);
+
+        var failure = new IllegalStateException("simulated arm failure");
+        assertThatThrownBy(() -> runTranslatorArm(enabled, () -> {
+          assertThat(configuration.getValueAsBoolean(flag)).isEqualTo(enabled);
+          assertThat(flag.<Object>getValue()).isEqualTo(globalBefore);
+          throw failure;
+        })).isSameAs(failure);
+        assertThat(configuration.getValueAsBoolean(flag)).isEqualTo(!enabled);
+        assertThat(flag.<Object>getValue()).isEqualTo(globalBefore);
+      }
+    } finally {
+      configuration.setValue(flag, original);
+    }
+  }
+
+  private DatabaseSessionEmbedded graphSession() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    return tx.getDatabaseSession();
+  }
+
   private List<String> runTranslatorArm(boolean enabled, Supplier<GraphTraversal<?, ?>> traversal) {
-    var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
-    GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(enabled);
+    // Use the same session that GremlinToMatchStrategy resolves from the traversal's graph.
+    var configuration = graphSession().getConfiguration();
+    var before = configuration.setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
     try {
       return traversal.get().toList().stream().map(Object::toString).toList();
     } finally {
-      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
+      // setValue returns the prior local override. Null restores fallback to the global value.
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, before);
     }
   }
 
