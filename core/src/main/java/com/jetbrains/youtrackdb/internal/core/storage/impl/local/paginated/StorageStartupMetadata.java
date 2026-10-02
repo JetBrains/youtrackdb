@@ -33,6 +33,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import net.jpountz.xxhash.XXHash64;
@@ -63,15 +65,33 @@ public class StorageStartupMetadata {
   private FileChannel channel;
   private FileLock fileLock;
   // Updated at each write phase. A failed main write leaves the backup as the only good copy.
-  private boolean mainKnownGood;
+  private volatile boolean mainKnownGood;
 
   private volatile boolean dirtyFlag;
+  // A failed update can change dirtyFlag without writing a complete main copy.
+  private volatile boolean confirmedDirtyFlag;
+  // A complete synced backup also protects writers while a dirty main is being rewritten.
+  private volatile boolean backupKnownGoodDirty;
   private volatile long lastTxId;
   // Unlike lastTxId, this value advances only after a complete main-file write.
   private long confirmedLastTxId = -1;
   private volatile String openedAtVersion;
 
   private final Lock lock = new ReentrantLock();
+  private final AtomicReference<Runnable> beforeDirtyUpdateTestAction = new AtomicReference<>();
+  private volatile AtomicInteger dirtyUpdateCountForTesting;
+
+  /** Counts completed dirty updates in tests, without changing ordinary write behavior. */
+  public void countDirtyUpdatesForTesting(AtomicInteger count) {
+    dirtyUpdateCountForTesting = count;
+  }
+
+  /** Installs a one-shot action under the metadata lock, just before a dirty update. */
+  public void setBeforeDirtyUpdateActionForTesting(Runnable action) {
+    if (!beforeDirtyUpdateTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A dirty update action is already installed");
+    }
+  }
 
   public StorageStartupMetadata(final Path filePath, final Path backupPath) {
     this.filePath = filePath;
@@ -126,6 +146,7 @@ public class StorageStartupMetadata {
       repairMain(backup);
     }
 
+    backupKnownGoodDirty = false;
     Files.deleteIfExists(backupPath);
 
     try (final var backupChannel =
@@ -138,15 +159,19 @@ public class StorageStartupMetadata {
       IOUtils.writeByteBuffer(buffer, backupChannel, 0);
     }
 
+    // Publish backup validity only after its synced write completes.
+    backupKnownGoodDirty = buffer.get(12) > 0;
     // The completed backup protects the state until the main write completes.
     mainKnownGood = false;
     channel.truncate(0);
     buffer.rewind();
     IOUtils.writeByteBuffer(buffer, channel, 0);
+    confirmedDirtyFlag = buffer.get(12) > 0;
+    confirmedLastTxId = buffer.getLong(13);
     mainKnownGood = true;
+    backupKnownGoodDirty = false;
 
     Files.deleteIfExists(backupPath);
-    confirmedLastTxId = lastTxId;
   }
 
   private void repairMain(ByteBuffer backup) throws IOException {
@@ -154,7 +179,11 @@ public class StorageStartupMetadata {
     mainKnownGood = false;
     channel.truncate(0);
     IOUtils.writeByteBuffer(backup, channel, 0);
+    // A failed clear can leave a clean backup and a stale dirty confirmation.
+    confirmedDirtyFlag = backup.get(12) > 0;
+    confirmedLastTxId = backup.getLong(13);
     mainKnownGood = true;
+    backupKnownGoodDirty = false;
   }
 
   private ByteBuffer readValidBackup() throws IOException {
@@ -198,6 +227,7 @@ public class StorageStartupMetadata {
   private void readState(ByteBuffer buffer) {
     buffer.position(12);
     dirtyFlag = buffer.get() > 0;
+    confirmedDirtyFlag = dirtyFlag;
     lastTxId = buffer.getLong();
     openedAtVersion = null;
     if (buffer.getInt(8) == VERSION) {
@@ -269,6 +299,7 @@ public class StorageStartupMetadata {
           final var legacy = ByteBuffer.allocate(1);
           IOUtils.readByteBuffer(legacy, channel, 0, true);
           dirtyFlag = legacy.get(0) > 0;
+          confirmedDirtyFlag = dirtyFlag;
           mainKnownGood = true;
           confirmedLastTxId = lastTxId;
           return;
@@ -277,6 +308,7 @@ public class StorageStartupMetadata {
           final var legacy = ByteBuffer.allocate(9);
           IOUtils.readByteBuffer(legacy, channel, 0, true);
           dirtyFlag = legacy.get(0) > 0;
+          confirmedDirtyFlag = dirtyFlag;
           lastTxId = legacy.getLong(1);
           mainKnownGood = true;
           confirmedLastTxId = lastTxId;
@@ -356,23 +388,35 @@ public class StorageStartupMetadata {
   }
 
   public void makeDirty(final String openedAtVersion) throws IOException {
-    if (dirtyFlag) {
+    if (isDurablyDirty()) {
       return;
     }
 
     lock.lock();
     try {
-      if (dirtyFlag) {
+      if (isDurablyDirty()) {
         return;
       }
 
       dirtyFlag = true;
       this.openedAtVersion = openedAtVersion;
-
+      final var beforeUpdate = beforeDirtyUpdateTestAction.getAndSet(null);
+      if (beforeUpdate != null) {
+        beforeUpdate.run();
+      }
       update(serialize());
+      final var count = dirtyUpdateCountForTesting;
+      if (count != null) {
+        count.incrementAndGet();
+      }
     } finally {
       lock.unlock();
     }
+  }
+
+  /** True only after a complete dirty main copy has been written. */
+  public boolean isDurablyDirty() {
+    return dirtyFlag && confirmedDirtyFlag && (mainKnownGood || backupKnownGoodDirty);
   }
 
   public void clearDirty() throws IOException {
@@ -387,7 +431,13 @@ public class StorageStartupMetadata {
       }
 
       dirtyFlag = false;
-      update(serialize());
+      try {
+        update(serialize());
+      } catch (IOException | RuntimeException failure) {
+        // The failed clear cannot be used as the state of a later floor publication.
+        dirtyFlag = true;
+        throw failure;
+      }
     } finally {
       lock.unlock();
     }

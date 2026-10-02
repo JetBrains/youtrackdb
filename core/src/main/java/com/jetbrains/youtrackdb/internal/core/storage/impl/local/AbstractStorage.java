@@ -1059,7 +1059,7 @@ public abstract class AbstractStorage
           stateLock.writeLock().unlock();
         }
 
-      } catch (final RuntimeException e) {
+      } catch (final Throwable e) {
         try {
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
@@ -2773,7 +2773,6 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        makeStorageDirty();
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
               lockCollections(collectionsToLock, atomicOperation);
@@ -3164,8 +3163,6 @@ public abstract class AbstractStorage
       final List<RecordOperation> result) throws IOException {
     try {
       checkOpennessAndMigration();
-
-      makeStorageDirty();
 
       Throwable error = null;
       boolean structurePublished = false;
@@ -7861,6 +7858,10 @@ public abstract class AbstractStorage
   protected void makeStorageDirty() throws IOException {
   }
 
+  /** Called inside writer admission, before allocating a timestamp. Memory storage needs no IO. */
+  public void ensureRecoveryIndicationBeforeTimestamp() throws IOException {
+  }
+
   protected void clearStorageDirty() throws IOException {
   }
 
@@ -8067,7 +8068,30 @@ public abstract class AbstractStorage
    * parking it with all four locks held. Data commits enter unarmed — byte-for-byte the
    * historical park semantics.
    */
+  private final AtomicReference<Runnable> beforeCommitApplyTestAction = new AtomicReference<>();
+  private final AtomicReference<Runnable> afterShutdownRemarkTestAction = new AtomicReference<>();
+
+  /** Installs a one-shot signal after forced shutdown re-marks its checkpoint. */
+  public void setAfterShutdownRemarkActionForTesting(Runnable action) {
+    if (!afterShutdownRemarkTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A shutdown remark action is already installed");
+    }
+  }
+
+  /** Installs a one-shot pause after commit preparation but before writer admission. */
+  public void setBeforeCommitApplyActionForTesting(Runnable action) {
+    if (!beforeCommitApplyTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A commit apply action is already installed");
+    }
+  }
+
   private void startTxCommit(AtomicOperation atomicOperation, final boolean schemaArmed) {
+    if (beforeCommitApplyTestAction.get() != null) {
+      final var beforeApply = beforeCommitApplyTestAction.getAndSet(null);
+      if (beforeApply != null) {
+        beforeApply.run();
+      }
+    }
     atomicOperationsManager.startToApplyOperations(atomicOperation, schemaArmed,
         schemaArmed ? this::operatorFreezeGateException : null);
   }
@@ -8660,6 +8684,10 @@ public abstract class AbstractStorage
           // The later close operation takes a timestamp. Keep recovery enabled while the
           // freezer must be released for that operation to run.
           makeStorageDirty();
+          final var afterRemark = afterShutdownRemarkTestAction.getAndSet(null);
+          if (afterRemark != null) {
+            afterRemark.run();
+          }
         } finally {
           atomicOperationsManager.unfreezeWriteOperations(checkpointFreeze);
         }

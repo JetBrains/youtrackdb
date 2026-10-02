@@ -21,6 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -33,7 +34,15 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -527,6 +536,74 @@ public class IndexHistogramDurabilityTest {
 
     ytdb.drop(restoreName);
     ytdb.drop(dbName);
+  }
+
+  /** A histogram save after a full checkpoint marks before its timestamp and retries a failure. */
+  @Test
+  public void histogramSaveMarksAfterCheckpointAndReportsFailedAttempt() throws Exception {
+    var dbName = "indicatedHistogram";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
+    try (var session = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      createSchemaAndData(session, 2);
+      var storage = (DiskStorage) session.getStorage();
+      var histogram = getHistogramManager(session, "TestClassvalIdx");
+      storage.synch();
+      var dirtyFile = Path.of(testDir, dbName, "dirty.fl");
+      assertFalse(Files.readAllBytes(dirtyFile)[12] != 0);
+
+      histogram.setDirtyMutationsForTest(1);
+      var failedWrite = new IOException("histogram indication rejected");
+      storage.failNextRecoveryIndicationForTesting(failedWrite);
+      var logged = new java.util.concurrent.atomic.AtomicBoolean();
+      var handler = new Handler() {
+        @Override
+        public void publish(LogRecord record) {
+          if (record.getLevel().intValue() < Level.SEVERE.intValue()) {
+            return;
+          }
+          for (var cause = record.getThrown(); cause != null; cause = cause.getCause()) {
+            if (cause == failedWrite) {
+              logged.set(true);
+            }
+          }
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+      };
+      var logger = Logger.getLogger("");
+      var before = storage.getIdGen().getLastId();
+      logger.addHandler(handler);
+      try {
+        histogram.flushIfDirty();
+      } finally {
+        logger.removeHandler(handler);
+      }
+      assertTrue("background failure must be logged at ERROR", logged.get());
+      assertEquals("failed histogram save takes no timestamp", before,
+          storage.getIdGen().getLastId());
+      assertFalse(Files.readAllBytes(dirtyFile)[12] != 0);
+      assertEquals("failed save must retain dirty work for retry", 1,
+          histogram.getDirtyMutations());
+
+      storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
+        try {
+          assertTrue("histogram timestamp follows durable indication",
+              Files.readAllBytes(dirtyFile)[12] != 0);
+        } catch (IOException failure) {
+          throw new AssertionError(failure);
+        }
+      });
+      histogram.flushIfDirtyOrFail();
+      assertEquals(0, histogram.getDirtyMutations());
+      assertTrue(Files.readAllBytes(dirtyFile)[12] != 0);
+      storage.checkErrorState();
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -29,8 +30,12 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jpountz.xxhash.XXHashFactory;
 import org.junit.After;
@@ -605,6 +610,228 @@ public class StorageStartupMetadataTest {
         reopened.close();
       }
     }
+  }
+
+  /** Concurrent writers wait for one synced dirty update, not one update per writer. */
+  @Test(timeout = 30_000)
+  public void concurrentDirtyWritersPublishOneUpdate() throws Exception {
+    var meta = new StorageStartupMetadata(filePath, backupPath);
+    meta.create("v1");
+    try {
+      meta.clearDirty();
+      var updating = new CountDownLatch(1);
+      var release = new CountDownLatch(1);
+      var updates = new AtomicInteger();
+      meta.countDirtyUpdatesForTesting(updates);
+      meta.setBeforeDirtyUpdateActionForTesting(() -> {
+        updating.countDown();
+        try {
+          if (!release.await(10, TimeUnit.SECONDS)) {
+            throw new AssertionError("writer did not release the metadata lock");
+          }
+        } catch (InterruptedException failure) {
+          Thread.currentThread().interrupt();
+          throw new AssertionError(failure);
+        }
+      });
+      assertThatThrownBy(() -> meta.setBeforeDirtyUpdateActionForTesting(() -> {
+      })).isInstanceOf(IllegalStateException.class);
+      var first = CompletableFuture.runAsync(() -> {
+        try {
+          meta.makeDirty("v1");
+        } catch (IOException failure) {
+          throw new RuntimeException(failure);
+        }
+      });
+      try {
+        assertThat(updating.await(10, TimeUnit.SECONDS)).isTrue();
+        var secondThread = new AtomicReference<Thread>();
+        var second = CompletableFuture.runAsync(() -> {
+          secondThread.set(Thread.currentThread());
+          try {
+            meta.makeDirty("v1");
+          } catch (IOException failure) {
+            throw new RuntimeException(failure);
+          }
+        });
+        // The first writer still holds the lock when the second parks in makeDirty.
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline && !waitingInMakeDirty(secondThread.get())) {
+          Thread.sleep(1);
+        }
+        assertThat(waitingInMakeDirty(secondThread.get())).isTrue();
+        release.countDown();
+        first.get(10, TimeUnit.SECONDS);
+        second.get(10, TimeUnit.SECONDS);
+        assertThat(updates.get()).isEqualTo(1);
+        assertThat(meta.isDurablyDirty()).isTrue();
+      } finally {
+        release.countDown();
+      }
+    } finally {
+      meta.close();
+    }
+  }
+
+  private static boolean waitingInMakeDirty(Thread thread) {
+    if (thread == null || thread.getState() != Thread.State.WAITING) {
+      return false;
+    }
+    return Arrays.stream(thread.getStackTrace())
+        .anyMatch(frame -> frame.getClassName().equals(StorageStartupMetadata.class.getName())
+            && frame.getMethodName().equals("makeDirty"));
+  }
+
+  /** A floor rewrite of a dirty image must not park an admitted writer on metadata IO. */
+  @Test(timeout = 30_000)
+  public void dirtyWriterSkipsWhileFloorRewritesDirtyMain() throws Exception {
+    var initial = prepared(42);
+    initial.close();
+    var reachedMain = new AtomicBoolean();
+    var blockMain = new AtomicBoolean();
+    var live = new StorageStartupMetadata(filePath, backupPath);
+    try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(filePath, StandardOpenOption.SYNC,
+          StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE))
+          .thenAnswer(call -> {
+            var main = spy(new RandomAccessFile(filePath.toFile(), "rws").getChannel());
+            doAnswer(write -> {
+              if (blockMain.get()) {
+                reachedMain.set(true);
+                assertThat(Files.readAllBytes(backupPath)[12]).isEqualTo((byte) 1);
+                // The floor thread holds the metadata lock until this writer returns.
+                CompletableFuture.runAsync(() -> {
+                  try {
+                    live.makeDirty("v1");
+                  } catch (IOException failure) {
+                    throw new RuntimeException(failure);
+                  }
+                }).get(5, TimeUnit.SECONDS);
+              }
+              return write.callRealMethod();
+            }).when(main).write(any(ByteBuffer.class), anyLong());
+            return main;
+          });
+      live.open("v1");
+      try {
+        blockMain.set(true);
+        live.publishLastTxIdFloor(10_000);
+        assertThat(reachedMain.get()).isTrue();
+      } finally {
+        live.close();
+      }
+    }
+  }
+
+  /** A failed dirty write changes memory but never permits skipping the next disk update. */
+  @Test
+  public void failedDirtyWriteMustRetryDespiteInMemoryDirtyFlag() throws Exception {
+    var meta = new StorageStartupMetadata(filePath, backupPath);
+    meta.create("v1");
+    try {
+      meta.clearDirty();
+      assertThat(meta.isDurablyDirty()).isFalse();
+      Files.createDirectory(backupPath);
+      Files.createFile(backupPath.resolve("block-delete"));
+      assertThatThrownBy(() -> meta.makeDirty("v1")).isInstanceOf(IOException.class);
+      assertThat(meta.isDirty()).isTrue();
+      assertThat(meta.isDurablyDirty()).isFalse();
+      Files.delete(backupPath.resolve("block-delete"));
+      Files.delete(backupPath);
+      meta.makeDirty("v1");
+      assertThat(meta.isDurablyDirty()).isTrue();
+    } finally {
+      meta.close();
+    }
+    var reopened = new StorageStartupMetadata(filePath, backupPath);
+    reopened.open("v1");
+    try {
+      assertThat(reopened.isDirty()).isTrue();
+    } finally {
+      reopened.close();
+    }
+  }
+
+  /** A failed clean main write requires the next writer to restore a durable dirty indication. */
+  @Test
+  public void failedClearRequiresNextWriterToMarkDurably() throws Exception {
+    withFailedClear((live, failBackup) -> {
+      assertThat(live.isDirty()).isTrue();
+      assertThat(live.isDurablyDirty()).isFalse();
+      live.makeDirty("v1");
+      assertThat(live.isDurablyDirty()).isTrue();
+      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+    });
+  }
+
+  /** Floor publication after a failed clear cannot persist an unprotected clean image. */
+  @Test
+  public void failedClearThenFloorPublicationKeepsRecoveryEnabled() throws Exception {
+    withFailedClear((live, failBackup) -> {
+      live.publishLastTxIdFloor(10_000);
+      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+      assertThat(live.isDurablyDirty()).isTrue();
+    });
+  }
+
+  /** Repairing from a clean backup must discard the old dirty confirmation on backup failure. */
+  @Test
+  public void repairedCleanMainWithFailedBackupDoesNotLetNextWriterSkip() throws Exception {
+    withFailedClear((live, failBackup) -> {
+      failBackup.set(true);
+      assertThatThrownBy(() -> live.makeDirty("v1"))
+          .isInstanceOf(IOException.class).hasMessage("backup write interrupted");
+      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 0);
+      assertThat(live.isDurablyDirty()).isFalse();
+      live.makeDirty("v1");
+      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+    });
+  }
+
+  private void withFailedClear(FailedClearAction action) throws Exception {
+    var initial = prepared(42);
+    initial.close();
+    var failMain = new AtomicBoolean();
+    var failBackup = new AtomicBoolean();
+    try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(filePath, StandardOpenOption.SYNC,
+          StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE))
+          .thenAnswer(call -> {
+            var main = spy(new RandomAccessFile(filePath.toFile(), "rws").getChannel());
+            doAnswer(write -> {
+              if (failMain.getAndSet(false)) {
+                throw new IOException("clean main write interrupted");
+              }
+              return write.callRealMethod();
+            }).when(main).write(any(ByteBuffer.class), anyLong());
+            return main;
+          });
+      channels.when(() -> FileChannel.open(backupPath, StandardOpenOption.READ,
+          StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, StandardOpenOption.SYNC))
+          .thenAnswer(call -> {
+            if (failBackup.getAndSet(false)) {
+              throw new IOException("backup write interrupted");
+            }
+            return call.callRealMethod();
+          });
+      var live = new StorageStartupMetadata(filePath, backupPath);
+      live.open("v1");
+      try {
+        failMain.set(true);
+        assertThatThrownBy(live::clearDirty)
+            .isInstanceOf(IOException.class).hasMessage("clean main write interrupted");
+        assertThat(Files.readAllBytes(backupPath)[12]).isEqualTo((byte) 0);
+        action.accept(live, failBackup);
+      } finally {
+        live.close();
+      }
+    }
+  }
+
+  @FunctionalInterface
+  private interface FailedClearAction {
+
+    void accept(StorageStartupMetadata metadata, AtomicBoolean failBackup) throws Exception;
   }
 
   /** A failed main write followed by a failed later backup write retains the old floor. */

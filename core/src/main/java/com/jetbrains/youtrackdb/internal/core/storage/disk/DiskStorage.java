@@ -155,6 +155,14 @@ public class DiskStorage extends AbstractStorage {
       new AtomicReference<>();
   private final AtomicReference<IOException> checkpointFloorFailureForTesting =
       new AtomicReference<>();
+
+  private record OpenIndicationTestAction(Path storagePath, Consumer<DiskStorage> action) {
+  }
+
+  private static final AtomicReference<OpenIndicationTestAction> OPEN_INDICATION_TEST_ACTION =
+      new AtomicReference<>();
+  private final AtomicReference<IOException> indicationFailureForTesting = new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeIndicationTestAction = new AtomicReference<>();
   private final AtomicReference<Runnable> beforeFinalFloorTestAction = new AtomicReference<>();
 
   private static final String BACKUP_LOCK = "backup.ibl";
@@ -334,6 +342,26 @@ public class DiskStorage extends AbstractStorage {
     startupMetadata =
         new StorageStartupMetadata(
             storagePath.resolve("dirty.fl"), storagePath.resolve("dirty.flb"));
+    final var openAction = OPEN_INDICATION_TEST_ACTION.get();
+    // Another storage must not consume the observer while test classes open disks in parallel.
+    if (openAction != null && storagePath.equals(openAction.storagePath())
+        && OPEN_INDICATION_TEST_ACTION.compareAndSet(openAction, null)) {
+      openAction.action().accept(this);
+    }
+  }
+
+  /** Installs a one-shot observer for the disk storage at the specified path. */
+  public static void setOpenIndicationActionForTesting(
+      Path storagePath, Consumer<DiskStorage> action) {
+    var scopedAction = new OpenIndicationTestAction(
+        storagePath.toAbsolutePath().normalize(), action);
+    if (!OPEN_INDICATION_TEST_ACTION.compareAndSet(null, scopedAction)) {
+      throw new IllegalStateException("An open indication action is already installed");
+    }
+  }
+
+  public static void clearOpenIndicationActionForTesting() {
+    OPEN_INDICATION_TEST_ACTION.set(null);
   }
 
   @SuppressWarnings("CanBeFinal")
@@ -977,6 +1005,38 @@ public class DiskStorage extends AbstractStorage {
       throw failure;
     }
     startupMetadata.publishLastTxIdFloor(lastIssued);
+  }
+
+  /** Injects one indication-write failure in this storage, before the metadata update. */
+  public void failNextRecoveryIndicationForTesting(IOException failure) {
+    if (!indicationFailureForTesting.compareAndSet(null, failure)) {
+      throw new IllegalStateException("A recovery indication failure is already installed");
+    }
+  }
+
+  /** Installs a one-shot action immediately before writing the recovery indication. */
+  public void setBeforeRecoveryIndicationActionForTesting(Runnable action) {
+    if (!beforeIndicationTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A recovery indication action is already installed");
+    }
+  }
+
+  @Override
+  public void ensureRecoveryIndicationBeforeTimestamp() throws IOException {
+    if (startupMetadata.isDurablyDirty()) {
+      return;
+    }
+    final var action = beforeIndicationTestAction.getAndSet(null);
+    if (action != null) {
+      action.run();
+    }
+    final var failure = indicationFailureForTesting.getAndSet(null);
+    if (failure != null) {
+      throw failure;
+    }
+    // makeDirty rechecks the confirmed flag under its own lock, so concurrent writers
+    // cannot both perform a synced update after the same clear.
+    makeStorageDirty();
   }
 
   @Override
