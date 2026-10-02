@@ -21,7 +21,6 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -53,11 +52,5 @@ public interface SessionListener {
   }
 
   default void onDropClass(DatabaseSessionEmbedded iDatabase, SchemaClass iClass) {
-  }
-
-  default void onCommandStart(DatabaseSessionEmbedded database, ResultSet resultSet) {
-  }
-
-  default void onCommandEnd(DatabaseSessionEmbedded database, ResultSet resultSet) {
   }
 }

@@ -15,7 +15,13 @@ import java.util.stream.StreamSupport;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-public interface ResultSet extends BasicResultSet<Result> {
+public interface ResultSet extends BasicResultSet<Result>, RegisteredQuery {
+
+  /** Describes the existing execution plan without opening another query. */
+  @Override
+  default String getDescription() {
+    return String.valueOf(getExecutionPlan());
+  }
 
   default Entity findFirstEntity() {
     try {
