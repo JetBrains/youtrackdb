@@ -385,9 +385,10 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isTrue();
     assertThat(GremlinPlanCache.instance(graphSession()).containsTranslation(shapeKey)).isTrue();
 
-    var before = GremlinPlanCache.getLastInvalidation(graphSession());
-    GremlinPlanCache.instance(graphSession()).onSchemaUpdate(null, "test", null);
-    assertThat(GremlinPlanCache.getLastInvalidation(graphSession())).isGreaterThan(before);
+    var cache = GremlinPlanCache.instance(graphSession());
+    var before = cache.getInvalidationCounter();
+    cache.onSchemaUpdate(null, "test", null);
+    assertThat(cache.getInvalidationCounter()).isGreaterThan(before);
     assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isFalse();
     assertThat(GremlinPlanCache.instance(graphSession()).containsTranslation(shapeKey))
         .as("schema invalidation must clear the translation cache as well as the plan cache")
@@ -517,7 +518,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(GremlinPlanCache.template(fp, session)).isNull();
     var ctx = new BasicCommandContext(session);
     assertThat(GremlinPlanCache.get(fp, ctx, session)).isNull();
-    cache.putInternal(newFp, stored, session, cache.getGeneration());
+    cache.putInternal(newFp, stored, session, cache.getInvalidationCounter());
     assertThat(cache.contains(newFp)).as("direct tx publication must be refused").isFalse();
     assertThat(cache.getHits()).isEqualTo(hits);
     assertThat(cache.getMisses()).isEqualTo(misses);
