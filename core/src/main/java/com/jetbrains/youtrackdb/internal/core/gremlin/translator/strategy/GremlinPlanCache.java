@@ -220,12 +220,6 @@ public final class GremlinPlanCache
   }
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
-      String shapeKey, DatabaseSessionEmbedded db) {
-    prepare(db);
-    return getTranslationInternal(shapeKey, db, getInvalidationCounter());
-  }
-
-  @Nullable GremlinTranslationTemplate getTranslationInternal(
       String shapeKey, DatabaseSessionEmbedded db, long captured) {
     if (db.getTxSchemaState() != null) {
       return null;
