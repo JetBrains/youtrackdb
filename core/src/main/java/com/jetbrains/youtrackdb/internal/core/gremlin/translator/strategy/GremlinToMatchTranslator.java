@@ -70,13 +70,24 @@ final class GremlinToMatchTranslator {
     return GremlinStepWalker.production().walk(traversal, orderIncludesMissingKey);
   }
 
-  /** Translates with every order setting already resolved by the strategy. */
+  /** Translates with the order settings already resolved by the strategy. */
   @Nullable static TranslationResult translate(
       Traversal.Admin<?, ?> traversal,
       @Nullable Boolean orderIncludesMissingKey,
       @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements) {
     return GremlinStepWalker.production()
         .walk(traversal, orderIncludesMissingKey, orderByNullsPlacements);
+  }
+
+  /** Translates using the same resolved polymorphism as the translation shape key. */
+  @Nullable static TranslationResult translate(
+      Traversal.Admin<?, ?> traversal,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
+    return GremlinStepWalker.production()
+        .walk(traversal, GremlinStepWalker.NO_CHILD_SCOPE,
+            orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
   }
 
   /**

@@ -315,8 +315,8 @@ interface RecognitionContext extends ParamSink {
   void addNotMatchExpression(SQLMatchExpression expression);
 
   /**
-   * Marks this walk as RID-bearing ({@code g.V(ids)} start ids or a {@code hasId(...)} filter).
-   * RID-bearing shapes bypass the plan cache because their fingerprint would vary per id set.
+   * Marks this walk as non-cacheable for invocation-specific RIDs or deferred has literals.
+   * Those values are not rebound into cached templates.
    */
   void markRidBearing();
 
@@ -427,13 +427,36 @@ interface RecognitionContext extends ParamSink {
   }
 
   /**
-   * Whether a following slice may sit behind the captured {@code ORDER BY}: the current boundary is
-   * still the alias the sort was captured on. On element streams, equal primary keys are
-   * total-ordered by the RID secondary key from {@code YTDBOrderRidTieBreakStrategy}, so
-   * translator-on and translator-off agree on which tied rows a cut keeps. A hop between
-   * {@code order()} and the slice still declines. See {@link RangeGlobalStepRecogniser}.
+   * Whether a following slice may sit behind the captured {@code ORDER BY} on the statement
+   * {@code LIMIT} path: the current boundary is still the alias the sort was captured on. On
+   * element streams, equal primary keys are total-ordered by the RID secondary key from
+   * {@code YTDBOrderRidTieBreakStrategy}, so translator-on and translator-off agree on which tied
+   * rows a cut keeps. A hop between {@code order()} and the slice uses {@link PendingOrderedHop} +
+   * ordered-expand instead; see {@link RangeGlobalStepRecogniser}.
    */
   boolean orderAllowsSliceOnCurrentBoundary();
+
+  /**
+   * A folded hop deferred after {@code order()} for an ordered-expand slice, or {@code null}. See
+   * {@link PendingOrderedHop}.
+   */
+  @Nullable PendingOrderedHop pendingOrderedHop();
+
+  /** Stashes a deferred hop; a second pending hop without a flush or consume declines at the hop. */
+  void setPendingOrderedHop(@Nullable PendingOrderedHop hop);
+
+  /**
+   * Takes and clears the deferred hop, or {@code null} when none is pending. Used by the range
+   * recogniser (ordered-expand path) and by {@link #flushPendingOrderedHop()} (pattern flush).
+   */
+  @Nullable PendingOrderedHop takePendingOrderedHop();
+
+  /**
+   * When a deferred hop is pending and a non-slice step arrives, appends it to the MATCH pattern and
+   * re-pins RETURN to the target (today's hop semantics). Returns {@code false} when deferred
+   * {@code has} containers cannot be expressed as MATCH filters. No-op success when none is pending.
+   */
+  boolean flushPendingOrderedHop();
 
   /** Sets the {@code LIMIT} clause for {@code limit()} / {@code range()} terminators. */
   void setLimit(@Nullable SQLLimit limit);

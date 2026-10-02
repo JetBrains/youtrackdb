@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -69,10 +70,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <ol>
  *   <li>The boundary at slice time is still the alias the {@code ORDER BY} was captured on. A hop
- *       between {@code order()} and the slice fans one sorted row into several results whose cut is
- *       not the statement's {@code LIMIT} over the sorted source (measured:
- *       {@code order().by(name).out(knows).limit(3)} disagreed on membership, not only remis
- *       order).
+ *       between {@code order()} and the slice that was flushed into MATCH fans one sorted row into
+ *       several results whose cut is not the statement's {@code LIMIT} over the sorted source
+ *       (measured: {@code order().by(name).out(knows).limit(3)} disagreed on membership). A
+ *       <em>deferred</em> hop after {@code order()} is accepted via
+ *       {@link OrderedExpandSliceListShapingOp} instead — MATCH keeps sorted sources, the list-shaping
+ *       stage expands in VertexStep order and cuts the flat stream.
  * </ol>
  *
  * <p>Foreign-alias sort keys (e.g. {@code order().by(select("reply").by("creationDate"))}) and
@@ -182,10 +185,15 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    // A real slice behind a captured ORDER BY is accepted when the boundary at slice time is still
-    // the alias the ORDER BY was captured on — see the class Javadoc. Element-stream equal-key
-    // ties are total-ordered by the appended RID key. Hop-then-slice declines via
-    // orderAllowsSliceOnCurrentBoundary(); foreign-alias sort keys and multi-alias RETURN do not.
+    // Real slice behind ORDER BY: statement LIMIT when the boundary is still the sort alias.
+    // Element-stream equal-key ties are total-ordered by the appended RID key. A deferred hop
+    // after order() takes the ordered-expand list-shaping path instead (VertexStep neighbour
+    // order + positional cut), which is what native order().out().limit does. Foreign-alias sort
+    // keys and multi-alias RETURN decline via orderAllowsSliceOnCurrentBoundary().
+    var pendingHop = ctx.pendingOrderedHop();
+    if (pendingHop != null) {
+      return acceptOrderedExpandSlice(cursor, ctx, pendingHop, normalized);
+    }
     if (ctx.orderBy() != null && !ctx.orderAllowsSliceOnCurrentBoundary()) {
       return Outcome.DECLINE;
     }
@@ -230,6 +238,41 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.limit() >= 0) {
       ctx.setLimit(ProjectionExpressionFactories.limit(normalized.limit()));
     }
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Consumes a deferred hop after {@code order()} into an ordered-expand list-shaping stage plus
+   * optional trailing {@code values(key)}. MATCH RETURN stays on the sorted sources; no statement
+   * {@code LIMIT}.
+   */
+  private static Outcome acceptOrderedExpandSlice(
+      StepCursor cursor,
+      RecognitionContext ctx,
+      PendingOrderedHop pendingHop,
+      NormalizedRange normalized) {
+    if (ctx.groupBy() != null) {
+      return Outcome.DECLINE;
+    }
+    if (!ctx.supportsListShaping()
+        || pendingHop.sourceProjection() == OrderedExpandAccept.SourceProjection.UNSUPPORTED) {
+      return Outcome.DECLINE;
+    }
+    // The list-shaping drain consumes the same trailing values(key) shape in both slice positions.
+    String propertyKey = OrderedExpandAccept.takeValuesKey(cursor);
+    ctx.takePendingOrderedHop();
+    OrderedExpandAccept.restoreSourceProjection(ctx, pendingHop.fromAlias(),
+        pendingHop.sourceProjection());
+    ctx.appendListShapingOp(
+        new OrderedExpandSliceListShapingOp(
+            pendingHop.direction(),
+            pendingHop.edgeLabels(),
+            normalized.skip(),
+            normalized.limit(),
+            propertyKey,
+            pendingHop.hasContainers(),
+            pendingHop.hasStepSizes(),
+            ctx.polymorphic()));
     return Outcome.ACCEPTED;
   }
 

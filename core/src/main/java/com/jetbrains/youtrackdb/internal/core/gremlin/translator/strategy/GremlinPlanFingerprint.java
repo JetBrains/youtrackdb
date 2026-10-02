@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -313,6 +314,34 @@ final class GremlinPlanFingerprint {
       // parameterised ops contribute here by instanceof until one is added.
       if (op instanceof TailListShapingOp tail) {
         appendToken(sb, op.getClass().getName() + ":" + tail.limit());
+      } else if (op instanceof OrderedExpandSliceListShapingOp expand) {
+        var filterToken = new StringBuilder();
+        for (var container : expand.hasContainers()) {
+          filterToken
+              .append(container.getKey())
+              .append('=')
+              .append(container.getPredicate())
+              .append(';');
+        }
+        appendToken(
+            sb,
+            op.getClass().getName()
+                + ":"
+                + expand.direction()
+                + ":"
+                + java.util.Arrays.toString(expand.edgeLabels())
+                + ":"
+                + expand.skip()
+                + ":"
+                + expand.limit()
+                + ":"
+                + expand.propertyKey()
+                + ":"
+                + expand.polymorphic()
+                + ":"
+                + expand.hasStepSizes()
+                + ":"
+                + filterToken);
       } else {
         appendToken(sb, op.getClass().getName());
       }

@@ -95,11 +95,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  *
  * Every per-step shape gate (start-step shape, vertex-vs-edge, ID convertibility, hasContainer
  * presence, predicate well-formedness, …) lives inside the responsible recogniser. The walker
- * resolves the two traversal-level flags once up front and stores them on the {@link WalkerContext}:
- * the polymorphism flag ({@code YTDBStrategyUtil.isPolymorphic}) and whether {@code
- * EdgeLabelVerificationStrategy} is present. Resolving polymorphism here is safe: {@code
- * isPolymorphic} is null-safe (it gates on an attached YTDB graph and transaction before touching
- * {@code tx()}), and a {@code null} result declines the whole walk.
+ * stores the resolved traversal-level flags on the {@link WalkerContext}:
+ * the polymorphism flag (resolved by the strategy and supplied to the walk, or resolved here for
+ * direct callers) and whether {@code EdgeLabelVerificationStrategy} is present. {@code
+ * YTDBStrategyUtil.isPolymorphic} is null-safe (it gates on an attached YTDB graph and transaction
+ * before touching {@code tx()}), and a {@code null} result declines the whole walk.
  *
  * <h2>Result assembly</h2>
  *
@@ -421,13 +421,19 @@ final class GremlinStepWalker {
       DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+    return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
+        YTDBStrategyUtil.isPolymorphic(traversal));
+  }
+
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal,
+      DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     return GremlinShapeExtractor.extract(
-        PRODUCTION_RECOGNISERS,
-        TRANSPARENT_STEPS,
-        traversal,
-        session,
-        orderIncludesMissingKey,
-        orderByNullsPlacements);
+        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session,
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
   }
 
   /**
@@ -483,6 +489,16 @@ final class GremlinStepWalker {
       int childScopeBoundary,
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, null);
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal,
+      int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -498,13 +514,17 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
+    if (selectCollidesWithSideEffect(traversal)) {
+      return null;
+    }
 
-    // Resolve the polymorphism flag once. isPolymorphic is null-safe: it gates on an attached YTDB
+    // Use the strategy's polymorphism decision when provided. isPolymorphic is null-safe: it gates on an attached YTDB
     // graph + transaction before touching tx(), so a detached EmptyGraph or non-YTDB graph yields
     // null rather than throwing. A null result means the traversal has no resolvable polymorphism
     // setting and cannot be translated faithfully — decline the whole walk before building the
     // context. Owning the resolution here keeps every recogniser free of the flag's initialisation.
-    Boolean resolved = YTDBStrategyUtil.isPolymorphic(traversal);
+    Boolean resolved = polymorphicSetting != null
+        ? polymorphicSetting : YTDBStrategyUtil.isPolymorphic(traversal);
     if (resolved == null) {
       return null;
     }
@@ -615,11 +635,22 @@ final class GremlinStepWalker {
         return false;
       }
       if (head == null) {
-        return true;
+        // order().hop() with no following slice: materialise the deferred hop into MATCH.
+        return ctx.flushPendingOrderedHop();
       }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
         return false;
+      }
+      // Deferred hop after order() is only consumed by Range into OrderedExpandSlice. HasStep may
+      // stash neighbour filters onto the pending hop. Any other step needs the neighbour in MATCH —
+      // flush before that recogniser runs (values/hop/…).
+      if (ctx.pendingOrderedHop() != null
+          && recogniser != RangeGlobalStepRecogniser.INSTANCE
+          && recogniser != HasStepRecogniser.INSTANCE) {
+        if (!ctx.flushPendingOrderedHop()) {
+          return false;
+        }
       }
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
       // may claim a step once a union carrier is on the context; every other one would write into
@@ -638,9 +669,12 @@ final class GremlinStepWalker {
       // Single-plan cardinality gate (see capturedCardinalityClause and the allow-list below).
       // Once a SKIP / LIMIT / DISTINCT is captured, only the pure projections may claim a further
       // step; anything else would run before the clause in the compiled statement and so return a
-      // different row set.
+      // different row set. Carve-out: order().limit|skip then out|in|both expands post-plan after
+      // statement source top-N (OrderedExpandAccept) — not a MATCH join under the same LIMIT.
       if (capturedCardinalityClause(ctx) && !POST_CARDINALITY_RECOGNISERS.contains(recogniser)) {
-        return false;
+        if (!OrderedExpandAccept.isOrderedSourceSliceThenHop(ctx, recogniser, head)) {
+          return false;
+        }
       }
       // Single-plan list-shaping gate (see capturedListShapingOp and mayFollowListShaping). Once a
       // terminator has appended a stream stage, only a per-payload shaper or a drain may claim a
@@ -839,7 +873,9 @@ final class GremlinStepWalker {
    *
    * <p>Fail-closed by construction, like the post-union allow-list above: a recogniser added later
    * is refused after a slice until someone establishes that its contribution lands on the far side
-   * of the clause and adds it here.
+   * of the clause and adds it here. One non-member carve-out lives beside the set check: {@link
+   * OrderedExpandAccept#isOrderedSourceSliceThenHop} admits {@code order().limit|skip} then a vertex
+   * hop, because statement top-N cuts sources and expand runs post-plan.
    */
   private static final Set<StepRecogniser> POST_CARDINALITY_RECOGNISERS =
       Set.of(
@@ -1162,6 +1198,49 @@ final class GremlinStepWalker {
             ? Outcome.ACCEPTED
             : Outcome.DECLINE);
     return adapter;
+  }
+
+  /** Native select resolves side effects before path labels. Never cache a label-only projection
+   * for a traversal whose selected key also names a side effect. */
+  static boolean selectCollidesWithSideEffect(Traversal.Admin<?, ?> traversal) {
+    var sideEffects = traversal.getSideEffects();
+    if (sideEffects == null) {
+      return false;
+    }
+    var keys = sideEffects.keys();
+    if (keys.isEmpty()) {
+      return false;
+    }
+    return selectsAnyKey(traversal, keys);
+  }
+
+  private static boolean selectsAnyKey(Traversal.Admin<?, ?> traversal,
+      java.util.Set<String> keys) {
+    for (Step<?, ?> step : traversal.getSteps()) {
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep<?,
+          ?> one
+          && one.getScopeKeys().stream().anyMatch(keys::contains)) {
+        return true;
+      }
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep<?,
+          ?> many
+          && many.getSelectKeys().stream().anyMatch(keys::contains)) {
+        return true;
+      }
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          if (selectsAnyKey(child.asAdmin(), keys)) {
+            return true;
+          }
+        }
+        for (var child : parent.getGlobalChildren()) {
+          if (selectsAnyKey(child.asAdmin(), keys)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

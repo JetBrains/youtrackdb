@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -13,6 +14,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.util.List;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
 
 /**
@@ -415,6 +420,37 @@ public class GremlinPlanFingerprintTest {
     assertThat(GremlinPlanFingerprint.fingerprint(inputs, tail2))
         .as(";LS: must encode TailListShapingOp.limit()")
         .isNotEqualTo(GremlinPlanFingerprint.fingerprint(inputs, tail5));
+  }
+
+  /** A built plan with exact labels cannot reuse an otherwise identical polymorphic op. */
+  @Test
+  public void orderedExpandPolymorphism_distinguishesBuiltPlanFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var labels = List.of(new HasContainer(T.label.getAccessor(), P.eq("Parent")));
+    var exact = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, 1, null, labels, false);
+    var polymorphic = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, 1, null, labels, true);
+    assertThat(GremlinPlanFingerprint.fingerprint(
+        inputs, ResultShaping.NONE.withListShapingOps(List.of(exact))))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(
+            inputs, ResultShaping.NONE.withListShapingOps(List.of(polymorphic))));
+  }
+
+  /** A barrier between HasSteps changes the op's built-plan cache identity. */
+  @Test
+  public void orderedExpandLabelGroups_distinguishBuiltPlanFingerprint() {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var labels = List.of(new HasContainer(T.label.getAccessor(), P.eq("Parent")),
+        new HasContainer(T.label.getAccessor(), P.eq("Other")));
+    var folded = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, null, 0, 1, null, labels, List.of(2), false);
+    var separated = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, null, 0, 1, null, labels, List.of(1, 1), false);
+    assertThat(GremlinPlanFingerprint.fingerprint(
+        inputs, ResultShaping.NONE.withListShapingOps(List.of(folded))))
+        .isNotEqualTo(GremlinPlanFingerprint.fingerprint(
+            inputs, ResultShaping.NONE.withListShapingOps(List.of(separated))));
   }
 
   /**

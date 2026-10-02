@@ -1,0 +1,199 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import java.util.ArrayList;
+import java.util.List;
+import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.structure.PropertyType;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+
+/**
+ * Shared accept path for ordered-expand list-shaping: MATCH keeps sorted sources (with optional
+ * statement {@code LIMIT}/{@code SKIP}), and the hop (+ optional neighbour {@code has} / {@code
+ * values}) runs as {@link OrderedExpandSliceListShapingOp}.
+ */
+final class OrderedExpandAccept {
+
+  private OrderedExpandAccept() {
+    // Static helper — no instances.
+  }
+
+  /**
+   * Walker / hop context for {@code order().limit|skip|range} then expand: statement top-N already
+   * cuts sources; the hop must not join into MATCH.
+   */
+  static boolean hasOrderedSourceSliceForExpand(RecognitionContext ctx) {
+    if (ctx.orderBy() == null || !ctx.orderAllowsSliceOnCurrentBoundary()) {
+      return false;
+    }
+    if (ctx.pendingOrderedHop() != null) {
+      return false;
+    }
+    if (ctx.limit() == null && ctx.skip() == null) {
+      return false;
+    }
+    return ctx.supportsListShaping();
+  }
+
+  /**
+   * Whether the walker's cardinality gate may admit a vertex hop after an ordered source slice.
+   * Registry dispatch uses {@link VertexStepRecogniser}, which routes to {@link
+   * VertexHopRecogniser}.
+   */
+  static boolean isOrderedSourceSliceThenHop(
+      RecognitionContext ctx, StepRecogniser recogniser, Object head) {
+    if (recogniser != VertexStepRecogniser.INSTANCE) {
+      return false;
+    }
+    if (!(head instanceof VertexStepContract<?> hop) || hop.returnsEdge()) {
+      return false;
+    }
+    return hasOrderedSourceSliceForExpand(ctx);
+  }
+
+  /**
+   * Appends an expand-only ordered-expand stage after a statement source slice. Optional trailing
+   * {@code has(...)} and {@code values(key)} are consumed here (list-shaping drain latch).
+   */
+  static Outcome acceptExpandAfterSourceSlice(
+      StepCursor cursor, VertexStepContract<?> hop, RecognitionContext ctx) {
+    if (ctx.groupBy() != null || !ctx.supportsListShaping()) {
+      return Outcome.DECLINE;
+    }
+    var fromAlias = ctx.boundaryAlias();
+    if (fromAlias == null) {
+      return Outcome.DECLINE;
+    }
+    var sourceProjection = sourceProjection(ctx, fromAlias);
+    if (sourceProjection == SourceProjection.UNSUPPORTED) {
+      return Outcome.DECLINE;
+    }
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(hop, ctx);
+    if (!arity.translatable()) {
+      return Outcome.DECLINE;
+    }
+    // Neighbours are not MATCH aliases — a labelled hop after source slice has no select target.
+    if (!hop.getLabels().isEmpty()) {
+      return Outcome.DECLINE;
+    }
+    var hasContainers = new ArrayList<HasContainer>();
+    var hasStepSizes = new ArrayList<Integer>();
+    while (true) {
+      var next = cursor.peek();
+      if (!(next instanceof HasStep<?> hasStep)) {
+        break;
+      }
+      if (!hasStep.getLabels().isEmpty()) {
+        return Outcome.DECLINE;
+      }
+      var collected = HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx);
+      if (collected == null) {
+        return Outcome.DECLINE;
+      }
+      cursor.take();
+      hasContainers.addAll(collected);
+      hasStepSizes.add(collected.size());
+    }
+    String propertyKey = takeValuesKey(cursor);
+    // Bare select unwraps to a Vertex. Other selects must retain their projected scalar or map:
+    // the expand stage performs VertexStep's cast after any nonproductive rows have been dropped.
+    restoreSourceProjection(ctx, fromAlias, sourceProjection);
+    // skip/limit stay on the statement (source top-N); the op only expands.
+    ctx.appendListShapingOp(
+        new OrderedExpandSliceListShapingOp(
+            hop.getDirection(),
+            arity.labels(),
+            /* skip= */ 0,
+            /* limit= */ -1,
+            propertyKey,
+            List.copyOf(hasContainers),
+            List.copyOf(hasStepSizes),
+            ctx.polymorphic()));
+    return Outcome.ACCEPTED;
+  }
+
+  enum SourceProjection {
+    ELEMENT, SELECT_PAYLOAD, UNSUPPORTED
+  }
+
+  /** Classify the payload before the pending hop re-pins the boundary to its synthetic target. */
+  static SourceProjection sourceProjection(RecognitionContext ctx, String alias) {
+    if (sourceIsElement(ctx, alias)) {
+      return SourceProjection.ELEMENT;
+    }
+    if (ctx instanceof WalkerContext walker
+        && ctx.boundaryOutputType() == BoundaryOutputType.MAP
+        && !walker.shaping().mapEmitColumnOrder().isEmpty()
+        && walker.shaping().mapEmitColumnOrder().stream()
+            .allMatch(label -> ctx.resolveUserLabel(label) != null)) {
+      // Modulated select and multi-label select both produce a non-Vertex payload. Keep their
+      // projection and presence checks intact so a missing by(key) drops before the hop cast.
+      return SourceProjection.SELECT_PAYLOAD;
+    }
+    return SourceProjection.UNSUPPORTED;
+  }
+
+  static boolean sourceIsElement(RecognitionContext ctx, String alias) {
+    if (ctx.boundaryOutputType() == BoundaryOutputType.ELEMENT) {
+      return true;
+    }
+    if (ctx instanceof WalkerContext walker) {
+      var shaping = walker.shaping();
+      if (ctx.boundaryOutputType() != BoundaryOutputType.MAP
+          || !shaping.unwrapSingletonMap()
+          || shaping.dropOnAbsent()
+          || !shaping.aliasPropertyPresences().isEmpty()
+          || !shaping.mapEmitColumnOrder().isEmpty()
+          || walker.returnItems.size() != 1
+          || !walker.returnItems.getFirst().toString()
+              .equals(MatchProjectionBuilder.aliasColumn(alias).toString())) {
+        return false;
+      }
+      // The sole projected cell must name a path label bound to this sorted source.
+      return walker.userLabelToAlias.entrySet().stream()
+          .anyMatch(entry -> alias.equals(entry.getValue())
+              && walker.returnAliases.getFirst().toString()
+                  .equals(MatchProjectionBuilder.columnAlias(entry.getKey()).toString()));
+    }
+    return false;
+  }
+
+  static void restoreSourceProjection(
+      RecognitionContext ctx, String alias, SourceProjection projection) {
+    if (projection == SourceProjection.SELECT_PAYLOAD) {
+      ctx.pinBoundary(alias, BoundaryOutputType.MAP, Vertex.class);
+      return;
+    }
+    repinSourceElement(ctx, alias);
+  }
+
+  static void repinSourceElement(RecognitionContext ctx, String alias) {
+    ctx.setSingleReturnColumn(alias);
+    if (ctx instanceof WalkerContext walker) {
+      ctx.setResultShaping(
+          ResultShaping.NONE.withListShapingOps(walker.shaping().listShapingOps()));
+    }
+    ctx.pinBoundary(alias, BoundaryOutputType.ELEMENT, Vertex.class);
+  }
+
+  /** Consume only a single ordinary values(key); leave all other projections for the walker gate. */
+  static @Nullable String takeValuesKey(StepCursor cursor) {
+    if (cursor.peek() instanceof PropertiesStep<?> properties
+        && properties.getReturnType() == PropertyType.VALUE) {
+      var keys = properties.getPropertyKeys();
+      if (keys.length == 1 && keys[0] != null && !keys[0].isBlank()
+          && !WalkerContext.isReservedHasKey(keys[0])) {
+        cursor.take();
+        return keys[0];
+      }
+    }
+    return null;
+  }
+}

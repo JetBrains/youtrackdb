@@ -10,9 +10,14 @@ import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
+import org.apache.tinkerpop.gremlin.process.traversal.NotP;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
+import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
 import org.apache.tinkerpop.gremlin.structure.T;
 
 /**
@@ -71,7 +76,7 @@ import org.apache.tinkerpop.gremlin.structure.T;
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
- * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id)
+ * untranslatable container (a reserved key, a conflicting {@code ~label}, an unconvertible id)
  * declines with zero {@code WalkerContext} mutation. The label bind opens
  * the contribution block for the same reason — a colliding label declines before the re-type and the
  * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
@@ -110,6 +115,11 @@ final class HasStepRecogniser implements StepRecogniser {
     var boundary = ctx.boundaryAlias();
     if (boundary == null) {
       return Outcome.DECLINE;
+    }
+    // Deferred hop after order(): stash has(...) containers on the pending hop so a following
+    // slice filters neighbours with native label/collation semantics before the cut.
+    if (ctx.pendingOrderedHop() != null) {
+      return recognizePendingOrderedHopHas(hasStep, ctx);
     }
     var containers = hasStep.getHasContainers();
     if (containers.isEmpty()) {
@@ -244,6 +254,196 @@ final class HasStepRecogniser implements StepRecogniser {
       ctx.putAliasFilter(boundary, WHERE.wrap(merged));
     }
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Writes deferred neighbour {@code has} containers onto {@code alias} as MATCH filters (and
+   * optional class re-type for {@code hasLabel}). Each native HasStep contributes its own class
+   * condition: labels within one step OR, separate steps AND.
+   */
+  static boolean contributeContainersToAlias(
+      RecognitionContext ctx, String alias, List<HasContainer> containers) {
+    return contributeContainersToAlias(ctx, alias, containers,
+        containers.isEmpty() ? List.of() : List.of(containers.size()));
+  }
+
+  static boolean contributeContainersToAlias(
+      RecognitionContext ctx, String alias, List<HasContainer> containers,
+      List<Integer> stepSizes) {
+    int offset = 0;
+    for (int size : stepSizes) {
+      if (!contributeOneHasStep(ctx, alias, containers.subList(offset, offset + size),
+          stepSizes.size() == 1)) {
+        return false;
+      }
+      offset += size;
+    }
+    return offset == containers.size();
+  }
+
+  private static boolean contributeOneHasStep(
+      RecognitionContext ctx, String alias, List<HasContainer> containers, boolean mayRetype) {
+    // YTDBHasLabelStep ORs all label predicates of one HasStep, including mixed eq/within.
+    var names = new ArrayList<String>();
+    for (var container : containers) {
+      if (LABEL_KEY.equals(container.getKey())) {
+        var parsed = parseLabelContainer(container);
+        if (parsed instanceof ParsedLabelConstraint.Single single) {
+          names.add(single.name());
+        } else if (parsed instanceof ParsedLabelConstraint.Multi multi) {
+          names.addAll(multi.names());
+        } else {
+          return false;
+        }
+      }
+    }
+    GremlinPredicateAdapter.PropertyTypeGate typeGate;
+    if (names.size() == 1) {
+      typeGate = GremlinPredicateAdapter.schemaGate(ctx, names.getFirst());
+    } else if (!names.isEmpty()) {
+      typeGate = GremlinPredicateAdapter.schemaGate(ctx, names.toArray(String[]::new));
+    } else {
+      typeGate = GremlinPredicateAdapter.schemaGate(ctx, (String) null);
+    }
+    ParamSink paramSink = ctx::bindParam;
+    var rangeTypeGuard = !ctx.atTraversalStart();
+    var whereExprs = new ArrayList<SQLBooleanExpression>();
+    for (var container : containers) {
+      var key = container.getKey();
+      if (LABEL_KEY.equals(key)) {
+        continue;
+      }
+      if (ID_KEY.equals(key)) {
+        ctx.markRidBearing();
+        var ridExpr = translateHasId(container);
+        if (ridExpr == null) {
+          return false;
+        }
+        whereExprs.add(ridExpr);
+        continue;
+      }
+      var filter =
+          GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink, rangeTypeGuard);
+      if (filter == null) {
+        return false;
+      }
+      whereExprs.add(filter);
+    }
+    if (!names.isEmpty()) {
+      // Only narrow a single label group with a verified class. Missing alternatives remain in
+      // the class predicate but never become a MATCH source, even when every name is absent.
+      if (mayRetype && names.stream().allMatch(ctx::isVertexClass)) {
+        if (names.size() == 1) {
+          ctx.addNode(alias, names.getFirst());
+        } else if (WalkerContext.VERTEX_ROOT_CLASS.equals(ctx.boundaryClassName())) {
+          var lca = ctx.leastCommonVertexAncestor(names);
+          if (lca != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(lca)) {
+            ctx.addNode(alias, lca);
+          }
+        }
+      }
+      whereExprs.add(WHERE.classIn(ctx.polymorphic()
+          ? ctx.expandPolymorphicClassClosure(names) : names));
+    }
+    if (!whereExprs.isEmpty()) {
+      var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));
+      ctx.putAliasFilter(alias, WHERE.wrap(merged));
+    }
+    return true;
+  }
+
+  /**
+   * Validates neighbour {@code has(...)} for ordered-expand list-shaping (native label and
+   * collation-aware evaluation at expand time). Returns the containers, or {@code null} to decline —
+   * traversal-bearing predicates, bad keys, and malformed label predicates.
+   */
+  static @Nullable List<HasContainer> collectDeferredHasContainers(
+      HasStep<?> hasStep, RecognitionContext ctx) {
+    var containers = hasStep.getHasContainers();
+    if (containers.isEmpty()) {
+      return null;
+    }
+    for (var container : containers) {
+      if (embedsTraversal(container.getPredicate())) {
+        return null;
+      }
+      var key = container.getKey();
+      if (key == null || key.isBlank()) {
+        return null;
+      }
+      // Allow ~label / ~id; decline other reserved namespaces ($ / @).
+      if (WalkerContext.isReservedHasKey(key)
+          && !LABEL_KEY.equals(key)
+          && !ID_KEY.equals(key)) {
+        return null;
+      }
+      if (LABEL_KEY.equals(key) && parseLabelContainer(container) == null) {
+        return null;
+      }
+    }
+    for (var container : containers) {
+      if (!LABEL_KEY.equals(container.getKey())) {
+        // Deferred IDs and property literals are not rebound inside cached shaping ops.
+        // Until op parameters are supported, keep each invocation's filter in its own plan.
+        ctx.markRidBearing();
+      }
+    }
+    return List.copyOf(containers);
+  }
+
+  /**
+   * Stashes neighbour {@code has(...)} containers onto a deferred ordered hop. Every container shape
+   * already handled on the MATCH path is accepted and later evaluated with native
+   * neighbour filters; traversal-bearing {@code has} declines.
+   */
+  private static Outcome recognizePendingOrderedHopHas(
+      HasStep<?> hasStep, RecognitionContext ctx) {
+    var pending = ctx.pendingOrderedHop();
+    if (pending == null) {
+      return Outcome.DECLINE;
+    }
+    var containers = collectDeferredHasContainers(hasStep, ctx);
+    if (containers == null) {
+      return Outcome.DECLINE;
+    }
+    if (!ctx.bindStepLabels(hasStep, pending.targetAlias())) {
+      return Outcome.DECLINE;
+    }
+    ctx.setPendingOrderedHop(pending.appendHasStep(containers));
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Whether a {@code has} predicate embeds a sub-traversal ({@code has(key, traversal)}). Connectives
+   * are walked so {@code P.and(eq(x), traversalP)} still declines.
+   */
+  private static boolean embedsTraversal(@Nullable P<?> predicate) {
+    if (predicate == null) {
+      return false;
+    }
+    if (predicate.getValue() instanceof Traversal) {
+      return true;
+    }
+    if (predicate instanceof NotP<?> notP) {
+      return embedsTraversal(notP.negate());
+    }
+    if (predicate instanceof AndP<?> andP) {
+      for (var child : andP.getPredicates()) {
+        if (embedsTraversal(child)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (predicate instanceof OrP<?> orP) {
+      for (var child : orP.getPredicates()) {
+        if (embedsTraversal(child)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    return false;
   }
 
   /**

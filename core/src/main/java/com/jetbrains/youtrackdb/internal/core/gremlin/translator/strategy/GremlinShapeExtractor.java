@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +14,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
@@ -68,12 +68,13 @@ final class GremlinShapeExtractor {
       @Nonnull Traversal.Admin<?, ?> traversal,
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
-      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     var extractor =
         new GremlinShapeExtractor(
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
     extractor.appendStrategyFlags(
-        traversal, orderIncludesMissingKey, orderByNullsPlacements);
+        traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     extractor.visit(traversal);
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete());
@@ -85,8 +86,8 @@ final class GremlinShapeExtractor {
   private void appendStrategyFlags(
       Traversal.Admin<?, ?> traversal,
       @Nullable Boolean orderIncludesMissingKey,
-      ResolvedOrderByNullsPlacement orderByNullsPlacements) {
-    Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
     encoder.appendToken(
         "elv",
@@ -167,6 +168,12 @@ final class GremlinShapeExtractor {
         continue;
       }
       encoder.appendToken("S", step.getClass().getName());
+      if (step instanceof HasStep<?> hasStep) {
+        if (hasStep.getHasContainers().stream().anyMatch(
+            c -> org.apache.tinkerpop.gremlin.structure.T.id.getAccessor().equals(c.getKey()))) {
+          encoder.markIncomplete();
+        }
+      }
       var labels = GremlinStepLabels.userLabels(step);
       encoder.appendStringSeq("L", labels);
       var recogniser = recognisers.get(step.getClass());

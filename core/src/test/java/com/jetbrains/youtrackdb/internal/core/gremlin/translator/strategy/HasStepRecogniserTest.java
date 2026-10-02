@@ -1,15 +1,25 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -396,8 +406,311 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Deferred ordered hop — stash neighbour has / flush into MATCH.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * With a pending ordered hop, {@code has("name", …)} stashes containers on the hop instead of
+   * writing MATCH filters immediately — a following slice will apply them via
+   * {@code HasContainer.test}.
+   */
+  @Test
+  public void pendingOrderedHop_propertyHas_stashesContainers() {
+    var admin = graph.traversal().V().has("name", P.eq("Alice")).asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, null);
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = HasStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    var pending = ctx.pendingOrderedHop();
+    assertThat(pending).isNotNull();
+    assertThat(pending.hasContainers()).hasSize(1);
+    assertThat(pending.hasContainers().getFirst().getKey()).isEqualTo("name");
+    assertThat(ctx.aliasFilters)
+        .as("deferred has must not write MATCH filters until flush")
+        .doesNotContainKey(PENDING_TARGET_ALIAS);
+  }
+
+  /**
+   * Deferred {@code hasLabel("Person")} is stashed the same way, and a later flush re-types the
+   * neighbour alias in MATCH.
+   */
+  @Test
+  public void pendingOrderedHop_hasLabel_stashesThenFlushWritesAliasFilter() {
+    session.createVertexClass("Person");
+    var admin = graph.traversal().V().hasLabel("Person").asAdmin();
+    var ctx = contextWithPendingOrderedHop(false, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(ctx.pendingOrderedHop()).isNull();
+    assertThat(ctx.patternBuilder.build().aliasClasses())
+        .containsEntry(PENDING_TARGET_ALIAS, "Person");
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class IN [?]");
+  }
+
+  /**
+   * Flush of a deferred property {@code has} contributes a MATCH WHERE on the synthetic neighbour
+   * alias — the path used by {@code order().hop().has().values(...)} without a slice.
+   */
+  @Test
+  public void pendingOrderedHop_propertyHas_flushContributesFilterOnTarget() {
+    var admin = graph.traversal().V().has("name", P.eq("Alice")).asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, null);
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("name = ");
+  }
+
+  /**
+   * Flush of deferred {@code hasId} marks the plan RID-bearing and writes {@code @rid IN} on the
+   * neighbour alias.
+   */
+  @Test
+  public void pendingOrderedHop_hasId_flushContributesRidIn() {
+    var alice = graph.addVertex(T.label, "Person");
+    graph.tx().commit();
+    var admin = graph.traversal().V().hasId(alice.id()).asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(ctx.ridBearing()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS))
+        .containsIgnoringCase("@rid")
+        .contains(" IN ");
+  }
+
+  /**
+   * Multi-label deferred {@code hasLabel} under non-polymorphic mode flushes to {@code @class IN}
+   * on the neighbour alias.
+   */
+  @Test
+  public void pendingOrderedHop_multiHasLabel_nonPolymorphic_flushClassIn() {
+    var person = session.createVertexClass("Person");
+    session.getSchema().createClass("Employee", person);
+    var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
+    var ctx = contextWithPendingOrderedHop(false, session.getSchema());
+    ctx.setAtTraversalStart(false);
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class IN");
+  }
+
+  /** Traversal-bearing {@code has(key, traversal)} declines while a hop is deferred. */
+  @Test
+  public void pendingOrderedHop_traversalHas_declines() {
+    var admin = graph.traversal().V().has("name", __.out("knows")).asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, null);
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.pendingOrderedHop().hasContainers()).isEmpty();
+  }
+
+  /**
+   * {@code P.and} / {@code P.or} / {@code P.not} that embed a sub-traversal also decline — the
+   * connective walk in {@code embedsTraversal} must see through wrappers.
+   */
+  @Test
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  public void pendingOrderedHop_connectiveEmbeddingTraversal_declines() {
+    HasStep<?> hasStep = mock(HasStep.class);
+    P traversalPredicate =
+        ((HasStep<?>) graph.traversal().V().has("name", __.out("knows")).asAdmin().getSteps()
+            .get(1))
+            .getHasContainers()
+            .getFirst()
+            .getPredicate();
+    var andWithTrav = new org.apache.tinkerpop.gremlin.process.traversal.util.AndP(
+        List.of(P.eq("a"), traversalPredicate));
+    var orWithTrav = new org.apache.tinkerpop.gremlin.process.traversal.util.OrP(
+        List.of(P.eq("a"), traversalPredicate));
+    var notWithTrav = new org.apache.tinkerpop.gremlin.process.traversal.NotP(traversalPredicate);
+    when(hasStep.getHasContainers())
+        .thenReturn(
+            List.of(new HasContainer("name", andWithTrav)),
+            List.of(new HasContainer("name", orWithTrav)),
+            List.of(new HasContainer("name", notWithTrav)));
+    when(hasStep.getLabels()).thenReturn(Collections.emptySet());
+    var ctx = contextWithPendingOrderedHop(true, null);
+
+    for (var i = 0; i < 3; i++) {
+      assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx))
+          .as("connective %s embedding a traversal must decline", i)
+          .isNull();
+    }
+  }
+
+  /** A blank property key declines deferred collection. */
+  @Test
+  public void collectDeferredHasContainers_blankKey_returnsNull() {
+    @SuppressWarnings("unchecked")
+    HasStep<?> hasStep = mock(HasStep.class);
+    when(hasStep.getHasContainers()).thenReturn(List.of(new HasContainer("  ", P.eq("x"))));
+    var ctx = contextWithPendingOrderedHop(true, null);
+
+    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).isNull();
+  }
+
+  /** Empty container list is degenerate and declines deferred collection. */
+  @Test
+  public void collectDeferredHasContainers_empty_returnsNull() {
+    @SuppressWarnings("unchecked")
+    HasStep<?> hasStep = mock(HasStep.class);
+    when(hasStep.getHasContainers()).thenReturn(List.of());
+    var ctx = contextWithPendingOrderedHop(true, null);
+
+    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).isNull();
+  }
+
+  /** Reserved {@code @} keys (other than {@code ~label}/{@code ~id}) decline deferred collection. */
+  @Test
+  public void collectDeferredHasContainers_reservedAtKey_returnsNull() {
+    @SuppressWarnings("unchecked")
+    HasStep<?> hasStep = mock(HasStep.class);
+    when(hasStep.getHasContainers()).thenReturn(List.of(new HasContainer("@class", P.eq("X"))));
+    var ctx = contextWithPendingOrderedHop(true, null);
+
+    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).isNull();
+  }
+
+  /** Deferred missing label remains a predicate on V, never an invalid MATCH class source. */
+  @Test
+  public void pendingOrderedHop_hasLabelMissingClass_filtersWithoutRetyping() {
+    var admin = graph.traversal().V().hasLabel("Missing").asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class IN [?]");
+    assertThat(ctx.patternBuilder.build().aliasClasses()).containsEntry(PENDING_TARGET_ALIAS, "V");
+  }
+
+  /** Separate label containers in one deferred HasStep combine by native OR. */
+  @Test
+  public void pendingOrderedHop_conflictingHasLabels_combineByOr() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Software");
+    @SuppressWarnings("unchecked")
+    HasStep<?> hasStep = mock(HasStep.class);
+    when(hasStep.getHasContainers())
+        .thenReturn(
+            List.of(
+                new HasContainer(T.label.getAccessor(), P.eq("Person")),
+                new HasContainer(T.label.getAccessor(), P.eq("Software"))));
+    when(hasStep.getLabels()).thenReturn(Collections.emptySet());
+    var ctx = contextWithPendingOrderedHop(true, session.getSchema());
+
+    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).hasSize(2);
+  }
+
+  /**
+   * Multi-label deferred {@code hasLabel} under polymorphic mode stays eligible on both routes;
+   * flush includes subclasses in the MATCH class gate.
+   */
+  @Test
+  public void pendingOrderedHop_multiHasLabelPolymorphic_acceptsAndFlushesClosure() {
+    var person = session.createVertexClass("Person");
+    var employee = session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", employee);
+    var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.pendingOrderedHop().hasContainers()).hasSize(1);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS))
+        .contains("@class IN [?, ?, ?]");
+  }
+
+  /**
+   * A user label already bound to another alias on the deferred {@code has} declines without
+   * stashing containers.
+   */
+  @Test
+  public void pendingOrderedHop_userLabelAlreadyBound_declines() {
+    var priorlyLabelled = graph.traversal().V().as("a").asAdmin().getStartStep();
+    var admin = graph.traversal().V().has("name", "Alice").as("a").asAdmin();
+    var ctx = contextWithPendingOrderedHop(true, null);
+    assertThat(ctx.bindStepLabels(priorlyLabelled, BOUNDARY_ALIAS)).isTrue();
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.pendingOrderedHop().hasContainers()).isEmpty();
+  }
+
+  /**
+   * Flush fails when a stashed container cannot become a MATCH filter (unconvertible {@code hasId}),
+   * which is the walker's decline channel after a non-slice follower.
+   */
+  @Test
+  public void pendingOrderedHop_unconvertibleHasId_flushFails() {
+    @SuppressWarnings("unchecked")
+    HasStep<?> hasStep = mock(HasStep.class);
+    when(hasStep.getHasContainers())
+        .thenReturn(List.of(new HasContainer(T.id.getAccessor(), P.eq("not-a-rid"))));
+    when(hasStep.getLabels()).thenReturn(Collections.emptySet());
+    var ctx = contextWithPendingOrderedHop(true, session.getSchema());
+    // Stash bypasses collectDeferred's hasId convertibility check — collect only validates shape.
+    var containers = HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx);
+    assertThat(containers).isNotNull();
+    ctx.setPendingOrderedHop(ctx.pendingOrderedHop().withHasContainers(containers));
+
+    assertThat(ctx.flushPendingOrderedHop()).isFalse();
+  }
+
+  /** Empty container list on contribute is a no-op success (flush of a bare deferred hop). */
+  @Test
+  public void contributeContainersToAlias_empty_returnsTrue() {
+    var ctx = contextWithPendingOrderedHop(true, null);
+    assertThat(
+        HasStepRecogniser.contributeContainersToAlias(
+            ctx, PENDING_TARGET_ALIAS, List.of()))
+        .isTrue();
+  }
+
+  // ---------------------------------------------------------------------------
   // Helpers.
   // ---------------------------------------------------------------------------
+
+  private static final String PENDING_TARGET_ALIAS = "$g2m_anon_0";
+
+  /**
+   * Context with a deferred ordered hop already parked (as after {@code order().out()} before a
+   * following {@code has} / slice).
+   */
+  private WalkerContext contextWithPendingOrderedHop(boolean polymorphic, Schema schema) {
+    var ctx = contextWithStartBoundary(polymorphic, schema);
+    ctx.setOrderBy(
+        MatchProjectionBuilder.orderBy(
+            List.of(
+                ProjectionExpressionFactories.orderByProperty(BOUNDARY_ALIAS, "name", true))));
+    ctx.recordOrderByCapture(BOUNDARY_ALIAS, false);
+    ctx.setPendingOrderedHop(
+        new PendingOrderedHop(
+            Direction.OUT, new String[] {"knows"}, BOUNDARY_ALIAS, PENDING_TARGET_ALIAS,
+            List.of()));
+    ctx.pinBoundary(PENDING_TARGET_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
+    return ctx;
+  }
+
+  private static String renderAliasFilter(WalkerContext ctx, String alias) {
+    SQLWhereClause clause = ctx.aliasFilters.get(alias);
+    assertThat(clause).as("a filter was contributed on " + alias).isNotNull();
+    var sb = new StringBuilder();
+    clause.getBaseExpression().toGenericStatement(sb);
+    return sb.toString();
+  }
 
   private WalkerContext contextWithStartBoundary(boolean polymorphic, Schema schema) {
     var ctx = new WalkerContext(polymorphic, false, schema);
