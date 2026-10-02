@@ -497,13 +497,22 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
 
     final var nextChannel = new java.util.concurrent.atomic.AtomicInteger();
+    final var stubbingChannel = new FileChannel[1];
     try (MockedStatic<FileChannel> mockedChannels =
         mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      mockedChannels
-          .when(
-              () -> FileChannel.open(
-                  registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE))
-          .thenAnswer(invocation -> channels.get(nextChannel.getAndIncrement()));
+      try {
+        mockedChannels
+            .when(
+                () -> stubbingChannel[0] = FileChannel.open(
+                    registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE))
+            .thenAnswer(invocation -> channels.get(nextChannel.getAndIncrement()));
+      } finally {
+        // CALLS_REAL_METHODS opens a separate channel while recording the stub.
+        if (stubbingChannel[0] != null) {
+          stubbingChannel[0].close();
+        }
+      }
+      assertNotNull("stub setup must open the registry channel", stubbingChannel[0]);
 
       final var fileId = wowCache.addFile("forceRegistry.tst");
       wowCache.renameFile(fileId, "forceRegistryRenamed.tst");
@@ -556,16 +565,25 @@ public class WOWCacheNonDurableFileTrackingTest {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE));
+    final var stubbingChannel = new FileChannel[1];
     try (MockedStatic<FileChannel> mockedChannels =
         mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      mockedChannels
-          .when(
-              () -> FileChannel.open(
-                  backupPath,
-                  StandardOpenOption.CREATE,
-                  StandardOpenOption.READ,
-                  StandardOpenOption.WRITE))
-          .thenReturn(channel);
+      try {
+        mockedChannels
+            .when(
+                () -> stubbingChannel[0] = FileChannel.open(
+                    backupPath,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.READ,
+                    StandardOpenOption.WRITE))
+            .thenReturn(channel);
+      } finally {
+        // Close the real channel opened by CALLS_REAL_METHODS during stub setup.
+        if (stubbingChannel[0] != null) {
+          stubbingChannel[0].close();
+        }
+      }
+      assertNotNull("stub setup must open the backup channel", stubbingChannel[0]);
       wowCache.close();
       wowCache = null;
     }
@@ -595,31 +613,40 @@ public class WOWCacheNonDurableFileTrackingTest {
     Files.deleteIfExists(storagePath.resolve("name_id_map_v3.cm"));
     final var temporaryPath = storagePath.resolve("name_id_map_v3_t.cm");
     final var channel = new java.util.concurrent.atomic.AtomicReference<FileChannel>();
+    final var stubbingChannel = new FileChannel[1];
     try (MockedStatic<FileChannel> mockedChannels =
         mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      mockedChannels
-          .when(
-              () -> FileChannel.open(
-                  temporaryPath,
-                  StandardOpenOption.CREATE,
-                  StandardOpenOption.WRITE,
-                  StandardOpenOption.READ))
-          .thenAnswer(
-              invocation -> {
-                final var realChannel =
-                    temporaryPath
-                        .getFileSystem()
-                        .provider()
-                        .newFileChannel(
-                            temporaryPath,
-                            java.util.Set.of(
-                                StandardOpenOption.CREATE,
-                                StandardOpenOption.WRITE,
-                                StandardOpenOption.READ));
-                final var channelSpy = spy(realChannel);
-                channel.set(channelSpy);
-                return channelSpy;
-              });
+      try {
+        mockedChannels
+            .when(
+                () -> stubbingChannel[0] = FileChannel.open(
+                    temporaryPath,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.READ))
+            .thenAnswer(
+                invocation -> {
+                  final var realChannel =
+                      temporaryPath
+                          .getFileSystem()
+                          .provider()
+                          .newFileChannel(
+                              temporaryPath,
+                              java.util.Set.of(
+                                  StandardOpenOption.CREATE,
+                                  StandardOpenOption.WRITE,
+                                  StandardOpenOption.READ));
+                  final var channelSpy = spy(realChannel);
+                  channel.set(channelSpy);
+                  return channelSpy;
+                });
+      } finally {
+        // Close the real channel opened by CALLS_REAL_METHODS during stub setup.
+        if (stubbingChannel[0] != null) {
+          stubbingChannel[0].close();
+        }
+      }
+      assertNotNull("stub setup must open the temporary channel", stubbingChannel[0]);
       invokeFsyncFilesOrMigration(wowCache, "storedNameIdMapToV3");
     }
 
@@ -909,23 +936,32 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var fileId = wowCache.addFile("retryRegistryForce.tst");
     final var backupPath = storagePath.resolve("name_id_map_v2_backup.cm");
     final var forceCalls = new AtomicInteger();
+    final var stubbingChannel = new FileChannel[1];
     try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      channels.when(() -> FileChannel.open(backupPath, StandardOpenOption.CREATE,
-          StandardOpenOption.READ, StandardOpenOption.WRITE))
-          .thenAnswer(invocation -> {
-            final var real = backupPath.getFileSystem().provider().newFileChannel(backupPath,
-                java.util.Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ,
-                    StandardOpenOption.WRITE));
-            final var channel = spy(real);
-            org.mockito.Mockito.doAnswer(force -> {
-              if (forceCalls.incrementAndGet() == 1) {
-                throw new IOException("injected registry force failure");
-              }
-              force.callRealMethod();
-              return null;
-            }).when(channel).force(true);
-            return channel;
-          });
+      try {
+        channels.when(() -> stubbingChannel[0] = FileChannel.open(backupPath,
+            StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE))
+            .thenAnswer(invocation -> {
+              final var real = backupPath.getFileSystem().provider().newFileChannel(backupPath,
+                  java.util.Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ,
+                      StandardOpenOption.WRITE));
+              final var channel = spy(real);
+              org.mockito.Mockito.doAnswer(force -> {
+                if (forceCalls.incrementAndGet() == 1) {
+                  throw new IOException("injected registry force failure");
+                }
+                force.callRealMethod();
+                return null;
+              }).when(channel).force(true);
+              return channel;
+            });
+      } finally {
+        // Close the real channel opened by CALLS_REAL_METHODS during stub setup.
+        if (stubbingChannel[0] != null) {
+          stubbingChannel[0].close();
+        }
+      }
+      assertNotNull("stub setup must open the backup channel", stubbingChannel[0]);
       assertThrows(IOException.class, wowCache::close);
       assertEquals("failed registry write must retain the file owner", false,
           files.get(fileId) == null);
