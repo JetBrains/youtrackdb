@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AliasPropertyPresence;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
@@ -330,6 +331,10 @@ final class GremlinPlanFingerprint {
     if (shaping.rowDedupAlias() != null) {
       appendToken(sb, shaping.rowDedupAlias());
     }
+    sb.append(";OS:");
+    for (var column : shaping.orderedSourceKeyColumns()) {
+      appendToken(sb, column);
+    }
     sb.append(";LS:");
     for (ListShapingOp op : shaping.listShapingOps()) {
       // Class name alone collides tail(2) with tail(5). ListShapingOp has no fingerprint hook, so
@@ -337,33 +342,37 @@ final class GremlinPlanFingerprint {
       if (op instanceof TailListShapingOp tail) {
         appendToken(sb, op.getClass().getName() + ":" + tail.limit());
       } else if (op instanceof OrderedExpandSliceListShapingOp expand) {
-        var filterToken = new StringBuilder();
-        for (var container : expand.hasContainers()) {
-          filterToken
-              .append(container.getKey())
-              .append('=')
-              .append(container.getPredicate())
-              .append(';');
+        appendToken(sb, op.getClass().getName());
+        for (var stage : expand.stages()) {
+          switch (stage) {
+            case OrderedHopStage.SourceMerge merge -> appendToken(sb,
+                "merge:" + merge.key() + ":" + merge.sackGated() + ":" + merge.preOrderSplits());
+            case OrderedHopStage.Project project -> appendToken(sb, "project:" + project.splits());
+            case OrderedHopStage.Expand hop -> {
+              appendToken(sb, "expand:" + hop.direction());
+              appendToken(sb, java.util.Arrays.toString(hop.edgeLabels()));
+            }
+            case OrderedHopStage.Filter filter -> {
+              appendToken(sb, "filter:" + filter.polymorphic());
+              appendToken(sb, Integer.toString(filter.containers().size()));
+              for (var container : filter.containers()) {
+                appendToken(sb, container.getKey());
+                appendToken(sb, container.getPredicate().toString());
+              }
+            }
+            case OrderedHopStage.Barrier barrier -> appendToken(sb,
+                "barrier:" + barrier.maxSize() + ":" + barrier.key()
+                    + ":" + barrier.pathIndexes() + ":" + barrier.sackGated());
+            case OrderedHopStage.Slice slice -> {
+              appendToken(sb, "slice:" + slice.skip());
+              appendToken(sb, Long.toString(slice.limit()));
+            }
+            case OrderedHopStage.Values values -> {
+              appendToken(sb, "values");
+              appendToken(sb, values.propertyKey());
+            }
+          }
         }
-        appendToken(
-            sb,
-            op.getClass().getName()
-                + ":"
-                + expand.direction()
-                + ":"
-                + java.util.Arrays.toString(expand.edgeLabels())
-                + ":"
-                + expand.skip()
-                + ":"
-                + expand.limit()
-                + ":"
-                + expand.propertyKey()
-                + ":"
-                + expand.polymorphic()
-                + ":"
-                + expand.hasStepSizes()
-                + ":"
-                + filterToken);
       } else {
         appendToken(sb, op.getClass().getName());
       }

@@ -1,104 +1,140 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
- * Post-plan stage for ordered expand:
- * <ul>
- *   <li>{@code order().by(...).out|in|both(...).[has...].limit|range} — MATCH returns sorted
- *       sources only; this stage expands, optionally filters neighbours with native YTDB predicates,
- *       then applies the positional cut;
- *   <li>{@code order().by(...).limit|skip|range.out|in|both(...).[has...]} — MATCH applies statement
- *       top-N on sources; this stage expands (and optionally filters / projects) with unbounded
- *       cut ({@code limit == -1}).
- * </ul>
- *
- * <p>Matching native membership (including mid-hub cuts on the hop-then-slice spelling).
- *
- * <p>Optional {@code values(key)} after the hop/slice is folded in: the cut counts neighbour vertices
- * that survived {@code has} (as native {@code .has().limit(n).values(k)} does), then absent
- * properties drop without filling the quota from later neighbours.
- *
- * <h2>Per-call state</h2>
- *
- * Iterators and counters live inside the returned iterator, not in fields — same contract as
- * {@link TailListShapingOp}: {@link ListShapingOp#apply} may run again after {@code reset()}, and
- * cloned steps share this instance by reference.
+ * Post-plan execution of a sliced ordered hop. MATCH returns sorted source rows and labelled-path
+ * identities. The source-merge stage combines only native-equal traversers, subject to sack
+ * mergeability. Each following stage runs in traversal order over bulk groups: a source slice
+ * precedes select projection and expansion, while a post-hop slice follows the admitted filters
+ * and barriers at its native position. Barriers retain their distinct-entry window sizes and
+ * first-seen order. Each {@link #apply} owns its iterators and counters, including after reset and
+ * reopen.
  */
 public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
 
+  private final List<OrderedHopStage> stages;
   private final Direction direction;
-  /** Edge labels for the hop, or {@code null} for all edge types. */
   @Nullable private final String[] edgeLabels;
   private final long skip;
-  /** Rows to emit after skip; {@code -1} means unbounded (skip-only). */
   private final long limit;
-  /** When non-null, emit that property of each neighbour (drop when absent), else emit the vertex. */
   @Nullable private final String propertyKey;
-  /** Original containers retained for cache identity and future literal binding. */
   private final List<HasContainer> hasContainers;
-  private final boolean polymorphic;
-  /** Each size preserves one native HasStep boundary for label OR/step AND. */
   private final List<Integer> hasStepSizes;
-  /** Native label predicates combine with OR within their step, then steps combine with AND. */
-  private final List<NeighbourFilter> filters;
+  private final boolean polymorphic;
+  private final OrderedHopStage.MergeKey mergeKey;
 
-  public OrderedExpandSliceListShapingOp(
-      @Nonnull Direction direction,
-      @Nullable String[] edgeLabels,
-      long skip,
-      long limit,
-      @Nullable String propertyKey,
-      @Nonnull List<HasContainer> hasContainers,
-      @Nonnull List<Integer> hasStepSizes,
-      boolean polymorphic) {
+  /** The translator supplies the native-order stages, including the source merge. */
+  public OrderedExpandSliceListShapingOp(@Nonnull List<OrderedHopStage> stages) {
+    this.stages = List.copyOf(stages);
+    if (stages.isEmpty() || !(stages.getFirst() instanceof OrderedHopStage.SourceMerge merge)) {
+      throw new IllegalArgumentException("The first ordered-hop stage must merge sources");
+    }
+    mergeKey = merge.key();
+    var expand = stages.stream().filter(OrderedHopStage.Expand.class::isInstance)
+        .map(OrderedHopStage.Expand.class::cast).findFirst().orElseThrow();
+    direction = expand.direction();
+    edgeLabels = expand.edgeLabels();
+    var slice = stages.stream().filter(OrderedHopStage.Slice.class::isInstance)
+        .map(OrderedHopStage.Slice.class::cast).findFirst().orElse(null);
+    skip = slice == null ? 0 : slice.skip();
+    limit = slice == null ? -1 : slice.limit();
+    propertyKey = stages.stream().filter(OrderedHopStage.Values.class::isInstance)
+        .map(OrderedHopStage.Values.class::cast).map(OrderedHopStage.Values::propertyKey)
+        .findFirst().orElse(null);
+    var containers = new ArrayList<HasContainer>();
+    var sizes = new ArrayList<Integer>();
+    boolean poly = false;
+    for (var stage : stages) {
+      if (stage instanceof OrderedHopStage.Filter filter) {
+        containers.addAll(filter.containers());
+        sizes.add(filter.containers().size());
+        poly = filter.polymorphic();
+      }
+    }
+    hasContainers = List.copyOf(containers);
+    hasStepSizes = List.copyOf(sizes);
+    polymorphic = poly;
+  }
+
+  /** Builds one filter stage per native HasStep. An unbounded cut has no slice stage. */
+  public static List<OrderedHopStage> stagesFor(
+      Direction direction, @Nullable String[] edgeLabels, long skip, long limit,
+      @Nullable String propertyKey, List<HasContainer> containers, List<Integer> stepSizes,
+      boolean polymorphic, OrderedHopStage.MergeKey mergeKey) {
     if (skip < 0) {
       throw new IllegalArgumentException("skip must not be negative: " + skip);
     }
     if (limit < -1) {
       throw new IllegalArgumentException("limit must be >= -1: " + limit);
     }
-    this.direction = direction;
-    this.edgeLabels = edgeLabels == null ? null : edgeLabels.clone();
-    this.skip = skip;
-    this.limit = limit;
-    this.propertyKey = propertyKey;
-    this.hasContainers = List.copyOf(hasContainers);
-    this.polymorphic = polymorphic;
-    this.hasStepSizes = List.copyOf(hasStepSizes);
-    this.filters = NeighbourFilter.fromContainers(
-        this.hasContainers, this.hasStepSizes, polymorphic);
+    var stages = new ArrayList<OrderedHopStage>();
+    stages.add(new OrderedHopStage.SourceMerge(mergeKey));
+    stages.add(new OrderedHopStage.Expand(direction, edgeLabels));
+    int offset = 0;
+    for (int size : stepSizes) {
+      if (size < 0 || offset + size > containers.size()) {
+        throw new IllegalArgumentException("Invalid ordered-hop HasStep size: " + size);
+      }
+      stages
+          .add(new OrderedHopStage.Filter(containers.subList(offset, offset + size), polymorphic));
+      offset += size;
+    }
+    if (offset != containers.size()) {
+      throw new IllegalArgumentException("HasStep sizes must cover every neighbour container");
+    }
+    if (skip != 0 || limit >= 0) {
+      stages.add(new OrderedHopStage.Slice(skip, limit));
+    }
+    if (propertyKey != null) {
+      stages.add(new OrderedHopStage.Values(propertyKey));
+    }
+    return List.copyOf(stages);
   }
 
-  /** A direct caller supplies one HasStep worth of filters. */
   public OrderedExpandSliceListShapingOp(
-      @Nonnull Direction direction,
-      @Nullable String[] edgeLabels,
-      long skip,
-      long limit,
-      @Nullable String propertyKey,
-      @Nonnull List<HasContainer> hasContainers,
+      @Nonnull Direction direction, @Nullable String[] edgeLabels, long skip, long limit,
+      @Nullable String propertyKey, @Nonnull List<HasContainer> hasContainers,
+      @Nonnull List<Integer> hasStepSizes, boolean polymorphic) {
+    this(stagesFor(direction, edgeLabels, skip, limit, propertyKey, hasContainers, hasStepSizes,
+        polymorphic, OrderedHopStage.MergeKey.ELEMENT));
+  }
+
+  public OrderedExpandSliceListShapingOp(
+      @Nonnull Direction direction, @Nullable String[] edgeLabels, long skip, long limit,
+      @Nullable String propertyKey, @Nonnull List<HasContainer> hasContainers,
       boolean polymorphic) {
     this(direction, edgeLabels, skip, limit, propertyKey, hasContainers,
         List.of(hasContainers.size()), polymorphic);
   }
 
-  /** Direct callers without a traversal use exact-label semantics. */
   public OrderedExpandSliceListShapingOp(
-      @Nonnull Direction direction,
-      @Nullable String[] edgeLabels,
-      long skip,
-      long limit,
-      @Nullable String propertyKey,
-      @Nonnull List<HasContainer> hasContainers) {
+      @Nonnull Direction direction, @Nullable String[] edgeLabels, long skip, long limit,
+      @Nullable String propertyKey, @Nonnull List<HasContainer> hasContainers) {
     this(direction, edgeLabels, skip, limit, propertyKey, hasContainers, false);
+  }
+
+  @Nonnull
+  public List<OrderedHopStage> stages() {
+    return stages;
+  }
+
+  public OrderedHopStage.MergeKey mergeKey() {
+    return mergeKey;
   }
 
   @Nonnull
@@ -127,112 +163,352 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
     return hasContainers;
   }
 
-  public boolean polymorphic() {
-    return polymorphic;
-  }
-
   public List<Integer> hasStepSizes() {
     return hasStepSizes;
   }
 
+  public boolean polymorphic() {
+    return polymorphic;
+  }
+
   @Override
   public Iterator<Object> apply(Iterator<Object> upstream) {
+    return apply(upstream, null);
+  }
+
+  @Override
+  public Iterator<Object> apply(Iterator<Object> upstream, TraversalSideEffects effects) {
+    Supplier<Object> supplier = effects == null ? null : effects.getSackInitialValue();
+    UnaryOperator<Object> splitter = effects == null ? null : effects.getSackSplitter();
+    var sourceMerge = (OrderedHopStage.SourceMerge) stages.getFirst();
+    Iterator<Group> groups = new Iterator<>() {
+      @Override
+      public boolean hasNext() {
+        return upstream.hasNext();
+      }
+
+      @Override
+      public Group next() {
+        var value = upstream.next();
+        Object sack = sourceMerge.sackGated() && supplier != null ? supplier.get() : null;
+        for (int i = 0; i < sourceMerge.preOrderSplits(); i++) {
+          sack = splitSack(sack, splitter);
+        }
+        return value instanceof OrderedSourceRow row
+            ? new Group(row, row.source(), row.path(), 1, sack)
+            : new Group(value, 1, sack);
+      }
+    };
+    for (var stage : stages) {
+      groups = switch (stage) {
+        case OrderedHopStage.SourceMerge merge -> mergeSources(groups, merge);
+        case OrderedHopStage.Project project -> project(groups, project, splitter);
+        case OrderedHopStage.Expand expand -> expand(groups, expand, splitter);
+        case OrderedHopStage.Filter filter -> filter(groups, filter);
+        case OrderedHopStage.Slice slice -> slice(groups, slice);
+        case OrderedHopStage.Barrier barrier -> barrier(groups, barrier);
+        case OrderedHopStage.Values values -> values(groups, values.propertyKey());
+      };
+    }
+    Iterator<Group> result = groups;
     return new Iterator<>() {
-      private Iterator<Vertex> neighbours = java.util.Collections.emptyIterator();
-      private long dropped;
-      /** Neighbours accepted past skip toward the limit quota (after has, before property drop). */
-      private long accepted;
-      private Object buffered;
-      private boolean hasBuffered;
+      private Group current;
+      private long remaining;
+
+      @Override
+      public boolean hasNext() {
+        if (remaining > 0) {
+          return true;
+        }
+        if (!result.hasNext()) {
+          return false;
+        }
+        current = result.next();
+        remaining = current.bulk();
+        return true;
+      }
+
+      @Override
+      public Object next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        remaining--;
+        return current.payload();
+      }
+    };
+  }
+
+  private record Group(Object payload, Object source, List<Object> path, long bulk, Object sack) {
+
+    Group(Object payload, long bulk, Object sack) {
+      this(payload, payload, List.of(), bulk, sack);
+    }
+
+    Group withPayload(Object value) {
+      return new Group(value, source, path, bulk, sack);
+    }
+
+    Group withBulk(long value) {
+      return new Group(payload, source, path, value, sack);
+    }
+  }
+
+  private static Object splitSack(Object sack, UnaryOperator<Object> splitter) {
+    return sack != null && splitter != null ? splitter.apply(sack) : sack;
+  }
+
+  private record BarrierIdentity(Object payload, Object path) {
+  }
+
+  private static Iterator<Group> project(Iterator<Group> upstream,
+      OrderedHopStage.Project project, UnaryOperator<Object> splitter) {
+    return selecting(upstream, group -> {
+      if (!(group.payload() instanceof OrderedSourceRow row)) {
+        return group;
+      }
+      var projection = row.projection().get();
+      if (!projection.productive()) {
+        return null;
+      }
+      return new Group(projection.payload(), group.source(), group.path(), group.bulk(),
+          project.splits() ? splitSack(group.sack(), splitter) : group.sack());
+    });
+  }
+
+  /** RID tie-breaking makes equal sorted elements adjacent, so only a single run is buffered. */
+  private static Iterator<Group> mergeSources(
+      Iterator<Group> upstream, OrderedHopStage.SourceMerge stage) {
+    var key = stage.key();
+    if (key == OrderedHopStage.MergeKey.NONE) {
+      return upstream;
+    }
+    return new Iterator<>() {
+      private Group pending;
+      private Iterator<Group> run = Collections.emptyIterator();
+
+      @Override
+      public boolean hasNext() {
+        return run.hasNext() || pending != null || upstream.hasNext();
+      }
+
+      @Override
+      public Group next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        if (!run.hasNext()) {
+          var first = pending != null ? pending : upstream.next();
+          pending = null;
+          // RID tie-breaking makes equal sources adjacent. Within a source run, preserve the
+          // first-seen order of distinct paths while merging native-equal traversers.
+          var merged = new LinkedHashMap<Object, Group>();
+          merged.put(sourceIdentity(first, stage), first);
+          while (upstream.hasNext()) {
+            var next = upstream.next();
+            if (!Objects.equals(first.source(), next.source())) {
+              pending = next;
+              break;
+            }
+            Object identity = sourceIdentity(next, stage);
+            var old = merged.get(identity);
+            merged.put(identity, old == null ? next : old.withBulk(old.bulk() + next.bulk()));
+          }
+          run = merged.values().iterator();
+        }
+        return run.next();
+      }
+    };
+  }
+
+  private static Object sourceIdentity(Group group, OrderedHopStage.SourceMerge stage) {
+    if (stage.sackGated() && group.sack() != null) {
+      return new Object();
+    }
+    return stage.key() == OrderedHopStage.MergeKey.ELEMENT_AND_PATH
+        ? group.path() : group.source();
+  }
+
+  /** VertexStep splits one source group into one group per neighbour, retaining its bulk. */
+  private static Iterator<Group> expand(Iterator<Group> upstream, OrderedHopStage.Expand hop,
+      UnaryOperator<Object> splitter) {
+    return new Iterator<>() {
+      private Iterator<Vertex> neighbours = Collections.emptyIterator();
+      private long bulk;
+      private Object source;
+      private List<Object> path;
+      private Object sack;
+
+      @Override
+      public boolean hasNext() {
+        while (!neighbours.hasNext() && upstream.hasNext()) {
+          var group = upstream.next();
+          bulk = group.bulk();
+          source = group.source();
+          path = group.path();
+          sack = group.sack();
+          // Native VertexStep casts before asking for neighbours, even if the next slice is empty.
+          Vertex vertex = (Vertex) group.payload();
+          neighbours = hop.edgeLabels() == null
+              ? vertex.vertices(hop.direction())
+              : vertex.vertices(hop.direction(), hop.edgeLabels());
+        }
+        return neighbours.hasNext();
+      }
+
+      @Override
+      public Group next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        return new Group(neighbours.next(), source, path, bulk, splitSack(sack, splitter));
+      }
+    };
+  }
+
+  private static Iterator<Group> filter(Iterator<Group> upstream, OrderedHopStage.Filter stage) {
+    var predicates = NeighbourFilter.fromStep(stage.containers(), stage.polymorphic());
+    return selecting(upstream, group -> {
+      for (var predicate : predicates) {
+        if (!predicate.test((Vertex) group.payload())) {
+          return null;
+        }
+      }
+      return group;
+    });
+  }
+
+  /** RangeGlobalStep pulls a group before checking high, even after the quota is consumed. */
+  private static Iterator<Group> slice(Iterator<Group> upstream, OrderedHopStage.Slice range) {
+    return new Iterator<>() {
+      private long seen;
+      private Group buffered;
       private boolean exhausted;
 
       @Override
       public boolean hasNext() {
-        if (hasBuffered) {
+        if (buffered != null) {
           return true;
         }
         if (exhausted) {
           return false;
         }
-        while (true) {
-          while (!neighbours.hasNext()) {
-            if (!upstream.hasNext()) {
-              exhausted = true;
-              return false;
-            }
-            // VertexStep casts each payload to Vertex before expanding it. Projected select
-            // scalars/maps must raise the same ClassCastException, while a nonproductive select
-            // has already dropped its source in the boundary projection.
-            neighbours = expand((Vertex) upstream.next());
-          }
-          var neighbour = neighbours.next();
-          // Native label and collated-property checks run before the positional cut.
-          if (!matches(neighbour)) {
-            continue;
-          }
-          // Native RangeGlobalStep is a FilterStep: it pulls the next surviving traverser
-          // before checking its high bound. Even an empty cut must expand (and cast) first.
-          if (limit >= 0 && accepted >= limit) {
+        long high = range.limit() < 0 ? -1 : range.skip() + range.limit();
+        while (upstream.hasNext()) {
+          var group = upstream.next();
+          if (high >= 0 && seen >= high) {
             exhausted = true;
             return false;
           }
-          if (dropped < skip) {
-            dropped++;
-            continue;
+          long skipped = seen < range.skip()
+              ? Math.min(group.bulk(), range.skip() - seen) : 0;
+          long selected = group.bulk() - skipped;
+          if (high >= 0) {
+            selected = Math.min(selected, high - seen - skipped);
           }
-          accepted++;
-          var payload = project(neighbour);
-          if (payload == ABSENT) {
-            // Native limit(n).values(k) still consumes the vertex slot, then drops absent keys.
-            continue;
+          // Native advances by skipped + emitted bulk, not by the trimmed part of a group.
+          seen += skipped + selected;
+          if (selected > 0) {
+            buffered = group.withBulk(selected);
+            return true;
           }
-          buffered = payload;
-          hasBuffered = true;
-          return true;
         }
+        exhausted = true;
+        return false;
       }
 
       @Override
-      public Object next() {
-        if (!hasBuffered && !hasNext()) {
+      public Group next() {
+        if (!hasNext()) {
           throw new NoSuchElementException();
         }
-        var payload = buffered;
+        var result = buffered;
         buffered = null;
-        hasBuffered = false;
-        return payload;
-      }
-
-      private Iterator<Vertex> expand(Vertex vertex) {
-        if (edgeLabels == null) {
-          return vertex.vertices(direction);
-        }
-        return vertex.vertices(direction, edgeLabels);
-      }
-
-      private Object project(Vertex neighbour) {
-        if (propertyKey == null) {
-          return neighbour;
-        }
-        var property = neighbour.property(propertyKey);
-        if (!property.isPresent()) {
-          return ABSENT;
-        }
-        return property.value();
+        return result;
       }
     };
   }
 
-  /** Stop at the first failed filter, as native HasStep does for collated property containers. */
-  private boolean matches(Vertex neighbour) {
-    for (var filter : filters) {
-      if (!filter.test(neighbour)) {
-        return false;
+  /** A barrier fills one window of distinct traversers, then emits merged groups in insertion order. */
+  private static Iterator<Group> barrier(
+      Iterator<Group> upstream, OrderedHopStage.Barrier stage) {
+    return new Iterator<>() {
+      private Iterator<Group> window = Collections.emptyIterator();
+
+      @Override
+      public boolean hasNext() {
+        if (window.hasNext()) {
+          return true;
+        }
+        if (!upstream.hasNext()) {
+          return false;
+        }
+        var merged = new LinkedHashMap<Object, Group>();
+        int ordinal = 0;
+        while (merged.size() < stage.maxSize() && upstream.hasNext()) {
+          var group = upstream.next();
+          // NONE gives every traverser a distinct identity, even when its payload is equal.
+          Object key = stage.sackGated() && group.sack() != null ? ordinal++
+              : switch (stage.key()) {
+                case NONE -> ordinal++;
+                case ELEMENT -> group.payload();
+                case ELEMENT_AND_PATH -> new BarrierIdentity(group.payload(),
+                    stage.pathIndexes().isEmpty() ? group.path()
+                        : stage.pathIndexes().stream().map(group.path()::get).toList());
+              };
+          var old = merged.get(key);
+          merged.put(key,
+              old == null ? group : old.withBulk(old.bulk() + group.bulk()));
+        }
+        window = merged.values().iterator();
+        return window.hasNext();
       }
-    }
-    return true;
+
+      @Override
+      public Group next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        return window.next();
+      }
+    };
   }
 
-  /** Sentinel for an absent property under drop-on-absent values projection. */
-  private static final Object ABSENT = new Object();
+  private static Iterator<Group> values(Iterator<Group> upstream, String key) {
+    return selecting(upstream, group -> {
+      var property = ((Vertex) group.payload()).property(key);
+      return property.isPresent() ? group.withPayload(property.value()) : null;
+    });
+  }
+
+  private static Iterator<Group> selecting(
+      Iterator<Group> upstream, java.util.function.Function<Group, Group> selection) {
+    return new Iterator<>() {
+      private Group buffered;
+
+      @Override
+      public boolean hasNext() {
+        if (buffered != null) {
+          return true;
+        }
+        while (upstream.hasNext()) {
+          buffered = selection.apply(upstream.next());
+          if (buffered != null) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public Group next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        var result = buffered;
+        buffered = null;
+        return result;
+      }
+    };
+  }
 }

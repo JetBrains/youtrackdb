@@ -469,7 +469,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     }
     var shaped = source;
     for (ListShapingOp op : ops) {
-      shaped = op.apply(shaped);
+      shaped = op.apply(shaped, getTraversal().getSideEffects());
     }
     return shaped;
   }
@@ -494,7 +494,24 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
           return true;
         }
         while (stream.hasNext(ctx)) {
-          var payload = projectOrSkip(stream.next(ctx));
+          var row = stream.next(ctx);
+          Object payload;
+          if (!shaping.orderedSourceKeyColumns().isEmpty()) {
+            var columns = shaping.orderedSourceKeyColumns();
+            var source = convertMapColumn(columns.getFirst(), row.getProperty(columns.getFirst()));
+            var path = new ArrayList<Object>();
+            for (int i = 1; i < columns.size(); i++) {
+              path.add(convertMapColumn(columns.get(i), row.getProperty(columns.get(i))));
+            }
+            // A source cut must count this row before select().by() can drop it.
+            payload = new OrderedSourceRow(source, path, () -> {
+              var projected = projectOrSkip(row);
+              return new OrderedSourceRow.Projection(projected == SKIP ? null : projected,
+                  projected != SKIP);
+            });
+          } else {
+            payload = projectOrSkip(row);
+          }
           if (payload != SKIP) {
             bufferedPayload = payload;
             hasBuffered = true;

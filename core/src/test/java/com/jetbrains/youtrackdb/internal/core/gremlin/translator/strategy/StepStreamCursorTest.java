@@ -195,6 +195,25 @@ public class StepStreamCursorTest extends GraphBaseTest {
         .isEqualTo(3);
   }
 
+  /** Every skipped barrier drains in position order, independently of its labels. */
+  @Test
+  public void drainSkippedTransparent_preservesInterleavedOrderAndDoesNotConsumeLabels() {
+    var admin = graph.traversal().V().asAdmin();
+    var first = new NoOpBarrierStep<>(admin, 2);
+    var second = new NoOpBarrierStep<>(admin, 3);
+    second.addLabel("source");
+    var has = new HasStep<>(admin, new HasContainer("k", P.eq(1)));
+    var cursor = new StepStreamCursor(List.of(first, has, second), TRANSPARENT);
+
+    assertThat(cursor.peek()).isSameAs(has);
+    assertThat(cursor.drainSkippedTransparent()).containsExactly(first);
+    assertThat(cursor.drainSkippedTransparent()).isEmpty();
+    assertThat(cursor.take()).isSameAs(has);
+    assertThat(cursor.peek()).isNull();
+    assertThat(cursor.drainSkippedTransparent()).containsExactly(second);
+    assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(second);
+  }
+
   /** {@code take} past the end is a recogniser bug, so it throws rather than returning null. */
   @Test
   public void takePastEnd_throws() {

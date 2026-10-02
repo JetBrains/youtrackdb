@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -94,10 +93,12 @@ final class GremlinPatternAssembler {
       // Snapshot the source projection before pinning the synthetic neighbour. The pin describes
       // the logical has()/hop() target, not the payload consumed by the deferred VertexStep.
       var sourceProjection = OrderedExpandAccept.sourceProjection(ctx, fromAlias);
-      ctx.setPendingOrderedHop(
-          new PendingOrderedHop(
-              hop.getDirection(), arity.labels(), fromAlias, targetAlias, List.of(),
-              sourceProjection));
+      var pending = PendingOrderedHop.start(
+          hop.getDirection(), arity.labels(), fromAlias, targetAlias, sourceProjection);
+      if (ctx instanceof WalkerContext walker) {
+        pending = pending.prependBarriers(walker.takeOrderedSourceBarriers());
+      }
+      ctx.setPendingOrderedHop(pending);
       ctx.pinBoundary(targetAlias, BoundaryOutputType.ELEMENT, Vertex.class);
       return Outcome.ACCEPTED;
     }

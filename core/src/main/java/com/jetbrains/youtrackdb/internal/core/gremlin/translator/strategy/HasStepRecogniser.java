@@ -433,7 +433,7 @@ final class HasStepRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(hasStep, pending.targetAlias())) {
       return Outcome.DECLINE;
     }
-    ctx.setPendingOrderedHop(pending.appendHasStep(containers));
+    ctx.setPendingOrderedHop(pending.appendHasStep(containers, ctx.polymorphic()));
     return Outcome.ACCEPTED;
   }
 

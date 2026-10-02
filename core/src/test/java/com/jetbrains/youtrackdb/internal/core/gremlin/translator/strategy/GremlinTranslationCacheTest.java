@@ -119,6 +119,188 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
   }
 
+  /** Stage order and the explicit barrier window size each distinguish translation keys. */
+  @Test
+  public void orderedHopBarrierPositionsAndSizes_haveDistinctWarmCacheEntries() {
+    var first = graph.addVertex(T.label, "BarrierSource", "name", "1");
+    var second = graph.addVertex(T.label, "BarrierSource", "name", "2");
+    var third = graph.addVertex(T.label, "BarrierSource", "name", "3");
+    var a = graph.addVertex(T.label, "BarrierChild", "name", "A");
+    var b = graph.addVertex(T.label, "BarrierChild", "name", "B");
+    first.addEdge("barrierEdge", a);
+    second.addEdge("barrierEdge", b);
+    third.addEdge("barrierEdge", a);
+    graph.tx().commit();
+
+    var after = shapeKey(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").limit(2).barrier(3));
+    var beforeTwo = shapeKey(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(2).limit(2));
+    var beforeThree = shapeKey(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(3).limit(2));
+    assertThat(after).isNotEqualTo(beforeThree);
+    assertThat(beforeTwo).isNotEqualTo(beforeThree);
+    var cache = GremlinPlanCache.instance(graphSession());
+    for (int i = 0; i < 2; i++) {
+      // In the second pass, run the barrier sizes in reverse order against warm entries.
+      if (i == 0) {
+        assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+            .order().by("name").out("barrierEdge").barrier(2).limit(2))))
+            .containsExactly("A", "B");
+      }
+      assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+          .order().by("name").out("barrierEdge").barrier(3).limit(2))))
+          .containsExactly("A", "A");
+      assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+          .order().by("name").out("barrierEdge").limit(2).barrier(3))))
+          .containsExactly("A", "B");
+      if (i == 1) {
+        assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+            .order().by("name").out("barrierEdge").barrier(2).limit(2))))
+            .containsExactly("A", "B");
+      }
+    }
+    // Another test can cap the global cache at two entries. Warm each shape immediately before
+    // checking its own hit, while keeping the cross-shape alternating result checks above.
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").limit(2).barrier(3))))
+        .containsExactly("A", "B");
+    var hits = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").limit(2).barrier(3))))
+        .containsExactly("A", "B");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(3).limit(2))))
+        .containsExactly("A", "A");
+    hits = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(3).limit(2))))
+        .containsExactly("A", "A");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(2).limit(2))))
+        .containsExactly("A", "B");
+    hits = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").out("barrierEdge").barrier(2).limit(2))))
+        .containsExactly("A", "B");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+  }
+
+  /** Live path labels discriminate otherwise identical ordered-hop source slices. */
+  @Test
+  public void orderedHopLabelledPaths_haveDistinctWarmCacheEntries() {
+    var source = graph.addVertex(T.label, "PathSource", "name", "Source");
+    var hub = graph.addVertex(T.label, "PathHub", "name", "Hub");
+    var child = graph.addVertex(T.label, "PathChild", "name", "Child");
+    source.addEdge("pathEdge", hub);
+    hub.addEdge("pathNext", child);
+    graph.tx().commit();
+
+    var plain = shapeKey(() -> graph.traversal().V().hasLabel("PathSource")
+        .out("pathEdge").order().by("name").limit(1).out("pathNext"));
+    var labelled = shapeKey(() -> graph.traversal().V().hasLabel("PathSource").as("a")
+        .out("pathEdge").order().by("name").limit(1).out("pathNext"));
+    assertThat(plain).isNotEqualTo(labelled);
+    for (int round = 0; round < 2; round++) {
+      support.assertEquivalent("plain path " + round, Recognition.RECOGNIZED,
+          Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+          () -> graph.traversal().V().hasLabel("PathSource")
+              .out("pathEdge").order().by("name").limit(1).out("pathNext"));
+      support.assertEquivalent("labelled path " + round, Recognition.RECOGNIZED,
+          Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+          () -> graph.traversal().V().hasLabel("PathSource").as("a")
+              .out("pathEdge").order().by("name").limit(1).out("pathNext"));
+    }
+  }
+
+  /** Two suppliers with the same gated token share a plan but read their own runtime values. */
+  @Test
+  public void orderedHopGatedSackSuppliers_shareWarmPlanWithoutSharingValues() {
+    var first = graph.addVertex(T.label, "BulkParent", "name", "One");
+    var second = graph.addVertex(T.label, "BulkParent", "name", "Two");
+    var hub = graph.addVertex(T.label, "BulkHub", "name", "Hub");
+    var a = graph.addVertex(T.label, "BulkChild", "name", "A");
+    var b = graph.addVertex(T.label, "BulkChild", "name", "B");
+    first.addEdge("toHub", hub);
+    second.addEdge("toHub", hub);
+    hub.addEdge("toChild", a);
+    hub.addEdge("toChild", b);
+    graph.tx().commit();
+
+    var nullKey = shapeKey(() -> graph.traversal().withSack(() -> (Integer) null)
+        .V().hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3));
+    var liveKey = shapeKey(() -> graph.traversal().withSack(() -> 1)
+        .V().hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3));
+    var splitKey = shapeKey(
+        () -> graph.traversal().withSack((java.util.function.Supplier<Integer>) () -> 1,
+            (java.util.function.UnaryOperator<Integer>) x -> x)
+            .V().hasLabel("BulkParent").out("toHub").order().by("name")
+            .out("toChild").limit(3));
+    var mergedKey = shapeKey(() -> graph.traversal().withSack(1, Integer::sum)
+        .V().hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3));
+    assertThat(nullKey).isEqualTo(liveKey).isNotEqualTo(splitKey).isNotEqualTo(mergedKey);
+    var cache = GremlinPlanCache.instance(graphSession());
+    long hits = cache.getTranslationHits();
+    var nullRows = orderedNames(apply(() -> graph.traversal().withSack(() -> (Integer) null)
+        .V().hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3)));
+    assertThat(nullRows).hasSize(3);
+    assertThat(nullRows.get(0)).isEqualTo(nullRows.get(1)).isNotEqualTo(nullRows.get(2));
+    // The second supplier hits the first supplier's template, but must not reuse its value.
+    var liveRows = orderedNames(apply(() -> graph.traversal().withSack(() -> 1)
+        .V().hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3)));
+    assertThat(liveRows).hasSize(3);
+    assertThat(liveRows.get(0)).isEqualTo(liveRows.get(2)).isNotEqualTo(liveRows.get(1));
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+  }
+
+  /** Sack eligibility changes both cache identity and the ordered hop's bulk grouping. */
+  @Test
+  public void orderedHopSackConfigurations_useDistinctWarmCacheEntries() {
+    var first = graph.addVertex(T.label, "BulkParent", "name", "One");
+    var second = graph.addVertex(T.label, "BulkParent", "name", "Two");
+    var hub = graph.addVertex(T.label, "BulkHub", "name", "Hub");
+    var a = graph.addVertex(T.label, "BulkChild", "name", "A");
+    var b = graph.addVertex(T.label, "BulkChild", "name", "B");
+    first.addEdge("toHub", hub);
+    second.addEdge("toHub", hub);
+    hub.addEdge("toChild", a);
+    hub.addEdge("toChild", b);
+    graph.tx().commit();
+
+    var plain = shapeKey(() -> graph.traversal().V().hasLabel("BulkParent")
+        .out("toHub").order().by("name").out("toChild").limit(3));
+    var noMerger = shapeKey(() -> graph.traversal().withSack(1).V()
+        .hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3));
+    var merger = shapeKey(() -> graph.traversal().withSack(1, Integer::sum).V()
+        .hasLabel("BulkParent").out("toHub").order().by("name")
+        .out("toChild").limit(3));
+    assertThat(plain).isNotEqualTo(noMerger).isNotEqualTo(merger);
+    assertThat(merger).isNotEqualTo(noMerger);
+    for (int round = 0; round < 2; round++) {
+      support.assertEquivalent("plain, round " + round, Recognition.RECOGNIZED,
+          Cardinality.NON_EMPTY, GremlinTranslationCacheTest::orderedNames,
+          () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+              .order().by("name").out("toChild").limit(3));
+      support.assertEquivalent("unmergeable, round " + round, Recognition.RECOGNIZED,
+          Cardinality.NON_EMPTY, GremlinTranslationCacheTest::orderedNames,
+          () -> graph.traversal().withSack(1).V().hasLabel("BulkParent")
+              .out("toHub").order().by("name").out("toChild").limit(3));
+      support.assertEquivalent("mergeable, round " + round, Recognition.RECOGNIZED,
+          Cardinality.NON_EMPTY, GremlinTranslationCacheTest::orderedNames,
+          () -> graph.traversal().withSack(1, Integer::sum).V()
+              .hasLabel("BulkParent").out("toHub").order().by("name")
+              .out("toChild").limit(3));
+    }
+  }
+
   /** Deferred hasId cannot serve the first RID's neighbour predicate to a second RID. */
   @Test
   public void orderedHopHasId_twoDifferentIds_keepTheirOwnResults() {
@@ -1373,11 +1555,14 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   private static List<String> sortedNames(List<?> vertices) {
+    return orderedNames(vertices).stream().sorted().toList();
+  }
+
+  /** Order-sensitive renderer for traversals whose order() makes bulk grouping observable. */
+  private static List<String> orderedNames(List<?> vertices) {
     return vertices.stream()
-        .map(v -> ((Vertex) v).value("name"))
-        .map(Object::toString)
-        .sorted()
-        .toList();
+        .map(v -> (Object) ((Vertex) v).value("name"))
+        .map(String::valueOf).toList();
   }
 
   private com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded graphSession() {

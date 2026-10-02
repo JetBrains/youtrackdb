@@ -2,22 +2,23 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
-import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
- * Shared accept path for ordered-expand list-shaping: MATCH keeps sorted sources (with optional
- * statement {@code LIMIT}/{@code SKIP}), and the hop (+ optional neighbour {@code has} / {@code
- * values}) runs as {@link OrderedExpandSliceListShapingOp}.
+ * Shared accept path for ordered-expand list-shaping: MATCH keeps sorted sources, and the native
+ * source slice, hop, optional neighbour {@code has} and {@code values} run in order in {@link
+ * OrderedExpandSliceListShapingOp}.
  */
 final class OrderedExpandAccept {
 
@@ -26,8 +27,8 @@ final class OrderedExpandAccept {
   }
 
   /**
-   * Walker / hop context for {@code order().limit|skip|range} then expand: statement top-N already
-   * cuts sources; the hop must not join into MATCH.
+   * Walker / hop context for {@code order().limit|skip|range} then expand: the source slice is
+   * recorded for transfer into the op, so the hop must not join into MATCH.
    */
   static boolean hasOrderedSourceSliceForExpand(RecognitionContext ctx) {
     if (ctx.orderBy() == null || !ctx.orderAllowsSliceOnCurrentBoundary()) {
@@ -59,8 +60,8 @@ final class OrderedExpandAccept {
   }
 
   /**
-   * Appends an expand-only ordered-expand stage after a statement source slice. Optional trailing
-   * {@code has(...)} and {@code values(key)} are consumed here (list-shaping drain latch).
+   * Appends source slice, projection, expand, filter and barrier stages in native order.
+   * Optional trailing {@code has(...)} and {@code values(key)} are consumed here.
    */
   static Outcome acceptExpandAfterSourceSlice(
       StepCursor cursor, VertexStepContract<?> hop, RecognitionContext ctx) {
@@ -83,10 +84,25 @@ final class OrderedExpandAccept {
     if (!hop.getLabels().isEmpty()) {
       return Outcome.DECLINE;
     }
-    var hasContainers = new ArrayList<HasContainer>();
-    var hasStepSizes = new ArrayList<Integer>();
+    var stages = new ArrayList<OrderedHopStage>();
+    if (!(ctx instanceof WalkerContext walker)) {
+      return Outcome.DECLINE;
+    }
+    stages.add(walker.orderedSourceMerge(fromAlias));
+    var sourceSlice = walker.takeOrderedSourceSlice();
+    if (sourceSlice == null) {
+      return Outcome.DECLINE;
+    }
+    // MATCH cannot cut unmerged source rows. Range runs before select().by(), including
+    // nonproductive select rows, so projection stays lazy until after the slice. Barriers
+    // skipped after select belong after both the slice and the projection.
+    stages.add(sourceSlice);
+    stages.add(new OrderedHopStage.Project(walker.orderedProjectionSplits()));
+    stages.addAll(walker.takeOrderedSourceBarriers());
+    stages.add(new OrderedHopStage.Expand(hop.getDirection(), arity.labels()));
     while (true) {
       var next = cursor.peek();
+      stages.addAll(takeBarrierStages(cursor, ctx));
       if (!(next instanceof HasStep<?> hasStep)) {
         break;
       }
@@ -98,25 +114,52 @@ final class OrderedExpandAccept {
         return Outcome.DECLINE;
       }
       cursor.take();
-      hasContainers.addAll(collected);
-      hasStepSizes.add(collected.size());
+      stages.add(new OrderedHopStage.Filter(collected, ctx.polymorphic()));
     }
     String propertyKey = takeValuesKey(cursor);
+    stages.addAll(takeBarrierStages(cursor, ctx));
+    if (propertyKey != null) {
+      stages.add(new OrderedHopStage.Values(propertyKey));
+    }
+    cursor.peek();
+    stages.addAll(takeBarrierStages(cursor, ctx));
     // Bare select unwraps to a Vertex. Other selects must retain their projected scalar or map:
     // the expand stage performs VertexStep's cast after any nonproductive rows have been dropped.
     restoreSourceProjection(ctx, fromAlias, sourceProjection);
-    // skip/limit stay on the statement (source top-N); the op only expands.
-    ctx.appendListShapingOp(
-        new OrderedExpandSliceListShapingOp(
-            hop.getDirection(),
-            arity.labels(),
-            /* skip= */ 0,
-            /* limit= */ -1,
-            propertyKey,
-            List.copyOf(hasContainers),
-            List.copyOf(hasStepSizes),
-            ctx.polymorphic()));
+    installSourceCarrier(ctx, fromAlias);
+    ctx.setSkip(null);
+    ctx.setLimit(null);
+    ctx.appendListShapingOp(new OrderedExpandSliceListShapingOp(stages));
     return Outcome.ACCEPTED;
+  }
+
+  /** Add hidden element columns after restoring the source projection; they never enter its map. */
+  static void installSourceCarrier(RecognitionContext ctx, String sourceAlias) {
+    if (!(ctx instanceof WalkerContext walker)) {
+      return;
+    }
+    var columns = new ArrayList<String>();
+    int index = 0;
+    for (String alias : walker.orderedSourceAliases(sourceAlias)) {
+      String column = "$g2m_pe_os_" + index++;
+      ctx.appendReturnColumn(MatchProjectionBuilder.aliasColumn(alias), column);
+      columns.add(column);
+    }
+    ctx.setResultShaping(walker.shaping().withOrderedSourceKeyColumns(columns));
+  }
+
+  static List<OrderedHopStage.Barrier> takeBarrierStages(
+      StepCursor cursor, RecognitionContext ctx) {
+    var stages = new ArrayList<OrderedHopStage.Barrier>();
+    for (var skipped : cursor.drainSkippedTransparent()) {
+      if (skipped instanceof NoOpBarrierStep<?> barrier) {
+        stages.add(ctx instanceof WalkerContext walker
+            ? walker.orderedBarrierStage(barrier)
+            : new OrderedHopStage.Barrier(barrier.getMaxBarrierSize(),
+                ctx.orderedSourceMergeKey(ctx.boundaryAlias())));
+      }
+    }
+    return stages;
   }
 
   enum SourceProjection {

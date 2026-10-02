@@ -156,6 +156,22 @@ final class WalkerContext implements RecognitionContext {
    * {@link PendingOrderedHop}.
    */
   @Nullable private PendingOrderedHop pendingOrderedHop;
+  private final List<
+      com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier> orderedSourceBarriers =
+          new ArrayList<>();
+
+  void stashOrderedSourceBarriers(
+      List<
+          com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier> barriers) {
+    orderedSourceBarriers.addAll(barriers);
+  }
+
+  List<com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier>
+      takeOrderedSourceBarriers() {
+    var out = List.copyOf(orderedSourceBarriers);
+    orderedSourceBarriers.clear();
+    return out;
+  }
 
   /** {@code LIMIT} for {@code limit()} / {@code range()} terminators. */
   @Nullable SQLLimit limit;
@@ -218,6 +234,53 @@ final class WalkerContext implements RecognitionContext {
    *  resolution also carries a decline side effect: a {@code null} result declines the whole walk in
    *  the walker. */
   private final boolean polymorphic;
+
+  private TraverserMergeFacts mergeFacts =
+      new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(),
+          java.util.Map.of());
+  @Nullable private com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice orderedSourceSlice;
+
+  void setOrderedSourceSlice(long skip, long limit) {
+    orderedSourceSlice =
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice(
+            skip, limit);
+  }
+
+  @Nullable com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice
+      takeOrderedSourceSlice() {
+    var result = orderedSourceSlice;
+    orderedSourceSlice = null;
+    return result;
+  }
+
+  List<String> orderedSourceAliases(String alias) {
+    return mergeFacts.liveAliasColumns(this, alias);
+  }
+
+  com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.SourceMerge
+      orderedSourceMerge(String alias) {
+    return mergeFacts.sourceMergeFor(this, alias);
+  }
+
+  boolean orderedProjectionSplits() {
+    return mergeFacts.postOrderProjectionSplit();
+  }
+
+  com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier
+      orderedBarrierStage(
+          org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<?> step) {
+    return mergeFacts.barrierFor(this, step, orderByAlias);
+  }
+
+  void setTraverserMergeFacts(TraverserMergeFacts facts) {
+    mergeFacts = facts;
+  }
+
+  @Override
+  public com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.MergeKey
+      orderedSourceMergeKey(String sourceAlias) {
+    return mergeFacts.keyFor(this, sourceAlias);
+  }
 
   /** Whether the traversal opts into {@code EdgeLabelVerificationStrategy}, resolved once by
    *  {@link GremlinStepWalker} so {@link GremlinPatternAssembler#resolveEdgeLabel} reads a boolean
