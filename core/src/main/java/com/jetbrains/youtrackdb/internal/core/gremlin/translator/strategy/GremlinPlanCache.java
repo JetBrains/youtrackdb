@@ -73,10 +73,6 @@ public final class GremlinPlanCache
         size > 0 ? CacheBuilder.newBuilder().maximumSize(size).build() : null;
   }
 
-  public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).getLastInvalidation();
-  }
-
   /** Returns {@code true} when an entry exists for {@code fingerprint}. */
   public boolean contains(String fingerprint) {
     return containsKey(fingerprint);
@@ -117,14 +113,6 @@ public final class GremlinPlanCache
     return instance(db).templateInternal(fingerprint, db);
   }
 
-  public static void put(
-      String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (db == null || fingerprint == null) {
-      return;
-    }
-    instance(db).putInternal(fingerprint, plan, db);
-  }
-
   @Nullable public static GremlinTranslationTemplate getTranslation(
       String shapeKey, DatabaseSessionEmbedded db) {
     if (db == null || shapeKey == null) {
@@ -133,15 +121,6 @@ public final class GremlinPlanCache
     var cache = instance(db);
     cache.prepare(db);
     return cache.getTranslationInternal(shapeKey, db, cache.getInvalidationCounter());
-  }
-
-  public static void putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
-    if (db == null || shapeKey == null || template == null) {
-      return;
-    }
-    var cache = instance(db);
-    cache.putTranslationInternal(shapeKey, template, db, cache.getInvalidationCounter());
   }
 
   /** Normalize timeout before capturing the generation, not after shape extraction. */
@@ -155,10 +134,6 @@ public final class GremlinPlanCache
     if (db != null && shapeKey != null && template != null) {
       instance(db).putTranslationInternal(shapeKey, template, db, generation);
     }
-  }
-
-  void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    putInternal(fingerprint, plan, db, getInvalidationCounter());
   }
 
   void putInternal(
@@ -266,11 +241,6 @@ public final class GremlinPlanCache
     }
     translationMisses.increment();
     return null;
-  }
-
-  void putTranslationInternal(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
-    putTranslationInternal(shapeKey, template, db, getInvalidationCounter());
   }
 
   void putTranslationInternal(
