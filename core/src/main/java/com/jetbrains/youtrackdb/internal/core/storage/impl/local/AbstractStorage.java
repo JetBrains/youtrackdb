@@ -7503,6 +7503,12 @@ public abstract class AbstractStorage
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
+      // Sample operation ownership first. A committing operation publishes its page
+      // requirements before WAL completion can remove operation-table protection. The following
+      // cache sample therefore observes either the old owner or the new owner.
+      atomicOperationsTable.compactTable();
+      final var minAtomicOperationSegment =
+          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var minLSNSegment = writeCache.getMinimalNotFlushedSegment();
 
       long fuzzySegment;
@@ -7517,9 +7523,6 @@ public abstract class AbstractStorage
         fuzzySegment = endLSN.getSegment();
       }
 
-      atomicOperationsTable.compactTable();
-      final var minAtomicOperationSegment =
-          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
       }
@@ -7728,6 +7731,7 @@ public abstract class AbstractStorage
       writeAheadLog.appendNewSegment();
 
       final var lastLSN = writeAheadLog.log(new EmptyWALRecord());
+
       writeCache.flush();
 
       atomicOperationsTable.compactTable();
@@ -7739,9 +7743,28 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      writeAheadLog.cutTill(lastLSN);
+      // Operation protection is sampled before cache protection. Page publication happens
+      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      final var notPersistedSegment =
+          atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
+      var protectedSegment = notPersistedSegment;
+      if (cacheSegment != null && (protectedSegment < 0 || cacheSegment < protectedSegment)) {
+        protectedSegment = cacheSegment;
+      }
 
-      clearStorageDirty();
+      if (protectedSegment >= 0) {
+        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
+        // Unresolved recovery requirements keep the dirty marker for the next open.
+        LogManager.instance()
+            .warn(
+                this,
+                "Storage %s keeps write ahead log starting from protected segment %d",
+                (Throwable) null, name, protectedSegment);
+      } else {
+        writeAheadLog.cutTill(lastLSN);
+        clearStorageDirty();
+      }
 
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
@@ -8553,8 +8576,6 @@ public abstract class AbstractStorage
         return;
       }
 
-      stopStaleTransactionMonitor();
-
       if (status != STATUS.OPEN && !isInError()) {
         throw BaseException.wrapException(
             new StorageException(name, "Storage " + name + " was not opened, so can not be closed"),
@@ -8564,13 +8585,46 @@ public abstract class AbstractStorage
       status = STATUS.CLOSING;
 
       if (!isInError()) {
-        // Cancel in-progress histogram rebalances, flush dirty data, and
-        // block future rebalances — must happen before flushAllData so
-        // that no background thread holds page references.
-        cancelHistogramRebalances();
-        flushAllData();
+        // Block background page readers before the checkpoint, but do not discard the
+        // histogram file or snapshot until the checkpoint has succeeded.
+        final var blocked = new ArrayList<IndexHistogramManager>();
+        try {
+          for (var engine : indexEngines) {
+            if (engine instanceof BTreeIndexEngine btreeEngine) {
+              var mgr = btreeEngine.getHistogramManager();
+              if (mgr != null) {
+                mgr.blockRebalancesForStorageShutdown();
+                blocked.add(mgr);
+                // Keep histogram writes ahead of the checkpoint, as on normal shutdown.
+                try {
+                  mgr.flushIfDirty();
+                } catch (Exception e) {
+                  LogManager.instance().error(this,
+                      "Failed to flush histogram stats for engine %s", e, mgr.getName());
+                }
+              }
+            }
+          }
+          flushAllData();
+        } catch (RuntimeException | Error failure) {
+          // Neither the monitor nor any index resources have been torn down yet.
+          for (var mgr : blocked) {
+            mgr.resumeRebalancesAfterFailedStorageShutdown();
+          }
+          status = STATUS.OPEN;
+          throw failure;
+        }
+        for (var mgr : blocked) {
+          try {
+            mgr.closeStatsFileAfterStorageCheckpoint();
+          } catch (Exception e) {
+            LogManager.instance().error(this,
+                "Failed to close histogram stats for engine %s", e, mgr.getName());
+          }
+        }
       }
 
+      stopStaleTransactionMonitor();
       preCloseSteps();
 
       if (!isInError()) {
@@ -8621,12 +8675,22 @@ public abstract class AbstractStorage
 
       writeAheadLog.removeCheckpointListener(this);
 
+      Exception cacheCloseFailure = null;
       try {
         if (readCache != null) {
           readCache.closeStorage(writeCache);
         }
       } catch (Exception e) {
+        cacheCloseFailure = e;
         LogManager.instance().error(this, "Error during closing of disk cache", e);
+        // The checkpoint may have cleared the marker. Restore it before final metadata close.
+        // If this write fails, the marker cannot be guaranteed, but postCloseSteps must not
+        // clear it again. Preserve the cache error and continue closing WAL and metadata.
+        try {
+          makeStorageDirty();
+        } catch (Exception dirtyFailure) {
+          e.addSuppressed(dirtyFailure);
+        }
       }
 
       try {
@@ -8635,10 +8699,23 @@ public abstract class AbstractStorage
         LogManager.instance().error(this, "Error during closing of write ahead log", e);
       }
 
-      postCloseSteps(false, isInError(), idGen.getLastId());
+      if (cacheCloseFailure != null) {
+        try {
+          postCloseSteps(false, true, idGen.getLastId());
+        } catch (Exception metadataFailure) {
+          cacheCloseFailure.addSuppressed(metadataFailure);
+        }
+      } else {
+        postCloseSteps(false, isInError(), idGen.getLastId());
+      }
 
       migration = new CountDownLatch(1);
       status = STATUS.CLOSED;
+      if (cacheCloseFailure != null) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during closing of disk cache"),
+            cacheCloseFailure, name);
+      }
     });
   }
 
@@ -9858,20 +9935,34 @@ public abstract class AbstractStorage
             (nonActiveSegments[0] + nonActiveSegments[nonActiveSegments.length - 1]) / 2;
       }
 
+      var previousCacheSegment = writeCache.getMinimalNotFlushedSegment();
       long minDirtySegment;
       do {
         writeCache.flushTillSegment(flushTillSegmentId);
 
-        // we should take active segment BEFORE min write cache LSN call
-        // to avoid case when new data are changed before call
+        // Take the active segment before the cache boundary. New changes published between
+        // these samples must remain visible through the cache boundary.
         final var activeSegment = writeAheadLog.activeSegment();
-        final var minLSNSegment = writeCache.getMinimalNotFlushedSegment();
+        final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
 
-        minDirtySegment = Objects.requireNonNullElse(minLSNSegment, activeSegment);
+        minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+        if (minDirtySegment < flushTillSegmentId
+            && Objects.equals(cacheSegment, previousCacheSegment)) {
+          // flushTillSegment drains every dirty-map entry below the target in one call. An
+          // unchanged older boundary is therefore tracker-only or concurrently replaced. It
+          // cannot be advanced by repeating the same flush, so retain its WAL and defer cleanup.
+          return;
+        }
+        previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
+      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
+      // disappear from operation tracking before its cache requirement becomes visible.
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      final var activeSegment = writeAheadLog.activeSegment();
+      final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
+      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
       }

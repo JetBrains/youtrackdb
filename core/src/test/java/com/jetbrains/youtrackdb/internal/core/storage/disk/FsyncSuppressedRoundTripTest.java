@@ -167,13 +167,22 @@ public class FsyncSuppressedRoundTripTest extends DbTestBase {
               FileChannel.open(
                   registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE));
 
+      final var stubbingChannel = new FileChannel[1];
       try (MockedStatic<FileChannel> mockedChannels =
           mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-        mockedChannels
-            .when(
-                () -> FileChannel.open(
-                    registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE))
-            .thenReturn(channel);
+        try {
+          mockedChannels
+              .when(
+                  () -> stubbingChannel[0] = FileChannel.open(
+                      registryPath, StandardOpenOption.READ, StandardOpenOption.WRITE))
+              .thenReturn(channel);
+        } finally {
+          // CALLS_REAL_METHODS opens a separate channel while recording the stub.
+          if (stubbingChannel[0] != null) {
+            stubbingChannel[0].close();
+          }
+        }
+        assertNotNull("stub setup must open the registry channel", stubbingChannel[0]);
         writeCache.addFile("durableForceProbe.tst");
       }
       verify(channel).force(true);
