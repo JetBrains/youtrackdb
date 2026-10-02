@@ -426,7 +426,7 @@ public class IndexHistogramManager extends StorageComponent {
         flushSnapshotToPage();
       }
     } catch (IOException e) {
-      logger.warn("Failed to flush histogram stats on close for {}",
+      logger.error("Failed to flush histogram stats on close for {}",
           getName(), e);
     }
     fileId = -1;
@@ -624,7 +624,7 @@ public class IndexHistogramManager extends StorageComponent {
         } catch (IOException e) {
           // Restore the count so the next applyDelta re-triggers the flush.
           DIRTY_MUTATIONS.getAndAdd(this, claimed);
-          logger.warn("Failed to flush histogram stats for {}",
+          logger.error("Failed to flush histogram stats for {}",
               getName(), e);
         }
       }
@@ -1057,7 +1057,7 @@ public class IndexHistogramManager extends StorageComponent {
       flushIfDirtyOrFail();
     } catch (IOException e) {
       // The strict variant already restored the dirty count, so the next flush retries.
-      logger.warn("Failed to flush histogram stats for {}"
+      logger.error("Failed to flush histogram stats for {}"
           + " during checkpoint", getName(), e);
     }
   }
@@ -1725,7 +1725,7 @@ public class IndexHistogramManager extends StorageComponent {
           lastRebalanceFailureNanos = 0;
         } catch (Exception e) {
           lastRebalanceFailureNanos = System.nanoTime();
-          logger.warn("Histogram rebalance failed for {}", getName(), e);
+          logger.error("Histogram rebalance failed for {}", getName(), e);
         } finally {
           rebalanceInProgress.set(false);
         }
@@ -1887,7 +1887,7 @@ public class IndexHistogramManager extends StorageComponent {
         DIRTY_MUTATIONS.setRelease(this, 0L);
       } catch (IOException e) {
         DIRTY_MUTATIONS.getAndAdd(this, 1);
-        logger.warn("Failed to persist rebalanced histogram for {}",
+        logger.error("Failed to persist rebalanced histogram for {}",
             getName(), e);
       }
     } finally {

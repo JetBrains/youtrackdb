@@ -82,6 +82,16 @@ public class DiskStorageCheckpointFloorTest {
     }
   }
 
+  /** An older synch clear cannot leave the later close timestamp unprotected (CN-1). */
+  @Test
+  public void synchOverlappingForcedShutdownRecoversCloseTimestamp() throws Exception {
+    var mark = crashChild("overlappingClear");
+    assertTrue("close work must re-mark after the overlapping clear", isDirty());
+    try (var manager = manager(); var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      assertTrue(((AbstractStorage) session.getStorage()).getIdGen().getLastId() > mark);
+    }
+  }
+
   /** Final floor publication waits for a writer admitted between close and the second pause. */
   @Test
   public void finalCloseFloorWaitsForWriter() throws Exception {
@@ -141,6 +151,11 @@ public class DiskStorageCheckpointFloorTest {
     hookedStorage = storage;
     var closeAtomicCompleted = new AtomicInteger();
     var finalFloorReached = new AtomicInteger();
+    var shutdownRemarked = new AtomicInteger();
+    storage.setAfterShutdownRemarkActionForTesting(shutdownRemarked::incrementAndGet);
+    assertThrows(IllegalStateException.class,
+        () -> storage.setAfterShutdownRemarkActionForTesting(() -> {
+        }));
     storage.setAfterCloseAtomicActionForTesting(ignored -> closeAtomicCompleted.incrementAndGet());
     ((DiskStorage) storage).setBeforeFinalFloorActionForTesting(finalFloorReached::incrementAndGet);
     session.getMetadata().getSchema().createClass("Indexed");
@@ -151,6 +166,7 @@ public class DiskStorageCheckpointFloorTest {
     session.commit();
     storage.close(session, true);
     assertEquals(1, closeAtomicCompleted.get());
+    assertEquals(1, shutdownRemarked.get());
     assertEquals(1, finalFloorReached.get());
     session.close();
     manager.close();
@@ -302,6 +318,43 @@ public class DiskStorageCheckpointFloorTest {
         Runtime.getRuntime().halt(0);
       });
       storage.close(session, true);
+      throw new AssertionError("close-time crash hook was not reached");
+    } else if (args[0].equals("overlappingClear")) {
+      var synchAtFloor = new CountDownLatch(1);
+      var releaseSynch = new CountDownLatch(1);
+      var shutdownRemarked = new CountDownLatch(1);
+      storage.setCheckpointFloorActionForTesting(ignored -> {
+        synchAtFloor.countDown();
+        awaitRelease(releaseSynch);
+      });
+      var synch = CompletableFuture.runAsync(storage::synch);
+      assertTrue("synch did not reach its floor read", synchAtFloor.await(30, TimeUnit.SECONDS));
+      storage.setAfterShutdownRemarkActionForTesting(shutdownRemarked::countDown);
+      storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
+        try {
+          assertTrue("the close timestamp must follow a durable re-mark",
+              Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0);
+        } catch (IOException failure) {
+          throw new AssertionError(failure);
+        }
+      });
+      storage.setAfterCloseAtomicActionForTesting(ignored -> {
+        try {
+          writeMark(handshake, storage.getIdGen().getLastId());
+        } catch (IOException failure) {
+          throw new AssertionError(failure);
+        }
+        Runtime.getRuntime().halt(0);
+      });
+      var shutdown = CompletableFuture.runAsync(() -> storage.close(session, true));
+      try {
+        assertTrue("forced shutdown did not re-mark after its checkpoint",
+            shutdownRemarked.await(30, TimeUnit.SECONDS));
+      } finally {
+        releaseSynch.countDown();
+      }
+      synch.get(30, TimeUnit.SECONDS);
+      shutdown.get(30, TimeUnit.SECONDS);
       throw new AssertionError("close-time crash hook was not reached");
     } else if (args[0].equals("forced")) {
       var managerOperations = storage.getAtomicOperationsManager();

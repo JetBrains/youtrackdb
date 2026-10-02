@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
@@ -27,12 +28,19 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Stora
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
+import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,6 +53,7 @@ public class DiskStorageBootstrapWiringTest {
   private static final String DIRTY_DATABASE = "bootstrapWiringDirty";
   private static final String CRASH_CHILD_ARGUMENT = "restore-and-halt";
   private static final String DIRTY_CHILD_ARGUMENT = "commit-and-halt";
+  private static final String COMMIT_RACE_CHILD_ARGUMENT = "commit-race-and-halt";
   private static final String DIRTY_CLASS = "DirtyWork";
 
   /**
@@ -334,6 +343,270 @@ public class DiskStorageBootstrapWiringTest {
     }
   }
 
+  /** A checkpoint between commit preparation and admission cannot clear its indication. */
+  @Test(timeout = 60_000)
+  public void checkpointBetweenOldCommitMarkAndTimestampLeavesRecoveryEnabled() throws Exception {
+    try (var manager = createDatabase();
+        var setup = manager.open(DATABASE, ADMIN, ADMIN)) {
+      setup.getMetadata().getSchema().createClass("WindowCommit");
+      var storage = (DiskStorage) setup.getStorage();
+      var prepared = new CountDownLatch(1);
+      var proceed = new CountDownLatch(1);
+      storage.setBeforeCommitApplyActionForTesting(() -> {
+        prepared.countDown();
+        await(proceed);
+      });
+      assertThrows(IllegalStateException.class,
+          () -> storage.setBeforeCommitApplyActionForTesting(() -> {
+          }));
+      var commit = CompletableFuture.runAsync(() -> {
+        try (var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+          session.begin();
+          session.newEntity("WindowCommit").setProperty("payload", "window");
+          session.commit();
+        }
+      });
+      try {
+        assertTrue(prepared.await(15, TimeUnit.SECONDS));
+        storage.synch();
+        assertFalse("checkpoint must clear the pre-admission indication", durableDirty());
+      } finally {
+        proceed.countDown();
+      }
+      commit.get(15, TimeUnit.SECONDS);
+      assertTrue("admitted commit must re-mark after checkpoint", durableDirty());
+    }
+  }
+
+  /** After a checkpoint overtakes commit preparation, abrupt exit must replay the later commit. */
+  @Test(timeout = 120_000)
+  public void checkpointCommitRaceSurvivesAbruptStopAndResumesIds() throws Exception {
+    var handshake = directory.resolve("commit-race-floor.txt");
+    runCrashChild(COMMIT_RACE_CHILD_ARGUMENT, handshake);
+    var committedMark = Long.parseLong(Files.readString(handshake).trim());
+    try (var manager = openManager();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      var storage = (DiskStorage) session.getStorage();
+      assertTrue("the raced commit must cause WAL replay", storage.wereDataRestoredAfterOpen());
+      assertTrue("open must resume above the raced timestamp",
+          storage.getIdGen().getLastId() > committedMark);
+    }
+  }
+
+  /** Open-time atomic work must set the indication after a clean close and before its timestamp. */
+  @Test(timeout = 60_000)
+  public void openTimeAtomicWriteMarksBeforeTakingTimestamp() throws Exception {
+    try (var ignored = createDatabase()) {
+      // A clean close leaves open-time work responsible for enabling recovery again.
+    }
+    var otherRoot = createOtherStorageWithSameName();
+    var observedBefore = new AtomicBoolean();
+    var observedAtTimestamp = new AtomicBoolean();
+    DiskStorage.setOpenIndicationActionForTesting(
+        directory.resolve(DATABASE),
+        storage -> storage.setBeforeRecoveryIndicationActionForTesting(() -> {
+          assertFalse("open must start with a clean indication", durableDirty());
+          observedBefore.set(true);
+          storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
+            assertTrue("open-time timestamp must follow the durable write", durableDirty());
+            observedAtTimestamp.set(true);
+          });
+        }));
+    try (var other = (YouTrackDBImpl) YourTracks.instance(otherRoot.toString());
+        var unrelated = other.open(DATABASE, ADMIN, ADMIN)) {
+      assertTrue(unrelated.getStorage() != null);
+      assertFalse("another storage must not consume the observer", observedBefore.get());
+      try (var manager = openManager();
+          var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+        assertTrue(observedBefore.get());
+        assertTrue(observedAtTimestamp.get());
+      }
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  /** A failed open-time indication releases the startup metadata lock for a fresh open. */
+  @Test(timeout = 60_000)
+  public void failedOpenIndicationClosesMetadataAndPermitsRetry() throws Exception {
+    try (var ignored = createDatabase()) {
+      // The next open must perform its own atomic setup on a clean image.
+    }
+    var otherRoot = createOtherStorageWithSameName();
+    DiskStorage.setOpenIndicationActionForTesting(directory.resolve(DATABASE), storage -> storage
+        .failNextRecoveryIndicationForTesting(new IOException("open indication rejected")));
+    try (var other = (YouTrackDBImpl) YourTracks.instance(otherRoot.toString());
+        var unrelated = other.open(DATABASE, ADMIN, ADMIN);
+        var manager = openManager()) {
+      assertTrue("another storage must open without consuming the failure",
+          unrelated.getStorage() != null);
+      var failure = assertThrows(RuntimeException.class,
+          () -> manager.open(DATABASE, ADMIN, ADMIN));
+      assertTrue(hasCauseMessage(failure, "open indication rejected"));
+      try (var retry = manager.open(DATABASE, ADMIN, ADMIN)) {
+        assertTrue("retry must acquire the metadata lock and open", retry.getStorage() != null);
+      }
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  /** A real backup creation failure crosses the disk bridge and rejects the timestamp. */
+  @Test(timeout = 60_000)
+  public void metadataWriteFailureRejectsCommitBeforeTimestamp() throws Exception {
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      session.getMetadata().getSchema().createClass("MetadataFailureCommit");
+      var storage = (DiskStorage) session.getStorage();
+      storage.synch();
+      var before = storage.getIdGen().getLastId();
+      var backup = directory.resolve(DATABASE).resolve("dirty.flb");
+      Files.createDirectory(backup);
+      var obstacle = Files.createFile(backup.resolve("cannot-delete"));
+      try {
+        session.begin();
+        session.newEntity("MetadataFailureCommit").setProperty("payload", "failed");
+        var failure = assertThrows(RuntimeException.class, session::commit);
+        assertTrue(hasCauseMessage(failure, "dirty.flb"));
+        assertEquals("metadata failure must not allocate an id", before,
+            storage.getIdGen().getLastId());
+        assertFalse(durableDirty());
+        session.rollback();
+      } finally {
+        Files.deleteIfExists(obstacle);
+        Files.deleteIfExists(backup);
+      }
+      session.begin();
+      session.newEntity("MetadataFailureCommit").setProperty("payload", "retry");
+      session.commit();
+      assertTrue(durableDirty());
+      storage.checkErrorState();
+    }
+  }
+
+  /** A failed indication write rejects a commit without issuing an identifier, then retries. */
+  @Test(timeout = 60_000)
+  public void commitIndicationFailureReportsAndRetriesWithoutErrorState() throws Exception {
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      session.getMetadata().getSchema().createClass("RetryCommit");
+      var storage = (DiskStorage) session.getStorage();
+      storage.synch();
+      var before = storage.getIdGen().getLastId();
+      storage.failNextRecoveryIndicationForTesting(new IOException("injected indication failure"));
+      assertThrows(IllegalStateException.class,
+          () -> storage.failNextRecoveryIndicationForTesting(new IOException("duplicate")));
+      session.begin();
+      session.newEntity("RetryCommit").setProperty("payload", "first");
+      var failure = assertThrows(RuntimeException.class, session::commit);
+      assertTrue(hasCauseMessage(failure, "injected indication failure"));
+      assertEquals("failed write must take no timestamp", before,
+          storage.getIdGen().getLastId());
+      assertFalse("failed indication must not be treated as durable", durableDirty());
+      session.rollback();
+      session.begin();
+      session.newEntity("RetryCommit").setProperty("payload", "second");
+      session.commit();
+      assertTrue(durableDirty());
+    }
+  }
+
+  /** No operation may take a timestamp after a clear until the indication reaches disk. */
+  @Test(timeout = 60_000)
+  public void standaloneAtomicWriteMarksAfterCheckpointBeforeTimestamp() throws Exception {
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      var storage = (DiskStorage) session.getStorage();
+      storage.synch();
+      assertFalse(durableDirty());
+      storage.setBeforeRecoveryIndicationActionForTesting(
+          () -> assertFalse("write must not yet have a durable indication", durableDirty()));
+      assertThrows(IllegalStateException.class,
+          () -> storage.setBeforeRecoveryIndicationActionForTesting(() -> {
+          }));
+      storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(
+          () -> assertTrue("timestamp follows the durable indication", durableDirty()));
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+        // The same entry point serves histogram, records GC, and open-time writers.
+      });
+      assertTrue(durableDirty());
+    }
+  }
+
+  /** Record cleanup reports a failed indication at ERROR and retries on the next pass. */
+  @Test(timeout = 60_000)
+  public void recordsGcFailureLogsAndNextPassMarksBeforeTimestamp() throws Exception {
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      var storage = (DiskStorage) session.getStorage();
+      var collection = storage.getCollectionInstances().stream()
+          .filter(PaginatedCollectionV2.class::isInstance)
+          .map(PaginatedCollectionV2.class::cast).findFirst().orElseThrow();
+      storage.synch();
+      var before = storage.getIdGen().getLastId();
+      var rejected = new IOException("records GC indication rejected");
+      storage.failNextRecoveryIndicationForTesting(rejected);
+      var logged = new java.util.concurrent.atomic.AtomicBoolean();
+      var logger = Logger.getLogger("");
+      var handler = new Handler() {
+        @Override
+        public void publish(LogRecord record) {
+          if (record.getLevel().intValue() < Level.SEVERE.intValue()
+              || !record.getMessage().contains("records GC")) {
+            return;
+          }
+          for (var cause = record.getThrown(); cause != null; cause = cause.getCause()) {
+            if (cause == rejected) {
+              logged.set(true);
+            }
+          }
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+      };
+      logger.addHandler(handler);
+      try {
+        collection.collectDeadRecords(storage.getSharedSnapshotIndex());
+      } finally {
+        logger.removeHandler(handler);
+      }
+      assertTrue("failed records GC must log at ERROR", logged.get());
+      assertEquals("failed records GC must not allocate a timestamp", before,
+          storage.getIdGen().getLastId());
+      assertFalse(durableDirty());
+      storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(
+          () -> assertTrue("records GC must set indication before timestamp", durableDirty()));
+      collection.collectDeadRecords(storage.getSharedSnapshotIndex());
+      assertTrue(durableDirty());
+      storage.checkErrorState();
+    }
+  }
+
+  private boolean durableDirty() {
+    try {
+      return Files.readAllBytes(directory.resolve(DATABASE).resolve("dirty.fl"))[12] != 0;
+    } catch (IOException failure) {
+      throw new RuntimeException(failure);
+    }
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      if (!latch.await(15, TimeUnit.SECONDS)) {
+        throw new AssertionError("Timed out waiting for commit admission");
+      }
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(failure);
+    }
+  }
+
   /** Restore adopts stored progress without rewriting the lifecycle record. */
   @Test
   public void restoreAdoptsProgressWithoutLifecycleRewrite() throws Exception {
@@ -473,6 +746,7 @@ public class DiskStorageBootstrapWiringTest {
     switch (arguments[0]) {
       case CRASH_CHILD_ARGUMENT -> restoreAndHalt(root, handshake);
       case DIRTY_CHILD_ARGUMENT -> commitAndHalt(root, handshake);
+      case COMMIT_RACE_CHILD_ARGUMENT -> commitRaceAndHalt(root, handshake);
       default -> throw new IllegalArgumentException("Unknown child mode " + arguments[0]);
     }
   }
@@ -518,6 +792,47 @@ public class DiskStorageBootstrapWiringTest {
     storage.getWALInstance().flush();
 
     reportMark(handshake, reportedMark);
+    Runtime.getRuntime().halt(0);
+  }
+
+  /** Pause a prepared commit, checkpoint its old mark, then halt after its later timestamp. */
+  private static void commitRaceAndHalt(Path root, Path handshake) throws Exception {
+    var manager = (YouTrackDBImpl) YourTracks.instance(root.toString());
+    manager.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+    var setup = manager.open(DATABASE, ADMIN, ADMIN);
+    setup.getMetadata().getSchema().createClass("WindowCommit");
+    var writer = manager.open(DATABASE, ADMIN, ADMIN);
+    var storage = (DiskStorage) setup.getStorage();
+    var prepared = new CountDownLatch(1);
+    var proceed = new CountDownLatch(1);
+    storage.setBeforeCommitApplyActionForTesting(() -> {
+      prepared.countDown();
+      await(proceed);
+    });
+    var commit = CompletableFuture.runAsync(() -> {
+      writer.begin();
+      writer.newEntity("WindowCommit").setProperty("payload", "raced");
+      writer.commit();
+    });
+    try {
+      if (!prepared.await(15, TimeUnit.SECONDS)) {
+        throw new AssertionError("commit did not reach the pre-admission pause");
+      }
+      storage.synch();
+      if (Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0) {
+        throw new AssertionError("checkpoint did not clear the indication");
+      }
+      // Widen the distance from the checkpoint floor so a skipped replay cannot pass by chance.
+      for (var i = 0; i < 1_000; i++) {
+        storage.getIdGen().nextId();
+      }
+    } finally {
+      proceed.countDown();
+    }
+    commit.get(15, TimeUnit.SECONDS);
+    var committedMark = storage.getIdGen().getLastId();
+    storage.getWALInstance().flush();
+    reportMark(handshake, committedMark);
     Runtime.getRuntime().halt(0);
   }
 
@@ -584,6 +899,15 @@ public class DiskStorageBootstrapWiringTest {
         handshake.toString())
         .redirectErrorStream(true)
         .start();
+  }
+
+  /** Creates a second disk image with the same name to exercise path-scoped open hooks. */
+  private Path createOtherStorageWithSameName() throws IOException {
+    var otherRoot = Files.createDirectory(directory.resolve("other-root"));
+    try (var other = (YouTrackDBImpl) YourTracks.instance(otherRoot.toString())) {
+      other.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+    }
+    return otherRoot;
   }
 
   private YouTrackDBImpl createDatabase() {

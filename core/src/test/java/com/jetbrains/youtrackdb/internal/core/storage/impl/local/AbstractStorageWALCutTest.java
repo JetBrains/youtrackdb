@@ -65,6 +65,7 @@ public class AbstractStorageWALCutTest {
     setPrivateField(storage, "beforeMaintenanceFloorReadTestAction", new AtomicReference<>());
     setPrivateField(storage, "beforeMaintenanceFloorTestAction", new AtomicReference<>());
     setPrivateField(storage, "afterMaintenanceFloorTestAction", new AtomicReference<>());
+    setPrivateField(storage, "afterShutdownRemarkTestAction", new AtomicReference<>());
 
     when(writeAheadLog.log(any())).thenReturn(checkpointLsn);
     when(atomicOperationsTable.getSegmentEarliestOperationInProgress()).thenReturn(-1L);

@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
@@ -57,6 +58,16 @@ import javax.annotation.Nullable;
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
+
+  /** A failed indication update is retryable, not a broken storage engine. */
+  public static final class RecoveryIndicationException extends StorageException
+      implements HighLevelException {
+
+    public RecoveryIndicationException(String storageName, IOException cause) {
+      super(storageName, "Cannot durably set recovery indication before timestamp");
+      initCause(cause);
+    }
+  }
 
   private final AtomicReference<Runnable> beforeTimestampTestAction = new AtomicReference<>();
 
@@ -169,6 +180,13 @@ public class AtomicOperationsManager {
     try {
       writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
       freezerEntered = true;
+      // Checkpoint clearing excludes admitted writers. Do not enter another freezer or
+      // acquire the storage state lock here: either could self-wait during shutdown.
+      try {
+        storage.ensureRecoveryIndicationBeforeTimestamp();
+      } catch (IOException failure) {
+        throw new RecoveryIndicationException(storage.getName(), failure);
+      }
       if (beforeTimestampTestAction.get() != null) {
         final var beforeTimestamp = beforeTimestampTestAction.getAndSet(null);
         if (beforeTimestamp != null) {
@@ -241,6 +259,8 @@ public class AtomicOperationsManager {
       startToApplyOperations(atomicOperation);
       applyStarted = true;
       return function.accept(atomicOperation);
+    } catch (RecoveryIndicationException e) {
+      throw new IOException("Cannot start atomic write without recovery indication", e);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
       // routes through endAtomicOperation(op, error) for rollback, rather than
@@ -272,6 +292,8 @@ public class AtomicOperationsManager {
       startToApplyOperations(atomicOperation);
       applyStarted = true;
       consumer.accept(atomicOperation);
+    } catch (RecoveryIndicationException e) {
+      throw new IOException("Cannot start atomic write without recovery indication", e);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
       // routes through endAtomicOperation(op, error) for rollback, rather than
