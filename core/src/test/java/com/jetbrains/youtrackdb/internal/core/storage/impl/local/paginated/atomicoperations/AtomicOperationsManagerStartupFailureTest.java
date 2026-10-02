@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -19,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Before;
 import org.junit.Test;
@@ -178,6 +181,20 @@ public class AtomicOperationsManagerStartupFailureTest {
 
     assertTrue("cleanup failure must be attached to the primary failure",
         java.util.Arrays.asList(startupFailure.getSuppressed()).contains(cleanupFailure));
+    var freezeId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+    manager.unfreezeWriteOperations(freezeId);
+  }
+
+  /** A failed indication stops the calculating wrapper before identifier allocation. */
+  @Test(timeout = 2_000)
+  public void calculatingWrapperReportsIndicationFailureBeforeAllocatingId() throws Exception {
+    var failure = new IOException("indication write failed");
+    doThrow(failure).when(storage).ensureRecoveryIndicationBeforeTimestamp();
+    var reported = assertThrows(IOException.class,
+        () -> manager.calculateInsideAtomicOperation(op -> 1));
+    assertSame(failure, reported.getCause().getCause());
+    verify(idGen, never()).nextId();
+    verify(operation).deactivate();
     var freezeId = manager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
     manager.unfreezeWriteOperations(freezeId);
   }

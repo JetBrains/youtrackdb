@@ -57,6 +57,22 @@ public class OperationIdFloorTest {
     }
   }
 
+  /** Memory writers still take timestamps without creating persistent startup metadata. */
+  @Test
+  public void memoryWriterIndicationStepIsNoOp() throws Exception {
+    try (var manager = (YouTrackDBImpl) YourTracks.instance("memory-indication-test")) {
+      manager.create("memoryIndication", DatabaseType.MEMORY, "admin", "admin", "admin");
+      try (var session = manager.open("memoryIndication", "admin", "admin")) {
+        var storage = (DirectMemoryStorage) session.getStorage();
+        var before = storage.getIdGen().getLastId();
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(operation -> {
+          // No disk-backed recovery indication exists in a memory storage.
+        });
+        assertThat(storage.getIdGen().getLastId()).isGreaterThan(before);
+      }
+    }
+  }
+
   /** A near-boundary floor has one representable next identifier without wrapping. */
   @Test
   public void nearBoundaryFloorProducesMaximumIdentifier() {

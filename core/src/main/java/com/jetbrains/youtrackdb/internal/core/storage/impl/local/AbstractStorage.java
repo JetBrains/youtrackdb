@@ -229,6 +229,60 @@ public abstract class AbstractStorage
     PageIsBrokenListener {
 
   private static final Logger logger = LoggerFactory.getLogger(AbstractStorage.class);
+  private final AtomicReference<Consumer<AbstractStorage>> checkpointFloorTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<AbstractStorage>> afterCloseAtomicTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeMaintenanceFloorReadTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<Long>> beforeMaintenanceFloorTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<Long>> afterMaintenanceFloorTestAction =
+      new AtomicReference<>();
+
+  /** Installs a one-shot observation point after this storage saves its checkpoint floor. */
+  public void setCheckpointFloorActionForTesting(Consumer<AbstractStorage> action) {
+    if (!checkpointFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A checkpoint floor test action is already installed");
+    }
+  }
+
+  /** Installs a one-shot observation point after this storage commits its close operation. */
+  public void setAfterCloseAtomicActionForTesting(Consumer<AbstractStorage> action) {
+    if (!afterCloseAtomicTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A close operation test action is already installed");
+    }
+  }
+
+  /** Runs once after a maintenance removal guard passes, before reading the issued ID. */
+  public void setBeforeMaintenanceFloorReadActionForTesting(Runnable action) {
+    if (!beforeMaintenanceFloorReadTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor read test action is already installed");
+    }
+  }
+
+  /** Observes the issued ID after a maintenance pass decides its WAL removal boundary. */
+  public void setBeforeMaintenanceFloorActionForTesting(Consumer<Long> action) {
+    if (!beforeMaintenanceFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor test action is already installed");
+    }
+  }
+
+  /** Observes a durable maintenance floor before the pass removes WAL segments. */
+  public void setAfterMaintenanceFloorActionForTesting(Consumer<Long> action) {
+    if (!afterMaintenanceFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor test action is already installed");
+    }
+  }
+
+  public void clearCheckpointActionsForTesting() {
+    checkpointFloorTestAction.set(null);
+    afterCloseAtomicTestAction.set(null);
+    beforeMaintenanceFloorReadTestAction.set(null);
+    beforeMaintenanceFloorTestAction.set(null);
+    afterMaintenanceFloorTestAction.set(null);
+  }
+
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
 
   private static final Comparator<RecordOperation> COMMIT_RECORD_OPERATION_COMPARATOR =
@@ -1005,7 +1059,7 @@ public abstract class AbstractStorage
           stateLock.writeLock().unlock();
         }
 
-      } catch (final RuntimeException e) {
+      } catch (final Throwable e) {
         try {
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
@@ -2719,7 +2773,6 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        makeStorageDirty();
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
               lockCollections(collectionsToLock, atomicOperation);
@@ -3110,8 +3163,6 @@ public abstract class AbstractStorage
       final List<RecordOperation> result) throws IOException {
     try {
       checkOpennessAndMigration();
-
-      makeStorageDirty();
 
       Throwable error = null;
       boolean structurePublished = false;
@@ -7535,7 +7586,13 @@ public abstract class AbstractStorage
               fuzzySegment);
 
       if (fuzzySegment > beginLSN.getSegment() && beginLSN.getSegment() < endLSN.getSegment()) {
+        // The removal boundary is fixed. Test that the floor read includes IDs issued now.
+        final var beforeRead = beforeMaintenanceFloorReadTestAction.getAndSet(null);
+        if (beforeRead != null) {
+          beforeRead.run();
+        }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
+        saveMaintenanceFloorBeforeWalRemoval();
         writeCache.syncDataFiles(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
@@ -7739,6 +7796,13 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
+      // The durable floor must cover every issued identifier before its WAL evidence is cut.
+      // This direct metadata write does not enter the frozen atomic-operation path.
+      saveCheckpointFloor(idGen.getLastId());
+      final var floorAction = checkpointFloorTestAction.getAndSet(null);
+      if (floorAction != null) {
+        floorAction.accept(this);
+      }
       writeAheadLog.cutTill(lastLSN);
 
       clearStorageDirty();
@@ -7794,7 +7858,29 @@ public abstract class AbstractStorage
   protected void makeStorageDirty() throws IOException {
   }
 
+  /** Called inside writer admission, before allocating a timestamp. Memory storage needs no IO. */
+  public void ensureRecoveryIndicationBeforeTimestamp() throws IOException {
+  }
+
   protected void clearStorageDirty() throws IOException {
+  }
+
+  /** Memory storage has no durable timestamp floor. */
+  protected void saveCheckpointFloor(long lastIssued) throws IOException {
+  }
+
+  private void saveMaintenanceFloorBeforeWalRemoval() throws IOException {
+    // Records below the caller's removal boundary took their IDs before they entered the WAL.
+    final var lastIssued = idGen.getLastId();
+    final var beforeFloor = beforeMaintenanceFloorTestAction.getAndSet(null);
+    if (beforeFloor != null) {
+      beforeFloor.accept(lastIssued);
+    }
+    saveCheckpointFloor(lastIssued);
+    final var afterFloor = afterMaintenanceFloorTestAction.getAndSet(null);
+    if (afterFloor != null) {
+      afterFloor.accept(lastIssued);
+    }
   }
 
   protected boolean isDirty() {
@@ -7982,7 +8068,30 @@ public abstract class AbstractStorage
    * parking it with all four locks held. Data commits enter unarmed — byte-for-byte the
    * historical park semantics.
    */
+  private final AtomicReference<Runnable> beforeCommitApplyTestAction = new AtomicReference<>();
+  private final AtomicReference<Runnable> afterShutdownRemarkTestAction = new AtomicReference<>();
+
+  /** Installs a one-shot signal after forced shutdown re-marks its checkpoint. */
+  public void setAfterShutdownRemarkActionForTesting(Runnable action) {
+    if (!afterShutdownRemarkTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A shutdown remark action is already installed");
+    }
+  }
+
+  /** Installs a one-shot pause after commit preparation but before writer admission. */
+  public void setBeforeCommitApplyActionForTesting(Runnable action) {
+    if (!beforeCommitApplyTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A commit apply action is already installed");
+    }
+  }
+
   private void startTxCommit(AtomicOperation atomicOperation, final boolean schemaArmed) {
+    if (beforeCommitApplyTestAction.get() != null) {
+      final var beforeApply = beforeCommitApplyTestAction.getAndSet(null);
+      if (beforeApply != null) {
+        beforeApply.run();
+      }
+    }
     atomicOperationsManager.startToApplyOperations(atomicOperation, schemaArmed,
         schemaArmed ? this::operatorFreezeGateException : null);
   }
@@ -8568,7 +8677,20 @@ public abstract class AbstractStorage
         // block future rebalances — must happen before flushAllData so
         // that no background thread holds page references.
         cancelHistogramRebalances();
-        flushAllData();
+        final var checkpointFreeze =
+            atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+        try {
+          flushAllData();
+          // The later close operation takes a timestamp. Keep recovery enabled while the
+          // freezer must be released for that operation to run.
+          makeStorageDirty();
+          final var afterRemark = afterShutdownRemarkTestAction.getAndSet(null);
+          if (afterRemark != null) {
+            afterRemark.run();
+          }
+        } finally {
+          atomicOperationsManager.unfreezeWriteOperations(checkpointFreeze);
+        }
       }
 
       preCloseSteps();
@@ -8587,6 +8709,10 @@ public abstract class AbstractStorage
               }
               ((CollectionBasedStorageConfiguration) configuration).close(atomicOperation);
             });
+        final var closeAction = afterCloseAtomicTestAction.getAndSet(null);
+        if (closeAction != null) {
+          closeAction.accept(this);
+        }
       } else {
         LogManager.instance()
             .error(
@@ -8595,50 +8721,62 @@ public abstract class AbstractStorage
                 null);
       }
 
-      linkCollectionsBTreeManager.close();
-
-      // we close all files inside cache system so we only clear collection metadata
-      collections.clear();
-      collectionMap.clear();
-      indexEngines.clear();
-      indexEngineNameMap.clear();
-      sharedSnapshotIndex.clear();
-      visibilityIndex.clear();
-      snapshotIndexSize.set(0);
-      sharedEdgeSnapshotIndex.clear();
-      edgeVisibilityIndex.clear();
-      edgeSnapshotIndexSize.set(0);
-      sharedIndexesSnapshot.clear();
-      indexesSnapshotVisibilityIndex.clear();
-      sharedNullIndexesSnapshot.clear();
-      nullIndexSnapshotVisibilityIndex.clear();
-      indexesSnapshotEntriesCount.set(0);
-
-      if (writeCache != null) {
-        writeCache.removeBackgroundExceptionListener(this);
-        writeCache.removePageIsBrokenListener(this);
-      }
-
-      writeAheadLog.removeCheckpointListener(this);
-
+      // Re-acquire the pause after the close-time atomic operation. Background GC can still
+      // enter the freezer despite CLOSING. The final floor and indication clear in
+      // postCloseSteps must therefore run under this second pause as well.
+      final var closeFreeze = !isInError()
+          ? atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null)
+          : -1;
       try {
-        if (readCache != null) {
-          readCache.closeStorage(writeCache);
+        linkCollectionsBTreeManager.close();
+
+        // we close all files inside cache system so we only clear collection metadata
+        collections.clear();
+        collectionMap.clear();
+        indexEngines.clear();
+        indexEngineNameMap.clear();
+        sharedSnapshotIndex.clear();
+        visibilityIndex.clear();
+        snapshotIndexSize.set(0);
+        sharedEdgeSnapshotIndex.clear();
+        edgeVisibilityIndex.clear();
+        edgeSnapshotIndexSize.set(0);
+        sharedIndexesSnapshot.clear();
+        indexesSnapshotVisibilityIndex.clear();
+        sharedNullIndexesSnapshot.clear();
+        nullIndexSnapshotVisibilityIndex.clear();
+        indexesSnapshotEntriesCount.set(0);
+
+        if (writeCache != null) {
+          writeCache.removeBackgroundExceptionListener(this);
+          writeCache.removePageIsBrokenListener(this);
         }
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Error during closing of disk cache", e);
+
+        writeAheadLog.removeCheckpointListener(this);
+
+        try {
+          if (readCache != null) {
+            readCache.closeStorage(writeCache);
+          }
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error during closing of disk cache", e);
+        }
+
+        try {
+          writeAheadLog.close();
+        } catch (Exception e) {
+          LogManager.instance().error(this, "Error during closing of write ahead log", e);
+        }
+
+        postCloseSteps(false, isInError(), idGen.getLastId());
+
+        migration = new CountDownLatch(1);
+        status = STATUS.CLOSED;
+      } finally {
+        if (closeFreeze >= 0) {
+          atomicOperationsManager.unfreezeWriteOperations(closeFreeze);
+        }
       }
-
-      try {
-        writeAheadLog.close();
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Error during closing of write ahead log", e);
-      }
-
-      postCloseSteps(false, isInError(), idGen.getLastId());
-
-      migration = new CountDownLatch(1);
-      status = STATUS.CLOSED;
     });
   }
 
@@ -9880,6 +10018,12 @@ public abstract class AbstractStorage
         return;
       }
 
+      // The removal boundary is fixed. Test that the floor read includes IDs issued now.
+      final var beforeRead = beforeMaintenanceFloorReadTestAction.getAndSet(null);
+      if (beforeRead != null) {
+        beforeRead.run();
+      }
+      saveMaintenanceFloorBeforeWalRemoval();
       writeCache.syncDataFiles(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
