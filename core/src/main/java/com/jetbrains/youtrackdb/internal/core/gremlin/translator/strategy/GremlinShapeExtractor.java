@@ -89,6 +89,9 @@ final class GremlinShapeExtractor {
       ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
+    var mergeFacts = TraverserMergeFacts.from(traversal);
+    encoder.appendToken("sk", mergeFacts.sackToken());
+    encoder.appendToken("lp", mergeFacts.pathToken());
     encoder.appendToken(
         "elv",
         traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()
@@ -164,6 +167,10 @@ final class GremlinShapeExtractor {
         // discriminate the shape key — labelled or not. An unlabelled barrier that closes the
         // fold changes comparison semantics vs the folded spelling.
         encoder.appendToken("TB", step.getClass().getName());
+        if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<
+            ?> barrier) {
+          encoder.appendToken("TW", Integer.toString(barrier.getMaxBarrierSize()));
+        }
         encoder.appendStringSeq("L", GremlinStepLabels.userLabels(step));
         continue;
       }

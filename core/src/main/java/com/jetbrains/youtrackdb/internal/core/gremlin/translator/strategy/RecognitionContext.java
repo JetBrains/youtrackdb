@@ -53,6 +53,12 @@ interface RecognitionContext extends ParamSink {
    */
   boolean polymorphic();
 
+  /** Native source merge eligibility, resolved from the final traversal once per walk. */
+  default com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.MergeKey
+      orderedSourceMergeKey(String sourceAlias) {
+    return com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.MergeKey.ELEMENT;
+  }
+
   /**
    * Whether the traversal opts into {@code EdgeLabelVerificationStrategy}. Resolved once by
    * {@link GremlinStepWalker} so a recogniser reads a boolean instead of scanning the strategy list.

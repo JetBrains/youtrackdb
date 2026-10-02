@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -112,7 +113,7 @@ public class OrderedExpandAcceptTest extends GraphBaseTest {
         .isEqualTo(Outcome.DECLINE);
   }
 
-  /** Happy path: bare hop after source slice appends an unbounded ordered-expand stage. */
+  /** A source cut moves into the op before projection and clears SQL top-N. */
   @Test
   public void acceptExpandAfterSourceSlice_bareHop_appendsExpandOp() {
     var admin = graph.traversal().V().out("knows").asAdmin();
@@ -126,8 +127,30 @@ public class OrderedExpandAcceptTest extends GraphBaseTest {
     assertThat(ctx.listShapingOps()).hasSize(1);
     assertThat(ctx.listShapingOps().getFirst()).isInstanceOf(OrderedExpandSliceListShapingOp.class);
     var op = (OrderedExpandSliceListShapingOp) ctx.listShapingOps().getFirst();
-    assertThat(op.limit()).isEqualTo(-1);
+    assertThat(op.limit()).isEqualTo(1);
     assertThat(op.skip()).isEqualTo(0);
+    assertThat(ctx.limit()).isNull();
+    assertThat(ctx.shaping().orderedSourceKeyColumns()).hasSize(1);
+  }
+
+  /** A barrier skipped after source select runs after the cut and projection, before the hop. */
+  @Test
+  public void sourceSideBarrier_followsSliceAndProjection() {
+    var admin = graph.traversal().V().out("knows").asAdmin();
+    var hop = (VertexStepContract<?>) admin.getSteps().get(1);
+    var ctx = orderedSlicedContext();
+    ctx.stashOrderedSourceBarriers(List.of(
+        new OrderedHopStage.Barrier(3, OrderedHopStage.MergeKey.ELEMENT)));
+    var cursor = cursorAfterStart(admin);
+    cursor.take();
+
+    assertThat(OrderedExpandAccept.acceptExpandAfterSourceSlice(cursor, hop, ctx))
+        .isEqualTo(Outcome.ACCEPTED);
+    var op = (OrderedExpandSliceListShapingOp) ctx.listShapingOps().getFirst();
+    assertThat(op.stages()).extracting(Object::getClass).containsExactly(
+        OrderedHopStage.SourceMerge.class, OrderedHopStage.Slice.class,
+        OrderedHopStage.Project.class, OrderedHopStage.Barrier.class,
+        OrderedHopStage.Expand.class);
   }
 
   /** A bare select restores a Vertex, while real modulated and multi-label selects keep payloads. */
@@ -241,6 +264,7 @@ public class OrderedExpandAcceptTest extends GraphBaseTest {
                 ProjectionExpressionFactories.orderByProperty(BOUNDARY_ALIAS, "name", true))));
     ctx.recordOrderByCapture(BOUNDARY_ALIAS, false);
     ctx.setLimit(ProjectionExpressionFactories.limit(1));
+    ctx.setOrderedSourceSlice(0, 1);
     return ctx;
   }
 

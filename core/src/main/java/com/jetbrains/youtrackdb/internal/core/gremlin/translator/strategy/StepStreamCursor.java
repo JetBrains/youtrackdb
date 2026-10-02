@@ -16,12 +16,15 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  *
  * <h2>Transparent steps</h2>
  *
- * A step whose exact class is in {@code transparentSteps} (today {@code NoOpBarrierStep}, the barrier
- * {@code LazyBarrierStrategy} wedges between chained hops) is skipped by every operation and counted
- * as consumed. Skipping happens at the head before each read: a leading run, a run interleaved inside
+ * A step whose exact class is in {@code transparentSteps} (today {@code NoOpBarrierStep}, including
+ * lazy and explicit barriers) is skipped by every operation and counted as consumed. Skipping
+ * happens at the head before each read: a leading run, a run interleaved inside
  * a {@link #takeWhile}, and a trailing run at the end of the stream are all skipped, so once the
  * significant steps are consumed the position reaches the end of the list and the walker's
- * "every step recognised" invariant holds. A recogniser never sees a transparent step.
+ * "every step recognised" invariant holds. A sliced ordered hop drains skipped barriers with
+ * {@link #drainSkippedTransparent()} and places their sized windows in traversal order. Other
+ * paths retain transparent barrier handling. The independent labelled-step drain still binds
+ * labels to the boundary alias.
  *
  * <p>TinkerPop may park {@code as(...)} labels on a skipped barrier rather than on the preceding hop.
  * Those steps are stashed for {@link #drainSkippedTransparentLabeled()} so the walker can bind them
@@ -53,6 +56,9 @@ final class StepStreamCursor implements StepCursor {
    * {@link #drainSkippedTransparentLabeled()} — walker binds them to the boundary alias.
    */
   private final List<Step<?, ?>> skippedTransparentLabeled = new ArrayList<>();
+
+  /** All skipped barriers, independently drained from the labels needed for alias binding. */
+  private final List<Step<?, ?>> skippedTransparent = new ArrayList<>();
 
   StepStreamCursor(List<?> steps, Set<Class<?>> transparentSteps) {
     this.steps = steps;
@@ -164,6 +170,16 @@ final class StepStreamCursor implements StepCursor {
     return out;
   }
 
+  @Override
+  public List<Step<?, ?>> drainSkippedTransparent() {
+    if (skippedTransparent.isEmpty()) {
+      return List.of();
+    }
+    var out = List.copyOf(skippedTransparent);
+    skippedTransparent.clear();
+    return out;
+  }
+
   /**
    * Advances the position past any transparent steps at the head. Idempotent.
    *
@@ -176,6 +192,7 @@ final class StepStreamCursor implements StepCursor {
   private void skipTransparent() {
     while (position < steps.size() && isTransparent(stepAt(position))) {
       var skipped = stepAt(position);
+      skippedTransparent.add(skipped);
       if (GremlinStepLabels.hasUserLabel(skipped)) {
         skippedTransparentLabeled.add(skipped);
       }

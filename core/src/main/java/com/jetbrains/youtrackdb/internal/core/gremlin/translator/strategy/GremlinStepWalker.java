@@ -173,6 +173,8 @@ final class GremlinStepWalker {
    * Teaching it to do so would recover them, and is the obvious next move if the surface turns out
    * to matter.
    */
+  // Cursor traversal skips both lazy and explicit NoOp barriers, but sliced ordered hops
+  // drain them into native-position window stages before the walk finishes.
   static final Set<Class<?>> TRANSPARENT_STEPS =
       Set.of(NoOpBarrierStep.class);
 
@@ -514,7 +516,7 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
-    if (selectCollidesWithSideEffect(traversal)) {
+    if (selectCollidesWithSideEffect(traversal) || hasNonpositiveBarrier(traversal)) {
       return null;
     }
 
@@ -543,6 +545,7 @@ final class GremlinStepWalker {
     Schema schema = session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
+    ctx.setTraverserMergeFacts(TraverserMergeFacts.from(traversal));
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
     ctx.setProductiveByKeys(
@@ -593,6 +596,28 @@ final class GremlinStepWalker {
     }
 
     return buildResult(ctx);
+  }
+
+  /** Native barriers below size one cannot be represented by a MATCH stage. */
+  private static boolean hasNonpositiveBarrier(Traversal.Admin<?, ?> traversal) {
+    for (var step : traversal.getSteps()) {
+      if (step instanceof NoOpBarrierStep<?> barrier && barrier.getMaxBarrierSize() < 1) {
+        return true;
+      }
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          if (hasNonpositiveBarrier(child.asAdmin())) {
+            return true;
+          }
+        }
+        for (var child : parent.getGlobalChildren()) {
+          if (hasNonpositiveBarrier(child.asAdmin())) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -787,6 +812,18 @@ final class GremlinStepWalker {
       if (!ctx.bindStepLabels(step, boundary)) {
         return false;
       }
+    }
+    if (ctx instanceof WalkerContext walker && ctx.orderBy() != null) {
+      var barriers = OrderedExpandAccept.takeBarrierStages(cursor, ctx);
+      if (ctx.pendingOrderedHop() != null) {
+        ctx.setPendingOrderedHop(ctx.pendingOrderedHop().appendBarriers(barriers));
+      } else {
+        // Successful ordered-hop walks drain barriers into their op while consuming the slice.
+        // A barrier after that op cannot have a later significant step admitted by the drain gate.
+        walker.stashOrderedSourceBarriers(barriers);
+      }
+    } else {
+      cursor.drainSkippedTransparent();
     }
     return true;
   }

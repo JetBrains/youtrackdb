@@ -20,26 +20,33 @@ sealed interface NeighbourFilter permits NeighbourFilter.Labels, NeighbourFilter
     var filters = new ArrayList<NeighbourFilter>();
     int offset = 0;
     for (int size : stepSizes) {
-      var labels = new ArrayList<P<? super String>>();
-      var properties = new ArrayList<NeighbourFilter>();
-      for (var container : containers.subList(offset, offset + size)) {
-        if (T.label.getAccessor().equals(container.getKey())) {
-          @SuppressWarnings("unchecked")
-          P<? super String> predicate = (P<? super String>) container.getPredicate();
-          labels.add(predicate);
-        } else {
-          properties.add(new Container(YTDBCollatedHasContainer.wrap(container)));
-        }
-      }
-      if (!labels.isEmpty()) {
-        filters.add(new Labels(List.copyOf(labels), polymorphic));
-      }
-      filters.addAll(properties);
+      filters.addAll(fromStep(containers.subList(offset, offset + size), polymorphic));
       offset += size;
     }
     if (offset != containers.size()) {
       throw new IllegalArgumentException("HasStep sizes must cover every neighbour container");
     }
+    return List.copyOf(filters);
+  }
+
+  /** Preserve native label OR within one HasStep and AND between separate filter stages. */
+  static List<NeighbourFilter> fromStep(List<HasContainer> containers, boolean polymorphic) {
+    var filters = new ArrayList<NeighbourFilter>();
+    var labels = new ArrayList<P<? super String>>();
+    var properties = new ArrayList<NeighbourFilter>();
+    for (var container : containers) {
+      if (T.label.getAccessor().equals(container.getKey())) {
+        @SuppressWarnings("unchecked")
+        P<? super String> predicate = (P<? super String>) container.getPredicate();
+        labels.add(predicate);
+      } else {
+        properties.add(new Container(YTDBCollatedHasContainer.wrap(container)));
+      }
+    }
+    if (!labels.isEmpty()) {
+      filters.add(new Labels(List.copyOf(labels), polymorphic));
+    }
+    filters.addAll(properties);
     return List.copyOf(filters);
   }
 

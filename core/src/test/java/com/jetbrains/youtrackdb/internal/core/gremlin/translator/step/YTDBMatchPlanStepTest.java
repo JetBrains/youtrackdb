@@ -1643,6 +1643,48 @@ public class YTDBMatchPlanStepTest {
         .isEqualTo(List.of(6L));
   }
 
+  /** The ordered-hop internal barrier discards its unfinished window on reset and reopen. */
+  @Test
+  public void orderedHopInternalBarrier_rebuildsAfterInterruptedResetAndClosedReopen() {
+    var sources = new ArrayList<Vertex>();
+    var neighbours = new ArrayList<Vertex>();
+    for (int i = 0; i < 8; i++) {
+      var source = mock(Vertex.class);
+      var neighbour = mock(Vertex.class);
+      when(source.vertices(org.apache.tinkerpop.gremlin.structure.Direction.OUT))
+          .thenAnswer(inv -> List.of(neighbour).iterator());
+      sources.add(source);
+      neighbours.add(neighbour);
+    }
+    var first = scalarRow(sources.get(0));
+    var second = scalarRow(sources.get(1));
+    var later = scalarRow(sources.get(2));
+    var finalRow = scalarRow(sources.get(3));
+    var afterReset = scalarRow(sources.get(4));
+    var afterResetLast = scalarRow(sources.get(5));
+    var reopenFirst = scalarRow(sources.get(6));
+    var reopenSecond = scalarRow(sources.get(7));
+    // SourceMerge reads one row ahead at each change of source identity.
+    when(stream.hasNext(ctx)).thenReturn(true, true, true, true, true, true, false);
+    when(stream.next(ctx)).thenReturn(first, second, later, finalRow,
+        afterReset, afterResetLast);
+    stubPlanCopyDelivering(reopenFirst, reopenSecond);
+    var op = new OrderedExpandSliceListShapingOp(List.of(
+        new OrderedHopStage.SourceMerge(OrderedHopStage.MergeKey.ELEMENT),
+        new OrderedHopStage.Expand(org.apache.tinkerpop.gremlin.structure.Direction.OUT, null),
+        new OrderedHopStage.Barrier(2, OrderedHopStage.MergeKey.ELEMENT)));
+    var step = shapedStep("v", BoundaryOutputType.SCALAR,
+        ResultShaping.NONE.withListShapingOps(List.of(op)));
+
+    assertThat(step.processNextStart().get()).isSameAs(neighbours.get(0));
+    step.reset();
+    assertThat(drainPayloads(step)).containsExactly(
+        neighbours.get(3), neighbours.get(4), neighbours.get(5));
+    step.close();
+    step.reset();
+    assertThat(drainPayloads(step)).containsExactly(neighbours.get(6), neighbours.get(7));
+  }
+
   /**
    * The five arms {@code UnfoldStep.flatMap} classifies a payload into, driven on the production stage
    * directly. Every arm is reachable through a live boundary output type, and three of the five are
