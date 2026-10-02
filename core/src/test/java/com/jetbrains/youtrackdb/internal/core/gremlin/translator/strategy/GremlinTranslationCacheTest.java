@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
@@ -205,6 +206,74 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       assertThatThrownBy(translated::toList).as(scenario + " (translated)")
           .isInstanceOf(ClassCastException.class);
     });
+  }
+
+  /** The same ordered hop cannot reuse a neighbour-label filter under another poly setting. */
+  @Test
+  public void orderedHopLabelPolymorphism_keepsCachedTemplatesDistinct() {
+    var parent = graphSession().createVertexClass("CacheParent");
+    graphSession().getSchema().createClass("CacheChild", parent);
+    var hub = graph.addVertex(T.label, "CacheParent", "name", "Hub");
+    var child = graph.addVertex(T.label, "CacheChild", "name", "Child");
+    hub.addEdge("knows", child);
+    graph.tx().commit();
+    var poly = shapeKey(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.polymorphicQuery, true).V().has("name", "Hub")
+        .order().by("name").out("knows").hasLabel("CacheParent").limit(1));
+    var exact = shapeKey(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.polymorphicQuery, false).V().has("name", "Hub")
+        .order().by("name").out("knows").hasLabel("CacheParent").limit(1));
+    assertThat(poly).isNotEqualTo(exact);
+    var cache = GremlinPlanCache.instance(graphSession());
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    assertThat(sortedNames(apply(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.polymorphicQuery, true).V().has("name", "Hub")
+        .order().by("name").out("knows").hasLabel("CacheParent").limit(1))))
+        .containsExactly("Child");
+    assertThat(apply(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.polymorphicQuery, false).V().has("name", "Hub")
+        .order().by("name").out("knows").hasLabel("CacheParent").limit(1))).isEmpty();
+    assertThat(sortedNames(apply(() -> graph.traversal()
+        .with(YTDBQueryConfigParam.polymorphicQuery, true).V().has("name", "Hub")
+        .order().by("name").out("knows").hasLabel("CacheParent").limit(1))))
+        .containsExactly("Child");
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses + 2);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+  }
+
+  /** A session-default flip after flag resolution does not change the key or the walk's op. */
+  @Test
+  public void orderedHopPolymorphism_resolvedOnceAcrossShapeAndWalk() {
+    var configuration = graphSession().getConfiguration();
+    var previous = configuration.getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    try {
+      var admin = graph.traversal().V().order().by("name").out("knows")
+          .hasLabel("Person").limit(1).asAdmin();
+      var missingKey = YTDBStrategyUtil.orderIncludesMissingKey(admin);
+      var placements = YTDBStrategyUtil.orderByNullsPlacements(admin);
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
+      var exactKey = GremlinStepWalker.extractShape(
+          admin, graphSession(), missingKey, placements, false).key();
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, true);
+      var exact = GremlinStepWalker.production().walk(
+          admin, GremlinStepWalker.NO_CHILD_SCOPE, missingKey, placements, false);
+      assertThat(exact).isNotNull();
+      assertThat(((OrderedExpandSliceListShapingOp) exact.shaping().listShapingOps().getFirst())
+          .polymorphic()).isFalse();
+      var polyKey = GremlinStepWalker.extractShape(
+          admin, graphSession(), missingKey, placements, true).key();
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
+      var poly = GremlinStepWalker.production().walk(
+          admin, GremlinStepWalker.NO_CHILD_SCOPE, missingKey, placements, true);
+      assertThat(poly).isNotNull();
+      assertThat(((OrderedExpandSliceListShapingOp) poly.shaping().listShapingOps().getFirst())
+          .polymorphic()).isTrue();
+      assertThat(exactKey).isNotEqualTo(polyKey);
+    } finally {
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
   }
 
   /** An op with an unbound custom predicate literal cannot use an earlier op's literal. */

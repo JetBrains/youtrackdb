@@ -228,6 +228,16 @@ public final class GremlinToMatchStrategy
       return GremlinToMatchTranslator.translate(
           traversal, orderIncludesMissingKey, orderByNullsPlacements);
     }
+
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic) {
+      return GremlinToMatchTranslator.translate(
+          traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+    }
   };
 
   private static final GremlinToMatchStrategy INSTANCE =
@@ -352,12 +362,13 @@ public final class GremlinToMatchStrategy
     // storage-wide and outlives the session.
     var orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
     var orderByNullsPlacements = YTDBStrategyUtil.orderByNullsPlacements(traversal);
-    if (orderByNullsPlacements == null) {
+    var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
+    if (orderByNullsPlacements == null || polymorphic == null) {
       return;
     }
     var extraction =
         GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements);
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
@@ -377,7 +388,8 @@ public final class GremlinToMatchStrategy
     // catch a DDL that races the walk (see the class Javadoc "Plan caching").
     var planningStart = System.nanoTime();
     var translation =
-        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
+        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
+            polymorphic);
     if (translation == null) {
       if (populateTranslationCache && extraction.complete()) {
         GremlinPlanCache.putTranslation(
@@ -840,6 +852,15 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean orderIncludesMissingKey,
         ResolvedOrderByNullsPlacement orderByNullsPlacements) {
       return translate(traversal, orderIncludesMissingKey);
+    }
+
+    /** Translates with the strategy's resolved polymorphic setting. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic) {
+      return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
     }
   }
 

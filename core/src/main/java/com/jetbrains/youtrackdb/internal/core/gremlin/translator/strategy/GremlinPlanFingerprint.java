@@ -359,6 +359,10 @@ final class GremlinPlanFingerprint {
                 + ":"
                 + expand.propertyKey()
                 + ":"
+                + expand.polymorphic()
+                + ":"
+                + expand.hasStepSizes()
+                + ":"
                 + filterToken);
       } else {
         appendToken(sb, op.getClass().getName());

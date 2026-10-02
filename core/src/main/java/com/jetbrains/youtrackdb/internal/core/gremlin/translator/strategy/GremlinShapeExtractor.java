@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
-import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import java.util.Map;
 import java.util.Set;
@@ -69,12 +68,13 @@ final class GremlinShapeExtractor {
       @Nonnull Traversal.Admin<?, ?> traversal,
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
-      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     var extractor =
         new GremlinShapeExtractor(
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
     extractor.appendStrategyFlags(
-        traversal, orderIncludesMissingKey, orderByNullsPlacements);
+        traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     extractor.visit(traversal);
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete());
@@ -86,8 +86,8 @@ final class GremlinShapeExtractor {
   private void appendStrategyFlags(
       Traversal.Admin<?, ?> traversal,
       @Nullable Boolean orderIncludesMissingKey,
-      ResolvedOrderByNullsPlacement orderByNullsPlacements) {
-    Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
     encoder.appendToken(
         "elv",

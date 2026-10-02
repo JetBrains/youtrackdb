@@ -270,7 +270,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
             normalized.skip(),
             normalized.limit(),
             propertyKey,
-            pendingHop.hasContainers()));
+            pendingHop.hasContainers(),
+            pendingHop.hasStepSizes(),
+            ctx.polymorphic()));
     return Outcome.ACCEPTED;
   }
 
