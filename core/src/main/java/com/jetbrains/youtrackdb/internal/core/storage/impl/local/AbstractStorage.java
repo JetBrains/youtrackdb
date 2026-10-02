@@ -233,6 +233,12 @@ public abstract class AbstractStorage
       new AtomicReference<>();
   private final AtomicReference<Consumer<AbstractStorage>> afterCloseAtomicTestAction =
       new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeMaintenanceFloorReadTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<Long>> beforeMaintenanceFloorTestAction =
+      new AtomicReference<>();
+  private final AtomicReference<Consumer<Long>> afterMaintenanceFloorTestAction =
+      new AtomicReference<>();
 
   /** Installs a one-shot observation point after this storage saves its checkpoint floor. */
   public void setCheckpointFloorActionForTesting(Consumer<AbstractStorage> action) {
@@ -248,9 +254,33 @@ public abstract class AbstractStorage
     }
   }
 
+  /** Runs once after a maintenance removal guard passes, before reading the issued ID. */
+  public void setBeforeMaintenanceFloorReadActionForTesting(Runnable action) {
+    if (!beforeMaintenanceFloorReadTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor read test action is already installed");
+    }
+  }
+
+  /** Observes the issued ID after a maintenance pass decides its WAL removal boundary. */
+  public void setBeforeMaintenanceFloorActionForTesting(Consumer<Long> action) {
+    if (!beforeMaintenanceFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor test action is already installed");
+    }
+  }
+
+  /** Observes a durable maintenance floor before the pass removes WAL segments. */
+  public void setAfterMaintenanceFloorActionForTesting(Consumer<Long> action) {
+    if (!afterMaintenanceFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A maintenance floor test action is already installed");
+    }
+  }
+
   public void clearCheckpointActionsForTesting() {
     checkpointFloorTestAction.set(null);
     afterCloseAtomicTestAction.set(null);
+    beforeMaintenanceFloorReadTestAction.set(null);
+    beforeMaintenanceFloorTestAction.set(null);
+    afterMaintenanceFloorTestAction.set(null);
   }
 
   private static final int WAL_RESTORE_REPORT_INTERVAL = 30 * 1000; // milliseconds
@@ -7562,7 +7592,13 @@ public abstract class AbstractStorage
               fuzzySegment);
 
       if (fuzzySegment > beginLSN.getSegment() && beginLSN.getSegment() < endLSN.getSegment()) {
+        // The removal boundary is fixed. Test that the floor read includes IDs issued now.
+        final var beforeRead = beforeMaintenanceFloorReadTestAction.getAndSet(null);
+        if (beforeRead != null) {
+          beforeRead.run();
+        }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
+        saveMaintenanceFloorBeforeWalRemoval();
         writeCache.syncDataFiles(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
@@ -7853,6 +7889,20 @@ public abstract class AbstractStorage
 
   /** Memory storage has no durable timestamp floor. */
   protected void saveCheckpointFloor(long lastIssued) throws IOException {
+  }
+
+  private void saveMaintenanceFloorBeforeWalRemoval() throws IOException {
+    // Records below the caller's removal boundary took their IDs before they entered the WAL.
+    final var lastIssued = idGen.getLastId();
+    final var beforeFloor = beforeMaintenanceFloorTestAction.getAndSet(null);
+    if (beforeFloor != null) {
+      beforeFloor.accept(lastIssued);
+    }
+    saveCheckpointFloor(lastIssued);
+    final var afterFloor = afterMaintenanceFloorTestAction.getAndSet(null);
+    if (afterFloor != null) {
+      afterFloor.accept(lastIssued);
+    }
   }
 
   protected boolean isDirty() {
@@ -10031,6 +10081,12 @@ public abstract class AbstractStorage
         return;
       }
 
+      // The removal boundary is fixed. Test that the floor read includes IDs issued now.
+      final var beforeRead = beforeMaintenanceFloorReadTestAction.getAndSet(null);
+      if (beforeRead != null) {
+        beforeRead.run();
+      }
+      saveMaintenanceFloorBeforeWalRemoval();
       writeCache.syncDataFiles(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
