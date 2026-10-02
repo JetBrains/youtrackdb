@@ -448,7 +448,7 @@ public class HasStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.pendingOrderedHop()).isNull();
     assertThat(ctx.patternBuilder.build().aliasClasses())
         .containsEntry(PENDING_TARGET_ALIAS, "Person");
-    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class = ");
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class IN [?]");
   }
 
   /**
@@ -582,23 +582,22 @@ public class HasStepRecogniserTest extends GraphBaseTest {
     assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).isNull();
   }
 
-  /** Deferred {@code hasLabel} on a non-vertex / missing class declines. */
+  /** Deferred missing label remains a predicate on V, never an invalid MATCH class source. */
   @Test
-  public void pendingOrderedHop_hasLabelMissingClass_declines() {
+  public void pendingOrderedHop_hasLabelMissingClass_filtersWithoutRetyping() {
     var admin = graph.traversal().V().hasLabel("Missing").asAdmin();
     var ctx = contextWithPendingOrderedHop(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
-    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
-    assertThat(ctx.pendingOrderedHop().hasContainers()).isEmpty();
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS)).contains("@class IN [?]");
+    assertThat(ctx.patternBuilder.build().aliasClasses()).containsEntry(PENDING_TARGET_ALIAS, "V");
   }
 
-  /**
-   * Conflicting deferred {@code hasLabel} containers in one step decline (same gate as the MATCH
-   * path).
-   */
+  /** Separate label containers in one deferred HasStep combine by native OR. */
   @Test
-  public void pendingOrderedHop_conflictingHasLabels_declines() {
+  public void pendingOrderedHop_conflictingHasLabels_combineByOr() {
     session.createVertexClass("Person");
     session.createVertexClass("Software");
     @SuppressWarnings("unchecked")
@@ -611,22 +610,27 @@ public class HasStepRecogniserTest extends GraphBaseTest {
     when(hasStep.getLabels()).thenReturn(Collections.emptySet());
     var ctx = contextWithPendingOrderedHop(true, session.getSchema());
 
-    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).isNull();
+    assertThat(HasStepRecogniser.collectDeferredHasContainers(hasStep, ctx)).hasSize(2);
   }
 
   /**
-   * Multi-label deferred {@code hasLabel} under polymorphic mode declines — MATCH cannot express
-   * that neighbour filter shape on flush either.
+   * Multi-label deferred {@code hasLabel} under polymorphic mode stays eligible on both routes;
+   * flush includes subclasses in the MATCH class gate.
    */
   @Test
-  public void pendingOrderedHop_multiHasLabelPolymorphic_declines() {
+  public void pendingOrderedHop_multiHasLabelPolymorphic_acceptsAndFlushesClosure() {
     var person = session.createVertexClass("Person");
-    session.getSchema().createClass("Employee", person);
+    var employee = session.getSchema().createClass("Employee", person);
+    session.getSchema().createClass("Manager", employee);
     var admin = graph.traversal().V().hasLabel("Person", "Employee").asAdmin();
     var ctx = contextWithPendingOrderedHop(true, session.getSchema());
     var cursor = cursorAfterStart(admin);
 
-    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(HasStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.pendingOrderedHop().hasContainers()).hasSize(1);
+    assertThat(ctx.flushPendingOrderedHop()).isTrue();
+    assertThat(renderAliasFilter(ctx, PENDING_TARGET_ALIAS))
+        .contains("@class IN [?, ?, ?]");
   }
 
   /**

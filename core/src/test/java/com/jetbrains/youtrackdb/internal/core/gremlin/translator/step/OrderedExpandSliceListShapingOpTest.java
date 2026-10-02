@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
@@ -14,6 +16,7 @@ import java.util.NoSuchElementException;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Test;
@@ -22,7 +25,7 @@ import org.junit.Test;
  * Unit tests for {@link OrderedExpandSliceListShapingOp}: constructor guards, expand/filter/cut,
  * drop-on-absent {@code values}, and iterator contract ({@code hasNext}/{@code next}).
  */
-public class OrderedExpandSliceListShapingOpTest {
+public class OrderedExpandSliceListShapingOpTest extends GraphBaseTest {
 
   /**
    * Negative {@code skip} is rejected at construction — the recogniser never builds this shape, so
@@ -245,6 +248,73 @@ public class OrderedExpandSliceListShapingOpTest {
     assertThat(shaped.next()).isSameAs(neighbour);
     assertThat(shaped.hasNext()).isFalse();
     assertThat(shaped.hasNext()).as("exhausted probe stays false").isFalse();
+  }
+
+  /** Polymorphic labels use the neighbour's superclass, not its concrete TinkerPop label. */
+  @Test
+  public void apply_parentLabelUsesNativePolymorphism() {
+    var parent = session.createVertexClass("OpParent");
+    session.getSchema().createClass("OpChild", parent);
+    var source = graph.addVertex(T.label, "OpParent", "name", "Source");
+    var child = graph.addVertex(T.label, "OpChild", "name", "Child");
+    source.addEdge("knows", child);
+    graph.tx().commit();
+    var containers = List.of(new HasContainer(T.label.getAccessor(), P.eq("OpParent")));
+    assertThat(HasContainer.testAll(child, containers)).isFalse();
+
+    var poly = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, -1, null, containers, true);
+    var exact = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, -1, null, containers, false);
+    assertThat(drain(poly.apply(List.<Object>of(source).iterator()))).containsExactly(child);
+    assertThat(drain(exact.apply(List.<Object>of(source).iterator()))).isEmpty();
+  }
+
+  /** Labels OR inside a HasStep, while collation-aware properties AND with that label result. */
+  @Test
+  public void apply_multiLabelAndCollationCombineLikeNative() {
+    var parent = session.createVertexClass("OpParent");
+    parent.createProperty("nickname", PropertyType.STRING).setCollate("ci");
+    session.getSchema().createClass("OpChild", parent);
+    session.createVertexClass("OpOther");
+    var source = graph.addVertex(T.label, "OpParent", "name", "Source");
+    var child = graph.addVertex(T.label, "OpChild", "nickname", "MiXeD");
+    var other = graph.addVertex(T.label, "OpOther", "nickname", "mixed");
+    source.addEdge("knows", child);
+    source.addEdge("knows", other);
+    graph.tx().commit();
+    var containers = List.of(
+        new HasContainer(T.label.getAccessor(), P.within("OpParent", "OpOther")),
+        new HasContainer("nickname", P.eq("mixed")));
+    assertThat(HasContainer.testAll(child, containers)).isFalse();
+
+    var poly = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, -1, null, containers, true);
+    var exact = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, -1, null, containers, false);
+    assertThat(drain(poly.apply(List.<Object>of(source).iterator())))
+        .containsExactlyInAnyOrder(child, other);
+    assertThat(drain(exact.apply(List.<Object>of(source).iterator()))).containsExactly(other);
+  }
+
+  /** A collated property and an id filter both apply, with the id remaining exact. */
+  @Test
+  public void apply_collatedPropertyAndId_useNativeCombination() {
+    var parent = session.createVertexClass("OpParent");
+    parent.createProperty("nickname", PropertyType.STRING).setCollate("ci");
+    var source = graph.addVertex(T.label, "OpParent", "name", "Source");
+    var match = graph.addVertex(T.label, "OpParent", "nickname", "MiXeD");
+    var wrongId = graph.addVertex(T.label, "OpParent", "nickname", "MiXeD");
+    source.addEdge("knows", wrongId);
+    source.addEdge("knows", match);
+    graph.tx().commit();
+    var containers = List.of(
+        new HasContainer(T.id.getAccessor(), P.eq(match.id())),
+        new HasContainer("nickname", P.eq("mixed")));
+    assertThat(HasContainer.testAll(match, containers)).isFalse();
+    var op = new OrderedExpandSliceListShapingOp(
+        Direction.OUT, new String[] {"knows"}, 0, -1, null, containers, false);
+    assertThat(drain(op.apply(List.<Object>of(source).iterator()))).containsExactly(match);
   }
 
   private static Vertex stubVertexForHas(String key, String value) {

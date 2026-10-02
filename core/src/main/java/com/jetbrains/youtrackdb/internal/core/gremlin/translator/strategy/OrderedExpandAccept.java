@@ -84,6 +84,7 @@ final class OrderedExpandAccept {
       return Outcome.DECLINE;
     }
     var hasContainers = new ArrayList<HasContainer>();
+    var hasStepSizes = new ArrayList<Integer>();
     while (true) {
       var next = cursor.peek();
       if (!(next instanceof HasStep<?> hasStep)) {
@@ -98,6 +99,7 @@ final class OrderedExpandAccept {
       }
       cursor.take();
       hasContainers.addAll(collected);
+      hasStepSizes.add(collected.size());
     }
     String propertyKey = takeValuesKey(cursor);
     // Bare select unwraps to a Vertex. Other selects must retain their projected scalar or map:
@@ -111,7 +113,9 @@ final class OrderedExpandAccept {
             /* skip= */ 0,
             /* limit= */ -1,
             propertyKey,
-            List.copyOf(hasContainers)));
+            List.copyOf(hasContainers),
+            List.copyOf(hasStepSizes),
+            ctx.polymorphic()));
     return Outcome.ACCEPTED;
   }
 

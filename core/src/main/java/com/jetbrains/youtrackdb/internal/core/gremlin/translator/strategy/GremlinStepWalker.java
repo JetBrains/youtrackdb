@@ -95,11 +95,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  *
  * Every per-step shape gate (start-step shape, vertex-vs-edge, ID convertibility, hasContainer
  * presence, predicate well-formedness, …) lives inside the responsible recogniser. The walker
- * resolves the two traversal-level flags once up front and stores them on the {@link WalkerContext}:
- * the polymorphism flag ({@code YTDBStrategyUtil.isPolymorphic}) and whether {@code
- * EdgeLabelVerificationStrategy} is present. Resolving polymorphism here is safe: {@code
- * isPolymorphic} is null-safe (it gates on an attached YTDB graph and transaction before touching
- * {@code tx()}), and a {@code null} result declines the whole walk.
+ * stores the resolved traversal-level flags on the {@link WalkerContext}:
+ * the polymorphism flag (resolved by the strategy and supplied to the walk, or resolved here for
+ * direct callers) and whether {@code EdgeLabelVerificationStrategy} is present. {@code
+ * YTDBStrategyUtil.isPolymorphic} is null-safe (it gates on an attached YTDB graph and transaction
+ * before touching {@code tx()}), and a {@code null} result declines the whole walk.
  *
  * <h2>Result assembly</h2>
  *
@@ -421,13 +421,19 @@ final class GremlinStepWalker {
       DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+    return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
+        YTDBStrategyUtil.isPolymorphic(traversal));
+  }
+
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal,
+      DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic) {
     return GremlinShapeExtractor.extract(
-        PRODUCTION_RECOGNISERS,
-        TRANSPARENT_STEPS,
-        traversal,
-        session,
-        orderIncludesMissingKey,
-        orderByNullsPlacements);
+        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session,
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
   }
 
   /**
@@ -483,6 +489,16 @@ final class GremlinStepWalker {
       int childScopeBoundary,
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, null);
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal,
+      int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -502,12 +518,13 @@ final class GremlinStepWalker {
       return null;
     }
 
-    // Resolve the polymorphism flag once. isPolymorphic is null-safe: it gates on an attached YTDB
+    // Use the strategy's polymorphism decision when provided. isPolymorphic is null-safe: it gates on an attached YTDB
     // graph + transaction before touching tx(), so a detached EmptyGraph or non-YTDB graph yields
     // null rather than throwing. A null result means the traversal has no resolvable polymorphism
     // setting and cannot be translated faithfully — decline the whole walk before building the
     // context. Owning the resolution here keeps every recogniser free of the flag's initialisation.
-    Boolean resolved = YTDBStrategyUtil.isPolymorphic(traversal);
+    Boolean resolved = polymorphicSetting != null
+        ? polymorphicSetting : YTDBStrategyUtil.isPolymorphic(traversal);
     if (resolved == null) {
       return null;
     }

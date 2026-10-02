@@ -13,7 +13,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * Post-plan stage for ordered expand:
  * <ul>
  *   <li>{@code order().by(...).out|in|both(...).[has...].limit|range} — MATCH returns sorted
- *       sources only; this stage expands, optionally filters neighbours with {@link HasContainer},
+ *       sources only; this stage expands, optionally filters neighbours with native YTDB predicates,
  *       then applies the positional cut;
  *   <li>{@code order().by(...).limit|skip|range.out|in|both(...).[has...]} — MATCH applies statement
  *       top-N on sources; this stage expands (and optionally filters / projects) with unbounded
@@ -42,8 +42,13 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
   private final long limit;
   /** When non-null, emit that property of each neighbour (drop when absent), else emit the vertex. */
   @Nullable private final String propertyKey;
-  /** AND-ed neighbour filters; evaluated with {@link HasContainer#testAll}. */
+  /** Original containers retained for cache identity and future literal binding. */
   private final List<HasContainer> hasContainers;
+  private final boolean polymorphic;
+  /** Each size preserves one native HasStep boundary for label OR/step AND. */
+  private final List<Integer> hasStepSizes;
+  /** Native label predicates combine with OR within their step, then steps combine with AND. */
+  private final List<NeighbourFilter> filters;
 
   public OrderedExpandSliceListShapingOp(
       @Nonnull Direction direction,
@@ -51,7 +56,9 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
       long skip,
       long limit,
       @Nullable String propertyKey,
-      @Nonnull List<HasContainer> hasContainers) {
+      @Nonnull List<HasContainer> hasContainers,
+      @Nonnull List<Integer> hasStepSizes,
+      boolean polymorphic) {
     if (skip < 0) {
       throw new IllegalArgumentException("skip must not be negative: " + skip);
     }
@@ -64,6 +71,34 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
     this.limit = limit;
     this.propertyKey = propertyKey;
     this.hasContainers = List.copyOf(hasContainers);
+    this.polymorphic = polymorphic;
+    this.hasStepSizes = List.copyOf(hasStepSizes);
+    this.filters = NeighbourFilter.fromContainers(
+        this.hasContainers, this.hasStepSizes, polymorphic);
+  }
+
+  /** A direct caller supplies one HasStep worth of filters. */
+  public OrderedExpandSliceListShapingOp(
+      @Nonnull Direction direction,
+      @Nullable String[] edgeLabels,
+      long skip,
+      long limit,
+      @Nullable String propertyKey,
+      @Nonnull List<HasContainer> hasContainers,
+      boolean polymorphic) {
+    this(direction, edgeLabels, skip, limit, propertyKey, hasContainers,
+        List.of(hasContainers.size()), polymorphic);
+  }
+
+  /** Direct callers without a traversal use exact-label semantics. */
+  public OrderedExpandSliceListShapingOp(
+      @Nonnull Direction direction,
+      @Nullable String[] edgeLabels,
+      long skip,
+      long limit,
+      @Nullable String propertyKey,
+      @Nonnull List<HasContainer> hasContainers) {
+    this(direction, edgeLabels, skip, limit, propertyKey, hasContainers, false);
   }
 
   @Nonnull
@@ -90,6 +125,14 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
   @Nonnull
   public List<HasContainer> hasContainers() {
     return hasContainers;
+  }
+
+  public boolean polymorphic() {
+    return polymorphic;
+  }
+
+  public List<Integer> hasStepSizes() {
+    return hasStepSizes;
   }
 
   @Override
@@ -123,8 +166,8 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
             neighbours = expand((Vertex) upstream.next());
           }
           var neighbour = neighbours.next();
-          // Native order().hop().has().limit filters before the positional cut — same containers.
-          if (!hasContainers.isEmpty() && !HasContainer.testAll(neighbour, hasContainers)) {
+          // Native label and collated-property checks run before the positional cut.
+          if (!matches(neighbour)) {
             continue;
           }
           // Native RangeGlobalStep is a FilterStep: it pulls the next surviving traverser
@@ -178,6 +221,16 @@ public final class OrderedExpandSliceListShapingOp implements ListShapingOp {
         return property.value();
       }
     };
+  }
+
+  /** Stop at the first failed filter, as native HasStep does for collated property containers. */
+  private boolean matches(Vertex neighbour) {
+    for (var filter : filters) {
+      if (!filter.test(neighbour)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Sentinel for an absent property under drop-on-absent values projection. */

@@ -1073,6 +1073,197 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .has("name", "AbeTarget2").values("name"));
   }
 
+  /** Parent matching includes a Child only in polymorphic mode on both ordered-expand routes. */
+  @Test
+  public void orderedHopParentLabel_usesExplicitAndSessionPolymorphism() {
+    seedNativeNeighbourFilters();
+    for (boolean mode : new boolean[] {true, false}) {
+      var expected = mode ? List.of("Child", "Parent") : List.of("Parent");
+      assertNeighbourFilterResult("explicit parent, hop cut, " + mode, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, mode)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").limit(4).values("name"));
+      assertNeighbourFilterResult("explicit parent, source cut, " + mode, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, mode)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("FilterParent").values("name"));
+      withPolymorphicDefault(mode, () -> assertNeighbourFilterResult(
+          "session parent, hop cut, " + mode, expected,
+          () -> graph.traversal().V().has("name", "Source").order().by("name")
+              .out("knows").hasLabel("FilterParent").limit(4).values("name")));
+      withPolymorphicDefault(mode, () -> assertNeighbourFilterResult(
+          "session parent, source cut, " + mode, expected,
+          () -> graph.traversal().V().has("name", "Source").order().by("name")
+              .limit(1).out("knows").hasLabel("FilterParent").values("name")));
+    }
+  }
+
+  /** A polymorphic multi-label predicate stays admitted on both the op and MATCH flush routes. */
+  @Test
+  public void orderedHopMultiLabel_matchesChildAndOtherOnBothDeferredRoutes() {
+    seedNativeNeighbourFilters();
+    var expected = List.of("Child", "Other", "Parent");
+    assertNeighbourFilterResult("multi-label hop cut", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").limit(4).values("name"));
+    assertNeighbourFilterResult("multi-label source cut", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").limit(1).out("knows")
+            .hasLabel("FilterParent", "FilterOther").values("name"));
+    assertNeighbourFilterResult("multi-label MATCH flush", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").values("name"));
+  }
+
+  /** Label filters from barrier-separated HasSteps AND on both ordered-expand placements and flush. */
+  @Test
+  public void orderedHopSeparateHasLabelSteps_andRatherThanOr() {
+    seedNativeNeighbourFilters();
+    for (boolean sourceCut : new boolean[] {false, true}) {
+      assertNeighbourFilterResult("separate labels, source cut " + sourceCut, List.of(),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "Source").order().by("name")
+                  .limit(1).out("knows").hasLabel("FilterParent").barrier()
+                  .hasLabel("FilterOther").values("name")
+              : graph.traversal().V().has("name", "Source").order().by("name")
+                  .out("knows").hasLabel("FilterParent").barrier()
+                  .hasLabel("FilterOther").limit(4).values("name"));
+    }
+    assertNeighbourFilterResult("separate labels, MATCH flush", List.of(),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").hasLabel("FilterParent").barrier()
+            .hasLabel("FilterOther").values("name"));
+  }
+
+  /** Folded eq then within label containers OR within one HasStep on both cuts and flush. */
+  @Test
+  public void orderedHopMixedSingleAndMultiLabels_orWithinHasStep() {
+    seedNativeNeighbourFilters();
+    for (boolean poly : new boolean[] {true, false}) {
+      var expected = poly ? List.of("Child", "Other", "Parent")
+          : List.of("Other", "Parent");
+      assertNeighbourFilterResult("mixed labels, hop cut " + poly, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .limit(4).values("name"));
+      assertNeighbourFilterResult("mixed labels, source cut " + poly, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .values("name"));
+      assertNeighbourFilterResult("mixed labels, MATCH flush " + poly, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .values("name"));
+    }
+  }
+
+  /** An absent label contributes no rows, while a present alternative still matches. */
+  @Test
+  public void orderedHopAbsentLabelAlternatives_matchNativeOnBothRoutes() {
+    seedNativeNeighbourFilters();
+    for (boolean poly : new boolean[] {true, false}) {
+      for (boolean sourceCut : new boolean[] {false, true}) {
+        assertNeighbourFilterResult("absent plus present " + poly + "/" + sourceCut,
+            List.of("Other"),
+            () -> sourceCut
+                ? graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+                    .V().has("name", "Source").order().by("name").limit(1)
+                    .out("knows").hasLabel("MissingFilter", "FilterOther").values("name")
+                : graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+                    .V().has("name", "Source").order().by("name")
+                    .out("knows").hasLabel("MissingFilter", "FilterOther")
+                    .limit(4).values("name"));
+      }
+      assertNeighbourFilterResult("absent plus present flush " + poly, List.of("Other"),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "FilterOther").values("name"));
+      assertNeighbourFilterResult("all absent hop cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "MissingOther").limit(4).values("name"));
+      assertNeighbourFilterResult("all absent source cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("MissingFilter", "MissingOther").values("name"));
+      assertNeighbourFilterResult("all absent flush " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "MissingOther").values("name"));
+    }
+  }
+
+  /** A ci property must match different letter cases before the hop's positional cut. */
+  @Test
+  public void orderedHopCollatedProperty_matchesDifferentCaseOnBothExpandRoutes() {
+    seedNativeNeighbourFilters();
+    assertNeighbourFilterResult("ci hop cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").has("nickname", "mixed").limit(1).values("name"));
+    assertNeighbourFilterResult("ci source cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .limit(1).out("knows").has("nickname", "mixed").values("name"));
+    assertNeighbourFilterResult("ci and multi-label", List.of("Child"),
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").has("nickname", "mixed")
+            .limit(1).values("name"));
+  }
+
+  private void seedNativeNeighbourFilters() {
+    var parent = session.createVertexClass("FilterParent");
+    parent.createProperty("nickname", PropertyType.STRING).setCollate("ci");
+    session.getSchema().createClass("FilterChild", parent);
+    session.createVertexClass("FilterOther");
+    var source = graph.addVertex(T.label, "FilterParent", "name", "Source");
+    var child = graph.addVertex(T.label, "FilterChild", "name", "Child", "nickname", "MiXeD");
+    var direct = graph.addVertex(T.label, "FilterParent", "name", "Parent");
+    var other = graph.addVertex(T.label, "FilterOther", "name", "Other");
+    source.addEdge("knows", child);
+    source.addEdge("knows", direct);
+    source.addEdge("knows", other);
+    graph.tx().commit();
+  }
+
+  private void withPolymorphicDefault(boolean value, Runnable body) {
+    var configuration = session.getConfiguration();
+    var previous = configuration.getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, value);
+    try {
+      body.run();
+    } finally {
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
+  }
+
+  private void assertNeighbourFilterResult(
+      String scenario, List<String> expected, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal)).as(scenario + " native").isZero();
+      var nativeRows = nativeTraversal.toList().stream().map(String::valueOf).sorted().toList();
+      assertThat(nativeRows).as(scenario + " fixture").containsExactlyElementsOf(expected);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated)).as(scenario + " translated").isEqualTo(1);
+      assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
+          .as(scenario + " translated rows").isEqualTo(nativeRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
   /** A bare select of the sorted source still feeds an element to the hop after a source cut. */
   @Test
   public void selectedSortedSource_thenSliceThenHop_matchesNative() {

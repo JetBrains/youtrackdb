@@ -923,7 +923,7 @@ final class WalkerContext implements RecognitionContext {
     // Deferred has(...) becomes MATCH filters on the neighbour alias (order().hop().has() without
     // a following slice).
     return HasStepRecogniser.contributeContainersToAlias(
-        this, pending.targetAlias(), pending.hasContainers());
+        this, pending.targetAlias(), pending.hasContainers(), pending.hasStepSizes());
   }
 
   @Override
