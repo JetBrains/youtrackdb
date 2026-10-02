@@ -16,7 +16,7 @@ mismatch.
 
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.12.1**.
+Last reconciled against **ytdb-slate 0.13.0**.
 
 This reconciliation read these package documents:
 
@@ -55,5 +55,5 @@ Every call starts a new thread and needs `type`, a logical `model`, and `reason`
 The `thread` tool also accepts `reviewPerspectives` for built-in reviews. Implementer threads
 need `trackNumber` while a change is open. Project charters still use `reviewPerspectivesPath`.
 The `slate_change start` and `slate_change close` commands manage records under
-`slate-changes/<change>/`. The new `writing.showStatus` key controls writing status output.
+`slate-changes/<change>/`. The `writing.showStatus` key controls writing status output.
 Draft publishing always uses one umbrella pull request.
