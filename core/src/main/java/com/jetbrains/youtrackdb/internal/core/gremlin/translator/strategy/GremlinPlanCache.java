@@ -64,10 +64,6 @@ public final class GremlinPlanCache
     this.beforeClear = beforeClear;
   }
 
-  public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).getLastInvalidation();
-  }
-
   boolean isEnabled() {
     return cacheEnabled();
   }
@@ -113,13 +109,6 @@ public final class GremlinPlanCache
     return instance(db).templateInternal(fingerprint, db);
   }
 
-  public static void put(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (db != null && fingerprint != null) {
-      var cache = instance(db);
-      cache.putInternal(fingerprint, plan, db, cache.getInvalidationCounter());
-    }
-  }
-
   @Nullable public static GremlinTranslationTemplate getTranslation(
       String shapeKey, DatabaseSessionEmbedded db) {
     if (db == null || shapeKey == null) {
@@ -128,14 +117,6 @@ public final class GremlinPlanCache
     var cache = instance(db);
     cache.prepare(db);
     return cache.getTranslationInternal(shapeKey, db, cache.getInvalidationCounter());
-  }
-
-  public static void putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
-    if (db != null && shapeKey != null && template != null) {
-      var cache = instance(db);
-      cache.putTranslationInternal(shapeKey, template, db, cache.getInvalidationCounter());
-    }
   }
 
   static void putTranslation(
@@ -149,10 +130,6 @@ public final class GremlinPlanCache
   /** Normalize timeout before capturing the generation, not after shape extraction. */
   void prepare(DatabaseSessionEmbedded db) {
     invalidateIfTimeoutChanged(db);
-  }
-
-  void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    putInternal(fingerprint, plan, db, getInvalidationCounter());
   }
 
   void putInternal(
@@ -254,11 +231,6 @@ public final class GremlinPlanCache
     }
     translationMisses.increment();
     return null;
-  }
-
-  void putTranslationInternal(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
-    putTranslationInternal(shapeKey, template, db, getInvalidationCounter());
   }
 
   void putTranslationInternal(
