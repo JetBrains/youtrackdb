@@ -5,6 +5,10 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -20,23 +24,47 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
-import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalDatabase {
 
   private CommandCounter commands;
+  private MockedStatic<SQLEngine> sqlObserver;
 
   @Before
-  public void registerCommandCounter() {
+  public void observeParsedSql() {
     commands = new CommandCounter();
-    session.registerListener(commands);
+    sqlObserver = mockStatic(SQLEngine.class, CALLS_REAL_METHODS);
+    sqlObserver.when(() -> SQLEngine.parse(anyString(), any(DatabaseSessionEmbedded.class)))
+        .thenAnswer(invocation -> {
+          // Read the current field because grant tests replace the session and counter.
+          commands.record(invocation.getArgument(0));
+          return invocation.callRealMethod();
+        });
+
+    // Prove that this thread-local observer sees real session SQL in every test.
+    session.executeInTx(transaction -> {
+      try (var result = session.query("select 1 as observerProbe")) {
+        assertEquals(1, ((Number) result.next().getProperty("observerProbe")).intValue());
+      }
+    });
+    assertEquals(1, commands.get());
+    commands.reset();
+  }
+
+  @After
+  public void closeSqlObserver() {
+    if (sqlObserver != null) {
+      sqlObserver.close();
+    }
   }
 
   @Test
@@ -203,7 +231,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
   }
 
   @Test
-  public void noCommandStartsOnFastPath() {
+  public void noSqlIsParsedOnFastPath() {
     session.executeInTx(transaction -> {
       var schemaClass = session.getMetadata().getSchema().createClass("NoCommandsFast");
       session.newEntity(schemaClass.getName()).setProperty("value", 1);
@@ -553,7 +581,7 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     role.save(session);
     session.commit();
     reOpen(readerUser, readerPassword);
-    registerCommandCounter();
+    commands = new CommandCounter();
   }
 
   private void assertUncheckedLinkedType(
@@ -869,20 +897,14 @@ public class ProvisionalClassInMemorySchemaCheckTest extends BaseMemoryInternalD
     }
   }
 
-  private static final class CommandCounter implements SessionListener {
+  private static final class CommandCounter {
 
     private final AtomicInteger count = new AtomicInteger();
     private final List<String> statements = new ArrayList<>();
 
-    @Override
-    public void onCommandStart(DatabaseSessionEmbedded database, ResultSet resultSet) {
+    void record(String statement) {
       count.incrementAndGet();
-      if (resultSet.getExecutionPlan() instanceof InternalExecutionPlan executionPlan) {
-        var statement = executionPlan.getStatement();
-        if (statement != null) {
-          statements.add(statement);
-        }
-      }
+      statements.add(statement);
     }
 
     int get() {
