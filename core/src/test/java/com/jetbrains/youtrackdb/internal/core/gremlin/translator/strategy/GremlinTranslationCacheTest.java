@@ -246,6 +246,46 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   /**
+   * A real declined walk inside a schema transaction neither reads a committed Decline nor
+   * publishes a new Decline. Once the transaction ends, the walk can cache the new shape.
+   */
+  @Test
+  public void declinedWalkInSchemaTransactionBypassesBothTranslationCacheDirections() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var existing = graph.traversal().V().is(P.eq(1)).asAdmin();
+    var existingKey = shapeKey(existing);
+    GremlinToMatchStrategy.instance().apply(existing);
+    assertThat(GremlinPlanCache.getTranslation(existingKey, graphSession()))
+        .isInstanceOf(GremlinTranslationTemplate.Decline.class);
+
+    var newKey = shapeKey(() -> graph.traversal().V().is(P.eq(2)).out("knows"));
+    // Distinct step structure prevents the committed Decline from answering this walk.
+    assertThat(newKey).isNotEqualTo(existingKey);
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    graphSession().getMetadata().getSchema().createClass("TxDeclineOnly");
+    assertThat(graphSession().getTxSchemaState()).isNotNull();
+    var oldWalk = graph.traversal().V().is(P.eq(1)).asAdmin();
+    var newWalk = graph.traversal().V().is(P.eq(2)).out("knows").asAdmin();
+    GremlinToMatchStrategy.instance().apply(oldWalk);
+    GremlinToMatchStrategy.instance().apply(newWalk);
+    assertThat(oldWalk.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(newWalk.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses);
+    assertThat(cache.containsTranslation(newKey)).isFalse();
+    graph.tx().rollback();
+    var outside = graph.traversal().V().is(P.eq(2)).out("knows").asAdmin();
+    GremlinToMatchStrategy.instance().apply(outside);
+    assertThat(outside.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(GremlinPlanCache.getTranslation(newKey, graphSession()))
+        .as("the same declined shape must cache normally outside the schema transaction")
+        .isInstanceOf(GremlinTranslationTemplate.Decline.class);
+  }
+
+  /**
    * {@code P.lt(true)} and {@code P.lt("m")} must not share a translation-cache entry: the
    * comparability block is part of the shape, and serving the Boolean guard to the String walk
    * would keep extra rows.

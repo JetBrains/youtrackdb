@@ -36,16 +36,33 @@ import javax.annotation.Nullable;
  * CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}.
  */
 public final class GremlinPlanCache
-    extends AbstractMetadataUpdateCache<String, InternalExecutionPlan> {
+    extends AbstractMetadataUpdateCache<String, GremlinPlanCache.Entry<InternalExecutionPlan>> {
+
+  /** Each publication has its own identity, including publications of the shared decline sentinel. */
+  static final class Entry<T> {
+    final T value;
+    final long generation;
+
+    Entry(T value, long generation) {
+      this.value = value;
+      this.generation = generation;
+    }
+  }
 
   private volatile long lastGlobalTimeout =
       GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
 
-  @Nullable private final Cache<String, GremlinTranslationTemplate> translationCache;
+  @Nullable private final Cache<String, Entry<GremlinTranslationTemplate>> translationCache;
 
   private final LongAdder translationHits = new LongAdder();
 
   private final LongAdder translationMisses = new LongAdder();
+
+  // Publication and invalidation hooks are installed only by concurrency tests. Reads do not
+  // consult them. Volatile access also lets a test drive a writer on another thread.
+  @Nullable volatile Runnable afterPlanPublication;
+  @Nullable volatile Runnable afterTranslationPublication;
+  @Nullable volatile Runnable afterCounterIncrement;
 
   /**
    * @param size the size of the cache; 0 means cache disabled
@@ -54,10 +71,6 @@ public final class GremlinPlanCache
     super(size);
     this.translationCache =
         size > 0 ? CacheBuilder.newBuilder().maximumSize(size).build() : null;
-  }
-
-  public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).getLastInvalidation();
   }
 
   /** Returns {@code true} when an entry exists for {@code fingerprint}. */
@@ -100,31 +113,31 @@ public final class GremlinPlanCache
     return instance(db).templateInternal(fingerprint, db);
   }
 
-  public static void put(
-      String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    if (db == null || fingerprint == null) {
-      return;
-    }
-    instance(db).putInternal(fingerprint, plan, db);
-  }
-
   @Nullable public static GremlinTranslationTemplate getTranslation(
       String shapeKey, DatabaseSessionEmbedded db) {
     if (db == null || shapeKey == null) {
       return null;
     }
-    return instance(db).getTranslationInternal(shapeKey, db);
+    var cache = instance(db);
+    cache.prepare(db);
+    return cache.getTranslationInternal(shapeKey, db, cache.getInvalidationCounter());
   }
 
-  public static void putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
-    if (db == null || shapeKey == null || template == null) {
-      return;
+  /** Normalize timeout before capturing the generation, not after shape extraction. */
+  void prepare(DatabaseSessionEmbedded db) {
+    invalidateIfTimeoutChanged(db);
+  }
+
+  static void putTranslation(
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long generation) {
+    if (db != null && shapeKey != null && template != null) {
+      instance(db).putTranslationInternal(shapeKey, template, db, generation);
     }
-    instance(db).putTranslationInternal(shapeKey, template, db);
   }
 
-  void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
+  void putInternal(
+      String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db, long generation) {
     // A tx-local schema must never publish a plan into the storage-wide cache.
     if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()) {
       return;
@@ -142,7 +155,16 @@ public final class GremlinPlanCache
     copyCtx.setDatabaseSession(db);
     internal = internal.copy(copyCtx);
     internal.close();
-    putCached(fingerprint, internal);
+    var entry = new Entry<InternalExecutionPlan>(internal, generation);
+    putCached(fingerprint, entry);
+    var hook = afterPlanPublication;
+    if (hook != null) {
+      hook.run();
+    }
+    if (getInvalidationCounter() != generation) {
+      // Compare by holder identity, so a stale writer cannot remove a newer replacement.
+      cache.asMap().remove(fingerprint, entry);
+    }
   }
 
   @Nullable InternalExecutionPlan getInternal(
@@ -155,53 +177,89 @@ public final class GremlinPlanCache
     if (db.getTxSchemaState() != null) {
       return null;
     }
-    invalidateIfTimeoutChanged(db);
+    prepare(db);
+    var entry = planEntry(fingerprint, db, getInvalidationCounter());
+    return entry == null ? null : entry.value;
+  }
+
+  /** Stored plan for {@code fingerprint} without recording a hit or miss (test inspection). */
+  @Nullable InternalExecutionPlan peekStored(String fingerprint) {
+    var entry = getCached(fingerprint);
+    return entry == null ? null : entry.value;
+  }
+
+  /** The captured value precedes parameter harvesting; a newer entry cannot serve old bindings. */
+  @Nullable Entry<InternalExecutionPlan> planEntry(
+      String fingerprint, DatabaseSessionEmbedded db, long captured) {
+    if (db.getTxSchemaState() != null) {
+      return null;
+    }
+    prepare(db);
     if (fingerprint == null || !cacheEnabled()) {
       return null;
     }
-    var result = getCached(fingerprint);
-    if (result != null) {
+    var entry = getCached(fingerprint);
+    if (valid(entry, captured)) {
       recordHit();
       recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
-      return result;
+      return entry;
     }
     recordMiss();
     recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE);
     return null;
   }
 
-  /**
-   * Stored plan for {@code fingerprint} without recording a hit or miss. Used after {@link #put}
-   * to retrieve the just-stored closed template.
-   */
-  @Nullable InternalExecutionPlan peekStored(String fingerprint) {
-    return getCached(fingerprint);
+  @Nullable Entry<InternalExecutionPlan> peekEntry(String fingerprint, long captured) {
+    var entry = getCached(fingerprint);
+    return valid(entry, captured) ? entry : null;
+  }
+
+  private boolean valid(@Nullable Entry<?> entry, long captured) {
+    return entry != null && entry.generation == captured
+        && entry.generation == getInvalidationCounter();
   }
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
-      String shapeKey, DatabaseSessionEmbedded db) {
+      String shapeKey, DatabaseSessionEmbedded db, long captured) {
     if (db.getTxSchemaState() != null) {
       return null;
     }
-    invalidateIfTimeoutChanged(db);
+    prepare(db);
     if (shapeKey == null || translationCache == null) {
       return null;
     }
-    var result = translationCache.getIfPresent(shapeKey);
-    if (result != null) {
+    var entry = translationCache.getIfPresent(shapeKey);
+    if (valid(entry, captured)) {
       translationHits.increment();
-      return result;
+      return entry.value;
     }
     translationMisses.increment();
     return null;
   }
 
   void putTranslationInternal(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long generation) {
     if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
       return;
     }
-    translationCache.put(shapeKey, template);
+    var entry = new Entry<GremlinTranslationTemplate>(template, generation);
+    translationCache.put(shapeKey, entry);
+    var hook = afterTranslationPublication;
+    if (hook != null) {
+      hook.run();
+    }
+    if (getInvalidationCounter() != generation) {
+      translationCache.asMap().remove(shapeKey, entry);
+    }
+  }
+
+  @Override
+  protected void afterGenerationAdvanced() {
+    var hook = afterCounterIncrement;
+    if (hook != null) {
+      hook.run();
+    }
   }
 
   @Override
