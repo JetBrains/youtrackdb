@@ -76,6 +76,26 @@ public class MatchExistsPlannerTest extends DbTestBase {
     session.commit();
   }
 
+  /** A nested-loop EXISTS from a nullable optional origin keeps only its bound, matching row. */
+  @Test
+  public void exists_optionalOrigin_usesPositiveBinding() {
+    session.begin();
+    var plan = plan("MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+        + "{as:q, optional:true} RETURN p.name as name",
+        "MATCH {as:q}.out('ExistsLink'){as:child} RETURN q");
+    assertThat(plan.prettyPrint(0, 2)).contains("+ EXISTS (");
+    var stream = plan.start();
+    try {
+      assertThat(stream.stream(plan.getContext())
+          .map(row -> row.<String>getProperty("name")).sorted().toList())
+          .containsExactly("one");
+    } finally {
+      stream.close(plan.getContext());
+      plan.close();
+      session.commit();
+    }
+  }
+
   /** Count(*) must count only roots that pass EXISTS, not all three class records. */
   @Test
   public void exists_disablesClassCountFastPath() {
