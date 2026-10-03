@@ -35,10 +35,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMetadataIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -166,6 +170,9 @@ public class SelectExecutionPlanner {
   /** Mutable planning state -- populated by {@link #init} and mutated by optimization passes. */
   private QueryPlanningInfo info;
 
+  private boolean orderRequestMode;
+  private boolean requestRidTieBreak;
+
   /** The parsed SQL SELECT statement (immutable AST from the JavaCC parser). */
   private final SQLSelectStatement statement;
 
@@ -184,6 +191,7 @@ public class SelectExecutionPlanner {
   private void init(CommandContext ctx) {
     // copying the content, so that it can be manipulated and optimized
     info = new QueryPlanningInfo();
+    info.orderRequestedWithoutSort = orderRequestMode;
     info.projection =
         this.statement.getProjection() == null ? null : this.statement.getProjection().copy();
     info.projection = translateDistinct(info.projection);
@@ -215,6 +223,19 @@ public class SelectExecutionPlanner {
               .getConfiguration()
               .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT));
     }
+  }
+
+  /**
+   * Plans the normal SELECT scan without an in-memory sort. The plan reports the chosen scan
+   * order. A trailing RID item remains with the caller and is not part of the SELECT statement.
+   *
+   * @param ridTieBreak whether the caller will append a RID order item
+   */
+  public InternalExecutionPlan createExecutionPlanForOrderRequest(
+      CommandContext ctx, boolean enableProfiling, boolean ridTieBreak, boolean useCache) {
+    orderRequestMode = true;
+    requestRidTieBreak = ridTieBreak;
+    return createExecutionPlan(ctx, enableProfiling, useCache);
   }
 
   /**
@@ -262,16 +283,35 @@ public class SelectExecutionPlanner {
     // Include skipExpandPushDown in the cache key so that plans compiled with
     // push-down disabled (materialized LET per-entry) are stored separately
     // from plans compiled with push-down enabled (normal execution).
+    // Capture the original text before checking eligibility: that check initializes the text
+    // of synthetic SELECTs, whose positional parameters are not distinguished by toString().
     var cacheKey = statement.getOriginalStatement();
-    if (ctx.isSkipExpandPushDown()) {
-      cacheKey += "\0skipExpandPushDown";
+    if (cacheKey != null) {
+      if (orderRequestMode) {
+        cacheKey += requestRidTieBreak ? "\0orderRequestWithRid" : "\0orderRequest";
+      }
+      // SQL text omits comparator marks. Each item's mark can change type agreement, so
+      // requests with different mark positions must never share a cached plan.
+      if (statement.getOrderBy() != null && statement.getOrderBy().getItems() != null) {
+        var marks = new StringBuilder();
+        for (var item : statement.getOrderBy().getItems()) {
+          marks.append(item.isGremlinToMatchTranslatorProduced() ? '1' : '0');
+        }
+        if (marks.indexOf("1") >= 0) {
+          cacheKey += "\0gremlinOrder" + marks;
+        }
+      }
+      if (ctx.isSkipExpandPushDown()) {
+        cacheKey += "\0skipExpandPushDown";
+      }
     }
     var letHostedForCache =
         ctx.isLetHostedCorrelatedRidFetch() || statementHasUserPerRecordLet(statement);
-    if (letHostedForCache) {
+    if (cacheKey != null && letHostedForCache) {
       cacheKey += "\0letHostedCorrelatedRidFetch";
     }
-    if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
+    if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)
+        && cacheKey != null) {
       var plan = YqlExecutionPlanCache.get(cacheKey, ctx, session);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
@@ -322,6 +362,11 @@ public class SelectExecutionPlanner {
     tryPushDownFilterIntoExpand(result, info);
 
     handleProjectionsBlock(result, info, ctx, enableProfiling, this);
+    // A row-shaping operator can invalidate the scan order even if an index provided it.
+    var covered = info.orderApplied && !info.expand && info.unwind == null
+        && info.groupBy == null && !info.distinct && info.aggregateProjection == null;
+    result.setOrderReport(new SelectExecutionPlan.OrderReport(
+        covered, covered && info.ridOrderWithinEqualKeys));
 
     // --- 6. Append timeout enforcement step if configured ---
     if (info.timeout != null) {
@@ -332,6 +377,7 @@ public class SelectExecutionPlanner {
     if (useCache
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
+        && cacheKey != null
         && result.canBeCached()
         && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
       // Stamp the plan with the placement this build read, still inside the scope. A build that read
@@ -2472,6 +2518,7 @@ public class SelectExecutionPlanner {
     var boundedByLimit = !info.expand && info.unwind == null;
 
     if (!info.orderApplied
+        && !info.orderRequestedWithoutSort
         && info.orderBy != null
         && info.orderBy.getItems() != null
         && !info.orderBy.getItems().isEmpty()) {
@@ -2642,6 +2689,7 @@ public class SelectExecutionPlanner {
 
     if (orderByRidAsc != null) {
       info.orderApplied = true;
+      info.ridOrderWithinEqualKeys = true;
     }
     plan.chain(fetcher);
   }
@@ -3255,7 +3303,10 @@ public class SelectExecutionPlanner {
           break;
         }
       }
-      if (!indexFound || orderType == null) {
+      if (!indexFound || orderType == null
+          || !IndexOrderTypeAgreement.agrees(
+              clazz, idx.getDefinition(), info.orderBy.getItems(),
+              indexFields.subList(0, orderItemCount), false)) {
         continue;
       }
       var orderAsc = orderType.equals(SQLOrderByItem.ASC);
@@ -3292,6 +3343,15 @@ public class SelectExecutionPlanner {
     filterCollectionIds = IntArrayList.of(clazz.getPolymorphicCollectionIds());
     plan.chain(new GetValueFromIndexEntryStep(ctx, filterCollectionIds, profilingEnabled));
     info.orderApplied = true;
+    info.ridOrderWithinEqualKeys =
+        bestTrailingFields == 0
+            && IndexOrderTypeAgreement.agrees(
+                clazz, bestIndex.getDefinition(), info.orderBy.getItems(),
+                bestIndex.getDefinition().getProperties().subList(0, orderItemCount),
+                true)
+            && (!SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
+                || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
+                    info.whereClause == null ? null : info.whereClause.getBaseExpression()));
     return true;
   }
 
@@ -3627,8 +3687,10 @@ public class SelectExecutionPlanner {
           && orderAsc != null
           && info.orderBy != null
           && fullySorted(
-              info.orderBy, desc, ctx.getDatabaseSession().getPlanNullPlacements().resolve())) {
+              info.orderBy, desc, clazz,
+              ctx.getDatabaseSession().getPlanNullPlacements().resolve())) {
         info.orderApplied = true;
+        info.ridOrderWithinEqualKeys = ridOrderWithinEqualKeys(clazz, desc, info.orderBy);
       }
       if (desc.getRemainingCondition() != null && !desc.getRemainingCondition().isEmpty()) {
         if ((info.perRecordLetClause != null
@@ -3668,7 +3730,7 @@ public class SelectExecutionPlanner {
    * in the given descriptor (i.e. no in-memory sort is needed).
    */
   private static boolean fullySorted(
-      SQLOrderBy orderBy, IndexSearchDescriptor desc,
+      SQLOrderBy orderBy, IndexSearchDescriptor desc, SchemaClass clazz,
       ResolvedOrderByNullsPlacement placements) {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
@@ -3693,20 +3755,80 @@ public class SelectExecutionPlanner {
         return false;
       }
     }
-    return desc.fullySorted(orderBy.getProperties());
+    return desc.fullySorted(orderBy.getProperties())
+        && IndexOrderTypeAgreement.agrees(
+            clazz, definition, orderBy.getItems(), orderBy.getProperties(), false);
+  }
+
+  /** An index may order ties by RID only when no unfixed key component remains. */
+  private static boolean ridOrderWithinEqualKeys(
+      SchemaClass clazz, IndexSearchDescriptor desc, SQLOrderBy orderBy) {
+    var definition = desc.getIndex().getDefinition();
+    var fixedFields = new HashSet<String>();
+    var keyCondition = desc.getKeyCondition();
+    if (keyCondition instanceof SQLAndBlock andBlock) {
+      for (var condition : andBlock.getSubBlocks()) {
+        if (condition instanceof SQLBinaryCondition binary
+            && binary.getOperator() instanceof SQLEqualsOperator) {
+          fixedFields.add(binary.getLeft().toString());
+        }
+      }
+    } else if (keyCondition instanceof SQLBinaryCondition binary
+        && binary.getOperator() instanceof SQLEqualsOperator) {
+      fixedFields.add(binary.getLeft().toString());
+    }
+    var coveredFields = new HashSet<>(fixedFields);
+    coveredFields.addAll(orderBy.getProperties());
+    return coveredFields.size() == definition.getProperties().size()
+        && coveredFields.containsAll(definition.getProperties())
+        && IndexOrderTypeAgreement.agrees(
+            clazz, definition, orderBy.getItems(), orderBy.getProperties(), true)
+        && (!SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
+            || orderedFieldsExcludeNulls(clazz, orderBy.getProperties(), keyCondition));
+  }
+
+  /** A descending scan cannot promise RID order in a nullable index-key bucket. */
+  private static boolean orderedFieldsExcludeNulls(
+      SchemaClass clazz, List<String> fields, SQLBooleanExpression condition) {
+    for (var field : fields) {
+      var property = clazz.getProperty(field);
+      if ((property == null || !property.isNotNull()) && !conditionExcludesNull(condition, field)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** A single-branch OR and a non-negating NOT are parser wrappers, not weaker predicates. */
+  private static boolean conditionExcludesNull(SQLBooleanExpression condition, String field) {
+    if (condition instanceof SQLIsNotNullCondition notNull) {
+      var expression = notNull.getExpression();
+      return expression.isBaseIdentifier()
+          && field.equals(expression.getDefaultAlias().getStringValue());
+    }
+    if (condition instanceof SQLBinaryCondition binary) {
+      // Both not-equal operators accept a null left operand, so they cannot exclude null keys.
+      return !(binary.getOperator() instanceof SQLNeOperator
+          || binary.getOperator() instanceof SQLNeqOperator)
+          && field.equals(binary.getLeft().toString())
+          && !binary.getRight().toString().equalsIgnoreCase("null");
+    }
+    if (condition instanceof SQLAndBlock andBlock) {
+      return andBlock.getSubBlocks().stream().anyMatch(sub -> conditionExcludesNull(sub, field));
+    }
+    if (condition instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
+      return conditionExcludesNull(notBlock.getSub(), field);
+    }
+    if (condition instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
+      return conditionExcludesNull(orBlock.getSubBlocks().getFirst(), field);
+    }
+    return false;
   }
 
   /**
    * Whether the index can produce the requested null placement for every item of {@code orderBy}.
-   *
-   * <p>A single-property index owns a separate null bucket, which the fetch step concatenates before
-   * or after the ordered keys, so it can produce either placement and the check passes at once.
-   *
-   * <p>A composite index keeps a null component inside the key, so its scan yields only the natural
-   * placement, which is first for an ascending scan and last for a descending one. Every item the
-   * shortcut would satisfy must request that natural placement, because one item asking for the
-   * other end would need a bucket move a composite key cannot do. Reading the leading item alone
-   * would keep the shortcut for {@code ORDER BY a ASC, b ASC NULLS LAST} and return a wrong order.
+   * A single-property index moves its null bucket. Composite keys keep nulls inline and can only
+   * provide natural placement (first for ASC, last for DESC) on every component.
    */
   private static boolean canProduceNullPlacement(
       IndexDefinition definition,

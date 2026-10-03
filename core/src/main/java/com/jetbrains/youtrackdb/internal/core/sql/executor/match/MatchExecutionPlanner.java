@@ -2833,17 +2833,18 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
+        var selectPlan = select.createExecutionPlan(context, profilingEnabled);
+        if (singleNodeIndexOrder != null && singleNodeIndexOrder.alias().equals(node.alias)) {
+          // Detection proposes an index. Only the built SELECT can confirm its scan order.
+          var report = ((SelectExecutionPlan) selectPlan).getOrderReport();
+          singleNodeIndexOrder.restrictTo(report);
+        }
         var signalRidIndexOrder =
             singleNodeIndexOrder != null
                 && singleNodeIndexOrder.alias().equals(node.alias)
                 && singleNodeIndexOrder.ridTieBreakAccepted();
-        plan.chain(
-            new MatchFirstStep(
-                context,
-                node,
-                select.createExecutionPlan(context, profilingEnabled),
-                signalRidIndexOrder,
-                profilingEnabled));
+        plan.chain(new MatchFirstStep(
+            context, node, selectPlan, signalRidIndexOrder, profilingEnabled));
       }
     }
     if (outerEstimates != null) {

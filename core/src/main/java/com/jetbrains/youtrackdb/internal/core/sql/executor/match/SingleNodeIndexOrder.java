@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -38,21 +39,42 @@ final class SingleNodeIndexOrder {
   private SingleNodeIndexOrder() {
   }
 
-  /**
-   * When present, the synthetic root SELECT should carry {@link #selectOrderBy()} so the SELECT
-   * planner can open an ordered index scan.
-   *
-   * <p>{@link #orderFullyCovered()} is true only for a single ORDER BY key — MATCH drops its
-   * OrderByStep. A trailing {@code @rid} never claims coverage: MATCH keeps OrderByStep and
-   * {@link #ridTieBreakAccepted()} tells the planner to set {@code indexOrderedUpstream} so
-   * OrderByStep can pass through when the transaction is clean (same runtime contract as
-   * {@link IndexOrderedEdgeStep}).
-   */
-  record Candidate(
-      @Nonnull String alias,
-      @Nonnull SQLOrderBy selectOrderBy,
-      boolean orderFullyCovered,
-      boolean ridTieBreakAccepted) {
+  /** A potential index order, restricted by the root SELECT's actual scan report. */
+  static final class Candidate {
+
+    private final String alias;
+    private final SQLOrderBy selectOrderBy;
+    private boolean orderFullyCovered;
+    private boolean ridTieBreakAccepted;
+
+    Candidate(String alias, SQLOrderBy selectOrderBy, boolean covered, boolean ridAccepted) {
+      this.alias = alias;
+      this.selectOrderBy = selectOrderBy;
+      this.orderFullyCovered = covered;
+      this.ridTieBreakAccepted = ridAccepted;
+    }
+
+    String alias() {
+      return alias;
+    }
+
+    SQLOrderBy selectOrderBy() {
+      return selectOrderBy;
+    }
+
+    boolean orderFullyCovered() {
+      return orderFullyCovered;
+    }
+
+    boolean ridTieBreakAccepted() {
+      return ridTieBreakAccepted;
+    }
+
+    void restrictTo(SelectExecutionPlan.OrderReport report) {
+      // The index detected here is only a candidate. SELECT may choose a different scan.
+      orderFullyCovered &= report.fullOrderCovered();
+      ridTieBreakAccepted &= report.fullOrderCovered() && report.ridOrderWithinEqualKeys();
+    }
   }
 
   /**

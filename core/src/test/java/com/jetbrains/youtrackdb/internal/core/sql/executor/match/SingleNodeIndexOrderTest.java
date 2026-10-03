@@ -61,6 +61,46 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     session.commit();
   }
 
+  /** An undeclared STRING index cannot signal pre-sorted DESC RID ties after SELECT rejects it. */
+  @Test
+  public void undeclaredIndexDescRidTieBreakSortsInsteadOfPassingThrough() {
+    session.execute("CREATE CLASS UndeclaredOrderItem EXTENDS V").close();
+    session.execute("CREATE INDEX UndeclaredOrderItem_p ON UndeclaredOrderItem (p)"
+        + " NOTUNIQUE STRING").close();
+    session.begin();
+    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 2").close();
+    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 2").close();
+    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 10").close();
+    session.commit();
+
+    var rows = new ArrayList<Object[]>();
+    try (var rs = session.query("SELECT @rid AS r, p FROM UndeclaredOrderItem")) {
+      rs.forEachRemaining(
+          row -> rows.add(new Object[] {row.getProperty("p"), row.getProperty("r")}));
+    }
+    rows.sort(Comparator.<Object[], Integer>comparing(row -> (Integer) row[0])
+        .thenComparing(row -> (com.jetbrains.youtrackdb.internal.core.id.RecordId) row[1])
+        .reversed());
+    var expected = rows.stream().map(row -> row[1].toString()).toList();
+    var root = "MATCH {class: UndeclaredOrderItem, as: item, where: (p IS NOT NULL)}"
+        + " RETURN item ORDER BY item.p ";
+    var desc = root + "DESC, item.@rid DESC";
+    assertThat(plan(desc)).contains("+ ORDER BY");
+    assertThat(matchItemRids(desc)).isEqualTo(expected);
+
+    // The ASC tie-break must also sort instead of trusting a rejected index order.
+    var asc = root + "ASC, item.@rid ASC";
+    assertThat(plan(asc)).contains("+ ORDER BY");
+    assertThat(matchItemRids(asc)).isEqualTo(
+        new ArrayList<>(expected.reversed()));
+
+    // Numeric SQL order, not STRING index key order, determines the first key.
+    var single = root + "ASC";
+    assertThat(plan(single)).contains("+ ORDER BY");
+    assertThat(matchItemRids(single)).isEqualTo(
+        new ArrayList<>(expected.reversed()));
+  }
+
   private String plan(String query) {
     try (var rs = session.query("EXPLAIN " + query)) {
       return String.valueOf((Object) rs.next().getProperty("executionPlanAsString"));
@@ -132,9 +172,13 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   private List<String> matchItemRids(String query) {
+    return matchRids(query, "item");
+  }
+
+  private List<String> matchRids(String query, String alias) {
     var rows = new ArrayList<String>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> rows.add(row.getVertex("item").getIdentity().toString()));
+      rs.forEachRemaining(row -> rows.add(row.getVertex(alias).getIdentity().toString()));
     }
     return rows;
   }
@@ -588,6 +632,46 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
     assertThat(actual).isEqualTo(expected);
+  }
+
+  /**
+   * A presence-only WHERE excludes null score keys, so DESC + RID streams without buffering in
+   * a clean transaction. ASC + RID also streams, including a nullable key.
+   */
+  @Test
+  @Category(SequentialTest.class)
+  public void bareMatchPresenceFiltersWithRid_streamUnderLowHeapCap() {
+    seedNamedScores(false);
+    var root = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s"
+        + " ORDER BY s.score ";
+    var expected = expectedScoredRids(false).stream()
+        .filter(rid -> {
+          for (var v : graph.traversal().V().hasLabel("Scored").toList()) {
+            if (v.id().toString().equals(rid)) {
+              return v.property("score").isPresent();
+            }
+          }
+          return false;
+        })
+        .toList();
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
+    try {
+      assertThat(matchRids(root + "DESC, s.@rid DESC", "s"))
+          .isEqualTo(expected);
+      assertThat(matchRids(root + "ASC, s.@rid ASC", "s"))
+          .isEqualTo(expected.reversed());
+      var both = "MATCH {class: Scored, as: s,"
+          + " where: (score IS NOT NULL AND score IS DEFINED)} RETURN s"
+          + " ORDER BY s.score DESC, s.@rid DESC";
+      assertThat(matchRids(both, "s")).isEqualTo(expected);
+      // IS DEFINED is also eligible for ASC, regardless of nullability.
+      var defined = "MATCH {class: Scored, as: s, where: (score IS DEFINED)} RETURN s"
+          + " ORDER BY s.score ASC, s.@rid ASC";
+      assertThat(matchRids(defined, "s")).isEqualTo(expected.reversed());
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
   }
 
   /**

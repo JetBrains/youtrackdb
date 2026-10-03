@@ -62,6 +62,25 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
   /** A parameterized/generic form of the statement (for cache grouping). */
   private String genericStatement;
 
+  /**
+   * The order of the chosen scan, before any in-memory sort. The RID-order fact describes
+   * committed index content at plan time. Pending transaction entries can break that order.
+   * Callers must check the clean-transaction rule at run time before skipping a RID sort.
+   * Hardwired shortcuts retain the default report of false for both facts.
+   */
+  public record OrderReport(boolean fullOrderCovered, boolean ridOrderWithinEqualKeys) {
+  }
+
+  private OrderReport orderReport = new OrderReport(false, false);
+
+  public OrderReport getOrderReport() {
+    return orderReport;
+  }
+
+  void setOrderReport(OrderReport report) {
+    this.orderReport = report;
+  }
+
   public SelectExecutionPlan(CommandContext ctx) {
     this.ctx = ctx;
   }
@@ -274,6 +293,7 @@ public class SelectExecutionPlan implements InternalExecutionPlan {
     copy.lastStep = copy.steps.isEmpty() ? null : copy.steps.getLast();
     copy.location = this.location;
     copy.statement = this.statement;
+    copy.orderReport = this.orderReport;
   }
 
   @Override

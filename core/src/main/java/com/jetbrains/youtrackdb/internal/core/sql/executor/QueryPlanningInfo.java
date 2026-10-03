@@ -198,6 +198,12 @@ public class QueryPlanningInfo {
    */
   protected boolean orderApplied = false;
 
+  /** Request mode leaves sorting to the caller even when the scan does not cover ORDER BY. */
+  protected boolean orderRequestedWithoutSort;
+
+  /** Whether a covered index scan orders equal ORDER BY keys by RID. */
+  protected boolean ridOrderWithinEqualKeys;
+
   /**
    * When non-null, the input to ORDER BY is sorted by this item (primary key).
    * Passed to {@link OrderByStep} to enable early termination in the bounded heap.
@@ -272,6 +278,8 @@ public class QueryPlanningInfo {
     result.skip = this.skip;
     result.limit = this.limit;
     result.orderApplied = this.orderApplied;
+    result.orderRequestedWithoutSort = this.orderRequestedWithoutSort;
+    result.ridOrderWithinEqualKeys = this.ridOrderWithinEqualKeys;
     result.projectionsCalculated = this.projectionsCalculated;
     result.deferOrderByProjections = this.deferOrderByProjections;
     result.deferPerRecordLetPastLimit = this.deferPerRecordLetPastLimit;
