@@ -166,6 +166,206 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A positive origin filter that reads the earlier binding of a must not be evaluated in an
+   * independent hash build without that binding. Both plans must keep only n3.
+   */
+  @Test
+  public void detachedNot_originFilterUsingMatched_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){class:Person, as:b, where:($matched.a.name = 'n1')},"
+          + " NOT {as:b}.out('Friend'){as:x, where:(name='n4')}"
+          + " RETURN b.name as name";
+      assertNotPathAgreement(sql, List.of("n3"), false);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A null optional shared target is unbound to a nested probe but cannot form a hash key. */
+  @Test
+  public void detachedNot_optionalSharedAlias_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Likes'){as:b, optional:true},"
+          + " NOT {as:a}.out('Friend'){as:b} RETURN a.name as name";
+      assertNotPathAgreement(sql, List.of(), false);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A nullable check origin must give the same answer on both NOT paths. */
+  @Test
+  public void detachedNot_optionalOrigin_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a}.out('Friend')"
+          + "{class:Person, as:b, optional:true},"
+          + " NOT {as:b}.out('Friend'){as:x, where:(name='n4')}"
+          + " RETURN a.name as name";
+      assertNotPathAgreement(sql, List.of("n1", "n2", "n3", "n4", "n5"), true);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A zero-hop NOT probe matches even an unbound optional origin, so both paths drop all rows. */
+  @Test
+  public void detachedNot_zeroHopOptionalOrigin_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a}.out('Friend')"
+          + "{class:Person, as:b, optional:true},"
+          + " NOT {as:b} RETURN a.name as name";
+      assertNotPathAgreement(sql, List.of(), false);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** An unreturned shared c must survive the diamond branch for both NOT strategies. */
+  @Test
+  public void detachedNot_unreturnedSharedDiamondAlias_agreesWithNestedLoop() {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      session.begin();
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+          + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t},"
+          + " NOT {as:a}.out('Friend'){as:c, where:(name='n2')}"
+          + " RETURN t.name as name";
+      assertNotPathAgreement(sql, List.of("t1", "t1"), true);
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
+  }
+
+  /** A recursive WHILE reading the outer row cannot be evaluated in a detached build. */
+  @Test
+  public void detachedNot_correlatedWhile_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:r},"
+          + " NOT {as:a}.out('Friend'){as:x, maxDepth:2,"
+          + " while:($matched.r IS NOT NULL), where:(name='n4')}"
+          + " RETURN r.name as name";
+      assertNotPathAgreement(sql, List.of(), false);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** An optional chain can leave the last shared alias unbound to the positive row. */
+  @Test
+  public void detachedNot_optionalChainSharedAlias_agreesWithNestedLoop() {
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Likes'){as:b, optional:true}.out('Friend'){as:c, optional:true},"
+          + " NOT {as:a}.out('Friend'){as:c} RETURN a.name as name";
+      assertNotPathAgreement(sql, List.of(), false);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * A programmatic EXISTS from the diamond's a to its unreturned c needs c's actual binding.
+   * Without c, the check binds any friend named n3 and incorrectly keeps the t2 row.
+   */
+  @Test
+  public void detachedExists_unreturnedSharedDiamondAlias_isRetained() throws Exception {
+    var savedMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      session.begin();
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')}"
+          + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+          + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+          + " RETURN t.name as name";
+      var positive = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+          sql.getBytes(StandardCharsets.UTF_8))).parse();
+      var check = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+          "MATCH {as:a}.out('Friend'){as:c, where:(name='n3')} RETURN a"
+              .getBytes(StandardCharsets.UTF_8)))
+          .parse();
+      var pattern = new Pattern();
+      positive.getMatchExpressions().forEach(pattern::addExpression);
+      var inputs = MatchPlanInputs.builder(pattern)
+          .aliasClasses(Map.of("a", "Person", "t", "Tag"))
+          .aliasFilters(Map.of("a", positive.getMatchExpressions().getFirst().getOrigin()
+              .getFilter()))
+          .existsMatchExpressions(check.getMatchExpressions())
+          .returnItems(positive.getReturnItems())
+          .returnAliases(positive.getReturnAliases())
+          .returnNestedProjections(positive.getReturnNestedProjections())
+          .build();
+      var ctx = new BasicCommandContext();
+      ctx.setDatabaseSession(session);
+      var plan = new MatchExecutionPlanner(inputs).createExecutionPlan(ctx, false, false);
+      assertTrue("a detached check must retain the c branch: " + plan.prettyPrint(0, 2),
+          plan.prettyPrint(0, 2).contains("HASH INNER_JOIN")
+              && plan.prettyPrint(0, 2).contains("+ EXISTS ("));
+      var stream = plan.start();
+      try {
+        assertEquals(List.of("t1", "t1"), stream.stream(ctx)
+            .map(row -> (String) row.getProperty("name")).sorted().toList());
+      } finally {
+        stream.close(ctx);
+        plan.close();
+      }
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMin);
+    }
+  }
+
+  /** Run one NOT statement through both physical paths without losing duplicate rows. */
+  private void assertNotPathAgreement(String sql, List<String> expected, boolean hashEligible) {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      List<String> hashRows = null;
+      List<String> nestedRows = null;
+      for (var threshold : List.of(10_000L, 0L)) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+        // A different projection alias keeps the SQL plan cache from reusing the hash plan.
+        var query = (threshold == 0L ? sql.replace(" as name", " as nameZero") : sql)
+            + " /* detached agreement threshold " + threshold + " */";
+        try (var explain = session.query("EXPLAIN " + query)) {
+          var plan = explain.toList().getFirst().<String>getProperty("executionPlanAsString");
+          if (threshold == 0L || !hashEligible) {
+            assertTrue("expected nested-loop NOT: " + plan, plan.contains("+ NOT ("));
+          } else {
+            assertTrue("expected hash anti-join: " + plan, plan.contains("+ HASH ANTI_JOIN"));
+          }
+        }
+        List<String> rows;
+        try (var results = session.query(query)) {
+          rows = results.stream()
+              .map(r -> (String) r.getProperty(threshold == 0L ? "nameZero" : "name"))
+              .sorted().toList();
+        }
+        if (threshold != 0L) {
+          hashRows = rows;
+        } else {
+          nestedRows = rows;
+        }
+      }
+      assertEquals("nested-loop row multiset", expected, nestedRows);
+      assertEquals("hash-choice row multiset", expected, hashRows);
+      assertEquals("both paths must retain the same row multiset", nestedRows, hashRows);
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
   // ── Correctness tests ──────────────────────────────────────────────────
 
   /**

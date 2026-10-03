@@ -18,10 +18,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -182,6 +186,19 @@ public class MatchPlannerHelpersTest {
     var where = buildWhereClause("name = '$matched'", false);
     var exp = buildNotExpression("friend", null, "tag", where);
     assertThat(MatchExecutionPlanner.notPatternDependsOnMatched(exp)).isFalse();
+  }
+
+  /** A WHILE condition using either outer-row variable rejects the detached hash build. */
+  @Test
+  public void notPatternDependsOnMatched_whileUsesOuterRow_returnsTrue() throws Exception {
+    for (var variable : List.of("$matched", "$parent")) {
+      var sql = "MATCH {as:a}.out('Friend'){as:x, maxDepth:2,"
+          + " while:(" + variable + ".a IS NOT NULL)} RETURN a";
+      var parsed = (SQLMatchStatement) new YouTrackDBSql(
+          new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8))).parse();
+      assertThat(MatchExecutionPlanner.notPatternDependsOnMatched(
+          parsed.getMatchExpressions().getFirst())).isTrue();
+    }
   }
 
   // ── findSharedAliases ───────────────────────────────────────────────────
@@ -352,7 +369,8 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 999);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag")))
         .isTrue();
   }
 
@@ -367,7 +385,8 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 1000);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag")))
         .isFalse();
   }
 
@@ -441,7 +460,8 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag")))
         .isTrue();
   }
 
@@ -455,7 +475,8 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag")))
         .isFalse();
   }
 
@@ -469,7 +490,7 @@ public class MatchPlannerHelpersTest {
 
     // Empty aliasClasses — origin has no class
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of(), Map.of(), Map.of(), ctx, buildPattern("person", "tag")))
         .isFalse();
   }
 
@@ -483,8 +504,31 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 1_000_000);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag")))
         .isFalse();
+  }
+
+  /** A zero-hop check on an optional origin needs the per-row probe, unlike a check with a hop. */
+  @Test
+  public void canUseHashJoin_optionalOriginOnlyRejectsZeroHop() {
+    var zeroHop = new SQLMatchExpression(-1);
+    var origin = new SQLMatchFilter(-1);
+    origin.setAlias("person");
+    zeroHop.setOrigin(origin);
+    zeroHop.setItems(List.of());
+    var withHop = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 100);
+    var pattern = buildPattern("person", "tag");
+    pattern.aliasToNode.get("person").optional = true;
+
+    assertThat(MatchExecutionPlanner.canUseHashJoin(zeroHop,
+        Map.of("person", "Person"), Map.of(), Map.of(), ctx, pattern)).isFalse();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(withHop,
+        Map.of("person", "Person"), Map.of(), Map.of(), ctx, pattern)).isTrue();
+    pattern.aliasToNode.get("person").optional = false;
+    assertThat(MatchExecutionPlanner.canUseHashJoin(zeroHop,
+        Map.of("person", "Person"), Map.of(), Map.of(), ctx, pattern)).isTrue();
   }
 
   // ── collectDownstreamAliases ────────────────────────────────────────────
@@ -698,6 +742,27 @@ public class MatchPlannerHelpersTest {
         null, null, null,
         allAliases);
     assertThat(result).containsExactlyInAnyOrder("person", "friend");
+  }
+
+  /** Both kinds of detached check retain positive aliases read by WHERE and WHILE. */
+  @Test
+  public void collectDownstreamAliases_checkConditionsRetainPositiveAliases() throws Exception {
+    var sql = "MATCH {as:a}.out('Friend'){as:x,"
+        + " where:($matched.c.name = 'n2'),"
+        + " while:($matched.t.name = 't1'), maxDepth:1} RETURN a";
+    var check = (SQLMatchStatement) new YouTrackDBSql(
+        new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8))).parse();
+    var pattern = buildPattern("a", "c", "t");
+    for (var negative : List.of(false, true)) {
+      var inputs = MatchPlanInputs.builder(pattern)
+          .notMatchExpressions(negative ? check.getMatchExpressions() : List.of())
+          .existsMatchExpressions(negative ? List.of() : check.getMatchExpressions())
+          .build();
+      var planner = new MatchExecutionPlanner(inputs);
+      assertThat(planner.collectDownstreamAliases(
+          List.of(buildExpression("a.name")), null, null, null, pattern.aliasToNode.keySet()))
+          .containsExactlyInAnyOrder("a", "c", "t");
+    }
   }
 
   // ── identifyHashJoinBranches ────────────────────────────────────────────

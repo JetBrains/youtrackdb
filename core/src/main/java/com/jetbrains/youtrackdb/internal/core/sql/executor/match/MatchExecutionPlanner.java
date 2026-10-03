@@ -1127,7 +1127,7 @@ public class MatchExecutionPlanner {
     for (var exp : notMatchExpressions) {
       var matchSteps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context)) {
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
             exp, matchSteps, aliasClasses, aliasFilters, aliasPinnedRids,
@@ -1199,10 +1199,9 @@ public class MatchExecutionPlanner {
    * expression references these variables, the pattern cannot be independently
    * materialized and must use the nested-loop {@link FilterNotMatchPatternStep}.
    *
-   * <p>Inspects the origin filter and all intermediate path-item filters, checking
-   * each WHERE clause for {@code refersToParent()} and string-level
-   * {@code $matched.} references (matching the approach in
-   * {@link #dependsOnExecutionContext}).
+   * <p>Inspects origin and path-item WHERE and WHILE conditions for
+   * {@code refersToParent()} and string-level {@code $matched.} references
+   * (matching the approach in {@link #dependsOnExecutionContext}).
    *
    * @param exp the NOT match expression to inspect
    * @return {@code true} if any filter depends on execution context
@@ -1210,17 +1209,22 @@ public class MatchExecutionPlanner {
   static boolean notPatternDependsOnMatched(SQLMatchExpression exp) {
     // Check origin filter (currently always null per parser validation in
     // manageNotPatterns, but check defensively in case that constraint is relaxed)
-    if (filterDependsOnContext(exp.getOrigin().getFilter())) {
+    if (checkFilterDependsOnContext(exp.getOrigin())) {
       return true;
     }
-    // Check each intermediate path item's filter
     for (var item : exp.getItems()) {
-      var filter = item.getFilter();
-      if (filter != null && filterDependsOnContext(filter.getFilter())) {
+      if (checkFilterDependsOnContext(item.getFilter())) {
         return true;
       }
     }
     return false;
+  }
+
+  /** Both conditions of a check item run during the detached build. */
+  private static boolean checkFilterDependsOnContext(@Nullable SQLMatchFilter filter) {
+    return filter != null
+        && (filterDependsOnContext(filter.getFilter())
+            || filterDependsOnContext(filter.getWhileCondition()));
   }
 
   /**
@@ -1350,12 +1354,12 @@ public class MatchExecutionPlanner {
 
   /**
    * Determines whether a NOT expression is eligible for hash-based anti-join evaluation.
-   * Returns {@code true} iff all three conditions are met:
+   * Returns {@code true} only when the build can reproduce the per-row probe:
    * <ol>
-   *   <li>No filter in the NOT expression references {@code $matched} or
-   *       {@code $parent}.</li>
-   *   <li>The origin alias has a known class in {@code aliasClasses} (needed to
-   *       construct the build-side scan).</li>
+   *   <li>No check WHERE or WHILE condition, or positive origin filter, depends on
+   *       {@code $matched} or {@code $parent}.</li>
+   *   <li>The origin alias has a known class. No later shared alias is optional, and an
+   *       optional origin is allowed only when the check traverses at least one hop.</li>
    *   <li>The estimated build-side cardinality does not exceed
    *       {@link #getHashJoinThreshold()}.</li>
    * </ol>
@@ -1365,13 +1369,27 @@ public class MatchExecutionPlanner {
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
-      CommandContext context) {
+      CommandContext context,
+      Pattern pattern) {
     if (notPatternDependsOnMatched(exp)) {
       return false;
     }
     var originAlias = exp.getOrigin().getAlias();
-    if (originAlias == null || !aliasClasses.containsKey(originAlias)) {
+    if (originAlias == null || !aliasClasses.containsKey(originAlias)
+        || filterDependsOnContext(aliasFilters.get(originAlias))) {
       return false;
+    }
+    // A zero-hop probe matches its source row even when the optional origin is null.
+    // The hash build cannot store that null key. A probe with hops cannot traverse it.
+    if (exp.getItems().isEmpty() && pattern.aliasToNode.get(originAlias).isOptionalNode()) {
+      return false;
+    }
+    // Later null shared keys are unbound to a per-row probe but cannot join a hash key.
+    var sharedAliases = findSharedAliases(exp, pattern);
+    for (var i = 1; i < sharedAliases.size(); i++) {
+      if (pattern.aliasToNode.get(sharedAliases.get(i)).isOptionalNode()) {
+        return false;
+      }
     }
     var estimatedCardinality = estimateNotPatternCardinality(
         exp, aliasClasses, aliasFilters, aliasPinnedRids, context);
@@ -1421,13 +1439,12 @@ public class MatchExecutionPlanner {
           "\\b" + java.util.regex.Pattern.quote(alias) + "\\b"));
     }
 
-    // A detached check runs after the positive pattern and needs its origin even if RETURN
-    // does not read it. A semi-join would otherwise discard the alias before the check.
+    // A branch semi-join may drop an alias only if no later detached check binds or reads it.
     for (var check : notMatchExpressions) {
-      referenced.add(check.getOrigin().getAlias());
+      collectCheckAliases(check, allPatternAliases, referenced, compiled);
     }
     for (var check : existsMatchExpressions) {
-      referenced.add(check.getOrigin().getAlias());
+      collectCheckAliases(check, allPatternAliases, referenced, compiled);
     }
 
     // Scan RETURN expressions
@@ -1463,6 +1480,37 @@ public class MatchExecutionPlanner {
     }
 
     return referenced;
+  }
+
+  /** Retain every shared binding and every positive alias read by check conditions. */
+  private static void collectCheckAliases(SQLMatchExpression check,
+      Set<String> allPatternAliases, Set<String> referenced,
+      Map<String, java.util.regex.Pattern> compiled) {
+    var checkAliases = new LinkedHashSet<String>();
+    checkAliases.add(check.getOrigin().getAlias());
+    collectCheckFilterAliases(check.getOrigin(), allPatternAliases, referenced, compiled);
+    for (var item : check.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null) {
+        checkAliases.add(filter.getAlias());
+        collectCheckFilterAliases(filter, allPatternAliases, referenced, compiled);
+      }
+    }
+    checkAliases.retainAll(allPatternAliases);
+    referenced.addAll(checkAliases);
+  }
+
+  private static void collectCheckFilterAliases(SQLMatchFilter filter,
+      Set<String> allPatternAliases, Set<String> referenced,
+      Map<String, java.util.regex.Pattern> compiled) {
+    if (filter.getFilter() != null) {
+      collectAliasesFromText(filter.getFilter().toString(), allPatternAliases, referenced,
+          compiled);
+    }
+    if (filter.getWhileCondition() != null) {
+      collectAliasesFromText(filter.getWhileCondition().toString(), allPatternAliases,
+          referenced, compiled);
+    }
   }
 
   /**
