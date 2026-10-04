@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
@@ -12,11 +13,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
@@ -177,6 +180,34 @@ final class GremlinPredicateAdapter {
     }
   }
 
+  /** Each slot's role in the predicate adapter's emission order. */
+  enum SlotRole {
+    OPERAND, PREFIX, DERIVED_UPPER_BOUND
+  }
+
+  private interface RoleSink extends ParamSink {
+    SQLPositionalParameter bind(Object value, SlotRole role);
+
+    @Override
+    default SQLPositionalParameter bindParam(Object value) {
+      return bind(value, SlotRole.OPERAND);
+    }
+  }
+
+  static ParamSink withRoles(ParamSink delegate, Consumer<SlotRole> roles) {
+    return new RoleSink() {
+      @Override
+      public SQLPositionalParameter bind(Object value, SlotRole role) {
+        roles.accept(role);
+        return delegate.bindParam(value);
+      }
+    };
+  }
+
+  private static SQLPositionalParameter bindRole(ParamSink sink, Object value, SlotRole role) {
+    return sink instanceof RoleSink annotated ? annotated.bind(value, role) : sink.bindParam(value);
+  }
+
   /** Type gate for callers with no schema context: reports no key as a declared String, so a
    *  {@code startingWith} routes to the strict full-scan form (the value type is unknown). */
   static final PropertyTypeGate NO_TYPE_INFO = key -> false;
@@ -228,6 +259,32 @@ final class GremlinPredicateAdapter {
         }
         for (var className : classNames) {
           if (!ctx.isDeclaredPropertyTypeIn(className, key, typeNames)) {
+            return false;
+          }
+        }
+        return true;
+      }
+    };
+  }
+
+  /** Schema-backed gate for shape extraction, with the same all-classes rule as the walker. */
+  static PropertyTypeGate schemaGate(@Nullable Schema schema, @Nullable String[] classNames) {
+    return new PropertyTypeGate() {
+      @Override
+      public boolean isDeclaredString(String key) {
+        return declaredTypeIn(key, List.of(PropertyType.STRING.name()));
+      }
+
+      @Override
+      public boolean declaredTypeIn(String key, List<String> typeNames) {
+        if (schema == null || classNames == null || classNames.length == 0) {
+          return false;
+        }
+        for (var name : classNames) {
+          var clazz = schema.getClass(name);
+          if (clazz == null || clazz.getProperty(key) == null
+              || clazz.getProperty(key).getType() == null
+              || !typeNames.contains(clazz.getProperty(key).getType().name())) {
             return false;
           }
         }
@@ -324,14 +381,18 @@ final class GremlinPredicateAdapter {
    * returning {@code null}): {@code eq(null)} still allocates no slot, {@code startingWith} on a
    * declared String still allocates two.
    *
-   * <p>Uses {@code rangeTypeGuard=true}, matching {@link HasStepRecogniser#contributeShape}: the
-   * type-guard AST is skipped, but an order comparison whose literal names no comparability block
-   * still declines before binding, as {@code toFilter(..., true)} does.
+   * <p>The short overload retains the unfolded default for callers without traversal context.
+   * Shape extraction passes the fold mode recorded for this HasStep to the four-argument overload,
+   * so singleton collection comparisons use the same slots as the walker.
    */
   void bindParams(HasContainer container, PropertyTypeGate typeGate, ParamSink paramSink) {
+    bindParams(container, typeGate, paramSink, /* rangeTypeGuard= */ true);
+  }
+
+  void bindParams(HasContainer container, PropertyTypeGate typeGate, ParamSink paramSink,
+      boolean rangeTypeGuard) {
     Objects.requireNonNull(paramSink, "paramSink");
-    translateContainer(container, typeGate, paramSink, /* rangeTypeGuard= */ true,
-        /* emitAst= */ false);
+    translateContainer(container, typeGate, paramSink, rangeTypeGuard, /* emitAst= */ false);
   }
 
   private @Nullable SQLBooleanExpression translateContainer(
@@ -796,11 +857,16 @@ final class GremlinPredicateAdapter {
       if (paramSink == null) {
         return WHERE.startsWith(key, prefix);
       }
-      var lower = WHERE.op(key, SQLGeOperator.INSTANCE, valueExpression(prefix, paramSink));
-      var upper = WHERE.op(key, SQLLtOperator.INSTANCE, valueExpression(upperBound, paramSink));
+      var lower = WHERE.op(key, SQLGeOperator.INSTANCE,
+          MatchLiteralBuilder.toInputParameter(bindRole(paramSink, prefix, SlotRole.PREFIX)));
+      var upper = WHERE.op(key, SQLLtOperator.INSTANCE,
+          MatchLiteralBuilder.toInputParameter(
+              bindRole(paramSink, upperBound, SlotRole.DERIVED_UPPER_BOUND)));
       return WHERE.and(lower, upper);
     }
-    return WHERE.startsWithStrict(key, valueExpression(prefix, translation.paramSink()));
+    var sink = translation.paramSink();
+    return WHERE.startsWithStrict(key, sink == null ? valueExpression(prefix, null)
+        : MatchLiteralBuilder.toInputParameter(bindRole(sink, prefix, SlotRole.PREFIX)));
   }
 
   /**
@@ -810,9 +876,9 @@ final class GremlinPredicateAdapter {
   private SQLBooleanExpression bindStartsWith(
       String key, String prefix, Translation translation) {
     var upperBound = indexAwareUpperBound(key, prefix, translation.typeGate());
-    translation.paramSink().bindParam(prefix);
+    bindRole(translation.paramSink(), prefix, SlotRole.PREFIX);
     if (upperBound != null) {
-      translation.paramSink().bindParam(upperBound);
+      bindRole(translation.paramSink(), upperBound, SlotRole.DERIVED_UPPER_BOUND);
     }
     return BIND_OK;
   }
@@ -829,7 +895,12 @@ final class GremlinPredicateAdapter {
    */
   private static @Nullable String indexAwareUpperBound(
       String key, String prefix, PropertyTypeGate typeGate) {
-    if (!typeGate.isDeclaredString(key) || prefix.isEmpty()) {
+    return typeGate.isDeclaredString(key) ? finitePrefixUpperBound(prefix) : null;
+  }
+
+  /** Value-dependent prefix layout shared by SQL binding and the cache shape encoder. */
+  static @Nullable String finitePrefixUpperBound(String prefix) {
+    if (prefix.isEmpty()) {
       return null;
     }
     try {

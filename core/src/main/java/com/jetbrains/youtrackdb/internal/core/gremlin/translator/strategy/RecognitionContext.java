@@ -346,6 +346,12 @@ interface RecognitionContext extends ParamSink {
   /** Whether the current context has a pending detached positive check. */
   boolean hasExistsMatchExpressions();
 
+  /** Records a successful has contribution's layout for cache-template role verification. */
+  default void recordHasBinding(
+      HasBindingContext bindingContext, List<HasBindingContext.Slot> slots) {
+    // Child captures and test contexts do not own a reusable translation template.
+  }
+
   /**
    * Marks this walk as non-cacheable for invocation-specific RIDs or deferred has literals.
    * Those values are not rebound into cached templates.

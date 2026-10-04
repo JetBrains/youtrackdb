@@ -14,15 +14,21 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
+import org.apache.tinkerpop.gremlin.process.traversal.Text;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -117,6 +123,846 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(sortedNames(second)).containsExactly("Bob");
     assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /**
+   * Equal total slot counts must not let two prefix leaves exchange their range and strict slots.
+   * Each cache-warming order is checked against native rows through both strategy paths.
+   */
+  @Test
+  public void prefixLeavesWithSwappedSlotLayouts_doNotShareWarmPlans() {
+    var person = graphSession().createVertexClass("PrefixPerson");
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("other", PropertyType.STRING);
+    for (var name : List.of("", "al", "alice", "alpine", "am", "be", "beryl", "beta",
+        "bf", "zeta")) {
+      graph.addVertex(T.label, "PrefixPerson", "name", name, "other", name);
+    }
+    graph.tx().commit();
+
+    for (var kind : List.of("and", "twoKeys", "single")) {
+      var finite = prefixShape(kind, "al", kind.equals("single") ? null : "");
+      var swapped = prefixShape(kind, "", kind.equals("single") ? null : "be");
+      var otherFinite = prefixShape(kind, "be", kind.equals("single") ? null : "");
+      assertThat(shapeKey(finite.asAdmin())).as(kind + " different prefix layouts")
+          .isNotEqualTo(shapeKey(swapped.asAdmin()));
+      assertThat(shapeKey(finite.asAdmin())).as(kind + " equal finite layouts")
+          .isEqualTo(shapeKey(otherFinite.asAdmin()));
+      if (!kind.equals("single")) {
+        assertThat(shapeKey(() -> prefixShape(kind, "al", "be")))
+            .isEqualTo(shapeKey(() -> prefixShape(kind, "be", "al")));
+      }
+      var expectedFinite = List.of("al", "alice", "alpine");
+      var expectedSwapped = kind.equals("single")
+          ? List.of("", "al", "alice", "alpine", "am", "be", "beryl", "beta", "bf", "zeta")
+          : List.of("be", "beryl", "beta");
+      for (boolean direct : List.of(false, true)) {
+        for (boolean swapFirst : List.of(false, true)) {
+          GremlinPlanCache.instance(graphSession()).invalidate();
+          for (boolean swappedValue : List.of(swapFirst, !swapFirst, swapFirst, !swapFirst)) {
+            var first = swappedValue ? "" : "al";
+            var second = kind.equals("single") ? null : (swappedValue ? "be" : "");
+            var expected = swappedValue ? expectedSwapped : expectedFinite;
+            assertThat(runPrefixShape(kind, first, second, false, direct))
+                .as(kind + " native " + swappedValue).containsExactlyElementsOf(expected);
+            assertThat(runPrefixShape(kind, first, second, true, direct))
+                .as(kind + " translated " + swappedValue + " direct " + direct)
+                .containsExactlyElementsOf(expected);
+          }
+        }
+      }
+    }
+  }
+
+  /** An all-maximum-code-point prefix has no upper bound, including under negation. */
+  @Test
+  public void maximumCodePointPrefix_usesTheStrictSlotLayout() {
+    var person = graphSession().createVertexClass("PrefixPerson");
+    person.createProperty("name", PropertyType.STRING);
+    person.createProperty("other", PropertyType.STRING);
+    var max = "\uDBFF\uDFFF";
+    for (var name : List.of("a", "ab", "b", max, max + "a")) {
+      graph.addVertex(T.label, "PrefixPerson", "name", name, "other", name);
+    }
+    graph.addVertex(T.label, "PrefixPerson", "name", "a", "other", max);
+    graph.addVertex(T.label, "PrefixPerson", "name", max, "other", "a");
+    graph.tx().commit();
+
+    assertThat(shapeKey(() -> graph.traversal().V().hasLabel("PrefixPerson")
+        .has("name", TextP.startingWith(max))))
+        .isEqualTo(shapeKey(() -> graph.traversal().V().hasLabel("PrefixPerson")
+            .has("name", TextP.startingWith(""))));
+    assertThat(shapeKey(() -> graph.traversal().V().hasLabel("PrefixPerson")
+        .has("name", TextP.notStartingWith(max))))
+        .isNotEqualTo(shapeKey(() -> graph.traversal().V().hasLabel("PrefixPerson")
+            .has("name", TextP.notStartingWith("a"))));
+    assertThat(shapeKey(() -> prefixShape("twoKeys", "a", max)))
+        .isNotEqualTo(shapeKey(() -> prefixShape("twoKeys", max, "a")));
+    for (boolean direct : List.of(false, true)) {
+      for (boolean maxFirst : List.of(false, true)) {
+        GremlinPlanCache.instance(graphSession()).invalidate();
+        for (boolean maxOnFirst : List.of(maxFirst, !maxFirst, maxFirst, !maxFirst)) {
+          var first = maxOnFirst ? max : "a";
+          var second = maxOnFirst ? "a" : max;
+          var expected = maxOnFirst ? List.of(max) : List.of("a");
+          assertThat(runPrefixShape("twoKeys", first, second, false, direct))
+              .containsExactlyElementsOf(expected);
+          assertThat(runPrefixShape("twoKeys", first, second, true, direct))
+              .containsExactlyElementsOf(expected);
+        }
+      }
+    }
+  }
+
+  /** Alternating ordered filters reuse one template while returning each literal's own rows. */
+  @Test
+  public void orderedHopFilters_bindFreshLiteralsOnBothSlicePlacements() {
+    seedColourHop();
+    for (boolean sourceSlice : List.of(false, true)) {
+      var red = colourHop("red", sourceSlice).asAdmin();
+      var blue = colourHop("blue", sourceSlice).asAdmin();
+      var redWalk = GremlinStepWalker.production().walk(red);
+      var blueWalk = GremlinStepWalker.production().walk(blue);
+      assertThat(redWalk).isNotNull();
+      assertThat(blueWalk).isNotNull();
+      assertThat(GremlinPlanFingerprint.fingerprint(redWalk.inputs(), redWalk.shaping()))
+          .isEqualTo(GremlinPlanFingerprint.fingerprint(blueWalk.inputs(), blueWalk.shaping()));
+      var extraction = GremlinStepWalker.extractShape(red, graphSession());
+      assertThat(extraction.hasContributions()).isEqualTo(redWalk.hasContributions());
+      assertThat(OrderedFilterBinding.fromExtraction(redWalk.shaping(), extraction))
+          .isNotNull();
+      for (boolean direct : List.of(false, true)) {
+        for (boolean blueFirst : List.of(false, true)) {
+          GremlinPlanCache.instance(graphSession()).invalidate();
+          var cache = GremlinPlanCache.instance(graphSession());
+          String first = blueFirst ? "blue" : "red";
+          String second = blueFirst ? "red" : "blue";
+          assertThat(runColourHop(first, sourceSlice, false, direct))
+              .containsExactlyElementsOf(expectedColour(first));
+          assertThat(runColourHop(first, sourceSlice, true, direct))
+              .containsExactlyElementsOf(expectedColour(first));
+          long hits = cache.getTranslationHits();
+          assertThat(runColourHop(second, sourceSlice, true, direct))
+              .containsExactlyElementsOf(expectedColour(second));
+          assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+          assertThat(runColourHop(first, sourceSlice, true, direct))
+              .containsExactlyElementsOf(expectedColour(first));
+        }
+      }
+    }
+  }
+
+  /** Empty and finite deferred prefixes use their own layouts on either side of the slice. */
+  @Test
+  public void deferredPrefixes_matchNativeRowsAndReuseEachWarmLayout() {
+    graphSession().createVertexClass("PrefixHopTarget")
+        .createProperty("name", PropertyType.STRING);
+    int rank = 0;
+    for (String name : List.of("", "alice", "bob")) {
+      var source = graph.addVertex(T.label, "PrefixHopSource", "rank", rank++);
+      source.addEdge("prefixHopEdge", graph.addVertex(T.label, "PrefixHopTarget", "name", name));
+    }
+    graph.tx().commit();
+    for (boolean sourceSlice : List.of(false, true)) {
+      for (boolean typed : List.of(false, true)) {
+        for (boolean emptyFirst : List.of(false, true)) {
+          GremlinPlanCache.instance(graphSession()).invalidate();
+          var walks = new AtomicInteger();
+          var strategy = countingStrategy(walks);
+          var prefixes = emptyFirst ? List.of("", "al", "", "bo", "al")
+              : List.of("al", "", "bo", "al", "");
+          for (String prefix : prefixes) {
+            Supplier<
+                org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?,
+                    ?>> shape = () -> prefixHop(prefix, sourceSlice, typed);
+            var expected = prefix.isEmpty() ? List.of("", "alice", "bob")
+                : prefix.equals("al") ? List.of("alice") : List.of("bob");
+            assertThat(runNativeHop(shape)).containsExactlyElementsOf(expected);
+            assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(expected);
+          }
+          assertThat(walks.get()).as("one walk per empty and finite slot layout")
+              .isEqualTo(2);
+        }
+      }
+    }
+  }
+
+  /** Child-local re-typing does not change the enclosing gate used for the next child HasStep. */
+  @Test
+  public void capturedChildRetype_keepsExtractedAndWalkedLayoutsInSync() {
+    var parent = graphSession().createVertexClass("ProbePerson");
+    graphSession().getSchema().createClass("ProbeSub", parent)
+        .createProperty("name", PropertyType.STRING);
+    for (String name : List.of("alice", "bob")) {
+      graph.addVertex(T.label, "ProbeSub", "name", name);
+    }
+    graph.tx().commit();
+    for (String kind : List.of("where", "and")) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var walks = new AtomicInteger();
+      var strategy = countingStrategy(walks);
+      for (String prefix : List.of("al", "bo", "al", "bo")) {
+        Supplier<
+            org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+                () -> capturedRetypeShape(kind, prefix);
+        var admin = shape.get().asAdmin();
+        var extracted = GremlinStepWalker.extractShape(admin, graphSession());
+        var walked = GremlinStepWalker.production().walk(admin);
+        assertThat(walked).as(kind).isNotNull();
+        assertThat(extracted.hasContributions()).as(kind + " contribution positions and roles")
+            .isEqualTo(walked.hasContributions());
+        var expected = prefix.equals("al") ? List.of("alice") : List.of("bob");
+        assertThat(runNativeHop(shape)).containsExactlyElementsOf(expected);
+        assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(expected);
+      }
+      assertThat(walks.get()).as(kind + " should splice all three warm child templates")
+          .isEqualTo(1);
+    }
+  }
+
+  /** A captured NOT keeps the enclosing gate after vertex and edge hops, including nested filters. */
+  @Test
+  public void capturedHopPrefixes_matchWalkAndReuseOneFiniteOrStrictLayout() {
+    var parent = graphSession().createVertexClass("ProbePerson");
+    graphSession().getSchema().createClass("ProbeSub", parent)
+        .createProperty("name", PropertyType.STRING);
+    graphSession().createEdgeClass("probeEdge").createProperty("flag", PropertyType.STRING);
+    String max = "\uDBFF\uDFFF";
+    for (String name : List.of("alice", "bob", max, max + "a")) {
+      var source = graph.addVertex(T.label, "ProbePerson", "name", "source-" + name);
+      source.addEdge("probeEdge", graph.addVertex(T.label, "ProbeSub", "name", name),
+          "flag", name);
+    }
+    graph.addVertex(T.label, "ProbePerson", "name", "unlinked");
+    graph.tx().commit();
+
+    for (String kind : List.of("vertex", "edge", "where", "and", "or", "not",
+        "sameStep", "edgeFlag", "noHop")) {
+      for (List<String> prefixes : List.of(List.of("al", "bo", "al", "bo"),
+          List.of("", max, "", max))) {
+        GremlinPlanCache.instance(graphSession()).invalidate();
+        var walks = new AtomicInteger();
+        var strategy = countingStrategy(walks);
+        String firstSql = null;
+        for (String prefix : prefixes) {
+          Supplier<
+              org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+                  () -> capturedHopPrefix(kind, prefix);
+          var admin = shape.get().asAdmin();
+          var extracted = GremlinStepWalker.extractShape(admin, graphSession());
+          var walked = GremlinStepWalker.production().walk(admin);
+          assertThat(walked).as(kind + " remains translated").isNotNull();
+          assertThat(extracted.hasContributions()).as(kind + " slot positions and roles")
+              .isEqualTo(walked.hasContributions());
+          assertThat(extracted.hasContributions()).as(kind + " has a bound prefix")
+              .anySatisfy(c -> assertThat(c.slots())
+                  .extracting(HasBindingContext.Slot::role)
+                  .contains(GremlinPredicateAdapter.SlotRole.PREFIX));
+          // A fingerprint includes every emitted MATCH filter and path item, not extraction slots.
+          var sql = GremlinPlanFingerprint.fingerprint(walked.inputs(), walked.shaping());
+          assertThat(sqlDigest(sql)).as(kind + " SQL compared with 6cd90c581c")
+              .isEqualTo(baselineSqlDigest(kind, prefix));
+          if (firstSql == null) {
+            firstSql = sql;
+          } else {
+            assertThat(sql).as(kind + " unchanged MATCH SQL within a slot layout")
+                .isEqualTo(firstSql);
+          }
+          var nativeRows = runNativeHop(shape).stream().sorted().toList();
+          assertThat(runCountedHop(shape, strategy).stream().sorted().toList())
+              .as(kind + " native rows for prefix " + prefix)
+              .containsExactlyElementsOf(nativeRows);
+        }
+        assertThat(walks.get()).as(kind + " one plan per finite or strict layout")
+            .isEqualTo(1);
+      }
+    }
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      capturedHopPrefix(String kind, String prefix) {
+    var source = graph.traversal().V().hasLabel("ProbePerson");
+    return switch (kind) {
+      case "vertex" -> source.not(__.out("probeEdge").hasLabel("ProbeSub")
+          .barrier(2).has("name", TextP.startingWith(prefix))).values("name");
+      case "edge" -> source.not(__.outE("probeEdge").inV().hasLabel("ProbeSub")
+          .barrier(2).has("name", TextP.startingWith(prefix))).values("name");
+      case "where" -> source.not(__.out("probeEdge")
+          .where(__.has("name", TextP.startingWith(prefix)))).values("name");
+      case "and" -> source.not(__.out("probeEdge")
+          .and(__.has("name", TextP.startingWith(prefix)), __.hasLabel("ProbeSub")))
+          .values("name");
+      case "or" -> source.not(__.out("probeEdge")
+          .or(__.has("name", TextP.startingWith(prefix)),
+              __.has("name", TextP.startingWith(prefix))))
+          .values("name");
+      case "not" -> source.not(__.out("probeEdge")
+          .not(__.has("name", TextP.startingWith(prefix)))).values("name");
+      case "sameStep" -> source.not(__.out("probeEdge")
+          .hasLabel("ProbeSub").has("name", TextP.startingWith(prefix))).values("name");
+      case "edgeFlag" -> source.not(__.outE("probeEdge")
+          .has("flag", TextP.startingWith(prefix)).inV()
+          .has("name", TextP.startingWith(prefix))).values("name");
+      case "noHop" -> source.not(__.has("name", TextP.startingWith(prefix)))
+          .values("name");
+      default -> throw new IllegalArgumentException(kind);
+    };
+  }
+
+  /** SHA-256 of the full MATCH fingerprint emitted at 6cd90c581c for each tested shape. */
+  private static String baselineSqlDigest(String kind, String prefix) {
+    boolean strict = prefix.isEmpty() || prefix.equals("\uDBFF\uDFFF");
+    return switch (kind) {
+      case "vertex", "and" -> "aac521ae46b0e91a59ecf214cca333ce7e1313a40607f6b9e9eadcdffa311876";
+      case "edge" -> "ba6df6e524ce684dcbf60de3d5e20c4a1ee25bce823b9008d5a3983e9ad59c7a";
+      case "where" -> "71fb09633248ffbb731c5a1b682ccff9cb5593aaed299481298afc4157e94103";
+      case "or" -> "e7c981b5d26a30e2b29d4e69d2e1a42156be9b82288e716d70dfa1b89d8e0f1e";
+      case "not" -> "2df40b67537fb84076dd7e11daccec8c3cb1db08951f1c95188056dbbb5a0008";
+      case "sameStep" -> strict
+          ? "aac521ae46b0e91a59ecf214cca333ce7e1313a40607f6b9e9eadcdffa311876"
+          : "3e728f68d670ff58c3686dfbeb9fa7240cbca0f8a1924b63369e38cbbf50fa02";
+      case "edgeFlag" -> strict
+          ? "3fa83350874cf2411e5ad07bb8bbdea6dad431dd9501a93abd9cf0623c8d73bf"
+          : "1d1e5702655bd579aa8ffdd71f74addd01e8a13f663be71ec8761abdf0f7d59d";
+      case "noHop" -> "d35e96d981c7ff765d158fc584998e964750a043354c2e8b9eb28708446ebf56";
+      default -> throw new IllegalArgumentException(kind);
+    };
+  }
+
+  private static String sqlDigest(String fingerprint) {
+    try {
+      var digest = java.security.MessageDigest.getInstance("SHA-256");
+      return java.util.HexFormat.of().formatHex(digest.digest(
+          fingerprint.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  /** Union arms use independent plan contexts even when each child narrows its own label. */
+  @Test
+  public void unionChildRetype_keepsNativeRowsAcrossDifferentPrefixes() {
+    var parent = graphSession().createVertexClass("ProbePerson");
+    graphSession().getSchema().createClass("ProbeSub", parent)
+        .createProperty("name", PropertyType.STRING);
+    for (String name : List.of("alice", "bob")) {
+      graph.addVertex(T.label, "ProbeSub", "name", name);
+    }
+    graph.tx().commit();
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (String prefix : List.of("al", "bo", "al", "bo")) {
+      Supplier<
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> union =
+              () -> graph.traversal().V().hasLabel("ProbePerson")
+                  .union(__.hasLabel("ProbeSub").barrier(2)
+                      .has("name", TextP.startingWith(prefix)),
+                      __.hasLabel("ProbeSub").barrier(2)
+                          .has("name", TextP.startingWith(prefix)));
+      assertThat(runCountedHop(union, strategy)).hasSize(2);
+      support.assertEquivalent("union child retype " + prefix,
+          Recognition.RECOGNIZED_MULTI_PLAN, Cardinality.NON_EMPTY,
+          TranslatorEquivalenceSupport::sortedIds,
+          () -> graph.traversal().V().hasLabel("ProbePerson")
+              .union(__.hasLabel("ProbeSub").barrier(2)
+                  .has("name", TextP.startingWith(prefix)),
+                  __.hasLabel("ProbeSub").barrier(2)
+                      .has("name", TextP.startingWith(prefix))));
+    }
+    assertThat(walks.get()).as("union forks keep independent walks without outer templates")
+        .isEqualTo(4);
+  }
+
+  /** Union forks keep the generic gate after their own hops and build independently per call. */
+  @Test
+  public void unionHopBranches_keepTheirIndependentPostHopGate() {
+    var parent = graphSession().createVertexClass("ProbePerson");
+    graphSession().getSchema().createClass("ProbeSub", parent)
+        .createProperty("name", PropertyType.STRING);
+    for (String name : List.of("alice", "bob")) {
+      var source = graph.addVertex(T.label, "ProbePerson", "name", "source-" + name);
+      source.addEdge("probeEdge", graph.addVertex(T.label, "ProbeSub", "name", name));
+    }
+    graph.tx().commit();
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (String prefix : List.of("al", "bo", "al", "bo")) {
+      Supplier<
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+              () -> graph.traversal().V().hasLabel("ProbePerson")
+                  .union(__.out("probeEdge").has("name", TextP.startingWith(prefix)),
+                      __.out("probeEdge").has("name", TextP.startingWith(prefix)));
+      var admin = shape.get().asAdmin();
+      var extracted = GremlinStepWalker.extractShape(admin, graphSession());
+      assertThat(extracted.hasContributions().stream()
+          .filter(c -> c.slots().stream().anyMatch(
+              s -> s.role() == GremlinPredicateAdapter.SlotRole.PREFIX)))
+          .as("each union arm resets its own post-hop boundary")
+          .allSatisfy(c -> assertThat(c.context().gateClasses()).isEmpty());
+      assertThat(runCountedHop(shape, strategy).stream().sorted().toList())
+          .containsExactlyElementsOf(runNativeHop(shape).stream().sorted().toList());
+    }
+    assertThat(walks.get()).as("the union carrier has no outer translation template")
+        .isEqualTo(4);
+  }
+
+  /** Edge filters use the edge-label gate for both extraction and walk slot roles. */
+  @Test
+  public void edgePrefixGate_keepsExtractedAndWalkedLayoutsInSync() {
+    graphSession().createEdgeClass("probeEdge").createProperty("flag", PropertyType.STRING);
+    var source = graph.addVertex(T.label, "ProbePerson", "name", "source");
+    source.addEdge("probeEdge", graph.addVertex(T.label, "ProbePerson", "name", "alice"),
+        "flag", "yes");
+    graph.tx().commit();
+    Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+        () -> graph.traversal().V().hasLabel("ProbePerson").outE("probeEdge")
+            .has("flag", TextP.startingWith("y")).inV().values("name");
+    var admin = shape.get().asAdmin();
+    var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+    var walk = GremlinStepWalker.production().walk(admin);
+    assertThat(walk).isNotNull();
+    assertThat(extraction.hasContributions()).isEqualTo(walk.hasContributions());
+    assertThat(runNativeHop(shape)).containsExactly("alice");
+    assertThat(runCountedHop(shape, countingStrategy(new AtomicInteger())))
+        .containsExactly("alice");
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      capturedRetypeShape(String kind, String prefix) {
+    var source = graph.traversal().V().hasLabel("ProbePerson");
+    if (kind.equals("and")) {
+      return source.and(__.hasLabel("ProbeSub").barrier(2)
+          .has("name", TextP.startingWith(prefix)), __.hasLabel("ProbeSub"))
+          .values("name");
+    }
+    return source.where(__.hasLabel("ProbeSub").barrier(2)
+        .has("name", TextP.startingWith(prefix))).values("name");
+  }
+
+  /** An overridden regex operator keeps its native instance on both cold and warm walks. */
+  @Test
+  public void customRegexPredicate_doesNotRebuildOrCacheAnOverriddenTest() {
+    var source = graph.addVertex(T.label, "UnsafeHopSource", "rank", 1);
+    source.addEdge("unsafeHopEdge", graph.addVertex(T.label, "UnsafeHopTarget", "name", "hit"));
+    graph.tx().commit();
+    for (boolean sourceSlice : List.of(false, true)) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var walks = new AtomicInteger();
+      var strategy = countingStrategy(walks);
+      var cache = GremlinPlanCache.instance(graphSession());
+      long hits = cache.getTranslationHits();
+      for (int run = 0; run < 4; run++) {
+        // A plain regex with this pattern rejects "hit". The override must accept it.
+        Text.RegexPredicate custom = new Text.RegexPredicate("^absent$", false) {
+          @Override
+          public boolean test(String input, String pattern) {
+            return true;
+          }
+        };
+        var predicate = new TextP(custom, "^absent$");
+        assertThat(NativeHasOperands.cacheable(predicate)).isFalse();
+        assertThat(NativeHasOperands.regexOnly(predicate)).isFalse();
+        Supplier<
+            org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+                () -> unsafeHop("name", predicate, sourceSlice);
+        assertThat(runNativeHop(shape)).containsExactly("hit");
+        assertThat(runCountedHop(shape, strategy)).containsExactly("hit");
+      }
+      assertThat(walks.get()).isEqualTo(4);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    }
+  }
+
+  /** Subclass test() and non-List Collection equality survive cold and warm attempts. */
+  @Test
+  public void unsafeDeferredPredicates_preserveNativeTestAndCollectionType() {
+    var source = graph.addVertex(T.label, "UnsafeHopSource", "rank", 1);
+    source.addEdge("unsafeHopEdge", graph.addVertex(T.label, "UnsafeHopTarget", "name", "hit",
+        "tags", List.of("red", "blue")));
+    graph.tx().commit();
+    for (boolean sourceSlice : List.of(false, true)) {
+      for (boolean unsafeFirst : List.of(false, true)) {
+        GremlinPlanCache.instance(graphSession()).invalidate();
+        for (boolean unsafe : List.of(unsafeFirst, !unsafeFirst, unsafeFirst)) {
+          Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?,
+              ?>> custom = () -> unsafeHop("name", new P<Object>(Compare.eq, "absent") {
+                @Override
+                public boolean test(Object value) {
+                  return unsafe;
+                }
+              }, sourceSlice);
+          var nativeCustom = runNativeHop(custom);
+          assertThat(nativeCustom).containsExactlyElementsOf(unsafe ? List.of("hit") : List.of());
+          assertThat(runCountedHop(custom, countingStrategy(new AtomicInteger())))
+              .isEqualTo(nativeCustom);
+          var operand = unsafe ? new ArrayDeque<>(List.of("red", "blue"))
+              : new ArrayList<>(List.of("red", "blue"));
+          Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?,
+              ?>> collection = () -> unsafeHop("tags", P.eq(operand), sourceSlice);
+          var nativeCollection = runNativeHop(collection);
+          assertThat(runCountedHop(collection, countingStrategy(new AtomicInteger())))
+              .isEqualTo(nativeCollection);
+        }
+      }
+    }
+  }
+
+  /** Two bound steps built before either runs cannot share the first step's filter instance. */
+  @Test
+  public void orderedHopFilters_twoBoundTraversalsKeepIndependentOperands() {
+    seedColourHop();
+    var first = colourHop("red", false).asAdmin();
+    var second = colourHop("blue", false).asAdmin();
+    GremlinToMatchStrategy.instance().apply(first);
+    GremlinToMatchStrategy.instance().apply(second);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(first)).isEqualTo(1);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(second)).isEqualTo(1);
+    assertThat(second.toList().stream().map(String::valueOf).toList())
+        .containsExactly("B1", "B2");
+    assertThat(first.toList().stream().map(String::valueOf).toList())
+        .containsExactly("A1", "A2");
+    first.reset();
+    assertThat(first.toList().stream().map(String::valueOf).toList())
+        .containsExactly("A1", "A2");
+  }
+
+  /** A bound ordered-hop filter keeps its own literal after closing and rearming its boundary. */
+  @Test
+  public void orderedHopBoundFilter_closedBoundaryReopensWithOwnOperand() throws Exception {
+    seedColourHop();
+    var red = colourHop("red", false).asAdmin();
+    GremlinToMatchStrategy.instance().apply(red);
+    assertThat(red.toList().stream().map(String::valueOf).toList())
+        .containsExactly("A1", "A2");
+    red.close();
+    red.reset();
+    assertThat(red.toList().stream().map(String::valueOf).toList())
+        .containsExactly("A1", "A2");
+  }
+
+  /** Equal counts with exchanged slot roles cannot splice the stored template. */
+  @Test
+  public void equalCountWithDifferentSlotRoles_isNotTheSameCacheLayout() {
+    var context = HasBindingContext.forVertex(List.of(), "V", false,
+        HasBindingContext.Destination.ORDERED_FILTER);
+    var first = List.of(new HasBindingContext.Contribution(context, List.of(
+        new HasBindingContext.Slot(0, GremlinPredicateAdapter.SlotRole.PREFIX),
+        new HasBindingContext.Slot(1, GremlinPredicateAdapter.SlotRole.OPERAND))));
+    var swapped = List.of(new HasBindingContext.Contribution(context, List.of(
+        new HasBindingContext.Slot(0, GremlinPredicateAdapter.SlotRole.OPERAND),
+        new HasBindingContext.Slot(1, GremlinPredicateAdapter.SlotRole.PREFIX))));
+    assertThat(first.getFirst().slots()).hasSameSizeAs(swapped.getFirst().slots());
+    assertThat(GremlinToMatchStrategy.matchingLayout(first, swapped)).isFalse();
+    assertThat(GremlinToMatchStrategy.matchingLayout(first, first)).isTrue();
+    assertThat(GremlinToMatchStrategy.matchingLayout(first,
+        List.of(new HasBindingContext.Contribution(
+            HasBindingContext.forVertex(List.of("Other"), "V", false,
+                HasBindingContext.Destination.ORDERED_FILTER),
+            first.getFirst().slots()))))
+        .isFalse();
+  }
+
+  /** A same-size wrong-role stored template is a miss, followed by a translated fresh walk. */
+  @Test
+  public void mismatchedStoredSlotRoles_fallBackToFreshWalkWithoutDecline() {
+    graphSession().createVertexClass("MismatchPerson")
+        .createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "MismatchPerson", "name", "alice");
+    graph.addVertex(T.label, "MismatchPerson", "name", "bob");
+    graph.tx().commit();
+    Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> first =
+        () -> graph.traversal().V().hasLabel("MismatchPerson")
+            .has("name", TextP.startingWith("al")).values("name");
+    assertThat(runCountedHop(first, countingStrategy(new AtomicInteger())))
+        .containsExactly("alice");
+    var key = GremlinStepWalker.extractShape(first.get().asAdmin(), graphSession()).key();
+    var stored = (GremlinTranslationTemplate.Translate) GremlinPlanCache.getTranslation(
+        key, graphSession());
+    assertThat(stored).isNotNull();
+    var original = stored.hasContributions();
+    var contribution = original.getLast();
+    assertThat(contribution.slots()).hasSize(2);
+    var slots = new ArrayList<>(contribution.slots());
+    slots.set(0, new HasBindingContext.Slot(slots.getFirst().containerIndex(),
+        GremlinPredicateAdapter.SlotRole.OPERAND));
+    var wrong = new ArrayList<>(original);
+    wrong.set(wrong.size() - 1, new HasBindingContext.Contribution(contribution.context(), slots));
+    GremlinPlanCache.putTranslation(key, new GremlinTranslationTemplate.Translate(
+        stored.planTemplate(), stored.boundaryAlias(), stored.outputType(),
+        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong), graphSession());
+    var walks = new AtomicInteger();
+    Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =
+        () -> graph.traversal().V().hasLabel("MismatchPerson")
+            .has("name", TextP.startingWith("bo")).values("name");
+    var nativeRows = runNativeHop(next);
+    assertThat(runCountedHop(next, countingStrategy(walks)))
+        .containsExactlyElementsOf(nativeRows);
+    assertThat(walks.get()).as("equal count but wrong slot role must walk again").isEqualTo(1);
+  }
+
+  /** A compiled regex must be reconstructed, not have only its P value replaced. */
+  @Test
+  public void orderedHopRegexAlternation_rebuildsCompiledPatternsOnWarmHit() {
+    seedColourHop();
+    assertThat(shapeKey(() -> graph.traversal().V().hasLabel("ColourSource")
+        .order().by("rank").out("colourEdge")
+        .has("name", TextP.regex("^A")).limit(2).values("name")))
+        .isEqualTo(shapeKey(() -> graph.traversal().V().hasLabel("ColourSource")
+            .order().by("rank").out("colourEdge")
+            .has("name", TextP.regex("^B")).limit(2).values("name")));
+    var cache = GremlinPlanCache.instance(graphSession());
+    for (boolean blueFirst : List.of(false, true)) {
+      cache.invalidate();
+      String first = blueFirst ? "^B" : "^A";
+      String second = blueFirst ? "^A" : "^B";
+      assertThat(regexHop(first)).containsExactlyElementsOf(regexExpected(first));
+      long hits = cache.getTranslationHits();
+      assertThat(regexHop(second)).containsExactlyElementsOf(regexExpected(second));
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      assertThat(regexHop(first)).containsExactlyElementsOf(regexExpected(first));
+    }
+  }
+
+  private List<String> regexHop(String pattern) {
+    var admin = graph.traversal().V().hasLabel("ColourSource").order().by("rank")
+        .out("colourEdge").has("name", TextP.regex(pattern)).limit(2).values("name")
+        .asAdmin();
+    return applyAdmin(admin).stream().map(String::valueOf).toList();
+  }
+
+  private static List<String> regexExpected(String pattern) {
+    return pattern.equals("^A") ? List.of("A1", "A2") : List.of("B1", "B2");
+  }
+
+  /** A native ci property still reads this invocation's value after an op-template hit. */
+  @Test
+  public void orderedHopCollatedProperty_rebindsOnWarmHit() {
+    graphSession().createVertexClass("CollatedTarget").createProperty("nickname",
+        PropertyType.STRING).setCollate("ci");
+    var first = graph.addVertex(T.label, "CollatedSource", "rank", 1);
+    var second = graph.addVertex(T.label, "CollatedSource", "rank", 2);
+    first.addEdge("collatedEdge", graph.addVertex(T.label, "CollatedTarget", "name", "A",
+        "nickname", "Alice"));
+    second.addEdge("collatedEdge", graph.addVertex(T.label, "CollatedTarget", "name", "B",
+        "nickname", "Bob"));
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    for (boolean bobFirst : List.of(false, true)) {
+      cache.invalidate();
+      String firstValue = bobFirst ? "BOB" : "ALICE";
+      String secondValue = bobFirst ? "alice" : "bob";
+      assertThat(collatedHop(firstValue)).containsExactly(bobFirst ? "B" : "A");
+      long hits = cache.getTranslationHits();
+      assertThat(collatedHop(secondValue)).containsExactly(bobFirst ? "A" : "B");
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    }
+  }
+
+  private List<String> collatedHop(String value) {
+    return apply(() -> graph.traversal().V().hasLabel("CollatedSource").order().by("rank")
+        .out("collatedEdge").has("nickname", value).limit(1).values("name"))
+        .stream().map(String::valueOf).toList();
+  }
+
+  /** MATCH slots before and after an unsliced deferred flush retain their exact positions. */
+  @Test
+  public void unslicedFlushAcrossBarrier_rebindsPreAndPostHopSlotsOnWarmHit() {
+    seedColourHop();
+    for (var target : graph.traversal().V().hasLabel("ColourTarget").toList()) {
+      target.addEdge("afterColour", graph.addVertex(T.label, "ColourResult", "name",
+          target.value("name") + "-result"));
+    }
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    for (boolean blueFirst : List.of(false, true)) {
+      cache.invalidate();
+      String first = blueFirst ? "blue" : "red";
+      String second = blueFirst ? "red" : "blue";
+      var extracted = GremlinStepWalker.extractShape(unslicedFlush(first).asAdmin(),
+          graphSession());
+      assertThat(extracted.bindings().get(0)).isEqualTo(first);
+      assertThat(extracted.bindings().get(1)).isEqualTo(first);
+      assertThat(extracted.bindings().get(2)).isEqualTo("none");
+      assertThat(extracted.bindings().get(3)).isEqualTo(first.equals("red")
+          ? "A1-result" : "B1-result");
+      assertThat(runUnslicedFlush(first)).containsExactly(first.equals("red")
+          ? "A1-result" : "B1-result");
+      long hits = cache.getTranslationHits();
+      assertThat(runUnslicedFlush(second)).containsExactly(second.equals("red")
+          ? "A1-result" : "B1-result");
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    }
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      unslicedFlush(String colour) {
+    return graph.traversal().V().hasLabel("ColourSource").has("group", colour)
+        .order().by("rank").out("colourEdge").has("colour", colour).barrier(3)
+        .has("name", P.neq("none")).out("afterColour")
+        .has("name", colour.equals("red") ? "A1-result" : "B1-result")
+        .values("name");
+  }
+
+  private List<String> runUnslicedFlush(String colour) {
+    return applyAdmin(unslicedFlush(colour).asAdmin()).stream().map(String::valueOf).toList();
+  }
+
+  /** Has predicates inside both union arms remain independent over repeated plan builds. */
+  @Test
+  public void unionHasFilters_alternateWarmValuesWithoutSharingWrongChildParameters() {
+    seedColourHop();
+    for (String colour : List.of("red", "blue", "red", "blue")) {
+      support.assertEquivalent("union " + colour, Recognition.RECOGNIZED_MULTI_PLAN,
+          Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
+          () -> graph.traversal().V().hasLabel("ColourTarget")
+              .union(__.has("colour", colour), __.has("colour", colour)));
+    }
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      prefixHop(String prefix, boolean sourceSlice, boolean typed) {
+    var ordered = graph.traversal().V().hasLabel("PrefixHopSource").order().by("rank");
+    var hop = sourceSlice ? ordered.limit(3).out("prefixHopEdge")
+        : ordered.out("prefixHopEdge");
+    if (typed) {
+      hop = hop.hasLabel("PrefixHopTarget");
+    }
+    var filtered = hop.has("name", TextP.startingWith(prefix));
+    return sourceSlice ? filtered.values("name") : filtered.limit(3).values("name");
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      unsafeHop(String key, P<?> predicate, boolean sourceSlice) {
+    var ordered = graph.traversal().V().hasLabel("UnsafeHopSource").order().by("rank");
+    if (sourceSlice) {
+      return ordered.limit(1).out("unsafeHopEdge").has(key, predicate).values("name");
+    }
+    return ordered.out("unsafeHopEdge").has(key, predicate).limit(1).values("name");
+  }
+
+  private GremlinToMatchStrategy countingStrategy(AtomicInteger walks) {
+    return new GremlinToMatchStrategy(new GremlinToMatchStrategy.TraversalTranslator() {
+      @Override
+      public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal) {
+        walks.incrementAndGet();
+        return GremlinToMatchTranslator.translate(traversal);
+      }
+
+      @Override
+      public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal,
+          Boolean includesMissing,
+          com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement placements,
+          Boolean polymorphic) {
+        walks.incrementAndGet();
+        return GremlinToMatchTranslator.translate(traversal, includesMissing, placements,
+            polymorphic);
+      }
+    }, GremlinToMatchStrategy::buildPlan, true);
+  }
+
+  private List<String> runNativeHop(Supplier<
+      org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape) {
+    var previous = support.translatorEnabled();
+    support.setTranslatorEnabled(false);
+    try {
+      var admin = shape.get().asAdmin();
+      admin.applyStrategies();
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+      return admin.toList().stream().map(String::valueOf).toList();
+    } finally {
+      support.setTranslatorEnabled(previous);
+    }
+  }
+
+  private List<String> runCountedHop(Supplier<
+      org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape,
+      GremlinToMatchStrategy strategy) {
+    var previous = support.translatorEnabled();
+    support.setTranslatorEnabled(true);
+    try {
+      var admin = shape.get().asAdmin();
+      strategy.apply(admin);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isEqualTo(1);
+      return admin.toList().stream().map(String::valueOf).toList();
+    } finally {
+      support.setTranslatorEnabled(previous);
+    }
+  }
+
+  private void seedColourHop() {
+    for (int i = 1; i <= 4; i++) {
+      var red = i <= 2;
+      var source = graph.addVertex(T.label, "ColourSource", "rank", i,
+          "group", red ? "red" : "blue");
+      var target = graph.addVertex(T.label, "ColourTarget", "name",
+          (red ? "A" : "B") + (red ? i : i - 2), "colour", red ? "red" : "blue");
+      source.addEdge("colourEdge", target);
+    }
+    graph.tx().commit();
+  }
+
+  private static List<String> expectedColour(String colour) {
+    return colour.equals("red") ? List.of("A1", "A2") : List.of("B1", "B2");
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?> colourHop(
+      String colour, boolean sourceSlice) {
+    var ordered = graph.traversal().V().hasLabel("ColourSource").order().by("rank");
+    if (sourceSlice) {
+      return ordered.limit(4).out("colourEdge").has("colour", colour).values("name");
+    }
+    return ordered.out("colourEdge").has("colour", colour).limit(2).values("name");
+  }
+
+  private List<String> runColourHop(String colour, boolean sourceSlice,
+      boolean translated, boolean direct) {
+    var previous = support.translatorEnabled();
+    support.setTranslatorEnabled(translated);
+    try {
+      var traversal = colourHop(colour, sourceSlice).asAdmin();
+      if (direct && translated) {
+        GremlinToMatchStrategy.instance().apply(traversal);
+      } else {
+        traversal.applyStrategies();
+      }
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
+          .isEqualTo(translated ? 1 : 0);
+      return traversal.toList().stream().map(String::valueOf).toList();
+    } finally {
+      support.setTranslatorEnabled(previous);
+    }
+  }
+
+  private org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<Vertex, Vertex>
+      prefixShape(String kind, String first, String second) {
+    var traversal = graph.traversal().V().hasLabel("PrefixPerson");
+    if (kind.equals("and")) {
+      return traversal.has("name", TextP.startingWith(first).and(TextP.startingWith(second)));
+    }
+    if (kind.equals("twoKeys")) {
+      return traversal.has("name", TextP.startingWith(first))
+          .has("other", TextP.startingWith(second));
+    }
+    return traversal.has("name", TextP.startingWith(first));
+  }
+
+  private List<String> runPrefixShape(
+      String kind, String first, String second, boolean translated, boolean direct) {
+    var previous = support.translatorEnabled();
+    support.setTranslatorEnabled(translated);
+    try {
+      var traversal = prefixShape(kind, first, second).asAdmin();
+      if (direct && translated) {
+        GremlinToMatchStrategy.instance().apply(traversal);
+      } else {
+        traversal.applyStrategies();
+      }
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
+          .isEqualTo(translated ? 1 : 0);
+      return sortedNames(traversal.toList());
+    } finally {
+      support.setTranslatorEnabled(previous);
+    }
   }
 
   /** Stage order and the explicit barrier window size each distinguish translation keys. */

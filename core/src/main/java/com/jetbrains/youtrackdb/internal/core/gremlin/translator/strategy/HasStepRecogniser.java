@@ -1,9 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -53,8 +52,9 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       duplicate decline;
  *   <li>a property key routes through {@link GremlinPredicateAdapter#toFilter(HasContainer,
  *       PropertyTypeGate)}. The {@link GremlinPredicateAdapter.PropertyTypeGate} keys only
- *       {@code startingWith} routing on the step's {@code ~label} class (if any): declared {@code
- *       STRING} uses the index-aware prefix range, every other case uses the strict full-scan node.
+ *       {@code startingWith} routing on the step's {@code ~label} class or the effective boundary
+ *       class: declared {@code STRING} uses the index-aware prefix range, every other case uses the
+ *       strict full-scan node.
  *       All other {@code Text} / {@code TextP} predicates translate in strict mode and throw at
  *       execution on a present non-{@code String} operand, matching native rather than declining.
  * </ul>
@@ -75,11 +75,11 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *
  * <h2>Translate-all-then-contribute</h2>
  *
- * The recogniser validates and translates <em>every</em> container before it mutates the context: an
- * untranslatable container (a reserved key, a conflicting {@code ~label}, an unconvertible id)
- * declines with zero {@code WalkerContext} mutation. The label bind opens
- * the contribution block for the same reason — a colliding label declines before the re-type and the
- * filter land, and {@code bindStepLabels} itself checks every label before it writes any of them.
+ * The recogniser validates and translates <em>every</em> container before writing the boundary
+ * class and alias filter. An untranslatable container (a reserved key, a conflicting {@code
+ * ~label}, an unconvertible id) discards the entire walk. The label bind opens the contribution
+ * block: a colliding label declines before the re-type and filter land, and {@code bindStepLabels}
+ * itself checks every label before it writes any of them.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary
  * alias, which AND-composes with any filter an earlier step contributed to the same alias (a {@code
  * g.V(ids)} {@code @rid IN}, or an earlier {@code has}).
@@ -180,23 +180,110 @@ final class HasStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    // Type gate: single ~label uses that class; multi-label requires the property type on every
-    // named class (allMatch — a schemaless sibling must not drop type guards). No ~label → unknown.
-    GremlinPredicateAdapter.PropertyTypeGate typeGate;
-    if (labelConstraint instanceof ParsedLabelConstraint.Single single) {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, single.name());
-    } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, multi.names().toArray(String[]::new));
-      // No ~label on this step: still gate against the current boundary class when it is a concrete
-      // vertex class (after hasLabel / a typed hop). Generic V stays unknown so schemaless list cells
-      // do not get the always-false singleton rewrite.
-    } else {
-      var boundaryClass = ctx.boundaryClassName();
-      typeGate = GremlinPredicateAdapter.schemaGate(
-          ctx,
-          WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass) ? null : boundaryClass);
+    var contribution = prepare(ctx, containers, labelConstraint, List.of(),
+        ctx.boundaryClassName(), ctx::bindParam, false);
+    if (contribution == null || !contribution.matchCapable()) {
+      return Outcome.DECLINE;
     }
-    ParamSink paramSink = ctx::bindParam;
+    // A filter does not transform its labelled element. Validate the label bind before writing
+    // the prepared class and WHERE contributions onto the boundary alias.
+    if (!ctx.bindStepLabels(hasStep, boundary)) {
+      return Outcome.DECLINE;
+    }
+    contribution.applyToMatch(ctx, boundary);
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * One HasStep's validated contribution. A non-MATCH-capable predicate stays available to the
+   * native ordered-expand op. A null expression with MATCH capability is a polymorphic single-label
+   * re-type that needs no additional class filter. Provisional bindings commit only on flush.
+   */
+  record HasContribution(
+      List<HasContainer> nativeContainers,
+      List<String> labelAlternatives,
+      @Nullable SQLBooleanExpression matchExpression,
+      boolean matchCapable,
+      @Nullable String targetClass,
+      @Nullable String effectiveClass,
+      List<Object> deferredBindings,
+      int firstBindingSlot,
+      boolean cacheSafe,
+      HasBindingContext bindingContext,
+      List<HasBindingContext.Slot> slots,
+      NativeHasOperands nativeOperands) {
+
+    HasContribution {
+      nativeContainers = List.copyOf(nativeContainers);
+      labelAlternatives = List.copyOf(labelAlternatives);
+      deferredBindings = java.util.Collections.unmodifiableList(new ArrayList<>(deferredBindings));
+      slots = List.copyOf(slots);
+    }
+
+    boolean applyToMatch(RecognitionContext ctx, String alias) {
+      if (!matchCapable) {
+        return false;
+      }
+      // An ordered-expand route never commits these values. On flush the slots reserved at
+      // recognition must still be the next ones available, or the prepared AST would bind wrongly.
+      if (!deferredBindings.isEmpty()) {
+        if (!(ctx instanceof WalkerContext walker)
+            || walker.inputParameters.size() != firstBindingSlot) {
+          return false;
+        }
+        for (var value : deferredBindings) {
+          ctx.bindParam(value);
+        }
+      }
+      if (labelAlternatives.size() > 1
+          && ctx instanceof SubTraversalPredicateAdapter adapter
+          && adapter.concreteCapturedClassForAlias(alias) != null) {
+        // Positive commits retain the scan class and intersect explicit label filters.
+        // Captured refinements remain outside the supported boolean fold.
+        adapter.markCapturedClassChange();
+      }
+      if (targetClass != null) {
+        ctx.addNode(alias, targetClass);
+        if (ctx.polymorphic()
+            && labelAlternatives.size() == 1
+            && ctx instanceof SubTraversalPredicateAdapter adapter) {
+          // The scan class is not a boolean label test. Keep the named label for the OR/NOT fold.
+          adapter.capturePolymorphicLabel(alias, labelAlternatives.getFirst());
+        }
+      }
+      if (matchExpression != null) {
+        ctx.putAliasFilter(alias, WHERE.wrap(matchExpression));
+      }
+      ctx.recordHasBinding(new HasBindingContext(HasBindingContext.Destination.MATCH_VERTEX,
+          bindingContext.gateClasses(), bindingContext.folded()), slots);
+      return true;
+    }
+  }
+
+  /**
+   * Prepare the MATCH and native-op views together. Deferred label alternatives OR within this
+   * HasStep; the caller applies each prepared step separately, so steps AND at the MATCH alias.
+   * Missing deferred alternatives remain in the class predicate, never in a MATCH source class.
+   */
+  private static @Nullable HasContribution prepare(
+      RecognitionContext ctx, List<HasContainer> containers,
+      @Nullable ParsedLabelConstraint mainLabel, List<String> deferredLabels,
+      @Nullable String boundaryClass, ParamSink sink, boolean deferred) {
+    var names = new ArrayList<String>();
+    if (deferred) {
+      names.addAll(deferredLabels);
+    } else if (mainLabel instanceof ParsedLabelConstraint.Single single) {
+      names.add(single.name());
+    } else if (mainLabel instanceof ParsedLabelConstraint.Multi multi) {
+      names.addAll(multi.names());
+    }
+    // A step-local label group overrides the boundary class; otherwise the current boundary
+    // supplies the type gate. Both extraction and the walk read this same context description.
+    var bindingContext = HasBindingContext.forVertex(names, boundaryClass,
+        ctx.atTraversalStart(), deferred ? HasBindingContext.Destination.ORDERED_FILTER
+            : HasBindingContext.Destination.MATCH_VERTEX);
+    var typeGate = bindingContext.gate(ctx);
+    var slots = new ArrayList<HasBindingContext.Slot>();
     // A range comparison needs the per-record type guard exactly when this HasStep will NOT be
     // folded into YTDBGraphStep — folded, the native fallback runs the same SQL-style comparison the
     // translation emits; unfolded, it runs TinkerPop's comparability rule instead. See
@@ -204,110 +291,111 @@ final class HasStepRecogniser implements StepRecogniser {
     // declares the property in the literal's comparability block (schemaGate).
     var rangeTypeGuard = !ctx.atTraversalStart();
 
-    // Second pass: translate every id / property container into a WHERE expression BEFORE any
-    // contribution (so an untranslatable container declines with zero context mutation).
+    // Translate each id/property once. The deferred op keeps the original containers even when
+    // the adapter cannot build a MATCH predicate, while the ordinary MATCH route then declines.
     var whereExprs = new ArrayList<SQLBooleanExpression>();
-    for (var container : containers) {
+    boolean matchCapable = true;
+    boolean cacheSafe = true;
+    for (int index = 0; index < containers.size(); index++) {
+      var container = containers.get(index);
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
-        continue; // handled by the re-typing contribution below
+        continue;
       }
       if (ID_KEY.equals(key)) {
         ctx.markRidBearing();
+        cacheSafe = false;
         var ridExpr = translateHasId(container);
         if (ridExpr == null) {
-          return Outcome.DECLINE;
+          matchCapable = false;
+        } else {
+          whereExprs.add(ridExpr);
         }
-        whereExprs.add(ridExpr);
         continue;
       }
-      var filter =
-          GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink, rangeTypeGuard);
+      int containerIndex = index;
+      var recordedSink = GremlinPredicateAdapter.withRoles(sink,
+          role -> slots.add(new HasBindingContext.Slot(containerIndex, role)));
+      var filter = GremlinPredicateAdapter.INSTANCE.toFilter(
+          container, typeGate, recordedSink, rangeTypeGuard);
       if (filter == null) {
-        return Outcome.DECLINE;
+        matchCapable = false;
+      } else {
+        whereExprs.add(filter);
       }
-      whereExprs.add(filter);
+      // A slotless singleton collection cannot be replayed safely. Regex is different: its
+      // compiled native pattern is captured explicitly and reconstructed at splice.
+      if (deferred && (!NativeHasOperands.cacheable(container.getPredicate())
+          || (slots.stream().noneMatch(s -> s.containerIndex() == containerIndex)
+              && !NativeHasOperands.regexOnly(container.getPredicate())))) {
+        cacheSafe = false;
+      }
     }
-
-    // Contribution — reached only after every container validated.
-    // Bind first, so a colliding label declines before anything is contributed. A has() step is a
-    // routine parking spot for a user as(...) label: FilterRankingStrategy relocates labels forward
-    // onto the following filter, and it runs before every provider strategy, so a label the user
-    // wrote on the start step arrives here instead. Binding it to the boundary alias is exact rather
-    // than approximate — a filter does not transform the traverser, so the labelled element is the
-    // boundary node either side of the move.
-    if (!ctx.bindStepLabels(hasStep, boundary)) {
-      return Outcome.DECLINE;
-    }
-    if (labelConstraint instanceof ParsedLabelConstraint.Single single) {
-      // The class is known to exist here — a missing class declined above, before any mutation.
-      var name = single.name();
-      ctx.addNode(boundary, name);
-      if (ctx.polymorphic() && ctx instanceof SubTraversalPredicateAdapter adapter) {
-        // The scan class is not a boolean label test. Keep the named label for the OR/NOT fold.
-        adapter.capturePolymorphicLabel(boundary, name);
-      }
-      if (!ctx.polymorphic()) {
-        whereExprs.add(WHERE.classEquals(name));
-      }
-    } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
-      // Positive commits retain the scan class and intersect explicit label filters.
-      // Captured refinements remain outside the supported boolean fold.
-      if (ctx instanceof SubTraversalPredicateAdapter adapter
-          && adapter.concreteCapturedClassForAlias(boundary) != null) {
-        adapter.markCapturedClassChange();
-      }
-      var classNames =
-          ctx.polymorphic()
-              ? ctx.expandPolymorphicClassClosure(multi.names())
-              : multi.names();
-      // MATCH nodes carry one class. While the boundary is still V, re-type to the least common
-      // vertex ancestor of the labels so the scan starts on that class collection; @class IN still
-      // restricts to the named (or polymorphically expanded) set. Disjoint trees under V keep the
-      // V root and rely on the IN filter alone — still translates, no decline.
-      if (WalkerContext.VERTEX_ROOT_CLASS.equals(ctx.boundaryClassName())) {
-        var lca = ctx.leastCommonVertexAncestor(multi.names());
-        if (lca != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(lca)) {
-          ctx.addNode(boundary, lca);
+    String targetClass = null;
+    if (!names.isEmpty()) {
+      // Do not re-type to a known alternative if another alternative is missing: a MATCH class
+      // source cannot represent the missing name, whereas the native label predicate can.
+      targetClass = narrowedClass(ctx, names, boundaryClass,
+          !deferred && mainLabel instanceof ParsedLabelConstraint.Single, deferred);
+      if (!deferred && mainLabel instanceof ParsedLabelConstraint.Single single) {
+        if (!ctx.polymorphic()) {
+          whereExprs.add(WHERE.classEquals(single.name()));
         }
+      } else {
+        whereExprs.add(WHERE.classIn(ctx.polymorphic()
+            ? ctx.expandPolymorphicClassClosure(names) : names));
       }
-      whereExprs.add(WHERE.classIn(classNames));
     }
-    if (!whereExprs.isEmpty()) {
-      var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));
-      ctx.putAliasFilter(boundary, WHERE.wrap(merged));
-    }
-    return Outcome.ACCEPTED;
+    // A native-only predicate has no SQL representation, but retains its original containers.
+    var expression = matchCapable && !whereExprs.isEmpty()
+        ? WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0])) : null;
+    return new HasContribution(containers, names, expression, matchCapable, targetClass,
+        targetClass == null ? boundaryClass : targetClass, List.of(), 0, cacheSafe,
+        bindingContext, slots, NativeHasOperands.capture(containers));
   }
 
   /**
-   * Writes deferred neighbour {@code has} containers onto {@code alias} as MATCH filters (and
-   * optional class re-type for {@code hasLabel}). Each native HasStep contributes its own class
-   * condition: labels within one step OR, separate steps AND.
+   * MATCH re-types a single label even across an incompatible boundary. A multi-label MATCH
+   * contribution re-types to its LCA only at the generic vertex root. Deferred contributions
+   * accumulate on one alias and may narrow that alias but never broaden it.
    */
-  static boolean contributeContainersToAlias(
-      RecognitionContext ctx, String alias, List<HasContainer> containers) {
-    return contributeContainersToAlias(ctx, alias, containers,
-        containers.isEmpty() ? List.of() : List.of(containers.size()));
-  }
-
-  static boolean contributeContainersToAlias(
-      RecognitionContext ctx, String alias, List<HasContainer> containers,
-      List<Integer> stepSizes) {
-    int offset = 0;
-    for (int size : stepSizes) {
-      if (!contributeOneHasStep(ctx, alias, containers.subList(offset, offset + size),
-          stepSizes.size() == 1)) {
-        return false;
-      }
-      offset += size;
+  static @Nullable String narrowedClass(RecognitionContext ctx, List<String> names,
+      @Nullable String boundaryClass, boolean singleMatchLabel, boolean deferredRoute) {
+    if (names.isEmpty() || !names.stream().allMatch(ctx::isVertexClass)) {
+      return null;
     }
-    return offset == containers.size();
+    if (!deferredRoute) {
+      if (singleMatchLabel) {
+        return names.getFirst();
+      }
+      if (!WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass)) {
+        return null;
+      }
+      var lca = ctx.leastCommonVertexAncestor(names);
+      return lca == null || WalkerContext.VERTEX_ROOT_CLASS.equals(lca) ? null : lca;
+    }
+    var candidate = names.size() == 1 ? names.getFirst()
+        : ctx.leastCommonVertexAncestor(names);
+    if (candidate == null || WalkerContext.VERTEX_ROOT_CLASS.equals(candidate)) {
+      return null;
+    }
+    // A later HasStep may narrow an earlier source, but must not broaden it.
+    if (singleMatchLabel || boundaryClass == null
+        || WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass)
+        || candidate.equals(boundaryClass)
+        || boundaryClass.equals(ctx.leastCommonVertexAncestor(
+            List.of(boundaryClass, candidate)))) {
+      return candidate;
+    }
+    return null;
   }
 
-  private static boolean contributeOneHasStep(
-      RecognitionContext ctx, String alias, List<HasContainer> containers, boolean mayRetype) {
-    // YTDBHasLabelStep ORs all label predicates of one HasStep, including mixed eq/within.
+  /**
+   * The deferred route prepares its MATCH expression before deciding whether a slice takes it into
+   * the native op. Its provisional slots reserve positions but do not bind anything on the op route.
+   */
+  static @Nullable HasContribution prepareDeferred(
+      RecognitionContext ctx, List<HasContainer> containers, String targetClass, int firstSlot) {
     var names = new ArrayList<String>();
     for (var container : containers) {
       if (LABEL_KEY.equals(container.getKey())) {
@@ -317,61 +405,33 @@ final class HasStepRecogniser implements StepRecogniser {
         } else if (parsed instanceof ParsedLabelConstraint.Multi multi) {
           names.addAll(multi.names());
         } else {
-          return false;
+          return null;
         }
       }
     }
-    GremlinPredicateAdapter.PropertyTypeGate typeGate;
-    if (names.size() == 1) {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, names.getFirst());
-    } else if (!names.isEmpty()) {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, names.toArray(String[]::new));
-    } else {
-      typeGate = GremlinPredicateAdapter.schemaGate(ctx, (String) null);
+    var bindings = new ArrayList<Object>();
+    ParamSink sink = value -> {
+      var slot = SQLPositionalParameter.forSlot(firstSlot + bindings.size());
+      bindings.add(value);
+      return slot;
+    };
+    var prepared = prepare(ctx, containers, null, names, targetClass, sink, true);
+    if (prepared == null) {
+      return null;
     }
-    ParamSink paramSink = ctx::bindParam;
-    var rangeTypeGuard = !ctx.atTraversalStart();
-    var whereExprs = new ArrayList<SQLBooleanExpression>();
-    for (var container : containers) {
-      var key = container.getKey();
-      if (LABEL_KEY.equals(key)) {
-        continue;
-      }
-      if (ID_KEY.equals(key)) {
-        ctx.markRidBearing();
-        var ridExpr = translateHasId(container);
-        if (ridExpr == null) {
-          return false;
-        }
-        whereExprs.add(ridExpr);
-        continue;
-      }
-      var filter =
-          GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate, paramSink, rangeTypeGuard);
-      if (filter == null) {
+    return new HasContribution(prepared.nativeContainers(), prepared.labelAlternatives(),
+        prepared.matchExpression(), prepared.matchCapable(), prepared.targetClass(),
+        prepared.effectiveClass(), bindings, firstSlot, prepared.cacheSafe(),
+        prepared.bindingContext(), prepared.slots(), prepared.nativeOperands());
+  }
+
+  /** Flush each prepared HasStep in order, retaining the separate label group's class condition. */
+  static boolean contributeToAlias(
+      RecognitionContext ctx, String alias, List<HasContribution> contributions) {
+    for (var contribution : contributions) {
+      if (!contribution.applyToMatch(ctx, alias)) {
         return false;
       }
-      whereExprs.add(filter);
-    }
-    if (!names.isEmpty()) {
-      // Only narrow a single label group with a verified class. Missing alternatives remain in
-      // the class predicate but never become a MATCH source, even when every name is absent.
-      if (mayRetype && names.stream().allMatch(ctx::isVertexClass)) {
-        if (names.size() == 1) {
-          ctx.addNode(alias, names.getFirst());
-        } else if (WalkerContext.VERTEX_ROOT_CLASS.equals(ctx.boundaryClassName())) {
-          var lca = ctx.leastCommonVertexAncestor(names);
-          if (lca != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(lca)) {
-            ctx.addNode(alias, lca);
-          }
-        }
-      }
-      whereExprs.add(WHERE.classIn(ctx.polymorphic()
-          ? ctx.expandPolymorphicClassClosure(names) : names));
-    }
-    if (!whereExprs.isEmpty()) {
-      var merged = WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0]));
-      ctx.putAliasFilter(alias, WHERE.wrap(merged));
     }
     return true;
   }
@@ -405,13 +465,6 @@ final class HasStepRecogniser implements StepRecogniser {
         return null;
       }
     }
-    for (var container : containers) {
-      if (!LABEL_KEY.equals(container.getKey())) {
-        // Deferred IDs and property literals are not rebound inside cached shaping ops.
-        // Until op parameters are supported, keep each invocation's filter in its own plan.
-        ctx.markRidBearing();
-      }
-    }
     return List.copyOf(containers);
   }
 
@@ -433,7 +486,18 @@ final class HasStepRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(hasStep, pending.targetAlias())) {
       return Outcome.DECLINE;
     }
-    ctx.setPendingOrderedHop(pending.appendHasStep(containers, ctx.polymorphic()));
+    int firstSlot = ctx instanceof WalkerContext walker ? walker.inputParameters.size() : 0;
+    for (var prior : pending.contributions()) {
+      firstSlot += prior.deferredBindings().size();
+    }
+    var contribution = prepareDeferred(ctx, containers, pending.effectiveTargetClass(), firstSlot);
+    if (contribution == null) {
+      return Outcome.DECLINE;
+    }
+    if (!contribution.cacheSafe()) {
+      ctx.markRidBearing();
+    }
+    ctx.setPendingOrderedHop(pending.appendHasStep(contribution, ctx.polymorphic()));
     return Outcome.ACCEPTED;
   }
 
@@ -566,26 +630,14 @@ final class HasStepRecogniser implements StepRecogniser {
     }
     var containers = hasStep.getHasContainers();
     encoder.appendToken("H", Integer.toString(containers.size()));
-    String typeClass = null;
-    for (HasContainer container : containers) {
-      if (LABEL_KEY.equals(container.getKey()) && container.getValue() instanceof String name) {
-        typeClass = name;
-      }
+    var context = encoder.hasBindingContext();
+    if (context == null) {
+      context = HasBindingContext.forVertex(labelNames(containers), null, false,
+          HasBindingContext.Destination.MATCH_VERTEX);
     }
-    final var labelClass = typeClass;
-    GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        new GremlinPredicateAdapter.PropertyTypeGate() {
-          @Override
-          public boolean isDeclaredString(String key) {
-            return declaredStringOn(encoder.schema(), labelClass, key);
-          }
-
-          @Override
-          public boolean declaredTypeIn(String key, List<String> typeNames) {
-            return declaredTypeOn(encoder.schema(), labelClass, key, typeNames);
-          }
-        };
-    for (HasContainer container : containers) {
+    var typeGate = context.gate(encoder.schema());
+    for (int index = 0; index < containers.size(); index++) {
+      HasContainer container = containers.get(index);
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
         encoder.appendToken("lab");
@@ -599,40 +651,34 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       encoder.appendToken(key == null ? "" : key);
       encoder.appendPredicate(container.getPredicate(), false);
-      GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate, encoder.paramSink());
+      int containerIndex = index;
+      // Ordered-filter slots describe the native predicate's layout, but never enter MATCH's
+      // positional map. Otherwise a later MATCH HasStep would be bound at the wrong SQL slot.
+      int[] localSlot = {0};
+      ParamSink sink = context.destination() == HasBindingContext.Destination.ORDERED_FILTER
+          ? value -> SQLPositionalParameter.forSlot(localSlot[0]++) : encoder.paramSink();
+      GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
+          GremlinPredicateAdapter.withRoles(sink,
+              role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
+          !context.folded());
     }
     return true;
   }
 
-  private static boolean declaredStringOn(
-      @Nullable Schema schema, @Nullable String className, String propertyKey) {
-    if (schema == null || className == null || propertyKey == null) {
-      return false;
+  /** The label group of one step, independent of the prior boundary's class. */
+  static List<String> labelNames(List<HasContainer> containers) {
+    var names = new ArrayList<String>();
+    for (var container : containers) {
+      if (LABEL_KEY.equals(container.getKey())) {
+        var parsed = parseLabelContainer(container);
+        if (parsed instanceof ParsedLabelConstraint.Single single) {
+          names.add(single.name());
+        } else if (parsed instanceof ParsedLabelConstraint.Multi multi) {
+          names.addAll(multi.names());
+        }
+      }
     }
-    var clazz = schema.getClass(className);
-    if (clazz == null) {
-      return false;
-    }
-    var property = clazz.getProperty(propertyKey);
-    return property != null && property.getType() == PropertyType.STRING;
+    return List.copyOf(names);
   }
 
-  private static boolean declaredTypeOn(
-      @Nullable Schema schema,
-      @Nullable String className,
-      String propertyKey,
-      Collection<String> typeNames) {
-    if (schema == null || className == null || propertyKey == null || typeNames == null
-        || typeNames.isEmpty()) {
-      return false;
-    }
-    var clazz = schema.getClass(className);
-    if (clazz == null) {
-      return false;
-    }
-    var property = clazz.getProperty(propertyKey);
-    return property != null
-        && property.getType() != null
-        && typeNames.contains(property.getType().name());
-  }
 }

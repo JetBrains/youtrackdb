@@ -357,7 +357,9 @@ final class GremlinPlanFingerprint {
               appendToken(sb, Integer.toString(filter.containers().size()));
               for (var container : filter.containers()) {
                 appendToken(sb, container.getKey());
-                appendToken(sb, container.getPredicate().toString());
+                appendToken(sb, GremlinShapeEncoder.predicateStructure(container.getPredicate(),
+                    org.apache.tinkerpop.gremlin.structure.T.label.getAccessor()
+                        .equals(container.getKey())));
               }
             }
             case OrderedHopStage.Barrier barrier -> appendToken(sb,

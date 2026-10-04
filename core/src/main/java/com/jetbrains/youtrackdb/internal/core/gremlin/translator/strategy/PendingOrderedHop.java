@@ -15,11 +15,21 @@ record PendingOrderedHop(
     @Nonnull String fromAlias,
     @Nonnull String targetAlias,
     @Nonnull List<OrderedHopStage> stages,
-    @Nonnull OrderedExpandAccept.SourceProjection sourceProjection) {
+    @Nonnull OrderedExpandAccept.SourceProjection sourceProjection,
+    @Nonnull List<HasStepRecogniser.HasContribution> contributions,
+    @Nonnull String effectiveTargetClass) {
 
   PendingOrderedHop {
     edgeLabels = edgeLabels == null ? null : edgeLabels.clone();
     stages = List.copyOf(stages);
+    contributions = List.copyOf(contributions);
+  }
+
+  PendingOrderedHop(
+      Direction direction, String[] edgeLabels, String fromAlias, String targetAlias,
+      List<OrderedHopStage> stages, OrderedExpandAccept.SourceProjection sourceProjection) {
+    this(direction, edgeLabels, fromAlias, targetAlias, stages, sourceProjection, List.of(),
+        WalkerContext.VERTEX_ROOT_CLASS);
   }
 
   static PendingOrderedHop start(
@@ -57,33 +67,22 @@ record PendingOrderedHop(
     return List.copyOf(containers);
   }
 
-  List<Integer> hasStepSizes() {
-    var sizes = new ArrayList<Integer>();
-    for (var stage : stages) {
-      if (stage instanceof OrderedHopStage.Filter filter) {
-        sizes.add(filter.containers().size());
-      }
-    }
-    return List.copyOf(sizes);
-  }
-
-  PendingOrderedHop withHasContainers(@Nonnull List<HasContainer> containers) {
-    return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias,
-        initialStages(direction, edgeLabels, containers), sourceProjection);
-  }
-
-  PendingOrderedHop appendHasStep(@Nonnull List<HasContainer> containers, boolean polymorphic) {
+  PendingOrderedHop appendHasStep(
+      HasStepRecogniser.HasContribution contribution, boolean polymorphic) {
     var next = new ArrayList<>(stages);
-    next.add(new OrderedHopStage.Filter(containers, polymorphic));
+    next.add(new OrderedHopStage.Filter(contribution.nativeContainers(), polymorphic));
+    var prepared = new ArrayList<>(contributions);
+    prepared.add(contribution);
     return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, next,
-        sourceProjection);
+        sourceProjection, prepared,
+        contribution.effectiveClass());
   }
 
   PendingOrderedHop appendBarriers(List<OrderedHopStage.Barrier> barriers) {
     var next = new ArrayList<>(stages);
     next.addAll(barriers);
     return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, next,
-        sourceProjection);
+        sourceProjection, contributions, effectiveTargetClass);
   }
 
   PendingOrderedHop prependBarriers(List<OrderedHopStage.Barrier> barriers) {
@@ -91,6 +90,6 @@ record PendingOrderedHop(
     next.addAll(barriers);
     next.addAll(stages);
     return new PendingOrderedHop(direction, edgeLabels, fromAlias, targetAlias, next,
-        sourceProjection);
+        sourceProjection, contributions, effectiveTargetClass);
   }
 }

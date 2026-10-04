@@ -100,6 +100,7 @@ final class OrderedExpandAccept {
     stages.add(new OrderedHopStage.Project(walker.orderedProjectionSplits()));
     stages.addAll(walker.takeOrderedSourceBarriers());
     stages.add(new OrderedHopStage.Expand(hop.getDirection(), arity.labels()));
+    String effectiveClass = WalkerContext.VERTEX_ROOT_CLASS;
     while (true) {
       var next = cursor.peek();
       stages.addAll(takeBarrierStages(cursor, ctx));
@@ -113,8 +114,18 @@ final class OrderedExpandAccept {
       if (collected == null) {
         return Outcome.DECLINE;
       }
+      var contribution = HasStepRecogniser.prepareDeferred(
+          ctx, collected, effectiveClass, 0);
+      if (contribution == null) {
+        return Outcome.DECLINE;
+      }
+      if (!contribution.cacheSafe()) {
+        ctx.markRidBearing();
+      }
       cursor.take();
-      stages.add(new OrderedHopStage.Filter(collected, ctx.polymorphic()));
+      ctx.recordHasBinding(contribution.bindingContext(), contribution.slots());
+      effectiveClass = contribution.effectiveClass();
+      stages.add(new OrderedHopStage.Filter(contribution.nativeContainers(), ctx.polymorphic()));
     }
     String propertyKey = takeValuesKey(cursor);
     stages.addAll(takeBarrierStages(cursor, ctx));

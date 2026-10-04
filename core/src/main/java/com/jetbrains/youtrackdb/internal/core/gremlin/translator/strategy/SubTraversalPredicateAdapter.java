@@ -512,6 +512,14 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     parent.markRidBearing();
   }
 
+  @Override
+  public void recordHasBinding(
+      HasBindingContext bindingContext, List<HasBindingContext.Slot> slots) {
+    // Slots are allocated on the parent even inside a captured child. A successfully translated
+    // child contributes those slots to the enclosing plan, including detached NOT expressions.
+    parent.recordHasBinding(bindingContext, slots);
+  }
+
   /**
    * Swallowed: a child changes the parent's filter, never its result shape. A hop child would
    * otherwise re-pin the boundary to its own target and move the outer result column onto it.

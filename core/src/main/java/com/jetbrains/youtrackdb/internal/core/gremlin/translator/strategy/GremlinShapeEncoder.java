@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
@@ -17,8 +18,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
 
 /**
  * Length-prefixed token writer and positional-parameter harvest for the pre-walk translation-cache
- * key. Recognisers append the same step-local tokens they read in {@link StepRecogniser#recognize};
- * comparison values stay out of the key (only their runtime class) so they rebound as {@code ?}.
+ * key. Recognisers append structural step tokens while extraction supplies the boundary class and
+ * fold position for each has contribution. Comparison values stay out of the key (only their runtime
+ * class and prefix layout enter) so they rebound as {@code ?}.
  *
  * <p>Every variable-length token is length-prefixed, matching {@link GremlinPlanFingerprint}, so a
  * user identifier cannot forge another walk's key by embedding delimiters.
@@ -34,6 +36,37 @@ final class GremlinShapeEncoder {
   private final ParamSink sink = this::bindParam;
 
   private boolean complete = true;
+
+  private HasBindingContext hasBindingContext;
+
+  private final List<HasBindingContext.Slot> hasSlots = new ArrayList<>();
+
+  private final List<HasBindingContext.Contribution> hasContributions = new ArrayList<>();
+
+  void setHasBindingContext(HasBindingContext context) {
+    hasBindingContext = context;
+  }
+
+  HasBindingContext hasBindingContext() {
+    return hasBindingContext;
+  }
+
+  List<HasBindingContext.Slot> hasSlots() {
+    return List.copyOf(hasSlots);
+  }
+
+  void recordHasSlot(HasBindingContext.Slot slot) {
+    hasSlots.add(slot);
+  }
+
+  void recordHasContribution(HasBindingContext context, int fromSlot) {
+    hasContributions.add(new HasBindingContext.Contribution(context,
+        hasSlots.subList(fromSlot, hasSlots.size())));
+  }
+
+  List<HasBindingContext.Contribution> hasContributions() {
+    return List.copyOf(hasContributions);
+  }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
     this.schema = schema;
@@ -123,7 +156,9 @@ final class GremlinShapeEncoder {
     var bi = predicate.getBiPredicate();
     appendToken("bi", bi == null ? "-" : bi.getClass().getName());
     if (bi != null) {
-      appendToken(String.valueOf(bi));
+      // RegexPredicate.toString embeds the pattern. Its compiled matcher is reconstructed at
+      // splice, so only the operator and negation belong in the structural key.
+      appendToken(bi instanceof Text.RegexPredicate ? "regex" : String.valueOf(bi));
     }
     // Text.regex and Text.notRegex share RegexPredicate; toString does not include isNegate(),
     // so a cached regex plan would be spliced onto notRegex (TinkerPop Has.feature: marko only
@@ -131,11 +166,25 @@ final class GremlinShapeEncoder {
     if (bi instanceof Text.RegexPredicate regex) {
       appendToken("neg", regex.isNegate() ? "1" : "0");
     }
+    if (!valuesAreStructural && (bi == Text.startingWith || bi == Text.notStartingWith)
+        && predicate.getValue() instanceof String prefix) {
+      // Two range slots cannot share a cached plan with the strict, one-slot form. A prefix
+      // consisting only of maximum code points has no finite bound, just like an empty prefix.
+      appendToken("prefixRange",
+          GremlinPredicateAdapter.finitePrefixUpperBound(prefix) == null ? "0" : "1");
+    }
     if (valuesAreStructural) {
       appendStructuralValue(predicate.getValue());
     } else {
       appendValueClass(predicate.getValue());
     }
+  }
+
+  /** The built-plan key uses the same value-independent predicate encoding as extraction. */
+  static String predicateStructure(P<?> predicate, boolean valuesAreStructural) {
+    var encoder = new GremlinShapeEncoder(null);
+    encoder.appendPredicate(predicate, valuesAreStructural);
+    return encoder.key();
   }
 
   private void appendPredicateList(List<? extends P<?>> children, boolean valuesAreStructural) {

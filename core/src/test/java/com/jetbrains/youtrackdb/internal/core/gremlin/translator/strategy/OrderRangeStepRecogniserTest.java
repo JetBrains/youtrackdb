@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -1487,6 +1488,97 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .V().has("name", "Source").order().by("name").out("knows")
             .hasLabel("FilterParent", "FilterOther").has("nickname", "mixed")
             .limit(1).values("name"));
+  }
+
+  /** Deferred MATCH uses the class from a previous label group to gate a singleton comparison. */
+  @Test
+  public void deferredKnownLabelThenBarrierThenSingleton_matchesNativeOnFlushAndCuts() {
+    var target = session.createVertexClass("StepOneTarget");
+    target.createProperty("name", PropertyType.STRING);
+    target.createProperty("age", PropertyType.INTEGER);
+    var source = graph.addVertex(T.label, "V", "name", "StepOneSource");
+    var alice = graph.addVertex(T.label, "StepOneTarget", "name", "Alice", "age", 31);
+    var bob = graph.addVertex(T.label, "StepOneTarget", "name", "Bob", "age", 20);
+    source.addEdge("stepOneEdge", alice);
+    source.addEdge("stepOneEdge", bob);
+    graph.tx().commit();
+
+    for (boolean sourceCut : new boolean[] {false, true}) {
+      assertNeighbourFilterResult("singleton on source/hop cut " + sourceCut, List.of(),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .limit(1).out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("name", P.eq(List.of("Alice"))).values("name")
+              : graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("name", P.eq(List.of("Alice"))).limit(2).values("name"));
+      assertNeighbourFilterResult("numeric on source/hop cut " + sourceCut, List.of("Alice"),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .limit(1).out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("age", P.gt(25)).values("name")
+              : graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("age", P.gt(25)).limit(2).values("name"));
+    }
+    assertNeighbourFilterResult("singleton MATCH flush", List.of(),
+        () -> graph.traversal().V().has("name", "StepOneSource").order().by("name")
+            .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+            .has("name", P.eq(List.of("Alice"))).values("name"));
+    assertNeighbourFilterResult("numeric MATCH flush", List.of("Alice"),
+        () -> graph.traversal().V().has("name", "StepOneSource").order().by("name")
+            .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+            .has("age", P.gt(25)).values("name"));
+  }
+
+  /** Multi-label deferred filters retain their label group across flush, hop cut and source cut. */
+  @Test
+  public void deferredMultiLabelWithOptionalNarrowing_matchesNativeOnFlushAndCuts() {
+    seedNativeNeighbourFilters();
+    for (boolean polymorphic : new boolean[] {true, false}) {
+      withPolymorphicDefault(polymorphic, () -> {
+        for (boolean narrow : new boolean[] {true, false}) {
+          for (int route = 0; route < 3; route++) {
+            int selectedRoute = route;
+            assertNeighbourFilterResult("deferred multi poly=" + polymorphic + " narrow=" + narrow
+                + " route=" + route,
+                List.of("Child"),
+                () -> {
+                  var traversal = graph.traversal().V().has("name", "Source")
+                      .order().by("name");
+                  if (selectedRoute == 2) {
+                    traversal = traversal.limit(1);
+                  }
+                  var targets = traversal.out("knows")
+                      .hasLabel("FilterParent", "FilterChild");
+                  if (narrow) {
+                    targets = targets.hasLabel("FilterParent");
+                  }
+                  targets = targets.has("name", "Child");
+                  if (selectedRoute == 1) {
+                    targets = targets.limit(2);
+                  }
+                  return targets.values("name");
+                });
+          }
+        }
+      });
+    }
+  }
+
+  /** Unsupported MATCH predicates still use native ordered-expand filtering at either cut. */
+  @Test
+  public void deferredCustomPredicate_keepsBothOrderedExpandRoutes() {
+    seedNativeNeighbourFilters();
+    PBiPredicate<Object, Object> same = Object::equals;
+    assertNeighbourFilterResult("custom hop cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").has("name", new P<>(same, "Child"))
+            .limit(1).values("name"));
+    assertNeighbourFilterResult("custom source cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .limit(1).out("knows").has("name", new P<>(same, "Child"))
+            .values("name"));
   }
 
   private void seedNativeNeighbourFilters() {

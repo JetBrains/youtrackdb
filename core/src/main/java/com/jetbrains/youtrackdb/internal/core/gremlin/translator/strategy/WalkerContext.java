@@ -79,6 +79,15 @@ final class WalkerContext implements RecognitionContext {
    *  Insertion order matches slot allocation order for deterministic rebinding on cache hit. */
   final LinkedHashMap<Integer, Object> inputParameters = new LinkedHashMap<>();
 
+  /** Walk-order layouts, including zero-slot predicates and ordered-filter contributions. */
+  final List<HasBindingContext.Contribution> hasBindings = new ArrayList<>();
+
+  @Override
+  public void recordHasBinding(
+      HasBindingContext bindingContext, List<HasBindingContext.Slot> slots) {
+    hasBindings.add(new HasBindingContext.Contribution(bindingContext, slots));
+  }
+
   /** Next positional-parameter slot to allocate. Shape-pure: incremented once per {@link #bindParam}
    *  call regardless of value. */
   private int nextParamSlot;
@@ -1011,8 +1020,8 @@ final class WalkerContext implements RecognitionContext {
         pending.edgeLabels());
     // Deferred has(...) becomes MATCH filters on the neighbour alias (order().hop().has() without
     // a following slice).
-    return HasStepRecogniser.contributeContainersToAlias(
-        this, pending.targetAlias(), pending.hasContainers(), pending.hasStepSizes());
+    return HasStepRecogniser.contributeToAlias(
+        this, pending.targetAlias(), pending.contributions());
   }
 
   @Override

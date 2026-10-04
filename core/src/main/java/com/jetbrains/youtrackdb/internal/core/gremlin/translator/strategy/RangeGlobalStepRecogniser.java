@@ -283,6 +283,9 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     cursor.peek();
     stages.addAll(OrderedExpandAccept.takeBarrierStages(cursor, ctx));
     ctx.takePendingOrderedHop();
+    for (var contribution : pendingHop.contributions()) {
+      ctx.recordHasBinding(contribution.bindingContext(), contribution.slots());
+    }
     OrderedExpandAccept.restoreSourceProjection(ctx, pendingHop.fromAlias(),
         pendingHop.sourceProjection());
     OrderedExpandAccept.installSourceCarrier(ctx, pendingHop.fromAlias());

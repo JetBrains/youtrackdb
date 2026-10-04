@@ -134,7 +134,17 @@ final class GremlinToMatchTranslator {
       @Nonnull Class<? extends Element> returnClass,
       @Nonnull Map<Object, Object> inputParameters,
       boolean cacheEligible,
-      @Nonnull ResultShaping shaping) {
+      @Nonnull ResultShaping shaping,
+      @Nonnull List<HasBindingContext.Contribution> hasContributions) {
+
+    /** Compatibility constructor for tests and callers with no recorded has contributions. */
+    TranslationResult(
+        MatchPlanInputs inputs, List<ChildPlan> childPlans, List<PostConcatOp> postConcatOps,
+        String boundaryAlias, BoundaryOutputType outputType, Class<? extends Element> returnClass,
+        Map<Object, Object> inputParameters, boolean cacheEligible, ResultShaping shaping) {
+      this(inputs, childPlans, postConcatOps, boundaryAlias, outputType, returnClass,
+          inputParameters, cacheEligible, shaping, List.of());
+    }
 
     /**
      * One child of a multi-plan (union) translation. Bundling the three per-child facts keeps them
@@ -161,6 +171,7 @@ final class GremlinToMatchTranslator {
     TranslationResult {
       childPlans = List.copyOf(childPlans);
       postConcatOps = List.copyOf(postConcatOps);
+      hasContributions = List.copyOf(hasContributions);
       boolean singlePlan = inputs != null;
       boolean multiPlan = !childPlans.isEmpty();
       if (singlePlan == multiPlan) {
@@ -181,6 +192,12 @@ final class GremlinToMatchTranslator {
       }
     }
 
+    /** Replace only invocation-specific post-plan filters, leaving all other shaping intact. */
+    TranslationResult withShaping(ResultShaping replacement) {
+      return new TranslationResult(inputs, childPlans, postConcatOps, boundaryAlias, outputType,
+          returnClass, inputParameters, cacheEligible, replacement, hasContributions);
+    }
+
     /**
      * Single-plan carrier: one set of MATCH plan inputs with the walk's positional parameters on
      * the boundary step itself. No child plans and no post-concat reductions — a single-plan walk
@@ -194,7 +211,8 @@ final class GremlinToMatchTranslator {
         @Nonnull Class<? extends Element> returnClass,
         @Nonnull Map<Object, Object> inputParameters,
         boolean cacheEligible,
-        @Nonnull ResultShaping shaping) {
+        @Nonnull ResultShaping shaping,
+        @Nonnull List<HasBindingContext.Contribution> hasContributions) {
       return new TranslationResult(
           inputs,
           List.of(),
@@ -204,7 +222,16 @@ final class GremlinToMatchTranslator {
           returnClass,
           inputParameters,
           cacheEligible,
-          shaping);
+          shaping,
+          hasContributions);
+    }
+
+    static TranslationResult singlePlan(
+        MatchPlanInputs inputs, String boundaryAlias, BoundaryOutputType outputType,
+        Class<? extends Element> returnClass, Map<Object, Object> inputParameters,
+        boolean cacheEligible, ResultShaping shaping) {
+      return singlePlan(inputs, boundaryAlias, outputType, returnClass, inputParameters,
+          cacheEligible, shaping, List.of());
     }
 
     /** ELEMENT / simple fixtures: neutral row-projection shaping ({@link ResultShaping#NONE}). */
@@ -247,7 +274,8 @@ final class GremlinToMatchTranslator {
           returnClass,
           Map.of(),
           false,
-          shaping);
+          shaping,
+          List.of());
     }
 
     boolean isMultiPlan() {

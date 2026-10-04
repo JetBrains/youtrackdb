@@ -273,7 +273,8 @@ public final class GremlinToMatchStrategy
     this(translator, planBuilder, false);
   }
 
-  private GremlinToMatchStrategy(
+  // Package-private for tests that count real walks rather than shape-key lookup hits.
+  GremlinToMatchStrategy(
       TraversalTranslator translator,
       MatchPlanBuilder planBuilder,
       boolean populateTranslationCache) {
@@ -377,10 +378,14 @@ public final class GremlinToMatchStrategy
         return;
       }
       if (cached instanceof GremlinTranslationTemplate.Translate translate
-          && extraction.bindings().size() == translate.bindingCount()) {
-        spliceFromTranslationCache(traversal, translate, extraction.bindings());
-        metrics.recordSuccess();
-        return;
+          && extraction.bindings().size() == translate.bindingCount()
+          && matchingLayout(extraction.hasContributions(), translate.hasContributions())) {
+        var boundShaping = OrderedFilterBinding.fromExtraction(translate.shaping(), extraction);
+        if (boundShaping != null) {
+          spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
+          metrics.recordSuccess();
+          return;
+        }
       }
     }
     // Capture the planning start before the walk: the schema read that shapes the plan happens
@@ -400,6 +405,12 @@ public final class GremlinToMatchStrategy
     }
     applyTranslation(traversal, session, translation, planningStart, extraction);
     metrics.recordSuccess();
+  }
+
+  /** The complete contribution boundary, gate, fold mode and every slot role must agree. */
+  static boolean matchingLayout(List<HasBindingContext.Contribution> extracted,
+      List<HasBindingContext.Contribution> walked) {
+    return extracted.equals(walked);
   }
 
   /**
@@ -554,8 +565,12 @@ public final class GremlinToMatchStrategy
     }
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     var copyOnOpen = isSharedPlanTemplate(session, translation, plan);
-    replaceAllStepsWithBoundary(traversal, plan, translation, copyOnOpen);
-    if (populateTranslationCache && copyOnOpen && extraction.complete()) {
+    var bound = translation.withShaping(OrderedFilterBinding.fresh(translation.shaping()));
+    replaceAllStepsWithBoundary(traversal, plan, bound, copyOnOpen);
+    if (populateTranslationCache && copyOnOpen && extraction.complete()
+        && extraction.bindings().size() == translation.inputParameters().size()
+        && matchingLayout(extraction.hasContributions(), translation.hasContributions())
+        && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null) {
       GremlinPlanCache.putTranslation(
           extraction.key(),
           new GremlinTranslationTemplate.Translate(
@@ -563,8 +578,9 @@ public final class GremlinToMatchStrategy
               translation.boundaryAlias(),
               translation.outputType(),
               translation.returnClass(),
-              translation.shaping(),
-              translation.inputParameters().size()),
+              OrderedFilterBinding.unbound(translation.shaping()),
+              translation.inputParameters().size(),
+              translation.hasContributions()),
           session);
     }
   }
@@ -744,7 +760,8 @@ public final class GremlinToMatchStrategy
   private static void spliceFromTranslationCache(
       Traversal.Admin<?, ?> traversalRaw,
       GremlinTranslationTemplate.Translate cached,
-      Map<Object, Object> bindings) {
+      Map<Object, Object> bindings,
+      com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping shaping) {
     var boundary =
         new YTDBMatchPlanStep(
             traversalRaw,
@@ -753,7 +770,7 @@ public final class GremlinToMatchStrategy
             cached.boundaryAlias(),
             cached.outputType(),
             bindings,
-            cached.shaping(),
+            shaping,
             true);
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
