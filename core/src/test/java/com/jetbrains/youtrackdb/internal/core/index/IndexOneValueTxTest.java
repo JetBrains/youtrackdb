@@ -32,8 +32,7 @@ import org.junit.Test;
  * <ul>
  *   <li>{@code Index.get(session, key)} returns {@code Object} (a RID or null) for UNIQUE
  *       indexes — do NOT call {@code .iterator().hasNext()} on the result.</li>
- *   <li>Descending TX streams for the non-cleared merge case use an internally ascending
- *       comparator; assert key presence rather than strict ordering.</li>
+ *   <li>Descending TX streams merge pending and stored entries in descending key order.</li>
  * </ul>
  */
 public class IndexOneValueTxTest extends DbTestBase {

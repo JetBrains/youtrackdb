@@ -150,6 +150,8 @@ public abstract class IndexOneValue extends IndexAbstract {
   public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     final List<Object> sortedKeys = new ArrayList<>(keys);
+    // Stored keys use the index collation. Sort requests in that same key space.
+    sortedKeys.replaceAll(this::getCollatingValue);
     final Comparator<Object> comparator;
 
     if (ascSortOrder) {

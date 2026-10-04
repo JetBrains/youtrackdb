@@ -13,8 +13,7 @@ import org.junit.Test;
  * Tests the comparator classes used for index entry ordering:
  * <ul>
  *   <li>{@link AscComparator} — compares pairs by key in ascending order</li>
- *   <li>{@link DescComparator} — compares pairs by key in ascending order (symmetric with Asc;
- *       the caller reverses direction by swapping arguments)</li>
+ *   <li>{@link DescComparator} — compares pairs by key in descending order</li>
  *   <li>{@link AlwaysGreaterKey} — sentinel that is always greater than any key</li>
  *   <li>{@link AlwaysLessKey} — sentinel that is always less than any key</li>
  * </ul>
@@ -24,9 +23,6 @@ public class IndexComparatorTest {
   private static final RID DUMMY_RID = RecordIdInternal.fromString("#1:1", false);
 
   // ---- AscComparator ---------------------------------------------------------
-  // Note: a "singleton tautology" test (assertEquals(INSTANCE, INSTANCE)) was removed —
-  // any non-null object equals itself, so the assertion is uninformative. The behaviour
-  // tests below cover the comparator's actual contract.
 
   /**
    * Verifies that AscComparator returns 0 for entries with equal integer keys.
@@ -70,7 +66,6 @@ public class IndexComparatorTest {
   }
 
   // ---- DescComparator --------------------------------------------------------
-  // Singleton-tautology test removed for the same reason as the Asc variant above.
 
   /**
    * Verifies that DescComparator returns 0 for entries with equal integer keys.
@@ -83,24 +78,43 @@ public class IndexComparatorTest {
   }
 
   /**
-   * Verifies DescComparator with ordered integer keys — comparison is by key value
-   * (caller uses reversed argument order for descending iteration).
+   * Verifies that a lower integer key follows a higher key in descending order.
    */
   @Test
   public void testDescComparatorLessThan() {
     var a = new RawPair<Object, RID>(5, DUMMY_RID);
     var b = new RawPair<Object, RID>(10, DUMMY_RID);
-    assertTrue(DescComparator.INSTANCE.compare(a, b) < 0);
+    assertTrue(DescComparator.INSTANCE.compare(a, b) > 0);
   }
 
   /**
-   * Verifies DescComparator returns positive when the first key is greater.
+   * Verifies that a higher integer key precedes a lower key in descending order.
    */
   @Test
   public void testDescComparatorGreaterThan() {
     var a = new RawPair<Object, RID>(20, DUMMY_RID);
     var b = new RawPair<Object, RID>(10, DUMMY_RID);
-    assertTrue(DescComparator.INSTANCE.compare(a, b) > 0);
+    assertTrue(DescComparator.INSTANCE.compare(a, b) < 0);
+  }
+
+  /** Descending comparison reverses ascending comparison and ignores the record identifier. */
+  @Test
+  public void descendingReversesAscendingForStringsAndCompositeKeys() {
+    var otherRid = RecordIdInternal.fromString("#1:2", false);
+    var keys = new Object[] {null, "apple", "banana", new CompositeKey("a", 1),
+        new CompositeKey("a", 2)};
+    for (var key : keys) {
+      var entry = new RawPair<Object, RID>(key, DUMMY_RID);
+      var sameKey = new RawPair<Object, RID>(key, otherRid);
+      assertEquals(0, DescComparator.INSTANCE.compare(entry, sameKey));
+    }
+    for (int i : new int[] {0, 1, 3}) {
+      var lower = new RawPair<Object, RID>(keys[i], DUMMY_RID);
+      var higher = new RawPair<Object, RID>(keys[i + 1], otherRid);
+      assertTrue(DescComparator.INSTANCE.compare(higher, lower) < 0);
+      assertEquals(AscComparator.INSTANCE.compare(lower, higher),
+          DescComparator.INSTANCE.compare(higher, lower));
+    }
   }
 
   // ---- AlwaysGreaterKey ------------------------------------------------------

@@ -31,8 +31,7 @@ import org.junit.Test;
  * UPDATE is used inside a TX to trigger index change accumulation in
  * {@code FrontendTransactionIndexChanges}.
  *
- * <p>Important invariant: descending TX streams for the non-cleared merge case use an
- * internally ascending comparator; tests assert key presence rather than strict ordering.
+ * <p>Descending TX streams merge pending and stored entries in descending key order.
  */
 public class IndexMultiValuesTxTest extends DbTestBase {
 
