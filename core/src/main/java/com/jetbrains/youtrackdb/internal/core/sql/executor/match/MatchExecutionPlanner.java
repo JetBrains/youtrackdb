@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
@@ -80,6 +81,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
@@ -388,12 +391,17 @@ public class MatchExecutionPlanner {
 
   /**
    * Minimum upstream (probe-side) cardinality for hash join to be worthwhile.
-   * When set to 0, both the upstream check (Guard 1) and cost-based comparison
+   * When non-positive, both the upstream check (Guard 1) and cost-based comparison
    * (Guard 2) are bypassed — only the build-side threshold applies. Configurable
    * via {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN}.
    */
   static long getHashJoinUpstreamMin() {
     return GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValueAsLong();
+  }
+
+  /** Both detached and pattern-branch cost guards require a positive minimum. */
+  private static boolean hashJoinCostGuardsEnabled(long minimum) {
+    return minimum > 0;
   }
 
   /**
@@ -749,6 +757,10 @@ public class MatchExecutionPlanner {
     }
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
 
+    // Estimate the positive output before any detached check filters it. Collect each component
+    // from its actual schedule, without repeating scheduling just for the cost guards.
+    List<OptionalLong> outerEstimates = notMatchExpressions.isEmpty()
+        && existsMatchExpressions.isEmpty() ? null : new ArrayList<>();
     // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
       // Multiple disjoint sub-patterns → Cartesian product of their independent results
@@ -757,7 +769,7 @@ public class MatchExecutionPlanner {
         step.addSubPlan(
             createPlanForPattern(
                 subPattern, context, estimatedRootEntries, aliasesToPrefetch,
-                null, null, null, enableProfiling));
+                null, null, null, outerEstimates, enableProfiling));
       }
       result.chain(step);
     } else {
@@ -767,7 +779,8 @@ public class MatchExecutionPlanner {
       var plan =
           createPlanForPattern(
               pattern, context, estimatedRootEntries, aliasesToPrefetch,
-              indexOrderedCandidate, probeEdges, singleNodeIndexOrder, enableProfiling);
+              indexOrderedCandidate, probeEdges, singleNodeIndexOrder, outerEstimates,
+              enableProfiling);
       for (var step : plan.getSteps()) {
         result.chain((ExecutionStepInternal) step);
       }
@@ -777,7 +790,7 @@ public class MatchExecutionPlanner {
     manageExistsPatterns(result, pattern, existsMatchExpressions, context, enableProfiling);
     manageNotPatterns(
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
-        aliasPinnedRids, context, enableProfiling);
+        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates), enableProfiling);
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -1113,6 +1126,7 @@ public class MatchExecutionPlanner {
    * @param aliasFilters         per-alias WHERE clauses
    * @param aliasPinnedRids      per-alias RID constraints
    * @param context              the command context
+   * @param outerRows            positive output estimate before detached checks
    * @param enableProfiling      whether to enable step profiling
    */
   private static void manageNotPatterns(
@@ -1123,11 +1137,12 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
+      OptionalLong outerRows,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
       var matchSteps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern)) {
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
             exp, matchSteps, aliasClasses, aliasFilters, aliasPinnedRids,
@@ -1295,7 +1310,7 @@ public class MatchExecutionPlanner {
    *       {@code Long.MAX_VALUE} to force fallback to nested-loop.</li>
    *   <li>For each edge, multiply by schema-based fan-out via
    *       {@link EdgeFanOutEstimator#estimateFanOut}.</li>
-   *   <li>For each intermediate filter (non-null WHERE clause), apply 0.5 selectivity.</li>
+   *   <li>Apply each target filter's index selectivity, or the configured default.</li>
    *   <li>Cap at {@code Long.MAX_VALUE} to avoid overflow.</li>
    * </ol>
    *
@@ -1321,6 +1336,8 @@ public class MatchExecutionPlanner {
     long estimate = estimateAliasCardinality(
         originAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
     var currentClass = aliasClasses.get(originAlias);
+    // Target resolution follows reached nodes independently of the fan-out class.
+    String reachedClass = aliasClasses.get(originAlias);
     // Fresh per-call memo of class-name → approximateCount: fan-out values
     // are unchanged, only repeated counts for the same class are elided.
     Map<String, Long> classCountCache = new HashMap<>();
@@ -1339,12 +1356,15 @@ public class MatchExecutionPlanner {
       // Apply selectivity for intermediate filters — use histogram-based
       // estimation if an index is available, otherwise fall back to default.
       var filter = item.getFilter();
+      var targetClass = estimateTargetClass(item, reachedClass, aliasClasses, context);
       if (filter != null && filter.getFilter() != null) {
         double selectivity = estimateFilterSelectivity(
-            filter.getFilter(), currentClass, context);
+            filter.getFilter(), targetClass, context);
         estimate = Math.max(1, Math.round(estimate * selectivity));
       }
-      // Track current class for next hop's fan-out estimation
+      // Recursion can reach mixed classes, so the next hop cannot infer an endpoint from it.
+      reachedClass = isRecursive(filter) ? null : targetClass;
+      // Fan-out tracks explicit path classes independently of target-filter resolution.
       if (filter != null && filter.getClassName(context) != null) {
         currentClass = filter.getClassName(context);
       }
@@ -1394,6 +1414,124 @@ public class MatchExecutionPlanner {
     var estimatedCardinality = estimateNotPatternCardinality(
         exp, aliasClasses, aliasFilters, aliasPinnedRids, context);
     return estimatedCardinality <= getHashJoinThreshold();
+  }
+
+  /** Shared detached-check choice: eligibility always applies, even with the guards off. */
+  static boolean canUseHashJoin(
+      SQLMatchExpression exp,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, List<SQLRid>> aliasPinnedRids,
+      CommandContext context,
+      Pattern pattern,
+      OptionalLong outerRows) {
+    if (!canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern)) {
+      return false;
+    }
+    if (!hashJoinCostGuardsEnabled(getHashJoinUpstreamMin()) || outerRows.isEmpty()) {
+      return true;
+    }
+    return detachedHashCostWins(outerRows,
+        estimateAliasCardinality(exp.getOrigin().getAlias(), aliasClasses, aliasFilters,
+            aliasPinnedRids, context),
+        estimateDetachedWalkCost(exp, aliasClasses, context));
+  }
+
+  /** Unknown estimates bypass both guards. A large sentinel would fail the cost comparison. */
+  static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk) {
+    long minimum = getHashJoinUpstreamMin();
+    if (!hashJoinCostGuardsEnabled(minimum) || outerRows.isEmpty() || walk.isEmpty()) {
+      return true;
+    }
+    long outer = outerRows.getAsLong();
+    if (outer < minimum) {
+      return false;
+    }
+    double nestedCost = outer * walk.getAsDouble();
+    double hashCost = origins + origins * walk.getAsDouble() + outer;
+    return hashCost < nestedCost;
+  }
+
+  /** Sum candidate visits before each hop's filter, using surviving rows for the next hop. */
+  static OptionalDouble estimateDetachedWalkCost(
+      SQLMatchExpression exp, Map<String, String> aliasClasses, CommandContext context) {
+    double rows = 1;
+    double work = 0;
+    var currentClass = aliasClasses.get(exp.getOrigin().getAlias());
+    String reachedClass = aliasClasses.get(exp.getOrigin().getAlias());
+    Map<String, Long> counts = new HashMap<>();
+    for (var item : exp.getItems()) {
+      var filter = item.getFilter();
+      if (filter != null
+          && (filter.getMaxDepth() != null || filter.getWhileCondition() != null)) {
+        return OptionalDouble.empty();
+      }
+      rows *= estimateMethodFanOut(item.getMethod(), currentClass,
+          context.getDatabaseSession(), counts);
+      work += rows;
+      if (!Double.isFinite(work) || work >= Long.MAX_VALUE) {
+        return OptionalDouble.empty();
+      }
+      var targetClass = estimateTargetClass(item, reachedClass, aliasClasses, context);
+      if (filter != null && filter.getFilter() != null) {
+        rows *= estimateFilterSelectivity(filter.getFilter(), targetClass, context);
+      }
+      reachedClass = isRecursive(filter) ? null : targetClass;
+      // An unknown target keeps the carried fan-out class, not the filter's null class.
+      if (filter != null && filter.getClassName(context) != null) {
+        currentClass = filter.getClassName(context);
+      }
+    }
+    return OptionalDouble.of(work);
+  }
+
+  private static boolean isRecursive(SQLMatchFilter f) {
+    return f != null && (f.getWhileCondition() != null || f.getMaxDepth() != null);
+  }
+
+  /**
+   * Filter statistics belong to the reached node, never to the hop's source class.
+   *
+   * @param previousClass class of the node the previous hop reached
+   */
+  @Nullable private static String estimateTargetClass(
+      SQLMatchPathItem item, @Nullable String previousClass,
+      Map<String, String> aliasClasses, CommandContext context) {
+    var filter = item.getFilter();
+    if (filter != null) {
+      var alias = filter.getAlias();
+      var aliasClass = alias == null ? null : aliasClasses.get(alias);
+      if (aliasClass != null) {
+        return aliasClass;
+      }
+      var explicitClass = filter.getClassName(context);
+      if (explicitClass != null) {
+        return explicitClass;
+      }
+    }
+    return inferClassFromEdgeSchema(item.getMethod(), previousClass, context);
+  }
+
+  /** Scheduled reverse hops reach the syntactic source endpoint of the edge. */
+  @Nullable private static String estimateTargetClass(
+      EdgeTraversal traversal, Map<String, String> aliasClasses, CommandContext context) {
+    var aliasClass = aliasClasses.get(targetAlias(traversal));
+    if (aliasClass != null || traversal.edge.item == null) {
+      return aliasClass;
+    }
+    var item = traversal.edge.item;
+    if (traversal.out) {
+      return estimateTargetClass(item, aliasClasses.get(sourceAlias(traversal)),
+          aliasClasses, context);
+    }
+    var method = item.getMethod();
+    var direction = method == null ? null : parseDirection(method.getMethodNameString());
+    var edgeClass = method == null ? null : extractEdgeClassName(method);
+    if (edgeClass != null && (direction == Direction.OUT || direction == Direction.IN)) {
+      return lookupLinkedVertexClass(edgeClass, direction == Direction.OUT ? "out" : "in",
+          context.getDatabaseSession());
+    }
+    return null;
   }
 
   /**
@@ -1728,10 +1866,9 @@ public class MatchExecutionPlanner {
       return null;
     }
 
-    // Guards 1 & 2 are only active when upstreamMin > 0. Setting upstreamMin to 0
-    // bypasses both guards — only the build-side threshold applies.
+    // A non-positive minimum bypasses both guards, but not the build-side threshold.
     long upstreamMin = getHashJoinUpstreamMin();
-    if (upstreamMin > 0) {
+    if (hashJoinCostGuardsEnabled(upstreamMin)) {
       // Guard 1: Skip hash join when the upstream (probe side) is small.
       long upstreamCardinality = estimateUpstreamCardinality(
           scheduledEdges, checkIdx, trace.branchEdges,
@@ -1908,7 +2045,7 @@ public class MatchExecutionPlanner {
   /**
    * Estimates the cardinality of a hash join branch. Starts from the branch root's
    * estimated record count and multiplies by schema-based fan-out per edge
-   * (via {@link EdgeFanOutEstimator}), applying 0.5 selectivity for WHERE filters.
+   * (via {@link EdgeFanOutEstimator}), applying target-class selectivity for WHERE filters.
    */
   private static long estimateBranchCardinality(
       String branchRoot,
@@ -1926,6 +2063,8 @@ public class MatchExecutionPlanner {
     // it's a filter verifying the target alias matches an already-visited node (cost 0).
     int edgeCount = Math.max(0, branchEdges.size() - 1);
     var currentClass = aliasClasses.get(branchRoot);
+    // Inferred reached classes are selectivity-only and never change fan-out state.
+    Map<String, String> reachedClasses = new HashMap<>(aliasClasses);
     // Fresh per-call class-count memo (pure optimisation).
     Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < edgeCount; i++) {
@@ -1939,17 +2078,22 @@ public class MatchExecutionPlanner {
       }
       rows *= fanOutLong;
       var target = targetAlias(edgeT);
-      // Apply selectivity — histogram-based if index available, default otherwise
+      // Apply selectivity from the reached class, not from the traversal source.
+      var targetClass = estimateTargetClass(edgeT, reachedClasses, context);
       var targetFilter = aliasFilters.get(target);
       if (targetFilter != null) {
         double selectivity = estimateFilterSelectivity(
-            targetFilter, currentClass, context);
+            targetFilter, targetClass, context);
         rows = Math.max(1, Math.round(rows * selectivity));
       }
-      // Track current class for next hop
-      var targetClass = aliasClasses.get(target);
-      if (targetClass != null) {
-        currentClass = targetClass;
+      if (targetClass != null
+          && !isRecursive(edgeT.edge.item == null ? null : edgeT.edge.item.getFilter())) {
+        reachedClasses.putIfAbsent(target, targetClass);
+      }
+      // Fan-out uses known alias classes only, independently of target-filter resolution.
+      var fanOutClass = aliasClasses.get(target);
+      if (fanOutClass != null) {
+        currentClass = fanOutClass;
       }
     }
 
@@ -1989,6 +2133,7 @@ public class MatchExecutionPlanner {
         rootAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
 
     var currentClass = aliasClasses.get(rootAlias);
+    Map<String, String> reachedClasses = new HashMap<>(aliasClasses);
     // Fresh per-call class-count memo (pure optimisation).
     Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < checkIdx; i++) {
@@ -2005,18 +2150,106 @@ public class MatchExecutionPlanner {
       }
       rows *= fanOutLong;
       var target = targetAlias(edgeT);
+      var targetClass = estimateTargetClass(edgeT, reachedClasses, context);
       var targetFilter = aliasFilters.get(target);
       if (targetFilter != null) {
         double selectivity = estimateFilterSelectivity(
-            targetFilter, currentClass, context);
+            targetFilter, targetClass, context);
         rows = Math.max(1, Math.round(rows * selectivity));
       }
-      var targetClass = aliasClasses.get(target);
-      if (targetClass != null) {
-        currentClass = targetClass;
+      if (targetClass != null
+          && !isRecursive(edgeT.edge.item == null ? null : edgeT.edge.item.getFilter())) {
+        reachedClasses.putIfAbsent(target, targetClass);
+      }
+      // An unknown target alias keeps the carried class for the next hop's fan-out.
+      var fanOutClass = aliasClasses.get(target);
+      if (fanOutClass != null) {
+        currentClass = fanOutClass;
       }
     }
     return rows;
+  }
+
+  /** Positive output at the detached-check point. Missing or saturated roots stay unknown. */
+  static OptionalLong estimateDetachedOuterRows(
+      Pattern pattern, List<EdgeTraversal> schedule, Map<String, Long> roots,
+      Map<String, String> aliasClasses, Map<String, SQLWhereClause> aliasFilters,
+      CommandContext context) {
+    return estimateDetachedOuterRows(pattern, schedule, roots, aliasClasses, aliasFilters,
+        context, Set.of());
+  }
+
+  /** Successful semi-join branches filter rows without expanding the positive output. */
+  static OptionalLong estimateDetachedOuterRows(
+      Pattern pattern, List<EdgeTraversal> schedule, Map<String, Long> roots,
+      Map<String, String> aliasClasses, Map<String, SQLWhereClause> aliasFilters,
+      CommandContext context, Set<PatternEdge> semiJoinEdges) {
+    var root = schedule.isEmpty() ? pattern.aliasToNode.keySet().iterator().next()
+        : sourceAlias(schedule.getFirst());
+    var rootRows = roots.get(root);
+    if (rootRows == null || rootRows < 0 || rootRows == Long.MAX_VALUE) {
+      return OptionalLong.empty();
+    }
+    long rows = rootRows;
+    var boundAliases = new HashSet<String>();
+    boundAliases.add(root);
+    Map<String, String> reachedClasses = new HashMap<>(aliasClasses);
+    Map<String, Long> counts = new HashMap<>();
+    for (var traversal : schedule) {
+      var item = traversal.edge.item;
+      var matchFilter = item == null ? null : item.getFilter();
+      if (matchFilter != null
+          && (matchFilter.getWhileCondition() != null || matchFilter.getMaxDepth() != null)) {
+        return OptionalLong.empty();
+      }
+      if (semiJoinEdges.contains(traversal.edge) || !boundAliases.add(targetAlias(traversal))) {
+        // Closing edges have scheduler cost 0. The bound alias's filter was already counted.
+        continue;
+      }
+      var sourceClass = aliasClasses.get(sourceAlias(traversal));
+      var method = traversal.edge.item == null ? null : traversal.edge.item.getMethod();
+      double fanOut = estimateMethodFanOut(method, sourceClass, context.getDatabaseSession(),
+          counts);
+      double candidates = rows * fanOut;
+      // Check before rounding or applying selectivity. Saturation cannot measure outer rows.
+      if (!Double.isFinite(candidates) || candidates >= Long.MAX_VALUE) {
+        return OptionalLong.empty();
+      }
+      var target = targetAlias(traversal);
+      // Resolve even unfiltered nodes so a following vertex hop can use its edge class.
+      var targetClass = estimateTargetClass(traversal, reachedClasses, context);
+      var filter = aliasFilters.get(target);
+      if (filter != null) {
+        candidates *= estimateFilterSelectivity(filter, targetClass, context);
+      }
+      rows = Math.max(1, Math.round(candidates));
+      if (targetClass != null && !isRecursive(matchFilter)) {
+        reachedClasses.putIfAbsent(target, targetClass);
+      }
+    }
+    return OptionalLong.of(rows);
+  }
+
+  /** Cartesian output is unknown if any component is unknown or the product overflows. */
+  static OptionalLong multiplyOuterEstimates(@Nullable List<OptionalLong> estimates) {
+    long rows = 1;
+    if (estimates == null) {
+      return OptionalLong.empty();
+    }
+    for (var estimate : estimates) {
+      if (estimate.isEmpty()) {
+        return OptionalLong.empty();
+      }
+      try {
+        rows = Math.multiplyExact(rows, estimate.getAsLong());
+      } catch (ArithmeticException overflow) {
+        return OptionalLong.empty();
+      }
+      if (rows == Long.MAX_VALUE) {
+        return OptionalLong.empty();
+      }
+    }
+    return OptionalLong.of(rows);
   }
 
   /**
@@ -2038,6 +2271,7 @@ public class MatchExecutionPlanner {
     int edgeCount = Math.max(0, branchEdges.size() - 1);
     double fanOut = 1.0;
     var currentClass = aliasClasses.get(branchRoot);
+    Map<String, String> reachedClasses = new HashMap<>(aliasClasses);
     // Fresh per-call class-count memo (pure optimisation).
     Map<String, Long> classCountCache = new HashMap<>();
     for (int i = 0; i < edgeCount; i++) {
@@ -2046,15 +2280,21 @@ public class MatchExecutionPlanner {
       fanOut *= estimateMethodFanOut(method, currentClass, session,
           classCountCache);
       var target = targetAlias(edgeT);
+      var targetClass = estimateTargetClass(edgeT, reachedClasses, context);
       var targetFilter = aliasFilters.get(target);
       if (targetFilter != null) {
         double selectivity = estimateFilterSelectivity(
-            targetFilter, currentClass, context);
+            targetFilter, targetClass, context);
         fanOut *= selectivity;
       }
-      var targetClass = aliasClasses.get(target);
-      if (targetClass != null) {
-        currentClass = targetClass;
+      if (targetClass != null
+          && !isRecursive(edgeT.edge.item == null ? null : edgeT.edge.item.getFilter())) {
+        reachedClasses.putIfAbsent(target, targetClass);
+      }
+      // Fan-out uses known alias classes only, independently of target-filter resolution.
+      var fanOutClass = aliasClasses.get(target);
+      if (fanOutClass != null) {
+        currentClass = fanOutClass;
       }
     }
     return Math.max(1.0, fanOut);
@@ -2332,6 +2572,7 @@ public class MatchExecutionPlanner {
       @Nullable IndexOrderedPlanner.IndexOrderedCandidate candidate,
       @Nullable List<EdgeTraversal> precomputedSortedEdges,
       @Nullable SingleNodeIndexOrder.Candidate singleNodeIndexOrder,
+      @Nullable List<OptionalLong> outerEstimates,
       boolean profilingEnabled) {
     var plan = new SelectExecutionPlan(context);
     // Reuse the schedule computed by Phase 4b (index-ordered probe) when available.
@@ -2343,6 +2584,7 @@ public class MatchExecutionPlanner {
         : getTopologicalSortedSchedule(estimatedRootEntries, pattern,
             aliasClasses, aliasFilters, context.getDatabaseSession());
 
+    var semiJoinEdges = new HashSet<PatternEdge>();
     var first = true;
     if (!sortedEdges.isEmpty()) {
       // optimizeScheduleWithIntersections is the sole producer of IndexLookup
@@ -2429,6 +2671,9 @@ public class MatchExecutionPlanner {
             first = false;
           }
         } else {
+          if (branch.joinMode() == JoinMode.SEMI_JOIN) {
+            branch.branchEdges().forEach(edge -> semiJoinEdges.add(edge.edge));
+          }
           plan.chain(new HashJoinMatchStep(
               context, branchPlan, branch.sharedAliases(),
               branch.joinMode(), profilingEnabled));
@@ -2461,6 +2706,10 @@ public class MatchExecutionPlanner {
                 signalRidIndexOrder,
                 profilingEnabled));
       }
+    }
+    if (outerEstimates != null) {
+      outerEstimates.add(estimateDetachedOuterRows(pattern, sortedEdges, estimatedRootEntries,
+          aliasClasses, aliasFilters, context, semiJoinEdges));
     }
     return plan;
   }

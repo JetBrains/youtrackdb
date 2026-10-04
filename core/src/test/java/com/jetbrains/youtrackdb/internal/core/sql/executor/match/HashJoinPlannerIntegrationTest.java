@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -42,9 +43,8 @@ import org.junit.experimental.categories.Category;
  *   Person(n4) --Likes--> Tag(t1)
  * </pre>
  *
- * <p>The Person class has small cardinality (5 records), well below
- * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, so eligible patterns
- * will use hash join instead of nested-loop evaluation.
+ * <p>Plan-shape and eligibility tests disable cost guards with upstreamMin=0 in setup.
+ * Cost tests explicitly enable the guards. The five Person records fit the build threshold.
  *
  * <p>Runs sequentially because several tests mutate
  * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}, a JVM-wide
@@ -54,9 +54,19 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class HashJoinPlannerIntegrationTest extends DbTestBase {
 
+  private Object savedUpstreamMin;
+
+  @After
+  public void restoreUpstreamMin() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedUpstreamMin);
+  }
+
   @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
+    // These tests pin physical eligibility, so bypass cost guards unless a test enables them.
+    savedUpstreamMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
 
     session.execute("CREATE class Person extends V").close();
     session.execute("CREATE class Tag extends V").close();
@@ -110,6 +120,111 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
         .close();
 
     session.commit();
+  }
+
+  /** Positive recursion makes outer rows unknown, so a high minimum keeps hash anti-join. */
+  @Test
+  public void detachedNot_recursivePositivePattern_keepsHashAntiJoin() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1_000L);
+    session.execute("CREATE CLASS IsSubclassOf EXTENDS E").close();
+    session.execute("CREATE CLASS HasX EXTENDS E").close();
+    session.begin();
+    session.execute("CREATE EDGE IsSubclassOf FROM (SELECT FROM Tag WHERE name='t2')"
+        + " TO (SELECT FROM Tag WHERE name='t1')").close();
+    session.execute("CREATE EDGE HasX FROM (SELECT FROM Tag WHERE name='t2')"
+        + " TO (SELECT FROM Person WHERE name='n1')").close();
+    session.commit();
+    session.begin();
+    try {
+      var sql = "MATCH {class:Tag, as:t, where:(name='t1')}"
+          + ".in('IsSubclassOf'){class:Tag, as:s, while:(true)},"
+          + " NOT {as:s}.out('HasX'){as:x} RETURN s.name as name";
+      assertNotPathAgreement(sql, List.of("t1"), true);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Recursion that matches nothing keeps the eligible hash path even below the minimum. */
+  @Test
+  public void detachedNot_recursiveNoMatch_bypassesCostGuards() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1_000L);
+    session.begin();
+    try (var rows = session.query("MATCH {class:Person, as:a, where:(name='n1')},"
+        + " NOT {as:a}.out('Friend'){as:x, maxDepth:3, where:(name='absent')}"
+        + " RETURN a.name as name")) {
+      assertTrue(rows.getExecutionPlan().prettyPrint(0, 2).contains("HASH ANTI_JOIN"));
+      assertEquals(List.of("n1"), rows.stream().map(r -> r.<String>getProperty("name")).toList());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Twenty origins repeat twice upstream and have ten neighbours each. A selective check at
+   * either the first or last neighbour keeps hash under enabled guards. Both paths drop the
+   * matching origins and preserve two copies of each nonmatching origin.
+   */
+  @Test
+  public void detachedNot_repeatedOriginsWithEarlyOrLateMatch_countsCandidateWork() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
+    session.execute("CREATE CLASS CostOrigin EXTENDS V").close();
+    session.execute("CREATE CLASS CostTarget EXTENDS V").close();
+    session.execute("CREATE CLASS CostRepeat EXTENDS V").close();
+    session.execute("CREATE CLASS CostEdge EXTENDS E").close();
+    session.begin();
+    var expected = new java.util.ArrayList<String>();
+    for (var i = 0; i < 20; i++) {
+      session.execute("CREATE VERTEX CostOrigin SET name = ?, accepted = ?",
+          "o" + i, i % 2 == 0).close();
+      if (i % 2 != 0) {
+        expected.add("o" + i);
+        expected.add("o" + i);
+      }
+    }
+    for (var slot = 0; slot < 10; slot++) {
+      for (var accepted : List.of(false, true)) {
+        session.execute("CREATE VERTEX CostTarget SET slot = ?, accepted = ?", slot, accepted)
+            .close();
+        session.execute("CREATE EDGE CostEdge FROM (SELECT FROM CostOrigin WHERE accepted = ?)"
+            + " TO (SELECT FROM CostTarget WHERE slot = ? AND accepted = ?)",
+            accepted, slot, accepted).close();
+      }
+    }
+    session.execute("CREATE VERTEX CostRepeat").close();
+    session.execute("CREATE VERTEX CostRepeat").close();
+    session.commit();
+    session.begin();
+    try {
+      expected.sort(String::compareTo);
+      for (var slot : List.of(0, 9)) {
+        var sql = "MATCH {class:CostOrigin, as:a}, {class:CostRepeat, as:q},"
+            + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot + ")}"
+            + " RETURN a.name as name";
+        // Every origin matches. This is the first-neighbour case required by the cost rule.
+        assertNotPathAgreement(sql, List.of(), true);
+        var selective = "MATCH {class:CostOrigin, as:a}, {class:CostRepeat, as:q},"
+            + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot
+            + " AND accepted=true)} RETURN a.name as name";
+        assertNotPathAgreement(selective, expected, true);
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A known small outer input rejects hash under enabled guards without changing results. */
+  @Test
+  public void detachedNot_smallOuter_usesCostGuards() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
+    session.begin();
+    try {
+      var sql = "MATCH {class:Person, as:a, where:(name='n1')},"
+          + " NOT {as:a}.out('Friend'){as:x, where:(name='n3')} RETURN a.name as name";
+      assertNotPathAgreement(sql, List.of(), false);
+    } finally {
+      session.rollback();
+    }
   }
 
   // ── Plan shape tests ────────────────────────────────────────────────────

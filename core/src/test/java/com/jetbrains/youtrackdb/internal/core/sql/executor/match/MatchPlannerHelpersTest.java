@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -8,9 +9,14 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaPropertyInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -26,8 +32,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.junit.After;
 import org.junit.Before;
@@ -62,12 +71,15 @@ public class MatchPlannerHelpersTest {
   private Object savedFanOut;
   private Object savedSelectivity;
   private Object savedHashJoinThreshold;
+  private Object savedUpstreamMin;
 
   @Before
   public void pinConfig() {
     savedFanOut = GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValue();
     savedSelectivity = GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.getValue();
     savedHashJoinThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    savedUpstreamMin = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
     GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(TEST_FAN_OUT);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(TEST_SELECTIVITY);
     // Pin the hash-join threshold too so canUseHashJoin_* assertions are independent of
@@ -80,6 +92,7 @@ public class MatchPlannerHelpersTest {
     GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(savedFanOut);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(savedSelectivity);
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedHashJoinThreshold);
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedUpstreamMin);
   }
 
   // ── notPatternDependsOnMatched ──────────────────────────────────────────
@@ -1198,7 +1211,631 @@ public class MatchPlannerHelpersTest {
     assertThat(result).isEmpty();
   }
 
+  /** The minimum rejects small outer inputs, while Guard 2 rejects ties and expensive scans. */
+  @Test
+  public void detachedCostGuards_compareCandidateWorkAndOriginScan() {
+    var walk = OptionalDouble.of(10);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(4), 1, walk))
+        .isFalse();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(100), 100, walk))
+        .isFalse();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(11), 9, walk))
+        .isFalse(); // both costs are 110, so hash must not win
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1_800), 900, walk))
+        .isTrue(); // first-neighbour matches do not change these undiscounted costs
+  }
+
+  /** Unknown rows or walk bypass both guards. Setting zero bypasses costs, not eligibility. */
+  @Test
+  public void detachedCostGuards_unknownAndOffSwitch() {
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.empty(), 100,
+        OptionalDouble.of(1))).isTrue();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1), 100,
+        OptionalDouble.empty())).isTrue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1), 100,
+        OptionalDouble.of(1))).isTrue();
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 100);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of(), Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag"), OptionalLong.of(1))).isFalse();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+        Map.of(), ctx, buildPattern("person", "tag"), OptionalLong.of(1))).isTrue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+        Map.of(), ctx, buildPattern("person", "tag"), OptionalLong.of(1))).isFalse();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+        Map.of(), ctx, buildPattern("person", "tag"), OptionalLong.empty())).isTrue();
+  }
+
+  /** A late selective match still visits ten candidates. Only earlier filters discount later hops. */
+  @Test
+  public void detachedWalkCost_countsCandidatesBeforeFilters() {
+    var exp = buildNotExpression("person", null, "tag", buildWhereClause("flag=true", false));
+    var ctx = buildMockContext("Person", 100);
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("person", "Person"),
+        ctx)).isEqualTo(OptionalDouble.of(10));
+    var second = buildNotExpression("tag", null, "leaf", null).getItems().getFirst();
+    exp.setItems(List.of(exp.getItems().getFirst(), second));
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("person", "Person"),
+        ctx)).isEqualTo(OptionalDouble.of(20)); // ten visits, then one survivor times ten
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+        Map.of(), ctx, buildPattern("person"), OptionalLong.of(10_000))).isTrue();
+  }
+
+  /** Either recursive marker on a later item makes the entire walk unknown before Guard 1. */
+  @Test
+  public void detachedWalkCost_recursiveItemBypassesGuards() throws Exception {
+    for (var condition : List.of("maxDepth:3", "while:(true)")) {
+      var sql = "MATCH {as:person}.out(){as:tag}.out(){as:leaf, " + condition + "} RETURN person";
+      var statement = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+          sql.getBytes(StandardCharsets.UTF_8))).parse();
+      var exp = statement.getMatchExpressions().getFirst();
+      // Two hops must fit the eligibility threshold before recursion can bypass cost guards.
+      var ctx = buildMockContext("Person", 90);
+      assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp,
+          Map.of("person", "Person"), ctx)).isEmpty();
+      assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+          Map.of(), ctx, buildPattern("person"), OptionalLong.of(1))).isTrue();
+    }
+  }
+
+  /** Root-only and scheduled estimates use the actual root, and unknown survives composition. */
+  @Test
+  public void detachedOuterEstimate_followsScheduleAndPropagatesUnknown() {
+    var ctx = buildMockContext("Person", 100);
+    var pattern = buildPattern("a", "b", "c");
+    var a = pattern.aliasToNode.get("a");
+    var b = pattern.aliasToNode.get("b");
+    var c = pattern.aliasToNode.get("c");
+    a.addEdge(new SQLMatchPathItem(-1), b);
+    b.addEdge(new SQLMatchPathItem(-1), c);
+    var schedule = List.of(new EdgeTraversal(a.out.iterator().next(), true),
+        new EdgeTraversal(b.out.iterator().next(), true));
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(buildPattern("a"), List.of(),
+        Map.of("a", 100L), Map.of(), Map.of(), ctx)).isEqualTo(OptionalLong.of(100));
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, schedule,
+        Map.of("a", 100L), Map.of("a", "Person", "b", "Person"),
+        Map.of("b", buildWhereClause("flag=true", false)), ctx)).isEqualTo(OptionalLong.of(1_000));
+    for (var roots : List.of(Map.<String, Long>of(), Map.of("a", -1L),
+        Map.of("a", Long.MAX_VALUE),
+        Map.of("a", Long.MAX_VALUE / 5))) {
+      assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, schedule,
+          roots, Map.of(), Map.of(), ctx)).isEmpty();
+    }
+    assertThat(MatchExecutionPlanner.multiplyOuterEstimates(
+        List.of(OptionalLong.of(20), OptionalLong.of(30)))).isEqualTo(OptionalLong.of(600));
+    assertThat(MatchExecutionPlanner.multiplyOuterEstimates(
+        List.of(OptionalLong.of(20), OptionalLong.empty(), OptionalLong.of(0)))).isEmpty();
+    assertThat(MatchExecutionPlanner.multiplyOuterEstimates(
+        List.of(OptionalLong.of(Long.MAX_VALUE / 2), OptionalLong.of(3)))).isEmpty();
+    assertThat(MatchExecutionPlanner.multiplyOuterEstimates(
+        List.of(OptionalLong.of(Long.MAX_VALUE)))).isEmpty();
+    assertThat(MatchExecutionPlanner.multiplyOuterEstimates(null)).isEmpty();
+  }
+
+  /**
+   * Two unfiltered NOT hops with no LINK declarations retain Person for fan-out statistics.
+   * Person, R and S each have 1000 records, so the build stays at 1001 and remains hash eligible
+   * under threshold 10000 with cost guards disabled, rather than using default fan-out 10.
+   */
+  @Test
+  public void detachedHashEligibility_unknownTargetRetainsFanOutClass() throws Exception {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+    var sql = "MATCH {class:Person, as:a}, NOT {as:a}.out('R'){as:b}.out('S'){as:x} RETURN a";
+    var statement = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+        sql.getBytes(StandardCharsets.UTF_8))).parse();
+    var exp = statement.getNotMatchExpressions().getFirst();
+    var ctx = classCountsWithoutLinks(Map.of("Person", 1_000L, "R", 1_000L, "S", 1_000L));
+    var classes = Map.of("a", "Person");
+    assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+        classes, Map.of(), Map.of(), ctx)).isEqualTo(1_001);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+        buildPattern("a"), OptionalLong.of(1_001))).isTrue();
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, classes, ctx))
+        .isEqualTo(OptionalDouble.of(2));
+  }
+
+  /**
+   * The diamond's unfiltered main path a->b->d retains Person without LINK declarations.
+   * Its upstream estimate is 1001, below minimum 5000, so Guard 1 rejects an eligible branch.
+   * T has fan-out 2 so Guard 2 would accept the inflated default-fan-out estimate of 10010.
+   */
+  @Test
+  public void branchGuard_unknownTargetRetainsFanOutClass() throws Exception {
+    var diamond = buildDiamondSchedule();
+    var main = parseExpression("{as:a}.out('R'){as:b}.out('S'){as:d}");
+    var branch = parseExpression("{as:a}.out('T'){as:c}.out('S'){as:d}");
+    for (int i = 0; i < 2; i++) {
+      diamond.schedule.get(i).edge.item = main.getItems().get(i);
+      diamond.schedule.get(i + 2).edge.item = branch.getItems().get(i);
+    }
+    var ctx = classCountsWithoutLinks(
+        Map.of("Person", 1_000L, "R", 1_000L, "S", 1_000L, "T", 2_000L));
+    var classes = Map.of("a", "Person");
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+    assertThat(MatchExecutionPlanner.identifyHashJoinBranches(diamond.schedule, Set.of("a", "d"),
+        classes, Map.of(), Map.of(), ctx)).hasSize(1);
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5_000L);
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateUpstreamCardinality",
+        List.class, int.class, List.class, Map.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((long) method.invoke(null, diamond.schedule, 3, diamond.schedule.subList(2, 4),
+        classes, Map.of(), Map.of(), ctx)).isEqualTo(1_001);
+    assertThat(MatchExecutionPlanner.identifyHashJoinBranches(diamond.schedule, Set.of("a", "d"),
+        classes, Map.of(), Map.of(), ctx)).isEmpty();
+  }
+
+  /** A source name index must not narrow the target's name filter or the next hop's work. */
+  @Test
+  public void detachedWalkCost_targetClassSelectivity() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var exp = parseExpression("{as:a}.out(){as:b, where:(name='X')}.out(){as:c}");
+    exp.getItems().getFirst().getFilter().setFilter(indexedNameFilter(ctx));
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp,
+        Map.of("a", "Person", "b", "City"), ctx)).isEqualTo(OptionalDouble.of(20));
+  }
+
+  /** A City filter uses default selectivity, not Person's selective name index: 1000 rows. */
+  @Test
+  public void detachedOuterEstimate_targetClassSelectivity() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var exp = parseExpression("{as:a}.out(){as:b, where:(name='X')}");
+    exp.getItems().getFirst().getFilter().setFilter(indexedNameFilter(ctx));
+    var pattern = new Pattern();
+    pattern.addExpression(exp);
+    var schedule = List.of(new EdgeTraversal(pattern.aliasToNode.get("a").out.iterator().next(),
+        true));
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, schedule,
+        Map.of("a", 1_000L), Map.of("a", "Person", "b", "City"),
+        Map.of("b", exp.getItems().getFirst().getFilter().getFilter()), ctx))
+        .isEqualTo(OptionalLong.of(1_000));
+  }
+
+  /** NOT eligibility must not undercount City matches using Person's name index. */
+  @Test
+  public void estimateNotPatternCardinality_targetClassSelectivity() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var exp = parseExpression("{as:a}.out(){as:b, where:(name='X')}");
+    exp.getItems().getFirst().getFilter().setFilter(indexedNameFilter(ctx));
+    assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+        Map.of("a", "Person", "b", "City"), Map.of(), Map.of(), ctx)).isEqualTo(10_001);
+  }
+
+  /** The branch's City filter leaves fan-out 2, rather than Person's index clamping it to 1. */
+  @Test
+  public void estimateBranchFanOut_targetClassSelectivity() throws Exception {
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(20.0);
+    var ctx = sourceNameIndexContext();
+    var diamond = buildDiamondSchedule();
+    var where = indexedNameFilter(ctx);
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateBranchFanOut",
+        List.class, String.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((double) method.invoke(null, diamond.schedule.subList(2, 4), "a",
+        Map.of("a", "Person", "c", "City"), Map.of("c", where), ctx)).isEqualTo(2.0);
+  }
+
+  /** Alias, explicit and schema-inferred targets all use City, including reversed schedules. */
+  @Test
+  public void targetClassSelectivity_resolvesReachedClass() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var lives = mock(SchemaClassInternal.class);
+    var in = mock(SchemaPropertyInternal.class);
+    var out = mock(SchemaPropertyInternal.class);
+    when(schema.getClassInternal("Lives")).thenReturn(lives);
+    when(lives.approximateCount(ctx.getDatabaseSession())).thenReturn(100_000L);
+    when(lives.getPropertyInternal("in")).thenReturn(in);
+    when(lives.getPropertyInternal("out")).thenReturn(out);
+    var city = schema.getClassInternal("City");
+    var person = schema.getClassInternal("Person");
+    when(in.getLinkedClass()).thenReturn(city);
+    when(out.getLinkedClass()).thenReturn(person);
+    when(person.getName()).thenReturn("Person");
+    // Lives has ten edges per Person, matching the pinned default fan-out.
+    for (var target : List.of("as:b", "class:City, as:b")) {
+      var exp = parseExpression("{as:a}.out('Lives'){" + target
+          + ", where:(name='X')}.out(){as:c}");
+      exp.getItems().getFirst().getFilter().setFilter(indexedNameFilter(ctx));
+      assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("a", "Person"), ctx))
+          .isEqualTo(OptionalDouble.of(20));
+      assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+          Map.of("a", "Person"), Map.of(), Map.of(), ctx)).isEqualTo(100_010);
+    }
+    for (var path : List.of("{as:a}.out('Lives'){as:b}", "{as:b}.in('Lives'){as:a}")) {
+      var exp = parseExpression(path);
+      var pattern = new Pattern();
+      pattern.addExpression(exp);
+      var forward = "a".equals(exp.getOrigin().getAlias());
+      var edge = pattern.aliasToNode.get(exp.getOrigin().getAlias()).out.iterator().next();
+      assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern,
+          List.of(new EdgeTraversal(edge, forward)), Map.of("a", 1_000L),
+          Map.of("a", "Person"), Map.of("b", indexedNameFilter(ctx)), ctx))
+          .isEqualTo(OptionalLong.of(1_000));
+    }
+  }
+
+  /** Branch build cardinality also uses City's filter statistics: 10001 rather than 100. */
+  @Test
+  public void estimateBranchCardinality_targetClassSelectivity() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var diamond = buildDiamondSchedule();
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateBranchCardinality",
+        String.class, List.class, Map.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((long) method.invoke(null, "a", diamond.schedule.subList(2, 4),
+        Map.of("a", "Person", "c", "City"), Map.of("c", indexedNameFilter(ctx)), Map.of(), ctx))
+        .isEqualTo(10_001);
+  }
+
+  /** Branch probe cardinality uses City statistics on the main path, not Person's index. */
+  @Test
+  public void estimateUpstreamCardinality_targetClassSelectivity() throws Exception {
+    var ctx = sourceNameIndexContext();
+    var diamond = buildDiamondSchedule();
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateUpstreamCardinality",
+        List.class, int.class, List.class, Map.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((long) method.invoke(null, diamond.schedule, 3, diamond.schedule.subList(2, 4),
+        Map.of("a", "Person", "b", "City"), Map.of("b", indexedNameFilter(ctx)), Map.of(), ctx))
+        .isEqualTo(100_010);
+  }
+
+  /** Semi-join edges do not multiply outer rows, but inner-join edges still produce bindings. */
+  @Test
+  public void detachedOuterEstimate_excludesSemiJoinBranchEdges() {
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(2.0);
+    var diamond = buildDiamondSchedule();
+    var pattern = buildPattern("a", "b", "c", "d");
+    var ctx = buildMockContext("Person", 100);
+    var semiJoinEdges = Set.of(diamond.schedule.get(2).edge, diamond.schedule.get(3).edge);
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, diamond.schedule,
+        Map.of("a", 1L), Map.of(), Map.of(), ctx, semiJoinEdges)).isEqualTo(OptionalLong.of(4));
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, diamond.schedule,
+        Map.of("a", 1L), Map.of(), Map.of(), ctx)).isEqualTo(OptionalLong.of(8));
+  }
+
+  /** Negative minimum disables both guards, but never disables build eligibility. */
+  @Test
+  public void detachedCostGuards_negativeMinimumBypassesGuards() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(-1L);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1), 100,
+        OptionalDouble.of(10))).isTrue();
+    var exp = buildNotExpression("person", null, "tag", null);
+    var ctx = buildMockContext("Person", 100);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+        Map.of(), ctx, buildPattern("person"), OptionalLong.of(1))).isTrue();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of(), Map.of(), Map.of(), ctx,
+        buildPattern("person"), OptionalLong.of(1))).isFalse();
+    var diamond = buildDiamondSchedule();
+    assertThat(MatchExecutionPlanner.identifyHashJoinBranches(diamond.schedule, Set.of("a", "d"),
+        Map.of("a", "Person", "d", "Person"), Map.of(), Map.of(), ctx)).hasSize(1);
+  }
+
+  /** Either positive recursive marker makes the outer estimate unknown and keeps eligible hash. */
+  @Test
+  public void detachedOuterEstimate_recursivePositiveEdgeIsUnknown() throws Exception {
+    var ctx = buildMockContext("Person", 100);
+    for (var condition : List.of("while:(true)", "maxDepth:3")) {
+      var exp = parseExpression("{as:a}.out(){as:b, " + condition + "}");
+      var pattern = new Pattern();
+      pattern.addExpression(exp);
+      var schedule = List.of(new EdgeTraversal(pattern.aliasToNode.get("a").out.iterator().next(),
+          true));
+      var outer = MatchExecutionPlanner.estimateDetachedOuterRows(pattern, schedule,
+          Map.of("a", 1L), Map.of("a", "Person", "b", "Person"), Map.of(), ctx);
+      assertThat(outer).isEmpty();
+      assertThat(MatchExecutionPlanner.canUseHashJoin(buildNotExpression("b", null, "x", null),
+          Map.of("b", "Person"), Map.of(), Map.of(), ctx, pattern, outer)).isTrue();
+    }
+  }
+
+  /** Triangle closing edges verify a bound alias: root 1 times two expanding hops gives 4. */
+  @Test
+  public void detachedOuterEstimate_triangleClosingEdgeDoesNotExpandOrRefilter() {
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(2.0);
+    var pattern = buildPattern("a", "b", "c");
+    var a = pattern.aliasToNode.get("a");
+    var b = pattern.aliasToNode.get("b");
+    var c = pattern.aliasToNode.get("c");
+    a.addEdge(new SQLMatchPathItem(-1), b);
+    b.addEdge(new SQLMatchPathItem(-1), c);
+    c.addEdge(new SQLMatchPathItem(-1), a);
+    var schedule = List.of(new EdgeTraversal(a.out.iterator().next(), true),
+        new EdgeTraversal(b.out.iterator().next(), true),
+        new EdgeTraversal(c.out.iterator().next(), true));
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, schedule, Map.of("a", 1L),
+        Map.of(), Map.of("a", buildWhereClause("flag=true", false)),
+        buildMockContext("Person", 100))).isEqualTo(OptionalLong.of(4));
+  }
+
+  /** Nineteen default-fan-out hops saturate candidate work without any recursive markers. */
+  @Test
+  public void detachedWalkCost_saturationIsUnknown() throws Exception {
+    var exp = parseExpression("{as:a}" + ".out(){}".repeat(19));
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("a", "Person"),
+        buildMockContext("Person", 100))).isEmpty();
+  }
+
+  /** A saturated eligible walk bypasses Guard 1 even for outer 1 below minimum 5. */
+  @Test
+  public void detachedWalkCost_saturationKeepsHash() throws Exception {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(Long.MAX_VALUE);
+    var exp = parseExpression("{as:a}" + ".out(){}".repeat(19));
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("a", "Person"), Map.of(),
+        Map.of(), buildMockContext("Person", 100), buildPattern("a"), OptionalLong.of(1)))
+        .isTrue();
+  }
+
+  /**
+   * T1: Both edge-to-vertex directions use Person's index and keep the NOT hash eligible.
+   * Guards against source-class scoring at a342dc6356 and unresolved edge classes at 3921d87ed9.
+   */
+  @Test
+  public void notCardinality_edgeToVertexChainUsesReachedClass() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    for (var path : List.of(".inE('Lives'){as:e}.outV()", ".outE('Owns'){as:e}.inV()")) {
+      var exp = parseExpression("{as:a}" + path + "{as:b, where:(name='X')}");
+      exp.getItems().get(1).getFilter().setFilter(indexedNameFilter(ctx));
+      var classes = Map.of("a", "City");
+      assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+          classes, Map.of(), Map.of(), ctx)).as(path).isEqualTo(1_010);
+      assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+          buildPattern("a"))).as(path).isTrue();
+    }
+  }
+
+  /** T2: A shared edge alias also supplies the reached class, not the carried fan-out class. */
+  @Test
+  public void notCardinality_edgeToVertexChainUsesReachedClass_sharedEdgeAlias() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    for (var edgeClass : List.of("Lives", "Owns")) {
+      var path = "Lives".equals(edgeClass) ? ".inE('Lives'){as:e}.outV()"
+          : ".outE('Owns'){as:e}.inV()";
+      var exp = parseExpression("{as:a}" + path + "{as:b, where:(name='X')}");
+      exp.getItems().get(1).getFilter().setFilter(indexedNameFilter(ctx));
+      var classes = Map.of("a", "City", "e", edgeClass);
+      assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+          classes, Map.of(), Map.of(), ctx)).as(edgeClass).isEqualTo(1_010);
+      assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+          buildPattern("a", "e"))).as(edgeClass).isTrue();
+    }
+  }
+
+  /**
+   * T3: Person's index discounts only the third hop, giving 1000 + 10000 + 100 visits.
+   * Guards against source-class scoring at 85fbc6903b and unresolved edge classes at 3921d87ed9.
+   */
+  @Test
+  public void walkCost_edgeToVertexChainUsesReachedClass() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    for (var path : List.of(".inE('Lives'){as:e}.outV()", ".outE('Owns'){as:e}.inV()")) {
+      var exp = parseExpression("{as:a}" + path + "{as:b, where:(name='X')}.out(){as:c}");
+      exp.getItems().get(1).getFilter().setFilter(indexedNameFilter(ctx));
+      assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("a", "City"), ctx)
+          .orElseThrow()).as(path).isCloseTo(11_100, within(1e-6));
+    }
+  }
+
+  /** T6: Outer rows resolve an unlisted edge alias even when its hop has no WHERE filter. */
+  @Test
+  public void outerRows_chainResolvesUnlistedEdgeAlias() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var exp = parseExpression("{as:a}.inE('Lives'){as:e}.outV(){as:b, where:(name='X')}");
+    var pattern = new Pattern();
+    pattern.addExpression(exp);
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern, forwardSchedule(exp),
+        Map.of("a", 101L), Map.of("a", "City"), Map.of("b", indexedNameFilter(ctx)), ctx))
+        .isEqualTo(OptionalLong.of(1_010));
+  }
+
+  /** T7: Branch build rows use Person's index and exclude the final consistency-check hop. */
+  @Test
+  public void branchCardinality_chainResolvesUnlistedEdgeAlias() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var exp = parseExpression("{as:a}.inE('Lives'){as:e}.outV(){as:c}.out(){as:d}");
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateBranchCardinality",
+        String.class, List.class, Map.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((long) method.invoke(null, "a", forwardSchedule(exp), Map.of("a", "City"),
+        Map.of("c", indexedNameFilter(ctx)), Map.of(), ctx)).isEqualTo(1_010);
+  }
+
+  /** T8: Branch fan-out uses the inferred Person filter, giving 1000 * 10 * 0.001 = 10. */
+  @Test
+  public void branchFanOut_chainResolvesUnlistedEdgeAlias() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var exp = parseExpression("{as:a}.inE('Lives'){as:e}.outV(){as:c}.out(){as:d}");
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateBranchFanOut",
+        List.class, String.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((double) method.invoke(null, forwardSchedule(exp), "a", Map.of("a", "City"),
+        Map.of("c", indexedNameFilter(ctx)), ctx)).isEqualTo(10.0);
+  }
+
+  /** T9: Upstream rows infer Person on the main chain and skip the separate branch edges. */
+  @Test
+  public void upstream_chainResolvesUnlistedEdgeAlias() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var main = parseExpression("{as:a}.inE('Lives'){as:e}.outV(){as:b}.out(){as:d}");
+    var branch = parseExpression("{as:a}.out(){as:c}.out(){as:d}");
+    var schedule = new ArrayList<>(forwardSchedule(main));
+    schedule.addAll(forwardSchedule(branch));
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("estimateUpstreamCardinality",
+        List.class, int.class, List.class, Map.class, Map.class, Map.class, CommandContext.class);
+    method.setAccessible(true);
+    assertThat((long) method.invoke(null, schedule, 4, schedule.subList(3, 5),
+        Map.of("a", "City"), Map.of("b", indexedNameFilter(ctx)), Map.of(), ctx))
+        .isEqualTo(10_100);
+  }
+
+  /**
+   * T4: An unlabeled edge has no endpoint class, so its vertex filter uses default selectivity.
+   * Guards against a342dc6356, which incorrectly narrows rows using the source Person index.
+   */
+  @Test
+  public void notCardinality_unknownEdgeClassUsesDefault() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var exp = parseExpression("{as:a}.outE(){as:e}.inV(){as:b, where:(name='X')}");
+    exp.getItems().get(1).getFilter().setFilter(indexedNameFilter(ctx));
+    assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+        Map.of("a", "Person"), Map.of(), Map.of(), ctx)).isEqualTo(100_010);
+  }
+
+  /** T5: Either recursive marker prevents propagating the edge class into the next vertex hop. */
+  @Test
+  public void notCardinality_recursiveEdgeDoesNotResolveVertex() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    for (var marker : List.of("while:($depth<2)", "maxDepth:2")) {
+      for (var path : List.of(".inE('Lives'){as:e, " + marker + "}.outV()",
+          ".outE('Owns'){as:e, " + marker + "}.inV()")) {
+        var exp = parseExpression("{as:a}" + path + "{as:b, where:(name='X')}");
+        exp.getItems().get(1).getFilter().setFilter(indexedNameFilter(ctx));
+        assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+            Map.of("a", "City"), Map.of(), Map.of(), ctx)).as(path).isEqualTo(101_000);
+      }
+    }
+  }
+
+  /**
+   * T10: Reversed outE reaches the out endpoint Person and uses its index, leaving 100 rows.
+   * Guards against 85fbc6903b, which uses the edge's default selectivity and gives 10000 rows.
+   */
+  @Test
+  public void outerRows_reversedOutEUsesOutEndpoint() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    var exp = parseExpression("{as:a}.outE('Lives'){as:e}");
+    var pattern = new Pattern();
+    pattern.addExpression(exp);
+    var edge = pattern.aliasToNode.get("a").out.iterator().next();
+    assertThat(MatchExecutionPlanner.estimateDetachedOuterRows(pattern,
+        List.of(new EdgeTraversal(edge, false)), Map.of("e", 100_001L), Map.of("e", "Lives"),
+        Map.of("a", indexedNameFilter(ctx)), ctx)).isEqualTo(OptionalLong.of(100));
+  }
+
+  /** R1: A recursive hop's own filter uses its inferred Person class, not default selectivity. */
+  @Test
+  public void notCardinality_recursiveHopOwnFilterUsesInferredClass() throws Exception {
+    var ctx = sourceNameIndexContext();
+    livesOwnsSchema(ctx);
+    for (var marker : List.of("while:($depth<2)", "maxDepth:2")) {
+      var exp = parseExpression("{as:a}.out('Owns'){as:b, " + marker + ", where:(name='X')}");
+      exp.getItems().getFirst().getFilter().setFilter(indexedNameFilter(ctx));
+      assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
+          Map.of("a", "City"), Map.of(), Map.of(), ctx)).as(marker).isEqualTo(101);
+    }
+  }
+
   // ── Test helpers ────────────────────────────────────────────────────────
+
+  /** Forward schedule in path order, including each path item's real parsed method. */
+  private static List<EdgeTraversal> forwardSchedule(SQLMatchExpression exp) {
+    var pattern = new Pattern();
+    pattern.addExpression(exp);
+    var schedule = new ArrayList<EdgeTraversal>();
+    var source = pattern.aliasToNode.get(exp.getOrigin().getAlias());
+    for (var item : exp.getItems()) {
+      var edge = source.out.stream().filter(candidate -> candidate.item == item)
+          .findFirst().orElseThrow();
+      schedule.add(new EdgeTraversal(edge, true));
+      source = edge.in;
+    }
+    return schedule;
+  }
+
+  /** Lives links Person to City. Owns links City to Person. Only Person has a name index. */
+  private static void livesOwnsSchema(CommandContext ctx) {
+    var db = ctx.getDatabaseSession();
+    var schema = db.getMetadata().getImmutableSchemaSnapshot();
+    var person = schema.getClassInternal("Person");
+    var city = schema.getClassInternal("City");
+    when(person.getName()).thenReturn("Person");
+    for (var edgeName : List.of("Lives", "Owns")) {
+      var edge = mock(SchemaClassInternal.class);
+      var out = mock(SchemaPropertyInternal.class);
+      var in = mock(SchemaPropertyInternal.class);
+      when(schema.getClassInternal(edgeName)).thenReturn(edge);
+      when(schema.existsClass(edgeName)).thenReturn(true);
+      when(edge.getName()).thenReturn(edgeName);
+      when(edge.approximateCount(db)).thenReturn(100_000L);
+      when(edge.getPropertyInternal("out")).thenReturn(out);
+      when(edge.getPropertyInternal("in")).thenReturn(in);
+      when(out.getLinkedClass()).thenReturn("Lives".equals(edgeName) ? person : city);
+      when(in.getLinkedClass()).thenReturn("Lives".equals(edgeName) ? city : person);
+    }
+  }
+
+  private static SQLMatchExpression parseExpression(String pattern) throws Exception {
+    return ((SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+        ("MATCH " + pattern + " RETURN a").getBytes(StandardCharsets.UTF_8))).parse())
+        .getMatchExpressions().getFirst();
+  }
+
+  /** Use the single binary condition shape accepted by the histogram estimator. */
+  private static SQLWhereClause indexedNameFilter(CommandContext ctx) throws Exception {
+    var parsed = parseExpression("{as:a}.out(){as:b, where:(name='X')}")
+        .getItems().getFirst().getFilter().getFilter();
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(parsed.flatten(ctx, null).getFirst().getSubBlocks().getFirst());
+    return where;
+  }
+
+  /** Named schema classes with counts, but no endpoint LINK properties or indexes. */
+  private static CommandContext classCountsWithoutLinks(Map<String, Long> counts) {
+    var ctx = buildMockContext("Person", counts.get("Person"));
+    var db = ctx.getDatabaseSession();
+    var schema = db.getMetadata().getImmutableSchemaSnapshot();
+    for (var entry : counts.entrySet()) {
+      var clazz = mock(SchemaClassInternal.class);
+      when(schema.getClassInternal(entry.getKey())).thenReturn(clazz);
+      when(schema.existsClass(entry.getKey())).thenReturn(true);
+      when(clazz.getName()).thenReturn(entry.getKey());
+      when(clazz.approximateCount(db)).thenReturn(entry.getValue());
+    }
+    return ctx;
+  }
+
+  /** Distinct classes with an indexed source name and an unindexed target name. */
+  private static CommandContext sourceNameIndexContext() throws Exception {
+    var ctx = buildMockContext("Person", 10_000);
+    var db = ctx.getDatabaseSession();
+    var schema = db.getMetadata().getImmutableSchemaSnapshot();
+    var person = schema.getClassInternal("Person");
+    var city = mock(SchemaClassInternal.class);
+    when(schema.getClassInternal("City")).thenReturn(city);
+    when(city.getName()).thenReturn("City");
+    when(city.approximateCount(db)).thenReturn(100L);
+    when(schema.existsClass("City")).thenReturn(true);
+    var name = mock(SchemaPropertyInternal.class);
+    when(person.getProperty("name")).thenReturn(name);
+    var index = mock(Index.class);
+    var definition = mock(IndexDefinition.class);
+    when(index.getDefinition()).thenReturn(definition);
+    when(index.getName()).thenReturn("Person.name");
+    when(index.getType()).thenReturn("NOTUNIQUE");
+    when(index.canBeUsedInEqualityOperators()).thenReturn(true);
+    when(definition.getClassName()).thenReturn("Person");
+    when(definition.getProperties()).thenReturn(List.of("name"));
+    when(definition.getFieldsToIndex()).thenReturn(List.of("name"));
+    when(index.getStatistics(db)).thenReturn(new IndexStatistics(10_000, 10_000, 0));
+    when(person.getIndexesInternal()).thenReturn(Set.of(index));
+    // Pin the fixture's actual index lookup, not a mocked selectivity return.
+    var where = indexedNameFilter(ctx);
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "Person", ctx)).isNotNull();
+    assertThat(TraversalPreFilterHelper.findIndexForFilter(where, "City", ctx)).isNull();
+    return ctx;
+  }
 
   /**
    * Builds a standard diamond pattern a→b→d, a→c→d with schedule
