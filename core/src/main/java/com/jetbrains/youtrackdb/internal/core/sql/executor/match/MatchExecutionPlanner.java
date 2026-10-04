@@ -787,7 +787,8 @@ public class MatchExecutionPlanner {
     }
 
     // Phase 6: Detached checks run after the positive pattern and before projection.
-    manageExistsPatterns(result, pattern, existsMatchExpressions, context, enableProfiling);
+    manageExistsPatterns(result, pattern, existsMatchExpressions, aliasClasses, aliasFilters,
+        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates), enableProfiling);
     manageNotPatterns(
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
         aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates), enableProfiling);
@@ -1149,7 +1150,7 @@ public class MatchExecutionPlanner {
             context, enableProfiling);
         var sharedAliases = findSharedAliases(exp, pattern);
         result.chain(new HashJoinMatchStep(
-            context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, enableProfiling));
+            context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, matchSteps, enableProfiling));
       } else {
         // Fallback: nested-loop evaluation via FilterNotMatchPatternStep
         result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
@@ -1157,16 +1158,28 @@ public class MatchExecutionPlanner {
     }
   }
 
-  /** Adds nested-loop existence checks without using the NOT-only hash anti-join strategy. */
+  /** Uses the same eligibility, costs, build, and key as NOT, but keeps matching outer rows. */
   private static void manageExistsPatterns(
       SelectExecutionPlan result,
       Pattern pattern,
       List<SQLMatchExpression> existsMatchExpressions,
+      Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
+      OptionalLong outerRows,
       boolean enableProfiling) {
     for (var exp : existsMatchExpressions) {
       var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
-      result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+      if (canUseHashJoin(
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows)) {
+        var buildPlan = buildNotPatternPlan(
+            exp, steps, aliasClasses, aliasFilters, aliasPinnedRids, context, enableProfiling);
+        result.chain(new HashJoinMatchStep(context, buildPlan, findSharedAliases(exp, pattern),
+            JoinMode.SEMI_JOIN, steps, enableProfiling));
+      } else {
+        result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+      }
     }
   }
 
@@ -1373,7 +1386,7 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Determines whether a NOT expression is eligible for hash-based anti-join evaluation.
+   * Determines whether a detached NOT or exists expression is eligible for hash evaluation.
    * Returns {@code true} only when the build can reproduce the per-row probe:
    * <ol>
    *   <li>No check WHERE or WHILE condition, or positive origin filter, depends on
@@ -2403,9 +2416,9 @@ public class MatchExecutionPlanner {
         context, originNode, select.createExecutionPlan(context, enableProfiling),
         enableProfiling));
 
-    // Chain the NOT pattern's MatchSteps
+    // Keep independent step chains for the build and the per-row fallback.
     for (var step : matchSteps) {
-      buildPlan.chain(step);
+      buildPlan.chain((AbstractExecutionStep) step.copy(context));
     }
 
     return buildPlan;

@@ -427,7 +427,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       var plan = new MatchExecutionPlanner(inputs).createExecutionPlan(ctx, false, false);
       assertTrue("a detached check must retain the c branch: " + plan.prettyPrint(0, 2),
           plan.prettyPrint(0, 2).contains("HASH INNER_JOIN")
-              && plan.prettyPrint(0, 2).contains("+ EXISTS ("));
+              && plan.prettyPrint(0, 2).contains("+ HASH SEMI_JOIN"));
       var stream = plan.start();
       try {
         assertEquals(List.of("t1", "t1"), stream.stream(ctx)

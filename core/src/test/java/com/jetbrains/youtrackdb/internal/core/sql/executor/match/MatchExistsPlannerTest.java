@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
@@ -18,20 +19,40 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.After;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Planner and executor tests for detached positive patterns supplied through plan inputs. */
+@Category(SequentialTest.class)
 public class MatchExistsPlannerTest extends DbTestBase {
+
+  private Object savedMinimum;
+  private Object savedThreshold;
+
+  @After
+  public void restoreHashSettings() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMinimum);
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+  }
 
   @Override
   public void beforeTest() throws Exception {
     super.beforeTest();
+    savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    // Plan-shape tests disable the cost guards. Guard tests set their own positive minimum.
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
     session.execute("CREATE CLASS ExistsPerson EXTENDS V").close();
     session.execute("CREATE CLASS ExistsLink EXTENDS E").close();
     session.begin();
@@ -47,14 +68,69 @@ public class MatchExistsPlannerTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * A zero-hop probe keeps an optional null origin, but a forced hash semi-join drops it.
+   * Compare sorted row multisets before enabling the planner's exists hash path.
+   */
+  @Test
+  public void exists_zeroHopOptionalOrigin_forcedHashDiffersFromPerRowProbe() {
+    session.begin();
+    try {
+      var rows = session.query("MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+          + "{class:ExistsPerson, as:q, optional:true} RETURN q as q, p.name as name")
+          .toList();
+      var ctx = context();
+      var nested = new SelectExecutionPlan(ctx);
+      nested.chain(new AbstractExecutionStep(ctx, false) {
+        @Override
+        public ExecutionStream internalStart(CommandContext context) {
+          return ExecutionStream.resultIterator(rows.iterator());
+        }
+
+        @Override
+        public ExecutionStep copy(CommandContext context) {
+          return this;
+        }
+      });
+      nested.chain(new FilterExistsMatchPatternStep(List.of(), ctx, false));
+      var nestedRows = nested.start().stream(ctx)
+          .map(row -> row.<String>getProperty("name")).sorted().toList();
+      var build = (SelectExecutionPlan) new MatchExecutionPlanner(
+          parse("MATCH {class:ExistsPerson, as:q} RETURN q as q"))
+          .createExecutionPlan(ctx, false, false);
+      var hash = new SelectExecutionPlan(ctx);
+      hash.chain(new AbstractExecutionStep(ctx, false) {
+        @Override
+        public ExecutionStream internalStart(CommandContext context) {
+          return ExecutionStream.resultIterator(rows.iterator());
+        }
+
+        @Override
+        public ExecutionStep copy(CommandContext context) {
+          return this;
+        }
+      });
+      hash.chain(new HashJoinMatchStep(ctx, build, List.of("q"), JoinMode.SEMI_JOIN, false));
+      var hashRows = hash.start().stream(ctx)
+          .map(row -> row.<String>getProperty("name")).sorted().toList();
+      assertThat(nestedRows).containsExactly("one", "one", "three", "two");
+      assertThat(hashRows).containsExactly("one", "one", "two");
+      assertThat(hashRows).isNotEqualTo(nestedRows);
+      nested.close();
+      hash.close();
+    } finally {
+      session.rollback();
+    }
+  }
+
   /** Two edges from one root still yield one row, and a root with no edge yields none. */
   @Test
   public void exists_keepsEachMatchingRootOnce() {
     session.begin();
     var plan = plan("MATCH {class:ExistsPerson, as:p} RETURN p.name as name",
         "MATCH {as:p}.out('ExistsLink'){as:child} RETURN p");
-    assertThat(plan.prettyPrint(0, 2)).contains("+ EXISTS (");
-    assertThat(plan.getSteps()).anyMatch(FilterExistsMatchPatternStep.class::isInstance);
+    assertThat(plan.prettyPrint(0, 2)).contains("+ HASH SEMI_JOIN");
+    assertThat(plan.getSteps()).anyMatch(HashJoinMatchStep.class::isInstance);
     var rows = plan.start().stream(plan.getContext())
         .map(row -> row.<String>getProperty("name")).sorted().toList();
     assertThat(rows).containsExactly("one", "two");
@@ -102,7 +178,8 @@ public class MatchExistsPlannerTest extends DbTestBase {
     session.begin();
     var plan = plan("MATCH {class:ExistsPerson, as:p} RETURN count(*) as total",
         "MATCH {as:p}.out('ExistsLink'){as:child} RETURN p");
-    assertThat(plan.prettyPrint(0, 2)).contains("+ EXISTS (").doesNotContain("COUNT FROM CLASS");
+    assertThat(plan.prettyPrint(0, 2)).contains("+ HASH SEMI_JOIN")
+        .doesNotContain("COUNT FROM CLASS");
     var stream = plan.start();
     try {
       assertThat(stream.hasNext(plan.getContext())).isTrue();
@@ -159,8 +236,8 @@ public class MatchExistsPlannerTest extends DbTestBase {
     var plan = plan("MATCH {class:ExistsPerson, as:p} RETURN p.name as name",
         "MATCH {as:p}.out('ExistsLink'){as:child} RETURN p");
     var copied = (SelectExecutionPlan) plan.copy(plan.getContext());
-    assertThat(copied.prettyPrint(0, 2)).contains("+ EXISTS (");
-    assertThat(copied.getSteps()).anyMatch(FilterExistsMatchPatternStep.class::isInstance);
+    assertThat(copied.prettyPrint(0, 2)).contains("+ HASH SEMI_JOIN");
+    assertThat(copied.getSteps()).anyMatch(HashJoinMatchStep.class::isInstance);
     var rows = copied.start().stream(copied.getContext())
         .map(row -> row.<String>getProperty("name")).sorted().toList();
     assertThat(rows).containsExactly("one", "two");
@@ -392,6 +469,307 @@ public class MatchExistsPlannerTest extends DbTestBase {
     session.commit();
   }
 
+  /** Several matching child edges keep each duplicate outer row once on either path. */
+  @Test
+  public void detachedChecks_duplicateOuterRowsAndMultipleMatches_agreeOnBothPaths() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}",
+        "{as:p}.out('ExistsLink'){as:child}", "p.name", List.of("one", "one", "two"),
+        List.of(), true);
+  }
+
+  /** An optional shared target is unbound in the per-row probe, so hash stays ineligible. */
+  @Test
+  public void detachedChecks_optionalSharedAlias_agreeOnBothPaths() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+        + "{as:q, optional:true}", "{as:p}.out('ExistsLink'){as:q}", "p.name",
+        List.of("one", "one", "two"), List.of("three"), false);
+  }
+
+  /** A shared target omitted from RETURN still constrains both paths to the positive binding. */
+  @Test
+  public void detachedChecks_unreturnedSharedAlias_agreeOnBothPaths() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}",
+        "{as:p}.out('ExistsLink'){as:q, where:(name='three')}", "p.name",
+        List.of("one", "two"), List.of("one"), true);
+  }
+
+  /** Correlated WHILE reads the positive q, so both modes must keep the per-row path. */
+  @Test
+  public void detachedChecks_correlatedWhile_agreeOnBothPaths() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}",
+        "{as:p}.out('ExistsLink'){as:x, maxDepth:2, while:($matched.q IS NOT NULL),"
+            + " where:(name='three')}",
+        "p.name", List.of("one", "one", "two"),
+        List.of(), false);
+  }
+
+  /** The reproduced zero-hop null-origin mismatch keeps both modes on the per-row path. */
+  @Test
+  public void detachedChecks_zeroHopOptionalOrigin_rejectHash() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+        + "{class:ExistsPerson, as:q, optional:true}", "{as:q}", "p.name",
+        List.of("one", "one", "three", "two"), List.of(), false);
+  }
+
+  /** Hops from an optional origin cannot traverse null, so hash and per-row checks agree. */
+  @Test
+  public void detachedChecks_optionalOriginWithHop_agreeOnBothPaths() {
+    assertBothModes("MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+        + "{class:ExistsPerson, as:q, optional:true}",
+        "{as:q}.out('ExistsLink'){as:child}", "p.name", List.of("one"),
+        List.of("one", "three", "two"), true);
+  }
+
+  /** The first guard rejects a small outer input even when the build is eligible. */
+  @Test
+  public void exists_guardOneSmallOuter_usesNestedLoop() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(100L);
+    assertExistsChoice("MATCH {class:ExistsPerson, as:p} RETURN p.name as name", false);
+  }
+
+  /** Above the minimum, a one-root build costs more than probing that one root directly. */
+  @Test
+  public void exists_guardTwoBuildMoreExpensive_usesNestedLoop() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
+    assertExistsChoice("MATCH {class:ExistsPerson, as:p, where:(name='one')}"
+        + " RETURN p.name as name", false);
+  }
+
+  /** Repeated origins make the eligible hash build cheaper than repeated complete walks. */
+  @Test
+  public void exists_guardTwoRepeatedOrigins_usesHash() {
+    session.begin();
+    for (var i = 0; i < 9; i++) {
+      session.execute("CREATE EDGE ExistsLink FROM (SELECT FROM ExistsPerson WHERE name='one')"
+          + " TO (SELECT FROM ExistsPerson WHERE name='three')").close();
+    }
+    session.commit();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
+    assertExistsChoice("MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}"
+        + " RETURN p.name as name", true);
+  }
+
+  /** Unknown recursive walk cost bypasses both guards, including a large minimum. */
+  @Test
+  public void exists_recursiveWalkBypassesGuards_usesHash() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1000L);
+    session.begin();
+    try {
+      var plan = plan("MATCH {class:ExistsPerson, as:p} RETURN p.name as name",
+          "MATCH {as:p}.out('ExistsLink'){as:child, maxDepth:2} RETURN p");
+      assertThat(plan.prettyPrint(0, 2)).contains("+ HASH SEMI_JOIN");
+      plan.close();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Plan both modes with an eligible estimate, lower the limit only at execution, and copy.
+   * Origin-only and wider-key builds must fall back to the same per-row row multiset.
+   */
+  @Test
+  public void detachedChecks_runtimeOverflowAndCopy_agreeWithPerRowProbe() {
+    session.begin();
+    try {
+      for (var negative : List.of(false, true)) {
+        for (var sharedTarget : List.of(false, true)) {
+          GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+          var positive = "MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}";
+          var check = "{as:p}.out('ExistsLink'){as:" + (sharedTarget ? "q" : "child") + "}";
+          var sql = positive + (negative ? ", NOT " + check : "") + " RETURN p.name as name";
+          var plan = detachedPlan(sql,
+              negative ? List.of() : List.of("MATCH " + check + " RETURN p"));
+          assertThat(plan.prettyPrint(0, 2))
+              .contains("+ HASH " + (negative ? "ANTI_JOIN" : "SEMI_JOIN"));
+          var copied = (SelectExecutionPlan) plan.copy(context());
+          GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(1L);
+          var stream = copied.start();
+          try {
+            var rows = stream.stream(copied.getContext())
+                .map(row -> row.<String>getProperty("name")).sorted().toList();
+            assertThat(rows).isEqualTo(negative ? List.of() : List.of("one", "one", "two"));
+          } finally {
+            stream.close(copied.getContext());
+            copied.close();
+            plan.close();
+          }
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * An origin-only build probes each scanned origin once and never consumes a matching child.
+   * Both modes preserve duplicate incoming rows. The detached child streams are always closed.
+   */
+  @Test
+  public void detachedHash_originOnlyBuild_stopsAtFirstMatch() {
+    assertDetachedHashWork(false, false);
+  }
+
+  /**
+   * Overflow on a copied detached step must not restart the whole origin scan per outer row.
+   * The fallback probes only incoming rows and stops at the first child in both modes.
+   */
+  @Test
+  public void detachedHash_overflow_usesPerRowProbeWithoutRescanningBuild() {
+    assertDetachedHashWork(true, false);
+  }
+
+  /** Wider-key builds must consume every key, and overflow must retain the detached fallback. */
+  @Test
+  public void detachedHash_widerKeyBuildAndOverflow_preserveFullBuild() {
+    assertDetachedHashWork(false, true);
+    assertDetachedHashWork(true, true);
+  }
+
+  private void assertDetachedHashWork(boolean overflow, boolean wide) {
+    session.begin();
+    try {
+      for (var mode : List.of(JoinMode.ANTI_JOIN, JoinMode.SEMI_JOIN)) {
+        var ctx = context();
+        var scans = new AtomicInteger();
+        var consumed = new AtomicInteger();
+        var probes = new AtomicInteger();
+        var closed = new AtomicInteger();
+        var first = new ResultInternal(session);
+        first.setProperty("p", "first");
+        first.setProperty("q", "target1");
+        var second = new ResultInternal(session);
+        second.setProperty("p", "second");
+        second.setProperty("q", "target2");
+        var absent = new ResultInternal(session);
+        absent.setProperty("p", "absent");
+        absent.setProperty("q", "target3");
+        var child = new AbstractExecutionStep(ctx, false) {
+          @Override
+          public ExecutionStream internalStart(CommandContext context) {
+            return new ExecutionStream() {
+              @Override
+              public boolean hasNext(CommandContext context) {
+                probes.incrementAndGet();
+                var matched = context.<ResultInternal>getSystemVariable(CommandContext.VAR_MATCHED);
+                return !"absent".equals(matched.getProperty("p"));
+              }
+
+              @Override
+              public com.jetbrains.youtrackdb.internal.core.query.Result next(CommandContext c) {
+                throw new AssertionError("an early-stop probe must not consume its matching child");
+              }
+
+              @Override
+              public void close(CommandContext context) {
+                closed.incrementAndGet();
+              }
+            };
+          }
+
+          @Override
+          public ExecutionStep copy(CommandContext context) {
+            return this;
+          }
+        };
+        var build = new SelectExecutionPlan(ctx);
+        build.chain(countedSource(ctx, List.of(first, second), scans, consumed));
+        var step = new HashJoinMatchStep(ctx, build, wide ? List.of("p", "q") : List.of("p"),
+            mode, List.of(child), false);
+        var plan = new SelectExecutionPlan(ctx);
+        plan.chain(countedSource(ctx, List.of(first, first, absent), new AtomicInteger(),
+            new AtomicInteger()));
+        plan.chain((AbstractExecutionStep) step.copy(ctx));
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(overflow ? 1L : 10_000L);
+        var stream = plan.start();
+        try {
+          assertThat(stream.stream(ctx).toList()).containsExactlyElementsOf(
+              mode == JoinMode.SEMI_JOIN ? List.of(first, first) : List.of(absent));
+          assertThat(scans.get()).isEqualTo(1);
+          assertThat(consumed.get()).isEqualTo(2);
+          assertThat(probes.get()).isEqualTo((wide ? 0 : 2) + (overflow ? 3 : 0));
+          assertThat(closed.get()).isEqualTo(probes.get());
+        } finally {
+          stream.close(ctx);
+          plan.close();
+          step.close();
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private AbstractExecutionStep countedSource(CommandContext ctx, List<ResultInternal> rows,
+      AtomicInteger starts, AtomicInteger consumed) {
+    return new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStream internalStart(CommandContext context) {
+        starts.incrementAndGet();
+        return ExecutionStream.resultIterator(rows.iterator()).map((row, c) -> {
+          consumed.incrementAndGet();
+          return row;
+        });
+      }
+
+      @Override
+      public ExecutionStep copy(CommandContext context) {
+        return countedSource(context, rows, starts, consumed);
+      }
+    };
+  }
+
+  private void assertExistsChoice(String positive, boolean hash) {
+    session.begin();
+    try {
+      var plan = detachedPlan(positive,
+          List.of("MATCH {as:p}.out('ExistsLink'){as:child} RETURN p"));
+      assertThat(plan.prettyPrint(0, 2)).contains(hash ? "+ HASH SEMI_JOIN" : "+ EXISTS (");
+      plan.close();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private void assertBothModes(String positive, String check, String projection,
+      List<String> existsRows, List<String> notRows, boolean eligible) {
+    session.begin();
+    try {
+      for (var negative : List.of(false, true)) {
+        List<String> first = null;
+        for (var threshold : List.of(10_000L, 0L)) {
+          GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+          var sql = positive + (negative ? ", NOT " + check : "")
+              + " RETURN " + projection + " as name";
+          var plan = detachedPlan(sql,
+              negative ? List.of() : List.of("MATCH " + check + " RETURN p"));
+          var label = threshold > 0 && eligible
+              ? "+ HASH " + (negative ? "ANTI_JOIN" : "SEMI_JOIN")
+              : negative ? "+ NOT (" : "+ EXISTS (";
+          assertThat(plan.prettyPrint(0, 2)).contains(label);
+          // Exercise copy() on each chosen path, without relying on SQL plan-cache invalidation.
+          var copied = (SelectExecutionPlan) plan.copy(context());
+          var stream = copied.start();
+          try {
+            var rows = stream.stream(copied.getContext())
+                .map(row -> row.<String>getProperty("name")).sorted().toList();
+            assertThat(rows).isEqualTo(negative ? notRows : existsRows);
+            if (first != null) {
+              assertThat(rows).isEqualTo(first);
+            }
+            first = rows;
+          } finally {
+            stream.close(copied.getContext());
+            copied.close();
+            plan.close();
+          }
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
   private void assertDetachedChecks(String sql, List<String> existsChecks, int expected) {
     var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
@@ -425,10 +803,25 @@ public class MatchExistsPlannerTest extends DbTestBase {
     positive.getMatchExpressions().forEach(pattern::addExpression);
     var checks = existsChecks.stream().map(check -> parse(check).getMatchExpressions().getFirst())
         .toList();
+    var classes = new HashMap<String, String>();
+    var filters = new HashMap<String, SQLWhereClause>();
+    for (var expression : positive.getMatchExpressions()) {
+      var nodes = new ArrayList<SQLMatchFilter>();
+      nodes.add(expression.getOrigin());
+      expression.getItems().forEach(item -> nodes.add(item.getFilter()));
+      for (var node : nodes) {
+        var className = node.getClassName(context());
+        if (className != null) {
+          classes.put(node.getAlias(), className);
+        }
+        if (node.getFilter() != null) {
+          filters.put(node.getAlias(), node.getFilter());
+        }
+      }
+    }
     var inputs = MatchPlanInputs.builder(pattern)
-        .aliasClasses(Map.of("p", "ExistsPerson"))
-        .aliasFilters(Map.of("p", positive.getMatchExpressions().getFirst().getOrigin()
-            .getFilter()))
+        .aliasClasses(classes)
+        .aliasFilters(filters)
         .notMatchExpressions(positive.getNotMatchExpressions())
         .existsMatchExpressions(checks)
         .returnItems(positive.getReturnItems())
