@@ -3792,14 +3792,12 @@ public class SelectExecutionPlanner {
   /**
    * Shared SELECT and single-node MATCH proof that every ordered key excludes nulls.
    * A descending scan cannot promise RID order in a nullable index-key bucket.
+   * Schema constraints do not prove this for existing records or disabled validation.
    */
   public static boolean orderedFieldsExcludeNulls(
       SchemaClass clazz, List<String> fields, SQLBooleanExpression condition) {
     for (var field : fields) {
-      var property = clazz.getProperty(field);
-      // NOT NULL validates present values. MANDATORY also prevents a missing null index key.
-      if ((property == null || !property.isMandatory() || !property.isNotNull())
-          && !conditionExcludesNull(condition, field)) {
+      if (!conditionExcludesNull(condition, field)) {
         return false;
       }
     }
@@ -3820,7 +3818,7 @@ public class SelectExecutionPlanner {
       }
       var operator = binary.getOperator();
       // These operators reject a null left operand for every right operand. Not-equal does not.
-      // Equality uses a constant proof, so cached plans cannot certify a nullable parameter.
+      // Equality deliberately uses only literal evidence. Parameter equality stays conservative.
       return operator.isRangeOperator()
           || operator instanceof SQLLikeOperator
           || operator instanceof SQLContainsKeyOperator

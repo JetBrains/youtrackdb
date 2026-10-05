@@ -15,13 +15,13 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
@@ -77,7 +77,7 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
-  /** Every agreement type serves DESC shapes with NOTNULL keys, then each pending mutation sorts. */
+  /** DESC RID pass-through needs predicate evidence even with constrained keys. Pending rows sort. */
   @Test
   public void descendingNonNullShapesPassThroughOnlyInCleanTransactions() {
     for (var type : AGREEMENT_TYPES) {
@@ -136,32 +136,57 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
-  /** Equality bound to null must sort RID ties in clean and pending transactions. */
+  /** Constraints added after insertion keep the DESC RID sort for existing missing keys. */
   @Test
-  public void nullEqualityParameterKeepsDescendingRidSort() {
-    var cls = "NullParameterMatch";
+  public void constraintsAddedAfterInsertKeepDescendingRidSort() {
+    assertUncheckedNullKeysKeepDescendingRidSort(false);
+  }
+
+  /** Disabled validation keeps the DESC RID sort despite MANDATORY and NOT NULL flags. */
+  @Test
+  public void disabledValidationKeepsDescendingRidSort() {
+    assertUncheckedNullKeysKeepDescendingRidSort(true);
+  }
+
+  private void assertUncheckedNullKeysKeepDescendingRidSort(boolean disableValidation) {
+    var cls = "UncheckedMatch" + disableValidation;
     var schema = db().createVertexClass(cls);
-    schema.createProperty("p", PropertyType.INTEGER);
+    var property = schema.createProperty("p", PropertyType.INTEGER);
     db().execute("CREATE INDEX " + cls + "_p ON " + cls + " (p) NOTUNIQUE").close();
-    graph.tx().readWrite();
-    db().execute("CREATE VERTEX " + cls + " SET p = 1").close();
-    db().execute("CREATE VERTEX " + cls).close();
-    db().execute("CREATE VERTEX " + cls).close();
-    graph.tx().commit();
-    var params = new HashMap<Object, Object>();
-    var query = match(cls, "p = :x") + " ORDER BY s.p DESC, s.@rid DESC";
+    if (disableValidation) {
+      property.setMandatory(true).setNotNull(true);
+    }
+    var validation = db().isValidationEnabled();
+    try {
+      db().setValidationEnabled(!disableValidation);
+      graph.tx().readWrite();
+      db().execute("CREATE VERTEX " + cls + " SET p = 1").close();
+      db().execute("CREATE VERTEX " + cls).close();
+      db().execute("CREATE VERTEX " + cls).close();
+      graph.tx().commit();
+    } finally {
+      db().setValidationEnabled(validation);
+    }
+    if (!disableValidation) {
+      property.setMandatory(true).setNotNull(true);
+    }
+    var query = match(cls, "") + " ORDER BY s.p DESC, s.@rid DESC";
     for (var pending : List.of(false, true)) {
       graph.tx().readWrite();
       if (pending) {
-        db().execute("CREATE VERTEX " + cls).close();
+        db().execute("CREATE VERTEX " + cls + " SET p = 2").close();
       }
-      for (var bound : Arrays.asList(1, null)) {
-        params.put("x", bound);
-        assertTransaction(pending);
-        assertSqlOracle(select(cls, "p = :x"), query, params, true);
-      }
+      assertTransaction(pending);
+      assertThat(plan(query, Map.of())).contains("FETCH FROM INDEX", "+ ORDER BY");
+      assertSqlOracle(select(cls, ""), query, Map.of(), true);
       graph.tx().rollback();
     }
+    graph.tx().readWrite();
+    assertTransaction(false);
+    // Three committed rows must exceed the cap when the step actually sorts.
+    underLowCap(() -> assertThatThrownBy(() -> ids(query, Map.of()))
+        .hasMessageContaining("in-heap ORDER BY"));
+    graph.tx().rollback();
   }
 
   /** LIKE rejects null and missing values, so clean RID scans pass through and pending rows sort. */
@@ -293,11 +318,13 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
       if (pending) {
         assertThat(ids(ridQuery, params)).isEqualTo(expected);
         assertThat(db().getTransactionInternal().getEntryCount()).as(ridQuery).isPositive();
-      } else if (accepted) {
+      } else if (accepted && (!desc || shape == Shape.RANGE || shape == Shape.PRESENCE)) {
         underLowCap(() -> assertThat(ids(ridQuery, params)).isEqualTo(expected));
       } else {
         assertThat(ids(ridQuery, params)).isEqualTo(expected);
       }
+      assertReport(select + " ORDER BY " + order, params, accepted,
+          accepted && (!desc || shape == Shape.RANGE || shape == Shape.PRESENCE));
 
       // Gremlin has(p) tests property presence, including an explicitly stored null.
       // Its SQL control uses IS DEFINED rather than SQL's non-null presence filter.
@@ -314,7 +341,7 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
       if (pending) {
         assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s pending Gremlin", cls, shape).isEqualTo(oracle);
-      } else if (accepted) {
+      } else if (accepted && (!desc || shape == Shape.RANGE)) {
         underLowCap(() -> assertThat(
             traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s clean Gremlin", cls, shape).isEqualTo(oracle));
@@ -323,7 +350,30 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
         assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s clean Gremlin", cls, shape).isEqualTo(oracle);
       }
+      if (desc && !pending && shape != Shape.RANGE) {
+        // No schema flag supplies a proof. IS DEFINED also retains nulls in Gremlin.
+        // Run expected errors only in clean transactions, then reopen the snapshot.
+        if (shape != Shape.PRESENCE) {
+          underLowCap(() -> assertThatThrownBy(() -> ids(ridQuery, params))
+              .hasMessageContaining("in-heap ORDER BY"));
+          graph.tx().readWrite();
+        }
+        underLowCap(() -> assertThatThrownBy(() -> traversal(cls, shape, floor, ceiling, true)
+            .toList()).hasMessageContaining("in-heap ORDER BY"));
+        graph.tx().readWrite();
+      }
     }
+  }
+
+  private void assertReport(String query, Map<Object, Object> params,
+      boolean fullOrder, boolean ridOrder) {
+    var statement = (SQLSelectStatement) SQLEngine.parse(query, db());
+    var context = new BasicCommandContext(db());
+    context.setInputParameters(params);
+    var requested = (SelectExecutionPlan) new SelectExecutionPlanner(statement)
+        .createExecutionPlanForOrderRequest(context, false, true, false);
+    assertThat(requested.getOrderReport().fullOrderCovered()).as(query).isEqualTo(fullOrder);
+    assertThat(requested.getOrderReport().ridOrderWithinEqualKeys()).as(query).isEqualTo(ridOrder);
   }
 
   private GraphTraversal<Vertex, Vertex> traversal(

@@ -190,7 +190,53 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     }
   }
 
-  /** Null-bound equality must not certify DESC RID order, including a cached non-null plan. */
+  /** Constraints added after insertion do not remove existing missing null index keys. */
+  @Test
+  public void constraintsAddedAfterInsertDoNotProveDescendingRidOrder() {
+    assertUncheckedNullKeysDoNotProveDescendingRidOrder(false);
+  }
+
+  /** Disabled validation permits missing null index keys despite both schema constraints. */
+  @Test
+  public void disabledValidationDoesNotProveDescendingRidOrder() {
+    assertUncheckedNullKeysDoNotProveDescendingRidOrder(true);
+  }
+
+  private void assertUncheckedNullKeysDoNotProveDescendingRidOrder(boolean disableValidation) {
+    var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
+    clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
+    if (disableValidation) {
+      clazz.getProperty("a").setMandatory(true).setNotNull(true);
+    }
+    var validation = session.isValidationEnabled();
+    try {
+      session.setValidationEnabled(!disableValidation);
+      session.begin();
+      session.newInstance(CLASS).setProperty("a", 1);
+      session.newInstance(CLASS);
+      session.newInstance(CLASS);
+      session.commit();
+    } finally {
+      session.setValidationEnabled(validation);
+    }
+    if (!disableValidation) {
+      clazz.getProperty("a").setMandatory(true).setNotNull(true);
+    }
+    for (var pending : List.of(false, true)) {
+      session.begin();
+      if (pending) {
+        session.newInstance(CLASS).setProperty("a", 2);
+      }
+      var sql = "select from " + CLASS + " order by a desc";
+      assertOrder(sql, Map.of(), true, false);
+      var requested = request(sql, true, Map.of());
+      Assert.assertTrue(requested.getOrderReport().fullOrderCovered());
+      Assert.assertFalse(requested.getOrderReport().ridOrderWithinEqualKeys());
+      session.rollback();
+    }
+  }
+
+  /** Parameter equality stays conservative in the report, and a null binding returns no rows. */
   @Test
   public void nullEqualityParameterDoesNotProveDescendingRidOrder() {
     var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
@@ -270,7 +316,8 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     for (var mandatory : List.of(false, true)) {
       for (var notNull : List.of(false, true)) {
         clazz.getProperty("a").setMandatory(mandatory).setNotNull(notNull);
-        Assert.assertEquals(mandatory && notNull,
+        // Schema flags cannot certify existing or unvalidated index entries.
+        Assert.assertFalse(
             SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"), null));
       }
     }

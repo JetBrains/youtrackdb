@@ -179,7 +179,7 @@ final class SingleNodeIndexOrder {
       String className, SQLOrderBy order, @Nullable SQLWhereClause filter, CommandContext context) {
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     var clazz = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
-    // Use the same per-key proof as the SELECT report, including composite orders.
+    // Require the same per-key predicate proof as SELECT. Schema flags do not certify stored keys.
     return SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, order.getProperties(),
         filter == null ? null : filter.getBaseExpression());
   }
