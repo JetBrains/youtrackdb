@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
@@ -15,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -79,6 +82,17 @@ public class DiskStorageCheckpointFloorTest {
     assertTrue("close-time work must remain recoverable", isDirty());
     try (var manager = manager(); var session = manager.open(DATABASE, ADMIN, ADMIN)) {
       assertTrue(((AbstractStorage) session.getStorage()).getIdGen().getLastId() > mark);
+    }
+  }
+
+  /** A failed cache close must retain recovery evidence for the close-time timestamp. */
+  @Test
+  public void cacheCloseFailureRecoversAboveCloseTimeTimestamp() throws Exception {
+    var mark = crashChild("cacheCloseFailure");
+    assertTrue("cache close failure must retain recovery indication", isDirty());
+    try (var manager = manager(); var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      assertTrue("restart must advance beyond the close-time operation",
+          ((AbstractStorage) session.getStorage()).getIdGen().getLastId() > mark);
     }
   }
 
@@ -319,6 +333,28 @@ public class DiskStorageCheckpointFloorTest {
       });
       storage.close(session, true);
       throw new AssertionError("close-time crash hook was not reached");
+    } else if (args[0].equals("cacheCloseFailure")) {
+      // A path-scoped spy fails only this storage's cache teardown after the real cache closes.
+      var cache = spy(storage.getReadCache());
+      doAnswer(invocation -> {
+        invocation.callRealMethod();
+        throw new IOException("injected cache close failure");
+      }).when(cache).closeStorage(storage.getWriteCache());
+      Field cacheField = AbstractStorage.class.getDeclaredField("readCache");
+      cacheField.setAccessible(true);
+      cacheField.set(storage, cache);
+      storage.setAfterCloseAtomicActionForTesting(ignored -> {
+        try {
+          writeMark(handshake, storage.getIdGen().getLastId());
+        } catch (IOException failure) {
+          throw new AssertionError(failure);
+        }
+      });
+      var failure = assertThrows(StorageException.class, () -> storage.close(session, true));
+      assertTrue(failure.getMessage().contains("Error during closing of disk cache"));
+      assertTrue(Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0);
+      Runtime.getRuntime().halt(0);
+      throw new AssertionError("halt returned");
     } else if (args[0].equals("overlappingClear")) {
       var synchAtFloor = new CountDownLatch(1);
       var releaseSynch = new CountDownLatch(1);

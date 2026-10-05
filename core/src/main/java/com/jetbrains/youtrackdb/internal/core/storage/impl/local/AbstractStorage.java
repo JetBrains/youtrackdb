@@ -8728,7 +8728,7 @@ public abstract class AbstractStorage
           } finally {
             atomicOperationsManager.unfreezeWriteOperations(checkpointFreeze);
           }
-        } catch (RuntimeException | Error failure) {
+        } catch (IOException | RuntimeException | Error failure) {
           // Neither the monitor nor any index resources have been torn down yet.
           for (var mgr : blocked) {
             mgr.resumeRebalancesAfterFailedStorageShutdown();
