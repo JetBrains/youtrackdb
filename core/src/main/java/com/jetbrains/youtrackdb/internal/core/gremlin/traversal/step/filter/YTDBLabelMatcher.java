@@ -18,7 +18,7 @@ public final class YTDBLabelMatcher {
   private YTDBLabelMatcher() {
   }
 
-  /// Tests a single multi-argument `hasLabel(...)` container against an element.
+  /// Tests the alternatives from one `hasLabel(...)` container against an element.
   ///
   /// The predicate list carries OR semantics (a single `hasLabel("A", "B")` matches an element of
   /// either class). When the element is a YouTrackDB element, the concrete schema class name is
