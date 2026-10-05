@@ -203,13 +203,19 @@ public interface ResultSet extends BasicResultSet<Result>, RegisteredQuery {
         .onClose(this::close);
   }
 
+  /** Visits all entities and closes this result set, also if reading or the action fails. */
   default void forEachEntity(@Nonnull Consumer<? super Entity> action) {
-    entityStream().forEach(action);
+    try (var entities = entityStream()) {
+      entities.forEach(action);
+    }
   }
 
+  /** Reads all entities and closes this result set, also if reading fails. */
   @Nonnull
   default List<Entity> toEntityList() {
-    return entityStream().toList();
+    try (var entities = entityStream()) {
+      return entities.toList();
+    }
   }
 
   /**
@@ -253,13 +259,19 @@ public interface ResultSet extends BasicResultSet<Result>, RegisteredQuery {
         .onClose(this::close);
   }
 
+  /** Visits all vertices and closes this result set, also if reading or the action fails. */
   default void forEachVertex(@Nonnull Consumer<? super Vertex> action) {
-    vertexStream().forEach(action);
+    try (var vertices = vertexStream()) {
+      vertices.forEach(action);
+    }
   }
 
+  /** Reads all vertices and closes this result set, also if reading fails. */
   @Nonnull
   default List<Vertex> toVertexList() {
-    return vertexStream().toList();
+    try (var vertices = vertexStream()) {
+      return vertices.toList();
+    }
   }
 
   @Nonnull
@@ -305,9 +317,12 @@ public interface ResultSet extends BasicResultSet<Result>, RegisteredQuery {
         .onClose(this::close);
   }
 
+  /** Reads all record identities and closes this result set, also if reading fails. */
   @Nonnull
   default List<RID> toRidList() {
-    return ridStream().toList();
+    try (var identities = ridStream()) {
+      return identities.toList();
+    }
   }
 
   @Nonnull
@@ -345,13 +360,19 @@ public interface ResultSet extends BasicResultSet<Result>, RegisteredQuery {
         .onClose(this::close);
   }
 
+  /** Visits all edges and closes this result set, also if reading or the action fails. */
   default void forEachEdge(Consumer<? super Edge> action) {
-    edgeStream().forEach(action);
+    try (var edges = edgeStream()) {
+      edges.forEach(action);
+    }
   }
 
+  /** Reads all edges and closes this result set, also if reading fails. */
   @Nonnull
   default List<Edge> toEdgeList() {
-    return edgeStream().toList();
+    try (var edges = edgeStream()) {
+      return edges.toList();
+    }
   }
 
   @Override

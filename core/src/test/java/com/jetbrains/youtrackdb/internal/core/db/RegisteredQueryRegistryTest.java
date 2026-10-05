@@ -31,11 +31,13 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.DBSequence;
 import com.jetbrains.youtrackdb.internal.core.query.RegisteredQuery;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction.TXSTATUS;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
@@ -47,6 +49,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.commons.configuration2.Configuration;
@@ -1250,6 +1253,285 @@ public class RegisteredQueryRegistryTest extends BaseMemoryInternalDatabase {
         session.activateOnCurrentThread();
       }
     }
+  }
+
+  /** Every helper retires real queries in both retention modes, with empty and non-empty rows. */
+  @Test
+  public void consumingHelpersDeregisterAndKeepExecutionPlanReadable() {
+    session.createVertexClass("HelperVertex");
+    session.createEdgeClass("HelperEdge");
+    session.executeInTx(tx -> tx.newVertex("HelperVertex")
+        .addEdge(tx.newVertex("HelperVertex"), "HelperEdge"));
+    session.begin();
+    try (var logs = LogRecordCollector.attachTo(DatabaseSessionEmbedded.class)) {
+      for (var helper : consumingHelpers()) {
+        for (var empty : new boolean[] {false, true}) {
+          // This local variable strongly owns the query until all registry assertions finish.
+          var rows = session.query("select from " + helper.target()
+              + (empty ? " where 1 = 0" : ""));
+          assertEquals(helper.name(), 1, session.getActiveQueries().size());
+          var plan = rows.getExecutionPlan();
+          var description = plan.prettyPrint(0, 2);
+          helper.consume().accept(rows);
+          assertTrue(helper.name(), rows.isClosed());
+          assertTrue(helper.name(), session.getActiveQueries().isEmpty());
+          assertSame(plan, rows.getExecutionPlan());
+          assertEquals(description, rows.getExecutionPlan().prettyPrint(0, 2));
+          rows.close();
+          assertTrue(session.getActiveQueries().isEmpty());
+        }
+      }
+      assertFalse(logs.warnedWithAll("open command/query result sets"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A reading failure reaches the caller and every consuming helper still deregisters its query. */
+  @Test
+  public void consumingHelpersDeregisterWhenReadingThrows() {
+    for (var helper : consumingHelpers()) {
+      var plan = mock(InternalExecutionPlan.class);
+      var stream = mock(ExecutionStream.class);
+      when(plan.getContext()).thenReturn(new BasicCommandContext());
+      when(plan.start()).thenReturn(stream);
+      var failure = new IllegalStateException("reading " + helper.name());
+      when(stream.hasNext(any())).thenThrow(failure);
+      var rows = new LocalResultSet(session, plan);
+      rows.addLifecycleListener(session);
+      session.queryStarted(rows.getQueryId(), rows);
+      assertSame(failure, assertThrows(IllegalStateException.class,
+          () -> helper.consume().accept(rows)));
+      assertTrue(helper.name(), rows.isClosed());
+      assertTrue(helper.name(), session.getActiveQueries().isEmpty());
+      rows.close();
+      verify(stream, times(1)).close(any());
+      verify(plan, times(1)).close();
+    }
+  }
+
+  /** A user callback failure closes entity, vertex and edge queries before it escapes. */
+  @Test
+  public void forEachHelpersDeregisterWhenCallbackThrows() {
+    session.createVertexClass("CallbackVertex");
+    session.createEdgeClass("CallbackEdge");
+    session.executeInTx(tx -> tx.newVertex("CallbackVertex")
+        .addEdge(tx.newVertex("CallbackVertex"), "CallbackEdge"));
+    var failure = new IllegalArgumentException("callback");
+    List<Consumer<ResultSet>> helpers = List.of(
+        rows -> rows.forEachEntity(entity -> {
+          throw failure;
+        }),
+        rows -> rows.forEachVertex(vertex -> {
+          throw failure;
+        }),
+        rows -> rows.forEachEdge(edge -> {
+          throw failure;
+        }));
+    session.begin();
+    try {
+      for (int index = 0; index < helpers.size(); index++) {
+        var rows = session.query("select from "
+            + (index == 2 ? "CallbackEdge" : "CallbackVertex"));
+        var helper = helpers.get(index);
+        assertSame(failure, assertThrows(IllegalArgumentException.class,
+            () -> helper.accept(rows)));
+        assertTrue(rows.isClosed());
+        assertTrue(session.getActiveQueries().isEmpty());
+        rows.close();
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Cleanup failures retire direct and decorated queries once and keep the original error primary. */
+  @Test
+  public void closeFailuresNotifyListenersAndNeverRetryCleanup() {
+    for (int scenario = 0; scenario < 7; scenario++) {
+      var plan = mock(InternalExecutionPlan.class);
+      var stream = mock(ExecutionStream.class);
+      when(plan.getContext()).thenReturn(new BasicCommandContext());
+      when(plan.start()).thenReturn(stream);
+      Throwable failure = scenario % 2 == 0 ? new IllegalStateException("cleanup")
+          : new AssertionError("cleanup");
+      var failPlan = scenario == 2;
+      if (failPlan) {
+        doThrow(failure).when(plan).close();
+      } else {
+        doThrow(failure).when(stream).close(any());
+      }
+      var local = new LocalResultSet(session, plan);
+      var decorated = new LocalResultSetLifecycleDecorator(local);
+      boolean useDecorator = scenario >= 3 && scenario < 6;
+      ResultSet rows = useDecorator ? decorated : local;
+      var id = useDecorator ? decorated.getQueryId() : local.getQueryId();
+      if (useDecorator) {
+        decorated.addLifecycleListener(session);
+      } else {
+        local.addLifecycleListener(session);
+      }
+      session.queryStarted(id, rows);
+      // Later listener failures must not replace a cleanup failure or suppress it on itself.
+      if (scenario == 1 || scenario >= 4) {
+        // Both direct and decorated result sets must avoid self-suppression.
+        var listenerFailure = scenario >= 5 ? failure : new AssertionError("listener");
+        QueryLifecycleListener listener = queryId -> {
+          if (listenerFailure instanceof Error error) {
+            throw error;
+          }
+          throw (RuntimeException) listenerFailure;
+        };
+        if (useDecorator) {
+          decorated.addLifecycleListener(listener);
+        } else {
+          local.addLifecycleListener(listener);
+        }
+      }
+      assertSame(failure, assertThrows(Throwable.class, rows::toList));
+      assertTrue(rows.isClosed());
+      assertFalse(rows.hasNext());
+      assertNull(local.getBoundToSession());
+      assertTrue(session.getActiveQueries().isEmpty());
+      assertEquals(scenario == 1 || scenario == 4 ? 1 : 0, failure.getSuppressed().length);
+      rows.close();
+      verify(stream, times(1)).close(any());
+      verify(plan, times(failPlan ? 1 : 0)).close();
+    }
+  }
+
+  /**
+   * A throwing first listener cannot block registry removal or later listeners. Cleanup remains
+   * primary when it fails, otherwise the first listener failure is primary and later ones suppressed.
+   */
+  @Test
+  public void throwingFirstListenerStillNotifiesSessionAndRemainingListeners() {
+    for (var decorate : new boolean[] {false, true}) {
+      for (int cleanupScenario = 0; cleanupScenario < 3; cleanupScenario++) {
+        for (var listenerError : new boolean[] {false, true}) {
+          var plan = mock(InternalExecutionPlan.class);
+          var stream = mock(ExecutionStream.class);
+          when(plan.getContext()).thenReturn(new BasicCommandContext());
+          when(plan.start()).thenReturn(stream);
+          Throwable cleanupFailure = cleanupScenario == 0 ? null
+              : cleanupScenario == 1 ? new IllegalStateException("cleanup")
+                  : new AssertionError("cleanup");
+          if (cleanupFailure != null) {
+            doThrow(cleanupFailure).when(stream).close(any());
+          }
+          var local = new LocalResultSet(session, plan);
+          var decorator = new LocalResultSetLifecycleDecorator(local);
+          ResultSet rows = decorate ? decorator : local;
+          Consumer<QueryLifecycleListener> addListener = decorate
+              ? decorator::addLifecycleListener : local::addLifecycleListener;
+          var id = decorate ? decorator.getQueryId() : local.getQueryId();
+          Throwable firstFailure = listenerError ? new AssertionError("first listener")
+              : new IllegalStateException("first listener");
+          var laterFailure = new IllegalArgumentException("later listener");
+          var calls = new ArrayList<String>();
+          QueryLifecycleListener first = queryId -> {
+            calls.add("first");
+            if (firstFailure instanceof Error error) {
+              throw error;
+            }
+            throw (RuntimeException) firstFailure;
+          };
+          // Register the throwing listener BEFORE the real session listener.
+          addListener.accept(first);
+          addListener.accept(session);
+          addListener.accept(queryId -> {
+            calls.add("later");
+            throw laterFailure;
+          });
+          // The same throwable must not be suppressed onto itself.
+          addListener.accept(first);
+          addListener.accept(queryId -> calls.add("last"));
+          session.queryStarted(id, rows);
+          var primary = cleanupFailure == null ? firstFailure : cleanupFailure;
+          assertSame(primary, assertThrows(Throwable.class, rows::close));
+          assertEquals(List.of("first", "later", "first", "last"), calls);
+          assertTrue(rows.isClosed());
+          assertNull(local.getBoundToSession());
+          assertTrue(session.getActiveQueries().isEmpty());
+          assertEquals(1, firstFailure.getSuppressed().length);
+          assertSame(laterFailure, firstFailure.getSuppressed()[0]);
+          if (cleanupFailure != null) {
+            assertEquals(1, cleanupFailure.getSuppressed().length);
+            assertSame(firstFailure, cleanupFailure.getSuppressed()[0]);
+          }
+          rows.close();
+          assertEquals(4, calls.size());
+          verify(stream, times(1)).close(any());
+          verify(plan, times(cleanupFailure == null ? 1 : 0)).close();
+        }
+      }
+    }
+  }
+
+  /** The decorator alone guards delegation, even if its inner result set does not guard close. */
+  @Test
+  public void decoratorNeverDelegatesSecondCloseToCountingInnerResultSet() {
+    for (int scenario = 0; scenario < 3; scenario++) {
+      var inner = mock(ResultSet.class);
+      Throwable failure = scenario == 0 ? null : scenario == 1
+          ? new IllegalStateException("inner close") : new AssertionError("inner close");
+      if (failure != null) {
+        doThrow(failure).when(inner).close();
+      }
+      var rows = new LocalResultSetLifecycleDecorator(inner);
+      var calls = new ArrayList<String>();
+      rows.addLifecycleListener(calls::add);
+      if (failure == null) {
+        rows.close();
+      } else {
+        assertSame(failure, assertThrows(Throwable.class, rows::close));
+      }
+      assertTrue(rows.isClosed());
+      rows.close();
+      verify(inner, times(1)).close();
+      assertEquals(List.of(rows.getQueryId()), calls);
+    }
+  }
+
+  /** Real leaked result sets still trigger the configured warning and explicit close retires them. */
+  @Test
+  public void genuinelyOpenResultSetsStillWarn() {
+    session.begin();
+    try (var logs = LogRecordCollector.attachTo(DatabaseSessionEmbedded.class);
+        var first = session.query("select 1 as answer");
+        var second = session.query("select 2 as answer")) {
+      assertFalse(logs.warnedWithAll("open command/query result sets"));
+      try (var third = session.query("select 3 as answer")) {
+        assertEquals(3, session.getActiveQueries().size());
+        assertTrue(logs.warnedWithAll("2", "open command/query result sets"));
+        assertTrue(first.hasNext());
+        assertTrue(second.hasNext());
+        assertTrue(third.hasNext());
+      }
+    } finally {
+      assertTrue(session.getActiveQueries().isEmpty());
+      session.rollback();
+    }
+  }
+
+  private record ConsumingHelper(String name, String target, Consumer<ResultSet> consume) {
+  }
+
+  private static List<ConsumingHelper> consumingHelpers() {
+    return List.of(
+        new ConsumingHelper("toList", "HelperVertex", ResultSet::toList),
+        new ConsumingHelper("detach", "HelperVertex", ResultSet::detach),
+        new ConsumingHelper("toDetachedList", "HelperVertex", ResultSet::toDetachedList),
+        new ConsumingHelper("toEntityList", "HelperVertex", ResultSet::toEntityList),
+        new ConsumingHelper("toVertexList", "HelperVertex", ResultSet::toVertexList),
+        new ConsumingHelper("toRidList", "HelperVertex", ResultSet::toRidList),
+        new ConsumingHelper("toEdgeList", "HelperEdge", ResultSet::toEdgeList),
+        new ConsumingHelper("forEachEntity", "HelperVertex", rows -> rows.forEachEntity(e -> {
+        })),
+        new ConsumingHelper("forEachVertex", "HelperVertex", rows -> rows.forEachVertex(v -> {
+        })),
+        new ConsumingHelper("forEachEdge", "HelperEdge", rows -> rows.forEachEdge(e -> {
+        })));
   }
 
   private Set<SessionListener> listenerSnapshot() {

@@ -15,8 +15,7 @@ public class ExecutionResultSet implements ResultSet {
   private final ExecutionStream stream;
   private final CommandContext context;
   private final ExecutionPlan plan;
-  @Nullable
-  private DatabaseSessionEmbedded session;
+  @Nullable private DatabaseSessionEmbedded session;
 
   private boolean closed = false;
 
@@ -57,10 +56,13 @@ public class ExecutionResultSet implements ResultSet {
     }
 
     assert session == null || session.assertIfNotActive();
-    stream.close(context);
-
-    this.session = null;
+    // Retire the cursor before cleanup so a failing close cannot trigger a second attempt.
     this.closed = true;
+    try {
+      stream.close(context);
+    } finally {
+      this.session = null;
+    }
   }
 
   @Override
@@ -69,8 +71,7 @@ public class ExecutionResultSet implements ResultSet {
     return plan;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
@@ -84,8 +85,7 @@ public class ExecutionResultSet implements ResultSet {
     return false;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public ResultSet trySplit() {
     return null;
   }

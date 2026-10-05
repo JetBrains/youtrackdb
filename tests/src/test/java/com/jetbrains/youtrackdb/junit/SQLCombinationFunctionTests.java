@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import com.google.common.collect.Sets;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -15,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,8 +26,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 
@@ -33,6 +41,55 @@ import org.junit.jupiter.api.Test;
  * Tests for "unionAll", "intersect" and "difference" functions.
  */
 class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
+
+  private final List<String> openQueryWarnings = new ArrayList<>();
+  private final Handler warningCollector = new Handler() {
+    @Override
+    public void publish(LogRecord record) {
+      if (record.getLevel().intValue() >= Level.WARNING.intValue()
+          && record.getMessage().contains("open command/query result sets")) {
+        openQueryWarnings.add(record.getMessage());
+      }
+    }
+
+    @Override
+    public void flush() {
+    }
+
+    @Override
+    public void close() {
+    }
+  };
+
+  @BeforeEach
+  void captureOpenQueryWarnings() {
+    openQueryWarnings.clear();
+    Logger.getLogger(DatabaseSessionEmbedded.class.getName()).addHandler(warningCollector);
+  }
+
+  /** Combination queries must leave no registered result sets or open-query warnings. */
+  @AfterEach
+  void assertQueriesClosedWithoutWarnings() {
+    Logger.getLogger(DatabaseSessionEmbedded.class.getName()).removeHandler(warningCollector);
+    assertTrue(openQueryWarnings.isEmpty(), () -> "Open-query warnings: " + openQueryWarnings);
+    assertTrue(session.getActiveQueries().isEmpty(),
+        "Combination queries must close their results");
+  }
+
+  /** Check each consuming scope before transaction completion can retire leaked queries. */
+  private void assertConsumingScopeClosed(ResultSet rows) {
+    assertTrue(rows.isClosed(), "The consuming scope must close its result set");
+    assertTrue(session.getActiveQueries().isEmpty(),
+        "The consuming scope must deregister its result set before transaction completion");
+  }
+
+  private List<Result> queryToList(ResultSet rows) {
+    try {
+      return rows.toList();
+    } finally {
+      assertConsumingScopeClosed(rows);
+    }
+  }
 
   @BeforeAll
   void setUpData() {
@@ -44,13 +101,13 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   @Order(1)
   void unionAllAsAggregationNotRemoveDuplicates() {
 
-    final var continents = session.query("SELECT continent FROM CountryExt").toList()
+    final var continents = queryToList(session.query("SELECT continent FROM CountryExt"))
         .stream()
         .map(r -> r.<String>getProperty("continent"))
         .toList();
 
     final var continentsCombined =
-        session.query("SELECT unionAll(continent) AS continents FROM CountryExt").toList()
+        queryToList(session.query("SELECT unionAll(continent) AS continents FROM CountryExt"))
             .getFirst()
             .<List<String>>getProperty("continents");
 
@@ -62,10 +119,11 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   @Order(2)
   void differenceAsAggregationThrowsError() {
     try {
-      session.query("SELECT difference(continent) AS continents FROM CountryExt").toList();
+      queryToList(session.query("SELECT difference(continent) AS continents FROM CountryExt"));
       fail("Expected exception");
     } catch (CommandExecutionException e) {
       assertTrue(e.getMessage().contains("cannot be used in aggregation mode"));
+      assertTrue(session.getActiveQueries().isEmpty());
     }
   }
 
@@ -98,7 +156,7 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   //       $r = unionAll($l0, $l1)
   private void findLanguagesForCountry(FunctionDefinition fDef) {
 
-    final var langsByCountry = session.query("select name, languages from CountryExt").toList()
+    final var langsByCountry = queryToList(session.query("select name, languages from CountryExt"))
         .stream()
         .collect(Collectors.toMap(
             r -> r.<String>getProperty("name"),
@@ -127,7 +185,7 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
                 .toList();
 
         query1.append(String.join(" OR ", countryConditions));
-        final var l1 = session.query(query1.toString()).toList()
+        final var l1 = queryToList(session.query(query1.toString()))
             .getFirst()
             .<Collection<String>>getProperty("langCombined");
 
@@ -157,7 +215,7 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
           .append(String.join(",", lVars))
           .append(")");
 
-      final var langsCombined2 = session.query(query2.toString()).toList().getFirst()
+      final var langsCombined2 = queryToList(session.query(query2.toString())).getFirst()
           .<Collection<Result>>getProperty("langCombined")
           .stream()
           .map(e -> e.<String>getProperty("value"))
@@ -194,7 +252,7 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   private void findCountriesForLanguage(FunctionDefinition fDef) {
 
     final var countryByLang =
-        session.query("select name, languages from CountryExt").toList()
+        queryToList(session.query("select name, languages from CountryExt"))
             .stream()
             .collect(Collectors.toMap(
                 r1 -> r1.<String>getProperty("name"),
@@ -223,10 +281,12 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
       query.append(String.format("$r = %s(%s),", fDef.name, String.join(",", varNames)));
       query.append("$r2 = (SELECT from $r)");
 
-      final var selectedCountryNames = session.query(query.toString())
-          .stream()
-          .map(r -> r.<String>getProperty("name"))
-          .toList();
+      final List<String> selectedCountryNames;
+      final var resultSet = session.query(query.toString());
+      try (var rows = resultSet.stream()) {
+        selectedCountryNames = rows.map(r -> r.<String>getProperty("name")).toList();
+      }
+      assertConsumingScopeClosed(resultSet);
 
       final var expectedCountryNames = fDef.impl(
           langsList.stream().map(countryByLang::get).toList());
@@ -311,7 +371,12 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   private void runEdgeInlineTest(FunctionDefinition fDef) {
 
     session.begin();
-    final var vertexes = session.query("SELECT FROM GraphVehicle_CF").entityStream().toList();
+    final List<Entity> vertexes;
+    final var vertexRows = session.query("SELECT FROM GraphVehicle_CF");
+    try (var rows = vertexRows.entityStream()) {
+      vertexes = rows.toList();
+    }
+    assertConsumingScopeClosed(vertexRows);
 
     final var insAndOuts = vertexes.stream().collect(Collectors.toMap(
         r -> r.<RecordIdInternal>getProperty("@rid"),
@@ -324,7 +389,12 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
         }));
 
     final var query = "SELECT @rid, " + fDef.name + "(inE(), outE()) AS edges FROM GraphVehicle_CF";
-    var edgesAggregated = session.query(query).stream().toList();
+    final List<Result> edgesAggregated;
+    final var edgeRows = session.query(query);
+    try (var rows = edgeRows.stream()) {
+      edgesAggregated = rows.toList();
+    }
+    assertConsumingScopeClosed(edgeRows);
 
     for (var d : edgesAggregated) {
       assertTrue(d.hasProperty("edges"));
@@ -369,11 +439,13 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
               + "$var2 = :someNumbers2, "
               + "$var3 = " + fDef.name + "($var1, $var2)";
 
-      var result =
-          tx.query(query, Map.of("someNumbers1", randomNumbers1, "someNumbers2", randomNumbers2))
-              .stream()
-              .map(r -> r.getInt("value"))
-              .toList();
+      final List<Integer> result;
+      final var resultSet = tx.query(query,
+          Map.of("someNumbers1", randomNumbers1, "someNumbers2", randomNumbers2));
+      try (var rows = resultSet.stream()) {
+        result = rows.map(r -> r.getInt("value")).toList();
+      }
+      assertConsumingScopeClosed(resultSet);
 
       var expected = fDef.impl(List.of(randomNumbers1, randomNumbers2));
 
@@ -397,11 +469,12 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
               + "$var1 = :someNumbers, "
               + "$var2 = " + fDef.name + "($var1);";
 
-      final var result =
-          tx.query(query, Map.of("someNumbers", randomNumbers))
-              .stream()
-              .map(r -> r.getInt("value"))
-              .toList();
+      final List<Integer> result;
+      final var resultSet = tx.query(query, Map.of("someNumbers", randomNumbers));
+      try (var rows = resultSet.stream()) {
+        result = rows.map(r -> r.getInt("value")).toList();
+      }
+      assertConsumingScopeClosed(resultSet);
 
       var expected = fDef.impl(List.of(randomNumbers));
 
@@ -412,9 +485,13 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
   @SuppressWarnings({"NonConstantStringShouldBeStringBuffer"})
   private void runExpandTest(FunctionDefinition fDef) {
     session.executeInTx(tx -> {
-      final var rids = tx.query("SELECT @rid FROM GraphVehicle_CF").stream()
-          .map(e -> e.getLink("@rid"))
-          .collect(Collectors.toCollection(ArrayList::new));
+      final ArrayList<RID> rids;
+      final var ridRows = tx.query("SELECT @rid FROM GraphVehicle_CF");
+      try (var rows = ridRows.stream()) {
+        rids = rows.map(e -> e.getLink("@rid"))
+            .collect(Collectors.toCollection(ArrayList::new));
+      }
+      assertConsumingScopeClosed(ridRows);
       final var recordsCount = rids.size();
 
       for (var asc : List.of(false, true)) {
@@ -438,19 +515,23 @@ class SQLCombinationFunctionTests extends BaseDBJUnit5Test {
                 "$var2 = (" + subQuery2 + ");";
 
         final var result =
-            tx.query(query, Map.of("rids1", rids1, "rids2", rids2)).toList();
+            queryToList(tx.query(query, Map.of("rids1", rids1, "rids2", rids2)));
 
         final var returnedRids =
             result.stream().map(r -> r.getLink("@rid")).toList();
 
-        final var expectedRids1 =
-            tx.query(subQuery1, Map.of("rids1", rids1)).stream()
-                .map(r -> r.getLink("@rid"))
-                .toList();
-        final var expectedRids2 =
-            tx.query(subQuery2, Map.of("rids2", rids2)).stream()
-                .map(r -> r.getLink("@rid"))
-                .toList();
+        final List<RID> expectedRids1;
+        final var firstRows = tx.query(subQuery1, Map.of("rids1", rids1));
+        try (var rows = firstRows.stream()) {
+          expectedRids1 = rows.map(r -> r.getLink("@rid")).toList();
+        }
+        assertConsumingScopeClosed(firstRows);
+        final List<RID> expectedRids2;
+        final var secondRows = tx.query(subQuery2, Map.of("rids2", rids2));
+        try (var rows = secondRows.stream()) {
+          expectedRids2 = rows.map(r -> r.getLink("@rid")).toList();
+        }
+        assertConsumingScopeClosed(secondRows);
 
         final var expectedRids = fDef.impl(List.of(expectedRids1, expectedRids2));
         assertEquals(expectedRids, returnedRids);

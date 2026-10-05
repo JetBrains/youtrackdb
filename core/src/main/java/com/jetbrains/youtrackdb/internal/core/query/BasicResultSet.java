@@ -29,9 +29,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
   @Override
   void close();
 
-
-  @Nullable
-  DatabaseSessionEmbedded getBoundToSession();
+  @Nullable DatabaseSessionEmbedded getBoundToSession();
 
   /**
    * Returns the result set as a stream. IMPORTANT: the stream consumes the result set!
@@ -41,13 +39,15 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
     return StreamSupport.stream(this, false).onClose(this::close);
   }
 
+  /** Reads all rows and closes this result set, also if reading fails. */
   @Nonnull
   default List<R> toList() {
-    return stream().toList();
+    try (var rows = stream()) {
+      return rows.toList();
+    }
   }
 
-  @Nullable
-  default <O> O findFirst(@Nonnull Function<R, O> function) {
+  @Nullable default <O> O findFirst(@Nonnull Function<R, O> function) {
     try {
       if (hasNext()) {
         return function.apply(next());
@@ -71,8 +71,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
     }
   }
 
-  @Nullable
-  default <O> O findFirstOrNull(@Nonnull Function<R, O> function) {
+  @Nullable default <O> O findFirstOrNull(@Nonnull Function<R, O> function) {
     try {
       if (hasNext()) {
         return function.apply(next());
@@ -84,8 +83,7 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
     }
   }
 
-  @Nullable
-  default R findFirstOrNull() {
+  @Nullable default R findFirstOrNull() {
     try {
       if (hasNext()) {
         return next();
@@ -98,54 +96,59 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
   }
 
   /**
-   * Detaches the result set from the underlying session and returns the results as a list.
+   * Detaches the rows from the underlying session and returns them as a list.
+   * Closes this result set, also if reading or detaching fails.
    */
   @Nonnull
   default List<R> detach() {
-    //noinspection unchecked
-    return stream().map(r -> (R) r.detach()).toList();
+    try (var rows = stream()) {
+      //noinspection unchecked
+      return rows.map(r -> (R) r.detach()).toList();
+    }
   }
 
   @Nonnull
   default Stream<R> detachedStream() {
     return StreamSupport.stream(
-            new Spliterator<R>() {
-              @Override
-              public boolean tryAdvance(Consumer<? super R> action) {
-                while (hasNext()) {
-                  var nextElem = next();
-                  if (nextElem != null) {
-                    //noinspection unchecked
-                    action.accept((R) nextElem.detach());
-                    return true;
-                  }
-                }
-                return false;
+        new Spliterator<R>() {
+          @Override
+          public boolean tryAdvance(Consumer<? super R> action) {
+            while (hasNext()) {
+              var nextElem = next();
+              if (nextElem != null) {
+                //noinspection unchecked
+                action.accept((R) nextElem.detach());
+                return true;
               }
+            }
+            return false;
+          }
 
-              @Nullable
-              @Override
-              public Spliterator<R> trySplit() {
-                return null;
-              }
+          @Nullable @Override
+          public Spliterator<R> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return ORDERED;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return ORDERED;
+          }
+        },
+        false)
         .onClose(this::close);
   }
 
+  /** Reads detached rows and closes this result set, also if reading or detaching fails. */
   @Nonnull
   default List<R> toDetachedList() {
-    return detachedStream().toList();
+    try (var rows = detachedStream()) {
+      return rows.toList();
+    }
   }
 
   @Override
@@ -153,4 +156,3 @@ public interface BasicResultSet<R extends BasicResult> extends Spliterator<R>, I
 
   boolean isClosed();
 }
-

@@ -117,15 +117,51 @@ public class LocalResultSet implements ResultSet {
 
     assert session == null || session.assertIfNotActive();
 
-    stream.close(executionPlan.getContext());
-    executionPlan.close();
-    session = null;
+    // Retire this cursor even when cleanup fails, so close never retries released resources.
     closed = true;
+    try {
+      stream.close(executionPlan.getContext());
+      executionPlan.close();
+    } catch (RuntimeException | Error failure) {
+      try {
+        notifyCloseListeners();
+      } catch (RuntimeException | Error listenerFailure) {
+        if (failure != listenerFailure) {
+          failure.addSuppressed(listenerFailure);
+        }
+      }
+      throw failure;
+    } finally {
+      session = null;
+    }
+    notifyCloseListeners();
+  }
 
-    // Notify lifecycle listeners (merged from LocalResultSetLifecycleDecorator)
+  private void notifyCloseListeners() {
     if (lifecycleListeners != null) {
-      lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
-      lifecycleListeners.clear();
+      Throwable firstFailure = null;
+      try {
+        // Every listener must run, including the session listener that removes the query.
+        for (var listener : lifecycleListeners) {
+          try {
+            listener.queryClosed(queryId);
+          } catch (RuntimeException | Error failure) {
+            if (firstFailure == null) {
+              firstFailure = failure;
+            } else if (firstFailure != failure) {
+              firstFailure.addSuppressed(failure);
+            }
+          }
+        }
+      } finally {
+        lifecycleListeners.clear();
+      }
+      if (firstFailure instanceof RuntimeException failure) {
+        throw failure;
+      }
+      if (firstFailure instanceof Error failure) {
+        throw failure;
+      }
     }
   }
 

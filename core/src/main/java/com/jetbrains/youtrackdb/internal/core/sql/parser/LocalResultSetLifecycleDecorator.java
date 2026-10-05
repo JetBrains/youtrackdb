@@ -24,6 +24,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
   private final ResultSet underlyingResultSet;
   private final List<QueryLifecycleListener> lifecycleListeners = new ArrayList<>();
   private final String queryId;
+  private boolean closed;
 
   public LocalResultSetLifecycleDecorator(ResultSet underlyingResultSet) {
     this.underlyingResultSet = underlyingResultSet;
@@ -36,7 +37,7 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public boolean hasNext() {
-    return underlyingResultSet.hasNext();
+    return !closed && underlyingResultSet.hasNext();
   }
 
   @Override
@@ -50,9 +51,49 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public void close() {
-    underlyingResultSet.close();
-    this.lifecycleListeners.forEach(x -> x.queryClosed(this.queryId));
-    this.lifecycleListeners.clear();
+    if (closed) {
+      return;
+    }
+    closed = true;
+    try {
+      underlyingResultSet.close();
+    } catch (RuntimeException | Error failure) {
+      try {
+        notifyCloseListeners();
+      } catch (RuntimeException | Error listenerFailure) {
+        if (failure != listenerFailure) {
+          failure.addSuppressed(listenerFailure);
+        }
+      }
+      throw failure;
+    }
+    notifyCloseListeners();
+  }
+
+  private void notifyCloseListeners() {
+    Throwable firstFailure = null;
+    try {
+      // Every listener must run, including the session listener that removes the query.
+      for (var listener : lifecycleListeners) {
+        try {
+          listener.queryClosed(queryId);
+        } catch (RuntimeException | Error failure) {
+          if (firstFailure == null) {
+            firstFailure = failure;
+          } else if (firstFailure != failure) {
+            firstFailure.addSuppressed(failure);
+          }
+        }
+      }
+    } finally {
+      this.lifecycleListeners.clear();
+    }
+    if (firstFailure instanceof RuntimeException failure) {
+      throw failure;
+    }
+    if (firstFailure instanceof Error failure) {
+      throw failure;
+    }
   }
 
   @Override
@@ -116,6 +157,6 @@ public class LocalResultSetLifecycleDecorator implements ResultSet {
 
   @Override
   public boolean isClosed() {
-    return underlyingResultSet.isClosed();
+    return closed || underlyingResultSet.isClosed();
   }
 }
