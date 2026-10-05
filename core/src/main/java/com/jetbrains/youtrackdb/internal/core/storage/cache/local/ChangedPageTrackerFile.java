@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.BufferedInputStream;
@@ -11,9 +13,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.zip.CRC32C;
 import java.util.zip.CheckedInputStream;
@@ -21,9 +28,9 @@ import java.util.zip.CheckedOutputStream;
 import javax.annotation.Nullable;
 
 /**
- * Streaming side-file codec. Successful decoding proves content integrity, not WAL coverage.
- * The caller holds save order from capture through publication and checks the capture failure fence.
- * Streams stay open so the publisher can force its channel after encoding.
+ * Streaming side-file codec and ordered durable publisher. Decoding proves content integrity,
+ * not WAL coverage. A WAL-cut caller holds save order around saving and its associated cut.
+ * Codec streams stay open so the publisher can force its channel after encoding.
  */
 final class ChangedPageTrackerFile {
 
@@ -32,6 +39,232 @@ final class ChangedPageTrackerFile {
   private static final int BUFFER_BYTES = 4096;
 
   private ChangedPageTrackerFile() {
+  }
+
+  /**
+   * Holds save order from capture through publication or durable invalidation. A cut caller must
+   * also hold this reentrant domain until its associated cut finishes. No short tracker or external
+   * inventory lock may be held across these filesystem operations.
+   */
+  static SaveResult save(Path sideFile, ChangedPageTracker tracker, LogSequenceNumber coverage) {
+    return save(sideFile, tracker, coverage, new FileOperations());
+  }
+
+  static SaveResult save(Path sideFile, ChangedPageTracker tracker, LogSequenceNumber coverage,
+      FileOperations files) {
+    var target = sideFile.toAbsolutePath();
+    var temporary = target.resolveSibling(target.getFileName() + ".tmp");
+    tracker.saveOrderLock().lock();
+    try {
+      try {
+        var state = tracker.capture();
+        // A crash-left temporary file has no authority. Remove it rather than following an old
+        // link or reusing its bytes. CREATE_NEW gives this attempt a fresh, same-folder file.
+        files.delete(temporary);
+        try (var channel = FileChannel.open(temporary, StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE)) {
+          files.write(channel, state, coverage);
+          files.forceFile(channel);
+        }
+        if (!tracker.isCaptureValid(state)) {
+          throw new IOException("Changed-page tracker capture invalidated before publication");
+        }
+        if (files.windows()) {
+          files.windowsMove(temporary, target);
+        } else {
+          files.move(temporary, target);
+          files.forceFolder(target.getParent());
+        }
+        // A mark can fail during either force or rename. A published file must not certify that
+        // capture. Invalidate its name durably before allowing a cut instead.
+        if (!tracker.saveSucceeded(state)) {
+          throw new IOException("Changed-page tracker capture invalidated during publication");
+        }
+        return SaveResult.SAVED;
+      } catch (IOException | RuntimeException | Error failure) {
+        // Revoke trust before cleanup or diagnostics can allocate or fail.
+        tracker.invalidate();
+        var result = SaveResult.FAILED_INVALIDATED;
+        Error cleanupError = null;
+        try {
+          invalidateFile(target, files);
+        } catch (IOException | RuntimeException | Error secondary) {
+          if (secondary instanceof Error && !(failure instanceof Error)) {
+            suppress(secondary, failure);
+          } else {
+            suppress(failure, secondary);
+          }
+          warn(files, "Failed to invalidate changed-page tracker side file: ", target, secondary);
+          result = SaveResult.FAILED_INVALIDATION_FAILED;
+          if (secondary instanceof Error error) {
+            cleanupError = error;
+          }
+        }
+        warn(files, "Failed to save changed-page tracker side file: ", target, failure);
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        if (cleanupError != null) {
+          throw cleanupError;
+        }
+        return result;
+      }
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
+
+  /** A future cut requires durable removal of authority, including Windows tombstone publication. */
+  static InvalidationResult invalidate(Path sideFile, ChangedPageTracker tracker) {
+    return invalidate(sideFile, tracker, new FileOperations());
+  }
+
+  static InvalidationResult invalidate(Path sideFile, ChangedPageTracker tracker,
+      FileOperations files) {
+    tracker.saveOrderLock().lock();
+    try {
+      tracker.invalidate();
+      var target = sideFile.toAbsolutePath();
+      try {
+        invalidateFile(target, files);
+        return InvalidationResult.INVALIDATED;
+      } catch (IOException | RuntimeException | Error failure) {
+        if (failure instanceof Error error) {
+          try {
+            invalidateFile(target, files);
+          } catch (IOException | RuntimeException | Error secondary) {
+            suppress(error, secondary);
+          }
+          warn(files, "Failed to invalidate changed-page tracker side file: ", target, error);
+          throw error;
+        }
+        warn(files, "Failed to invalidate changed-page tracker side file: ", target, failure);
+        return InvalidationResult.FAILED;
+      }
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
+
+  private static void invalidateFile(Path target, FileOperations files) throws IOException {
+    // Cancellation must not prevent the cleanup durability barrier. Preserve the caller's flag.
+    boolean interrupted = Thread.interrupted();
+    try {
+      if (!files.windows()) {
+        files.delete(target);
+        files.forceFolder(target.getParent());
+      } else if (files.windowsMoveAvailable()) {
+        var temporary = target.resolveSibling(target.getFileName() + ".tmp");
+        files.delete(temporary);
+        try (var channel = FileChannel.open(temporary, StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE)) {
+          files.forceFile(channel);
+        }
+        files.windowsMove(temporary, target);
+      } else {
+        // No publication can occur without the helper. Force the existing name empty instead.
+        files.truncateAndForce(target);
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  private static void warn(FileOperations files, String prefix, Path target, Throwable failure) {
+    try {
+      files.warn(prefix + target, failure);
+    } catch (RuntimeException | Error loggingFailure) {
+      // Diagnostics cannot change a durability outcome or replace the original throwable.
+      suppress(failure, loggingFailure);
+    }
+  }
+
+  private static void suppress(Throwable primary, Throwable secondary) {
+    if (primary != secondary) {
+      try {
+        primary.addSuppressed(secondary);
+      } catch (RuntimeException | Error ignored) {
+        // Exhausted heaps may also reject the diagnostic allocation. Trust is already revoked.
+      }
+    }
+  }
+
+  enum SaveResult {
+    SAVED, FAILED_INVALIDATED, FAILED_INVALIDATION_FAILED;
+
+    /** Existing data-sync and WAL protections still apply. This is only the tracker condition. */
+    boolean allowsWalCut() {
+      return this != FAILED_INVALIDATION_FAILED;
+    }
+  }
+
+  enum InvalidationResult {
+    INVALIDATED, FAILED;
+
+    boolean allowsWalCut() {
+      return this == INVALIDATED;
+    }
+  }
+
+  /** Package-private fault seam. Production uses NIO or a strict Windows native replacement. */
+  static class FileOperations {
+    void write(FileChannel channel, ChangedPageTracker.SaveState state, LogSequenceNumber coverage)
+        throws IOException {
+      ChangedPageTrackerFile.write(Channels.newOutputStream(channel), state, coverage);
+    }
+
+    void forceFile(FileChannel channel) throws IOException {
+      channel.force(true);
+    }
+
+    void move(Path temporary, Path target) throws IOException {
+      move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    void move(Path temporary, Path target, CopyOption... options) throws IOException {
+      Files.move(temporary, target, options);
+    }
+
+    void forceFolder(Path folder) throws IOException {
+      try (var channel = openFolder(folder)) {
+        channel.force(true);
+      }
+    }
+
+    FileChannel openFolder(Path folder) throws IOException {
+      return FileChannel.open(folder, StandardOpenOption.READ);
+    }
+
+    boolean windows() {
+      return IOUtils.isOsWindows();
+    }
+
+    boolean windowsMoveAvailable() {
+      return FileUtils.windowsWriteThroughMoveAvailable();
+    }
+
+    void windowsMove(Path temporary, Path target) throws IOException {
+      FileUtils.windowsWriteThroughMove(temporary, target);
+    }
+
+    void truncateAndForce(Path target) throws IOException {
+      try (var channel = FileChannel.open(target, StandardOpenOption.WRITE)) {
+        channel.truncate(0);
+        channel.force(true);
+      } catch (NoSuchFileException absent) {
+        // An absent name has no authority. Do not create one in the helper-unavailable path.
+      }
+    }
+
+    void warn(String message, Throwable failure) {
+      LogManager.instance().warn(ChangedPageTrackerFile.class, message, failure);
+    }
+
+    void delete(Path path) throws IOException {
+      Files.deleteIfExists(path);
+    }
   }
 
   /** Big-endian fixed-width records avoid counts that can race with concurrent bitmap growth. */
