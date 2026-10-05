@@ -12,7 +12,14 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 - The pull request pipeline activates the Maven profile for integration tests.
 - A developer machine never runs integration tests. Follow `docs-internal/dev-workflow/track-development.md`.
-- The profile uses the Failsafe plugin in `core` and `server` modules.
+- The profile uses the Maven Failsafe plugin in `core`, `server`, and `embedded` modules.
+  It runs tests in Java virtual machines (JVMs).
+- The Maven property `it.storage.callFsync` controls storage file synchronization (fsync) in
+  these JVMs. It defaults to `true`.
+- GitHub integration test runs pass `-Dit.storage.callFsync=false`. The small-cache job uses
+  the same flag. Local builds and production keep fsync enabled by default.
+- The write-ahead log (WAL) retention test enables fsync in its own database configuration.
+  The Maven property does not change unit tests or Docker-based tests.
 
 ## TinkerPop Cucumber Feature Tests
 

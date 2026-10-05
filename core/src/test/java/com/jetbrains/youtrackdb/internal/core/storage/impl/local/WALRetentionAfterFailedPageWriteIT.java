@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -86,7 +87,7 @@ public class WALRetentionAfterFailedPageWriteIT {
     FileUtils.deleteDirectory(buildDirectory.toFile());
     Files.createDirectories(buildDirectory);
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory.toString());
+    youTrackDB = fsyncEnabledDatabase(buildDirectory);
     youTrackDB.create(DB_NAME, DatabaseType.DISK, YouTrackDBConfig.defaultConfig(),
         "admin", "admin", "admin");
   }
@@ -298,7 +299,7 @@ public class WALRetentionAfterFailedPageWriteIT {
     // Verify a disposable clone. The retained baseline must stay on the source WAL lineage.
     var verificationRoot = buildDirectory.resolve("baselineVerification");
     FileUtils.copyDirectory(reopenableBaseline.toFile(), verificationRoot.toFile());
-    var baselineDatabase = (YouTrackDBImpl) YourTracks.instance(verificationRoot.toString());
+    var baselineDatabase = fsyncEnabledDatabase(verificationRoot);
     try (var session = (DatabaseSessionEmbedded) baselineDatabase.open(
         DB_NAME, "admin", "admin")) {
       assertThat(session.getMetadata().getSchema().getClass(CLASS_NAME))
@@ -311,7 +312,14 @@ public class WALRetentionAfterFailedPageWriteIT {
       baselineDatabase.close();
     }
 
-    youTrackDB = (YouTrackDBImpl) YourTracks.instance(buildDirectory.toString());
+    youTrackDB = fsyncEnabledDatabase(buildDirectory);
+  }
+
+  /** Keeps durability barriers enabled for source and copied databases, even in GitHub IT runs. */
+  private static YouTrackDBImpl fsyncEnabledDatabase(final Path databaseRoot) {
+    var configuration = new BaseConfiguration();
+    configuration.setProperty(GlobalConfiguration.STORAGE_CALL_FSYNC.getKey(), true);
+    return (YouTrackDBImpl) YourTracks.instance(databaseRoot, configuration);
   }
 
   /** Opens a session on the source database. */
@@ -482,7 +490,7 @@ public class WALRetentionAfterFailedPageWriteIT {
   /** Opens the crash-state copy and verifies the route-specific data-survival guarantee. */
   private static void assertRecordSurvivesCrashSnapshot(
       final Path snapshotRoot, final DeletionRoute route) {
-    var recovered = (YouTrackDBImpl) YourTracks.instance(snapshotRoot.toString());
+    var recovered = fsyncEnabledDatabase(snapshotRoot);
     try (var session = (DatabaseSessionEmbedded) recovered.open(DB_NAME, "admin", "admin")) {
       var storage = (DiskStorage) session.getStorage();
       if (route == DeletionRoute.BACKGROUND_CLEANUP) {

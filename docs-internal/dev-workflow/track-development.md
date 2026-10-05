@@ -229,6 +229,14 @@ A Java path outside the reactor selects no module. Other file types do not start
 integration job. If the changed-file list is unknown, the pull request runs the full suite.
 Manual runs stay full. Develop runs the full suite after merge.
 
+The Maven Failsafe plugin runs integration tests in Java virtual machines (JVMs).
+The Maven property `it.storage.callFsync` controls storage file synchronization (fsync) in
+these JVMs. It defaults to `true`, so local builds keep fsync enabled.
+GitHub integration test runs pass `-Dit.storage.callFsync=false` to disable it.
+The small-cache integration job uses the same flag. The WAL retention test enables fsync in
+its own database configuration. This property does not change unit tests or Docker-based tests.
+Production keeps fsync enabled by default.
+
 Integration tests do not run for a draft pull request or when every changed file is a Markdown
 file. A merge queue orders approved pull requests for merging. A merge group temporarily
 combines changes GitHub tests before a merge queue writes them to the target branch. Merge groups

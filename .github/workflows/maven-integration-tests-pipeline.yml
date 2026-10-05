@@ -107,7 +107,7 @@ jobs:
             # plus the multi-arch Docker image build.
             runs_on: ubuntu-latest-8-cores-x64-public
             maven_goals: 'clean verify'
-            mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
+            mvn_opts: '-Dmaven.test.failure.ignore=true -Dit.storage.callFsync=false -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
             required_report_kinds: 'surefire,failsafe'
             java_arch: x64
           - arch: arm
