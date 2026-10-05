@@ -532,7 +532,7 @@ jobs:
             exit 1
           fi
           ./mvnw $MAVEN_SETTINGS -pl "$IT_MODULES" clean verify -B \
-            -Dmaven.test.failure.ignore=true -P ci-integration-tests
+            -Dmaven.test.failure.ignore=true -Dit.storage.callFsync=false -P ci-integration-tests
         env:
           IT_MODULES: ${{ needs.detect-changes.outputs.integration_modules }}
           MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
@@ -546,7 +546,8 @@ jobs:
         id: tests
         run: >-
           ./mvnw $MAVEN_SETTINGS clean verify -B
-          -Dmaven.test.failure.ignore=true -P ci-integration-tests $DOCKER_OPTIONS
+          -Dmaven.test.failure.ignore=true -Dit.storage.callFsync=false
+          -P ci-integration-tests $DOCKER_OPTIONS
         env:
           DOCKER_OPTIONS: ${{ github.event_name != 'pull_request' && '-P docker-images -Ddocker.platforms=linux/amd64' || '' }}
           MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
@@ -686,7 +687,7 @@ jobs:
         # That is the intent — a suite that hangs for 105 minutes is exactly the event that
         # notification covers, and the diagnostics artifact is uploaded before it.
         timeout-minutes: 105
-        run: ./mvnw $MAVEN_SETTINGS -pl core -am clean verify -P small-cache-it -Dmaven.test.failure.ignore=true -B
+        run: ./mvnw $MAVEN_SETTINGS -pl core -am clean verify -P small-cache-it -Dit.storage.callFsync=false -Dmaven.test.failure.ignore=true -B
         env:
           MAVEN_SETTINGS: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && '-s .github/workflows/settings.xml' || '' }}
           MAVEN_MIRROR_USERNAME: ${{ (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name && github.event.pull_request.head.repo.full_name == github.repository)) && secrets.MAVEN_MIRROR_USERNAME || '' }}

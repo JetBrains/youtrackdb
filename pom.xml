@@ -97,6 +97,7 @@
     <implementation.build>${scmBranch}@r${buildNumber}</implementation.build>
     <!-- | shared build/report plugins version -->
     <surefire.version>3.5.6</surefire.version>
+    <it.storage.callFsync>true</it.storage.callFsync>
     <license.location>license.txt</license.location>
     <!--Override with the given url on external modules-->
     <!--<license.location>https://github.com/orientechnologies/orientdb/raw/develop/ODB-ASL-LICENSE.txt</license.location>-->
@@ -365,6 +366,9 @@
           <artifactId>maven-failsafe-plugin</artifactId>
           <version>${surefire.version}</version>
           <configuration>
+            <systemPropertyVariables>
+              <youtrackdb.storage.callFsync>${it.storage.callFsync}</youtrackdb.storage.callFsync>
+            </systemPropertyVariables>
             <useModulePath>false</useModulePath>
           </configuration>
           <executions>
