@@ -69,7 +69,8 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   /**
    * The order of these sections is part of dump format version 15. Changing the order or
    * adding a section requires a new {@link #EXPORTER_VERSION}. The importer rejects version 15
-   * dumps whose sections are in another order.
+   * dumps whose sections are in another order. A new format version also needs a stored dump.
+   * See core/src/test/resources/import-compat/README.md.
    */
   enum DumpSection {
     INFO("info", DatabaseExport::exportInfo), COLLECTIONS("collections",
