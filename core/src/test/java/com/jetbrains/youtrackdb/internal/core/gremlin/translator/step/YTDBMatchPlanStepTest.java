@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.Bou
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -16,9 +17,11 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.query.RegisteredQuery;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -43,6 +46,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGen
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
+import org.apache.tinkerpop.gremlin.structure.Transaction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Before;
 import org.junit.Test;
@@ -2254,6 +2258,373 @@ public class YTDBMatchPlanStepTest {
     private int applications() {
       return applications.get();
     }
+  }
+
+  /** A live arming stays registered through its last row and DRAINED, until terminal close. */
+  @Test
+  public void registrationTracksFirstOpenLastRowDrainAndClose() {
+    var entries = observeRegistrations(threadSession);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+    step.reset();
+    assertThat(entries).isEmpty();
+    verify(threadSession, never()).queryStarted(any(), any());
+    assertThat(((Traverser.Admin<?>) step.processNextStart()).get()).isEqualTo(7L);
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    var handle = entries.values().iterator().next();
+    assertThat(handle.getDescription()).isEqualTo(plan.toString());
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    assertThat(entries.values()).containsExactly(handle);
+    step.close();
+    handle.close();
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    verify(plan).close();
+    verify(stream).close(ctx);
+  }
+
+  /** MANUAL transaction admission rejects an unopened run without closing it or preventing retry. */
+  @Test
+  public void manualTransactionRejectionCanRetryAfterOpenAndRegisterOnce() {
+    var entries = observeRegistrations(threadSession);
+    var host = mock(YTDBGraphImplAbstract.class);
+    var manualTx = new YTDBTransaction(host);
+    manualTx.onReadWrite(Transaction.READ_WRITE_BEHAVIOR.MANUAL);
+    when(graph.tx()).thenReturn(manualTx);
+    when(host.getUnderlyingDatabaseSession()).thenReturn(threadSession);
+    var opened = new boolean[1];
+    doAnswer(invocation -> {
+      opened[0] = true;
+      return null;
+    }).when(threadSession).begin();
+    when(threadSession.isTxActive()).thenAnswer(invocation -> opened[0]);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+
+    assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::hasNext)
+        .withMessage(Transaction.Exceptions.transactionMustBeOpenToReadWrite().getMessage());
+    assertThat(entries).isEmpty();
+    verify(threadSession, never()).queryStarted(any(), any());
+    verify(plan, never()).start();
+    verify(plan, never()).close();
+    verify(stream, never()).close(any());
+
+    manualTx.open();
+    assertThat(step.hasNext()).isTrue();
+    assertThat(((Traverser.Admin<?>) step.next()).get()).isEqualTo(7L);
+    assertThat(entries).hasSize(1);
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    verify(plan, times(1)).start();
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(plan, times(1)).close();
+  }
+
+  /** A live reset retires the old handle only on reopen. A stale callback cannot end the new run. */
+  @Test
+  public void resetReopenUsesFreshIdentityAndStaleHandleCannotCloseNewArming() {
+    var entries = observeRegistrations(threadSession);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+    verify(threadSession, never()).queryStarted(any(), any());
+    step.processNextStart();
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    var oldId = entries.keySet().iterator().next();
+    var oldHandle = entries.get(oldId);
+    step.reset();
+    step.reset();
+    assertThat(entries.values()).containsExactly(oldHandle);
+    verify(stream, never()).close(ctx);
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    step.processNextStart();
+    verify(threadSession, times(2)).queryStarted(any(), any());
+    assertThat(entries).hasSize(1).doesNotContainKey(oldId);
+    oldHandle.close();
+    verify(plan, never()).close();
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(plan).close();
+  }
+
+  /** Both reset/registry-callback orders copy the closed plan and open a new registration. */
+  @Test
+  public void registryCallbackPreservesResetInEitherOrder() {
+    for (boolean resetFirst : new boolean[] {true, false}) {
+      setUp();
+      var entries = observeRegistrations(threadSession);
+      var row = scalarRow(7L);
+      when(stream.hasNext(ctx)).thenReturn(true);
+      when(stream.next(ctx)).thenReturn(row);
+      var copy = stubPlanCopyDelivering(row);
+      var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+      step.processNextStart();
+      var oldHandle = entries.values().iterator().next();
+      if (resetFirst) {
+        step.reset();
+      }
+      oldHandle.close(); // The same callback is used by transaction and session bulk close.
+      if (!resetFirst) {
+        assertThat(step.hasNext()).isFalse();
+        step.reset();
+      }
+      assertThat(entries).isEmpty();
+      assertThat(((Traverser.Admin<?>) step.processNextStart()).get()).isEqualTo(7L);
+      assertThat(entries.values()).hasSize(1).doesNotContain(oldHandle);
+      assertThat(step.getPlan()).isSameAs(copy);
+      oldHandle.close();
+      step.close();
+      step.close();
+      assertThat(entries).isEmpty();
+      verify(plan).close();
+      verify(copy).close();
+      verify(plan, never()).reset(any());
+    }
+  }
+
+  /** Explicit close cancels a pending reset and never closes an old plan twice before reopening. */
+  @Test
+  public void explicitCloseCancelsResetAndCloseBeforeReopenDoesNotRepeatPlanClose() {
+    var entries = observeRegistrations(threadSession);
+    when(stream.hasNext(ctx)).thenReturn(false);
+    var step = elementStep("v");
+    drainPayloads(step);
+    step.reset();
+    step.close();
+    assertThat(step.hasNext()).isFalse();
+    step.reset();
+    step.close();
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(plan).close();
+    verify(plan, never()).copy(any());
+  }
+
+  /** Clone construction must drop its aliased handle without retiring the original execution. */
+  @Test
+  public void liveCloneOwnsOnlyItsNewRegistrationAndCloseUsesCapturedSession() {
+    var entries = observeRegistrations(threadSession);
+    var otherSession = mock(DatabaseSessionEmbedded.class);
+    var otherEntries = observeRegistrations(otherSession);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    var copy = stubPlanCopyDelivering(row);
+    var original = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+    original.processNextStart();
+    var originalHandle = entries.values().iterator().next();
+    var clone = original.clone();
+    clone.setTraversal(traversal);
+    assertThat(entries.values()).containsExactly(originalHandle);
+    when(tx.getDatabaseSession()).thenReturn(otherSession);
+    clone.processNextStart();
+    assertThat(otherEntries).hasSize(1);
+    original.close();
+    originalHandle.close();
+    assertThat(entries).isEmpty();
+    assertThat(otherEntries).hasSize(1);
+    clone.close();
+    assertThat(otherEntries).isEmpty();
+    verify(plan).close();
+    verify(copy).close();
+  }
+
+  /** Registration failure before or after insertion releases resources and leaves no stale entry. */
+  @Test
+  public void registrationFailureBeforeAndAfterInsertionKeepsOriginalAndRetiresHandle() {
+    for (boolean insertFirst : new boolean[] {true, false}) {
+      setUp();
+      var entries = observeRegistrations(threadSession);
+      var failure = new AssertionError("registration failed");
+      doAnswer(invocation -> {
+        if (insertFirst) {
+          entries.put(invocation.getArgument(0), invocation.getArgument(1));
+        }
+        throw failure;
+      }).when(threadSession).queryStarted(any(), any());
+      var step = elementStep("v");
+      assertThatExceptionOfType(AssertionError.class).isThrownBy(step::processNextStart)
+          .satisfies(error -> assertThat(error).isSameAs(failure));
+      assertThat(entries).isEmpty();
+      step.close();
+      verify(stream).close(ctx);
+      verify(plan).close();
+      assertThat(step.hasNext()).isFalse();
+    }
+  }
+
+  /** Re-entrant bulk close during registration must see a complete owner and stop new plan reads. */
+  @Test
+  public void registrationCanCloseOwnerBeforeFirstRead() {
+    doAnswer(invocation -> {
+      RegisteredQuery handle = invocation.getArgument(1);
+      handle.close();
+      return null;
+    }).when(threadSession).queryStarted(any(), any());
+    var step = elementStep("v");
+    assertThat(step.hasNext()).isFalse();
+    verify(stream, never()).hasNext(ctx);
+    verify(stream).close(ctx);
+    verify(plan).close();
+    verify(threadSession).queryClosed(any());
+  }
+
+  /** Startup and iteration errors stay primary even when both resource releases fail. */
+  @Test
+  public void startupAndIterationFailuresRetireRegistrationWithCleanupSuppressed() {
+    for (boolean startup : new boolean[] {true, false}) {
+      setUp();
+      var entries = observeRegistrations(threadSession);
+      var failure = new AssertionError("execution failed");
+      if (startup) {
+        when(plan.start()).thenThrow(failure);
+      } else {
+        when(stream.hasNext(ctx)).thenThrow(failure);
+        doThrow(new IllegalStateException("stream close")).when(stream).close(ctx);
+      }
+      doThrow(new IllegalStateException("plan close")).when(plan).close();
+      var step = elementStep("v");
+      assertThatExceptionOfType(AssertionError.class).isThrownBy(step::processNextStart)
+          .satisfies(error -> {
+            assertThat(error).isSameAs(failure);
+            assertThat(error.getSuppressed()).hasSize(1);
+          });
+      assertThat(entries).isEmpty();
+      step.close();
+      verify(plan).close();
+    }
+  }
+
+  /** Even a fatal stream-close error attempts plan closure and retires the registration once. */
+  @Test
+  public void terminalCloseErrorsStillRetireAndAreNotRetried() {
+    var entries = observeRegistrations(threadSession);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    var failure = new AssertionError("stream close");
+    doThrow(failure).when(stream).close(ctx);
+    doThrow(new IllegalStateException("plan close")).when(plan).close();
+    var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+    step.processNextStart();
+    var handle = entries.values().iterator().next();
+    assertThatExceptionOfType(AssertionError.class).isThrownBy(handle::close)
+        .satisfies(error -> assertThat(error.getSuppressed()).hasSize(1));
+    assertThat(entries).isEmpty();
+    handle.close();
+    step.close();
+    verify(stream).close(ctx);
+    verify(plan).close();
+  }
+
+  /** Cache-backed clones register only their live copies and never close or start the template. */
+  @Test
+  public void cachedTemplateNeverRegistersAndLiveCopyDescriptionBelongsToItsRun() {
+    var entries = observeRegistrations(threadSession);
+    var copy = stubPlanCopyDelivering();
+    var step = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+        BoundaryOutputType.ELEMENT, Map.of(), ResultShaping.NONE, true);
+    var clone = step.clone();
+    clone.setTraversal(traversal);
+    step.close();
+    assertThat(entries).isEmpty();
+    drainPayloads(clone);
+    assertThat(entries.values().iterator().next().getDescription()).isEqualTo(copy.toString());
+    clone.close();
+    assertThat(entries).isEmpty();
+    verify(plan, never()).start();
+    verify(plan, never()).close();
+    verify(copy).close();
+  }
+
+  /** Supersession or deregistration failure still closes the plan and leaves a terminal owner. */
+  @Test
+  public void supersessionAndRetirementFailuresStillReleaseEveryOwnedResource() {
+    for (boolean cursorFailure : new boolean[] {true, false}) {
+      setUp();
+      var row = scalarRow(7L);
+      when(stream.hasNext(ctx)).thenReturn(true);
+      when(stream.next(ctx)).thenReturn(row);
+      var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+      step.processNextStart();
+      var failure = new IllegalStateException("release failed");
+      if (cursorFailure) {
+        doThrow(failure).when(stream).close(ctx);
+        doThrow(failure).when(plan).close(); // The same object must not self-suppress.
+      } else {
+        doThrow(failure).when(threadSession).queryClosed(any());
+      }
+      step.reset();
+      assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::processNextStart)
+          .satisfies(error -> assertThat(error).isSameAs(failure));
+      step.close();
+      assertThat(step.hasNext()).isFalse();
+      verify(stream).close(ctx);
+      verify(plan).close();
+      verify(threadSession).queryClosed(any());
+    }
+  }
+
+  /** Failed deregistration stays secondary to resource errors and cannot cause repeated close. */
+  @Test
+  public void deregistrationFailureIsSuppressedAndRetiredHandleRemainsNoOp() {
+    var entries = observeRegistrations(threadSession);
+    var row = scalarRow(7L);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    var step = shapedStep("v", BoundaryOutputType.SCALAR, ResultShaping.NONE);
+    step.processNextStart();
+    var handle = (com.jetbrains.youtrackdb.internal.core.query.StreamQueryHandle) entries.values()
+        .iterator().next();
+    doThrow(new AssertionError("plan close")).when(plan).close();
+    doThrow(new IllegalStateException("deregister")).when(threadSession).queryClosed(any());
+    assertThatExceptionOfType(AssertionError.class).isThrownBy(step::close)
+        .satisfies(error -> assertThat(error.getSuppressed()).hasSize(1));
+    handle.retire();
+    handle.close();
+    step.close();
+    verify(stream).close(ctx);
+    verify(plan).close();
+    verify(threadSession).queryClosed(any());
+  }
+
+  /** Repeated failure objects during startup or iteration remain primary rather than self-suppress. */
+  @Test
+  public void sameExecutionAndCleanupFailureObjectStaysPrimary() {
+    for (boolean startup : new boolean[] {true, false}) {
+      setUp();
+      var failure = new AssertionError("shared execution/cleanup failure");
+      if (startup) {
+        when(plan.start()).thenThrow(failure);
+      } else {
+        when(stream.hasNext(ctx)).thenThrow(failure);
+      }
+      doThrow(failure).when(plan).close();
+      var step = elementStep("v");
+      assertThatExceptionOfType(AssertionError.class).isThrownBy(step::processNextStart)
+          .satisfies(error -> assertThat(error).isSameAs(failure));
+      verify(plan).close();
+      step.close();
+    }
+  }
+
+  private static Map<String, RegisteredQuery> observeRegistrations(DatabaseSessionEmbedded owner) {
+    var entries = new LinkedHashMap<String, RegisteredQuery>();
+    doAnswer(invocation -> {
+      entries.put(invocation.getArgument(0), invocation.getArgument(1));
+      return null;
+    }).when(owner).queryStarted(any(), any());
+    doAnswer(invocation -> {
+      entries.remove(invocation.getArgument(0));
+      return null;
+    }).when(owner).queryClosed(any());
+    return entries;
   }
 
   // ---- Test helpers ----

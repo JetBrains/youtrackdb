@@ -160,6 +160,9 @@ public class FrontendTransactionImpl implements
       new RecordSerializationContext();
   private AtomicOperation atomicOperation;
 
+  // Only bulk-query closure is deferred through the remaining transaction cleanup.
+  private Throwable queryCloseFailure;
+
   // Thread that called startStorageTx() and incremented the per-thread activeTxCount.
   // Pool shutdown may close a session from a different thread than the one that began the tx;
   // in that case tsMin belongs to the originating thread's TsMinHolder and must not be reset.
@@ -424,6 +427,25 @@ public class FrontendTransactionImpl implements
 
   @Override
   public void rollbackInternal() {
+    var closeFailure = rollbackInternalAndGetCloseFailure();
+    if (closeFailure instanceof Error error) {
+      throw error;
+    }
+    if (closeFailure instanceof RuntimeException failure) {
+      throw failure;
+    }
+  }
+
+  /** Completes every nesting level when session teardown leaves rollback unfinished. */
+  public void finishRollbackForSessionClose() {
+    txStartCounter = 0;
+    // ROLLBACKING skips the before-rollback work that can already have failed. The common close
+    // boundary still clears records, releases the storage operation and runs completion callbacks.
+    rollbackInternal();
+  }
+
+  // Returns only the deferred bulk-close failure. Listener and other cleanup failures escape.
+  private @Nullable Throwable rollbackInternalAndGetCloseFailure() {
     if (txStartCounter < 0) {
       throw new TransactionException(session, "Invalid value of TX counter");
     }
@@ -467,22 +489,39 @@ public class FrontendTransactionImpl implements
     }
 
     if (txStartCounter == 0) {
-      close();
-      status = TXSTATUS.ROLLED_BACK;
-
-      assert atomicOperation == null
-          : "atomicOperation must be null after rollback close";
-      assert recordOperations.isEmpty()
-          : "recordOperations must be cleared after rollback, but had "
-              + recordOperations.size() + " entries";
-
-      //There are could be exceptions during session opening
-      // that will force to rollback of txs started during this process.
-      //Session is active only if it is opened successfully.
-      if (session.isActiveOnCurrentThread()) {
-        session.afterRollbackOperations();
+      Throwable closeFailure = null;
+      try {
+        close();
+        status = TXSTATUS.ROLLED_BACK;
+      } catch (RuntimeException | Error failure) {
+        // closeInternal sets ROLLED_BACK only after cleanup completes with a bulk-close failure.
+        // An unrelated cleanup failure stays immediate and does not run the completion callbacks.
+        if (status != TXSTATUS.ROLLED_BACK) {
+          throw failure;
+        }
+        closeFailure = failure;
       }
+
+      try {
+        assert atomicOperation == null
+            : "atomicOperation must be null after rollback close";
+        assert recordOperations.isEmpty()
+            : "recordOperations must be cleared after rollback, but had "
+                + recordOperations.size() + " entries";
+
+        // Rollbacks during session opening can finish before the session becomes active.
+        if (session.isActiveOnCurrentThread()) {
+          session.afterRollbackOperations();
+        }
+      } catch (RuntimeException | Error failure) {
+        if (closeFailure != null && closeFailure != failure) {
+          failure.addSuppressed(closeFailure);
+        }
+        throw failure;
+      }
+      return closeFailure;
     }
+    return null;
   }
 
   private void invalidateChangesInCacheDuringRollback() {
@@ -773,7 +812,12 @@ public class FrontendTransactionImpl implements
       }
 
     } catch (Exception e) {
-      rollbackInternal();
+      // Only the exact deferred bulk-close failure is secondary to the commit failure.
+      // Listener and other rollback cleanup failures propagate directly from the helper.
+      var closeFailure = rollbackInternalAndGetCloseFailure();
+      if (closeFailure != null && e != closeFailure) {
+        e.addSuppressed(closeFailure);
+      }
       if (monitorWriteCommit) {
         notifyMetricsListener(metricsListener, metricsMode, metricsTrackingId,
             commitStartMillis, commitStartNanos, e);
@@ -1046,75 +1090,116 @@ public class FrontendTransactionImpl implements
 
   private void closeInternal() {
     try {
-      clear();
+      var finalStatus = status == TXSTATUS.COMMITTING ? TXSTATUS.COMPLETED
+          : status == TXSTATUS.ROLLBACKING ? TXSTATUS.ROLLED_BACK : TXSTATUS.INVALID;
+      try {
+        clear();
 
-      if (atomicOperation != null) {
-        try {
-          atomicOperation.deactivate();
-          if (storageTxThreadId == Thread.currentThread().threadId()) {
-            session.getStorage().resetTsMin();
+        if (atomicOperation != null) {
+          try {
+            atomicOperation.deactivate();
+            if (storageTxThreadId == Thread.currentThread().threadId()) {
+              session.getStorage().resetTsMin();
+            }
+          } finally {
+            // Ensure atomicOperation is always nulled even if deactivate() or
+            // resetTsMin() throws. Without this, a secondary rollbackInternal()
+            // call (triggered by close-listeners in
+            // DatabaseSessionEmbedded.internalClose() after the exception is
+            // caught at its rollback() call) would observe a stale non-null
+            // atomicOperation.
+            atomicOperation = null;
+            storageTxThreadId = 0;
           }
-        } finally {
-          // Ensure atomicOperation is always nulled even if deactivate() or
-          // resetTsMin() throws. Without this, a secondary rollbackInternal()
-          // call (triggered by close-listeners in
-          // DatabaseSessionEmbedded.internalClose() after the exception is
-          // caught at its rollback() call) would observe a stale non-null
-          // atomicOperation.
-          atomicOperation = null;
-          storageTxThreadId = 0;
         }
+        session.setNoTxMode();
+        status = TXSTATUS.INVALID;
+      } finally {
+        // Outermost transaction frame is now closed (close() is reached only at the base nesting
+        // level, from both the commit and the rollback paths, so this fires exactly once per
+        // transaction). If this transaction engaged the metadata-write mutex on its first schema/index
+        // write, release the permit now. The release sits in a finally so a throw from the teardown
+        // above (clear() or the atomicOperation.deactivate()/resetTsMin() block, whose inner finally
+        // only nulls atomicOperation and does not swallow the throwable) cannot strand the single
+        // permit and freeze every later schema writer. The release is a no-op when nothing was
+        // engaged and races any foreign teardown's release pass safely: all releasers funnel through
+        // the session-level atomic ordinal claim, and the mutex's (session, ordinal) CAS is the
+        // second belt, so the permit is never double-released.
+        session.releaseMetadataWriteMutexForTx();
       }
-      session.setNoTxMode();
-      status = TXSTATUS.INVALID;
+      var failure = queryCloseFailure;
+      if (failure != null) {
+        // Commit/rollback callers cannot set their final status after a thrown close failure.
+        status = finalStatus;
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        throw (RuntimeException) failure;
+      }
+    } catch (RuntimeException | Error failure) {
+      if (queryCloseFailure != null && queryCloseFailure != failure) {
+        failure.addSuppressed(queryCloseFailure);
+      }
+      throw failure;
     } finally {
-      // Outermost transaction frame is now closed (close() is reached only at the base nesting
-      // level, from both the commit and the rollback paths, so this fires exactly once per
-      // transaction). If this transaction engaged the metadata-write mutex on its first schema/index
-      // write, release the permit now. The release sits in a finally so a throw from the teardown
-      // above (clear() or the atomicOperation.deactivate()/resetTsMin() block, whose inner finally
-      // only nulls atomicOperation and does not swallow the throwable) cannot strand the single
-      // permit and freeze every later schema writer. The release is a no-op when nothing was
-      // engaged and races any foreign teardown's release pass safely: all releasers funnel through
-      // the session-level atomic ordinal claim, and the mutex's (session, ordinal) CAS is the
-      // second belt, so the permit is never double-released.
-      session.releaseMetadataWriteMutexForTx();
+      // A later cleanup failure must not leave a bulk failure for a subsequent close.
+      queryCloseFailure = null;
     }
   }
 
   private void clear() {
-    session.closeActiveQueries();
-
-    // Tx-end cache sink: drop every cached entry and close its paused stream. Runs after
-    // closeActiveQueries() has already closed the consumer-facing views, so a view's stream may
-    // already be closed; the entry's stream is the shared IdempotentExecutionStream wrapper, whose
-    // second close is a no-op, so this closes each underlying stream exactly once. Idempotent: a
-    // second clear() (e.g. close after rollback) finds an empty cache.
-    if (queryResultCache != null) {
-      queryResultCache.clear();
-    }
-
-    final var dbCache = session.getLocalCache();
-    for (var txEntry : recordOperations.values()) {
-      var record = txEntry.record;
-
-      if (!record.isUnloaded()) {
-        if (record instanceof EntityImpl entity) {
-          entity.clearTransactionTrackData();
-        }
-
-        record.txEntry = null;
-        record.unsetDirty();
-        record.unload();
+    try {
+      session.closeActiveQueries();
+    } catch (RuntimeException | Error failure) {
+      if (queryCloseFailure == null) {
+        queryCloseFailure = failure;
+      } else if (queryCloseFailure != failure) {
+        queryCloseFailure.addSuppressed(failure);
       }
     }
 
-    dbCache.unloadRecords();
-    dbCache.clear();
+    try {
+      // Tx-end cache sink: drop every cached entry and close its paused stream. Runs after
+      // closeActiveQueries() has already closed the consumer-facing views, so a view's stream may
+      // already be closed; the entry's stream is the shared IdempotentExecutionStream wrapper, whose
+      // second close is a no-op, so this closes each underlying stream exactly once. Idempotent: a
+      // second clear() (e.g. close after rollback) finds an empty cache.
+      if (queryResultCache != null) {
+        queryResultCache.clear();
+      }
 
-    clearUnfinishedChanges();
+      final var dbCache = session.getLocalCache();
+      for (var txEntry : recordOperations.values()) {
+        var record = txEntry.record;
 
-    recordSerializationContext.clear();
+        if (!record.isUnloaded()) {
+          if (record instanceof EntityImpl entity) {
+            entity.clearTransactionTrackData();
+          }
+
+          record.txEntry = null;
+          record.unsetDirty();
+          record.unload();
+        }
+      }
+
+      dbCache.unloadRecords();
+      dbCache.clear();
+
+      clearUnfinishedChanges();
+
+      recordSerializationContext.clear();
+    } catch (RuntimeException | Error failure) {
+      // Rollback also calls clear() before closeInternal(), so retire the failure here on error.
+      try {
+        if (queryCloseFailure != null && queryCloseFailure != failure) {
+          failure.addSuppressed(queryCloseFailure);
+        }
+      } finally {
+        queryCloseFailure = null;
+      }
+      throw failure;
+    }
   }
 
   private void clearUnfinishedChanges() {

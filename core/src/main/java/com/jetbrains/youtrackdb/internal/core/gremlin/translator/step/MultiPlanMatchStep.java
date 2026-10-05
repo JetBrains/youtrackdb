@@ -387,6 +387,7 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
           var childContext = childPlan.getContext();
           childContext.setDatabaseSession(ctx.getDatabaseSession());
           var childStream = new ChildContextStream(childPlan.start(), childContext);
+          Throwable failure = null;
           try {
             if (!childStream.hasNext(childContext)) {
               continue;
@@ -397,8 +398,11 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
             while (childStream.hasNext(childContext)) {
               childStream.next(childContext);
             }
+          } catch (RuntimeException | Error e) {
+            failure = e;
+            throw e;
           } finally {
-            childStream.close(childContext);
+            closeChildStream(childStream, childContext, failure);
           }
         }
         pending = PostConcatStreams.singleCountRow(ctx, total);
@@ -506,14 +510,38 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
     var childContext = childPlan.getContext();
     childContext.setDatabaseSession(coordinator.getDatabaseSession());
     ExecutionStream stream = null;
+    Throwable failure = null;
     try {
       stream = childPlan.start();
       return drainGroupRowsToMap(childContext, stream);
+    } catch (RuntimeException | Error e) {
+      failure = e;
+      throw e;
     } finally {
       if (stream != null) {
-        stream.close(childContext);
+        closeChildStream(stream, childContext, failure);
       }
     }
+  }
+
+  /** Preserve a child execution failure while still reporting a failure from stream cleanup. */
+  private static void closeChildStream(
+      ExecutionStream stream, CommandContext context, Throwable failure) {
+    try {
+      stream.close(context);
+    } catch (RuntimeException | Error closeFailure) {
+      if (failure == null) {
+        throw closeFailure;
+      }
+      if (failure != closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+    }
+  }
+
+  @Override
+  protected String executionDescription() {
+    return plans.toString();
   }
 
   @Override
@@ -531,7 +559,7 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
       } catch (RuntimeException | Error e) {
         if (first == null) {
           first = e;
-        } else {
+        } else if (first != e) {
           first.addSuppressed(e);
         }
       }

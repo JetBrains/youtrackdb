@@ -2896,7 +2896,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   public void afterRollbackOperations() {
     assert assertIfNotActive();
 
-    for (var listener : browseListeners()) {
+    // Rollback callbacks can unregister themselves, including the sequence-drop listener.
+    for (var listener : getListenersCopy()) {
       try {
         listener.onAfterTxRollback(currentTx);
       } catch (Exception t) {
@@ -3460,29 +3461,91 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     teardownIntent = true;
     internalCloseInProgress = true;
 
+    Throwable queryCloseFailure = null;
+    Throwable rollbackFailure = null;
+    Throwable forcedRollbackFailure = null;
     try {
-      closeActiveQueries();
+      try {
+        closeActiveQueries();
+      } catch (RuntimeException | Error failure) {
+        // A bulk-query failure must not skip the session's remaining teardown.
+        queryCloseFailure = failure;
+      }
       localCache.shutdown();
 
-      if (isClosed()) {
+      var backendClosed = isClosed();
+      if (!backendClosed) {
+        try {
+          rollback();
+        } catch (Exception e) {
+          rollbackFailure = e;
+          LogManager.instance().error(this, "Exception during rollback of active transaction", e);
+        } catch (Error failure) {
+          // Rollback Errors are reported only after the remaining session teardown completes.
+          rollbackFailure = failure;
+        }
+      }
+
+      if (currentTx.isActive()) {
+        try {
+          ((FrontendTransactionImpl) currentTx).finishRollbackForSessionClose();
+        } catch (RuntimeException | Error failure) {
+          forcedRollbackFailure = failure;
+          if (failure instanceof Exception exception) {
+            LogManager.instance().error(this,
+                "Exception during forced rollback of active transaction", exception);
+          }
+          if (currentTx.isActive()) {
+            // An unfinished transaction cannot be recycled. Leave OPEN and allow close to retry.
+            throw failure;
+          }
+        }
+        if (currentTx.isActive()) {
+          throw new IllegalStateException("Session close left an active transaction");
+        }
+      }
+
+      if (backendClosed) {
         status = STATUS.CLOSED;
-        return;
+      } else {
+        callOnCloseListeners();
+
+        status = STATUS.CLOSED;
+        if (!recycle) {
+          sharedContext = null;
+          storage.close(this);
+        }
       }
 
-      try {
-        rollback();
-      } catch (Exception e) {
-        LogManager.instance().error(this, "Exception during rollback of active transaction", e);
+      if (forcedRollbackFailure instanceof Error error) {
+        throw error;
       }
-
-      callOnCloseListeners();
-
-      status = STATUS.CLOSED;
-      if (!recycle) {
-        sharedContext = null;
-        storage.close(this);
+      if (rollbackFailure instanceof Error error) {
+        throw error;
       }
-
+      if (queryCloseFailure instanceof Error error) {
+        throw error;
+      }
+      if (queryCloseFailure instanceof RuntimeException failure) {
+        throw failure;
+      }
+    } catch (RuntimeException | Error failure) {
+      // A rollback Error takes precedence over the initial bulk-close failure. An unrelated later
+      // teardown failure stays primary and retains both distinct earlier failures.
+      if (queryCloseFailure != null && queryCloseFailure != failure) {
+        failure.addSuppressed(queryCloseFailure);
+      }
+      if (rollbackFailure != null && rollbackFailure != failure
+          && rollbackFailure != queryCloseFailure
+          && (rollbackFailure instanceof Error || currentTx.isActive())) {
+        failure.addSuppressed(rollbackFailure);
+      }
+      if (forcedRollbackFailure != null && forcedRollbackFailure != failure
+          && forcedRollbackFailure != queryCloseFailure && forcedRollbackFailure != rollbackFailure
+          && (forcedRollbackFailure instanceof Error || currentTx.isActive())) {
+        failure.addSuppressed(forcedRollbackFailure);
+      }
+      throw failure;
     } finally {
       if (status != STATUS.CLOSED) {
         // The teardown unwound before completing (a throw escaped the body — e.g. an Error from
@@ -5151,8 +5214,27 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   public void closeActiveQueries() {
-    for (var rs : new ArrayList<>(activeQueries.values())) {
-      rs.close();
+    Throwable first = null;
+    // Copy keys and strong values before callbacks can deregister or replace entries.
+    for (var entry : new HashMap<>(activeQueries).entrySet()) {
+      try {
+        entry.getValue().close();
+      } catch (RuntimeException | Error failure) {
+        if (first == null) {
+          first = failure;
+        } else if (first != failure) {
+          first.addSuppressed(failure);
+        }
+      } finally {
+        // A failed YQL close may not notify its listener. Never retry that snapshot entry.
+        activeQueries.remove(entry.getKey(), entry.getValue());
+      }
+    }
+    if (first instanceof Error error) {
+      throw error;
+    }
+    if (first instanceof RuntimeException runtime) {
+      throw runtime;
     }
   }
 

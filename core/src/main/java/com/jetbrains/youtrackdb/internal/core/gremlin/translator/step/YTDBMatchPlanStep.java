@@ -216,6 +216,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
   }
 
   @Override
+  protected String executionDescription() {
+    return String.valueOf(plan);
+  }
+
+  @Override
   protected void closePlan() {
     if (plan == null) {
       return;

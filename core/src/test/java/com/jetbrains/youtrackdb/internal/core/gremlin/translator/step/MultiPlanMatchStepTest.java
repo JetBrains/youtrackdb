@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.Bou
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -20,12 +21,14 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.query.RegisteredQuery;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -342,6 +345,36 @@ public class MultiPlanMatchStepTest {
     verify(c1.plan, times(1)).close();
     verify(c2.plan, times(1)).close();
     verify(c3.plan, times(1)).close();
+  }
+
+  /** Shared child-plan failures stay primary, and the third child closes once despite both failures. */
+  @Test
+  public void sharedChildPlanCloseFailureStillClosesEveryChildExactlyOnce() {
+    for (boolean fatal : new boolean[] {false, true}) {
+      setUp();
+      var entries = observeRegistrations();
+      var c1 = child(ListStream.of(vertexRow(rawVertex())));
+      var c2 = child(ListStream.of());
+      var c3 = child(ListStream.of());
+      Throwable failure = fatal ? new AssertionError("shared close")
+          : new IllegalStateException("shared close");
+      doThrow(failure).when(c1.plan).close();
+      doThrow(failure).when(c2.plan).close();
+      var step = elementStep(c1, c2, c3);
+      step.processNextStart();
+      var handle = entries.values().iterator().next();
+
+      assertThat(org.junit.Assert.assertThrows(Throwable.class, handle::close)).isSameAs(failure);
+      assertThat(failure.getSuppressed()).isEmpty();
+      assertThat(entries).isEmpty();
+      handle.close();
+      step.close();
+      verify(c1.plan, times(1)).close();
+      verify(c2.plan, times(1)).close();
+      verify(c3.plan, times(1)).close();
+      verify(c2.plan, never()).start();
+      verify(c3.plan, never()).start();
+    }
   }
 
   /** {@code close()} is idempotent: a second call closes nothing again. */
@@ -852,6 +885,56 @@ public class MultiPlanMatchStepTest {
     assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
   }
 
+  /** Count-child iteration errors keep distinct close failures suppressed and never self-suppress. */
+  @Test
+  public void pushedDownCountPreservesChildFailureDuringStreamClose() {
+    assertChildStreamFailureReporting(false);
+  }
+
+  /** Group-child iteration errors keep distinct close failures suppressed and never self-suppress. */
+  @Test
+  public void perChildGroupPreservesChildFailureDuringStreamClose() {
+    assertChildStreamFailureReporting(true);
+  }
+
+  private void assertChildStreamFailureReporting(boolean group) {
+    // Cover failed iteration with distinct, identical, and successful cleanup, plus normal drain
+    // with failed cleanup. Each path closes the child stream once and all child plans once.
+    for (int scenario = 0; scenario < 4; scenario++) {
+      setUp();
+      var entries = observeRegistrations();
+      var c1 = child(ListStream.of());
+      var c2 = child(ListStream.of());
+      var stream = mock(ExecutionStream.class);
+      var iterationFailure = new AssertionError("child iteration");
+      Throwable closeFailure = scenario == 1 ? iterationFailure
+          : new IllegalStateException("child close");
+      when(c1.plan.start()).thenReturn(stream);
+      if (scenario < 3) {
+        when(stream.hasNext(any())).thenThrow(iterationFailure);
+      }
+      if (scenario != 2) {
+        doThrow(closeFailure).when(stream).close(any());
+      }
+      var step = new MultiPlanMatchStep<>(traversal, Vertex.class, List.of(c1.plan, c2.plan),
+          "v", group ? BoundaryOutputType.MAP : BoundaryOutputType.SCALAR,
+          group ? ResultShaping.NONE.withAccumulateMap(true) : ResultShaping.NONE,
+          group ? List.of() : List.of(PostConcatOp.Count.INSTANCE));
+
+      var thrown = org.junit.Assert.assertThrows(Throwable.class, step::processNextStart);
+      assertThat(thrown).isSameAs(scenario == 3 ? closeFailure : iterationFailure);
+      assertThat(thrown.getSuppressed()).containsExactly(
+          scenario == 0 ? new Throwable[] {closeFailure} : new Throwable[0]);
+      assertThat(entries).isEmpty();
+      assertThat(step.hasNext()).isFalse();
+      step.close();
+      verify(stream, times(1)).close(c1.ctx);
+      verify(c1.plan, times(1)).close();
+      verify(c2.plan, times(1)).close();
+      verify(c2.plan, never()).start();
+    }
+  }
+
   /**
    * The push-down path infers its row shape from a rewrite that lives in another class: exactly one
    * non-boundary column holding a number. A cell that is not a number means the child was never
@@ -1025,6 +1108,270 @@ public class MultiPlanMatchStepTest {
     assertThat(Modifier.isFinal(coordField.getModifiers()))
         .as("coordinatorContext field must be non-final for clone() to assign a fresh coordinator")
         .isFalse();
+  }
+
+  /** Lazy union, pushed-down count, and per-child groups each own one handle for the whole run. */
+  @Test
+  public void unionExecutionPathsRegisterOnceAndCloseEveryChild() {
+    for (int path = 0; path < 3; path++) {
+      setUp();
+      var entries = observeRegistrations();
+      var row = countRow(2L);
+      var c1 = child(ListStream.of(row));
+      var c2 = child(ListStream.of(row));
+      var shaping = path == 2 ? ResultShaping.NONE.withAccumulateMap(true) : ResultShaping.NONE;
+      var ops =
+          path == 1 ? List.<PostConcatOp>of(PostConcatOp.Count.INSTANCE) : List.<PostConcatOp>of();
+      var step = new MultiPlanMatchStep<>(traversal, Vertex.class, List.of(c1.plan, c2.plan),
+          "v", path == 1 ? BoundaryOutputType.SCALAR : BoundaryOutputType.MAP, shaping, ops);
+      assertThat(entries).isEmpty();
+      verify(threadSession, never()).queryStarted(any(), any());
+      step.processNextStart();
+      verify(threadSession, times(1)).queryStarted(any(), any());
+      var handle = entries.values().iterator().next();
+      assertThat(handle.getDescription()).isEqualTo(List.of(c1.plan, c2.plan).toString());
+      if (path == 0) {
+        verify(c2.plan, never()).start();
+      }
+      drainPayloads(step);
+      verify(threadSession, times(1)).queryStarted(any(), any());
+      assertThat(entries.values()).containsExactly(handle);
+      step.close();
+      handle.close();
+      assertThat(entries).isEmpty();
+      verify(c1.plan).close();
+      verify(c2.plan).close();
+    }
+  }
+
+  /** Either transaction-end/reset order replaces every closed child and creates a fresh handle. */
+  @Test
+  public void bulkCloseAndResetInEitherOrderReopenEveryChild() {
+    for (boolean resetFirst : new boolean[] {true, false}) {
+      setUp();
+      var entries = observeRegistrations();
+      var row1 = vertexRow(rawVertex());
+      var row2 = vertexRow(rawVertex());
+      var c1 = child(ListStream.of(row1));
+      var c2 = child(ListStream.of(row2));
+      var copy1 = stubCopyYielding(c1, row1);
+      var copy2 = stubCopyYielding(c2, row2);
+      var step = elementStep(c1, c2);
+      verify(threadSession, never()).queryStarted(any(), any());
+      step.processNextStart();
+      verify(threadSession, times(1)).queryStarted(any(), any());
+      var old = entries.values().iterator().next();
+      if (resetFirst) {
+        step.reset();
+      }
+      old.close();
+      if (!resetFirst) {
+        assertThat(step.hasNext()).isFalse();
+        step.reset();
+      }
+      assertThat(entries).isEmpty();
+      verify(threadSession, times(1)).queryStarted(any(), any());
+      assertThat(drainPayloads(step)).hasSize(2);
+      verify(threadSession, times(2)).queryStarted(any(), any());
+      assertThat(entries.values()).hasSize(1).doesNotContain(old);
+      old.close();
+      step.close();
+      step.reset();
+      step.close(); // No reopened execution means no second close of either copy.
+      assertThat(entries).isEmpty();
+      verify(c1.plan).close();
+      verify(c2.plan).close();
+      verify(copy1).close();
+      verify(copy2).close();
+      verify(c2.plan, never()).start();
+    }
+  }
+
+  /** A live reset replaces only the handle, while a clone has an independent handle and plans. */
+  @Test
+  public void resetAndCloneDoNotShareOrRetireNewUnionHandles() {
+    var entries = observeRegistrations();
+    var c = child(ListStream.of(vertexRow(rawVertex())));
+    var copy = stubCopyYielding(c, vertexRow(rawVertex()));
+    var step = elementStep(c);
+    step.processNextStart();
+    var old = entries.values().iterator().next();
+    var clone = step.clone();
+    clone.setTraversal(traversal);
+    assertThat(entries.values()).containsExactly(old);
+    clone.processNextStart();
+    assertThat(entries).hasSize(2);
+    step.reset();
+    assertThat(entries).hasSize(2);
+    c.stream.rewind();
+    step.processNextStart();
+    old.close();
+    verify(c.plan, never()).close();
+    clone.close();
+    assertThat(entries).hasSize(1);
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(c.plan).close();
+    verify(copy).close();
+  }
+
+  /** Registration and lazy-child startup failures close even unstarted children and retire once. */
+  @Test
+  public void failedRegistrationOrChildStartLeavesNoUnionRegistration() {
+    for (int failurePoint = 0; failurePoint < 3; failurePoint++) {
+      setUp();
+      var entries = observeRegistrations();
+      var c1 = child(ListStream.of(vertexRow(rawVertex())));
+      var c2 = child(ListStream.of(vertexRow(rawVertex())));
+      var failure = new AssertionError("open failed");
+      if (failurePoint < 2) {
+        var insertFirst = failurePoint == 1;
+        doAnswer(invocation -> {
+          if (insertFirst) {
+            entries.put(invocation.getArgument(0), invocation.getArgument(1));
+          }
+          throw failure;
+        }).when(threadSession).queryStarted(any(), any());
+      } else {
+        when(c1.plan.start()).thenThrow(failure);
+      }
+      var step = elementStep(c1, c2);
+      assertThatExceptionOfType(AssertionError.class).isThrownBy(step::processNextStart)
+          .satisfies(error -> assertThat(error).isSameAs(failure));
+      assertThat(entries).isEmpty();
+      step.close();
+      verify(c1.plan).close();
+      verify(c2.plan).close();
+      verify(c2.plan, never()).start();
+    }
+  }
+
+  /** Early transaction close releases lazy children and aggregates child failures before retirement. */
+  @Test
+  public void earlyBulkCloseRetiresUnionDespiteChildPlanFailures() {
+    var entries = observeRegistrations();
+    var c1 = child(ListStream.of(vertexRow(rawVertex())));
+    var c2 = child(ListStream.of(vertexRow(rawVertex())));
+    var c3 = child(ListStream.of(vertexRow(rawVertex())));
+    doThrow(new AssertionError("first close")).when(c1.plan).close();
+    doThrow(new IllegalStateException("second close")).when(c2.plan).close();
+    var step = elementStep(c1, c2, c3);
+    step.processNextStart();
+    step.reset();
+    var handle = entries.values().iterator().next();
+    assertThatExceptionOfType(AssertionError.class).isThrownBy(handle::close)
+        .satisfies(error -> assertThat(error.getSuppressed()).hasSize(1));
+    assertThat(entries).isEmpty();
+    handle.close();
+    step.close();
+    step.close();
+    verify(c1.plan).close();
+    verify(c2.plan).close();
+    verify(c3.plan).close();
+    verify(c2.plan, never()).start();
+    verify(c3.plan, never()).start();
+  }
+
+  /** A throwing active child stream still retires the union and closes every child plan once. */
+  @Test
+  public void throwingChildStreamCloseStillClosesStartedAndUnstartedPlansOnce() {
+    var entries = observeRegistrations();
+    var row = vertexRow(rawVertex());
+    var c1 = child(ListStream.of(row));
+    var c2 = child(ListStream.of(row));
+    var throwingStream = mock(ExecutionStream.class);
+    when(throwingStream.hasNext(any())).thenReturn(true);
+    when(throwingStream.next(any())).thenReturn(row);
+    when(c1.plan.start()).thenReturn(throwingStream);
+    var failure = new AssertionError("child stream close");
+    doThrow(failure).when(throwingStream).close(any());
+    var step = elementStep(c1, c2);
+    step.processNextStart();
+    var handle = entries.values().iterator().next();
+
+    assertThatExceptionOfType(AssertionError.class).isThrownBy(step::close)
+        .satisfies(error -> assertThat(error).isSameAs(failure));
+    assertThat(entries).isEmpty();
+    assertThat(step.hasNext()).isFalse();
+    handle.close();
+    step.close();
+    verify(throwingStream, times(1)).close(any());
+    verify(c1.plan, times(1)).close();
+    verify(c2.plan, times(1)).close();
+    verify(c2.plan, never()).start();
+    verify(threadSession, times(1)).queryClosed(any());
+  }
+
+  /** Explicit close cancels an abandoned live reset rather than reopening the partially read union. */
+  @Test
+  public void explicitCloseOfPartiallyConsumedRearmedUnionCancelsReset() {
+    var entries = observeRegistrations();
+    var row = vertexRow(rawVertex());
+    var c1 = child(ListStream.of(row, row));
+    var c2 = child(ListStream.of(row));
+    var step = elementStep(c1, c2);
+    step.processNextStart();
+    var handle = entries.values().iterator().next();
+    step.reset();
+    assertThat(entries.values()).containsExactly(handle);
+    assertThat(c1.stream.closeCount()).isZero();
+
+    step.close();
+    assertThat(step.hasNext()).isFalse();
+    assertThat(entries).isEmpty();
+    handle.close();
+    step.close();
+    assertThat(c1.stream.closeCount()).isEqualTo(1);
+    verify(c1.plan, times(1)).close();
+    verify(c2.plan, times(1)).close();
+    verify(c2.plan, never()).start();
+    verify(c1.plan, never()).copy(any());
+    verify(c2.plan, never()).copy(any());
+    verify(threadSession, times(1)).queryStarted(any(), any());
+  }
+
+  /** Close before first open is unregistered and reset starts the original, still-pristine children. */
+  @Test
+  public void closeBeforeFirstOpenThenResetRunsOriginalUnionPlans() {
+    var entries = observeRegistrations();
+    var c1 = child(ListStream.of(vertexRow(rawVertex())));
+    var c2 = child(ListStream.of(vertexRow(rawVertex())));
+    var step = elementStep(c1, c2);
+    step.close();
+    step.close();
+    assertThat(step.hasNext()).isFalse();
+    assertThat(entries).isEmpty();
+    verify(threadSession, never()).queryStarted(any(), any());
+    verify(c1.plan, never()).start();
+    verify(c2.plan, never()).start();
+    verify(c1.plan, never()).close();
+    verify(c2.plan, never()).close();
+
+    step.reset();
+    assertThat(drainPayloads(step)).hasSize(2);
+    assertThat(entries).hasSize(1);
+    verify(threadSession, times(1)).queryStarted(any(), any());
+    step.close();
+    assertThat(entries).isEmpty();
+    verify(c1.plan, times(1)).start();
+    verify(c2.plan, times(1)).start();
+    verify(c1.plan, times(1)).close();
+    verify(c2.plan, times(1)).close();
+    verify(c1.plan, never()).copy(any());
+    verify(c2.plan, never()).copy(any());
+  }
+
+  private Map<String, RegisteredQuery> observeRegistrations() {
+    var entries = new LinkedHashMap<String, RegisteredQuery>();
+    doAnswer(invocation -> {
+      entries.put(invocation.getArgument(0), invocation.getArgument(1));
+      return null;
+    }).when(threadSession).queryStarted(any(), any());
+    doAnswer(invocation -> {
+      entries.remove(invocation.getArgument(0));
+      return null;
+    }).when(threadSession).queryClosed(any());
+    return entries;
   }
 
   // ---- Test helpers ----
