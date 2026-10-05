@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -794,6 +795,45 @@ public class MetadataWriteMutexTest extends DbTestBase {
       inner.activateOnCurrentThread();
       inner.close();
       outer.activateOnCurrentThread();
+    }
+  }
+
+  /** A forced rollback after an early listener Error releases the permit for another schema writer. */
+  @Test
+  public void forcedSessionRollbackReleasesMetadataWritePermit() throws InterruptedException {
+    var mutex = session.getSharedContext().getMetadataWriteMutex();
+    var closing = openDatabase();
+    closing.begin();
+    closing.getMetadata().getSchema().createClass("ForcedRollbackHolder", 1);
+    assertTrue(mutex.isEngagedBy(closing));
+    var operation = closing.getActiveTransaction().getAtomicOperation();
+    var failure = new AssertionError("before rollback");
+    closing.registerListener(new SessionListener() {
+      @Override
+      public void onBeforeTxRollback(Transaction tx) {
+        throw failure;
+      }
+    });
+    try {
+      assertEquals(failure, assertThrows(AssertionError.class, closing::close));
+      assertFalse(operation.isActive());
+      assertFalse(mutex.isEngagedBy(closing));
+      var writer = startWorker("mutex-after-forced-rollback", self -> {
+        var other = self.openSession();
+        other.begin();
+        other.getMetadata().getSchema().createClass("AfterForcedRollback", 1);
+        other.commit();
+      });
+      writer.awaitDone(UNBLOCKED_COMPLETION_SECONDS,
+          "a schema writer must finish after forced rollback releases the permit");
+      writer.failIfErrored("the next schema transaction must succeed");
+      session.activateOnCurrentThread();
+      assertTrue(session.getMetadata().getSchema().existsClass("AfterForcedRollback"));
+      assertFalse(session.getMetadata().getSchema().existsClass("ForcedRollbackHolder"));
+    } finally {
+      closing.activateOnCurrentThread();
+      closing.close();
+      session.activateOnCurrentThread();
     }
   }
 

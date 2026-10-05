@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -15,6 +17,9 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.AcquireTimeoutException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.query.RegisteredQuery;
+import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -211,6 +216,206 @@ public class DatabasePoolImplTest {
       assertTrue(pool.isUnused());
     } finally {
       youTrackDb.close();
+    }
+  }
+
+  /**
+   * A bulk-close RuntimeException or Error escapes only after the borrowed session is recycled.
+   * A size-one pool restores exactly one permit, ignores a second close, and reuses the session.
+   */
+  @Test
+  public void failingBulkCloseReturnsCompletedSessionToPoolExactlyOnce() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+    config.setProperty(GlobalConfiguration.DB_POOL_ACQUIRE_TIMEOUT.getKey(), 500);
+    try (var youTrackDb = createYouTrackDB(config)) {
+      createDatabase(youTrackDb, "testFailingBulkClose");
+      var pool = createPool(youTrackDb, "testFailingBulkClose", config);
+      try {
+        for (boolean fatal : new boolean[] {false, true}) {
+          var borrowed = pool.acquire();
+          var closes = new int[1];
+          Throwable failure = fatal ? new AssertionError("bulk close")
+              : new IllegalStateException("bulk close");
+          RegisteredQuery query = new RegisteredQuery() {
+            @Override
+            public void close() {
+              closes[0]++;
+              if (failure instanceof Error error) {
+                throw error;
+              }
+              throw (RuntimeException) failure;
+            }
+
+            @Override
+            public String getDescription() {
+              return "failing pooled query";
+            }
+          };
+          borrowed.queryStarted("pool-close", query);
+          assertEquals(0, pool.getAvailableResources());
+          assertSame(failure, assertThrows(Throwable.class, borrowed::close));
+          assertEquals(DatabaseSessionEmbedded.STATUS.CLOSED, borrowed.getStatus());
+          assertTrue(pool.isUnused());
+          assertEquals(1, pool.getAvailableResources());
+          borrowed.close();
+          assertEquals(1, pool.getAvailableResources());
+          assertEquals(1, closes[0]);
+          try (var reused = pool.acquire()) {
+            assertSame(borrowed, reused);
+            assertEquals(0, pool.getAvailableResources());
+            assertFalse(pool.isUnused());
+            assertTrue(reused.getActiveQueries().isEmpty());
+            reused.begin();
+            reused.commit();
+          }
+          assertEquals(1, pool.getAvailableResources());
+          assertEquals(1, closes[0]);
+        }
+      } finally {
+        pool.close();
+      }
+    }
+  }
+
+  /**
+   * A close listener Error interrupts teardown before CLOSED. The session stays checked out until
+   * the listener is removed and close retries successfully, restoring the permit exactly once.
+   */
+  @Test
+  public void incompleteSessionTeardownKeepsPoolPermitUntilRetry() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+    try (var youTrackDb = createYouTrackDB(config)) {
+      createDatabase(youTrackDb, "testIncompleteTeardown");
+      var pool = createPool(youTrackDb, "testIncompleteTeardown", config);
+      var borrowed = pool.acquire();
+      var failure = new AssertionError("session close listener");
+      var listener = new SessionListener() {
+        @Override
+        public void onClose(DatabaseSessionEmbedded database) {
+          throw failure;
+        }
+      };
+      borrowed.registerListener(listener);
+      try {
+        assertSame(failure, assertThrows(AssertionError.class, borrowed::close));
+        assertEquals(DatabaseSessionEmbedded.STATUS.OPEN, borrowed.getStatus());
+        assertFalse(pool.isUnused());
+        assertEquals(0, pool.getAvailableResources());
+        borrowed.activateOnCurrentThread();
+        borrowed.unregisterListener(listener);
+        borrowed.close();
+        assertTrue(pool.isUnused());
+        assertEquals(1, pool.getAvailableResources());
+        borrowed.close();
+        assertEquals(1, pool.getAvailableResources());
+      } finally {
+        pool.close();
+      }
+    }
+  }
+
+  /** An early rollback Error returns a clean session that the next borrower can begin and commit. */
+  @Test
+  public void beforeRollbackErrorReturnsCleanSessionToSizeOnePool() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+    config.setProperty(GlobalConfiguration.DB_POOL_ACQUIRE_TIMEOUT.getKey(), 500);
+    try (var youTrackDb = createYouTrackDB(config)) {
+      createDatabase(youTrackDb, "testEarlyRollback");
+      var pool = createPool(youTrackDb, "testEarlyRollback", config);
+      try {
+        var borrowed = pool.acquire();
+        var tx = borrowed.begin();
+        var operation = tx.getAtomicOperation();
+        var failure = new AssertionError("before rollback");
+        var listener = new SessionListener() {
+          @Override
+          public void onBeforeTxRollback(Transaction transaction) {
+            throw failure;
+          }
+        };
+        borrowed.registerListener(listener);
+        assertSame(failure, assertThrows(AssertionError.class, borrowed::close));
+        assertFalse(operation.isActive());
+        assertEquals(DatabaseSessionEmbedded.STATUS.CLOSED, borrowed.getStatus());
+        assertEquals(1, pool.getAvailableResources());
+        try (var reused = pool.acquire()) {
+          assertSame(borrowed, reused);
+          reused.unregisterListener(listener);
+          reused.begin();
+          reused.commit();
+        }
+        assertEquals(1, pool.getAvailableResources());
+      } finally {
+        pool.close();
+      }
+    }
+  }
+
+  /** Closed-pool release preserves a retained close failure, but throws when teardown succeeds. */
+  @Test
+  public void borrowerCloseAfterPoolShutdownRetainsOriginalFailure() {
+    var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.CREATE_DEFAULT_USERS.getKey(), false);
+    config.setProperty(GlobalConfiguration.DB_POOL_MAX.getKey(), 1);
+    try (var youTrackDb = createYouTrackDB(config)) {
+      createDatabase(youTrackDb, "testShutdownFailure");
+      for (int scenario = 0; scenario < 3; scenario++) {
+        var pool = createPool(youTrackDb, "testShutdownFailure", config);
+        var borrowed = pool.acquire();
+        var listener = new SessionListener() {
+          @Override
+          public void onClose(DatabaseSessionEmbedded database) {
+            // Leave this borrowed session OPEN during the one-shot pool shutdown.
+            throw new AssertionError("pool teardown interrupted");
+          }
+        };
+        borrowed.registerListener(listener);
+        pool.close();
+        assertTrue(pool.isClosed());
+        assertEquals(DatabaseSessionEmbedded.STATUS.OPEN, borrowed.getStatus());
+        borrowed.activateOnCurrentThread();
+        borrowed.unregisterListener(listener);
+        Throwable failure = scenario == 0 ? null : scenario == 1
+            ? new IllegalStateException("borrower bulk close")
+            : new AssertionError("borrower bulk close");
+        RegisteredQuery query = new RegisteredQuery() {
+          @Override
+          public void close() {
+            if (failure instanceof Error error) {
+              throw error;
+            }
+            throw (RuntimeException) failure;
+          }
+
+          @Override
+          public String getDescription() {
+            return "closed-pool borrower query";
+          }
+        };
+        if (failure != null) {
+          borrowed.queryStarted("shutdown-failure", query);
+        }
+        var thrown = assertThrows(Throwable.class, borrowed::close);
+        if (failure == null) {
+          assertTrue(thrown instanceof DatabaseException);
+          assertTrue(thrown.getMessage().startsWith("The pool is closed"));
+          assertEquals(List.of(), List.of(thrown.getSuppressed()));
+        } else {
+          assertSame(failure, thrown);
+          assertEquals(1, thrown.getSuppressed().length);
+          var releaseFailure = thrown.getSuppressed()[0];
+          assertTrue(releaseFailure instanceof DatabaseException);
+          assertTrue(releaseFailure.getMessage().startsWith("The pool is closed"));
+        }
+        assertEquals(DatabaseSessionEmbedded.STATUS.CLOSED, borrowed.getStatus());
+        borrowed.close();
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.query.StreamQueryHandle;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -110,7 +111,9 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *   <tr><td>OPEN</td><td>stream drained</td><td>DRAINED</td><td>cursor closed, plan left open</td></tr>
  *   <tr><td>OPEN / DRAINED</td><td>{@code reset()}</td><td>REARMED</td><td>untouched; the next open rewinds</td></tr>
  *   <tr><td>OPEN / DRAINED</td><td>{@code close()}</td><td>CLOSED</td><td>stream and plan released</td></tr>
- *   <tr><td>REARMED</td><td>open</td><td>OPEN</td><td>rewound in place, same plan object</td></tr>
+ *   <tr><td>REARMED</td><td>open</td><td>OPEN</td><td>rewound in place, fresh registration</td></tr>
+ *   <tr><td>REARMED</td><td>registry close</td><td>REARMED_AFTER_CLOSE</td><td>old execution released, reset preserved</td></tr>
+ *   <tr><td>REARMED</td><td>explicit close</td><td>CLOSED</td><td>old execution released, reset cancelled</td></tr>
  *   <tr><td>CLOSED</td><td>{@code reset()}</td><td>REARMED_AFTER_CLOSE</td><td>still closed; the copy is deferred</td></tr>
  *   <tr><td>CLOSED_UNSTARTED</td><td>{@code reset()}</td><td>NEW</td><td>untouched, still pristine</td></tr>
  *   <tr><td>REARMED_AFTER_CLOSE</td><td>open</td><td>OPEN</td><td>replaced by a fresh copy, then started</td></tr>
@@ -286,6 +289,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   private State state = State.NEW;
 
+  // Strong consumer ownership keeps the handle alive in embedded weak-value registries.
+  private StreamQueryHandle registration;
+  private boolean planReleased;
+
   /**
    * Constructs a boundary base with the projection metadata shared by every boundary step.
    *
@@ -379,12 +386,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     if (state == State.NEW || state == State.REARMED || state == State.REARMED_AFTER_CLOSE) {
       // First open, or a reopen after reset(). openArming() rewinds the plan iff we are REARMED and
       // replaces it with a fresh copy iff we are REARMED_AFTER_CLOSE.
-      openStream = openArming();
-      state = State.OPEN;
-      // Drop any shaped iterator a superseded arming left behind so the pull below rebuilds it
-      // against the freshly opened stream. openArming() is outside the try below because a plan-start
-      // failure is released by openArming() itself (closePlan, not the stream — none was opened).
-      shapedPayloads = null;
+      openArming();
+      // Registration can invoke teardown re-entrantly. Do not revive an execution it closed.
+      if (state != State.OPEN) {
+        throw FastNoSuchElementException.instance();
+      }
     }
     try {
       if (shapedPayloads == null) {
@@ -416,7 +422,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       try {
         releaseStreamAndClosePlan();
       } catch (RuntimeException | Error suppressed) {
-        e.addSuppressed(suppressed);
+        if (e != suppressed) {
+          e.addSuppressed(suppressed);
+        }
       }
       throw e;
     }
@@ -562,15 +570,23 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   protected void preparePlanForArming() {
   }
 
-  private ExecutionStream openArming() {
-    preparePlanForArming();
-    if (openStream != null) {
-      // Stale cursor from a prior arming. Close it, but keep the plan alive — the same plan
-      // instance re-runs. Deferred from reset() (see reset()'s note) so cloning cannot tear down
-      // the original's still-aliased stream.
-      openStream.close(planContext());
-      openStream = null;
+  private void openArming() {
+    // Supersession ends the old cursor and handle, not the plan needed by live rewind.
+    try {
+      releaseStream();
+      retireRegistration();
+    } catch (RuntimeException | Error failure) {
+      state = State.CLOSED;
+      try {
+        releaseStreamAndClosePlan();
+      } catch (RuntimeException | Error cleanup) {
+        if (failure != cleanup) {
+          failure.addSuppressed(cleanup);
+        }
+      }
+      throw failure;
     }
+    preparePlanForArming();
     armingGraph =
         (YTDBGraphInternal) getTraversal()
             .getGraph()
@@ -586,13 +602,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       // read returns the same object either way. The ordering is held anyway as a constraint on
       // future hooks: a hook that derives its own context for the copy needs the session rebind —
       // and every later use of ctx here — addressed to the context the copy actually runs against.
-      // The stale-cursor block above never fires in this state, because openStream is null on every
-      // route that reaches it — but by a different argument per route, so check the one you care
-      // about rather than assuming a single mechanism. processNextStart()'s terminal handler nulls
-      // it through releaseStreamAndClosePlan(). close() reaches its closePlan() arm only when
-      // openStream == null is the branch condition. openArming()'s own start-failure handler below
-      // runs after the stale-cursor block above has already nulled it.
       replaceClosedPlanWithCopy();
+      planReleased = false;
     }
     var ctx = planContext();
     // Rebind to the session active on THIS (iteration) thread before running. The plan may have
@@ -603,19 +614,28 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     // execution-safe. Unconditional (every arming): a re-iteration after reset() may run on a
     // different thread than the first pass.
     var tx = armingGraph.tx();
+    // Transaction admission has not started execution. A MANUAL-mode rejection stays retryable.
     tx.readWrite();
-    ctx.setDatabaseSession(tx.getDatabaseSession());
-    if (!inputParameters.isEmpty()) {
-      ctx.setInputParameters(inputParameters);
-    }
-    // Rewind before re-running: REARMED means the plan already ran in a prior pass and its step
-    // chain must be reset before it can execute again. A first open (NEW) has nothing to rewind.
-    if (state == State.REARMED) {
-      rewindPlan(ctx);
-    }
-    ExecutionStream stream;
     try {
-      stream = startPlanStream();
+      var session = tx.getDatabaseSession();
+      ctx.setDatabaseSession(session);
+      if (!inputParameters.isEmpty()) {
+        ctx.setInputParameters(inputParameters);
+      }
+      // Only a live rearm rewinds. A closed execution uses the fresh copy installed above.
+      if (state == State.REARMED) {
+        rewindPlan(ctx);
+      }
+      openStream = startPlanStream();
+      // Decorate before publishing a fully close-capable owner.
+      var rowDedupAlias = shaping.rowDedupAlias();
+      if (rowDedupAlias != null) {
+        openStream = PostConcatStreams.dedup(openStream, rowDedupAlias);
+      }
+      state = State.OPEN;
+      registration = new StreamQueryHandle(session,
+          this::closeFromRegistry, this::executionDescription);
+      registration.register();
     } catch (RuntimeException | Error e) {
       // A partial start may have claimed cursors before throwing — release the plan before
       // propagating so nothing leaks. The original failure stays primary.
@@ -630,20 +650,14 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       // sequence down the copy path instead, which is the only way a closed plan runs again.
       state = State.CLOSED;
       try {
-        closePlan();
+        releaseStreamAndClosePlan();
       } catch (RuntimeException | Error suppressed) {
-        e.addSuppressed(suppressed);
+        if (e != suppressed) {
+          e.addSuppressed(suppressed);
+        }
       }
       throw e;
     }
-    // Prior-label dedup(a): keep the first row per identity of the prior RETURN column, then
-    // project the boundary element. Same decorator MultiPlanMatchStep uses for post-union bare
-    // dedup(), applied here before row projection.
-    var rowDedupAlias = shaping.rowDedupAlias();
-    if (rowDedupAlias != null) {
-      stream = PostConcatStreams.dedup(stream, rowDedupAlias);
-    }
-    return stream;
   }
 
   /**
@@ -670,27 +684,58 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * re-run.
    */
   private void releaseStreamAndClosePlan() {
-    var ctx = planContext();
-    var stream = openStream;
-    openStream = null;
-    armingGraph = null;
-    // Drop the shaped iterator with the stream it read from (see releaseStream()).
-    shapedPayloads = null;
-    if (stream == null) {
-      closePlan();
-      return;
+    Throwable first = null;
+    try {
+      releaseStream();
+    } catch (RuntimeException | Error failure) {
+      first = failure;
     }
     try {
-      stream.close(ctx);
-    } catch (RuntimeException | Error e) {
-      try {
+      if (!planReleased) {
+        // Claim before calling the plan, including when its close fails.
+        planReleased = true;
         closePlan();
-      } catch (RuntimeException | Error suppressed) {
-        e.addSuppressed(suppressed);
       }
-      throw e;
+    } catch (RuntimeException | Error failure) {
+      if (first == null) {
+        first = failure;
+      } else if (first != failure) {
+        first.addSuppressed(failure);
+      }
     }
-    closePlan();
+    try {
+      retireRegistration();
+    } catch (RuntimeException | Error failure) {
+      if (first == null) {
+        first = failure;
+      } else if (first != failure) {
+        first.addSuppressed(failure);
+      }
+    }
+    if (first instanceof Error error) {
+      throw error;
+    }
+    if (first instanceof RuntimeException runtime) {
+      throw runtime;
+    }
+  }
+
+  private void retireRegistration() {
+    var handle = registration;
+    registration = null;
+    if (handle != null) {
+      handle.retire();
+    }
+  }
+
+  private void closeFromRegistry() {
+    if (state == State.REARMED) {
+      // Transaction/session end releases the old execution, not the pending reset request.
+      state = State.REARMED_AFTER_CLOSE;
+      releaseStreamAndClosePlan();
+    } else {
+      close();
+    }
   }
 
   /**
@@ -734,17 +779,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * is deliberate — DRAINED still holds an open plan, so a DRAINED-gated early return would skip the
    * plan close and leak the cursor.
    *
-   * <p>REARMED_AFTER_CLOSE is deliberately not gated. A re-arm that actually ran leaves the step in
-   * OPEN — {@link #processNextStart()} assigns OPEN as soon as {@link #openArming()} returns — so a
-   * close observing REARMED_AFTER_CLOSE is looking at a re-arm that never got that far, and that is
-   * exactly why the state must fall through. {@link #openArming()} installs the plan copy before the
-   * session rebind and before the try that guards the plan start, and it runs outside {@link
-   * #processNextStart()}'s terminal handler, so a throw between the two (the transaction rebind, for
-   * one) leaves a live, unstarted copy that only this call can release. A throw from the guarded
-   * start itself does not reach here in this state: that handler releases the copy and records
-   * CLOSED, which the gate above catches. When the re-arm was simply never driven, the plan close
-   * below lands on the already-closed original, which every {@code InternalExecutionPlan} treats as
-   * a no-op.
+   * <p>The per-plan release guard prevents another plan close when a reset is cancelled before
+   * reopening. Registry closure preserves a pending reset in REARMED_AFTER_CLOSE. Explicit close
+   * cancels that request. Both release the old execution exactly once.
    */
   @Override
   public void close() {
@@ -759,16 +796,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       state = State.CLOSED_UNSTARTED;
       return;
     }
-    // Every remaining state has started the plan (the old `everStarted` guard).
     state = State.CLOSED;
-    if (openStream != null) {
-      // A stream is still open (partial consume, or a reset that deferred its close): release the
-      // stream and the plan.
-      releaseStreamAndClosePlan();
-    } else {
-      // Exhaustion already closed the stream; close the still-open plan now.
-      closePlan();
-    }
+    releaseStreamAndClosePlan();
   }
 
   /**
@@ -781,6 +810,9 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * enum directly.
    */
   protected final void resetLifecycleForClone() {
+    // The shallow clone aliases the source handle. Drop it without retirement.
+    this.registration = null;
+    this.planReleased = false;
     this.openStream = null;
     this.armingGraph = null;
     this.shapedPayloads = null;
@@ -1335,4 +1367,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * terminal paths — an iteration failure, a partial-start failure, and {@link #close()}.
    */
   protected abstract void closePlan();
+
+  /** Describes the live execution without starting or closing a cached template. */
+  protected abstract String executionDescription();
 }

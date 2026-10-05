@@ -39,8 +39,29 @@ public class DatabaseSessionEmbeddedPooled extends DatabaseSessionEmbedded imple
       return;
     }
 
-    internalClose(true);
-    pool.release(this);
+    Throwable closeFailure = null;
+    try {
+      internalClose(true);
+    } catch (RuntimeException | Error failure) {
+      closeFailure = failure;
+      throw failure;
+    } finally {
+      // A completed teardown returns its permit even when it reports a retained close failure.
+      // An incomplete teardown keeps the session checked out so a later close can retry it.
+      if (getStatus() == STATUS.CLOSED) {
+        try {
+          pool.release(this);
+        } catch (RuntimeException | Error failure) {
+          if (closeFailure == null) {
+            throw failure;
+          }
+          // Pool shutdown can race this return. Preserve the failure already being reported.
+          if (closeFailure != failure) {
+            closeFailure.addSuppressed(failure);
+          }
+        }
+      }
+    }
   }
 
   @Override
