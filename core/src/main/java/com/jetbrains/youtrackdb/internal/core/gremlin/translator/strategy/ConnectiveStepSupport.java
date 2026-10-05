@@ -65,6 +65,9 @@ final class ConnectiveStepSupport {
    */
   static void commitPureFilterChild(
       RecognitionContext ctx, SubTraversalPredicateAdapter adapter, String boundary) {
+    if (ctx instanceof SubTraversalPredicateAdapter capture) {
+      capture.inheritCapturedClassChange(adapter);
+    }
     for (var entry : adapter.capturedAliasFilters().entrySet()) {
       ctx.putAliasFilter(entry.getKey(), entry.getValue());
     }
@@ -183,6 +186,9 @@ final class ConnectiveStepSupport {
    */
   static SQLBooleanExpression singleCapturedFilter(
       SubTraversalPredicateAdapter adapter, String boundary) {
+    if (adapter.changedCapturedClass()) {
+      return null;
+    }
     List<SQLWhereClause> onBoundary = new ArrayList<>();
     for (var entry : adapter.capturedAliasFilters().entrySet()) {
       if (boundary.equals(entry.getKey())) {

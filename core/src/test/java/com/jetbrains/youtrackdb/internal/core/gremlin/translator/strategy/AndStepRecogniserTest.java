@@ -310,6 +310,25 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
+  /** A failed sibling class preflight commits neither class changes nor property filters. */
+  @Test
+  public void wideningSiblingPreflight_declinesWithoutCommittingAnyChild() {
+    var user = session.createVertexClass("User");
+    session.getSchema().createClass("Employee", user);
+    var admin = graph.traversal().V().and(
+        __.hasLabel("Employee").has("name", "e").barrier(),
+        __.hasLabel("User").has("name", "u").barrier()).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+
+    assertThat(AndStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.patternBuilder.registeredAliasClasses()).containsOnlyKeys(BOUNDARY_ALIAS)
+        .containsEntry(BOUNDARY_ALIAS, "V");
+    assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.notMatchExpressions).isEmpty();
+    assertThat(ctx.inputParameters).hasSize(2);
+  }
+
   /** Without a pinned boundary the recogniser declines rather than inventing an origin alias. */
   @Test
   public void nullBoundary_declines() {

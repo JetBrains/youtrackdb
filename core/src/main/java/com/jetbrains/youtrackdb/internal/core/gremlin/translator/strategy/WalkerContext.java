@@ -454,8 +454,12 @@ final class WalkerContext implements RecognitionContext {
 
   @Nullable @Override
   public String boundaryClassName() {
-    return boundaryAlias == null ? null
-        : patternBuilder.registeredAliasClasses().get(boundaryAlias);
+    return boundaryAlias == null ? null : classForAlias(boundaryAlias);
+  }
+
+  @Nullable @Override
+  public String classForAlias(String alias) {
+    return patternBuilder.registeredAliasClasses().get(alias);
   }
 
   @Nullable @Override

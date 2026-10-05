@@ -156,6 +156,14 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
+    if (labelConstraint != null && ctx.isEdgeAlias(boundary)) {
+      return Outcome.DECLINE;
+    }
+    if (labelConstraint instanceof ParsedLabelConstraint.Single single
+        && !ctx.canNarrowClass(ctx.boundaryClassName(), single.name())) {
+      return Outcome.DECLINE;
+    }
+
     // Type gate: single ~label uses that class; multi-label requires the property type on every
     // named class (allMatch — a schemaless sibling must not drop type guards). No ~label → unknown.
     GremlinPredicateAdapter.PropertyTypeGate typeGate;
@@ -223,6 +231,12 @@ final class HasStepRecogniser implements StepRecogniser {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
+      // Positive commits retain the scan class and intersect explicit label filters.
+      // The exact-class OR/NOT fold cannot represent this captured refinement.
+      if (ctx instanceof SubTraversalPredicateAdapter adapter
+          && adapter.concreteCapturedClassForAlias(boundary) != null) {
+        adapter.markCapturedClassChange();
+      }
       var classNames =
           ctx.polymorphic()
               ? ctx.expandPolymorphicClassClosure(multi.names())
@@ -254,7 +268,7 @@ final class HasStepRecogniser implements StepRecogniser {
     record Single(String name) implements ParsedLabelConstraint {
       @Override
       public boolean conflictsWith(ParsedLabelConstraint other) {
-        return other instanceof Single s && !name.equals(s.name);
+        return !(other instanceof Single s) || !name.equals(s.name);
       }
     }
 

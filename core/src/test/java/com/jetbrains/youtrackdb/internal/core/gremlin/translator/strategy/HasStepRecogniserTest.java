@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -209,6 +210,73 @@ public class HasStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).as("a hasLabel on a non-existent class must decline")
         .isEqualTo(Outcome.DECLINE);
     assertContributedNothing(ctx);
+  }
+
+  /** A rejected widening preserves the earlier class, filters and label bindings in both modes. */
+  @Test
+  public void wideningClass_declinesWithoutChangingExistingContributions() {
+    var user = session.createVertexClass("User");
+    session.getSchema().createClass("Employee", user);
+    for (var polymorphic : Set.of(true, false)) {
+      var ctx = contextWithStartBoundary(polymorphic, session.getSchema());
+      var first = graph.traversal().V().hasLabel("Employee").has("name", "e").asAdmin();
+      assertThat(HasStepRecogniser.INSTANCE.recognize(cursorAfterStart(first), ctx))
+          .isEqualTo(Outcome.ACCEPTED);
+      var filter = renderBoundaryFilter(ctx);
+      var widening = graph.traversal().V().hasLabel("User").as("rejected").asAdmin();
+      assertThat(HasStepRecogniser.INSTANCE.recognize(cursorAfterStart(widening), ctx))
+          .isEqualTo(Outcome.DECLINE);
+      assertThat(ctx.boundaryClassName()).isEqualTo("Employee");
+      assertThat(renderBoundaryFilter(ctx)).isEqualTo(filter);
+      assertThat(ctx.userLabelToAlias).doesNotContainKey("rejected");
+    }
+  }
+
+  /** Nested narrowing marks every enclosing capture as unsafe without changing the committed scan. */
+  @Test
+  public void nestedCapturedNarrowing_marksEnclosingBooleanFoldAsUnsafe() {
+    var ctx = contextWithStartBoundary(true, null);
+    var arm = new SubTraversalPredicateAdapter(ctx, Map.of());
+    arm.addNode(BOUNDARY_ALIAS, "Employee");
+    var middle = new SubTraversalPredicateAdapter(arm, Map.of());
+    var child = new SubTraversalPredicateAdapter(middle, Map.of());
+
+    child.addNode(BOUNDARY_ALIAS, "Manager");
+
+    assertThat(child.changedCapturedClass()).isTrue();
+    ConnectiveStepSupport.commitPureFilterChild(middle, child, BOUNDARY_ALIAS);
+    ConnectiveStepSupport.commitPureFilterChild(arm, middle, BOUNDARY_ALIAS);
+    assertThat(arm.changedCapturedClass()).isTrue();
+    assertThat(ctx.boundaryClassName()).isEqualTo("V");
+  }
+
+  /** Committed classes and equal captured repeats do not represent a changed uncommitted class. */
+  @Test
+  public void committedClassAndEqualCapturedRepeats_doNotMarkClassChange() {
+    var ctx = contextWithStartBoundary(true, null);
+    ctx.addNode(BOUNDARY_ALIAS, "Employee");
+    var arm = new SubTraversalPredicateAdapter(ctx, Map.of());
+    arm.addNode(BOUNDARY_ALIAS, "Manager");
+    var child = new SubTraversalPredicateAdapter(arm, Map.of());
+    child.addNode(BOUNDARY_ALIAS, "Manager");
+
+    assertThat(arm.changedCapturedClass()).isFalse();
+    assertThat(child.changedCapturedClass()).isFalse();
+  }
+
+  /** A valid vertex label on an edge alias declines before changing classes or binding labels. */
+  @Test
+  public void vertexLabelOnEdgeAlias_declinesWithoutContributing() {
+    for (var polymorphic : Set.of(true, false)) {
+      var ctx = contextWithStartBoundary(polymorphic, session.getSchema());
+      ctx.markEdgeAlias(BOUNDARY_ALIAS);
+      var admin = graph.traversal().V().hasLabel("V").as("rejected").asAdmin();
+
+      assertThat(HasStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+          .isEqualTo(Outcome.DECLINE);
+      assertContributedNothing(ctx);
+      assertThat(ctx.userLabelToAlias).doesNotContainKey("rejected");
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -143,6 +143,21 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  a fragment of the positive pattern. */
   private boolean hasEdges;
 
+  // The exact-class OR/NOT fold cannot represent captured scan class refinements safely.
+  private boolean changedCapturedClass;
+
+  boolean changedCapturedClass() {
+    return changedCapturedClass;
+  }
+
+  void markCapturedClassChange() {
+    changedCapturedClass = true;
+  }
+
+  void inheritCapturedClassChange(SubTraversalPredicateAdapter child) {
+    changedCapturedClass |= child.changedCapturedClass;
+  }
+
   /**
    * The boundary alias subsequent filter steps in this child sub-traversal should key on. A hop's
    * {@link #pinBoundary} is swallowed (it must not move the outer traversal's result column) but the
@@ -263,14 +278,23 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Nullable @Override
   public String boundaryClassName() {
     var alias = boundaryAlias();
-    if (alias == null) {
-      return null;
+    return alias == null ? null : classForAlias(alias);
+  }
+
+  @Nullable @Override
+  public String classForAlias(String alias) {
+    var local = capturedPattern.registeredAliasClasses().get(alias);
+    return local != null ? local : parent.classForAlias(alias);
+  }
+
+  /** Finds a concrete class in the capture chain. Committed parent classes do not count. */
+  @Nullable String concreteCapturedClassForAlias(String alias) {
+    var local = capturedPattern.registeredAliasClasses().get(alias);
+    if (local != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(local)) {
+      return local;
     }
-    // Once a child hops, the parent's class describes the origin, not the target. Prefer local
-    // target nodes and re-types; use the parent only when the child still filters its boundary.
-    var localClass = capturedPattern.registeredAliasClasses().get(alias);
-    return localClass != null || !alias.equals(parent.boundaryAlias())
-        ? localClass : parent.boundaryClassName();
+    return parent instanceof SubTraversalPredicateAdapter adapter
+        ? adapter.concreteCapturedClassForAlias(alias) : null;
   }
 
   @Nullable @Override
@@ -372,6 +396,10 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // the addEdge / addEdgeAsNode that already flipped hasEdges. Deriving hasEdges from addNode would
     // misclassify a hasLabel-bearing pure-filter child as edge-bearing, so only the edge contributions
     // below flip the flag.
+    var previous = concreteCapturedClassForAlias(alias);
+    if (previous != null && !previous.equals(className)) {
+      changedCapturedClass = true;
+    }
     capturedPattern.addNode(alias, className, null, false);
   }
 

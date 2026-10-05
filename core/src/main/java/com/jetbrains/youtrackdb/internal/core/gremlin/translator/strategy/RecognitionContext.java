@@ -112,6 +112,16 @@ interface RecognitionContext extends ParamSink {
    */
   @Nullable String boundaryClassName();
 
+  /** The effective scan class for an alias, including any uncommitted child capture. */
+  @Nullable String classForAlias(String alias);
+
+  /** Replacing a scan class must keep its condition, even in exact-label mode. */
+  default boolean canNarrowClass(@Nullable String currentClass, String replacement) {
+    return currentClass == null || currentClass.equals(replacement)
+        || WalkerContext.VERTEX_ROOT_CLASS.equals(currentClass)
+        || expandPolymorphicClassClosure(List.of(currentClass)).contains(replacement);
+  }
+
   /**
    * The {@link BoundaryOutputType} pinned on the current boundary, or {@code null} before any step
    * pins one. A terminator recogniser reads this to refuse a shape a prior terminator already fixed
