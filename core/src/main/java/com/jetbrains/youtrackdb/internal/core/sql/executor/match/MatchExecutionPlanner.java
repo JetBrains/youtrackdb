@@ -787,11 +787,14 @@ public class MatchExecutionPlanner {
     }
 
     // Phase 6: Detached checks run after the positive pattern and before projection.
+    var requiredRows = detachedRequiredRows(context);
     manageExistsPatterns(result, pattern, existsMatchExpressions, aliasClasses, aliasFilters,
-        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates), enableProfiling);
+        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
+        new DetachedSlice(requiredRows, true), enableProfiling);
     manageNotPatterns(
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
-        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates), enableProfiling);
+        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
+        new DetachedSlice(requiredRows, false), enableProfiling);
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -860,16 +863,7 @@ public class MatchExecutionPlanner {
       // Custom RETURN expressions — delegate to the SELECT planner for projection,
       // GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT handling
       var info = new QueryPlanningInfo();
-      List<SQLProjectionItem> items = new ArrayList<>();
-      for (var i = 0; i < this.returnItems.size(); i++) {
-        var item =
-            new SQLProjectionItem(
-                returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
-        items.add(item);
-      }
-      info.projection = new SQLProjection(items, returnDistinct);
-
-      info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
+      info.projection = translatedReturnProjection();
       info.distinct = info.projection != null && info.projection.isDistinct();
       if (info.projection != null) {
         info.projection.setDistinct(false);
@@ -980,16 +974,7 @@ public class MatchExecutionPlanner {
   private void appendCustomReturnProjection(
       SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
     var info = new QueryPlanningInfo();
-    List<SQLProjectionItem> items = new ArrayList<>();
-    for (var i = 0; i < this.returnItems.size(); i++) {
-      var item =
-          new SQLProjectionItem(
-              returnItems.get(i), this.returnAliases.get(i), returnNestedProjections.get(i));
-      items.add(item);
-    }
-    info.projection = new SQLProjection(items, returnDistinct);
-
-    info.projection = SelectExecutionPlanner.translateDistinct(info.projection);
+    info.projection = translatedReturnProjection();
     info.distinct = info.projection != null && info.projection.isDistinct();
     if (info.projection != null) {
       info.projection.setDistinct(false);
@@ -1003,6 +988,15 @@ public class MatchExecutionPlanner {
 
     SelectExecutionPlanner.optimizeQuery(info, context);
     SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+  }
+
+  private SQLProjection translatedReturnProjection() {
+    List<SQLProjectionItem> items = new ArrayList<>();
+    for (var i = 0; i < returnItems.size(); i++) {
+      items.add(new SQLProjectionItem(returnItems.get(i), returnAliases.get(i),
+          returnNestedProjections.get(i)));
+    }
+    return SelectExecutionPlanner.translateDistinct(new SQLProjection(items, returnDistinct));
   }
 
   /**
@@ -1128,6 +1122,7 @@ public class MatchExecutionPlanner {
    * @param aliasPinnedRids      per-alias RID constraints
    * @param context              the command context
    * @param outerRows            positive output estimate before detached checks
+   * @param slice                literal slice eligibility and detached-check polarity
    * @param enableProfiling      whether to enable step profiling
    */
   private static void manageNotPatterns(
@@ -1139,11 +1134,12 @@ public class MatchExecutionPlanner {
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       OptionalLong outerRows,
+      DetachedSlice slice,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
       var matchSteps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows)) {
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows, slice)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
             exp, matchSteps, aliasClasses, aliasFilters, aliasPinnedRids,
@@ -1168,11 +1164,12 @@ public class MatchExecutionPlanner {
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       OptionalLong outerRows,
+      DetachedSlice slice,
       boolean enableProfiling) {
     for (var exp : existsMatchExpressions) {
       var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows)) {
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows, slice)) {
         var buildPlan = buildNotPatternPlan(
             exp, steps, aliasClasses, aliasFilters, aliasPinnedRids, context, enableProfiling);
         result.chain(new HashJoinMatchStep(context, buildPlan, findSharedAliases(exp, pattern),
@@ -1438,20 +1435,38 @@ public class MatchExecutionPlanner {
       CommandContext context,
       Pattern pattern,
       OptionalLong outerRows) {
+    return canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern,
+        outerRows, new DetachedSlice(OptionalLong.empty(), false));
+  }
+
+  static boolean canUseHashJoin(
+      SQLMatchExpression exp, Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> aliasFilters, Map<String, List<SQLRid>> aliasPinnedRids,
+      CommandContext context, Pattern pattern, OptionalLong outerRows, DetachedSlice slice) {
     if (!canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern)) {
       return false;
     }
     if (!hashJoinCostGuardsEnabled(getHashJoinUpstreamMin()) || outerRows.isEmpty()) {
       return true;
     }
+    var estimates = estimateDetachedWalk(exp, aliasClasses, context);
+    var pass = findSharedAliases(exp, pattern).size() == 1
+        ? detachedPassFraction(estimates.paths(), exp.getItems().isEmpty(), slice.exists())
+        : OptionalDouble.empty();
     return detachedHashCostWins(outerRows,
         estimateAliasCardinality(exp.getOrigin().getAlias(), aliasClasses, aliasFilters,
             aliasPinnedRids, context),
-        estimateDetachedWalkCost(exp, aliasClasses, context));
+        estimates.work(), slice.requiredRows(), pass);
   }
 
   /** Unknown estimates bypass both guards. A large sentinel would fail the cost comparison. */
   static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk) {
+    return detachedHashCostWins(outerRows, origins, walk, OptionalLong.empty(),
+        OptionalDouble.empty());
+  }
+
+  static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk,
+      OptionalLong requiredRows, OptionalDouble pass) {
     long minimum = getHashJoinUpstreamMin();
     if (!hashJoinCostGuardsEnabled(minimum) || outerRows.isEmpty() || walk.isEmpty()) {
       return true;
@@ -1460,13 +1475,123 @@ public class MatchExecutionPlanner {
     if (outer < minimum) {
       return false;
     }
-    double nestedCost = outer * walk.getAsDouble();
-    double hashCost = origins + origins * walk.getAsDouble() + outer;
+    double rows = detachedProbeRows(outer, origins, requiredRows, pass);
+    double nestedCost = rows * walk.getAsDouble();
+    double hashCost = origins + origins * walk.getAsDouble() + rows;
+    if (!usableDetachedEstimate(nestedCost) || !usableDetachedEstimate(hashCost)) {
+      // A saturated discounted cost is not evidence for a cheaper limited plan.
+      nestedCost = outer * walk.getAsDouble();
+      hashCost = origins + origins * walk.getAsDouble() + outer;
+    }
     return hashCost < nestedCost;
+  }
+
+  /** Literal-only slicing keeps the choice independent of bindings in a cached SQL plan. */
+  record DetachedSlice(OptionalLong requiredRows, boolean exists) {
+  }
+
+  OptionalLong detachedRequiredRows(CommandContext context) {
+    if (limit == null || notMatchExpressions.size() + existsMatchExpressions.size() != 1
+        || detachedReturnNeedsFullInput(context)) {
+      return OptionalLong.empty();
+    }
+    var literalLimit = literalSliceValue(limit, "LIMIT");
+    var literalSkip = skip == null ? OptionalLong.of(0) : literalSliceValue(skip, "SKIP");
+    if (literalLimit.isEmpty() || literalSkip.isEmpty()) {
+      return OptionalLong.empty();
+    }
+    try {
+      return OptionalLong.of(Math.addExact(literalLimit.getAsLong(), literalSkip.getAsLong()));
+    } catch (ArithmeticException overflow) {
+      return OptionalLong.empty();
+    }
+  }
+
+  private static OptionalLong literalSliceValue(@Nullable Object clause, String keyword) {
+    if (clause == null) {
+      return OptionalLong.empty();
+    }
+    // Rendering without a parameter map preserves ? and :name instead of resolving them.
+    var text = clause.toString().trim();
+    var value = text.substring(Math.min(keyword.length(), text.length())).trim();
+    if (!value.matches("[0-9]+")) {
+      return OptionalLong.empty();
+    }
+    try {
+      long number = Long.parseLong(value);
+      return number < Long.MAX_VALUE ? OptionalLong.of(number) : OptionalLong.empty();
+    } catch (NumberFormatException overflow) {
+      return OptionalLong.empty();
+    }
+  }
+
+  /** One fallback decision covers row shaping, including translated legacy distinct(x). */
+  private boolean detachedReturnNeedsFullInput(CommandContext context) {
+    if (orderBy != null || groupBy != null || unwind != null || returnDistinct
+        || returnElements || returnPathElements) {
+      return true;
+    }
+    var projection = translatedReturnProjection();
+    return projection.isDistinct() || projection.isExpand()
+        || projection.getItems().stream()
+            .anyMatch(item -> item.isAggregate(context.getDatabaseSession()));
+  }
+
+  static OptionalDouble detachedPassFraction(OptionalDouble paths, boolean zeroHop,
+      boolean exists) {
+    if (zeroHop) {
+      return OptionalDouble.of(exists ? 1 : 0);
+    }
+    if (paths.isEmpty() || !usableDetachedEstimate(paths.getAsDouble())) {
+      return OptionalDouble.empty();
+    }
+    double lambda = paths.getAsDouble();
+    return OptionalDouble.of(exists ? -Math.expm1(-lambda) : Math.exp(-lambda));
+  }
+
+  /** Rows from one origin share one check result. Charge complete origin groups, not trials. */
+  static double detachedProbeRows(long outer, long origins, OptionalLong requiredRows,
+      OptionalDouble pass) {
+    if (requiredRows.isEmpty() || pass.isEmpty() || origins <= 0 || origins == Long.MAX_VALUE
+        || outer < 0 || outer == Long.MAX_VALUE || requiredRows.getAsLong() < 0
+        || requiredRows.getAsLong() == Long.MAX_VALUE) {
+      return outer;
+    }
+    double q = pass.getAsDouble();
+    if (!Double.isFinite(q) || q <= 0 || q > 1) {
+      return outer;
+    }
+    double multiplicity = Math.max(1, (double) outer / origins);
+    double passingOrigins = requiredRows.getAsLong() / multiplicity;
+    if (!usableDetachedEstimate(multiplicity) || !usableDetachedEstimate(passingOrigins)) {
+      return outer;
+    }
+    double scannedOrigins = Math.ceil(passingOrigins) / q;
+    if (!usableDetachedEstimate(scannedOrigins)) {
+      return outer;
+    }
+    scannedOrigins = Math.ceil(scannedOrigins);
+    double rows = multiplicity * scannedOrigins;
+    if (scannedOrigins > origins || !usableDetachedEstimate(rows)) {
+      return outer;
+    }
+    return Math.min(outer, rows);
+  }
+
+  private static boolean usableDetachedEstimate(double value) {
+    return Double.isFinite(value) && value >= 0 && value < Long.MAX_VALUE;
+  }
+
+  private record DetachedWalk(OptionalDouble work, OptionalDouble paths) {
   }
 
   /** Sum candidate visits before each hop's filter, using surviving rows for the next hop. */
   static OptionalDouble estimateDetachedWalkCost(
+      SQLMatchExpression exp, Map<String, String> aliasClasses, CommandContext context) {
+    return estimateDetachedWalk(exp, aliasClasses, context).work();
+  }
+
+  private static DetachedWalk estimateDetachedWalk(
       SQLMatchExpression exp, Map<String, String> aliasClasses, CommandContext context) {
     double rows = 1;
     double work = 0;
@@ -1477,13 +1602,13 @@ public class MatchExecutionPlanner {
       var filter = item.getFilter();
       if (filter != null
           && (filter.getMaxDepth() != null || filter.getWhileCondition() != null)) {
-        return OptionalDouble.empty();
+        return new DetachedWalk(OptionalDouble.empty(), OptionalDouble.empty());
       }
       rows *= estimateMethodFanOut(item.getMethod(), currentClass,
           context.getDatabaseSession(), counts);
       work += rows;
-      if (!Double.isFinite(work) || work >= Long.MAX_VALUE) {
-        return OptionalDouble.empty();
+      if (!usableDetachedEstimate(work) || !usableDetachedEstimate(rows)) {
+        return new DetachedWalk(OptionalDouble.empty(), OptionalDouble.empty());
       }
       var targetClass = estimateTargetClass(item, reachedClass, aliasClasses, context);
       if (filter != null && filter.getFilter() != null) {
@@ -1495,7 +1620,8 @@ public class MatchExecutionPlanner {
         currentClass = filter.getClassName(context);
       }
     }
-    return OptionalDouble.of(work);
+    return new DetachedWalk(OptionalDouble.of(work),
+        usableDetachedEstimate(rows) ? OptionalDouble.of(rows) : OptionalDouble.empty());
   }
 
   private static boolean isRecursive(SQLMatchFilter f) {

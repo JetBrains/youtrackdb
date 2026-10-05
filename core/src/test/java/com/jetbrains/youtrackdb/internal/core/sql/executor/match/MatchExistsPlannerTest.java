@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMultiMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -38,11 +39,13 @@ public class MatchExistsPlannerTest extends DbTestBase {
 
   private Object savedMinimum;
   private Object savedThreshold;
+  private Object savedSelectivity;
 
   @After
   public void restoreHashSettings() {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMinimum);
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(savedSelectivity);
   }
 
   @Override
@@ -50,6 +53,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
     super.beforeTest();
     savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
     savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    savedSelectivity = GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.getValue();
     // Plan-shape tests disable the cost guards. Guard tests set their own positive minimum.
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
@@ -626,6 +630,162 @@ public class MatchExistsPlannerTest extends DbTestBase {
     assertDetachedHashWork(true, true);
   }
 
+  /** Literal LIMIT changes both EXPLAIN modes from hash to per-row without changing sliced rows. */
+  @Test
+  public void detachedLimit_frequentPassesAndSkip_choosePerRow() {
+    seedSliceOrigins();
+    for (var negative : List.of(false, true)) {
+      var check = "{as:p}.out('SliceCheck'){as:child"
+          + (negative ? ", where:(flag=true)" : "") + "}";
+      assertSlicePlan(negative, check, "p.name as name", "", true, 300);
+      assertSlicePlan(negative, check, "p.name as name", " LIMIT 1", false, 1);
+      assertSlicePlan(negative, check, "p.name as name", " SKIP 1 LIMIT 2", false, 2);
+      assertSlicePlan(negative, check, "p.name as name", " LIMIT 0", false, 0);
+      assertSlicePlan(negative, check, "p.name as name", " LIMIT -1", true, 300);
+      assertSlicePlan(negative, check, "p.name as name", " ORDER BY name LIMIT 1", true, 1);
+    }
+  }
+
+  /** Rare passing origins require full input, even though LIMIT asks for only one row. */
+  @Test
+  public void detachedLimit_rarePasses_keepHashAndResults() {
+    seedSliceOrigins();
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.0001);
+    assertSlicePlan(false, "{as:p}.out('SliceCheck'){as:child, where:(flag=false)}",
+        "p.name as name", " LIMIT 1", true, 1);
+    // NOT's pass fraction is exp(-10), so S exceeds B even with a one-row slice.
+    assertSlicePlan(true, "{as:p}.out('SliceCheck'){as:child}",
+        "p.name as name", " LIMIT 1", true, 0);
+  }
+
+  /** EXPAND, element unrolling, legacy DISTINCT and wider keys keep the full-input hash choice. */
+  @Test
+  public void detachedLimit_rowChangingReturnsAndWiderKeys_keepHash() {
+    seedSliceOrigins();
+    for (var negative : List.of(false, true)) {
+      var check = "{as:p}.out('SliceCheck'){as:child"
+          + (negative ? ", where:(flag=true)" : "") + "}";
+      for (var projection : List.of("expand(p)", "$elements", "$pathElements",
+          "distinct(p.name) as name")) {
+        assertSlicePlan(negative, check, projection, " LIMIT 1", true, 1);
+      }
+      var wide = "{as:p}.out('SliceCheck'){as:q"
+          + (negative ? ", where:(flag=true)" : "") + "}";
+      assertSlicePlan(negative, wide, "p.name as name", " LIMIT 1", true, 1);
+    }
+  }
+
+  /** Zero-hop exists passes every origin. Zero-hop NOT passes none and never discounts input. */
+  @Test
+  public void detachedLimit_zeroHopAndOptionalOrigin_preserveExactSemantics() {
+    seedSliceOrigins();
+    assertSlicePlan(false, "{as:p}", "p.name as name", " LIMIT 1", false, 1);
+    assertSlicePlan(true, "{as:p}", "p.name as name", " LIMIT 1", false, 0);
+    session.begin();
+    try {
+      for (var negative : List.of(false, true)) {
+        var sql = "MATCH {class:ExistsPerson, as:p}.out('ExistsLink')"
+            + "{class:ExistsPerson, as:q, optional:true}"
+            + (negative ? ", NOT {as:q}" : "") + " RETURN p.name as name LIMIT 1";
+        var plan = detachedPlan(sql, negative ? List.of() : List.of("MATCH {as:q} RETURN q"));
+        assertThat(plan.prettyPrint(0, 2)).doesNotContain("+ HASH")
+            .contains(negative ? "+ NOT (" : "+ EXISTS (");
+        var stream = plan.start();
+        try {
+          assertThat(stream.stream(plan.getContext()).toList()).hasSize(negative ? 0 : 1);
+        } finally {
+          stream.close(plan.getContext());
+          plan.close();
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Parameter LIMIT never discounts. SQL cache reuse keeps hash but reads each slice binding. */
+  @Test
+  public void detachedLimit_parameterCacheReuse_readsFreshBindings() {
+    seedSliceOrigins();
+    var sql = slicePositive() + ", NOT {as:p}.out('SliceCheck')"
+        + "{as:child, where:(flag=true)} RETURN p.name as name LIMIT :n";
+    session.begin();
+    try {
+      for (var n : List.of(1, 17)) {
+        try (var rows = session.query(sql, Map.of("n", n))) {
+          assertThat(rows.getExecutionPlan().prettyPrint(0, 2)).contains("+ HASH ANTI_JOIN");
+          assertThat(rows.toList()).hasSize(n);
+        }
+        var ctx = context();
+        ctx.setInputParameters(Map.of("n", n));
+        var cached = YqlExecutionPlanCache.get(sql, ctx, session);
+        assertThat(cached).isNotNull();
+        assertThat(cached.prettyPrint(0, 2)).contains("+ HASH ANTI_JOIN");
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private static String slicePositive() {
+    return "MATCH {class:SliceOrigin, as:p}.out('SliceFan'){as:q}";
+  }
+
+  /** Thirty origins each generate ten outer rows and ten detached candidates. */
+  private void seedSliceOrigins() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.1);
+    session.execute("CREATE CLASS SliceOrigin EXTENDS V").close();
+    session.execute("CREATE CLASS SliceTarget EXTENDS V").close();
+    session.execute("CREATE CLASS SliceFan EXTENDS E").close();
+    session.execute("CREATE CLASS SliceCheck EXTENDS E").close();
+    session.begin();
+    var target = session.newVertex("SliceTarget");
+    target.setProperty("flag", false);
+    for (var i = 0; i < 30; i++) {
+      var origin = session.newVertex("SliceOrigin");
+      origin.setProperty("name", "origin" + i);
+      for (var j = 0; j < 10; j++) {
+        origin.addEdge(target, "SliceFan");
+        origin.addEdge(target, "SliceCheck");
+      }
+    }
+    session.commit();
+  }
+
+  private void assertSlicePlan(boolean negative, String check, String projection, String tail,
+      boolean hash, int expected) {
+    session.begin();
+    try {
+      List<com.jetbrains.youtrackdb.internal.core.query.Result> chosenRows = null;
+      for (var threshold : List.of(10_000L, 0L)) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+        var sql = slicePositive() + (negative ? ", NOT " + check : "")
+            + " RETURN " + projection + tail;
+        var plan = detachedPlan(sql,
+            negative ? List.of() : List.of("MATCH " + check + " RETURN p"));
+        assertThat(plan.prettyPrint(0, 2)).contains(threshold > 0 && hash
+            ? "+ HASH " + (negative ? "ANTI_JOIN" : "SEMI_JOIN")
+            : negative ? "+ NOT (" : "+ EXISTS (");
+        var stream = plan.start();
+        try {
+          var rows = stream.stream(plan.getContext()).toList();
+          assertThat(rows).hasSize(expected);
+          if (chosenRows != null) {
+            assertThat(rows).isEqualTo(chosenRows);
+          }
+          chosenRows = rows;
+        } finally {
+          stream.close(plan.getContext());
+          plan.close();
+        }
+      }
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      session.rollback();
+    }
+  }
+
   private void assertDetachedHashWork(boolean overflow, boolean wide) {
     session.begin();
     try {
@@ -827,6 +987,12 @@ public class MatchExistsPlannerTest extends DbTestBase {
         .returnItems(positive.getReturnItems())
         .returnAliases(positive.getReturnAliases())
         .returnNestedProjections(positive.getReturnNestedProjections())
+        .limit(positive.getLimit()).skip(positive.getSkip())
+        .orderBy(positive.getOrderBy()).groupBy(positive.getGroupBy())
+        .unwind(positive.getUnwind()).returnDistinct(positive.isReturnDistinct())
+        .returnElements(positive.returnsElements()).returnPaths(positive.returnsPaths())
+        .returnPatterns(positive.returnsPatterns())
+        .returnPathElements(positive.returnsPathElements())
         .build();
     return (SelectExecutionPlan) new MatchExecutionPlanner(inputs)
         .createExecutionPlan(context(), false, false);
@@ -840,19 +1006,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
   }
 
   private SelectExecutionPlan plan(String positiveSql, String checkSql) {
-    var positive = parse(positiveSql);
-    var check = parse(checkSql).getMatchExpressions().getFirst();
-    var pattern = new Pattern();
-    positive.getMatchExpressions().forEach(pattern::addExpression);
-    var inputs = MatchPlanInputs.builder(pattern)
-        .aliasClasses(Map.of("p", "ExistsPerson"))
-        .existsMatchExpressions(List.of(check))
-        .returnItems(positive.getReturnItems())
-        .returnAliases(positive.getReturnAliases())
-        .returnNestedProjections(positive.getReturnNestedProjections())
-        .build();
-    return (SelectExecutionPlan) new MatchExecutionPlanner(inputs)
-        .createExecutionPlan(context(), false, false);
+    return detachedPlan(positiveSql, List.of(checkSql));
   }
 
   private BasicCommandContext context() {

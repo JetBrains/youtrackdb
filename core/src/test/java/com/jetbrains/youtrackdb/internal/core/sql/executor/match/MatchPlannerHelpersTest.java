@@ -1280,6 +1280,191 @@ public class MatchPlannerHelpersTest {
     }
   }
 
+  /** LIMIT counts passing origins. Frequent passes favor per-row work in both polarities. */
+  @Test
+  public void detachedLimitCosts_frequentAndRarePassesChooseDifferentPaths() {
+    var outer = OptionalLong.of(100_000);
+    var walk = OptionalDouble.of(10);
+    var one = OptionalLong.of(1);
+    for (var exists : List.of(false, true)) {
+      var frequent = MatchExecutionPlanner.detachedPassFraction(
+          OptionalDouble.of(exists ? 10 : 0.01), false, exists);
+      var rare = MatchExecutionPlanner.detachedPassFraction(
+          OptionalDouble.of(exists ? 0.00001 : 20), false, exists);
+      assertThat(MatchExecutionPlanner.detachedHashCostWins(outer, 1000, walk)).isTrue();
+      assertThat(MatchExecutionPlanner.detachedHashCostWins(outer, 1000, walk, one, frequent))
+          .isFalse();
+      assertThat(MatchExecutionPlanner.detachedHashCostWins(outer, 1000, walk, one, rare))
+          .isTrue();
+    }
+  }
+
+  /** The repeated-origin review example keeps hash. Unique origins reduce to ceil(K/q). */
+  @Test
+  public void detachedLimitRows_groupOriginsAndCapAtFullInput() {
+    var q = MatchExecutionPlanner.detachedPassFraction(OptionalDouble.of(0.01), false, true);
+    assertThat(MatchExecutionPlanner.detachedProbeRows(100_000, 1000, OptionalLong.of(1), q))
+        .isEqualTo(10_100);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(100_000), 1000,
+        OptionalDouble.of(10), OptionalLong.of(1), q)).isTrue();
+    assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 1000, OptionalLong.of(3),
+        OptionalDouble.of(0.8))).isEqualTo(4);
+    assertThat(MatchExecutionPlanner.detachedProbeRows(100_000, 1000, OptionalLong.of(1),
+        OptionalDouble.of(0.00001))).isEqualTo(100_000); // S exceeds B
+    assertThat(MatchExecutionPlanner.detachedProbeRows(5, 10, OptionalLong.of(9),
+        OptionalDouble.of(1))).isEqualTo(5); // R never exceeds O
+  }
+
+  /** SKIP adds needed passes. LIMIT zero discounts only a positive, known pass fraction. */
+  @Test
+  public void detachedLimitRows_skipZeroPassAndZeroLimit() {
+    assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 1000, OptionalLong.of(101),
+        OptionalDouble.of(0.5))).isEqualTo(202);
+    assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 1000, OptionalLong.of(0),
+        OptionalDouble.of(1))).isZero();
+    assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 1000, OptionalLong.of(0),
+        OptionalDouble.of(0))).isEqualTo(1000);
+    for (var exists : List.of(false, true)) {
+      var pass = MatchExecutionPlanner.detachedPassFraction(OptionalDouble.empty(), true, exists);
+      assertThat(pass).isEqualTo(OptionalDouble.of(exists ? 1 : 0));
+      assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 1000, OptionalLong.of(1), pass))
+          .isEqualTo(exists ? 1 : 1000);
+    }
+  }
+
+  /** Small positive lambda stays positive. NOT preserves a tiny complement after exists rounds. */
+  @Test
+  public void detachedPassFraction_stableAndUnknownEstimates() {
+    assertThat(MatchExecutionPlanner.detachedPassFraction(OptionalDouble.of(1e-20), false, true)
+        .orElseThrow()).isCloseTo(1e-20, within(1e-35));
+    assertThat(MatchExecutionPlanner.detachedPassFraction(OptionalDouble.of(40), false, false)
+        .orElseThrow()).isEqualTo(Math.exp(-40));
+    assertThat(MatchExecutionPlanner.detachedPassFraction(OptionalDouble.of(1000), false, false))
+        .isEqualTo(OptionalDouble.of(0));
+    for (var paths : List.of(OptionalDouble.empty(), OptionalDouble.of(Double.NaN),
+        OptionalDouble.of(Double.POSITIVE_INFINITY), OptionalDouble.of(Long.MAX_VALUE),
+        OptionalDouble.of(-1))) {
+      assertThat(MatchExecutionPlanner.detachedPassFraction(paths, false, true)).isEmpty();
+    }
+  }
+
+  /** Unknown q or unsafe slice arithmetic uses O, without disabling the full-input guards. */
+  @Test
+  public void detachedLimitRows_unknownSaturationAndOverflowUseFullInput() {
+    var one = OptionalLong.of(1);
+    for (var pass : List.of(OptionalDouble.empty(), OptionalDouble.of(0),
+        OptionalDouble.of(Double.NaN), OptionalDouble.of(2), OptionalDouble.of(1e-300))) {
+      assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 100, one, pass)).isEqualTo(1000);
+    }
+    for (var origins : List.of(0L, -1L, Long.MAX_VALUE)) {
+      assertThat(MatchExecutionPlanner.detachedProbeRows(1000, origins, one,
+          OptionalDouble.of(1))).isEqualTo(1000);
+    }
+    for (var required : List.of(OptionalLong.empty(), OptionalLong.of(-1),
+        OptionalLong.of(Long.MAX_VALUE))) {
+      assertThat(MatchExecutionPlanner.detachedProbeRows(1000, 100, required,
+          OptionalDouble.of(1))).isEqualTo(1000);
+    }
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(4), 1,
+        OptionalDouble.of(10), one, OptionalDouble.empty())).isFalse();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1000), 100,
+        OptionalDouble.of(1e18), one, OptionalDouble.of(1))).isTrue(); // cost saturation fallback
+  }
+
+  /** Guard 1 uses O, ties stay per-row, and unknown O/W or a non-positive minimum bypass costs. */
+  @Test
+  public void detachedLimitCosts_preserveGuardsUnknownAndOffSwitch() {
+    var one = OptionalLong.of(1);
+    var pass = OptionalDouble.of(1);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(11), 9,
+        OptionalDouble.of(10), OptionalLong.of(11), pass)).isFalse();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(4), 1,
+        OptionalDouble.of(10), one, pass)).isFalse();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.empty(), 100,
+        OptionalDouble.of(10), one, pass)).isTrue();
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1), 100,
+        OptionalDouble.empty(), one, pass)).isTrue();
+    // O=100000 exceeds the minimum, but discounted R=10100 does not. Hash must still win.
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(11_000L);
+    var rarePass = MatchExecutionPlanner.detachedPassFraction(OptionalDouble.of(0.01), false, true);
+    assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(100_000), 1000,
+        OptionalDouble.of(10), one, rarePass)).isTrue();
+    for (var minimum : List.of(0L, -1L)) {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(minimum);
+      assertThat(MatchExecutionPlanner.detachedHashCostWins(OptionalLong.of(1), 100,
+          OptionalDouble.of(10), one, pass)).isTrue();
+      var exp = buildNotExpression("person", null, "tag", null);
+      var ctx = buildMockContext("Person", 100);
+      var slice = new MatchExecutionPlanner.DetachedSlice(one, true);
+      assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of(), Map.of(), Map.of(), ctx,
+          buildPattern("person"), OptionalLong.of(1000), slice)).isFalse();
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+      assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
+          Map.of(), ctx, buildPattern("person"), OptionalLong.of(1000), slice)).isFalse();
+    }
+  }
+
+  /** Every row-shaping or non-literal slice boundary retains the full-input comparison. */
+  @Test
+  public void detachedSlice_allFullInputFallbacks() throws Exception {
+    var ctx = buildMockContext("Person", 100);
+    var prefix = "MATCH {class:Person, as:a}, NOT {as:a}.out(){as:x} RETURN ";
+    for (var tail : List.of("a", "a SKIP 1", "a LIMIT -1", "a LIMIT :n", "a LIMIT ?",
+        "a SKIP :s LIMIT 1", "a SKIP ? LIMIT 1", "a ORDER BY a.name LIMIT 1",
+        "a GROUP BY a LIMIT 1", "count(*) LIMIT 1", "DISTINCT a LIMIT 1",
+        "distinct(a) LIMIT 1", "a as row UNWIND row LIMIT 1", "expand(a) LIMIT 1",
+        "$elements LIMIT 1", "$pathElements LIMIT 1")) {
+      var parsed = parseStatement(prefix + tail);
+      assertThat(new MatchExecutionPlanner(parsed).detachedRequiredRows(ctx))
+          .as(tail).isEmpty();
+    }
+    assertThat(new MatchExecutionPlanner(parseStatement(prefix + "a SKIP 7 LIMIT 3"))
+        .detachedRequiredRows(ctx)).isEqualTo(OptionalLong.of(10));
+    assertThat(new MatchExecutionPlanner(parseStatement(prefix + "a LIMIT 0"))
+        .detachedRequiredRows(ctx)).isEqualTo(OptionalLong.of(0));
+    for (var mode : List.of("$paths", "$patterns")) {
+      assertThat(new MatchExecutionPlanner(parseStatement(prefix + mode + " LIMIT 1"))
+          .detachedRequiredRows(ctx)).isEqualTo(OptionalLong.of(1));
+    }
+    var check = parseExpression("{as:a}.out(){as:x}");
+    for (var negativeCount : List.of(0, 1, 2)) {
+      var checks = List.of(check, check);
+      var inputs = MatchPlanInputs.builder(buildPattern("a"))
+          .notMatchExpressions(checks.subList(0, negativeCount))
+          .existsMatchExpressions(checks.subList(negativeCount, 2))
+          .limit(parseStatement(prefix + "a LIMIT 1").getLimit()).build();
+      assertThat(new MatchExecutionPlanner(inputs).detachedRequiredRows(ctx)).isEmpty();
+    }
+  }
+
+  /** The shared walk retains fractional lambda. Wider keys and recursive walks do not discount. */
+  @Test
+  public void detachedSlice_fractionalPathsWiderKeysAndRecursiveBypass() throws Exception {
+    var ctx = buildMockContext("Person", 999);
+    var classes = Map.of("person", "Person");
+    var exp = parseExpression("{as:person}.out(){as:tag, where:(flag=true)}");
+    var slice = new MatchExecutionPlanner.DetachedSlice(OptionalLong.of(1), true);
+    var outer = OptionalLong.of(100_000);
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.001);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+        buildPattern("person"), outer, slice)).isTrue(); // lambda=.01, not rounded to 1
+    GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.1);
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+        buildPattern("person"), outer, slice)).isFalse();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
+        buildPattern("person", "tag"), outer, slice)).isTrue();
+    var recursive = parseExpression("{as:person}.out(){as:tag, maxDepth:2}");
+    assertThat(MatchExecutionPlanner.canUseHashJoin(recursive, classes, Map.of(), Map.of(), ctx,
+        buildPattern("person"), OptionalLong.of(1), slice)).isTrue();
+    GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.setValue(Double.POSITIVE_INFINITY);
+    assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, classes, ctx)).isEmpty();
+  }
+
+  private static SQLMatchStatement parseStatement(String sql) throws Exception {
+    return (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+        sql.getBytes(StandardCharsets.UTF_8))).parse();
+  }
+
   /** Root-only and scheduled estimates use the actual root, and unknown survives composition. */
   @Test
   public void detachedOuterEstimate_followsScheduleAndPropagatesUnknown() {
