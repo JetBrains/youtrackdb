@@ -1058,10 +1058,15 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       if (exporterVersion >= 15) {
         schemaImportClass = linkedClass.getKey().getOwnerClass().getName();
       }
-      linkedClass
-          .getKey()
-          .setLinkedClass(session.getMetadata().getSchema().getClass(
-              linkedClass.getValue()));
+      var resolved = session.getMetadata().getSchema().getClass(linkedClass.getValue());
+      if (exporterVersion >= 15 && resolved == null) {
+        var property = linkedClass.getKey();
+        throw new DatabaseImportException(
+            "Import rejected: v15 dump property '" + property.getOwnerClass().getName() + "."
+                + property.getName() + "' refers to missing linked class '"
+                + linkedClass.getValue() + "'");
+      }
+      linkedClass.getKey().setLinkedClass(resolved);
     }
   }
 
@@ -1195,13 +1200,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         // CN51 consumption tally: every class OBJECT parsed from the dump counts.
         schemaImportClass = className;
         parsedSchemaClassCount++;
-        // Dotted source names are renamed during import. Check the resulting name before
-        // creating the class, or an empty source class could become the temporary RID map.
-        if (exporterVersion >= 15
-            && EXPORT_IMPORT_CLASS_NAME.equals(className.replace('.', '_'))) {
+        // V15 retains source names. Only the exact helper name can collide with the RID map.
+        if (exporterVersion >= 15 && EXPORT_IMPORT_CLASS_NAME.equals(className)) {
           throw new DatabaseImportException(
               "Import rejected: v15 dump schema class '" + className
-                  + "' resolves to reserved class '" + EXPORT_IMPORT_CLASS_NAME
+                  + "' uses reserved class '" + EXPORT_IMPORT_CLASS_NAME
                   + "'. Drop this leftover helper class from the source database and export again");
         }
 
@@ -1226,8 +1229,8 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
                 .toArray();
 
         jsonReader.readNext(JSONReader.NEXT_IN_OBJECT);
-        if (className.contains(".")) {
-          // MIGRATE OLD NAME WITH . TO _
+        if (exporterVersion < 15 && className.contains(".")) {
+          // Legacy imports keep the historical dot-to-underscore rename.
           final var newClassName = className.replace('.', '_');
           listener.onMessage(
               "\nWARNING: class '" + className + "' has been renamed in '" + newClassName + "'\n");
@@ -1408,6 +1411,9 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       throw truncation;
     } catch (final Exception e) {
       if (exporterVersion >= 15) {
+        if (e instanceof DatabaseImportException rejection) {
+          throw rejection;
+        }
         throw v15Failure(schemaImportFailureMessage(), e);
       }
       LogManager.instance().error(this, "Error on importing schema", e);

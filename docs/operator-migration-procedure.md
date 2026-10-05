@@ -99,7 +99,9 @@ exits non-zero on failure — that is the observable the gates below rely on.
    error can be consumed but not applied on a legacy-declared dump. Legacy dumps can also
    contain records marked as schema manager or index manager. The importer discards those
    records, while records marked only `@internal` follow the normal commit path. Version 15
-   rejects all three markers and any record-apply failure. For a healthy dump
+   rejects all three markers and any record-apply failure. Version 15 keeps class names
+   exactly, including dots. A linked class missing from the schema stops the import.
+   For a healthy dump
    produced by an honest exporter these arms are unreachable; if you need end-to-end
    certainty for a critical migration, verify application-level invariants (record
    counts per class, spot checks) after the import.
@@ -151,9 +153,10 @@ resolve the cause in the source database and export again before retrying.
 | Tampered v15 dump (missing, duplicated, or reordered sections, trailing data) | Rejected loudly. Sections must appear in this order: info, collections, schema, records, brokenRids, indexes, manifest. Discard the target. Do not edit the dump. Export again from the source with the current exporter and import into a fresh target |
 | V15 dump with a manifest count mismatch, including the number of committed records | Rejected loudly. Discard the target. Do not edit the dump. Export again from the source with the current exporter and import into a fresh target |
 | V15 dump with a record marked as internal, schema manager, or index manager | Rejected naming the record ID. Discard the target. Do not edit the dump. Export again from the source with the current exporter and import into a fresh target |
-| V15 dump with a schema class named `___exportImportRIDMap`, including a name changed to that name during import | Rejected naming the source class and reserved class. Discard the target. Drop this leftover helper class from the source database, then export again and import into a fresh target. Do not delete the class until its data is no longer needed |
+| V15 dump with a schema class named exactly `___exportImportRIDMap` | Rejected naming the source class and reserved class. Discard the target. Drop this leftover helper class from the source database, then export again and import into a fresh target. Do not delete the class until its data is no longer needed |
 | V15 dump with a record in the reserved `___exportImportRIDMap` class | Rejected naming the record ID. Discard the target. Remove the leftover helper class from the source database after preserving any needed data. Export again and import into a fresh target |
 | V15 dump imported with `-migrateLinks=false` or `setMigrateLinks(false)` | Rejected after the info section, before target data is changed. Discard the target. Leave link migration enabled (the default) and import again into a fresh target |
+| V15 dump with a missing linked class | Rejected naming the property and missing class. Discard the target. Fix the schema in the source database, export again, and import into a fresh target |
 | V15 dump with a schema-apply or record-write error | Rejected naming the failed check. Schema errors name the class when the failure belongs to a class. Discard the target. Fix the named class in the source database, for example a missing superclass, and export again. If no class is named, use the error cause to find the schema problem. For record errors, fix the record named by its ID in the source database and export again. Import into a fresh target |
 | Dump truncated inside a section, damaged/dangling info fields | Rejected loudly, on every path and for every declared version |
 

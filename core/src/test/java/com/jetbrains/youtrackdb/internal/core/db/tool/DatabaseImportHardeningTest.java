@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -15,6 +16,8 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SessionListener;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
 import java.io.IOException;
@@ -902,20 +905,122 @@ public class DatabaseImportHardeningTest extends DbTestBase {
     }
   }
 
-  /** An empty dotted class must be rejected before it can become the temporary RID map. */
+  /** A dotted class that would formerly become the RID-map name keeps its own records. */
   @Test
-  public void v15DottedReservedRidMapClassIsRejectedBySourceAndReservedNames()
-      throws Exception {
-    var sourceClass = "...exportImportRIDMap";
-    var helper = DatabaseImport.EXPORT_IMPORT_CLASS_NAME;
+  public void v15DottedNearReservedRidMapClassKeepsNameAndRecords() throws Exception {
+    var sourceClass = "__.exportImportRIDMap";
     session.getMetadata().getSchema().createClass(sourceClass);
+    session.executeInTx(tx -> session.newEntity(sourceClass).setString("payload", "keep"));
     var dump = exportDump();
     try (var target = createTargetDatabase("dottedReservedClassTarget")) {
+      runImport(target, dump);
+      assertTrue("the dotted class name must survive", target.getMetadata().getSchema()
+          .existsClass(sourceClass));
+      target.executeInTx(tx -> {
+        assertEquals("the dotted class record must survive", 1, target.countClass(sourceClass));
+        try (var records = target.browseClass(sourceClass)) {
+          assertEquals("the dotted class record must retain its value", "keep",
+              records.next().getString("payload"));
+        }
+      });
+    }
+  }
+
+  /** V15 preserves dotted class names across schema, index, record, and link references. */
+  @Test
+  public void v15DottedClassRoundTripPreservesSchemaIndexAndLinkedRecords() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var dotTarget = schema.createClass("Dot.Target");
+    dotTarget.createProperty("name", PropertyType.STRING);
+    dotTarget.createIndex("Dot.Target.name", INDEX_TYPE.NOTUNIQUE, "name");
+    schema.createClass("Dot.Sub", dotTarget);
+    schema.createClass("Owner").createProperty("target", PropertyType.LINK, dotTarget);
+    session.executeInTx(tx -> {
+      var linked = session.newEntity("Dot.Target");
+      linked.setString("name", "destination");
+      session.newEntity("Dot.Sub").setString("name", "subclass");
+      session.newEntity("Owner").setLink("target", linked);
+    });
+    var dump = exportDump();
+
+    try (var target = createTargetDatabase("dottedRoundTripTarget")) {
+      runImport(target, dump);
+      var importedSchema = target.getMetadata().getSchema();
+      assertTrue("the base class must keep its dotted name",
+          importedSchema.existsClass("Dot.Target"));
+      assertTrue("the subclass must keep its dotted name",
+          importedSchema.existsClass("Dot.Sub"));
+      assertFalse("the importer must not create a renamed base class",
+          importedSchema.existsClass("Dot_Target"));
+      assertFalse("the importer must not create a renamed subclass",
+          importedSchema.existsClass("Dot_Sub"));
+      assertTrue("the subclass must still extend its dotted base class",
+          importedSchema.getClass("Dot.Sub").getSuperClasses().stream()
+              .anyMatch(parent -> "Dot.Target".equals(parent.getName())));
+      assertEquals("the linked class constraint must point to the original class", "Dot.Target",
+          importedSchema.getClass("Owner").getProperty("target").getLinkedClass().getName());
+      assertNotNull("the dotted class index must survive", target.getSharedContext()
+          .getIndexManager().getIndex("Dot.Target.name"));
+      target.executeInTx(tx -> {
+        assertEquals("one direct base record must survive", 1,
+            target.countClass("Dot.Target", false));
+        assertEquals("one subclass record must survive", 1, target.countClass("Dot.Sub"));
+        assertEquals("one owner record must survive", 1, target.countClass("Owner"));
+        try (var owners = target.browseClass("Owner")) {
+          var owner = owners.next();
+          var linked = owner.getEntity("target");
+          assertNotNull("the owner link must resolve", linked);
+          assertEquals("the link must reach the dotted class record", "Dot.Target",
+              linked.getSchemaClassName());
+          assertEquals("the link target must retain its contents", "destination",
+              linked.getString("name"));
+        }
+      });
+    }
+  }
+
+  /** A v15 property with a missing linked class must reject with both names. */
+  @Test
+  public void v15MissingLinkedClassNamesPropertyAndClass() throws Exception {
+    var dotTarget = session.getMetadata().getSchema().createClass("Dot.Target");
+    session.getMetadata().getSchema().createClass("Owner")
+        .createProperty("target", PropertyType.LINK, dotTarget);
+    var dump = exportDump();
+    mutateDump(dump, root -> {
+      for (var entry : (ArrayNode) root.path("schema").path("classes")) {
+        if ("Owner".equals(entry.path("name").asText())) {
+          for (var property : (ArrayNode) entry.path("properties")) {
+            if ("target".equals(property.path("name").asText())) {
+              ((ObjectNode) property).put("linked-class", "Missing.LinkedClass");
+            }
+          }
+        }
+      }
+    });
+    try (var target = createTargetDatabase("missingLinkedClassTarget")) {
       var rejection = importExpectingRejection(target, dump);
-      assertNotNull("an empty class renamed to the helper class must reject the import",
-          rejection);
-      assertRejectionMentions(rejection, "v15 dump schema class '" + sourceClass + "'");
-      assertRejectionMentions(rejection, "reserved class '" + helper + "'");
+      assertNotNull("a missing linked class must reject the v15 import", rejection);
+      assertRejectionMentions(rejection,
+          "Import rejected: v15 dump property 'Owner.target' refers to missing linked class"
+              + " 'Missing.LinkedClass'");
+    }
+  }
+
+  /** A v14 declaration retains the historical dot-to-underscore class rename. */
+  @Test
+  public void v14DottedClassStillRenamesToUnderscore() throws Exception {
+    session.getMetadata().getSchema().createClass("Dot.Target");
+    var dump = exportDump();
+    mutateDump(dump, root -> {
+      ((ObjectNode) root.get("info")).put("exporter-version", 14);
+      root.remove("manifest");
+    });
+    try (var target = createTargetDatabase("legacyDottedTarget")) {
+      runImport(target, dump);
+      assertTrue("legacy import must rename the dotted class",
+          target.getMetadata().getSchema().existsClass("Dot_Target"));
+      assertFalse("legacy import must not retain the dotted class",
+          target.getMetadata().getSchema().existsClass("Dot.Target"));
     }
   }
 
