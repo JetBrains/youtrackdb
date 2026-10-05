@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.ConcurrencyDiagnostics;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -257,7 +258,8 @@ public class WOWCacheChunkBoundaryProtectionTest {
    * Two file writes share one drain. A failure from the first result must not release either file
    * handle or source buffer before the second result finishes.
    */
-  @Test(timeout = 10_000)
+  // Three sequential five-second waits need room for fixture work and failure diagnostics.
+  @Test(timeout = 30_000)
   public void failedResultStillDrainsPendingResultBeforeReleasingResources() throws Exception {
     final var firstFileId = wowCache.addFile(FILE_NAME);
     final var secondFileId = wowCache.addFile(SECOND_FILE_NAME);
@@ -271,13 +273,27 @@ public class WOWCacheChunkBoundaryProtectionTest {
     fileIds.add(WOWCache.extractFileId(firstFileId));
     fileIds.add(WOWCache.extractFileId(secondFileId));
 
-    final var flushExecutor = Executors.newSingleThreadExecutor();
+    final var flushThread = new AtomicReference<Thread>();
+    final var flushExecutor =
+        Executors.newSingleThreadExecutor(
+            task -> {
+              final var thread = new Thread(task, "WOWCacheChunkBoundaryProtectionTest-flush");
+              flushThread.set(thread);
+              return thread;
+            });
+    Throwable bodyFailure = null;
     try {
       final var flushFuture = flushExecutor.submit(() -> wowCache.executeFileFlush(fileIds));
 
-      assertThat(coordinator.secondAwaitEntered.await(5, TimeUnit.SECONDS))
-          .as("the drain must reach the pending result after the first result fails")
-          .isTrue();
+      if (!coordinator.secondAwaitEntered.await(5, TimeUnit.SECONDS)) {
+        // Put the full stack in the dump label before cleanup, since ThreadInfo truncates it.
+        ConcurrencyDiagnostics.dumpThreads(
+            "WOWCache drain did not reach pending result\n"
+                + describeFlushThread(flushThread.get()));
+        throw new AssertionError(
+            "the drain must reach the pending result after the first result fails\n"
+                + describeFlushThread(flushThread.get()));
+      }
       assertThat(flushFuture.isDone())
           .as("the flush must remain blocked until the pending result completes")
           .isFalse();
@@ -305,11 +321,50 @@ public class WOWCacheChunkBoundaryProtectionTest {
       assertThat(files.close(secondFileId)).isTrue();
       assertThat(firstFile.closeCalls.get()).isEqualTo(1);
       assertThat(secondFile.closeCalls.get()).isEqualTo(1);
+    } catch (Exception | Error failure) {
+      bodyFailure = failure;
+      throw failure;
     } finally {
       coordinator.allowSecondCompletion.countDown();
-      flushExecutor.shutdownNow();
-      assertThat(flushExecutor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+      try {
+        flushExecutor.shutdownNow();
+        if (!flushExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+          ConcurrencyDiagnostics.dumpThreads(
+              "WOWCache flush executor did not terminate\n"
+                  + describeFlushThread(flushThread.get()));
+          throw new AssertionError(
+              "flush executor did not terminate within five seconds\n"
+                  + describeFlushThread(flushThread.get()));
+        }
+      } catch (Exception | Error cleanupFailure) {
+        if (cleanupFailure instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
+        if (bodyFailure != null) {
+          bodyFailure.addSuppressed(cleanupFailure);
+        } else {
+          throw cleanupFailure;
+        }
+      }
     }
+  }
+
+  /** Describes the flush thread without ThreadInfo's eight-frame stack truncation. */
+  private static String describeFlushThread(final Thread thread) {
+    if (thread == null) {
+      return "Flush thread was not started";
+    }
+    final var description =
+        new StringBuilder("Flush thread '")
+            .append(thread.getName())
+            .append("' state=")
+            .append(thread.getState())
+            .append(" interrupted=")
+            .append(thread.isInterrupted());
+    for (final var frame : thread.getStackTrace()) {
+      description.append("\n  at ").append(frame);
+    }
+    return description.toString();
   }
 
   /** A force failure releases temporary page copies but keeps the page and DWL for retry. */
