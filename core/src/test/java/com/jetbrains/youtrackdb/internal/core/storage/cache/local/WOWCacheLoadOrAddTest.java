@@ -26,14 +26,21 @@ import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -41,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -55,6 +63,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * Smoke coverage for {@link WOWCache#loadOrAdd} and its three branches
@@ -375,9 +384,9 @@ public class WOWCacheLoadOrAddTest {
   }
 
   /**
-   * A complete replay unit can span a file shortened outside WAL history. A later unit
-   * reading an intermediate page before validation must report damage, not rebuild data
-   * that may have held an older committed value. Only allocations declare rebuild rights.
+   * A complete replay unit gap-fills a file shortened outside WAL history. A later complete
+   * unit reading an intermediate page before validation must report damage, not rebuild data
+   * that may have held an older committed value. Neither unit declares that gap page.
    */
   @Test
   public void completeUnitGapAfterFileTruncationReportsBrokenIntermediatePage() throws Exception {
@@ -388,14 +397,23 @@ public class WOWCacheLoadOrAddTest {
     wowCache.flush(fileId);
     // Model an out-of-band truncation to one page before crash replay opens the file.
     assertTrue(wowCache.shrinkFile(fileId, PAGE_SIZE));
-    var context = new RecoveryPageContext();
-    // A complete unit declares the target, not the intermediate page removed by truncation.
-    var allocationPosition = new LogSequenceNumber(3, 10);
-    var declarations = new TreeMap<Long, LogSequenceNumber>();
-    declarations.put(4L, allocationPosition);
-    context.setDeclaredPages(Map.of(wowCache.internalFileId(fileId), declarations));
-    wowCache.setRecoveryPageContext(context);
     wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    var readCache = new LockFreeReadCache(bufferPool, 1024L * PAGE_SIZE, PAGE_SIZE);
+    var storage = Mockito.mock(AbstractStorage.class, Mockito.CALLS_REAL_METHODS);
+    for (var fieldValue : Map.of(
+        "writeCache", wowCache,
+        "readCache", readCache,
+        "name", storageName,
+        "deletedNonDurableFileIds", new IntOpenHashSet()).entrySet()) {
+      var field = AbstractStorage.class.getDeclaredField(fieldValue.getKey());
+      field.setAccessible(true);
+      field.set(storage, fieldValue.getValue());
+    }
+    var replay = AbstractStorage.class.getDeclaredMethod("restoreAtomicUnit", List.class,
+        ModifiableBoolean.class, RecoveryPageContext.class);
+    replay.setAccessible(true);
+    var context = new RecoveryPageContext();
+    wowCache.setRecoveryPageContext(context);
     var executorMethod = WOWCache.class.getDeclaredMethod("commitExecutor");
     executorMethod.setAccessible(true);
     var executor = (ScheduledExecutorService) executorMethod.invoke(wowCache);
@@ -411,21 +429,30 @@ public class WOWCacheLoadOrAddTest {
     });
     try {
       assertTrue(started.await(10, TimeUnit.SECONDS));
-      // The complete unit extends to page 4, but declares no allocation of page 2.
-      context.setCurrentRecord(allocationPosition);
-      wowCache.loadOrAdd(fileId, 4, true).decrementReadersReferrer();
-      context.setCurrentRecord(new LogSequenceNumber(3, 30));
+      // No declaration preloads page 4. The first unit's redo itself creates pages 1..4.
+      var highPage = new TestPageOperation(4, fileId, 1,
+          new LogSequenceNumber(-1, -1), 42);
+      highPage.setLsn(new LogSequenceNumber(3, 10));
+      replay.invoke(storage, List.of(new AtomicUnitStartRecord(false, 1), highPage,
+          new AtomicUnitEndRecord(1, false, null)), new ModifiableBoolean(), context);
+      assertEquals(5, wowCache.getFilledUpTo(fileId));
+
+      var gapPage = new TestPageOperation(2, fileId, 2,
+          new LogSequenceNumber(-1, -1), 43);
+      gapPage.setLsn(new LogSequenceNumber(3, 30));
       try (var warnings = LogRecordCollector.attachTo(WOWCache.class)) {
-        var broken = assertThrows(StorageException.class,
-            () -> wowCache.loadOrAdd(fileId, 2, true));
-        assertTrue(broken.getMessage().contains("verification failed for page `2`"));
+        var failure = assertThrows(InvocationTargetException.class,
+            () -> replay.invoke(storage, List.of(new AtomicUnitStartRecord(false, 2), gapPage,
+                new AtomicUnitEndRecord(2, false, null)), new ModifiableBoolean(), context));
+        assertTrue(failure.getCause() instanceof StorageException);
+        assertTrue(failure.getCause().getMessage().contains("verification failed for page `2`"));
         assertFalse(warnings.warnedWithAll("rebuilt", FILE_NAME));
       }
-      release.countDown();
-      blocker.get(10, TimeUnit.SECONDS);
     } finally {
       release.countDown();
+      blocker.get(10, TimeUnit.SECONDS);
       wowCache.setRecoveryPageContext(null);
+      readCache.clear();
     }
   }
 
