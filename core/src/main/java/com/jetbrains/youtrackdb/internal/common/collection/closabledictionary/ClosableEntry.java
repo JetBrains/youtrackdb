@@ -140,16 +140,14 @@ public class ClosableEntry<K, V extends ClosableItem> {
   }
 
   long makeRetired() {
-    var oldSate = state;
-
     stateLock.lock();
     try {
+      final var oldState = state;
       state = STATUS_RETIRED;
+      return oldState;
     } finally {
       stateLock.unlock();
     }
-
-    return oldSate;
   }
 
   void makeDead() {
@@ -162,6 +160,14 @@ public class ClosableEntry<K, V extends ClosableItem> {
   }
 
   boolean makeClosed() {
+    return makeClosed(false);
+  }
+
+  boolean makeClosedForEviction() {
+    return makeClosed(true);
+  }
+
+  private boolean makeClosed(boolean eviction) {
     stateLock.lock();
     try {
       if (state == STATUS_CLOSED) {
@@ -172,7 +178,11 @@ public class ClosableEntry<K, V extends ClosableItem> {
         return false;
       }
 
-      item.close();
+      if (eviction) {
+        item.closeForEviction();
+      } else {
+        item.close();
+      }
       state = STATUS_CLOSED;
     } finally {
       stateLock.unlock();

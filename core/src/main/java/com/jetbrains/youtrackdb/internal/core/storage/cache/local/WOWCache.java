@@ -92,7 +92,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -168,6 +167,9 @@ public final class WOWCache extends AbstractWriteCache
    * however many page keys are affected.
    */
   private static final long ACCOUNTING_CLAMP_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
+
+  static final long OPEN_FILE_STALL_WARN_NANOS = TimeUnit.SECONDS.toNanos(30);
+  static final long OPEN_FILE_STALL_REPEAT_NANOS = TimeUnit.MINUTES.toNanos(5);
 
   private static final String ALGORITHM_NAME = "AES";
   private static final String TRANSFORMATION = "AES/CTR/NoPadding";
@@ -368,6 +370,12 @@ public final class WOWCache extends AbstractWriteCache
    * @see #localDirtyPages for details
    */
   private final TreeMap<Long, TreeSet<PageKey>> localDirtyPagesBySegment = new TreeMap<>();
+
+  /**
+   * Tracks copied and failed pages until a write of the same or newer contents succeeds.
+   * Only the {@link #commitExecutor} thread accesses this state.
+   */
+  private final PageWriteTracker pageWriteTracker = new PageWriteTracker();
 
   /**
    * Approximate amount of all pages contained by write cache at the moment
@@ -996,7 +1004,10 @@ public final class WOWCache extends AbstractWriteCache
       dirtyLSN = new LogSequenceNumber(0, 0);
     }
 
-    dirtyPages.putIfAbsent(pageKey, dirtyLSN);
+    dirtyPages.merge(
+        pageKey,
+        dirtyLSN,
+        (current, incoming) -> current.compareTo(incoming) <= 0 ? current : incoming);
   }
 
   @Override
@@ -2396,8 +2407,6 @@ public final class WOWCache extends AbstractWriteCache
         return new long[0];
       }
 
-      closed = true;
-
       final var fileIds = nameIdMap.values();
 
       final var closedIds = new LongArrayList(1_000);
@@ -2406,10 +2415,14 @@ public final class WOWCache extends AbstractWriteCache
       for (final var intId : fileIds) {
         if (intId >= 0) {
           final var extId = composeFileId(id, intId);
-          final var fileClassic = files.remove(extId);
+          final var fileClassic = files.get(extId);
 
           idFileNameMap.put(intId.intValue(), fileClassic.getName());
-          fileClassic.close();
+          // Transition the container entry as well as its channel. Closed entries remain
+          // registered until the registry and DWL close, so any failure can be retried.
+          if (!files.close(extId)) {
+            throw new StorageException(storageName, "File is still in use: " + extId);
+          }
           closedIds.add(extId);
         }
       }
@@ -2455,6 +2468,10 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.close();
 
+      for (final var closedId : closedIds) {
+        files.remove(closedId);
+      }
+
       // Non-durable side files are intentionally preserved on clean shutdown so that
       // crash recovery can identify and delete non-durable files if the next startup
       // follows a crash. On clean open, initNameIdMapping() reads the side files to
@@ -2473,6 +2490,7 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.clear();
       idNameMap.clear();
       nonDurableFileIds = new IntOpenHashSet();
+      closed = true;
 
       return closedIds.toLongArray();
     } finally {
@@ -2781,17 +2799,33 @@ public final class WOWCache extends AbstractWriteCache
 
   private static void createFile(final File fileClassic, final boolean callFsync)
       throws IOException {
-    if (!fileClassic.exists()) {
-      fileClassic.create();
-    } else {
-      if (!fileClassic.isOpen()) {
-        fileClassic.open();
+    try {
+      if (!fileClassic.exists()) {
+        fileClassic.create();
+      } else {
+        if (!fileClassic.isOpen()) {
+          fileClassic.open();
+        }
+        fileClassic.shrink(0);
       }
-      fileClassic.shrink(0);
-    }
 
-    if (callFsync) {
-      fileClassic.synch();
+      if (callFsync) {
+        fileClassic.synch();
+      }
+    } catch (IOException | RuntimeException | Error failure) {
+      // The caller registers the file only after this method returns. Do not orphan its handle.
+      try {
+        if (fileClassic.isOpen()) {
+          if (fileClassic instanceof AsyncFile asyncFile) {
+            asyncFile.closeAfterFailedCreate();
+          } else {
+            fileClassic.close();
+          }
+        }
+      } catch (IOException | RuntimeException | Error closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
     }
   }
 
@@ -4093,6 +4127,10 @@ public final class WOWCache extends AbstractWriteCache
         removeExclusiveWritePage(orphanKey);
       }
     }
+
+    // The file lifecycle operation supersedes removed page contents. Pointer identity prevents
+    // an old completion from satisfying a later file incarnation which reuses the numeric ID.
+    pageWriteTracker.discardPages(composeFileId(id, internalFileId), minPageIndex);
   }
 
   public void setChecksumMode(final ChecksumMode checksumMode) { // for testing purposes only
@@ -4109,44 +4147,23 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Nullable public Long executeFindDirtySegment() {
-    if (flushError != null) {
-      final var iAdditionalArgs = new Object[] {flushError.getMessage()};
-      LogManager.instance()
-          .error(
-              this,
-              "Can not calculate minimum LSN because of issue during data write, %s",
-              null,
-              iAdditionalArgs);
-      return null;
-    }
-
-    convertSharedDirtyPagesToLocal();
-
-    if (localDirtyPagesBySegment.isEmpty()) {
-      return null;
-    }
-
-    return localDirtyPagesBySegment.firstKey();
+    // A latched write failure stops further writes, but it must not hide recovery protection.
+    return earliestNotWrittenSegment();
   }
 
   private void convertSharedDirtyPagesToLocal() {
     for (final var entry : dirtyPages.entrySet()) {
-      final var localLSN = localDirtyPages.get(entry.getKey());
+      final var pageKey = entry.getKey();
+      final var localLSN = localDirtyPages.get(pageKey);
+      final var sharedLSN = entry.getValue();
 
-      if (localLSN == null || localLSN.compareTo(entry.getValue()) > 0) {
-        localDirtyPages.put(entry.getKey(), entry.getValue());
-
-        final var segment = entry.getValue().getSegment();
-        var pages = localDirtyPagesBySegment.get(segment);
-        if (pages == null) {
-          pages = new TreeSet<>();
-          pages.add(entry.getKey());
-
-          localDirtyPagesBySegment.put(segment, pages);
-        } else {
-          pages.add(entry.getKey());
+      if (localLSN != null) {
+        if (localLSN.compareTo(sharedLSN) <= 0) {
+          continue;
         }
+        removeLocalDirtyPage(pageKey, localLSN);
       }
+      addLocalDirtyPage(pageKey, sharedLSN);
     }
 
     for (final var entry : localDirtyPages.entrySet()) {
@@ -4154,21 +4171,96 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  private void addLocalDirtyPage(
+      final PageKey pageKey, final LogSequenceNumber lsn) {
+    localDirtyPages.put(pageKey, lsn);
+    localDirtyPagesBySegment.computeIfAbsent(lsn.getSegment(), ignored -> new TreeSet<>())
+        .add(pageKey);
+  }
+
+  private void removeLocalDirtyPage(
+      final PageKey pageKey, final LogSequenceNumber lsn) {
+    localDirtyPages.remove(pageKey);
+
+    final var pages = localDirtyPagesBySegment.get(lsn.getSegment());
+    assert pages != null;
+    final var removed = pages.remove(pageKey);
+    if (pages.isEmpty()) {
+      localDirtyPagesBySegment.remove(lsn.getSegment());
+    }
+    assert removed;
+  }
+
+  /**
+   * Removes a page from the dirty page tables because its content was copied for writing, and
+   * remembers the page until the write result is known.
+   *
+   * <p>Call this instead of {@link #removeFromDirtyPages(PageKey)} from every copy phase of a
+   * write round. The remembered LSN keeps {@link #earliestNotWrittenSegment()} honest when the
+   * write fails afterwards.
+   */
+  @Nullable private PageWriteTracker.PageWriteAttempt removeFromDirtyPagesForWrite(
+      final PageKey pageKey, final CachePointer pointer) {
+    // Read both tables before the removal, and keep the smaller LSN. The shared table can hold
+    // a newer entry for a page that was changed again after the local copy was taken.
+    final var sharedLSN = dirtyPages.get(pageKey);
+    final var localLSN = localDirtyPages.get(pageKey);
+
+    removeFromDirtyPages(pageKey);
+
+    final var trackedLSN = LogSequenceNumberUtils.earliest(localLSN, sharedLSN);
+    return pageWriteTracker.pageCopyStarted(pointer, trackedLSN);
+  }
+
+  /**
+   * Marks the copies taken so far in this write round as written to their data files.
+   *
+   * <p>Called after the asynchronous writes of a chunk batch were awaited successfully. Each
+   * container carries the dirty LSN captured when that page left dirty tracking. Confirmation
+   * removes only LSNs belonging to the successful batch. Copies waiting in later batches stay
+   * tracked across intermediate batch writes.
+   *
+   * <p>The final file synchronization is a separate and later step, so this method reports
+   * "reached the files", not "synchronized to stable storage".
+   */
+  private void confirmPagesWritten(
+      final ArrayList<ArrayList<WritePageContainer>> chunks) {
+    for (final var chunk : chunks) {
+      for (final var page : chunk) {
+        pageWriteTracker.pageWriteCompleted(page.writeAttempt);
+      }
+    }
+  }
+
+  /**
+   * Returns the earliest WAL segment that still holds page changes which did not reach the
+   * data files, or {@code null} when every known page change was written.
+   *
+   * <p>The result covers dirty pages waiting for a write and pages whose write failed. It must
+   * be called from the {@link #commitExecutor} thread, because it reads the executor-confined
+   * dirty page tables.
+   */
+  @Nullable private Long earliestNotWrittenSegment() {
+    convertSharedDirtyPagesToLocal();
+
+    final var trackedLsn = pageWriteTracker.earliestNotWrittenLsn();
+    final var dirtySegment =
+        localDirtyPagesBySegment.isEmpty() ? null : localDirtyPagesBySegment.firstKey();
+    if (trackedLsn == null) {
+      return dirtySegment;
+    }
+
+    // WAL positions compare by segment first. Only the segment is needed to protect a cut.
+    final var trackedSegment = trackedLsn.getSegment();
+    return dirtySegment == null ? trackedSegment : Math.min(trackedSegment, dirtySegment);
+  }
+
   private void removeFromDirtyPages(final PageKey pageKey) {
     dirtyPages.remove(pageKey);
 
-    final var lsn = localDirtyPages.remove(pageKey);
+    final var lsn = localDirtyPages.get(pageKey);
     if (lsn != null) {
-      final var segment = lsn.getSegment();
-      final var pages = localDirtyPagesBySegment.get(segment);
-      assert pages != null;
-
-      final var removed = pages.remove(pageKey);
-      if (pages.isEmpty()) {
-        localDirtyPagesBySegment.remove(segment);
-      }
-
-      assert removed;
+      removeLocalDirtyPage(pageKey, lsn);
     }
   }
 
@@ -4299,6 +4391,7 @@ public final class WOWCache extends AbstractWriteCache
         long sharedStamp = pointer.tryAcquireSharedLock();
         if (sharedStamp != 0) {
           final LogSequenceNumber fullLogLSN;
+          final PageWriteTracker.PageWriteAttempt writeAttempt;
 
           final var directPointer =
               bufferPool.acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
@@ -4315,7 +4408,7 @@ public final class WOWCache extends AbstractWriteCache
 
             copy.put(0, buffer, 0, buffer.capacity());
 
-            removeFromDirtyPages(pageKey);
+            writeAttempt = removeFromDirtyPagesForWrite(pageKey, pointer);
 
             copiedPages++;
           } finally {
@@ -4333,7 +4426,8 @@ public final class WOWCache extends AbstractWriteCache
           // validate(stamp) returns false if any exclusive lock was acquired since the stamp
           // was issued — semantically identical to a version mismatch, since the version only
           // incremented under exclusive lock.
-          chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
+          chunk.add(
+              new WritePageContainer(sharedStamp, copy, directPointer, pointer, writeAttempt));
 
           if (chunksSize + chunk.size() >= pagesFlushLimit) {
             chunks.add(chunk);
@@ -4542,6 +4636,10 @@ public final class WOWCache extends AbstractWriteCache
               chunkFileIds);
       fsyncFiles = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
       writePageChunksToFiles(buffersByFileId);
+      if (fsyncFiles) {
+        // The copies remain owned here until synchronization has completed or failed.
+        fsyncFiles();
+      }
     } catch (final Exception | Error e) {
       // Release per-page copy buffers on error to prevent direct memory leak.
       // Each WritePageContainer holds a pageCopyDirectMemoryPointer allocated by
@@ -4563,11 +4661,12 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    if (fsyncFiles) {
-      fsyncFiles();
-    }
-
     removeWrittenPagesFromCache(chunks);
+
+    // The writes above were awaited, so these pages reached their data files and no longer
+    // hold back WAL segment deletion. Reached the files, not synchronized to stable storage:
+    // the final synchronization stays a separate step before any segment is deleted.
+    confirmPagesWritten(chunks);
 
     return flushedPages;
   }
@@ -4816,69 +4915,144 @@ public final class WOWCache extends AbstractWriteCache
   private void writePageChunksToFiles(
       Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> buffersByFileId)
       throws java.lang.InterruptedException, IOException {
-    final List<ClosableEntry<Long, File>> acquiredFiles = new ArrayList<>(buffersByFileId.size());
-    final List<IOResult> ioResults = new ArrayList<>(buffersByFileId.size());
+    final var submittedWrites = new ArrayList<SubmittedWrite>(buffersByFileId.size());
+    Throwable failure = null;
+    try {
+      final var filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
+      Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry = null;
+      final var slotWait = new OpenFileSlotWait(openFileSlotNanos());
 
-    Long2ObjectOpenHashMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>> entry;
-    Iterator<Long2ObjectMap.Entry<ArrayList<RawPairLongObject<ByteBuffer>>>> filesIterator;
-
-    filesIterator = buffersByFileId.long2ObjectEntrySet().iterator();
-    entry = null;
-    // acquire as much files as possible and flush data
-    while (true) {
-      if (entry == null) {
-        if (filesIterator.hasNext()) {
+      while (entry != null || filesIterator.hasNext()) {
+        if (entry == null) {
           entry = filesIterator.next();
-        } else {
-          break;
         }
-      }
 
-      final var fileEntry = files.tryAcquire(entry.getLongKey());
-      if (fileEntry != null) {
-        final var file = fileEntry.get();
+        final var fileEntry = files.tryAcquire(entry.getLongKey());
+        if (fileEntry == null) {
+          if (Thread.interrupted()) {
+            throw new java.lang.InterruptedException("Interrupted while waiting for an open file");
+          }
+          if (submittedWrites.isEmpty()) {
+            final var waitingFile = entry.getLongKey();
+            slotWait.noProgress(openFileSlotNanos(), () -> LogManager.instance().warn(this,
+                "Storage %s cannot acquire file %d (open files %d, limit %d). "
+                    + "The file may be missing or all open files may be in use.",
+                (Throwable) null, storageName, waitingFile,
+                files.openFilesCount(), files.openFilesLimit()));
+            Thread.sleep(1);
+          } else {
+            drainSubmittedWrites(submittedWrites);
+          }
+          continue;
+        }
+        slotWait.progress(openFileSlotNanos());
 
-        var bufferList = entry.getValue();
-
-        ioResults.add(file.write(bufferList));
-        acquiredFiles.add(fileEntry);
-
+        try {
+          submittedWrites
+              .add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue())));
+        } catch (final Throwable t) {
+          files.release(fileEntry);
+          throw t;
+        }
         entry = null;
-      } else {
-        if (ioResults.size() != acquiredFiles.size()) {
-          throw new IllegalStateException("Not all data are written to the files.");
-        }
+      }
 
-        if (!ioResults.isEmpty()) {
-          for (final var ioResult : ioResults) {
-            ioResult.await();
-          }
-
-          for (final var closableEntry : acquiredFiles) {
-            files.release(closableEntry);
-          }
-
-          ioResults.clear();
-          acquiredFiles.clear();
+      drainSubmittedWrites(submittedWrites);
+    } catch (final Throwable t) {
+      failure = t;
+      rethrowWriteFailure(t);
+    } finally {
+      try {
+        drainSubmittedWrites(submittedWrites);
+      } catch (final Throwable drainFailure) {
+        if (failure != null) {
+          failure.addSuppressed(drainFailure);
         } else {
-          Thread.yield();
+          rethrowWriteFailure(drainFailure);
         }
       }
     }
+  }
 
-    if (ioResults.size() != acquiredFiles.size()) {
-      throw new IllegalStateException("Not all data are written to the files.");
+  /** Allows tests to advance the wait clock without waiting for real time to pass. */
+  long openFileSlotNanos() {
+    return System.nanoTime();
+  }
+
+  /** Tracks time without a successful file acquisition. */
+  static final class OpenFileSlotWait {
+
+    private long lastProgressNanos;
+    private long lastWarningNanos;
+
+    OpenFileSlotWait(long startNanos) {
+      lastProgressNanos = startNanos;
+      lastWarningNanos = startNanos;
     }
 
-    if (!ioResults.isEmpty()) {
-      for (final var ioResult : ioResults) {
-        ioResult.await();
-      }
+    void progress(long nowNanos) {
+      lastProgressNanos = nowNanos;
+      lastWarningNanos = nowNanos;
+    }
 
-      for (final var closableEntry : acquiredFiles) {
-        files.release(closableEntry);
+    void noProgress(long nowNanos, Runnable warning) {
+      if (nowNanos - lastProgressNanos >= OPEN_FILE_STALL_WARN_NANOS
+          && nowNanos - lastWarningNanos >= (lastWarningNanos == lastProgressNanos
+              ? OPEN_FILE_STALL_WARN_NANOS : OPEN_FILE_STALL_REPEAT_NANOS)) {
+        lastWarningNanos = nowNanos;
+        warning.run();
       }
     }
+  }
+
+  /** Awaits every issued write before releasing its file handle and source buffers. */
+  private void drainSubmittedWrites(final ArrayList<SubmittedWrite> submittedWrites)
+      throws java.lang.InterruptedException, IOException {
+    if (submittedWrites.isEmpty()) {
+      return;
+    }
+
+    final var writes = new ArrayList<>(submittedWrites);
+    submittedWrites.clear();
+    Throwable failure = null;
+    for (final var write : writes) {
+      try {
+        write.result.await();
+      } catch (final Throwable t) {
+        if (failure == null) {
+          failure = t;
+        } else {
+          failure.addSuppressed(t);
+        }
+      }
+    }
+    for (final var write : writes) {
+      files.release(write.fileEntry);
+    }
+
+    if (failure != null) {
+      rethrowWriteFailure(failure);
+    }
+  }
+
+  private static void rethrowWriteFailure(final Throwable failure)
+      throws java.lang.InterruptedException, IOException {
+    if (failure instanceof java.lang.InterruptedException interrupted) {
+      throw interrupted;
+    }
+    if (failure instanceof IOException ioException) {
+      throw ioException;
+    }
+    if (failure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new IOException("Unexpected page write failure", failure);
+  }
+
+  private record SubmittedWrite(ClosableEntry<Long, File> fileEntry, IOResult result) {
   }
 
   private void flushExclusiveWriteCache(final CountDownLatch latch, long pagesToFlushLimit)
@@ -5036,6 +5210,7 @@ public final class WOWCache extends AbstractWriteCache
           long sharedStamp = pointer.tryAcquireSharedLock();
           if (sharedStamp != 0) {
             final LogSequenceNumber fullLSN;
+            final PageWriteTracker.PageWriteAttempt writeAttempt;
 
             final var directPointer =
                 bufferPool.acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
@@ -5052,7 +5227,7 @@ public final class WOWCache extends AbstractWriteCache
 
               copy.put(0, buffer, 0, buffer.capacity());
 
-              removeFromDirtyPages(pageKey);
+              writeAttempt = removeFromDirtyPagesForWrite(pageKey, pointer);
 
               copiedPages++;
             } finally {
@@ -5092,7 +5267,8 @@ public final class WOWCache extends AbstractWriteCache
               prevChunksSize = 0;
             }
 
-            chunk.add(new WritePageContainer(sharedStamp, copy, directPointer, pointer));
+            chunk.add(
+                new WritePageContainer(sharedStamp, copy, directPointer, pointer, writeAttempt));
 
             lastFileId = pointer.getFileId();
             lastPageIndex = pointer.getPageIndex();
@@ -5168,7 +5344,15 @@ public final class WOWCache extends AbstractWriteCache
 
   public Void executeFileFlush(IntOpenHashSet fileIdSet)
       throws java.lang.InterruptedException, IOException {
+    return doExecuteFileFlush(fileIdSet);
+  }
+
+  private Void doExecuteFileFlush(IntOpenHashSet fileIdSet)
+      throws java.lang.InterruptedException, IOException {
     if (flushError != null) {
+      // A file flush is the synchronization barrier before a full checkpoint cuts WAL.
+      // Returning normally would let the checkpoint delete recovery records without syncing
+      // data files after an earlier background write failure.
       final var iAdditionalArgs = new Object[] {flushError.getMessage()};
       LogManager.instance()
           .error(
@@ -5176,7 +5360,8 @@ public final class WOWCache extends AbstractWriteCache
               "Can not flush file data because of issue during data write, %s",
               null,
               iAdditionalArgs);
-      return null;
+      throw new IOException("File flush cannot complete because a write failure is latched",
+          flushError);
     }
 
     // Only flush WAL if at least one file in the set is durable. Non-durable
@@ -5238,12 +5423,13 @@ public final class WOWCache extends AbstractWriteCache
               maxLSN = endLSN;
             }
 
+            final var writeAttempt = removeFromDirtyPagesForWrite(pageKey, pagePointer);
+
             var chunk = new ArrayList<WritePageContainer>(1);
             chunk.add(
-                new WritePageContainer(sharedStamp, copy, directPointer, pagePointer));
+                new WritePageContainer(
+                    sharedStamp, copy, directPointer, pagePointer, writeAttempt));
             chunks.add(chunk);
-
-            removeFromDirtyPages(pageKey);
           } finally {
             pagePointer.releaseSharedLock(sharedStamp);
           }
@@ -5461,7 +5647,14 @@ public final class WOWCache extends AbstractWriteCache
 
   public Void executeFlushTillSegment(long segmentId)
       throws java.lang.InterruptedException, IOException {
+    return doExecuteFlushTillSegment(segmentId);
+  }
+
+  private Void doExecuteFlushTillSegment(long segmentId)
+      throws java.lang.InterruptedException, IOException {
     if (flushError != null) {
+      // A latched failure is fail-stop. Returning normally would make WAL vacuum retry the
+      // unchanged retained boundary forever while holding the storage state lock.
       final var iAdditionalArgs = new Object[] {flushError.getMessage()};
       LogManager.instance()
           .error(
@@ -5469,7 +5662,8 @@ public final class WOWCache extends AbstractWriteCache
               "Can not flush data till provided segment because of issue during data write, %s",
               null,
               iAdditionalArgs);
-      return null;
+      throw new IOException("Data flush cannot progress because a write failure is latched",
+          flushError);
     }
 
     convertSharedDirtyPagesToLocal();
@@ -5499,7 +5693,8 @@ public final class WOWCache extends AbstractWriteCache
 
   private record WritePageContainer(long pageStamp, ByteBuffer copyOfPage,
       Pointer pageCopyDirectMemoryPointer,
-      CachePointer originalPagePointer) {
+      CachePointer originalPagePointer,
+      @Nullable PageWriteTracker.PageWriteAttempt writeAttempt) {
 
   }
 }
