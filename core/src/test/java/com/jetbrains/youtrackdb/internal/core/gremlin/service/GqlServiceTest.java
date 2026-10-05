@@ -1,8 +1,32 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.service;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.gql.executor.resultset.GqlExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.gql.parser.GqlStatement;
+import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.query.RegisteredQuery;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.service.Service;
@@ -254,6 +278,161 @@ public class GqlServiceTest extends GraphBaseTest {
     Assert.assertEquals(1, results.size());
     var map = (Map<String, Object>) results.getFirst();
     Assert.assertTrue("Value should be a Vertex", map.get("a") instanceof Vertex);
+  }
+
+  /** Start and streaming invocations each publish a distinct, fully closable execution. */
+  @Test
+  public void serviceInvocationsOwnDistinctHandlesAndCaptureTheOpeningSession() {
+    var fixture = new ServiceFixture();
+    try (var planner = mockStatic(GqlPlanner.class)) {
+      planner.when(() -> GqlPlanner.getStatement("query", fixture.session))
+          .thenReturn(fixture.statement);
+      var start = new GqlService("query", Map.of(), Service.Type.Start);
+      var streaming = new GqlService("query", Map.of(), Service.Type.Streaming);
+      var first = start.execute(fixture.ctx, Map.of());
+      var second = streaming.execute(fixture.ctx, mock(Traverser.Admin.class), Map.of());
+      Assert.assertNotSame(first, second);
+      Assert.assertEquals(2, fixture.queries.size());
+      var handles = List.copyOf(fixture.queries.values());
+      Assert.assertNotSame(handles.get(0), handles.get(1));
+      var newSession = mock(DatabaseSessionEmbedded.class);
+      when(fixture.tx.getDatabaseSession()).thenReturn(newSession);
+      first.close();
+      Assert.assertEquals(1, fixture.queries.size());
+      second.close();
+      Assert.assertTrue(fixture.queries.isEmpty());
+      verifyNoInteractions(newSession);
+      verify(fixture.session, times(2)).queryStarted(anyString(), any(RegisteredQuery.class));
+      verify(fixture.session, times(2)).queryClosed(anyString());
+      verify(fixture.plan, times(2)).start(fixture.session);
+      verify(fixture.stream, times(2)).close();
+      verify(fixture.plan, times(2)).close();
+    }
+  }
+
+  /** A rejection before or after insertion closes the owner and removes any installed handle. */
+  @Test
+  public void registrationFailureReleasesEveryResourceAndKeepsTheOriginalFailure() {
+    for (var inserted : new boolean[] {false, true}) {
+      for (var fatal : new boolean[] {false, true}) {
+        var fixture = new ServiceFixture();
+        Throwable failure = fatal ? new AssertionError("register")
+            : new IllegalStateException("register");
+        var streamFailure = new AssertionError("stream close");
+        var planFailure = new IllegalStateException("plan close");
+        doAnswer(call -> {
+          if (inserted) {
+            fixture.queries.put(call.getArgument(0), call.getArgument(1));
+          }
+          throw failure;
+        }).when(fixture.session).queryStarted(anyString(), any(RegisteredQuery.class));
+        doThrow(streamFailure).when(fixture.stream).close();
+        doThrow(planFailure).when(fixture.plan).close();
+        try (var planner = mockStatic(GqlPlanner.class)) {
+          planner.when(() -> GqlPlanner.getStatement("query", fixture.session))
+              .thenReturn(fixture.statement);
+          var service = new GqlService("query", Map.of(), Service.Type.Start);
+          Assert.assertSame(failure, Assert.assertThrows(Throwable.class,
+              () -> service.execute(fixture.ctx, Map.of())));
+          Assert.assertArrayEquals(new Throwable[] {streamFailure}, failure.getSuppressed());
+          Assert.assertArrayEquals(new Throwable[] {planFailure}, streamFailure.getSuppressed());
+          Assert.assertTrue(fixture.queries.isEmpty());
+          verify(fixture.stream).close();
+          verify(fixture.plan).close();
+          verify(fixture.session).queryClosed(anyString());
+        }
+      }
+    }
+  }
+
+  /** Synchronous registry teardown during publication cannot revive or restart the iterator. */
+  @Test
+  public void reentrantTransactionCloseDuringRegistrationReturnsATerminalReader() {
+    var fixture = new ServiceFixture();
+    doAnswer(call -> {
+      RegisteredQuery handle = call.getArgument(1);
+      fixture.queries.put(call.getArgument(0), handle);
+      handle.close();
+      return null;
+    }).when(fixture.session).queryStarted(anyString(), any(RegisteredQuery.class));
+    try (var planner = mockStatic(GqlPlanner.class)) {
+      planner.when(() -> GqlPlanner.getStatement("query", fixture.session))
+          .thenReturn(fixture.statement);
+      var iterator = new GqlService("query", Map.of(), Service.Type.Start)
+          .execute(fixture.ctx, Map.of());
+      Assert.assertFalse(iterator.hasNext());
+      Assert.assertThrows(java.util.NoSuchElementException.class, iterator::next);
+      iterator.close();
+      Assert.assertTrue(fixture.queries.isEmpty());
+      verify(fixture.stream, times(1)).close();
+      verify(fixture.plan, times(1)).close();
+      verify(fixture.plan, times(1)).start(fixture.session);
+    }
+  }
+
+  /** Startup cleanup covers no plan, a failed plan start, and a stream without an owner. */
+  @Test
+  public void startupFailureClosesPartialResourcesWithoutMaskingUncheckedFailures() {
+    for (var stage = 0; stage < 3; stage++) {
+      for (var fatal : new boolean[] {false, true}) {
+        for (var shared : new boolean[] {false, true}) {
+          var fixture = new ServiceFixture();
+          Throwable failure = fatal ? new AssertionError("startup")
+              : new IllegalStateException("startup");
+          Throwable cleanup = shared ? failure : new AssertionError("cleanup");
+          if (stage == 0) {
+            when(fixture.statement.createExecutionPlan(any())).thenThrow(failure);
+          } else if (stage == 1) {
+            when(fixture.plan.start(fixture.session)).thenThrow(failure);
+          } else {
+            when(fixture.session.getMetadata().getImmutableSchemaSnapshot()).thenThrow(failure);
+            doThrow(cleanup).when(fixture.stream).close();
+          }
+          doThrow(cleanup).when(fixture.plan).close();
+          try (var planner = mockStatic(GqlPlanner.class)) {
+            planner.when(() -> GqlPlanner.getStatement("query", fixture.session))
+                .thenReturn(fixture.statement);
+            var service = new GqlService("query", Map.of(), Service.Type.Start);
+            Assert.assertSame(failure, Assert.assertThrows(Throwable.class,
+                () -> service.execute(fixture.ctx, Map.of())));
+            Assert.assertEquals(shared || stage == 0 ? 0 : stage, failure.getSuppressed().length);
+            verify(fixture.stream, times(stage == 2 ? 1 : 0)).close();
+            verify(fixture.plan, times(stage > 0 ? 1 : 0)).close();
+            verify(fixture.session, times(0)).queryStarted(anyString(), any(RegisteredQuery.class));
+          }
+        }
+      }
+    }
+  }
+
+  private static final class ServiceFixture {
+
+    final DatabaseSessionEmbedded session = mock(DatabaseSessionEmbedded.class, RETURNS_DEEP_STUBS);
+    final YTDBGraphInternal graph = mock(YTDBGraphInternal.class);
+    final YTDBTransaction tx = mock(YTDBTransaction.class);
+    final Service.ServiceCallContext ctx = mock(Service.ServiceCallContext.class);
+    final GqlStatement statement = mock(GqlStatement.class);
+    final GqlExecutionPlan plan = mock(GqlExecutionPlan.class);
+    final GqlExecutionStream stream = mock(GqlExecutionStream.class);
+    final Map<String, RegisteredQuery> queries = new HashMap<>();
+
+    ServiceFixture() {
+      var traversal = mock(Traversal.Admin.class);
+      when(ctx.getTraversal()).thenReturn(traversal);
+      when(traversal.getGraph()).thenReturn(Optional.of(graph));
+      when(graph.tx()).thenReturn(tx);
+      when(tx.getDatabaseSession()).thenReturn(session);
+      when(statement.createExecutionPlan(any())).thenReturn(plan);
+      when(plan.start(session)).thenReturn(stream);
+      doAnswer(call -> {
+        queries.put(call.getArgument(0), call.getArgument(1));
+        return null;
+      }).when(session).queryStarted(anyString(), any(RegisteredQuery.class));
+      doAnswer(call -> {
+        queries.remove(call.getArgument(0));
+        return null;
+      }).when(session).queryClosed(anyString());
+    }
   }
 
   // ── Factory: arguments edge cases ──

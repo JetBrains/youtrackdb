@@ -93,6 +93,7 @@ public class GqlService implements Service<Object, Object> {
 
     GqlExecutionPlan executionPlan = null;
     GqlExecutionStream stream = null;
+    GqlResultIterator iterator = null;
 
     try {
       // 1. Get graph and session from traversal context
@@ -115,21 +116,33 @@ public class GqlService implements Service<Object, Object> {
       // 5. Execute: rebind session (cached plans may reference a stale session)
       stream = Objects.requireNonNull(executionPlan).start(session);
       var schema = session.getMetadata().getImmutableSchemaSnapshot();
-      return new GqlResultIterator(stream, executionPlan, graph, schema);
-    } catch (Exception e) {
+      iterator = new GqlResultIterator(stream, executionPlan, graph, schema);
+      iterator.register(session);
+      return iterator;
+    } catch (RuntimeException | Error e) {
+      if (iterator != null) {
+        // The owner also retires a handle installed by a registration that then fails.
+        iterator.closeAfterFailure(e);
+        throw e;
+      }
+      // Startup can fail after acquiring a stream but before creating its owner.
       try {
         if (stream != null) {
           stream.close();
         }
-      } catch (Exception closeEx) {
-        e.addSuppressed(closeEx);
+      } catch (RuntimeException | Error closeEx) {
+        if (e != closeEx) {
+          e.addSuppressed(closeEx);
+        }
       }
       try {
         if (executionPlan != null) {
           executionPlan.close();
         }
-      } catch (Exception closeEx) {
-        e.addSuppressed(closeEx);
+      } catch (RuntimeException | Error closeEx) {
+        if (e != closeEx) {
+          e.addSuppressed(closeEx);
+        }
       }
       throw e;
     }
