@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStart;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -12,6 +13,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,11 +31,11 @@ import javax.annotation.Nonnull;
  * call to {@code SelectExecutionPlanner.handleProjectionsBlock} for projection / order /
  * limit / skip / group-by handling.
  *
- * <p>The compact constructor performs <b>null normalisation only</b> &mdash; null collections
- * become {@link Map#of() empty maps} / {@link List#of() empty lists}, and {@code pattern}
- * is required non-null. It does <b>not</b> defensive-copy: the planner constructor that
- * consumes this record performs its own defensive copies on the mutable working maps so
- * the planner can mutate them during planning without affecting the caller's record.
+ * <p>The compact constructor normalises null collections to {@link Map#of() empty maps} /
+ * {@link List#of() empty lists}, validates runtime starts, and requires {@code pattern} non-null.
+ * It makes an immutable defensive copy of the runtime start map. Other caller-owned collections
+ * are not copied here: the planner constructor copies its mutable working maps so planning does
+ * not change the caller's record.
  *
  * <p>{@code returnItems}, {@code returnAliases}, and {@code returnNestedProjections} are
  * <b>parallel</b> lists: entry {@code i} of each describes return item {@code i}, and the planner
@@ -60,16 +63,35 @@ public record MatchPlanInputs(
     boolean returnElements,
     boolean returnPaths,
     boolean returnPatterns,
-    boolean returnPathElements) {
+    boolean returnPathElements,
+    Map<String, RuntimeRidStart> runtimeRidStarts) {
 
   /**
-   * Compact constructor: validates {@code pattern} non-null, normalises null collections to empty,
-   * and requires the three return lists to be parallel (equal length).
+   * Compact constructor: validates {@code pattern} and runtime starts, copies the runtime start
+   * map, normalises null collections to empty, and requires equal lengths for the return lists.
    */
   public MatchPlanInputs {
     Objects.requireNonNull(pattern, "pattern must not be null");
     aliasClasses = aliasClasses == null ? Map.of() : aliasClasses;
     aliasFilters = aliasFilters == null ? Map.of() : aliasFilters;
+    if (runtimeRidStarts == null || runtimeRidStarts.isEmpty()) {
+      runtimeRidStarts = Map.of();
+    } else {
+      var starts = new LinkedHashMap<String, RuntimeRidStart>();
+      for (var entry : runtimeRidStarts.entrySet()) {
+        String alias = Objects.requireNonNull(entry.getKey(),
+            "runtime RID start map alias must not be null");
+        RuntimeRidStart start = Objects.requireNonNull(entry.getValue(),
+            "runtime RID start descriptor must not be null");
+        if (!alias.equals(start.alias())) {
+          throw new IllegalArgumentException(
+              "runtime RID start map alias does not match descriptor: "
+                  + alias);
+        }
+        starts.put(alias, start);
+      }
+      runtimeRidStarts = Collections.unmodifiableMap(starts);
+    }
     matchExpressions = matchExpressions == null ? List.of() : matchExpressions;
     notMatchExpressions = notMatchExpressions == null ? List.of() : notMatchExpressions;
     existsMatchExpressions = existsMatchExpressions == null ? List.of() : existsMatchExpressions;
@@ -109,7 +131,7 @@ public record MatchPlanInputs(
 
   /**
    * Fluent builder for {@link MatchPlanInputs}. Exists so callers name each field they set
-   * instead of threading nineteen positional arguments: a long run of bare {@code null} /
+   * instead of threading twenty positional arguments: a long run of bare {@code null} /
    * {@code false} literals is unreadable, and a transposed value would compile silently and
    * misplan. Unset fields keep their {@code null} / {@code false} defaults, which the compact
    * constructor normalises.
@@ -119,6 +141,7 @@ public record MatchPlanInputs(
     private final Pattern pattern;
     private Map<String, String> aliasClasses;
     private Map<String, SQLWhereClause> aliasFilters;
+    private Map<String, RuntimeRidStart> runtimeRidStarts;
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
     private List<SQLMatchExpression> existsMatchExpressions;
@@ -147,6 +170,11 @@ public record MatchPlanInputs(
 
     public Builder aliasFilters(Map<String, SQLWhereClause> aliasFilters) {
       this.aliasFilters = aliasFilters;
+      return this;
+    }
+
+    public Builder runtimeRidStarts(Map<String, RuntimeRidStart> runtimeRidStarts) {
+      this.runtimeRidStarts = runtimeRidStarts;
       return this;
     }
 
@@ -251,7 +279,8 @@ public record MatchPlanInputs(
           returnElements,
           returnPaths,
           returnPatterns,
-          returnPathElements);
+          returnPathElements,
+          runtimeRidStarts);
     }
   }
 }

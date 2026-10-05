@@ -212,6 +212,10 @@ final class UnionStepRecogniser implements StepRecogniser {
    */
   static MatchPlanInputs rewriteReturnAlias(
       MatchPlanInputs inputs, String fromAlias, String toAlias) {
+    if (!inputs.runtimeRidStarts().isEmpty()) {
+      throw new IllegalArgumentException(
+          "Union return alias rewrite does not support runtime RID starts");
+    }
     if (fromAlias.equals(toAlias)) {
       return inputs;
     }

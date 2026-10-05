@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -292,6 +293,63 @@ public class GremlinPlanFingerprintTest {
             .aliasClasses(java.util.Map.of("a", "Company"))
             .build();
     assertDistinct("aliasClasses", personClass, companyClass);
+  }
+
+  /** An empty input keeps develop's descriptor-free encoding, including the EXISTS marker. */
+  @Test
+  public void noRuntimeStart_keepsLegacyFingerprintBytes() {
+    assertThat(GremlinPlanFingerprint.fingerprint(
+        MatchPlanInputs.builder(new Pattern()).build(), ResultShaping.NONE))
+        .isEqualTo("P:;E:;F:;M:;N:;X:;R:;G:;O:;U:;L:;S:;D:false;RM:0000"
+            + ";BS:00000000;PK:;AP:;MO:;RI:;EK:;RD:;LS:");
+  }
+
+  /**
+   * A populated input without a runtime start has develop's pinned descriptor-free cache key.
+   * Alias classes and the return item populate planner-visible sections of the key.
+   */
+  @Test
+  public void populatedInputWithoutRuntimeStart_keepsLegacyFingerprintBytes() {
+    var statement = parse("MATCH {class: V, as: a} RETURN a");
+    var inputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasClasses(Map.of("a", "Person"))
+        .returnItems(statement.getReturnItems())
+        .returnAliases(statement.getReturnAliases())
+        .returnNestedProjections(statement.getReturnNestedProjections())
+        .build();
+
+    assertThat(GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE))
+        .isEqualTo("P:1:a6:Person0;E:;F:;M:;N:;X:;R:1:a--;G:;O:;U:;L:;S:;D:false"
+            + ";RM:0000;BS:00000000;PK:;AP:;MO:;RI:;EK:;RD:;LS:");
+  }
+
+  /** The descriptor adds a collision-safe section and does not encode a bound RID value. */
+  @Test
+  public void runtimeStart_distinguishesPresenceSlotClassAndAlias() {
+    var pattern = new Pattern();
+    var base = MatchPlanInputs.builder(pattern).build();
+    var first = withStart(pattern, "a", "V", 0);
+    assertDistinct("descriptor presence", base, first);
+    assertDistinct("descriptor slot", first, withStart(pattern, "a", "V", 1));
+    assertDistinct("descriptor class", first, withStart(pattern, "a", "E", 0));
+    assertDistinct("descriptor alias", first, withStart(pattern, "b", "V", 0));
+    assertThat(GremlinPlanFingerprint.fingerprint(first, ResultShaping.NONE))
+        .endsWith(";RS:1:a1:V1:0");
+  }
+
+  /** Length prefixes prevent a delimiter embedded in a descriptor field forging another key. */
+  @Test
+  public void runtimeStart_embeddedDelimitersDoNotCollide() {
+    var pattern = new Pattern();
+    assertDistinct("descriptor token boundaries",
+        withStart(pattern, "a1:V", "x", 0),
+        withStart(pattern, "a", "1:V1:x", 0));
+  }
+
+  private static MatchPlanInputs withStart(Pattern pattern, String alias, String cls, int slot) {
+    return MatchPlanInputs.builder(pattern)
+        .runtimeRidStarts(Map.of(alias, new RuntimeRidStart(alias, cls, slot)))
+        .build();
   }
 
   private static void assertDistinct(String field, MatchPlanInputs left, MatchPlanInputs right) {
