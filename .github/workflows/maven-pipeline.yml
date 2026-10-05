@@ -476,6 +476,9 @@ jobs:
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
+          # GitHub can return HTTP 500 for annotation PATCH requests.
+          # The action does not retry PATCH requests for later annotation groups.
+          check_run_annotations: none
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
   integration-tests:
