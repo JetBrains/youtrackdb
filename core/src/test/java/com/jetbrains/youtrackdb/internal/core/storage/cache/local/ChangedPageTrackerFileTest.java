@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -7,7 +8,11 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -17,19 +22,838 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.CopyOption;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.CRC32C;
+import org.junit.Assume;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class ChangedPageTrackerFileTest {
 
   private static final LogSequenceNumber COVERAGE = new LogSequenceNumber(17, 32);
+
+  @Rule
+  public final TemporaryFolder folder = new TemporaryFolder();
+
+  // Real NIO publication replaces an old file, ignores crash-left temporary content and preserves
+  // both generations, continuity identifiers and the supplied retained-record coverage LSN.
+  @Test
+  public void durablePublicationRoundTripsThroughRealFilesystemInForceOrder() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    var expected = capture(tracker);
+    Files.writeString(path, "old side file");
+    Files.writeString(temporary(path), "crash-left temporary file");
+    var operations = new RecordingOperations(path);
+    tracker.saveOrderLock().lock();
+    try {
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      // The save is reentrant. A future checkpoint can keep ordering through its associated cut.
+      assertTrue(tracker.saveOrderLock().isHeldByCurrentThread());
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+    assertEquals(List.of("delete temporary", "write", "file force", "move", "folder force"),
+        operations.events);
+    assertFalse(Files.exists(temporary(path)));
+    var loaded = ChangedPageTrackerFile.load(path);
+    var actual = capture(loaded.tracker());
+    assertTrue(loaded.tracker().isTrusted());
+    assertEquals(COVERAGE, loaded.coverageLsn());
+    assertEquals(expected.trackerIdentifier(), actual.trackerIdentifier());
+    assertEquals(expected.lastCompletedIdentifier(), actual.lastCompletedIdentifier());
+    assertEquals(expected.sealed().identifier(), actual.sealed().identifier());
+    assertPages(actual.active(), 1, 0, 1);
+    assertPages(actual.sealed().pages(), 1, 32770);
+    assertTrue(ChangedPageTrackerFile.SaveResult.SAVED.allowsWalCut());
+  }
+
+  // Checkpoint publication records unknown history as untrusted. It installs a fresh identifier
+  // but cannot repair missing history, including after a save failure and durable invalidation.
+  @Test
+  public void checkpointSavesCannotRecoverUntrustedHistory() throws Exception {
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    var old = capture(tracker).trackerIdentifier();
+    tracker.invalidate();
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+    var loaded = ChangedPageTrackerFile.load(path);
+    var saved = capture(loaded.tracker());
+    assertFalse(saved.trusted());
+    assertFalse(tracker.isTrusted());
+    assertNull(saved.lastCompletedIdentifier());
+    assertFalse(old.equals(saved.trackerIdentifier()));
+    assertEquals(saved.trackerIdentifier(), capture(tracker).trackerIdentifier());
+    assertEquals(COVERAGE, loaded.coverageLsn());
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, new LogSequenceNumber(18, 32)));
+    assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+  }
+
+  // Every publication-stage I/O failure removes old authority and forces that removal. Atomic
+  // move and folder force lack of support are failures too. No non-atomic retry is permitted.
+  @Test
+  public void publicationFailuresDurablyInvalidateOldAuthorityWithoutFallback() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    for (String stage : List.of("write", "file force", "move", "folder force",
+        "atomic unsupported", "folder unsupported", "delete temporary")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+      var operations = new RecordingOperations(path) {
+        private boolean failed;
+
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (!failed && (operation.equals(stage)
+              || operation.equals("move") && stage.equals("atomic unsupported")
+              || operation.equals("folder force") && stage.equals("folder unsupported"))) {
+            failed = true;
+            if (stage.equals("atomic unsupported")) {
+              throw new AtomicMoveNotSupportedException("temporary", "target", "injected");
+            }
+            if (stage.equals("folder unsupported")) {
+              throw new UnsupportedOperationException("injected folder force unsupported");
+            }
+            throw new IOException("injected " + stage);
+          }
+        }
+      };
+      var result = ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations);
+      assertEquals(stage, ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED, result);
+      assertTrue(result.allowsWalCut());
+      assertFalse(tracker.isTrusted());
+      assertFalse(Files.exists(path));
+      assertNull(ChangedPageTrackerFile.load(path).coverageLsn());
+      int size = operations.events.size();
+      assertEquals(List.of("delete side", "folder force"),
+          operations.events.subList(size - 2, size));
+      assertTrue(operations.events.stream().filter("move"::equals).count() <= 1);
+      // A failed attempt can leave a temporary file. Only the real side-file path has authority.
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+      assertFalse(Files.exists(temporary(path)));
+    }
+  }
+
+  // Delete failure and folder-force failure are distinct unsafe outcomes. Even when the name
+  // disappeared, a failed folder force must stop the cut. Successful invalidation is idempotent.
+  @Test
+  public void invalidationRequiresDurableDeletionAndRejectsBothFailureStages() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    for (String stage : List.of("delete side", "folder force")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+      var operations = new RecordingOperations(path) {
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (operation.equals(stage)) {
+            throw new IOException("injected invalidation " + stage);
+          }
+        }
+      };
+      var invalidation = ChangedPageTrackerFile.invalidate(path, tracker, operations);
+      assertEquals(ChangedPageTrackerFile.InvalidationResult.FAILED, invalidation);
+      assertFalse(invalidation.allowsWalCut());
+      assertFalse(tracker.isTrusted());
+      assertEquals(stage.equals("delete side"), Files.exists(path));
+      assertEquals(ChangedPageTrackerFile.InvalidationResult.INVALIDATED,
+          ChangedPageTrackerFile.invalidate(path, tracker));
+      assertFalse(Files.exists(path));
+      var retry = new RecordingOperations(path);
+      assertTrue(ChangedPageTrackerFile.invalidate(path, tracker, retry).allowsWalCut());
+      assertEquals(List.of("delete side", "folder force"), retry.events);
+    }
+  }
+
+  // A save failure cannot allow a cut when deletion or its force also fails. The old file may
+  // survive, but the caller sees the unsafe result and must retain WAL for startup coverage proof.
+  @Test
+  public void saveAndInvalidationDoubleFailuresNeverPermitWalCut() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    for (String stage : List.of("delete side", "folder force")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+      var operations = new RecordingOperations(path) {
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (operation.equals("write") || operation.equals(stage)) {
+            throw new IOException("injected double failure " + operation);
+          }
+        }
+      };
+      var result = ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations);
+      assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATION_FAILED, result);
+      assertFalse(result.allowsWalCut());
+      assertFalse(tracker.isTrusted());
+      assertEquals(stage.equals("delete side"), Files.exists(path));
+      assertEquals(ChangedPageTrackerFile.InvalidationResult.INVALIDATED,
+          ChangedPageTrackerFile.invalidate(path, tracker));
+    }
+  }
+
+  // Pause each durability boundary, including Windows replacement. The newer save must queue
+  // until completion. Both workers are joined and the final disk and memory identities must agree.
+  @Test
+  public void slowOlderSaveCannotOvertakeNewerCaptureAndPublication() throws Exception {
+    for (String stage : List.of("file force", "folder force", "windows move")) {
+      if (!stage.equals("windows move") && IOUtils.isOsWindows()) {
+        continue;
+      }
+      assertSaveOrdering(folder.newFolder().toPath().resolve("tracker"), stage);
+    }
+  }
+
+  private void assertSaveOrdering(Path path, String stage) throws Exception {
+    var tracker = new ChangedPageTracker();
+    tracker.mark(1, 0);
+    var entered = new CountDownLatch(1);
+    var released = new CountDownLatch(1);
+    var newerStarted = new CountDownLatch(1);
+    var executor = Executors.newFixedThreadPool(2);
+    var operations = new WindowsOperations(path) {
+      @Override
+      boolean windows() {
+        return stage.equals("windows move");
+      }
+
+      @Override
+      void event(String operation) throws IOException {
+        super.event(operation);
+        if (operation.equals(stage)) {
+          entered.countDown();
+          await(released);
+        }
+      }
+    };
+    var older = executor.submit(() -> ChangedPageTrackerFile.save(path, tracker, COVERAGE,
+        operations));
+    try {
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      tracker.mark(1, 1);
+      assertNotNull(tracker.beginBackup());
+      var newer = executor.submit(() -> {
+        newerStarted.countDown();
+        return ChangedPageTrackerFile.save(path, tracker, new LogSequenceNumber(18, 32),
+            stage.equals("windows move") ? new WindowsOperations(path)
+                : new RecordingOperations(path));
+      });
+      assertTrue(newerStarted.await(10, TimeUnit.SECONDS));
+      long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+      while (!tracker.saveOrderLock().hasQueuedThreads() && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+      assertTrue(tracker.saveOrderLock().hasQueuedThreads());
+      assertFalse(newer.isDone());
+      released.countDown();
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED, older.get(10, TimeUnit.SECONDS));
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED, newer.get(10, TimeUnit.SECONDS));
+      var loaded = ChangedPageTrackerFile.load(path);
+      assertEquals(new LogSequenceNumber(18, 32), loaded.coverageLsn());
+      var disk = capture(loaded.tracker());
+      assertPages(disk.sealed().pages(), 1, 0, 1);
+      assertEquals(disk.trackerIdentifier(), capture(tracker).trackerIdentifier());
+    } finally {
+      released.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  // Real failed marks at each side of rename invalidate a previously trusted capture. The first
+  // fence blocks rename, while the saveSucceeded fence invalidates a file already published.
+  @Test
+  public void markFailureDuringEitherForceCannotCertifyTrustedCapture() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    for (String stage : List.of("file force", "folder force")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+      var entered = new CountDownLatch(1);
+      var released = new CountDownLatch(1);
+      var operations = new RecordingOperations(path) {
+        private boolean paused;
+
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (!paused && operation.equals(stage)) {
+            paused = true;
+            entered.countDown();
+            await(released);
+          }
+        }
+      };
+      var executor = Executors.newSingleThreadExecutor();
+      var saved = executor.submit(() -> ChangedPageTrackerFile.save(path, tracker, COVERAGE,
+          operations));
+      try {
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        assertThrows(IllegalArgumentException.class, () -> tracker.mark(1, -1));
+        assertFalse(tracker.isTrusted());
+        released.countDown();
+        assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+            saved.get(10, TimeUnit.SECONDS));
+        assertEquals(stage.equals("folder force"), operations.events.contains("move"));
+        assertFalse(Files.exists(path));
+        assertNull(ChangedPageTrackerFile.load(path).coverageLsn());
+      } finally {
+        released.countDown();
+        executor.shutdownNow();
+        assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      }
+    }
+  }
+
+  // Errors before and after rename revoke trust, remove authority and preserve throwable identity.
+  @Test
+  public void allocationErrorsInvalidateAuthorityBeforePropagating() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    for (String stage : List.of("write", "file force", "folder force")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      Files.write(path, encode(capture(tracker)));
+      var failure = new OutOfMemoryError("injected " + stage);
+      var operations = new RecordingOperations(path) {
+        private boolean failed;
+
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (!failed && operation.equals(stage)) {
+            failed = true;
+            throw failure;
+          }
+        }
+      };
+      assertSame(failure, assertThrows(OutOfMemoryError.class,
+          () -> ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations)));
+      assertFalse(tracker.isTrusted());
+      assertFalse(Files.exists(path));
+      assertFalse(tracker.saveOrderLock().isLocked());
+      assertEquals(stage.equals("folder force"), operations.events.contains("move"));
+      assertEquals(1, operations.warnings.size());
+      assertSame(failure, operations.warnings.getFirst().cause());
+    }
+  }
+
+  // A secondary cleanup failure is suppressed on the original Error. Direct invalidation also
+  // retries its cleanup on Error, but still propagates that Error and never returns a cut result.
+  @Test
+  public void errorsPreserveSecondaryCleanupCausesAndDirectInvalidationRetries() throws Exception {
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    Files.write(path, encode(capture(tracker)));
+    var primary = new OutOfMemoryError("write failure");
+    var secondary = new IOException("tombstone move failure");
+    var operations = new WindowsOperations(path) {
+      @Override
+      void write(FileChannel channel, ChangedPageTracker.SaveState state,
+          LogSequenceNumber coverage) {
+        throw primary;
+      }
+
+      @Override
+      void windowsMove(Path temporary, Path target) throws IOException {
+        throw secondary;
+      }
+    };
+    assertSame(primary, assertThrows(OutOfMemoryError.class,
+        () -> ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations)));
+    assertArrayEquals(new Throwable[] {secondary}, primary.getSuppressed());
+    assertFalse(tracker.isTrusted());
+    var directError = new OutOfMemoryError("invalidation failure");
+    var retry = new WindowsOperations(path) {
+      private boolean failed;
+
+      @Override
+      void forceFile(FileChannel channel) throws IOException {
+        if (!failed) {
+          failed = true;
+          throw directError;
+        }
+        super.forceFile(channel);
+      }
+    };
+    assertSame(directError, assertThrows(OutOfMemoryError.class,
+        () -> ChangedPageTrackerFile.invalidate(path, tracker, retry)));
+    assertEquals(0, Files.size(path));
+    assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+  }
+
+  // Cleanup Errors never become safe results. Direct invalidation preserves an Error even if its
+  // retry fails. Reusing a throwable in logging must not attempt illegal self-suppression.
+  @Test
+  public void cleanupErrorsPropagateAndInvalidationRetryFailuresStaySuppressed() throws Exception {
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    var original = new IOException("save failed");
+    var cleanup = new OutOfMemoryError("cleanup failed");
+    var operations = new WindowsOperations(path) {
+      @Override
+      void write(FileChannel channel, ChangedPageTracker.SaveState state,
+          LogSequenceNumber coverage) throws IOException {
+        throw original;
+      }
+
+      @Override
+      void windowsMove(Path temporary, Path target) {
+        throw cleanup;
+      }
+
+      @Override
+      void warn(String message, Throwable cause) {
+        throw (Error) (cause instanceof Error ? cause : cleanup);
+      }
+    };
+    assertSame(cleanup, assertThrows(OutOfMemoryError.class,
+        () -> ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations)));
+    assertTrue(Arrays.asList(cleanup.getSuppressed()).contains(original));
+    assertFalse(tracker.isTrusted());
+    assertFalse(tracker.saveOrderLock().isLocked());
+    var direct = new AssertionError("direct invalidation failed");
+    var retry = new IOException("retry failed");
+    var retryOperations = new WindowsOperations(path) {
+      private boolean failed;
+
+      @Override
+      void windowsMove(Path temporary, Path target) throws IOException {
+        if (!failed) {
+          failed = true;
+          throw direct;
+        }
+        throw retry;
+      }
+    };
+    assertSame(direct, assertThrows(AssertionError.class,
+        () -> ChangedPageTrackerFile.invalidate(path, tracker, retryOperations)));
+    assertArrayEquals(new Throwable[] {retry}, direct.getSuppressed());
+  }
+
+  // Locally owned diagnostics capture both messages and original causes. A throwing logger cannot
+  // skip cleanup, alter a safe or unsafe outcome, or replace a propagating allocation Error.
+  @Test
+  public void diagnosticsCannotChangeDurabilityOutcomesOrHideOriginalCauses() throws Exception {
+    for (boolean cleanupFails : List.of(false, true)) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      Files.write(path, encode(capture(tracker)));
+      var primary = new IOException("encoding failed");
+      var secondary = new IOException("replacement failed");
+      var loggerFailure = new IllegalStateException("logger failed");
+      var operations = new WindowsOperations(path) {
+        @Override
+        void write(FileChannel channel, ChangedPageTracker.SaveState state,
+            LogSequenceNumber coverage) throws IOException {
+          throw primary;
+        }
+
+        @Override
+        void windowsMove(Path temporary, Path target) throws IOException {
+          assertFalse(tracker.isTrusted());
+          if (cleanupFails) {
+            throw secondary;
+          }
+          super.windowsMove(temporary, target);
+        }
+
+        @Override
+        void warn(String message, Throwable failure) {
+          assertFalse(tracker.isTrusted());
+          if (!cleanupFails) {
+            assertEquals(0, size(path));
+          }
+          super.warn(message, failure);
+          throw loggerFailure;
+        }
+      };
+      assertEquals(cleanupFails ? ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATION_FAILED
+          : ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      assertEquals(cleanupFails ? 2 : 1, operations.warnings.size());
+      var saveWarning = operations.warnings.getLast();
+      assertEquals("Failed to save changed-page tracker side file: " + path,
+          saveWarning.message());
+      assertSame(primary, saveWarning.cause());
+      assertTrue(Arrays.asList(primary.getSuppressed()).contains(loggerFailure));
+      if (cleanupFails) {
+        assertEquals("Failed to invalidate changed-page tracker side file: " + path,
+            operations.warnings.getFirst().message());
+        assertSame(secondary, operations.warnings.getFirst().cause());
+        assertEquals(ChangedPageTrackerFile.InvalidationResult.FAILED,
+            ChangedPageTrackerFile.invalidate(path, tracker, operations));
+      }
+    }
+    var path = folder.newFolder().toPath().resolve("tracker");
+    var primary = new OutOfMemoryError("encoding error");
+    var logging = new AssertionError("logging error");
+    var operations = new WindowsOperations(path) {
+      @Override
+      void write(FileChannel channel, ChangedPageTracker.SaveState state,
+          LogSequenceNumber coverage) {
+        throw primary;
+      }
+
+      @Override
+      void warn(String message, Throwable failure) {
+        throw logging;
+      }
+    };
+    assertSame(primary, assertThrows(OutOfMemoryError.class,
+        () -> ChangedPageTrackerFile.save(path, trustedTracker(), COVERAGE, operations)));
+    assertArrayEquals(new Throwable[] {logging}, primary.getSuppressed());
+  }
+
+  // Interrupted channel I/O leaves the flag set. Cleanup clears it only for its required barriers
+  // and restores it before returning a durably invalidated, safe tracker result.
+  @Test
+  public void interruptedSaveClearsFlagForCleanupAndRestoresItOnReturn() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    Files.write(path, encode(capture(tracker)));
+    var operations = new RecordingOperations(path) {
+      @Override
+      void write(FileChannel channel, ChangedPageTracker.SaveState state,
+          LogSequenceNumber coverage) throws IOException {
+        Thread.currentThread().interrupt();
+        // Exercise the JDK's actual interruptible force rather than a fabricated exception.
+        channel.force(true);
+      }
+
+      @Override
+      void forceFolder(Path parent) throws IOException {
+        assertFalse(Thread.currentThread().isInterrupted());
+        super.forceFolder(parent);
+      }
+    };
+    try {
+      assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertFalse(Files.exists(path));
+      assertFalse(tracker.isTrusted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  // Observe below the stage labels: the default implementations must call force(true) on each
+  // channel, close the directory channel, and request both atomic replacement move options.
+  @Test
+  public void defaultPrimitivesForceActualChannelsAndRequestAtomicReplacement() throws Exception {
+    var file = mock(FileChannel.class);
+    var directory = mock(FileChannel.class);
+    var source = folder.getRoot().toPath().resolve("source");
+    var target = folder.getRoot().toPath().resolve("target");
+    var observed = new ArrayList<CopyOption>();
+    var operations = new ChangedPageTrackerFile.FileOperations() {
+      @Override
+      FileChannel openFolder(Path parent) {
+        assertEquals(target.getParent(), parent);
+        return directory;
+      }
+
+      @Override
+      void move(Path from, Path to, CopyOption... options) {
+        assertEquals(source, from);
+        assertEquals(target, to);
+        observed.addAll(Arrays.asList(options));
+      }
+    };
+    operations.forceFile(file);
+    operations.forceFolder(target.getParent());
+    operations.move(source, target);
+    verify(file).force(true);
+    verify(directory).force(true);
+    verify(directory).close();
+    assertEquals(List.of(StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING),
+        observed);
+  }
+
+  // The Windows recipe uses one write-through replacement and no directory channel. Invalidation
+  // publishes an empty forced tombstone even when the authoritative side name was absent.
+  @Test
+  public void windowsPublicationAndTombstoneUseWriteThroughReplacementWithoutFolderForce()
+      throws Exception {
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    var operations = new WindowsOperations(path);
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+    assertEquals(List.of("delete temporary", "write", "file force", "windows move"),
+        operations.events);
+    assertTrue(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    for (boolean absent : List.of(false, true)) {
+      if (absent) {
+        Files.delete(path);
+      }
+      operations.events.clear();
+      assertEquals(ChangedPageTrackerFile.InvalidationResult.INVALIDATED,
+          ChangedPageTrackerFile.invalidate(path, tracker, operations));
+      assertEquals(List.of("delete temporary", "file force", "windows move"), operations.events);
+      assertEquals(0, Files.size(path));
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    }
+  }
+
+  // Every Windows publication-stage failure publishes a forced empty tombstone. A replacement
+  // failure during invalidation has an unsafe result, both directly and after a failed save.
+  @Test
+  public void windowsStageFailuresInvalidateAndDoubleFailuresRejectWalCut() throws Exception {
+    for (String stage : List.of("write", "file force", "windows move", "delete temporary")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      Files.write(path, encode(capture(tracker)));
+      var operations = new WindowsOperations(path) {
+        private boolean failed;
+
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (!failed && operation.equals(stage)) {
+            failed = true;
+            throw new IOException("injected " + stage);
+          }
+        }
+      };
+      assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      assertFalse(tracker.isTrusted());
+      assertEquals(0, Files.size(path));
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    }
+    var path = folder.newFolder().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    Files.write(path, encode(capture(tracker)));
+    var operations = new WindowsOperations(path) {
+      @Override
+      void windowsMove(Path temporary, Path target) throws IOException {
+        throw new IOException("persistent replacement failure");
+      }
+    };
+    assertEquals(ChangedPageTrackerFile.InvalidationResult.FAILED,
+        ChangedPageTrackerFile.invalidate(path, tracker, operations));
+    var result = ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations);
+    assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATION_FAILED, result);
+    assertFalse(result.allowsWalCut());
+  }
+
+  // Without the helper, no publication occurs. Force existing content empty without replacing its
+  // name. An absent side file stays absent. Either case permits a cut with untrusted history.
+  @Test
+  public void windowsWithoutHelperTruncatesOldAuthorityAndKeepsAbsentNameAbsent() throws Exception {
+    for (boolean absent : List.of(false, true)) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      if (!absent) {
+        Files.write(path, encode(capture(tracker)));
+      }
+      var operations = new WindowsOperations(path) {
+        @Override
+        boolean windowsMoveAvailable() {
+          return false;
+        }
+
+        @Override
+        void windowsMove(Path temporary, Path target) throws IOException {
+          throw new IOException("helper unavailable");
+        }
+      };
+      assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      assertFalse(tracker.isTrusted());
+      assertEquals(absent, Files.notExists(path));
+      if (!absent) {
+        assertEquals(0, Files.size(path));
+      }
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    }
+  }
+
+  // Failed marks on either side of Windows publication hit the same capture fences as POSIX.
+  @Test
+  public void windowsMarkFailuresCannotCertifyTrustedCapture() throws Exception {
+    for (String stage : List.of("file force", "windows move")) {
+      var path = folder.newFolder().toPath().resolve("tracker");
+      var tracker = trustedTracker();
+      var operations = new WindowsOperations(path) {
+        private boolean failed;
+
+        @Override
+        void event(String operation) throws IOException {
+          super.event(operation);
+          if (!failed && operation.equals(stage)) {
+            failed = true;
+            assertThrows(IllegalArgumentException.class, () -> tracker.mark(1, -1));
+          }
+        }
+      };
+      assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+          ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+      assertFalse(tracker.isTrusted());
+      assertEquals(0, Files.size(path));
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    }
+  }
+
+  // Windows CI exercises the real native helper and a forced tombstone on its own file system.
+  @Test
+  public void windowsRealPublicationAndInvalidationLoseLoadedTrust() throws Exception {
+    Assume.assumeTrue(IOUtils.isOsWindows());
+    assertTrue(FileUtils.windowsWriteThroughMoveAvailable());
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = trustedTracker();
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+    assertTrue(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    assertEquals(ChangedPageTrackerFile.InvalidationResult.INVALIDATED,
+        ChangedPageTrackerFile.invalidate(path, tracker));
+    assertEquals(0, Files.size(path));
+    assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+  }
+
+  private record Warning(String message, Throwable cause) {
+  }
+
+  private static long size(Path path) {
+    try {
+      return Files.size(path);
+    } catch (IOException failure) {
+      throw new AssertionError(failure);
+    }
+  }
+
+  private static class WindowsOperations extends RecordingOperations {
+    WindowsOperations(Path path) {
+      super(path);
+    }
+
+    @Override
+    boolean windows() {
+      return true;
+    }
+
+    @Override
+    boolean windowsMoveAvailable() {
+      return true;
+    }
+
+    @Override
+    void windowsMove(Path temporary, Path target) throws IOException {
+      event("windows move");
+      Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE,
+          StandardCopyOption.REPLACE_EXISTING);
+    }
+  }
+
+  private static ChangedPageTracker trustedTracker() {
+    var builder = ChangedPageTracker.restoration(UUID.randomUUID(), UUID.randomUUID(), true,
+        UUID.randomUUID());
+    builder.activeWord(1, 0, 3);
+    builder.sealedWord(1, 512, 4);
+    return builder.build();
+  }
+
+  private static Path temporary(Path path) {
+    return path.resolveSibling(path.getFileName() + ".tmp");
+  }
+
+  private static void await(CountDownLatch latch) throws IOException {
+    try {
+      if (!latch.await(10, TimeUnit.SECONDS)) {
+        throw new IOException("Timed out waiting for publication test");
+      }
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new IOException(failure);
+    }
+  }
+
+  private static class RecordingOperations extends ChangedPageTrackerFile.FileOperations {
+    private final Path sideFile;
+    final List<String> events = new ArrayList<>();
+    final List<Warning> warnings = new ArrayList<>();
+
+    RecordingOperations(Path sideFile) {
+      this.sideFile = sideFile;
+    }
+
+    void event(String operation) throws IOException {
+      events.add(operation);
+    }
+
+    @Override
+    boolean windows() {
+      return false;
+    }
+
+    @Override
+    void warn(String message, Throwable failure) {
+      warnings.add(new Warning(message, failure));
+    }
+
+    @Override
+    void write(FileChannel channel, ChangedPageTracker.SaveState state, LogSequenceNumber coverage)
+        throws IOException {
+      event("write");
+      super.write(channel, state, coverage);
+    }
+
+    @Override
+    void forceFile(FileChannel channel) throws IOException {
+      event("file force");
+      assertTrue(channel.isOpen());
+      super.forceFile(channel);
+    }
+
+    @Override
+    void move(Path temporary, Path target) throws IOException {
+      event("move");
+      // Force has completed and the stream owner has closed the temporary channel.
+      assertNotNull(ChangedPageTrackerFile.load(temporary).coverageLsn());
+      super.move(temporary, target);
+    }
+
+    @Override
+    void forceFolder(Path folder) throws IOException {
+      event("folder force");
+      super.forceFolder(folder);
+    }
+
+    @Override
+    void delete(Path path) throws IOException {
+      event(path.equals(sideFile) ? "delete side" : "delete temporary");
+      super.delete(path);
+    }
+  }
 
   // Both generations, extreme indices and continuity survive decoding and the startup merge.
   @Test
@@ -249,6 +1073,7 @@ public class ChangedPageTrackerFileTest {
   // Dense input rejects whole-file buffering. Both budgets include all transient objects.
   @Test
   public void encodingAndLoadingAllocateOnlyBoundedScratchBeyondLoadedBitmaps() throws Exception {
+    Assume.assumeTrue(!IOUtils.isOsWindows() || FileUtils.windowsWriteThroughMoveAvailable());
     var process = new ProcessBuilder(System.getProperty("java.home") + "/bin/java", "-Xmx128m",
         "-XX:-DoEscapeAnalysis", "-cp",
         System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
@@ -278,7 +1103,7 @@ public class ChangedPageTrackerFileTest {
         }
       }
       long payload = (long) segments * ChangedPageTracker.SEGMENT_BYTES;
-      measureAllocation(capture(tracker), payload, payload / 4, "sparse");
+      measureAllocation(tracker, payload, payload / 4, "sparse");
 
       var dense = new ChangedPageTracker();
       int denseSegments = 16;
@@ -289,31 +1114,44 @@ public class ChangedPageTrackerFileTest {
       }
       // Dense wire records exceed the 16 KiB scratch allowance. Buffering the whole file
       // cannot fit, even though the restored bit payload is only 64 KiB.
-      measureAllocation(capture(dense), (long) denseSegments * ChangedPageTracker.SEGMENT_BYTES,
+      measureAllocation(dense, (long) denseSegments * ChangedPageTracker.SEGMENT_BYTES,
           16384, "dense");
     }
 
-    private static void measureAllocation(ChangedPageTracker.SaveState state, long payload,
+    private static void measureAllocation(ChangedPageTracker tracker, long payload,
         long scratchAllowance, String label) throws IOException {
-      // Warm codec and restoration paths before measuring. The wire array is caller-owned.
-      var bytes = encode(state);
+      // Warm the real publisher and channel adapter. Only setup owns a wire array.
+      var bytes = encode(capture(tracker));
       read(bytes);
-      var bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
-      bean.setThreadAllocatedMemoryEnabled(true);
-      long thread = Thread.currentThread().threadId();
-      long before = bean.getThreadAllocatedBytes(thread);
-      ChangedPageTrackerFile.write(OutputStream.nullOutputStream(), state, COVERAGE);
-      long encoding = bean.getThreadAllocatedBytes(thread) - before;
-      before = bean.getThreadAllocatedBytes(thread);
-      var loaded = read(bytes);
-      long loading = bean.getThreadAllocatedBytes(thread) - before;
-      long budget = payload + scratchAllowance;
-      System.out.println("codec allocation: " + label + ", encoding=" + encoding
-          + ", loading=" + loading + ", wire=" + bytes.length + ", loading budget=" + budget);
-      assertTrue(label + " encoding allocated " + encoding, encoding < 65536);
-      assertTrue(label + " loading allocated " + loading + " with budget " + budget,
-          loading < budget);
-      assertNotNull(loaded.coverageLsn());
+      var directory = Files.createTempDirectory("tracker-allocation");
+      var path = directory.resolve("tracker");
+      try {
+        for (int warmup = 0; warmup < 3; warmup++) {
+          assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+              ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+        }
+        var bean = (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+        bean.setThreadAllocatedMemoryEnabled(true);
+        long thread = Thread.currentThread().threadId();
+        long before = bean.getThreadAllocatedBytes(thread);
+        var result = ChangedPageTrackerFile.save(path, tracker, COVERAGE);
+        long encoding = bean.getThreadAllocatedBytes(thread) - before;
+        before = bean.getThreadAllocatedBytes(thread);
+        var loaded = read(bytes);
+        long loading = bean.getThreadAllocatedBytes(thread) - before;
+        long budget = payload + scratchAllowance;
+        System.out.println("codec allocation: " + label + ", save=" + encoding
+            + ", loading=" + loading + ", wire=" + bytes.length + ", loading budget=" + budget);
+        assertEquals(ChangedPageTrackerFile.SaveResult.SAVED, result);
+        assertTrue(label + " save allocated " + encoding, encoding < 65536);
+        assertTrue(label + " loading allocated " + loading + " with budget " + budget,
+            loading < budget);
+        assertNotNull(loaded.coverageLsn());
+      } finally {
+        Files.deleteIfExists(temporary(path));
+        Files.deleteIfExists(path);
+        Files.delete(directory);
+      }
     }
   }
 
