@@ -23,6 +23,10 @@ final class PostConcatSupport {
    * one {@code count(*)} column, no GROUP BY / DISTINCT / ORDER / SKIP / LIMIT on the child.
    */
   static @Nonnull MatchPlanInputs rewriteToCountStar(@Nonnull MatchPlanInputs inputs) {
+    if (!inputs.runtimeRidStarts().isEmpty()) {
+      throw new IllegalArgumentException(
+          "Count rewrite does not support runtime RID starts");
+    }
     List<SQLIdentifier> aliases = new ArrayList<>(1);
     aliases.add(null);
     List<SQLNestedProjection> nested = new ArrayList<>(1);
