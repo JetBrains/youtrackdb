@@ -19,7 +19,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
@@ -92,6 +94,109 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
+  /** Missing NOT NULL keys keep the DESC RID sort for both index kinds and composite keys. */
+  @Test
+  public void missingOptionalNotNullKeysSortDescendingRidInCleanAndPendingTransactions() {
+    for (var unique : List.of(false, true)) {
+      for (var composite : List.of(false, true)) {
+        var cls = "MissingMatch" + unique + composite;
+        var schema = db().createVertexClass(cls);
+        schema.createProperty("a", PropertyType.INTEGER).setMandatory(true).setNotNull(true);
+        schema.createProperty("p", PropertyType.INTEGER).setNotNull(true);
+        db().execute("CREATE INDEX " + cls + "_p ON " + cls + " ("
+            + (composite ? "a, p" : "p") + ") " + (unique ? "UNIQUE" : "NOTUNIQUE"))
+            .close();
+        graph.tx().readWrite();
+        db().execute("CREATE VERTEX " + cls + " SET a = 1, p = 1").close();
+        db().execute("CREATE VERTEX " + cls + " SET a = 1").close();
+        if (!unique) {
+          db().execute("CREATE VERTEX " + cls + " SET a = 1").close();
+        }
+        graph.tx().commit();
+        var query = match(cls, "") + " ORDER BY "
+            + (composite ? "s.a DESC, " : "") + "s.p DESC, s.@rid DESC";
+        for (var pending : List.of(false, true)) {
+          graph.tx().readWrite();
+          if (pending) {
+            db().execute("CREATE VERTEX " + cls + " SET a = 1, p = 2").close();
+          }
+          assertTransaction(pending);
+          assertThat(plan(query, Map.of())).contains("FETCH FROM INDEX", "+ ORDER BY");
+          assertSqlOracle(select(cls, ""), query, Map.of(), true);
+          graph.tx().rollback();
+        }
+        if (!unique) {
+          graph.tx().readWrite();
+          // A three-row result exceeds this cap only if the retained step really sorts.
+          underLowCap(() -> assertThatThrownBy(() -> ids(query, Map.of()))
+              .hasMessageContaining("in-heap ORDER BY"));
+          graph.tx().rollback();
+        }
+      }
+    }
+  }
+
+  /** Equality bound to null must sort RID ties in clean and pending transactions. */
+  @Test
+  public void nullEqualityParameterKeepsDescendingRidSort() {
+    var cls = "NullParameterMatch";
+    var schema = db().createVertexClass(cls);
+    schema.createProperty("p", PropertyType.INTEGER);
+    db().execute("CREATE INDEX " + cls + "_p ON " + cls + " (p) NOTUNIQUE").close();
+    graph.tx().readWrite();
+    db().execute("CREATE VERTEX " + cls + " SET p = 1").close();
+    db().execute("CREATE VERTEX " + cls).close();
+    db().execute("CREATE VERTEX " + cls).close();
+    graph.tx().commit();
+    var params = new HashMap<Object, Object>();
+    var query = match(cls, "p = :x") + " ORDER BY s.p DESC, s.@rid DESC";
+    for (var pending : List.of(false, true)) {
+      graph.tx().readWrite();
+      if (pending) {
+        db().execute("CREATE VERTEX " + cls).close();
+      }
+      for (var bound : Arrays.asList(1, null)) {
+        params.put("x", bound);
+        assertTransaction(pending);
+        assertSqlOracle(select(cls, "p = :x"), query, params, true);
+      }
+      graph.tx().rollback();
+    }
+  }
+
+  /** LIKE rejects null and missing values, so clean RID scans pass through and pending rows sort. */
+  @Test
+  public void likeFilterProvidesSameNullExclusionForMatchAndSelect() {
+    var cls = "LikeProofMatch";
+    var schema = db().createVertexClass(cls);
+    schema.createProperty("p", PropertyType.STRING);
+    db().execute("CREATE INDEX " + cls + "_p ON " + cls + " (p) NOTUNIQUE").close();
+    graph.tx().readWrite();
+    for (var p : List.of("aa", "aa", "ab", "b")) {
+      db().execute("CREATE VERTEX " + cls + " SET p = ?", p).close();
+    }
+    db().execute("CREATE VERTEX " + cls).close();
+    db().execute("CREATE VERTEX " + cls + " SET p = null").close();
+    graph.tx().commit();
+    var filter = "p LIKE :pattern";
+    var params = Map.<Object, Object>of("pattern", "a%");
+    var query = match(cls, filter) + " ORDER BY s.p DESC, s.@rid DESC";
+    for (var pending : List.of(false, true)) {
+      graph.tx().readWrite();
+      if (pending) {
+        db().execute("CREATE VERTEX " + cls + " SET p = 'aa'").close();
+      }
+      assertTransaction(pending);
+      assertThat(plan(query, params)).contains("FETCH FROM INDEX", "+ ORDER BY");
+      if (pending) {
+        assertSqlOracle(select(cls, filter), query, params, true);
+      } else {
+        underLowCap(() -> assertSqlOracle(select(cls, filter), query, params, true));
+      }
+      graph.tx().rollback();
+    }
+  }
+
   private DatabaseSessionEmbedded db() {
     return ((YTDBGraphEmbedded) graph).getUnderlyingDatabaseSession();
   }
@@ -115,8 +220,8 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
 
   private void seed(String cls, PropertyType type, Object low, Object high, boolean nullable) {
     var schema = db().createVertexClass(cls);
-    schema.createProperty("a", PropertyType.INTEGER).setNotNull(!nullable);
-    schema.createProperty("p", type).setNotNull(!nullable);
+    schema.createProperty("a", PropertyType.INTEGER).setMandatory(!nullable).setNotNull(!nullable);
+    schema.createProperty("p", type).setMandatory(!nullable).setNotNull(!nullable);
     schema.createProperty("q", PropertyType.INTEGER);
     schema.createProperty("n", PropertyType.INTEGER);
     db().execute("CREATE INDEX " + cls + "_p ON " + cls + " (p) NOTUNIQUE").close();

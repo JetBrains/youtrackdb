@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsKeyOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsValueOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
@@ -33,15 +35,15 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLikeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMetadataIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -3787,12 +3789,17 @@ public class SelectExecutionPlanner {
             || orderedFieldsExcludeNulls(clazz, orderBy.getProperties(), keyCondition));
   }
 
-  /** A descending scan cannot promise RID order in a nullable index-key bucket. */
-  private static boolean orderedFieldsExcludeNulls(
+  /**
+   * Shared SELECT and single-node MATCH proof that every ordered key excludes nulls.
+   * A descending scan cannot promise RID order in a nullable index-key bucket.
+   */
+  public static boolean orderedFieldsExcludeNulls(
       SchemaClass clazz, List<String> fields, SQLBooleanExpression condition) {
     for (var field : fields) {
       var property = clazz.getProperty(field);
-      if ((property == null || !property.isNotNull()) && !conditionExcludesNull(condition, field)) {
+      // NOT NULL validates present values. MANDATORY also prevents a missing null index key.
+      if ((property == null || !property.isMandatory() || !property.isNotNull())
+          && !conditionExcludesNull(condition, field)) {
         return false;
       }
     }
@@ -3807,11 +3814,19 @@ public class SelectExecutionPlanner {
           && field.equals(expression.getDefaultAlias().getStringValue());
     }
     if (condition instanceof SQLBinaryCondition binary) {
-      // Both not-equal operators accept a null left operand, so they cannot exclude null keys.
-      return !(binary.getOperator() instanceof SQLNeOperator
-          || binary.getOperator() instanceof SQLNeqOperator)
-          && field.equals(binary.getLeft().toString())
-          && !binary.getRight().toString().equalsIgnoreCase("null");
+      var left = binary.getLeft();
+      if (!left.isBaseIdentifier() || !field.equals(left.getDefaultAlias().getStringValue())) {
+        return false;
+      }
+      var operator = binary.getOperator();
+      // These operators reject a null left operand for every right operand. Not-equal does not.
+      // Equality uses a constant proof, so cached plans cannot certify a nullable parameter.
+      return operator.isRangeOperator()
+          || operator instanceof SQLLikeOperator
+          || operator instanceof SQLContainsKeyOperator
+          || operator instanceof SQLContainsValueOperator
+          || operator instanceof SQLInOperator
+          || (operator instanceof SQLEqualsOperator && constantNonNull(binary.getRight()));
     }
     if (condition instanceof SQLAndBlock andBlock) {
       return andBlock.getSubBlocks().stream().anyMatch(sub -> conditionExcludesNull(sub, field));
@@ -3823,6 +3838,19 @@ public class SelectExecutionPlanner {
       return conditionExcludesNull(orBlock.getSubBlocks().getFirst(), field);
     }
     return false;
+  }
+
+  private static boolean constantNonNull(SQLExpression expression) {
+    if (expression.getMathExpression() instanceof SQLBaseExpression base
+        && base.getIdentifier() == null && base.getModifier() == null) {
+      // Only a bare number, string, or input parameter reaches this branch. Evaluate without
+      // bindings so a parameter never supplies a non-null proof, even on its first execution.
+      var constants = new BasicCommandContext();
+      constants.setInputParameters(Map.of());
+      return expression.execute((Result) null, constants) != null;
+    }
+    return "true".equalsIgnoreCase(expression.toString())
+        || "false".equalsIgnoreCase(expression.toString());
   }
 
   /**

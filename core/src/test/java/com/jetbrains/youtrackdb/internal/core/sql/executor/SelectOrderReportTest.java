@@ -3,9 +3,16 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsValueOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.Assert;
@@ -140,6 +147,132 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     try (var rows = session.query("select from " + CLASS + " order by a asc")) {
       Assert.assertEquals(Arrays.asList(null, 2),
           rows.stream().map(row -> (Integer) row.getProperty("a")).toList());
+    }
+  }
+
+  /** NOT NULL allows an absent property, so single and composite scans cannot promise DESC RID. */
+  @Test
+  public void optionalNotNullPropertiesDoNotExcludeMissingIndexKeys() {
+    for (var unique : List.of(false, true)) {
+      for (var composite : List.of(false, true)) {
+        var cls = "MissingReport" + unique + composite;
+        var clazz = session.getMetadata().getSchema().createClass(cls);
+        clazz.createProperty("a", PropertyType.INTEGER).setMandatory(true).setNotNull(true);
+        clazz.createProperty("p", PropertyType.INTEGER).setNotNull(true);
+        clazz.createIndex(cls + ".p", unique ? SchemaClass.INDEX_TYPE.UNIQUE
+            : SchemaClass.INDEX_TYPE.NOTUNIQUE,
+            composite ? new String[] {"a", "p"}
+                : new String[] {"p"});
+        session.begin();
+        var first = session.newInstance(cls);
+        first.setProperty("a", 1);
+        first.setProperty("p", 1);
+        session.newInstance(cls).setProperty("a", 1);
+        if (!unique) {
+          session.newInstance(cls).setProperty("a", 1);
+        }
+        session.commit();
+        for (var pending : List.of(false, true)) {
+          session.begin();
+          if (pending) {
+            var inserted = session.newInstance(cls);
+            inserted.setProperty("a", 1);
+            inserted.setProperty("p", 2);
+          }
+          var order = composite ? "a desc, p desc" : "p desc";
+          assertOrder("select from " + cls + " order by " + order, Map.of(), true, false);
+          var requested = request("select from " + cls + " order by " + order, true, Map.of());
+          Assert.assertTrue(requested.getOrderReport().fullOrderCovered());
+          Assert.assertFalse(requested.getOrderReport().ridOrderWithinEqualKeys());
+          session.rollback();
+        }
+      }
+    }
+  }
+
+  /** Null-bound equality must not certify DESC RID order, including a cached non-null plan. */
+  @Test
+  public void nullEqualityParameterDoesNotProveDescendingRidOrder() {
+    var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
+    clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
+    session.begin();
+    session.newInstance(CLASS).setProperty("a", 1);
+    session.newInstance(CLASS);
+    session.newInstance(CLASS);
+    session.commit();
+    var params = new HashMap<Object, Object>();
+    var sql = "select from " + CLASS + " where a = :x order by a desc";
+    for (var pending : List.of(false, true)) {
+      session.begin();
+      if (pending) {
+        session.newInstance(CLASS);
+      }
+      params.put("x", 1);
+      assertOrder(sql, params, true, false);
+      params.put("x", null);
+      assertOrder(sql, params, true, false);
+      Assert.assertFalse(request(sql, true, params).getOrderReport().ridOrderWithinEqualKeys());
+      try (var rows = session.query(sql + ", @rid desc", params)) {
+        Assert.assertTrue("Equality rejects a null operand", rows.stream().toList().isEmpty());
+      }
+      session.rollback();
+    }
+  }
+
+  /** Both planners use one conservative predicate proof, with no parameter-bound equality. */
+  @Test
+  public void sharedNullExclusionProofAcceptsOnlyNullRejectingConditions() {
+    var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
+    for (var filter : List.of("a = 1", "a == 1", "a = 'x'", "a = true", "a = false",
+        "a > :x", "a >= :x", "a < :x", "a <= :x", "a LIKE :x",
+        "a CONTAINSKEY :x", "a IS NOT NULL",
+        "b = 1 AND a IS NOT NULL", "a = 1 AND b = 1", "`a` = 1")) {
+      var condition = ((SQLSelectStatement) SQLEngine.parse(
+          "select from " + CLASS + " where " + filter, session)).getWhereClause()
+          .getBaseExpression();
+      Assert.assertTrue(filter,
+          SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"), condition));
+      // Exercise real evaluation on both explicit-null and absent values before widening MATCH.
+      var context = newContext();
+      context.setInputParameters(Map.of("x", 1));
+      for (var present : List.of(false, true)) {
+        var row = new ResultInternal(session);
+        if (present) {
+          row.setProperty("a", null);
+        }
+        Assert.assertFalse(filter, condition.evaluate(row, context));
+      }
+    }
+    for (var filter : List.of("a = null", "a = :x", "a = ?", "a = b", "a = 1 + 2",
+        "a = :x + 1", "a = 'x'.toUpperCase()", "a <> 1", "a != 1", "a IS DEFINED",
+        "NOT (a IS NOT NULL)", "a = 1 OR b = 1", "b = 1", "a.foo = 1",
+        "a.foo IS NOT NULL")) {
+      var condition = ((SQLSelectStatement) SQLEngine.parse(
+          "select from " + CLASS + " where " + filter, session)).getWhereClause()
+          .getBaseExpression();
+      Assert.assertFalse(filter,
+          SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"), condition));
+    }
+    // IN and CONTAINSVALUE normally have dedicated condition nodes. Their binary operators
+    // also reject null, so exercise those node forms directly.
+    var binary = new SQLBinaryCondition(-1);
+    binary.setLeft(new SQLExpression(new SQLIdentifier("a")));
+    binary.setRight(binary.getLeft());
+    for (var operator : List.<SQLBinaryCompareOperator>of(
+        new SQLInOperator(-1), new SQLContainsValueOperator(-1))) {
+      binary.setOperator(operator);
+      Assert.assertFalse(operator.execute(session, null, List.of(1)));
+      Assert.assertTrue(SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"),
+          binary));
+    }
+    Assert.assertFalse(SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz,
+        List.of("undeclared"), null));
+    for (var mandatory : List.of(false, true)) {
+      for (var notNull : List.of(false, true)) {
+        clazz.getProperty("a").setMandatory(mandatory).setNotNull(notNull);
+        Assert.assertEquals(mandatory && notNull,
+            SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"), null));
+      }
     }
   }
 

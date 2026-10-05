@@ -3,18 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -185,44 +179,9 @@ final class SingleNodeIndexOrder {
       String className, SQLOrderBy order, @Nullable SQLWhereClause filter, CommandContext context) {
     var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
     var clazz = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
-    // DESC composite orders retain the conservative per-key null-exclusion rule too.
-    for (var propertyName : order.getProperties()) {
-      var property = clazz.getProperty(propertyName);
-      if ((property == null || !property.isNotNull())
-          && (filter == null || !requiresNotNull(filter.getBaseExpression(), propertyName))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static boolean requiresNotNull(
-      @Nullable SQLBooleanExpression expr, String propertyName) {
-    if (expr instanceof SQLIsNotNullCondition notNull) {
-      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
-    }
-    if (expr instanceof SQLBinaryCondition binary) {
-      // Equality and range operators reject null operands. Not-equal is not such a proof.
-      return (binary.getOperator() instanceof SQLEqualsOperator
-          || binary.getOperator().isRangeOperator())
-          && propertyName.equals(extractSimpleFieldName(binary.getLeft()))
-          && !"null".equalsIgnoreCase(binary.getRight().toString());
-    }
-    if (expr instanceof SQLAndBlock andBlock) {
-      for (var sub : andBlock.getSubBlocks()) {
-        if (requiresNotNull(sub, propertyName)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
-      return requiresNotNull(notBlock.getSub(), propertyName);
-    }
-    if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
-      return requiresNotNull(orBlock.getSubBlocks().getFirst(), propertyName);
-    }
-    return false;
+    // Use the same per-key proof as the SELECT report, including composite orders.
+    return SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, order.getProperties(),
+        filter == null ? null : filter.getBaseExpression());
   }
 
   private static boolean isRecordIdItemOf(SQLOrderByItem item, String alias, boolean orderAsc) {
