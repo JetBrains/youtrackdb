@@ -9306,10 +9306,9 @@ public abstract class AbstractStorage
     final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
     if (recoveryContext != null) {
       // A fuzzy-checkpoint WAL cut can leave only the tail of a committed unit. Its
-      // allocations and gap fills do not prove that earlier page changes remain in WAL.
+      // allocations do not prove that earlier page changes remain in WAL.
       // Still preload every declared page for the dirty-table and flush contract.
       final boolean hasStartRecord = atomicUnit.getFirst() instanceof AtomicUnitStartRecord;
-      recoveryContext.setUnitHasStartRecord(hasStartRecord);
       recoveryContext.setDeclaredPages(hasStartRecord ? declaredAllocationPages : null);
     }
     try {
@@ -9325,10 +9324,6 @@ public abstract class AbstractStorage
               fileId, page.getKey(), writeCache, true, page.getValue());
           assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
               + page.getKey();
-          if (recoveryContext != null) {
-            // The read cache can satisfy this load without calling WOWCache again.
-            recoveryContext.consumeGapPage(filePages.getKey(), page.getKey());
-          }
           // Even an unchanged preload entered the dirty table. Publish it so the flush
           // can remove that entry and a checkpoint can advance the WAL cut.
           readCache.releaseFromWrite(entry, writeCache, true);
@@ -9339,7 +9334,6 @@ public abstract class AbstractStorage
       if (recoveryContext != null) {
         recoveryContext.setDeclaredPages(null);
         recoveryContext.setCurrentRecord(null);
-        recoveryContext.setUnitHasStartRecord(false);
       }
     }
   }
@@ -9415,7 +9409,7 @@ public abstract class AbstractStorage
           // the disk-engine totality is sufficient here.
           final var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true,
               recoveryContext == null ? null : recoveryContext.positionForReplayLoad(
-                  writeCache.internalFileId(fileId), pageIndex, walRecord.getLsn()));
+                  writeCache.internalFileId(fileId), pageIndex));
           // Asymmetric assert vs throw: see AtomicOperationBinaryTracking.commitChanges
           // for the rationale. This WAL-replay site is disk-only because
           // MemoryWriteAheadLog is a no-op, so -ea is sufficient; the in-memory-reachable
@@ -9425,9 +9419,6 @@ public abstract class AbstractStorage
                   + " UpdatePageRecord branch for fileId=" + fileId
                   + " pageIndex=" + pageIndex
                   + "; WriteCache.loadOrAdd totality contract violated";
-          if (recoveryContext != null) {
-            recoveryContext.consumeGapPage(writeCache.internalFileId(fileId), pageIndex);
-          }
 
           try {
             final var durablePage = new DurablePage(cacheEntry);
@@ -9477,7 +9468,7 @@ public abstract class AbstractStorage
           // the disk-engine totality is sufficient here.
           final var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true,
               recoveryContext == null ? null : recoveryContext.positionForReplayLoad(
-                  writeCache.internalFileId(fileId), pageIndex, walRecord.getLsn()));
+                  writeCache.internalFileId(fileId), pageIndex));
           // -ea assert is sufficient on this disk-only WAL-replay site
           // (MemoryWriteAheadLog is a no-op, so PageOperation never reaches the
           // in-memory engine); the throw-vs-assert rationale is documented in
@@ -9488,9 +9479,6 @@ public abstract class AbstractStorage
                   + " PageOperation branch for fileId=" + fileId
                   + " pageIndex=" + pageIndex
                   + "; WriteCache.loadOrAdd totality contract violated";
-          if (recoveryContext != null) {
-            recoveryContext.consumeGapPage(writeCache.internalFileId(fileId), pageIndex);
-          }
 
           try {
             final var durablePage = new DurablePage(cacheEntry);

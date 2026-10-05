@@ -1634,7 +1634,6 @@ public final class WOWCache extends AbstractWriteCache
   private CachePointer loadOrAddLoadBranch(
       final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
     final var context = recoveryPageContext.get();
-    final var gapPosition = context == null ? null : context.consumeGapPage(intId, pageIndex);
     final var pageKey = new PageKey(intId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
@@ -1649,7 +1648,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       final var filePagePointer = loadFileContent(
           intId, pageIndex, verifyChecksums,
-          context == null ? null : context.declaredPosition(intId, pageIndex), gapPosition);
+          context == null ? null : context.declaredPosition(intId, pageIndex));
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
@@ -1707,10 +1706,6 @@ public final class WOWCache extends AbstractWriteCache
               + allocatedIndex
               + " does not match requested pageIndex "
               + pageIndex);
-    }
-    final var context = recoveryPageContext.get();
-    if (context != null) {
-      context.addCreatedPage(intId, pageIndex);
     }
     commitExecutor()
         .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
@@ -1775,11 +1770,7 @@ public final class WOWCache extends AbstractWriteCache
     // pages stamp in ascending order. Each task is idempotent (writeValidPageInFile
     // only writes if the underlying file is shorter than the page offset), so a
     // resubmission against an already-stamped page is a no-op.
-    final var context = recoveryPageContext.get();
     for (long gapPage = currentSize; gapPage <= pageIndex; gapPage++) {
-      if (context != null) {
-        context.addCreatedPage(intId, gapPage);
-      }
       commitExecutor()
           .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
     }
@@ -2089,10 +2080,6 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null) {
-        final var context = recoveryPageContext.get();
-        if (context != null) {
-          context.removeFile(intId);
-        }
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
           final var updated = new IntOpenHashSet(nonDurableFileIds);
@@ -3642,12 +3629,12 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
-    return loadFileContent(internalFileId, pageIndex, verifyChecksums, null, null);
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, null);
   }
 
   @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
-      final boolean verifyChecksums, @Nullable LogSequenceNumber declaredPosition,
-      @Nullable LogSequenceNumber gapPosition) throws IOException {
+      final boolean verifyChecksums, @Nullable LogSequenceNumber declaredPosition)
+      throws IOException {
     final var fileId = composeFileId(id, internalFileId);
     try {
       final var entry = files.acquire(fileId);
@@ -3681,7 +3668,7 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                if (declaredPosition != null || gapPosition != null) {
+                if (declaredPosition != null) {
                   // Only the replay write-load supplies provenance. Do not stamp the
                   // allocation LSN into the header: redo must still see an empty page.
                   buffer.clear();

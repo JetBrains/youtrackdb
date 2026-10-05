@@ -493,38 +493,6 @@ public class RestoreAtomicUnitPageOperationTest {
   }
 
   /**
-   * A later unit may get its first gap read from the read cache instead of WOWCache.
-   * It must still tag that read with the creating record and consume gap provenance.
-   */
-  @Test
-  public void laterUnitConsumesGapOnReadCacheHit() throws Exception {
-    var context = new RecoveryPageContext();
-    var creation = new LogSequenceNumber(3, 10);
-    context.setUnitHasStartRecord(true);
-    context.setCurrentRecord(creation);
-    context.addCreatedPage(DURABLE_INTERNAL_ID, 0);
-    context.setUnitHasStartRecord(false);
-    var page = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0,
-        new LogSequenceNumber(-1, -1));
-    when(readCache.loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, creation))
-        .thenReturn(page);
-    var operation = spy(new TestPageOperation(0, DURABLE_EXTERNAL_ID, 1,
-        new LogSequenceNumber(-1, -1), 42));
-    operation.setLsn(new LogSequenceNumber(3, 30));
-    var unit = new ArrayList<WALRecord>();
-    unit.add(new AtomicUnitStartRecord(false, 1));
-    unit.add(operation);
-    unit.add(new AtomicUnitEndRecord(1, false, null));
-    var method = AbstractStorage.class.getDeclaredMethod("restoreAtomicUnit", java.util.List.class,
-        ModifiableBoolean.class, RecoveryPageContext.class);
-    method.setAccessible(true);
-    method.invoke(storage, unit, new ModifiableBoolean(), context);
-
-    verify(readCache).loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, creation);
-    assertEquals(null, context.consumeGapPage(DURABLE_INTERNAL_ID, 0));
-  }
-
-  /**
    * A checkpoint may remove the beginning of a committed unit. Its remaining allocation
    * record still needs a preload, but it cannot authorize rebuilding an invalid page without
    * a DWL copy: earlier page changes may have been cut from the WAL. A complete unit can
@@ -541,7 +509,6 @@ public class RestoreAtomicUnitPageOperationTest {
         new LogSequenceNumber(-1, -1));
     when(readCache.loadOrAddForWrite(DURABLE_EXTERNAL_ID, 0, writeCache, true, position))
         .thenAnswer(inv -> {
-          context.addCreatedPage(DURABLE_INTERNAL_ID, 1);
           if (context.declaredPosition(DURABLE_INTERNAL_ID, 0) == null) {
             throw new StorageException("testStorage", "broken page without DWL copy");
           }
@@ -558,7 +525,6 @@ public class RestoreAtomicUnitPageOperationTest {
         () -> method.invoke(storage, headless, new ModifiableBoolean(), context));
     assertTrue(failure.getCause() instanceof StorageException);
     assertEquals(null, context.declaredPosition(DURABLE_INTERNAL_ID, 0));
-    assertEquals(null, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
     verify(readCache, never()).releaseFromWrite(page, writeCache, true);
 
     var complete = new ArrayList<WALRecord>();
@@ -568,10 +534,6 @@ public class RestoreAtomicUnitPageOperationTest {
     method.invoke(storage, complete, new ModifiableBoolean(), context);
     verify(readCache).releaseFromWrite(page, writeCache, true);
     assertEquals(null, context.declaredPosition(DURABLE_INTERNAL_ID, 0));
-    assertEquals(position, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
-    context.setCurrentRecord(position);
-    context.addCreatedPage(DURABLE_INTERNAL_ID, 1);
-    assertEquals(null, context.consumeGapPage(DURABLE_INTERNAL_ID, 1));
   }
 
   /** A replay starting after a WAL cut still dispatches a unit without its start record. */

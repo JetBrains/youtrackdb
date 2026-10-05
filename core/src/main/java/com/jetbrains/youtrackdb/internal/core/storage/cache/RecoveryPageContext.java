@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import javax.annotation.Nullable;
@@ -12,14 +11,8 @@ import javax.annotation.Nullable;
  */
 public final class RecoveryPageContext {
 
-  private final Map<Integer, Map<Long, LogSequenceNumber>> gapPages = new HashMap<>();
   private Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredPages = Map.of();
   private LogSequenceNumber currentRecord;
-  private boolean unitHasStartRecord;
-
-  public void setUnitHasStartRecord(boolean hasStartRecord) {
-    unitHasStartRecord = hasStartRecord;
-  }
 
   public void setDeclaredPages(Map<Integer, TreeMap<Long, LogSequenceNumber>> pages) {
     declaredPages = pages == null ? Map.of() : pages;
@@ -29,50 +22,14 @@ public final class RecoveryPageContext {
     currentRecord = position;
   }
 
-  /**
-   * Records pages created by complete units before asynchronous validation writes complete.
-   * A WAL cut can remove a headless unit's earlier changes, so its gaps cannot authorize rebuilds.
-   */
-  public void addCreatedPage(int fileId, long pageIndex) {
-    if (unitHasStartRecord && currentRecord != null) {
-      gapPages.computeIfAbsent(fileId, ignored -> new HashMap<>())
-          .put(pageIndex, currentRecord);
-    }
-  }
-
-  /** A gap page has one chance to be rebuilt. Declarations remain valid for their whole unit. */
-  @Nullable public LogSequenceNumber consumeGapPage(int fileId, long pageIndex) {
-    final var filePages = gapPages.get(fileId);
-    if (filePages == null) {
-      return null;
-    }
-    final var position = filePages.remove(pageIndex);
-    if (filePages.isEmpty()) {
-      gapPages.remove(fileId);
-    }
-    return position;
-  }
-
   @Nullable public LogSequenceNumber declaredPosition(int fileId, long pageIndex) {
     final var filePages = declaredPages.get(fileId);
     return filePages == null ? null : filePages.get(pageIndex);
   }
 
-  /** Retain the earliest known cause when a later unit first reads an unstamped gap page. */
-  public LogSequenceNumber positionForReplayLoad(int fileId, long pageIndex,
-      LogSequenceNumber recordPosition) {
+  /** Use an allocation's position for a declared page, otherwise the current redo position. */
+  @Nullable public LogSequenceNumber positionForReplayLoad(int fileId, long pageIndex) {
     final var declared = declaredPosition(fileId, pageIndex);
-    if (declared != null) {
-      return declared;
-    }
-    final var gaps = gapPages.get(fileId);
-    if (gaps != null && gaps.containsKey(pageIndex)) {
-      return gaps.get(pageIndex);
-    }
-    return recordPosition;
-  }
-
-  public void removeFile(int fileId) {
-    gapPages.remove(fileId);
+    return declared != null ? declared : currentRecord;
   }
 }
