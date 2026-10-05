@@ -469,7 +469,10 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected void activateStorageBirth() {
-    activateBootstrapSnapshot("Cannot activate the storage bootstrap birth");
+    // Creation admits no outside writer before activation. Read after the genesis barrier so
+    // timestamps issued by that barrier travel with the available state in one authority record.
+    activateBootstrapSnapshot(
+        "Cannot activate the storage bootstrap birth", getIdGen().getLastId());
   }
 
   /**

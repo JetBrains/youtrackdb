@@ -52,6 +52,7 @@ public class DiskStorageBootstrapWiringTest {
   private static final String RESTORED_DATABASE = "bootstrapWiringRestored";
   private static final String DIRTY_DATABASE = "bootstrapWiringDirty";
   private static final String CRASH_CHILD_ARGUMENT = "restore-and-halt";
+  private static final String BIRTH_CHILD_ARGUMENT = "birth-and-halt";
   private static final String DIRTY_CHILD_ARGUMENT = "commit-and-halt";
   private static final String COMMIT_RACE_CHILD_ARGUMENT = "commit-race-and-halt";
   private static final String DIRTY_CLASS = "DirtyWork";
@@ -247,6 +248,38 @@ public class DiskStorageBootstrapWiringTest {
       var failure =
           assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
       assertTrue(hasCauseMessage(failure, "identifier space is exhausted"));
+    }
+  }
+
+  /**
+   * A new image resumes above its final creation timestamp after an abrupt stop without writes.
+   *
+   * <p>The child performs normal database creation, reports the generator mark, and halts without
+   * closing the manager. The parent deletes both startup metadata copies so the bootstrap authority
+   * is the only remaining durable opening floor. Restart must not reuse a creation timestamp.
+   */
+  @Test
+  public void birthAuthorityFloorSurvivesAbruptStopWithoutLaterWrite() throws Exception {
+    var handshake = directory.resolve("birth-floor.txt");
+    runCrashChild(BIRTH_CHILD_ARGUMENT, handshake);
+
+    var issuedBeforeHalt = Long.parseLong(Files.readString(handshake).trim());
+    var storageDirectory = directory.resolve(DATABASE);
+    // Remove both startup copies. Otherwise their checkpoint floor masks a missing birth floor.
+    Files.deleteIfExists(storageDirectory.resolve("dirty.fl"));
+    Files.deleteIfExists(storageDirectory.resolve("dirty.flb"));
+    assertFalse(Files.exists(storageDirectory.resolve("dirty.fl")));
+    assertFalse(Files.exists(storageDirectory.resolve("dirty.flb")));
+    var durable = authority().readActiveRequired();
+    assertTrue("genesis must issue timestamps", issuedBeforeHalt > 0);
+    assertEquals("activation must publish the creation generator mark",
+        issuedBeforeHalt, durable.sequenceFloor().highestIssued());
+
+    try (var manager = openManager();
+        var session = ((YouTrackDBInternalEmbedded) manager.internal)
+            .openNoAuthorization(DATABASE)) {
+      assertTrue("restart must resume above every creation timestamp",
+          ((DiskStorage) session.getStorage()).getIdGen().getLastId() > issuedBeforeHalt);
     }
   }
 
@@ -745,10 +778,20 @@ public class DiskStorageBootstrapWiringTest {
     var handshake = Path.of(arguments[2]);
     switch (arguments[0]) {
       case CRASH_CHILD_ARGUMENT -> restoreAndHalt(root, handshake);
+      case BIRTH_CHILD_ARGUMENT -> birthAndHalt(root, handshake);
       case DIRTY_CHILD_ARGUMENT -> commitAndHalt(root, handshake);
       case COMMIT_RACE_CHILD_ARGUMENT -> commitRaceAndHalt(root, handshake);
       default -> throw new IllegalArgumentException("Unknown child mode " + arguments[0]);
     }
+  }
+
+  /** Creates a database through the normal genesis path and halts without closing. */
+  private static void birthAndHalt(Path root, Path handshake) throws Exception {
+    var manager = (YouTrackDBImpl) YourTracks.instance(root.toString());
+    manager.create(DATABASE, DatabaseType.DISK);
+    var storage = ((YouTrackDBInternalEmbedded) manager.internal).getStorage(DATABASE);
+    reportMark(handshake, storage.getIdGen().getLastId());
+    Runtime.getRuntime().halt(0);
   }
 
   /** Restores a fresh target, reports the post-restore mark, and halts. */
