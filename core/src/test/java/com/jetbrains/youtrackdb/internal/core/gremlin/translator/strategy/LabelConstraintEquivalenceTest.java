@@ -83,6 +83,56 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
         List.of(), List.of());
   }
 
+  /** A hop check and a narrowing sibling keep the source labels in both query modes. */
+  @Test
+  public void andHopWithNarrowingLabelSibling_translatesAndMatchesNative() {
+    assertResult(() -> graph.traversal().V().hasLabel("User").barrier().and(
+        __.out("follows").barrier(), __.hasLabel("Employee").barrier()).values("name"),
+        List.of("e"), List.of(), TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** A widening sibling must decline without replacing the Employee source scan. */
+  @Test
+  public void andHopWithWideningLabelSibling_declinesAndMatchesNative() {
+    assertDeclined(() -> graph.traversal().V().hasLabel("Employee").barrier().and(
+        __.out("follows").barrier(), __.hasLabel("User").barrier()).values("name"),
+        List.of("e"), List.of());
+  }
+
+  /** Exists validation declines an origin re-type even when the label before the hop narrows. */
+  @Test
+  public void andNarrowingBoundaryLabelBeforeHop_declinesAndMatchesNative() {
+    assertDeclined(() -> graph.traversal().V().hasLabel("User").barrier().and(
+        __.hasLabel("Employee").barrier().out("follows"),
+        __.has("name", P.neq("never")).barrier()).values("name"),
+        List.of("e"), List.of());
+  }
+
+  /** D5 declines a widening origin label before a hop without weakening either label. */
+  @Test
+  public void andWideningBoundaryLabelBeforeHop_declinesAndMatchesNative() {
+    assertDeclined(() -> graph.traversal().V().hasLabel("Employee").barrier().and(
+        __.hasLabel("User").barrier().out("follows"),
+        __.has("name", P.neq("never")).barrier()).values("name"),
+        List.of("e"), List.of());
+  }
+
+  /** A positive where() forwards the hop check and narrowing label from its nested AND. */
+  @Test
+  public void whereHopWithNarrowingLabelSibling_translatesAndMatchesNative() {
+    assertResult(() -> graph.traversal().V().hasLabel("User").barrier().where(__.and(
+        __.out("follows").barrier(), __.hasLabel("Employee").barrier())).values("name"),
+        List.of("e"), List.of(), TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** The label after a where() hop belongs to its User target, not the Employee source. */
+  @Test
+  public void whereHopTargetLabel_translatesAndMatchesNative() {
+    assertResult(() -> graph.traversal().V().hasLabel("Employee").barrier().where(
+        __.out("follows").hasLabel("User")).values("name"),
+        List.of("e"), List.of("e"), TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
   /** D5 applies when a union fork replays its constrained prefix. */
   @Test
   public void wideningUnionArm_declinesAndMatchesNative() {

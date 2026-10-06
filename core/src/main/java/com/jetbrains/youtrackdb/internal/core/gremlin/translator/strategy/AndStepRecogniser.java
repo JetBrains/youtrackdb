@@ -55,13 +55,19 @@ final class AndStepRecogniser implements StepRecogniser {
         exists.add(expression);
       }
     }
-    // Simulate the full commit order before publishing any class or filter contribution.
+    // Simulate class changes on parent query positions before publishing any contribution.
+    // Detached validation rejects an origin re-type in a hop child. Its new target classes stay
+    // inside the exists check and do not replace a parent class.
     var proposedClasses = new LinkedHashMap<String, String>();
     for (var adapter : adapters) {
       for (var entry : adapter.capturedPattern().registeredAliasClasses().entrySet()) {
         var alias = entry.getKey();
+        var parentClass = ctx.classForAlias(alias);
+        if (!alias.equals(ctx.boundaryAlias()) && parentClass == null) {
+          continue;
+        }
         var current = proposedClasses.containsKey(alias)
-            ? proposedClasses.get(alias) : ctx.classForAlias(alias);
+            ? proposedClasses.get(alias) : parentClass;
         if (!ctx.canNarrowClass(current, entry.getValue())) {
           return Outcome.DECLINE;
         }
