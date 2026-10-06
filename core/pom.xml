@@ -466,6 +466,10 @@
               <goal>test</goal>
             </goals>
             <configuration>
+              <!-- Both executions share the reports directory. A class with method-level
+                   SequentialTest methods runs in both. Without a suffix the later report
+                   replaces the earlier one and CI loses results. -->
+              <reportNameSuffix>sequential</reportNameSuffix>
               <groups>com.jetbrains.youtrackdb.internal.SequentialTest</groups>
               <excludes>
                 <!-- The three TinkerPop compliance wrapper classes (YTDBProcessTest,

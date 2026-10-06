@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.collection;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -18,6 +19,7 @@ import java.util.logging.Logger;
 import javax.annotation.Nonnull;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Tests for {@link MultiValue} utility methods on identifiable collections. */
 public class IdentifiableMultiValueTest {
@@ -99,8 +101,15 @@ public class IdentifiableMultiValueTest {
     Assert.assertFalse(message.contains("other-element"));
   }
 
-  /** The read-error call site logs the container class without formatting an element. */
+  /**
+   * The read-error call site logs the container class without formatting an element.
+   *
+   * <p>No other thread may start Simple Logging Facade for Java (SLF4J) while {@link MultiValue}
+   * obtains its static logger. That overlap can give MultiValue a logger that never writes. The
+   * sequential group prevents this overlap.
+   */
   @Test
+  @Category(SequentialTest.class)
   public void readErrorLogNamesContainerClassWithoutElementText() {
     var records = new CopyOnWriteArrayList<LogRecord>();
     var logger = Logger.getLogger(MultiValue.class.getName());
