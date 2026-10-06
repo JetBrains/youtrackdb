@@ -866,6 +866,52 @@ public class ChangedPageTrackerTest {
     assertCandidates(capture(tracker).active(), 1, expected);
   }
 
+  // Direct index checks use distinct objects that compare equal. Conditional changes must use
+  // reference identity, including after concurrent replacement and distinct-key publication.
+  @Test
+  public void fileIndexRejectsIdentityMismatchAndPreservesContendedUpdates() throws Exception {
+    var type = Class.forName(ChangedPageTracker.class.getName() + "$FileIndex");
+    var constructor = type.getDeclaredConstructor();
+    constructor.setAccessible(true);
+    var index = constructor.newInstance();
+    var put = type.getDeclaredMethod("putIfAbsent", int.class, Object.class);
+    var get = type.getDeclaredMethod("get", int.class);
+    var replace = type.getDeclaredMethod("replace", int.class, Object.class, Object.class);
+    var remove = type.getDeclaredMethod("remove", int.class, Object.class);
+    for (var method : List.of(put, get, replace, remove)) {
+      method.setAccessible(true);
+    }
+    var original = new String("same value");
+    var impostor = new String("same value");
+    assertNull(put.invoke(index, 70000, original));
+    assertFalse((boolean) replace.invoke(index, 70000, impostor, new Object()));
+    assertFalse((boolean) remove.invoke(index, 70000, impostor));
+    assertSame(original, get.invoke(index, 70000));
+    var winners = new java.util.concurrent.atomic.AtomicInteger();
+    var values = new Object[32];
+    runWorkers(32, worker -> {
+      try {
+        values[worker] = new Object();
+        assertNull(put.invoke(index, worker + 1, values[worker]));
+        if ((boolean) replace.invoke(index, 70000, original, values[worker])) {
+          winners.incrementAndGet();
+        }
+      } catch (ReflectiveOperationException failure) {
+        throw new AssertionError(failure);
+      }
+    });
+    assertEquals(1, winners.get());
+    assertFalse((boolean) remove.invoke(index, 70000, original));
+    for (int worker = 0; worker < values.length; worker++) {
+      assertSame(values[worker], get.invoke(index, worker + 1));
+      assertTrue((boolean) remove.invoke(index, worker + 1, values[worker]));
+    }
+    var winner = get.invoke(index, 70000);
+    assertTrue((boolean) remove.invoke(index, 70000, winner));
+    assertNull(get.invoke(index, 70000));
+    assertEquals(0, retainedFileEntries(index));
+  }
+
   private static long metadataBytes(Map<ChangedPageTracker.Allocation, Integer> counts) {
     // Segment node: 24-byte wrapper + 16-byte AtomicReferenceArray + 1040-byte array.
     // Each primitive index entry budgets a 32-byte leaf and a 32-byte branch. Identity adds
