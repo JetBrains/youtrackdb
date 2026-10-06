@@ -32,7 +32,20 @@ import javax.annotation.Nullable;
  * not WAL coverage. A WAL-cut caller holds save order around saving and its associated cut.
  * Codec streams stay open so the publisher can force its channel after encoding.
  */
-final class ChangedPageTrackerFile {
+public final class ChangedPageTrackerFile {
+
+  public static final String FILE_NAME = "changed-pages.cpt";
+  public static final String TEMPORARY_SUFFIX = ".tmp";
+  public static final String TEMPORARY_FILE_NAME = FILE_NAME + TEMPORARY_SUFFIX;
+
+  /** Only these two database-owned names belong to tracker cleanup. */
+  public static boolean isTrackerFile(String name) {
+    return FILE_NAME.equals(name) || TEMPORARY_FILE_NAME.equals(name);
+  }
+
+  static Path temporaryFile(Path sideFile) {
+    return sideFile.resolveSibling(sideFile.getFileName() + TEMPORARY_SUFFIX);
+  }
 
   private static final int MAGIC = 0x59544350;
   private static final int VERSION = 1;
@@ -53,7 +66,7 @@ final class ChangedPageTrackerFile {
   static SaveResult save(Path sideFile, ChangedPageTracker tracker, LogSequenceNumber coverage,
       FileOperations files) {
     var target = sideFile.toAbsolutePath();
-    var temporary = target.resolveSibling(target.getFileName() + ".tmp");
+    var temporary = temporaryFile(target);
     tracker.saveOrderLock().lock();
     try {
       try {
@@ -77,7 +90,7 @@ final class ChangedPageTrackerFile {
         }
         // A mark can fail during either force or rename. A published file must not certify that
         // capture. Invalidate its name durably before allowing a cut instead.
-        if (!tracker.saveSucceeded(state)) {
+        if (!tracker.saveSucceeded(state, coverage)) {
           throw new IOException("Changed-page tracker capture invalidated during publication");
         }
         return SaveResult.SAVED;
@@ -154,7 +167,7 @@ final class ChangedPageTrackerFile {
         files.delete(target);
         files.forceFolder(target.getParent());
       } else if (files.windowsMoveAvailable()) {
-        var temporary = target.resolveSibling(target.getFileName() + ".tmp");
+        var temporary = temporaryFile(target);
         files.delete(temporary);
         try (var channel = FileChannel.open(temporary, StandardOpenOption.CREATE_NEW,
             StandardOpenOption.WRITE)) {
@@ -351,7 +364,9 @@ final class ChangedPageTrackerFile {
       int expected = (int) checksum.getValue();
       require(in.readInt() == expected, "checksum");
       require(checked.read() == -1, "trailing bytes");
-      return new Loaded(builder.build(), coverage);
+      var tracker = builder.build();
+      tracker.loadedCoverage(coverage);
+      return new Loaded(tracker, coverage);
     } catch (InvalidContent damaged) {
       return untrusted(damaged.getMessage());
     }

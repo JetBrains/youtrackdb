@@ -5,9 +5,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -220,6 +227,76 @@ public class DiskStorageStaticHelpersTest {
         testDir.toFile().exists());
     // Re-create testDir so @After cleanup does not fail
     Files.createDirectories(testDir);
+  }
+
+  // Drop removes exactly the tracker side and temporary names, not unrelated .cpt/.tmp files.
+  @Test
+  public void dropDeletesBothTrackerNamesAndKeepsUnrelatedFiles() throws IOException {
+    var side = testDir.resolve(ChangedPageTrackerFile.FILE_NAME);
+    var temporary = testDir.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
+    var unrelated = testDir.resolve("notes.cpt");
+    var suffix = testDir.resolve(ChangedPageTrackerFile.FILE_NAME + ".bak");
+    Files.writeString(side, "stale authority");
+    Files.writeString(temporary, "stale temporary");
+    Files.writeString(unrelated, "keep");
+    Files.writeString(suffix, "keep");
+    DiskStorage.deleteFilesFromDisc("trackerDrop", 3, 0, testDir.toString());
+    assertFalse(Files.exists(side));
+    assertFalse(Files.exists(temporary));
+    assertEquals("keep", Files.readString(unrelated));
+    assertEquals("keep", Files.readString(suffix));
+  }
+
+  // The real creation hook removes crash-left authority before creating startup metadata.
+  // An empty folder retry is also safe and does not remove unrelated contents.
+  @Test
+  public void creationHookRemovesStaleTrackerFilesBeforeStartupMetadata() throws Exception {
+    var storage = mock(DiskStorage.class, CALLS_REAL_METHODS);
+    var metadata = mock(StorageStartupMetadata.class);
+    setField(storage, "storagePath", testDir);
+    setField(storage, "startupMetadata", metadata);
+    var side = testDir.resolve(ChangedPageTrackerFile.FILE_NAME);
+    var temporary = testDir.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
+    var unrelated = testDir.resolve("notes.tmp");
+    Files.writeString(side, "stale authority");
+    Files.writeString(temporary, "stale temporary");
+    Files.writeString(unrelated, "keep");
+    storage.preCreateSteps();
+    assertFalse(Files.exists(side));
+    assertFalse(Files.exists(temporary));
+    assertEquals("keep", Files.readString(unrelated));
+    verify(metadata).create(YouTrackDBConstants.getRawVersion());
+    DiskStorage.removeStaleChangedPageFiles(testDir);
+  }
+
+  // A nonempty directory at either owned name cannot be silently deleted. Creation propagates
+  // the removal error before startup metadata is created. Drop follows its retry-and-fail policy.
+  @Test
+  public void staleTrackerRemovalFailureStopsCreationAndDrop() throws Exception {
+    for (var name : new String[] {ChangedPageTrackerFile.FILE_NAME,
+        ChangedPageTrackerFile.TEMPORARY_FILE_NAME}) {
+      var blocked = testDir.resolve(name);
+      Files.createDirectory(blocked);
+      var child = blocked.resolve("keep.txt");
+      Files.writeString(child, "keep");
+      var storage = mock(DiskStorage.class, CALLS_REAL_METHODS);
+      var metadata = mock(StorageStartupMetadata.class);
+      setField(storage, "storagePath", testDir);
+      setField(storage, "startupMetadata", metadata);
+      assertThrows(IOException.class, storage::preCreateSteps);
+      verifyNoInteractions(metadata);
+      assertThrows(StorageException.class,
+          () -> DiskStorage.deleteFilesFromDisc("trackerDrop", 2, 0, testDir.toString()));
+      assertEquals("keep", Files.readString(child));
+      Files.delete(child);
+      Files.delete(blocked);
+    }
+  }
+
+  private static void setField(DiskStorage storage, String name, Object value) throws Exception {
+    var field = DiskStorage.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(storage, value);
   }
 
   // -----------------------------------------------------------------------

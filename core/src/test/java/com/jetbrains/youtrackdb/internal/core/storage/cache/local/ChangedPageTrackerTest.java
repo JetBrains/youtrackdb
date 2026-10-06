@@ -9,6 +9,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -31,6 +32,209 @@ import java.util.function.IntConsumer;
 import org.junit.Test;
 
 public class ChangedPageTrackerTest {
+
+  // Every mutation kind requires another save. A publication records the requested coverage,
+  // while repeat marks leave both the version and allocation count unchanged.
+  @Test
+  public void mutationsAndCoverageRequireSaveButRepeatedBitsDoNot() {
+    var coverage = new LogSequenceNumber(3, 32);
+    var tracker = new ChangedPageTracker();
+    tracker.saveOrderLock().lock();
+    try {
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      assertFalse(tracker.hasUnsavedChanges(coverage));
+      assertEquals(coverage, tracker.durableCoverageLsn());
+      tracker.mark(1, 0);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      long version = capture(tracker).mutationVersion();
+      tracker.mark(1, 0);
+      assertEquals(version, capture(tracker).mutationVersion());
+      assertFalse(tracker.hasUnsavedChanges(coverage));
+      tracker.mark(1, 1);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      tracker.mark(1, 32768);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      tracker.resetFile(1);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      tracker.deleteFile(42);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      var seal = tracker.beginBackup();
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      tracker.retire(seal);
+      assertTrue(tracker.isTrusted());
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      seal = tracker.beginBackup();
+      saveAt(tracker, coverage);
+      tracker.mergeBack(seal);
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      var oldIdentifier = capture(tracker).trackerIdentifier();
+      tracker.invalidate();
+      assertTrue(tracker.hasUnsavedChanges(coverage));
+      saveAt(tracker, coverage);
+      assertNotEquals(oldIdentifier, capture(tracker).trackerIdentifier());
+      assertFalse(tracker.hasUnsavedChanges(coverage));
+      var later = new LogSequenceNumber(4, 32);
+      assertTrue(tracker.hasUnsavedChanges(later));
+      assertEquals(coverage, tracker.durableCoverageLsn());
+      saveAt(tracker, later);
+      assertEquals(later, tracker.durableCoverageLsn());
+      assertFalse(tracker.hasUnsavedChanges(later));
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
+
+  // The saver has captured its version before another thread publishes bits. Neither an existing
+  // word update nor a new segment can be cleared by the later successful-publication hook.
+  @Test
+  public void concurrentMarksAfterCaptureRemainUnsavedAfterSuccessfulPublication()
+      throws Exception {
+    for (long page : new long[] {1, 32768}) {
+      var tracker = new ChangedPageTracker();
+      var coverage = new LogSequenceNumber(3, 32);
+      tracker.mark(1, 0);
+      saveAt(tracker, coverage);
+      var captured = new CountDownLatch(1);
+      var marked = new CountDownLatch(1);
+      var executor = Executors.newSingleThreadExecutor();
+      try {
+        var writer = executor.submit(() -> {
+          await(captured);
+          tracker.mark(1, page);
+          marked.countDown();
+        });
+        tracker.saveOrderLock().lock();
+        try {
+          var state = tracker.capture();
+          captured.countDown();
+          await(marked);
+          writer.get(10, TimeUnit.SECONDS);
+          assertTrue(tracker.saveSucceeded(state, coverage));
+          assertTrue(tracker.hasUnsavedChanges(coverage));
+        } finally {
+          tracker.saveOrderLock().unlock();
+        }
+        saveAt(tracker, coverage);
+        assertFalse(hasUnsavedChanges(tracker, coverage));
+      } finally {
+        captured.countDown();
+        executor.shutdownNow();
+        assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      }
+    }
+  }
+
+  // The version is read before the short capture lock. A writer can finish while capture waits
+  // for that lock. Its increment must remain unsaved even if capture sees its conservative bit.
+  @Test
+  public void versionReadPrecedesGenerationCaptureAndCannotAbsorbLaterMutation() throws Exception {
+    var tracker = new ChangedPageTracker();
+    var coverage = new LogSequenceNumber(3, 32);
+    saveAt(tracker, coverage);
+    var lock = (ReentrantLock) field(tracker, "generationState");
+    var executor = Executors.newSingleThreadExecutor();
+    lock.lock();
+    try {
+      var saver = executor.submit(() -> {
+        tracker.saveOrderLock().lock();
+        try {
+          return tracker.saveSucceeded(tracker.capture(), coverage);
+        } finally {
+          tracker.saveOrderLock().unlock();
+        }
+      });
+      assertQueues(lock);
+      tracker.mark(1, 7);
+      lock.unlock();
+      assertTrue(saver.get(10, TimeUnit.SECONDS));
+      assertTrue(hasUnsavedChanges(tracker, coverage));
+    } finally {
+      if (lock.isHeldByCurrentThread()) {
+        lock.unlock();
+      }
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  // Pause at word publication, after any misplaced early increment would already be visible.
+  // A save that streams only page 0 must leave the pending page 1 unsaved after the writer finishes.
+  @Test
+  public void saveMissingPendingBitCannotAbsorbItsMutationVersion() throws Exception {
+    var publishing = new CountDownLatch(1);
+    var resume = new CountDownLatch(1);
+    var armed = new AtomicBoolean();
+    var tracker = new ChangedPageTracker(new ChangedPageTracker.AllocationObserver() {
+      @Override
+      public void beforeAllocation(ChangedPageTracker.Allocation kind) {
+      }
+
+      @Override
+      public void beforeBitPublication() {
+        if (armed.compareAndSet(true, false)) {
+          publishing.countDown();
+          await(resume);
+        }
+      }
+    });
+    var coverage = new LogSequenceNumber(3, 32);
+    tracker.mark(1, 0);
+    saveAt(tracker, coverage);
+    armed.set(true);
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      var writer = executor.submit(() -> tracker.mark(1, 1));
+      await(publishing);
+      tracker.saveOrderLock().lock();
+      try {
+        var state = tracker.capture();
+        // Streaming the captured references now models the image that becomes durable.
+        assertCandidates(state.active(), 1, Set.of(0L));
+        assertTrue(tracker.saveSucceeded(state, coverage));
+        resume.countDown();
+        writer.get(10, TimeUnit.SECONDS);
+        assertCandidates(state.active(), 1, Set.of(0L, 1L));
+        assertTrue("A save missing page 1 must not absorb its version",
+            tracker.hasUnsavedChanges(coverage));
+      } finally {
+        tracker.saveOrderLock().unlock();
+      }
+      saveAt(tracker, coverage);
+      assertFalse(hasUnsavedChanges(tracker, coverage));
+    } finally {
+      resume.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  private static boolean hasUnsavedChanges(ChangedPageTracker tracker,
+      LogSequenceNumber coverage) {
+    tracker.saveOrderLock().lock();
+    try {
+      return tracker.hasUnsavedChanges(coverage);
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
+
+  private static void saveAt(ChangedPageTracker tracker, LogSequenceNumber coverage) {
+    tracker.saveOrderLock().lock();
+    try {
+      assertTrue(tracker.saveSucceeded(tracker.capture(), coverage));
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
 
   // Every writer reaches allocation before any can publish the first segment. Expected bits are
   // computed from worker indices, not from tracker output. Repeated marks exercise the read path.
@@ -440,6 +644,8 @@ public class ChangedPageTrackerTest {
   public void invalidArgumentsAndWrongDomainOrSealAreRejected() {
     var tracker = trustedTracker();
     assertThrows(IllegalStateException.class, tracker::capture);
+    assertThrows(IllegalStateException.class,
+        () -> tracker.hasUnsavedChanges(new LogSequenceNumber(3, 32)));
     var state = capture(tracker);
     assertThrows(IllegalStateException.class, () -> tracker.saveSucceeded(state));
     assertThrows(IllegalStateException.class, () -> tracker.isCaptureValid(state));
