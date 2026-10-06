@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.Test;
 
@@ -31,6 +32,16 @@ public class DatabaseExportHardeningTest extends DbTestBase {
 
   private static final byte[] PREVIOUS_DUMP_SENTINEL =
       "PREVIOUS-GOOD-DUMP".getBytes(StandardCharsets.UTF_8);
+
+  /** The seven section names and their order are part of dump format version 15. */
+  @Test
+  public void v15DumpSectionOrderRequiresNewVersionToChange() {
+    assertEquals("The section order is part of dump format version 15, and a change requires"
+        + " a new EXPORTER_VERSION",
+        List.of("info", "collections", "schema", "records", "brokenRids", "indexes",
+            "manifest"),
+        DatabaseExport.SECTION_ORDER);
+  }
 
   private Path exportDirectory() throws IOException {
     var dir = Path.of(DbTestBase.getBaseDirectoryPathStr(getClass()), "exports",

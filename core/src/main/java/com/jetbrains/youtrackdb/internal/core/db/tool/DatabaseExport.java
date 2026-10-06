@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.google.errorprone.annotations.Immutable;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -46,6 +47,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,6 +65,45 @@ import java.util.zip.GZIPOutputStream;
 public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedded> {
 
   public static final int EXPORTER_VERSION = 15;
+
+  /**
+   * The order of these sections is part of dump format version 15. Changing the order or
+   * adding a section requires a new {@link #EXPORTER_VERSION}. The importer rejects version 15
+   * dumps whose sections are in another order. A new format version also needs a stored dump.
+   * See core/src/test/resources/import-compat/README.md.
+   */
+  enum DumpSection {
+    INFO("info", DatabaseExport::exportInfo), COLLECTIONS("collections",
+        DatabaseExport::exportCollections), SCHEMA("schema", DatabaseExport::exportSchema), RECORDS(
+            "records", DatabaseExport::exportRecords), BROKEN_RIDS("brokenRids",
+                DatabaseExport::exportBrokenRids), INDEXES("indexes",
+                    DatabaseExport::exportIndexDefinitions),
+    // The manifest is the LAST section (design M2.a-5/R2): a dump carrying it declares
+    // that every earlier section was written completely.
+    MANIFEST("manifest", DatabaseExport::exportManifest);
+
+    private final String sectionName;
+    private final SectionWriter writer;
+
+    DumpSection(String sectionName, SectionWriter writer) {
+      this.sectionName = sectionName;
+      this.writer = writer;
+    }
+
+    private void write(DatabaseExport exporter) throws IOException {
+      writer.write(exporter);
+    }
+  }
+
+  @FunctionalInterface
+  @Immutable
+  private interface SectionWriter {
+
+    void write(DatabaseExport exporter) throws IOException;
+  }
+
+  static final List<String> SECTION_ORDER = Arrays.stream(DumpSection.values())
+      .map(section -> section.sectionName).toList();
 
   protected JsonGenerator jsonGenerator;
   protected long recordExported;
@@ -105,6 +146,7 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
   private long manifestClasses;
   private long manifestIndexes;
   private long manifestBrokenRids;
+  private final Set<RID> brokenRids = new HashSet<>();
 
   // these classes will be exported first. import tool relies on this order.
   private static final Set<String> PRIORITY_EXPORT_CLASSES =
@@ -205,14 +247,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
       session.executeInTx(transaction -> {
         try {
-          exportInfo();
-          exportCollections();
-          exportSchema();
-          exportRecords();
-          exportIndexDefinitions();
-          // The manifest is the LAST section (design M2.a-5/R2): a dump carrying it declares
-          // that every earlier section was written completely.
-          exportManifest();
+          for (var section : DumpSection.values()) {
+            section.write(this);
+          }
         } catch (IOException e) {
           throw new DatabaseExportException(
               "Error on exporting database '" + session.getDatabaseName() + "' to: " + fileName, e);
@@ -323,8 +360,6 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
     listener.onMessage("\nExporting records...");
 
-    final Set<RID> brokenRids = new HashSet<>();
-
     jsonGenerator.writeFieldName("records");
     jsonGenerator.writeStartArray();
 
@@ -408,7 +443,9 @@ public class DatabaseExport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
             + " records. "
             + brokenRids.size()
             + " records were detected as broken\n");
+  }
 
+  private void exportBrokenRids() throws IOException {
     jsonGenerator.writeFieldName("brokenRids");
     jsonGenerator.writeStartArray();
 
