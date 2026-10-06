@@ -12,10 +12,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
  *
  * <p>Captured filters are composed with {@link MatchWhereBuilder#or} and committed once on the
  * boundary alias. Individual {@link RecognitionContext#putAliasFilter} calls are not used for OR
- * children — that API AND-composes same-alias contributions. Boundary re-types from a child's
- * {@code hasLabel(L)} are folded into that child's OR operand as {@code classEquals} (including under
- * polymorphic mode, where {@code hasLabel} otherwise emits no WHERE) so label discrimination is not
- * dropped.
+ * children — that API AND-composes same-alias contributions. Each operand keeps its named label
+ * conditions. Polymorphic single labels absent from the child's WHERE fold into subclass-expanded
+ * {@code classIn} tests. Internal scan classes, including several-label least common ancestors,
+ * are not boolean label conditions.
  */
 final class OrStepRecogniser implements StepRecogniser {
 

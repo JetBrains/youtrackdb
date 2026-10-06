@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -108,7 +109,7 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
         .inV().select("edge").hasLabel("V").values("name"), List.of(), List.of());
   }
 
-  /** NL-5 checks widening in OR, NOT and a nested AND arm without changing their class folding. */
+  /** NL-5 checks widening in OR, NOT and a nested AND arm without losing a label condition. */
   @Test
   public void wideningBooleanArms_declineAndMatchNative() {
     assertDeclined(() -> graph.traversal().V().or(
@@ -123,7 +124,7 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
         __.has("name", "never")).values("name"), List.of(), List.of());
   }
 
-  /** NL-9 must not let captured class reads alter the exact-class fold of overlapping alternatives. */
+  /** NL-9 keeps overlapping captured refinements outside the supported OR/NOT fold. */
   @Test
   public void capturedMultipleLabelChains_declineAndMatchNativeInOrAndNot() {
     assertDeclined(() -> graph.traversal().V().or(
@@ -152,7 +153,7 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
         __.has("name", "never")).values("name"), List.of("e"), List.of("e"));
   }
 
-  /** An AND grandchild under NOT must not turn its enclosing capture into exact LCA equality. */
+  /** An AND grandchild under NOT preserves the unsupported captured refinement by declining. */
   @Test
   public void grandchildMultipleLabelsInNotAnd_declineAndMatchNative() {
     assertDeclined(() -> graph.traversal().V().not(
@@ -170,7 +171,7 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
         .values("name"), List.of("c", "h", "m", "u"), List.of("c", "h", "m", "u"));
   }
 
-  /** The unchanged exact-class fold stays native after a captured narrowing, including nested AND. */
+  /** Captured narrowing stays native in boolean folds, including a nested AND. */
   @Test
   public void capturedNarrowing_declinesInBooleanFolds() {
     assertDeclined(() -> graph.traversal().V().or(
@@ -235,6 +236,80 @@ public class LabelConstraintEquivalenceTest extends GraphBaseTest {
   public void earlierAlternatives_keepTheirExplicitClassFilter() {
     assertResult(() -> graph.traversal().V().hasLabel("Employee", "Contractor").barrier()
         .hasLabel("User").values("name"), List.of("c", "e", "m"), List.of(),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** M5 tests the named alternatives rather than the User scan class in an OR operand. */
+  @Test
+  public void multipleLabelsInOrArm_matchNativeInsteadOfExactLca() {
+    assertResult(() -> graph.traversal().V().or(
+        __.hasLabel("Employee", "Contractor").has("name", "e"),
+        __.has("name", "never")).values("name"), List.of("e"), List.of("e"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** M6 includes Manager because it is named explicitly, even with polymorphism disabled. */
+  @Test
+  public void nestedOrNamedParentAndSubclass_matchNative() {
+    assertResult(() -> graph.traversal().V().where(__.or(
+        __.hasLabel("Employee", "Manager").barrier(), __.has("name", "c")))
+        .values("name"), List.of("c", "e", "m"), List.of("c", "e", "m"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** N1 carries named alternatives through a positive child into its enclosing OR operand. */
+  @Test
+  public void multipleLabelsInWhereInsideOr_matchNative() {
+    assertResult(() -> graph.traversal().V().or(
+        __.where(__.hasLabel("Employee", "Contractor").barrier()).has("name", "e"),
+        __.has("name", "never")).values("name"), List.of("e"), List.of("e"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** N2 negates the named alternatives forwarded by where(), not their internal User scan. */
+  @Test
+  public void multipleLabelsInWhereInsideNot_matchNative() {
+    assertResult(() -> graph.traversal().V().not(
+        __.where(__.hasLabel("Employee", "Contractor").barrier())).values("name"),
+        List.of("h", "u"), List.of("h", "m", "u"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** N3 excludes the Employee closure only in polymorphic mode and always excludes Contractor. */
+  @Test
+  public void multipleLabelsInsideNot_matchNative() {
+    assertResult(() -> graph.traversal().V().not(
+        __.hasLabel("Employee", "Contractor")).values("name"),
+        List.of("h", "u"), List.of("h", "m", "u"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** N13 keeps both equal sibling label sets without adding exact equality on their LCA. */
+  @Test
+  public void equalMultipleLabelAndSiblingsInsideOr_matchNative() {
+    assertResult(() -> graph.traversal().V().or(
+        __.and(__.hasLabel("Employee", "Contractor").barrier(),
+            __.hasLabel("Employee", "Contractor").barrier()).has("name", "e"),
+        __.has("name", "never")).values("name"), List.of("e"), List.of("e"),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** A single named label inside OR includes its subclasses only in polymorphic mode. */
+  @Test
+  public void singleLabelInOr_includesNativeSubclassClosure() {
+    assertResult(() -> graph.traversal().V().or(
+        __.hasLabel("Employee").has("name", "m"), __.has("name", "never"))
+        .values("name"), List.of("m"), List.of(),
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
+  }
+
+  /** A positive grandchild preserves the single named label used by an enclosing NOT. */
+  @Test
+  public void singleLabelInWhereInsideNot_includesNativeSubclassClosure() {
+    assertResult(() -> graph.traversal().V().not(
+        __.where(__.hasLabel("Employee").has("name", P.neq("never")).barrier()))
+        .values("name"),
+        List.of("c", "h", "u"), List.of("c", "h", "m", "u"),
         TranslatorEquivalenceSupport.Recognition.RECOGNIZED);
   }
 

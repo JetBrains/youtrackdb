@@ -143,7 +143,25 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  a fragment of the positive pattern. */
   private boolean hasEdges;
 
-  // The exact-class OR/NOT fold cannot represent captured scan class refinements safely.
+  /** Named polymorphic single-label tests that scan re-types keep out of the captured WHERE. */
+  private final Map<String, List<String>> capturedPolymorphicLabels = new LinkedHashMap<>();
+
+  void capturePolymorphicLabel(String alias, String label) {
+    capturedPolymorphicLabels.computeIfAbsent(alias, ignored -> new ArrayList<>()).add(label);
+  }
+
+  Map<String, List<String>> capturedPolymorphicLabels() {
+    return capturedPolymorphicLabels;
+  }
+
+  void inheritPolymorphicLabels(SubTraversalPredicateAdapter child) {
+    for (var entry : child.capturedPolymorphicLabels.entrySet()) {
+      capturedPolymorphicLabels.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>())
+          .addAll(entry.getValue());
+    }
+  }
+
+  // Captured refinements stay outside the OR/NOT fold's supported acceptance set.
   private boolean changedCapturedClass;
 
   boolean changedCapturedClass() {

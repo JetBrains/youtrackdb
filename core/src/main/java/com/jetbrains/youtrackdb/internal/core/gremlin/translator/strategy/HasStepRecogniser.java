@@ -233,12 +233,16 @@ final class HasStepRecogniser implements StepRecogniser {
       // The class is known to exist here — a missing class declined above, before any mutation.
       var name = single.name();
       ctx.addNode(boundary, name);
+      if (ctx.polymorphic() && ctx instanceof SubTraversalPredicateAdapter adapter) {
+        // The scan class is not a boolean label test. Keep the named label for the OR/NOT fold.
+        adapter.capturePolymorphicLabel(boundary, name);
+      }
       if (!ctx.polymorphic()) {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
       // Positive commits retain the scan class and intersect explicit label filters.
-      // The exact-class OR/NOT fold cannot represent this captured refinement.
+      // Captured refinements remain outside the supported boolean fold.
       if (ctx instanceof SubTraversalPredicateAdapter adapter
           && adapter.concreteCapturedClassForAlias(boundary) != null) {
         adapter.markCapturedClassChange();
@@ -385,12 +389,12 @@ final class HasStepRecogniser implements StepRecogniser {
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
         encoder.appendToken("lab");
-        encoder.appendStructuralValue(container.getValue());
+        encoder.appendPredicate(container.getPredicate(), true);
         continue;
       }
       if (ID_KEY.equals(key)) {
         encoder.appendToken("id");
-        encoder.appendToken(Integer.toString(idCardinality(container.getValue())));
+        encoder.appendPredicate(container.getPredicate(), true);
         continue;
       }
       encoder.appendToken(key == null ? "" : key);
@@ -398,13 +402,6 @@ final class HasStepRecogniser implements StepRecogniser {
       GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate, encoder.paramSink());
     }
     return true;
-  }
-
-  private static int idCardinality(@Nullable Object value) {
-    if (value instanceof Collection<?> collection) {
-      return collection.size();
-    }
-    return value == null ? 0 : 1;
   }
 
   private static boolean declaredStringOn(

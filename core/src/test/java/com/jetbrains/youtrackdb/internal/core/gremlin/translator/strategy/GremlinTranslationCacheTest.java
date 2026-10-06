@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
@@ -12,7 +13,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import java.util.ArrayList;
 import java.util.List;
+import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Pop;
@@ -977,6 +980,119 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       admin.getSteps().get(2).addLabel("t");
     }
     return admin;
+  }
+
+  /** NL-7 keeps a non-String label value out of a warmed String-label translation entry. */
+  @Test
+  public void labelValueWithSameTextAsString_doesNotHitWarmedTranslation() {
+    session.createVertexClass("Employee");
+    graph.addVertex(T.label, "Employee", "name", "e");
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var fakeLabel = new Object() {
+      @Override
+      public String toString() {
+        return "Employee";
+      }
+    };
+    // The native start-step planner rejects this non-String value. A cached String-label plan
+    // must not replace that rejection with Employee rows.
+    support.withTranslator(false, () -> assertThatThrownBy(
+        () -> graph.traversal().V().has(T.label, P.eq(fakeLabel)).toList())
+        .isInstanceOf(ClassCastException.class));
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Employee"))))
+        .containsExactly("e");
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+
+    var invalid = graph.traversal().V().has(T.label, P.eq(fakeLabel)).asAdmin();
+    GremlinToMatchStrategy.instance().apply(invalid);
+    assertThat(invalid.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+    // Draining applies provider strategies again and may hit the new cached decline, not the
+    // warmed Employee translation. The native exception must still reach the caller.
+    assertThatThrownBy(invalid::toList).isInstanceOf(ClassCastException.class);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertThat(shapeKey(() -> graph.traversal().V().hasLabel("Employee")))
+        .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(T.label, P.eq(fakeLabel))));
+  }
+
+  /** A cached unsupported hasId operator must not suppress an accepted equality on the same id. */
+  @Test
+  public void hasIdOperators_doNotShareCachedDecline() {
+    var employee = graph.addVertex(T.label, "Person", "name", "e");
+    var other = graph.addVertex(T.label, "Person", "name", "u");
+    graph.tx().commit();
+    var id = employee.id();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var unsupported = graph.traversal().V().hasId(P.neq(id)).asAdmin();
+    GremlinToMatchStrategy.instance().apply(unsupported);
+    assertThat(unsupported.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(unsupported.toList()).containsExactly(other);
+    var hits = cache.getTranslationHits();
+
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasId(P.eq(id)))))
+        .containsExactly("e");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(shapeKey(() -> graph.traversal().V().hasId(P.eq(id))))
+        .isNotEqualTo(shapeKey(() -> graph.traversal().V().hasId(P.neq(id))));
+    support.assertEquivalent("hasId equality after cached inequality",
+        TranslatorEquivalenceSupport.Recognition.RECOGNIZED,
+        TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasId(P.eq(id)));
+  }
+
+  /** Label and id keys include predicate trees, operators, typed values and collection structure. */
+  @Test
+  public void labelAndIdPredicates_encodeCompleteStructuralConditions() {
+    for (var token : List.of(T.label, T.id)) {
+      assertThat(shapeKey(() -> graph.traversal().V().has(token, P.eq("Employee"))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.neq("Employee"))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.within("Employee"))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.eq("Contractor"))));
+      assertThat(shapeKey(() -> graph.traversal().V().has(token,
+          P.eq("Employee").and(P.neq("Manager")))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token,
+              P.eq("Employee").or(P.neq("Manager")))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token,
+              P.eq("Employee").and(P.eq("Manager")))));
+      assertThat(shapeKey(() -> graph.traversal().V().has(token, TextP.regex("Emp.*"))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token,
+              TextP.notRegex("Emp.*"))));
+      assertThat(shapeKey(() -> graph.traversal().V().has(token, P.eq(1))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.eq(1L))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.eq("1"))));
+      assertThat(shapeKey(() -> graph.traversal().V().has(token, P.eq(List.of(1)))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.eq(List.of("1")))))
+          .isNotEqualTo(shapeKey(() -> graph.traversal().V().has(token, P.eq("[1]"))));
+    }
+    var nullValue = new GremlinShapeEncoder(null);
+    nullValue.appendPredicate(P.eq(null), true);
+    var nullText = new GremlinShapeEncoder(null);
+    nullText.appendPredicate(P.eq("null"), true);
+    assertThat(nullValue.key()).isNotEqualTo(nullText.key());
+    var nestedList = new GremlinShapeEncoder(null);
+    nestedList.appendPredicate(P.eq(List.of(List.of("Employee"))), true);
+    var listText = new GremlinShapeEncoder(null);
+    listText.appendPredicate(P.eq(List.of("[Employee]")), true);
+    assertThat(nestedList.key()).isNotEqualTo(listText.key());
+    var negated = new GremlinShapeEncoder(null);
+    negated.appendPredicate(new NotP<>(P.eq("Employee")), true);
+    var equality = new GremlinShapeEncoder(null);
+    equality.appendPredicate(P.eq("Employee"), true);
+    assertThat(negated.key()).isNotEqualTo(equality.key());
+  }
+
+  /** A cyclic collection cannot be encoded completely and must bypass cache lookup and storage. */
+  @Test
+  public void cyclicStructuralValue_marksShapeIncompleteWithoutOverflow() {
+    var cycle = new ArrayList<Object>();
+    cycle.add(cycle);
+    var encoder = new GremlinShapeEncoder(null);
+    encoder.appendPredicate(P.eq(cycle), true);
+    assertThat(encoder.complete()).isFalse();
   }
 
   private String shapeKey(
