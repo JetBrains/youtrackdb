@@ -84,8 +84,9 @@ public interface WriteAheadLog extends AutoCloseable {
    * Coverage is the first retained record start, including when the requested segment is absent.
    * If no inventoried segment remains at or above the clamped boundary, coverage is the first
    * record start of the written-up-to segment, whose inventory publication can lag its writer.
-   * Closed disk WALs and empty disk inventories throw IllegalStateException, not a no-op result.
-   * Memory WAL always predicts no removal and returns null coverage.
+   * Closed disk WALs and empty disk inventories throw IllegalStateException. A concurrent segment
+   * inventory change can also throw java.util.NoSuchElementException. Both indicate an unavailable
+   * prediction, not a no-op result. Memory WAL always predicts no removal and returns null coverage.
    *
    * <p>The caller fixes the returned effective boundary and passes that boundary, not the original
    * request, to its later cut. Changes to retention limits can then only lower that cut or make it

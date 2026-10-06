@@ -1,8 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.nio.file.Path;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
@@ -229,6 +233,82 @@ public final class ChangedPageTracker {
     } finally {
       generationState.unlock();
     }
+  }
+
+  /**
+   * Publishes coverage or durably invalidates the side file before its associated bounded WAL cut.
+   * The caller supplies a boundary fixed after protection sampling and data-file synchronization.
+   * This method never resamples the active-segment anchor or raises the preflight boundary.
+   *
+   * <p>Call only after ending the double-write checkpoint bracket and releasing the write-cache
+   * file inventory lock. The save-order holder must not start transactions or wait for a write
+   * pause or exclusive storage state. Lock order here is save order, then short generation state.
+   * No generation-state or WAL cutting lock spans tracker filesystem operations.
+   *
+   * <p>An unavailable preflight returns without capture, save or cut. A no-removal prediction is
+   * not a WAL health check. It skips capture and save, but still invokes the bounded cut, as does
+   * unchanged durable state. Retention changes can only lower that cut or make it a no-op.
+   *
+   * @throws IOException if preflight or cutting fails, or side-file invalidation is not durable
+   */
+  public CheckpointResult checkpoint(Path sideFile, WriteAheadLog wal, long fixedBoundary)
+      throws IOException {
+    return checkpoint(sideFile, wal, fixedBoundary, new ChangedPageTrackerFile.FileOperations());
+  }
+
+  CheckpointResult checkpoint(Path sideFile, WriteAheadLog wal, long fixedBoundary,
+      ChangedPageTrackerFile.FileOperations files) throws IOException {
+    saveOrder.lock();
+    try {
+      WriteAheadLog.CutPreflight preflight;
+      try {
+        preflight = wal.preflightCut(fixedBoundary);
+      } catch (IllegalStateException | NoSuchElementException unavailable) {
+        // Only prediction availability is recoverable here, not later contract or I/O failures.
+        return new CheckpointResult(CheckpointOutcome.PREFLIGHT_UNAVAILABLE, false);
+      }
+      if (preflight == null) {
+        throw new IllegalStateException("WAL cut preflight is required");
+      }
+      var outcome = CheckpointOutcome.NO_SAVE;
+      if (preflight.removesSegments()) {
+        var coverage = preflight.coverageLsn();
+        if (coverage == null) {
+          throw new IllegalStateException("Removing WAL cut requires retained-record coverage");
+        }
+        if (hasUnsavedChanges(coverage)) {
+          var saved = ChangedPageTrackerFile.save(sideFile, this, coverage, files);
+          if (!saved.allowsWalCut()) {
+            throw new IOException(
+                "Changed-page tracker side-file invalidation failed: " + sideFile);
+          }
+          outcome = saved == ChangedPageTrackerFile.SaveResult.SAVED
+              ? CheckpointOutcome.SAVED : CheckpointOutcome.INVALIDATED;
+        }
+      }
+      // The cutter can force channels. Inherited cancellation must not close those channels after
+      // publication or durable invalidation. Preserve the caller's flag even when cutting fails.
+      boolean interrupted = Thread.interrupted();
+      try {
+        return new CheckpointResult(outcome,
+            wal.cutAllSegmentsSmallerThan(preflight.effectiveBoundary()));
+      } finally {
+        if (interrupted) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    } finally {
+      saveOrder.unlock();
+    }
+  }
+
+  /** The side-file action, distinct from whether the later bounded cut actually removed WAL. */
+  public enum CheckpointOutcome {
+    NO_SAVE, SAVED, INVALIDATED, PREFLIGHT_UNAVAILABLE
+  }
+
+  /** Unavailability has no cut invocation. Other outcomes report the real bounded cut result. */
+  public record CheckpointResult(CheckpointOutcome outcome, boolean segmentsRemoved) {
   }
 
   /** Later save code holds this domain from capture through publication and the associated cut. */
