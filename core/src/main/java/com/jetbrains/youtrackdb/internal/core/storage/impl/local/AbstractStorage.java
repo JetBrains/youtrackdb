@@ -7554,9 +7554,9 @@ public abstract class AbstractStorage
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
-      // Sample operation ownership first. A committing operation publishes its page
-      // requirements before WAL completion can remove operation-table protection. The following
-      // cache sample therefore observes either the old owner or the new owner.
+      // The anchor keeps WAL for operations that register after the table sample.
+      // Sample the table before the cache so a transfer of page ownership cannot escape both.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var minAtomicOperationSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
@@ -7576,6 +7576,9 @@ public abstract class AbstractStorage
 
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
+      }
+      if (fuzzySegment > anchorSegment) {
+        fuzzySegment = anchorSegment;
       }
 
       LogManager.instance()
@@ -7791,6 +7794,8 @@ public abstract class AbstractStorage
 
       writeCache.flush();
 
+      // Read the anchor before either table check to retain WAL for later registrations.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestOperationInProgress();
       if (operationSegment >= 0) {
@@ -7800,8 +7805,8 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      // Operation protection is sampled before cache protection. Page publication happens
-      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      // Sample the table before the cache to cover page ownership transfers.
+      // The anchor also covers operations that register after these table checks.
       final var notPersistedSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
@@ -7818,6 +7823,9 @@ public abstract class AbstractStorage
       }
 
       if (protectedSegment >= 0) {
+        if (protectedSegment > anchorSegment) {
+          protectedSegment = anchorSegment;
+        }
         writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
         // Unresolved recovery requirements keep the dirty marker for the next open.
         LogManager.instance()
@@ -7826,6 +7834,7 @@ public abstract class AbstractStorage
                 "Storage %s keeps write ahead log starting from protected segment %d",
                 (Throwable) null, name, protectedSegment);
       } else {
+        // This record precedes the cache flush, so its segment cannot exceed the anchor.
         writeAheadLog.cutTill(lastLSN);
         clearStorageDirty();
       }
@@ -10094,15 +10103,18 @@ public abstract class AbstractStorage
         previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
-      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
-      // disappear from operation tracking before its cache requirement becomes visible.
+      // Take a new anchor before the final table sample to cover later registrations.
+      // Keep table-before-cache order to cover page ownership transfers.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
-      final var activeSegment = writeAheadLog.activeSegment();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
-      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+      minDirtySegment = Objects.requireNonNullElse(cacheSegment, anchorSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
+      }
+      if (minDirtySegment > anchorSegment) {
+        minDirtySegment = anchorSegment;
       }
 
       if (minDirtySegment <= nonActiveSegments[0]) {

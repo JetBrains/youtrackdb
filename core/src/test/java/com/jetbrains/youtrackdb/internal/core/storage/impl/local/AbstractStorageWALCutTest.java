@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -70,6 +71,7 @@ public class AbstractStorageWALCutTest {
     setPrivateField(storage, "afterShutdownRemarkTestAction", new AtomicReference<>());
 
     when(writeAheadLog.log(any())).thenReturn(checkpointLsn);
+    when(writeAheadLog.activeSegment()).thenReturn(checkpointLsn.getSegment());
     when(atomicOperationsTable.getSegmentEarliestOperationInProgress()).thenReturn(-1L);
   }
 
@@ -572,6 +574,167 @@ public class AbstractStorageWALCutTest {
     return mockingDetails(writeAheadLog).getInvocations().stream()
         .filter(invocation -> invocation.getMethod().getName().equals(name))
         .count();
+  }
+
+  /** A fuzzy sample retains protection transferred from the table to cache below its anchor. */
+  @Test
+  public void fuzzyCheckpointObservesOperationToCacheTransfer() throws Exception {
+    prepareFuzzyCheckpoint();
+    publishCacheProtectionDuringTableSample();
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles(6L);
+    assertTableBeforeCacheTransferSample();
+  }
+
+  /** The final vacuum sample sees a transfer even when earlier flush-loop cache reads miss it. */
+  @Test
+  public void vacuumObservesOperationToCacheTransferInFinalSample() throws Exception {
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    storage.status = Storage.STATUS.OPEN;
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    publishCacheProtectionDuringTableSample();
+
+    storage.runWALVacuum();
+
+    verify(writeCache).syncDataFiles(6L);
+    assertTableBeforeCacheTransferSample();
+  }
+
+  private void publishCacheProtectionDuringTableSample() {
+    final var cacheRequirementPublished = new AtomicBoolean();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenAnswer(invocation -> {
+      // The operation publishes its pages before it leaves the table. The sample sees no entry.
+      cacheRequirementPublished.set(true);
+      return -1L;
+    });
+    when(writeCache.getMinimalNotFlushedSegment())
+        .thenAnswer(invocation -> cacheRequirementPublished.get() ? 6L : null);
+  }
+
+  private void assertTableBeforeCacheTransferSample() {
+    final var ownershipOrder = inOrder(atomicOperationsTable, writeCache);
+    ownershipOrder.verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
+    ownershipOrder.verify(writeCache).getMinimalNotFlushedSegment();
+  }
+
+  /** A cache boundary below the fuzzy anchor still limits the cut. */
+  @Test
+  public void fuzzyCheckpointKeepsEarlierCacheProtection() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(7L);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles(7L);
+  }
+
+  /** Operation protection below both the fuzzy anchor and cache boundary still wins. */
+  @Test
+  public void fuzzyCheckpointKeepsEarlierOperationProtection() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(5L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(9L);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles(5L);
+  }
+
+  /** With no cache protection, a fuzzy checkpoint caps its WAL end at the active anchor. */
+  @Test
+  public void fuzzyCheckpointCapsWalEndWithoutCacheProtection() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(writeAheadLog.activeSegment()).thenReturn(10L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles(10L);
+  }
+
+  /** An anchor at WAL begin preserves the fuzzy no-progress exit even with a later cache. */
+  @Test
+  public void fuzzyCheckpointDoesNotSyncWhenAnchorCannotAdvance() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(writeAheadLog.activeSegment()).thenReturn(1L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(9L);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache, never()).syncDataFiles(org.mockito.ArgumentMatchers.anyLong());
+  }
+
+  /** An operation below the final vacuum anchor still retains its earlier WAL segment. */
+  @Test
+  public void vacuumKeepsEarlierOperationProtection() throws Exception {
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    storage.status = Storage.STATUS.OPEN;
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(writeAheadLog.activeSegment()).thenReturn(10L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(5L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.runWALVacuum();
+
+    verify(writeCache).syncDataFiles(5L);
+  }
+
+  /** Rotation after logging cannot raise the unprotected full-flush cut above its record. */
+  @Test
+  public void unprotectedFullFlushKeepsEarlierLoggedBoundaryAfterRotation() throws Exception {
+    when(writeAheadLog.activeSegment()).thenReturn(21L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.flushAllData();
+
+    var order = inOrder(writeAheadLog, writeCache, atomicOperationsTable);
+    order.verify(writeAheadLog).log(any());
+    order.verify(writeCache).flush();
+    order.verify(writeAheadLog).activeSegment();
+    order.verify(atomicOperationsTable).getSegmentEarliestOperationInProgress();
+    order.verify(writeAheadLog).flush();
+    order.verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
+    order.verify(writeCache).getMinimalNotFlushedSegment();
+    order.verify(writeAheadLog).cutTill(checkpointLsn);
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(21L);
+    verify(storage).clearStorageDirty();
+  }
+
+  /** Memory WAL accepts the zero anchor in protected and unprotected full flushes. */
+  @Test
+  public void memoryWalFullFlushAcceptsZeroAnchorAndNoOpCuts() throws Exception {
+    var memoryWal = org.mockito.Mockito.spy(new MemoryWriteAheadLog());
+    storage.writeAheadLog = memoryWal;
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(7L, (Long) null);
+
+    storage.flushAllData();
+    storage.flushAllData();
+
+    verify(memoryWal).cutAllSegmentsSmallerThan(0L);
+    verify(memoryWal).cutTill(new LogSequenceNumber(0, 2));
+    verify(storage, times(1)).clearStorageDirty();
+    assertThat(memoryWal.activeSegment()).isZero();
+    assertThat(memoryWal.preflightCut(7).removesSegments()).isFalse();
+    storage.runWALVacuum();
+  }
+
+  private void prepareFuzzyCheckpoint() throws Exception {
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>());
+    storage.status = Storage.STATUS.OPEN;
+    when(writeAheadLog.begin()).thenReturn(new LogSequenceNumber(1, 1));
+    when(writeAheadLog.end()).thenReturn(checkpointLsn);
   }
 
   /** Installs the fields needed to run shutdown through metadata teardown in this mock fixture. */
