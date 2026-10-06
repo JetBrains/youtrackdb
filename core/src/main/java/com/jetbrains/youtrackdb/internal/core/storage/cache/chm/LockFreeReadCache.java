@@ -166,7 +166,15 @@ public final class LockFreeReadCache implements ReadCache {
             + "; WriteCache.loadOrAdd totality contract violated";
     if (cacheEntry != null) {
       cacheEntry.acquireExclusiveLock();
-      writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
+      try {
+        writeCache.updateDirtyPagesTable(cacheEntry.getCachePointer(), startLSN);
+      } catch (RuntimeException | Error failure) {
+        // No page change was handed to the caller. Do not store it or clear its allocation flag.
+        // Balance both acquisitions even when marking fails because the heap is exhausted.
+        cacheEntry.releaseExclusiveLock();
+        cacheEntry.releaseEntry();
+        throw failure;
+      }
     }
 
     return cacheEntry;
