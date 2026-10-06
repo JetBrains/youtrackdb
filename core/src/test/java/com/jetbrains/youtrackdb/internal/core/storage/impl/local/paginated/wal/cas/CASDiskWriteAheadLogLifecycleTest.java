@@ -5,6 +5,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointReque
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AbstractWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.CoverageTestWALRecordIds;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
@@ -24,11 +26,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -533,6 +538,274 @@ public class CASDiskWriteAheadLogLifecycleTest {
     } finally {
       wal.close();
     }
+  }
+
+  // Preflight applies current-segment and earliest-limit clamps without changing files, segment
+  // membership or limit reference counts. Coverage is the retained segment's actual record start.
+  @Test
+  public void preflightIsNonMutatingAndAppliesCurrentSegmentAndLimitClamps() throws Exception {
+    try (var wal = createWAL("preflight")) {
+      wal.appendNewSegment();
+      wal.appendNewSegment();
+      wal.flush();
+      var segments = wal.nonActiveSegments();
+      var beginning = wal.begin();
+      var end = wal.end();
+      var size = wal.size();
+      var files = wal.nonActiveSegments(0);
+      var plan = wal.preflightCut(Long.MAX_VALUE);
+      assertTrue(plan.removesSegments());
+      assertEquals(3, plan.effectiveBoundary());
+      assertEquals(wal.begin(3), plan.coverageLsn());
+      assertEquals(CASWALPage.RECORDS_OFFSET, plan.coverageLsn().getPosition());
+      assertEquals(plan.coverageLsn(), wal.read(plan.coverageLsn(), 1).getFirst().getLsn());
+      var early = new LogSequenceNumber(1, 100);
+      var later = new LogSequenceNumber(2, 100);
+      wal.addCutTillLimit(later);
+      wal.addCutTillLimit(early);
+      wal.addCutTillLimit(early);
+      try {
+        var limitField = CASDiskWriteAheadLog.class.getDeclaredField("cutTillLimits");
+        limitField.setAccessible(true);
+        var limits = (Map<?, ?>) limitField.get(wal);
+        var before = Map.copyOf(limits);
+        plan = wal.preflightCut(3);
+        assertFalse(plan.removesSegments());
+        assertEquals(1, plan.effectiveBoundary());
+        assertEquals(beginning, plan.coverageLsn());
+        assertEquals(before, limits);
+        wal.removeCutTillLimit(early);
+        assertEquals(1, wal.preflightCut(3).effectiveBoundary());
+        wal.removeCutTillLimit(early);
+        plan = wal.preflightCut(3);
+        assertTrue(plan.removesSegments());
+        assertEquals(2, plan.effectiveBoundary());
+        assertEquals(wal.begin(2), plan.coverageLsn());
+      } finally {
+        wal.removeCutTillLimit(later);
+      }
+      assertArrayEquals(segments, wal.nonActiveSegments());
+      assertArrayEquals(files, wal.nonActiveSegments(0));
+      for (var file : files) {
+        assertTrue(file.exists());
+      }
+      assertEquals(beginning, wal.begin());
+      assertEquals(end, wal.end());
+      assertEquals(size, wal.size());
+      assertFalse(wal.preflightCut(1).removesSegments());
+      assertFalse(wal.preflightCut(0).removesSegments());
+      assertEquals(beginning, wal.preflightCut(0).coverageLsn());
+    }
+  }
+
+  // Holding the writer lock lets the test install deterministic written-up-to positions on an
+  // open WAL. Each clamp is isolated, and the real position is restored before releasing the lock.
+  @Test
+  public void preflightAppliesWrittenUpToClamp() throws Exception {
+    try (var wal = createWAL("writtenClamp")) {
+      wal.appendNewSegment();
+      wal.appendNewSegment();
+      wal.flush();
+      var lock = (ReentrantLock) walField(wal, "recordsWriterLock");
+      var written = writtenPosition(wal);
+      lock.lock();
+      var original = written.get();
+      try {
+        written.set(new WrittenUpTo(new LogSequenceNumber(10, 100), 200));
+        assertEquals(3, wal.preflightCut(100).effectiveBoundary());
+        written.set(new WrittenUpTo(new LogSequenceNumber(2, 100), 200));
+        var plan = wal.preflightCut(3);
+        assertTrue(plan.removesSegments());
+        assertEquals(2, plan.effectiveBoundary());
+        assertEquals(wal.begin(2), plan.coverageLsn());
+        written.set(new WrittenUpTo(new LogSequenceNumber(1, 100), 200));
+        assertFalse(wal.preflightCut(3).removesSegments());
+      } finally {
+        written.set(original);
+        lock.unlock();
+      }
+    }
+  }
+
+  // Construction logs an empty record before returning. Reconstruct the earlier reopen state
+  // with inventory {k}, currentSegment k+1 and writtenUpTo (k+1, 0), before that first log.
+  // The prediction must still require a save and match the later fixed-boundary cut.
+  @Test
+  public void preflightCoversReopenStateBeforeFirstLogPublishesCurrentSegment() throws Exception {
+    try (var wal = createWAL("reopenPreflight")) {
+      assertEquals(1, wal.activeSegment());
+    }
+    try (var wal = createWAL("reopenPreflight")) {
+      assertEquals(2, wal.activeSegment());
+      var lock = (ReentrantLock) walField(wal, "recordsWriterLock");
+      var segments = segmentInventory(wal);
+      var written = writtenPosition(wal);
+      lock.lock();
+      var original = written.get();
+      try {
+        assertTrue(segments.remove(2L));
+        assertEquals(java.util.Set.of(1L), segments);
+        written.set(new WrittenUpTo(new LogSequenceNumber(2, 0), 0));
+        var plan = wal.preflightCut(Long.MAX_VALUE);
+        assertTrue(plan.removesSegments());
+        assertEquals(2, plan.effectiveBoundary());
+        assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), plan.coverageLsn());
+        // Complete the first log's inventory publication before the caller performs its cut.
+        segments.add(2L);
+        assertTrue(wal.cutAllSegmentsSmallerThan(plan.effectiveBoundary()));
+        assertEquals(plan.coverageLsn(), wal.begin());
+        assertFalse(Files.exists(testDirectory.resolve(ContextConfiguration.WAL_DEFAULT_NAME
+            + ".1.wal")));
+      } finally {
+        segments.add(2L);
+        written.set(original);
+        lock.unlock();
+      }
+    }
+  }
+
+  // Deterministically withhold the rotated segment's inventory entry after its first record is
+  // written. Preflight must predict deletion of segment 1, with readable coverage in segment 2.
+  @Test
+  public void preflightCoversWrittenRotationBeforeInventoryPublication() throws Exception {
+    try (var wal = createWAL("rotationPreflight")) {
+      wal.appendNewSegment();
+      wal.flush();
+      var lock = (ReentrantLock) walField(wal, "recordsWriterLock");
+      var segments = segmentInventory(wal);
+      lock.lock();
+      try {
+        assertEquals(2, writtenPosition(wal).get().lsn().getSegment());
+        assertTrue(segments.remove(2L));
+        assertNull(wal.begin(2));
+        var plan = wal.preflightCut(Long.MAX_VALUE);
+        assertTrue(plan.removesSegments());
+        assertEquals(2, plan.effectiveBoundary());
+        assertEquals(new LogSequenceNumber(2, CASWALPage.RECORDS_OFFSET), plan.coverageLsn());
+        segments.add(2L);
+        assertTrue(wal.cutAllSegmentsSmallerThan(plan.effectiveBoundary()));
+        assertEquals(plan.coverageLsn(), wal.begin());
+        assertEquals(plan.coverageLsn(), wal.read(plan.coverageLsn(), 1).getFirst().getLsn());
+      } finally {
+        segments.add(2L);
+        lock.unlock();
+      }
+    }
+  }
+
+  // An empty disk inventory cannot support a cut prediction. Closing is rejected even when a
+  // synthetic inventory entry is present. Neither unavailable state is a healthy memory-WAL no-op.
+  @Test
+  public void preflightRejectsEmptyDiskInventoryAndClosedWal() throws Exception {
+    var wal = createWAL("unavailablePreflight");
+    var segments = segmentInventory(wal);
+    try {
+      segments.clear();
+      try {
+        var failure = assertThrows(IllegalStateException.class, () -> wal.preflightCut(2));
+        assertTrue(failure.getMessage().contains("empty segment inventory"));
+      } finally {
+        segments.add(1L);
+      }
+    } finally {
+      wal.close();
+    }
+    assertTrue(segments.isEmpty());
+    var failure = assertThrows(IllegalStateException.class, () -> wal.preflightCut(2));
+    assertTrue(failure.getMessage().contains("closed disk WAL"));
+    segments.add(1L);
+    try {
+      assertThrows(IllegalStateException.class, () -> wal.preflightCut(2));
+    } finally {
+      segments.clear();
+    }
+  }
+
+  private static Object walField(CASDiskWriteAheadLog wal, String name) throws Exception {
+    var field = CASDiskWriteAheadLog.class.getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(wal);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static java.util.Set<Long> segmentInventory(CASDiskWriteAheadLog wal) throws Exception {
+    return (java.util.Set<Long>) walField(wal, "segments");
+  }
+
+  @SuppressWarnings("unchecked")
+  private static AtomicReference<WrittenUpTo> writtenPosition(CASDiskWriteAheadLog wal)
+      throws Exception {
+    return (AtomicReference<WrittenUpTo>) walField(wal, "writtenUpTo");
+  }
+
+  // A missing requested segment is legal after an LSN jump. Even while the written segment's
+  // inventory entry is pending, coverage must name its real first record, not a start in the gap.
+  @Test
+  public void preflightUsesFirstActualRetainedRecordAcrossSegmentGaps() throws Exception {
+    try (var wal = createWAL("preflightGap")) {
+      wal.moveLsnAfter(new LogSequenceNumber(4, 100));
+      wal.log(record(8, 42));
+      wal.flush();
+      assertNull(wal.begin(3));
+      var lock = (ReentrantLock) walField(wal, "recordsWriterLock");
+      var segments = segmentInventory(wal);
+      lock.lock();
+      try {
+        assertEquals(5, writtenPosition(wal).get().lsn().getSegment());
+        assertTrue(segments.remove(5L));
+        var pending = wal.preflightCut(3);
+        assertTrue(pending.removesSegments());
+        assertEquals(3, pending.effectiveBoundary());
+        assertEquals(new LogSequenceNumber(5, CASWALPage.RECORDS_OFFSET), pending.coverageLsn());
+      } finally {
+        segments.add(5L);
+        lock.unlock();
+      }
+      var plan = wal.preflightCut(3);
+      assertTrue(plan.removesSegments());
+      assertEquals(3, plan.effectiveBoundary());
+      assertEquals(wal.begin(5), plan.coverageLsn());
+      assertTrue(wal.cutAllSegmentsSmallerThan(plan.effectiveBoundary()));
+      assertEquals(plan.coverageLsn(), wal.begin());
+      var stale = wal.preflightCut(3);
+      assertFalse(stale.removesSegments());
+      assertEquals(wal.begin(), stale.coverageLsn());
+    }
+  }
+
+  // A late backup limit can only lower the real cut. Removing a planned limit cannot raise a
+  // cut whose caller uses the preflight's fixed effective boundary instead of its initial request.
+  @Test
+  public void retentionChangesAfterPreflightNeverRaiseFixedCutBoundary() throws Exception {
+    try (var wal = createWAL("lateLimit")) {
+      wal.appendNewSegment();
+      wal.appendNewSegment();
+      wal.flush();
+      var plan = wal.preflightCut(3);
+      assertEquals(3, plan.effectiveBoundary());
+      var limit = wal.begin(2);
+      wal.addCutTillLimit(limit);
+      assertTrue(wal.cutAllSegmentsSmallerThan(plan.effectiveBoundary()));
+      assertEquals(limit, wal.begin());
+      assertNotNull(wal.begin(3));
+      plan = wal.preflightCut(3);
+      assertFalse(plan.removesSegments());
+      assertEquals(2, plan.effectiveBoundary());
+      wal.removeCutTillLimit(limit);
+      assertFalse(wal.cutAllSegmentsSmallerThan(plan.effectiveBoundary()));
+      assertEquals(limit, wal.begin());
+      assertTrue(wal.preflightCut(3).removesSegments());
+    }
+  }
+
+  // Memory-only storage retains no physical WAL segments and therefore has no coverage LSN.
+  @Test
+  public void memoryWalPreflightNeverClaimsSegmentRemovalOrCoverage() {
+    var wal = new MemoryWriteAheadLog();
+    var plan = wal.preflightCut(100);
+    assertFalse(plan.removesSegments());
+    assertEquals(0, plan.effectiveBoundary());
+    assertNull(plan.coverageLsn());
   }
 
   // ---------------------------------------------------------------------------

@@ -49,6 +49,58 @@ public class ChangedPageTrackerFileTest {
   @Rule
   public final TemporaryFolder folder = new TemporaryFolder();
 
+  // The shared exact-name rule matches the real publisher temporary sibling. It does not claim
+  // unrelated files that happen to use the same extension or a longer suffix.
+  @Test
+  public void sharedNamesMatchPublisherAndSuccessfulSaveRecordsDurableVersion() throws Exception {
+    var path = folder.getRoot().toPath().resolve(ChangedPageTrackerFile.FILE_NAME);
+    assertTrue(ChangedPageTrackerFile.isTrackerFile(path.getFileName().toString()));
+    var temporary = ChangedPageTrackerFile.temporaryFile(path);
+    assertEquals(ChangedPageTrackerFile.TEMPORARY_FILE_NAME, temporary.getFileName().toString());
+    assertTrue(ChangedPageTrackerFile.isTrackerFile(temporary.getFileName().toString()));
+    assertFalse(ChangedPageTrackerFile.isTrackerFile("unrelated.cpt"));
+    assertFalse(ChangedPageTrackerFile.isTrackerFile(ChangedPageTrackerFile.FILE_NAME + ".bak"));
+    var tracker = new ChangedPageTracker();
+    tracker.mark(1, 7);
+    assertTrue(hasUnsavedChanges(tracker, COVERAGE));
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+    assertFalse(hasUnsavedChanges(tracker, COVERAGE));
+    assertEquals(COVERAGE, tracker.durableCoverageLsn());
+    var loaded = ChangedPageTrackerFile.load(path).tracker();
+    assertEquals(COVERAGE, loaded.durableCoverageLsn());
+    assertFalse(hasUnsavedChanges(loaded, COVERAGE));
+    loaded.mark(1, 7);
+    assertFalse(hasUnsavedChanges(loaded, COVERAGE));
+    loaded.mark(1, 8);
+    assertTrue(hasUnsavedChanges(loaded, COVERAGE));
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, loaded, COVERAGE));
+    var failedCoverage = new LogSequenceNumber(18, 32);
+    var operations = new ChangedPageTrackerFile.FileOperations() {
+      @Override
+      void write(FileChannel channel, ChangedPageTracker.SaveState state,
+          LogSequenceNumber coverage) throws IOException {
+        throw new IOException("injected write failure");
+      }
+    };
+    assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+        ChangedPageTrackerFile.save(path, loaded, failedCoverage, operations));
+    assertEquals(COVERAGE, loaded.durableCoverageLsn());
+    assertTrue(hasUnsavedChanges(loaded, COVERAGE));
+    assertTrue(hasUnsavedChanges(loaded, failedCoverage));
+  }
+
+  private static boolean hasUnsavedChanges(ChangedPageTracker tracker,
+      LogSequenceNumber coverage) {
+    tracker.saveOrderLock().lock();
+    try {
+      return tracker.hasUnsavedChanges(coverage);
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+  }
+
   // Real NIO publication replaces an old file, ignores crash-left temporary content and preserves
   // both generations, continuity identifiers and the supplied retained-record coverage LSN.
   @Test

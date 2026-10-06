@@ -1046,6 +1046,44 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   }
 
   @Override
+  public CutPreflight preflightCut(long segmentId) {
+    cuttingLock.exclusiveLock();
+    try {
+      segmentLock.sharedLock();
+      try {
+        if (cancelRecordsWriting) {
+          throw new IllegalStateException("Cannot preflight a closed disk WAL");
+        }
+        if (segments.isEmpty()) {
+          throw new IllegalStateException(
+              "Cannot preflight a disk WAL with empty segment inventory");
+        }
+        segmentId = Math.min(segmentId, currentSegment);
+        var limit = cutTillLimits.firstEntry();
+        if (limit != null) {
+          segmentId = Math.min(segmentId, limit.getKey().getSegment());
+        }
+        long writtenSegment = writtenUpTo.get().lsn().getSegment();
+        segmentId = Math.min(segmentId, writtenSegment);
+        // A delayed checkpoint can name a removed segment, and moveLsnAfter can leave gaps.
+        // Match the cut's no-op test independently of current-segment inventory publication.
+        boolean removes = segmentId > segments.first();
+        var retained = segments.ceiling(segmentId);
+        // log() offers the first record before adding its segment to the inventory. The writer
+        // can already have reached that segment. Use its actual ID even across an LSN jump,
+        // where the requested boundary can fall in a gap. Its first record is at RECORDS_OFFSET.
+        var coverage = new LogSequenceNumber(retained == null ? writtenSegment : retained,
+            CASWALPage.RECORDS_OFFSET);
+        return new CutPreflight(removes, segmentId, coverage);
+      } finally {
+        segmentLock.sharedUnlock();
+      }
+    } finally {
+      cuttingLock.exclusiveUnlock();
+    }
+  }
+
+  @Override
   public boolean cutAllSegmentsSmallerThan(long segmentId) throws IOException {
     cuttingLock.exclusiveLock();
     try {

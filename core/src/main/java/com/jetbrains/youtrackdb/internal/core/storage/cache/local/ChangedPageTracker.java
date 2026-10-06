@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.ReentrantLock;
@@ -15,8 +17,10 @@ import javax.annotation.Nullable;
 /**
  * Conservative durable-page candidates, independent of cache flush bookkeeping.
  *
- * <p>Marking takes neither ordering domain. The caller excludes page writers at a backup switch
- * and excludes writers for a file during its identity reset or deletion. The total lock order is
+ * <p>Marking takes neither ordering domain. The caller serializes marks of the same page with
+ * its page exclusive lock, as LockFreeReadCache does. Different pages can be marked concurrently.
+ * The caller excludes page writers at a backup switch and excludes writers for a file during its
+ * identity reset or deletion. The total lock order is
  * save order, external file inventory, then generation state. Save-order holders must not wait for
  * transactions, write pauses, or exclusive storage state.
  */
@@ -28,6 +32,9 @@ public final class ChangedPageTracker {
   private final ReentrantLock saveOrder = new ReentrantLock();
   private final ReentrantLock generationState = new ReentrantLock();
   private final AtomicLong failures = new AtomicLong();
+  private final MutationClock mutations = new MutationClock();
+  private long savedMutationVersion = -1;
+  @Nullable private LogSequenceNumber durableCoverageLsn;
   private final AllocationObserver allocations;
   private final FileIndex<FileIdentity> identities = new FileIndex<>();
   private volatile Generation active;
@@ -42,13 +49,13 @@ public final class ChangedPageTracker {
     });
   }
 
-  /** Test-only allocation observation and failure injection, not an operator setting. */
+  /** Test-only allocation and bit-publication observation, not an operator setting. */
   ChangedPageTracker(AllocationObserver allocations) {
     this.allocations = allocations;
-    active = new Generation(allocations);
+    active = new Generation(allocations, mutations);
   }
 
-  /** Sets a mark before transaction completion, including for an already dirty page. */
+  /** Sets a mark before transaction completion while the caller holds the page exclusive lock. */
   void mark(int fileId, long pageIndex) {
     try {
       checkFileId(fileId);
@@ -107,10 +114,11 @@ public final class ChangedPageTracker {
         invalidate();
         return null;
       }
-      var replacement = new Generation(allocations);
+      var replacement = new Generation(allocations, mutations);
       var boundary = new SealedGeneration(UUID.randomUUID(), active, trackerId, failures.get());
       sealed = boundary;
       active = replacement;
+      mutations.changed();
       return boundary;
     } catch (RuntimeException | Error failure) {
       invalidate();
@@ -134,6 +142,7 @@ public final class ChangedPageTracker {
           && expected.trackerIdentifier().equals(trackerId);
       lastCompleted = historyTrusted ? expected.identifier() : null;
       sealed = null;
+      mutations.changed();
     } finally {
       generationState.unlock();
       saveOrder.unlock();
@@ -162,6 +171,7 @@ public final class ChangedPageTracker {
       generationState.lock();
       try {
         sealed = null;
+        mutations.changed();
       } finally {
         generationState.unlock();
       }
@@ -214,6 +224,8 @@ public final class ChangedPageTracker {
       if (sealed != null) {
         sealed.pages().files.remove(fileId);
       }
+      // Even an empty reset establishes a new file identity for future marks.
+      mutations.changed();
     } finally {
       generationState.unlock();
     }
@@ -230,12 +242,16 @@ public final class ChangedPageTracker {
    */
   SaveState capture() {
     requireSaveOrder();
+    // Read before capture. Mutators publish their state before incrementing the clock.
+    // A change missed by the streaming capture remains unsaved after publication.
+    long mutationVersion = mutationVersion();
     generationState.lock();
     try {
       long version = failures.get();
       boolean reset = version != savedFailureVersion;
       return new SaveState(reset ? UUID.randomUUID() : trackerId,
-          reset ? null : lastCompleted, !reset && historyTrusted, active, sealed, version, reset);
+          reset ? null : lastCompleted, !reset && historyTrusted, active, sealed, version, reset,
+          mutationVersion);
     } finally {
       generationState.unlock();
     }
@@ -252,6 +268,11 @@ public final class ChangedPageTracker {
    * A checkpoint reset does not recover missing backup history or enable selective reads.
    */
   boolean saveSucceeded(SaveState state) {
+    return saveSucceeded(state, null);
+  }
+
+  /** Records only the version read before capture, never the live version after disk I/O. */
+  boolean saveSucceeded(SaveState state, @Nullable LogSequenceNumber coverageLsn) {
     requireSaveOrder();
     generationState.lock();
     try {
@@ -264,10 +285,48 @@ public final class ChangedPageTracker {
         historyTrusted = false;
         savedFailureVersion = state.failureVersion();
       }
+      // Installing the proposed identifier applies the captured state, not a new mutation.
+      // Coverage belongs to this publication and is compared separately from the mutation clock.
+      durableCoverageLsn = coverageLsn;
+      savedMutationVersion = state.mutationVersion();
       return isCaptureValid(state);
     } finally {
       generationState.unlock();
     }
+  }
+
+  /**
+   * Includes marks, identities, generation references, continuity, trust and coverage.
+   * Requires save order so merge-back cannot expose bits before its version increment.
+   */
+  boolean hasUnsavedChanges(LogSequenceNumber coverageLsn) {
+    requireSaveOrder();
+    generationState.lock();
+    try {
+      return savedMutationVersion != mutationVersion()
+          || !Objects.equals(durableCoverageLsn, coverageLsn);
+    } finally {
+      generationState.unlock();
+    }
+  }
+
+  @Nullable LogSequenceNumber durableCoverageLsn() {
+    generationState.lock();
+    try {
+      return durableCoverageLsn;
+    } finally {
+      generationState.unlock();
+    }
+  }
+
+  private long mutationVersion() {
+    return failures.get() + mutations.version();
+  }
+
+  /** A validated, private restoration has no concurrent writers before startup replay. */
+  void loadedCoverage(LogSequenceNumber coverageLsn) {
+    durableCoverageLsn = coverageLsn;
+    savedMutationVersion = mutationVersion();
   }
 
   private void requireSaveOrder() {
@@ -310,7 +369,8 @@ public final class ChangedPageTracker {
       tracker.historyTrusted = trusted;
       tracker.savedFailureVersion = 0;
       if (sealedIdentifier != null) {
-        tracker.sealed = new SealedGeneration(sealedIdentifier, new Generation(tracker.allocations),
+        tracker.sealed = new SealedGeneration(sealedIdentifier,
+            new Generation(tracker.allocations, tracker.mutations),
             trackerIdentifier, 0);
       }
     }
@@ -354,7 +414,7 @@ public final class ChangedPageTracker {
 
   record SaveState(UUID trackerIdentifier, @Nullable UUID lastCompletedIdentifier, boolean trusted,
       Generation active, @Nullable SealedGeneration sealed, long failureVersion,
-      boolean resetsTracker) {
+      boolean resetsTracker, long mutationVersion) {
   }
 
   record SealedGeneration(UUID identifier, Generation pages, UUID trackerIdentifier,
@@ -365,9 +425,11 @@ public final class ChangedPageTracker {
 
     private final FileIndex<FileBitmap> files = new FileIndex<>();
     private final AllocationObserver allocations;
+    private final MutationClock mutations;
 
-    private Generation(AllocationObserver allocations) {
+    private Generation(AllocationObserver allocations, MutationClock mutations) {
       this.allocations = allocations;
+      this.mutations = mutations;
     }
 
     @Nullable private FileBitmap file(int fileId, FileIdentity identity) {
@@ -383,7 +445,7 @@ public final class ChangedPageTracker {
           }
         }
         allocations.beforeAllocation(Allocation.FILE);
-        var created = new FileBitmap(identity, allocations);
+        var created = new FileBitmap(identity, allocations, mutations);
         boolean published = existing == null ? files.putIfAbsent(fileId, created) == null
             : files.replace(fileId, existing, created);
         if (published) {
@@ -571,10 +633,13 @@ public final class ChangedPageTracker {
     private final FileIdentity identity;
     private final RadixTree segments;
     private final AllocationObserver allocations;
+    private final MutationClock mutations;
 
-    private FileBitmap(FileIdentity identity, AllocationObserver allocations) {
+    private FileBitmap(FileIdentity identity, AllocationObserver allocations,
+        MutationClock mutations) {
       this.identity = identity;
       this.allocations = allocations;
+      this.mutations = mutations;
       segments = new RadixTree(allocations);
     }
 
@@ -589,13 +654,27 @@ public final class ChangedPageTracker {
       if (segment == null) {
         allocations.beforeAllocation(Allocation.SEGMENT);
         var created = new long[SEGMENT_WORDS];
-        segment = slot.compareAndSet(index, null, created) ? created : (long[]) slot.get(index);
+        if (slot.compareAndSet(index, null, created)) {
+          segment = created;
+          mutations.changed();
+        } else {
+          segment = (long[]) slot.get(index);
+        }
       }
       int word = (int) (wordIndex & (SEGMENT_WORDS - 1));
       long existing = (long) WORD.getVolatile(segment, word);
       if ((existing & bits) != bits) {
-        WORD.getAndBitwiseOr(segment, word, bits);
+        long before = publishBits(segment, word, bits);
+        if ((before & bits) != bits) {
+          mutations.changed();
+        }
       }
+    }
+
+    private long publishBits(long[] segment, int word, long bits) {
+      // The test seam belongs to publication so tests can pause before the visible word change.
+      allocations.beforeBitPublication();
+      return (long) WORD.getAndBitwiseOr(segment, word, bits);
     }
 
     /** Nonzero atomic words only. Concurrent additions require the caller's WAL coverage proof. */
@@ -609,6 +688,33 @@ public final class ChangedPageTracker {
           }
         }
       });
+    }
+  }
+
+  /**
+   * Padded lanes distribute first-bit updates by writer, rather than contending on one counter.
+   * Already set bits never touch this clock. A version read sums monotonic lanes before capture.
+   * It need not be an atomic snapshot: every observed increment follows its visible state change,
+   * and an increment not observed here makes a later version differ. As with an ordinary long
+   * sequence, equality assumes fewer than 2^64 mutations between comparisons.
+   */
+  private static final class MutationClock {
+
+    private static final int LANES = 64;
+    private static final int STRIDE = 8;
+    private final AtomicLongArray lanes = new AtomicLongArray(LANES * STRIDE);
+
+    private void changed() {
+      int lane = (int) (Thread.currentThread().threadId() & (LANES - 1));
+      lanes.incrementAndGet(lane * STRIDE);
+    }
+
+    private long version() {
+      long version = 0;
+      for (int lane = 0; lane < LANES; lane++) {
+        version += lanes.get(lane * STRIDE);
+      }
+      return version;
     }
   }
 
@@ -626,6 +732,9 @@ public final class ChangedPageTracker {
   interface AllocationObserver {
 
     void beforeAllocation(Allocation kind);
+
+    default void beforeBitPublication() {
+    }
   }
 
   /**

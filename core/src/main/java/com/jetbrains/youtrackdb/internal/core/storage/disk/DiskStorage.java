@@ -54,6 +54,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -919,7 +920,23 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected void preCreateSteps() throws IOException {
+    removeStaleChangedPageFiles(storagePath);
     startupMetadata.create(YouTrackDBConstants.getRawVersion());
+  }
+
+  /** A newly created database image must not keep side-file authority from another image. */
+  static void removeStaleChangedPageFiles(Path directory) throws IOException {
+    for (var name : new String[] {ChangedPageTrackerFile.FILE_NAME,
+        ChangedPageTrackerFile.TEMPORARY_FILE_NAME}) {
+      var path = directory.resolve(name);
+      try {
+        Files.deleteIfExists(path);
+      } catch (IOException | SecurityException failure) {
+        LogManager.instance().error(DiskStorage.class,
+            "Cannot remove stale changed-page tracker file " + path, failure);
+        throw failure;
+      }
+    }
   }
 
   @Override
@@ -966,6 +983,15 @@ public class DiskStorage extends AbstractStorage {
 
         // TRY TO DELETE ALL THE FILES
         for (final var f : storageFiles) {
+          // Tracker cleanup uses exact names so unrelated .cpt and .tmp files stay untouched.
+          if (ChangedPageTrackerFile.isTrackerFile(f.getName())) {
+            if (!f.delete()) {
+              notDeletedFiles++;
+              LogManager.instance().warn(DiskStorage.class,
+                  "Cannot delete changed-page tracker file " + f.getAbsolutePath());
+            }
+            continue;
+          }
           // DELETE ONLY THE SUPPORTED FILES
           for (final var ext : ALL_FILE_EXTENSIONS) {
             if (f.getPath().endsWith(ext)) {
