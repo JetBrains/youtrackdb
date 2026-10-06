@@ -19,6 +19,58 @@ import org.junit.Test;
  */
 public class ResultSetTest extends DbTestBase {
 
+  /** Closing either shared cursor preserves rows for an existing copy and for a later copy. */
+  @Test
+  public void testInternalCopiesSurviveCloseAndKeepClosedCursorGuards() {
+    var original = new InternalResultSet(session);
+    var first = new ResultInternal(session);
+    first.setProperty("i", 1);
+    var second = new ResultInternal(session);
+    second.setProperty("i", 2);
+    original.add(first);
+    original.add(second);
+    var copy = original.copy(session);
+    Assert.assertSame(first, copy.next());
+    original.close();
+    original.close();
+    Assert.assertTrue(original.isClosed());
+    Assert.assertNull(original.getBoundToSession());
+    Assert.assertFalse(original.hasNext());
+    Assert.assertThrows(NoSuchElementException.class, original::next);
+    Assert.assertThrows(IllegalStateException.class, original::size);
+    Assert.assertThrows(IllegalStateException.class, () -> original.add(first));
+    Assert.assertThrows(IllegalStateException.class, () -> original.setPlan(null));
+    Assert.assertSame(second, copy.next());
+    Assert.assertFalse(copy.hasNext());
+    var laterCopy = original.copy(session);
+    copy.close();
+    Assert.assertEquals(List.of(first, second), laterCopy.toList());
+    Assert.assertTrue(laterCopy.isClosed());
+    Assert.assertEquals(List.of(first, second), original.copy(session).toList());
+  }
+
+  /** Closed cursors have an exact remaining size of zero while copies retain all shared rows. */
+  @Test
+  public void testClosedInternalResultSetStreamsReportNoRemainingRows() {
+    for (var consumed : new int[] {0, 1, 2}) {
+      var rows = new InternalResultSet(session);
+      var first = new ResultInternal(session);
+      var second = new ResultInternal(session);
+      rows.add(first);
+      rows.add(second);
+      for (int i = 0; i < consumed; i++) {
+        rows.next();
+      }
+      Assert.assertEquals(2 - consumed, rows.estimateSize());
+      rows.close();
+      Assert.assertEquals(0, rows.estimateSize());
+      Assert.assertEquals(0, rows.getExactSizeIfKnown());
+      Assert.assertEquals(0, rows.stream().count());
+      Assert.assertEquals(List.of(), rows.toList());
+      Assert.assertEquals(List.of(first, second), rows.copy(session).toList());
+    }
+  }
+
   @Test
   public void testResultStream() {
     var rs = new InternalResultSet(session);

@@ -16,6 +16,9 @@
  */
 package com.jetbrains.youtrackdb.internal.core.query;
 
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.spy;
+
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import java.util.Arrays;
@@ -177,19 +180,11 @@ public class BasicResultSetDefaultMethodsTest {
       return source.next();
     }
 
-    /**
-     * Idempotent close: increments {@code closeCount} only on the first
-     * invocation. Subsequent calls are no-ops. This lets tests assert exact
-     * close counts (e.g. {@code assertEquals(1, ...)}) and distinguishes
-     * mutations that double-wire {@code onClose} from correct single-close
-     * behavior.
-     */
+    /** Counts every invocation to detect missing or duplicate stream-close hooks. */
     @Override
     public void close() {
-      if (!closed) {
-        closed = true;
-        closeCount.incrementAndGet();
-      }
+      closeCount.incrementAndGet();
+      closed = true;
     }
 
     @Override
@@ -281,29 +276,34 @@ public class BasicResultSetDefaultMethodsTest {
     Assert.assertTrue(rs.toList().isEmpty());
   }
 
-  /**
-   * Documents the close-behaviour contract: {@code toList}, {@code detach},
-   * and {@code toDetachedList} all internally call {@code stream()} but
-   * never close the stream (no try-with-resources). Because
-   * {@code StreamSupport.stream(...)} streams only invoke the {@code onClose}
-   * handler when the stream is explicitly closed, the underlying ResultSet
-   * is NOT closed by these terminal-convenience methods. Callers that need
-   * close-on-exhaust semantics must either use {@code findFirst*} or wrap
-   * {@code stream()} in try-with-resources.
-   * WHEN-FIXED: if {@code toList} / {@code detach} / {@code toDetachedList}
-   * are ever changed to close the underlying stream (e.g. by wrapping the
-   * internal stream in try-with-resources), flip these assertions to
-   * {@code assertEquals(1, rs.closeCount())} and delete this marker.
-   */
+  /** Each consuming helper closes its stream once, including when there are no rows. */
   @Test
-  public void testToListDoesNotAutoCloseUnderlyingStream() {
-    var rs = of("a");
-    rs.toList();
-    Assert.assertEquals(
-        "toList() does NOT close the underlying result set — callers must"
-            + " close explicitly.",
-        0,
-        rs.closeCount());
+  public void testConsumingHelpersCloseUnderlyingStream() {
+    List<Consumer<TestResultSet>> helpers = List.of(
+        TestResultSet::toList, TestResultSet::detach, TestResultSet::toDetachedList);
+    for (var helper : helpers) {
+      for (var rs : List.of(empty(), of("a", "b"))) {
+        helper.accept(rs);
+        Assert.assertEquals(1, rs.closeCount());
+        Assert.assertTrue(rs.isClosed());
+      }
+    }
+  }
+
+  /** Both detaching helpers close exactly once when a row cannot be detached. */
+  @Test
+  public void testDetachingHelpersCloseWhenMappingThrows() {
+    List<Consumer<TestResultSet>> helpers = List.of(
+        TestResultSet::detach, TestResultSet::toDetachedList);
+    for (var helper : helpers) {
+      var row = spy(new TestResult("a"));
+      var failure = new IllegalStateException("detach");
+      doThrow(failure).when(row).detach();
+      var rs = new TestResultSet(List.of(row));
+      Assert.assertSame(failure, Assert.assertThrows(IllegalStateException.class,
+          () -> helper.accept(rs)));
+      Assert.assertEquals(1, rs.closeCount());
+    }
   }
 
   // ===== findFirst() (no-arg) =====

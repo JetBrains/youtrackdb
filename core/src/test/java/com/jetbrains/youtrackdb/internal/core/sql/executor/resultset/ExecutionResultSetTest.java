@@ -118,6 +118,33 @@ public class ExecutionResultSetTest extends TestUtilsFixture {
     assertThatThrownBy(rs::next).isInstanceOf(NoSuchElementException.class);
   }
 
+  /** A failed first close retires the cursor, drops its session and never retries cleanup. */
+  @Test
+  public void failedCloseRetiresCursorAndNeverRetriesCleanup() {
+    for (var failWithError : new boolean[] {false, true}) {
+      var closes = new AtomicInteger();
+      Throwable failure = failWithError ? new AssertionError("cleanup")
+          : new IllegalStateException("cleanup");
+      var stream = ExecutionStream.empty().onClose(context -> {
+        closes.incrementAndGet();
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        throw (RuntimeException) failure;
+      });
+      var plan = new StubPlan();
+      var rs = new ExecutionResultSet(stream, newContext(), plan);
+      assertThatThrownBy(rs::close).isSameAs(failure);
+      assertThat(rs.isClosed()).isTrue();
+      assertThat(rs.getBoundToSession()).isNull();
+      assertThat(rs.hasNext()).isFalse();
+      assertThatThrownBy(rs::next).isInstanceOf(NoSuchElementException.class);
+      assertThat(rs.getExecutionPlan()).isSameAs(plan);
+      rs.close();
+      assertThat(closes.get()).isEqualTo(1);
+    }
+  }
+
   /**
    * {@code getExecutionPlan} returns the plan supplied at construction, or null when none was.
    */

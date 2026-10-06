@@ -18,8 +18,7 @@ public class InternalResultSet implements ResultSet {
   private int next = 0;
   protected ExecutionPlan plan;
 
-  @Nullable
-  private DatabaseSessionEmbedded session;
+  @Nullable private DatabaseSessionEmbedded session;
 
   private boolean closed = false;
 
@@ -61,7 +60,7 @@ public class InternalResultSet implements ResultSet {
     }
 
     assert session == null || session.assertIfNotActive();
-    this.content.clear();
+    // Copies and later LET-variable reads share these rows, even after this cursor closes.
     this.session = null;
     this.closed = true;
   }
@@ -102,8 +101,7 @@ public class InternalResultSet implements ResultSet {
     return new InternalResultSet(session, this.content);
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public DatabaseSessionEmbedded getBoundToSession() {
     return session;
   }
@@ -130,15 +128,14 @@ public class InternalResultSet implements ResultSet {
     return closed;
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public ResultSet trySplit() {
     return null;
   }
 
   @Override
   public long estimateSize() {
-    return content.size() - next;
+    return closed ? 0 : content.size() - next;
   }
 
   @Override

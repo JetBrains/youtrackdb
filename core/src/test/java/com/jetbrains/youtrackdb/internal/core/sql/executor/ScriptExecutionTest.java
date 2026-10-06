@@ -10,6 +10,20 @@ import org.junit.Test;
 /** Tests for SQL script execution including multi-statement scripts and error handling. */
 public class ScriptExecutionTest extends DbTestBase {
 
+  /** Reading a LET variable through FROM must not erase rows returned from it later. */
+  @Test
+  public void testLetRowsSurviveIntermediateSelect() {
+    session.begin();
+    try (var rows = session.computeScript("SQL",
+        "LET $a = SELECT 42 AS answer; SELECT FROM $a; RETURN $a;")) {
+      var result = rows.toList();
+      Assert.assertEquals(1, result.size());
+      Assert.assertEquals(42, result.getFirst().<Number>getProperty("answer").intValue());
+    } finally {
+      session.rollback();
+    }
+  }
+
   @Test
   public void testTwoInserts() {
     var className = "testTwoInserts";
