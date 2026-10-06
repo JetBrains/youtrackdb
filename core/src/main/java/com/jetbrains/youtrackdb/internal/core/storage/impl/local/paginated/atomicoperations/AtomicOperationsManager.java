@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -56,6 +58,34 @@ import javax.annotation.Nullable;
  * @since 12/3/13
  */
 public class AtomicOperationsManager {
+
+  /** A failed indication update is retryable, not a broken storage engine. */
+  public static final class RecoveryIndicationException extends StorageException
+      implements HighLevelException {
+
+    public RecoveryIndicationException(String storageName, IOException cause) {
+      super(storageName, "Cannot durably set recovery indication before timestamp");
+      initCause(cause);
+    }
+  }
+
+  private final AtomicReference<Runnable> beforeTimestampTestAction = new AtomicReference<>();
+
+  /** Installs a one-shot pause point after admission to this storage's writer window. */
+  public void setBeforeTimestampActionForTesting(Runnable action) {
+    if (!beforeTimestampTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A timestamp test action is already installed");
+    }
+  }
+
+  public void setFreezeRegisteredActionForTesting(Runnable action) {
+    writeOperationsFreezer.setFreezeRegisteredActionForTesting(action);
+  }
+
+  public void clearTestActions() {
+    beforeTimestampTestAction.set(null);
+    writeOperationsFreezer.clearFreezeRegisteredActionForTesting();
+  }
 
   private final AbstractStorage storage;
 
@@ -150,6 +180,19 @@ public class AtomicOperationsManager {
     try {
       writeOperationsFreezer.startOperation(schemaArmed, schemaGate);
       freezerEntered = true;
+      // Checkpoint clearing excludes admitted writers. Do not enter another freezer or
+      // acquire the storage state lock here: either could self-wait during shutdown.
+      try {
+        storage.ensureRecoveryIndicationBeforeTimestamp();
+      } catch (IOException failure) {
+        throw new RecoveryIndicationException(storage.getName(), failure);
+      }
+      if (beforeTimestampTestAction.get() != null) {
+        final var beforeTimestamp = beforeTimestampTestAction.getAndSet(null);
+        if (beforeTimestamp != null) {
+          beforeTimestamp.run();
+        }
+      }
 
       // Register timestamps under the segment lock in increasing order. Read the WAL segment
       // first so a failed segment read cannot leave an unregistered timestamp in a snapshot.
@@ -216,6 +259,8 @@ public class AtomicOperationsManager {
       startToApplyOperations(atomicOperation);
       applyStarted = true;
       return function.accept(atomicOperation);
+    } catch (RecoveryIndicationException e) {
+      throw new IOException("Cannot start atomic write without recovery indication", e);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
       // routes through endAtomicOperation(op, error) for rollback, rather than
@@ -247,6 +292,8 @@ public class AtomicOperationsManager {
       startToApplyOperations(atomicOperation);
       applyStarted = true;
       consumer.accept(atomicOperation);
+    } catch (RecoveryIndicationException e) {
+      throw new IOException("Cannot start atomic write without recovery indication", e);
     } catch (Exception | AssertionError e) {
       // AssertionError is included so a -ea-only assert thrown from the lambda body
       // routes through endAtomicOperation(op, error) for rollback, rather than

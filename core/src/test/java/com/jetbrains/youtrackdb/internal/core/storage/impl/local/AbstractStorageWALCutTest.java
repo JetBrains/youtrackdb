@@ -3,11 +3,14 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -30,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -43,7 +47,7 @@ public class AbstractStorageWALCutTest {
   private LogSequenceNumber checkpointLsn;
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
     writeAheadLog = mock(WriteAheadLog.class);
     writeCache = mock(WriteCache.class);
@@ -53,6 +57,17 @@ public class AbstractStorageWALCutTest {
     storage.writeAheadLog = writeAheadLog;
     storage.writeCache = writeCache;
     storage.atomicOperationsTable = atomicOperationsTable;
+    // CALLS_REAL_METHODS skips constructor field initializers.
+    for (var field : new String[] {"idGen", "atomicOperationsManager"}) {
+      setPrivateField(storage, field,
+          mock(AbstractStorage.class.getDeclaredField(field).getType()));
+    }
+    setPrivateField(storage, "checkpointFloorTestAction", new AtomicReference<>());
+    setPrivateField(storage, "afterCloseAtomicTestAction", new AtomicReference<>());
+    setPrivateField(storage, "beforeMaintenanceFloorReadTestAction", new AtomicReference<>());
+    setPrivateField(storage, "beforeMaintenanceFloorTestAction", new AtomicReference<>());
+    setPrivateField(storage, "afterMaintenanceFloorTestAction", new AtomicReference<>());
+    setPrivateField(storage, "afterShutdownRemarkTestAction", new AtomicReference<>());
 
     when(writeAheadLog.log(any())).thenReturn(checkpointLsn);
     when(atomicOperationsTable.getSegmentEarliestOperationInProgress()).thenReturn(-1L);
@@ -110,6 +125,59 @@ public class AbstractStorageWALCutTest {
     verify(writeAheadLog, never())
         .cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
     verify(storage).clearStorageDirty();
+  }
+
+  /** A protected checkpoint saves the floor before pruning WAL and retains the dirty flag. */
+  @Test
+  public void protectedCheckpointPublishesFloorBeforeProtectedCut() throws Exception {
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(7L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    var floorObserved = new AtomicBoolean();
+    storage.setCheckpointFloorActionForTesting(ignored -> {
+      assertThat(cutCalls("cutAllSegmentsSmallerThan")).isZero();
+      floorObserved.set(true);
+    });
+
+    storage.flushAllData();
+
+    assertThat(floorObserved).isTrue();
+    var floorThenCut = inOrder(storage, writeAheadLog);
+    floorThenCut.verify(storage).saveCheckpointFloor(0L);
+    floorThenCut.verify(writeAheadLog).cutAllSegmentsSmallerThan(7L);
+    verify(storage, never()).clearStorageDirty();
+  }
+
+  /** A protected checkpoint cannot cut WAL or clear recovery when publishing the floor fails. */
+  @Test
+  public void failedProtectedFloorSavePreservesWalAndDirtyFlag() throws Exception {
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(7L);
+    doThrow(new IOException("floor unavailable")).when(storage).saveCheckpointFloor(anyLong());
+
+    assertThatThrownBy(storage::flushAllData).hasMessageContaining("checkpoint creation");
+
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(storage, never()).clearStorageDirty();
+  }
+
+  /** An unprotected checkpoint saves the floor, cuts the WAL, then clears recovery. */
+  @Test
+  public void normalCheckpointPublishesFloorBeforeCutAndClear() throws Exception {
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    var floorObserved = new AtomicBoolean();
+    storage.setCheckpointFloorActionForTesting(ignored -> {
+      assertThat(cutCalls("cutTill")).isZero();
+      floorObserved.set(true);
+    });
+
+    storage.flushAllData();
+
+    assertThat(floorObserved).isTrue();
+    var floorCutThenClear = inOrder(storage, writeAheadLog);
+    floorCutThenClear.verify(storage).saveCheckpointFloor(0L);
+    floorCutThenClear.verify(writeAheadLog).cutTill(checkpointLsn);
+    floorCutThenClear.verify(storage).clearStorageDirty();
   }
 
   /** A failed cache flush prevents both WAL deletion branches and dirty-marker cleanup. */
@@ -182,6 +250,57 @@ public class AbstractStorageWALCutTest {
     assertThatThrownBy(storage::doShutdown)
         .hasMessageContaining("injected initial force failure");
     assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    verify(storage, times(2)).flushAllData();
+  }
+
+  /** Shutdown flushes histogram statistics before freezing writers for the checkpoint. */
+  @Test
+  public void shutdownFlushesHistogramsBeforeCheckpointFreeze() throws Exception {
+    prepareShutdownTeardown();
+    doAnswer(invocation -> false).when(storage).isInError();
+    var histogram = mock(IndexHistogramManager.class);
+    var engine = mock(BTreeSingleValueIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(histogram);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
+    var freezeCalled = new AtomicBoolean();
+    var flushedAfterFreeze = new AtomicBoolean();
+    doAnswer(invocation -> {
+      freezeCalled.set(true);
+      return 0L;
+    }).when(storage.atomicOperationsManager)
+        .freezeWriteOperations(any(), org.mockito.ArgumentMatchers.isNull());
+    doAnswer(invocation -> {
+      flushedAfterFreeze.set(freezeCalled.get());
+      return null;
+    }).when(histogram).flushIfDirty();
+
+    storage.doShutdown();
+
+    verify(histogram).flushIfDirty();
+    assertThat(freezeCalled).isTrue();
+    assertThat(flushedAfterFreeze).isFalse();
+  }
+
+  /** A failed shutdown re-mark restores OPEN and histograms, then a retry closes. */
+  @Test
+  public void failedShutdownRemarkReleasesFreezeAndAllowsRetry() throws Exception {
+    prepareShutdownTeardown();
+    doAnswer(invocation -> false).when(storage).isInError();
+    var histogram = mock(IndexHistogramManager.class);
+    var engine = mock(BTreeSingleValueIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(histogram);
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>(java.util.List.of(engine)));
+    doThrow(new IOException("re-mark unavailable")).doNothing()
+        .when(storage).makeStorageDirty();
+
+    assertThatThrownBy(storage::doShutdown)
+        .isInstanceOf(IOException.class)
+        .hasMessageContaining("re-mark unavailable");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    verify(histogram).resumeRebalancesAfterFailedStorageShutdown();
+    verify(storage.atomicOperationsManager).unfreezeWriteOperations(0L);
+    storage.doShutdown();
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
     verify(storage, times(2)).flushAllData();
   }
 
@@ -307,7 +426,7 @@ public class AbstractStorageWALCutTest {
     final var dirtyFailure = new IOException("injected metadata write failure");
     final var metadataCloseFailure = new IOException("injected metadata close failure");
     doThrow(cacheFailure).when(storage.readCache).closeStorage(writeCache);
-    doThrow(dirtyFailure).when(storage).makeStorageDirty();
+    doNothing().doThrow(dirtyFailure).when(storage).makeStorageDirty();
     doThrow(metadataCloseFailure).when(storage).postCloseSteps(false, true, 0L);
 
     assertThatThrownBy(storage::doShutdown)
@@ -446,6 +565,13 @@ public class AbstractStorageWALCutTest {
     verify(writeAheadLog).cutAllSegmentsSmallerThan(6);
     verify(writeAheadLog, never()).cutTill(any());
     verify(storage, never()).clearStorageDirty();
+  }
+
+  /** Counts WAL cuts without changing Mockito verification state inside a checkpoint hook. */
+  private long cutCalls(String name) {
+    return mockingDetails(writeAheadLog).getInvocations().stream()
+        .filter(invocation -> invocation.getMethod().getName().equals(name))
+        .count();
   }
 
   /** Installs the fields needed to run shutdown through metadata teardown in this mock fixture. */

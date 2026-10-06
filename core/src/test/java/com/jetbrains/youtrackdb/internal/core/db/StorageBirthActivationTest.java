@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteExcepti
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
@@ -541,6 +542,90 @@ public class StorageBirthActivationTest {
         "a failed barrier must publish no active lifecycle state",
         Set.of(),
         bootstrapArtifactNames(directory.resolve(databaseName)));
+  }
+
+  /**
+   * A preexisting nonremovable candidate stops creation before activation publication.
+   *
+   * <p>The post-barrier observer puts a nonempty directory at this database's next authority
+   * candidate path. Pre-publication validation cannot remove the candidate, so creation fails
+   * without publishing an active state. Any residue stays inadmissible for a later open.
+   */
+  @Test
+  public void nonremovableCandidateStopsCreationBeforePublication() throws Exception {
+    var databaseName = "failedCreationFloor";
+    var occupiedCandidate = directory.resolve(databaseName).resolve("storage-bootstrap-1.bsm.tmp");
+    try (var youTrackDB = openManager();
+        var ignored = StorageBirthTestSupport.observeBirthCompletion(
+            storage -> {
+            },
+            storage -> {
+              try {
+                Files.createDirectory(occupiedCandidate);
+                Files.createFile(occupiedCandidate.resolve("cannot-remove"));
+              } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
+              }
+            })) {
+      var failure = assertThrows(RuntimeException.class,
+          () -> youTrackDB.create(databaseName, DatabaseType.DISK));
+      assertTrue("failed floor publication must reach the creation caller",
+          messageChain(failure).contains("storage-bootstrap-1.bsm.tmp"));
+      // The test obstacle can prevent failed-creation cleanup from deleting the directory.
+      // Remove only that obstacle before checking the remaining authority state.
+      Files.deleteIfExists(occupiedCandidate.resolve("cannot-remove"));
+      Files.deleteIfExists(occupiedCandidate);
+      if (Files.isDirectory(directory.resolve(databaseName))) {
+        var rejection = assertThrows(StorageAdmissionException.class,
+            () -> authority(databaseName).readActiveRequired());
+        assertEquals("cleanup must leave no active bootstrap authority",
+            StorageAdmissionException.Reason.AUTHORITY_MISSING, rejection.reason());
+      } else {
+        assertFalse(youTrackDB.exists(databaseName));
+      }
+    }
+  }
+
+  /** An atomic activation move failure reaches create and failed-create cleanup removes the image. */
+  @Test
+  public void failedCreationActivationMoveNeverLeavesAnAvailableDatabase() throws Exception {
+    assertActivationMoveFailureCleansUp(false);
+  }
+
+  /** A failure reported after the activation move also reaches create and removes the image. */
+  @Test
+  public void movedCreationActivationFailureNeverLeavesAnAvailableDatabase() throws Exception {
+    assertActivationMoveFailureCleansUp(true);
+  }
+
+  private void assertActivationMoveFailureCleansUp(boolean failAfterMove) throws Exception {
+    var databaseName = failAfterMove ? "movedActivationFailure" : "activationMoveFailure";
+    var storageDirectory = directory.resolve(databaseName);
+    try (var manager = openManager();
+        var failure = BootstrapMetadataTestSupport.failActivationPublication(
+            storageDirectory, failAfterMove)) {
+      var thrown = assertThrows(RuntimeException.class,
+          () -> manager.create(databaseName, DatabaseType.DISK));
+      assertTrue("the failure seam must observe this storage's activation move",
+          failure.activationMoveObserved().get());
+      assertTrue("the injected activation failure must reach the creation caller",
+          hasCause(thrown, failure.cause()));
+      assertTrue("the activation candidate must exist at the failing move",
+          failure.candidateObserved().get());
+      assertFalse("failed-create cleanup must remove the storage directory",
+          Files.exists(storageDirectory));
+      assertFalse("a failed creation must not remain registered", manager.exists(databaseName));
+      assertThrows(RuntimeException.class, () -> manager.open(databaseName, ADMIN, PASSWORD));
+    }
+  }
+
+  private static boolean hasCause(Throwable thrown, Throwable expected) {
+    for (var cause = thrown; cause != null; cause = cause.getCause()) {
+      if (cause == expected) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

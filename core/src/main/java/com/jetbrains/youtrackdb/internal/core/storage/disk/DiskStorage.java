@@ -156,6 +156,17 @@ public class DiskStorage extends AbstractStorage {
   private static final AtomicBoolean fsyncWarningLogged = new AtomicBoolean();
   private static final AtomicReference<Consumer<DiskStorage>> RESTORE_BARRIER_TEST_ACTION =
       new AtomicReference<>();
+  private final AtomicReference<IOException> checkpointFloorFailureForTesting =
+      new AtomicReference<>();
+
+  private record OpenIndicationTestAction(Path storagePath, Consumer<DiskStorage> action) {
+  }
+
+  private static final AtomicReference<OpenIndicationTestAction> OPEN_INDICATION_TEST_ACTION =
+      new AtomicReference<>();
+  private final AtomicReference<IOException> indicationFailureForTesting = new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeIndicationTestAction = new AtomicReference<>();
+  private final AtomicReference<Runnable> beforeFinalFloorTestAction = new AtomicReference<>();
 
   private static final String BACKUP_LOCK = "backup.ibl";
 
@@ -358,6 +369,26 @@ public class DiskStorage extends AbstractStorage {
     startupMetadata =
         new StorageStartupMetadata(
             storagePath.resolve("dirty.fl"), storagePath.resolve("dirty.flb"));
+    final var openAction = OPEN_INDICATION_TEST_ACTION.get();
+    // Another storage must not consume the observer while test classes open disks in parallel.
+    if (openAction != null && storagePath.equals(openAction.storagePath())
+        && OPEN_INDICATION_TEST_ACTION.compareAndSet(openAction, null)) {
+      openAction.action().accept(this);
+    }
+  }
+
+  /** Installs a one-shot observer for the disk storage at the specified path. */
+  public static void setOpenIndicationActionForTesting(
+      Path storagePath, Consumer<DiskStorage> action) {
+    var scopedAction = new OpenIndicationTestAction(
+        storagePath.toAbsolutePath().normalize(), action);
+    if (!OPEN_INDICATION_TEST_ACTION.compareAndSet(null, scopedAction)) {
+      throw new IllegalStateException("An open indication action is already installed");
+    }
+  }
+
+  public static void clearOpenIndicationActionForTesting() {
+    OPEN_INDICATION_TEST_ACTION.set(null);
   }
 
   @SuppressWarnings("CanBeFinal")
@@ -438,7 +469,10 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected void activateStorageBirth() {
-    activateBootstrapSnapshot("Cannot activate the storage bootstrap birth");
+    // Creation admits no outside writer before activation. Read after the genesis barrier so
+    // timestamps issued by that barrier travel with the available state in one authority record.
+    activateBootstrapSnapshot(
+        "Cannot activate the storage bootstrap birth", getIdGen().getLastId());
   }
 
   /**
@@ -852,12 +886,8 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected StartupMetadata checkIfStorageDirty() throws IOException {
-    if (startupMetadata.exists()) {
-      startupMetadata.open(YouTrackDBConstants.getRawVersion());
-    } else {
-      startupMetadata.create(YouTrackDBConstants.getRawVersion());
-      startupMetadata.makeDirty(YouTrackDBConstants.getRawVersion());
-    }
+    // open also handles a missing main with a valid backup under the main-file lock.
+    startupMetadata.open(YouTrackDBConstants.getRawVersion());
 
     return new StartupMetadata(startupMetadata.getLastTxId());
   }
@@ -897,7 +927,11 @@ public class DiskStorage extends AbstractStorage {
       startupMetadata.delete();
     } else {
       if (!internalError) {
-        startupMetadata.setLastTxId(lastTxId);
+        final var beforeFinalFloor = beforeFinalFloorTestAction.getAndSet(null);
+        if (beforeFinalFloor != null) {
+          beforeFinalFloor.run();
+        }
+        startupMetadata.publishLastTxIdFloor(lastTxId);
         startupMetadata.clearDirty();
       }
       startupMetadata.close();
@@ -974,6 +1008,70 @@ public class DiskStorage extends AbstractStorage {
             + "' located in: "
             + dbDir
             + ". Database files seem locked");
+  }
+
+  /** Installs a one-shot failure before the checkpoint writes the startup metadata floor. */
+  public void failNextCheckpointFloorSaveForTesting(IOException failure) {
+    if (!checkpointFloorFailureForTesting.compareAndSet(null, failure)) {
+      throw new IllegalStateException("A checkpoint floor failure is already installed");
+    }
+  }
+
+  public void setBeforeFinalFloorActionForTesting(Runnable action) {
+    if (!beforeFinalFloorTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A final floor test action is already installed");
+    }
+  }
+
+  public void clearFloorActionsForTesting() {
+    checkpointFloorFailureForTesting.set(null);
+    beforeFinalFloorTestAction.set(null);
+  }
+
+  @Override
+  protected void saveCheckpointFloor(long lastIssued) throws IOException {
+    final var failure = checkpointFloorFailureForTesting.getAndSet(null);
+    if (failure != null) {
+      throw failure;
+    }
+    startupMetadata.publishLastTxIdFloor(lastIssued);
+  }
+
+  /** Reads persisted startup metadata for tests without opening a second live-file handle. */
+  public byte[] readStartupMetadataForTesting() throws IOException {
+    return startupMetadata.readMainForTesting();
+  }
+
+  /** Injects one indication-write failure in this storage, before the metadata update. */
+  public void failNextRecoveryIndicationForTesting(IOException failure) {
+    if (!indicationFailureForTesting.compareAndSet(null, failure)) {
+      throw new IllegalStateException("A recovery indication failure is already installed");
+    }
+  }
+
+  /** Installs a one-shot action immediately before writing the recovery indication. */
+  public void setBeforeRecoveryIndicationActionForTesting(Runnable action) {
+    if (!beforeIndicationTestAction.compareAndSet(null, action)) {
+      throw new IllegalStateException("A recovery indication action is already installed");
+    }
+  }
+
+  @Override
+  public void ensureRecoveryIndicationBeforeTimestamp() throws IOException {
+    if (startupMetadata.isDurablyDirty()) {
+      return;
+    }
+    final var action = beforeIndicationTestAction.getAndSet(null);
+    if (action != null) {
+      action.run();
+    }
+    final var failure = indicationFailureForTesting.getAndSet(null);
+    if (failure != null) {
+      throw failure;
+    }
+    // makeDirty rechecks the confirmed flag under its own lock, so concurrent writers
+    // cannot both perform a synced update after the same clear.
+    makeStorageDirty();
   }
 
   @Override
