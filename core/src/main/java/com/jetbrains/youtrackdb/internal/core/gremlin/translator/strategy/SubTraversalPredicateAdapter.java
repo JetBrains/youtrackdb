@@ -362,6 +362,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean isSubClassOf(String className, String superClassName) {
+    return parent.isSubClassOf(className, superClassName);
+  }
+
+  @Override
   public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
     return parent.expandPolymorphicClassClosure(rootLabels);
   }

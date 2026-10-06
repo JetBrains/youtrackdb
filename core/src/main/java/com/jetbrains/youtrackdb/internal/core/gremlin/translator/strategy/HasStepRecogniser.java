@@ -156,9 +156,15 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
+    // A label condition on an edge-bound position must decline, for example after select() of an
+    // edge alias bound by outE().as(...). Otherwise the translator could assign a vertex class to a
+    // MATCH node that holds edges.
     if (labelConstraint != null && ctx.isEdgeAlias(boundary)) {
       return Outcome.DECLINE;
     }
+    // A single label replaces the class of the current MATCH node. Only the same class or a vertex
+    // subclass of the current class keeps every earlier label condition. Any other class declines
+    // so the native planner runs the query.
     if (labelConstraint instanceof ParsedLabelConstraint.Single single
         && !ctx.canNarrowClass(ctx.boundaryClassName(), single.name())) {
       return Outcome.DECLINE;

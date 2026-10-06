@@ -125,6 +125,61 @@ public class CompositionCoverageGapTest extends GraphBaseTest {
   }
 
   /**
+   * Narrowing accepts equal classes and descendants through either parent of a multiple-inheritance
+   * vertex hierarchy in both label modes. Widening, unrelated classes and unknown parents fail.
+   */
+  @Test
+  public void canNarrowClass_acceptsOnlyVertexRefinementsInBothLabelModes() {
+    var schema = session.getSchema();
+    var person = schema.createAbstractClass("Person", schema.getClass("V"));
+    var worker = schema.createClass("Worker", schema.getClass("V"));
+    schema.createClass("Employee", person, worker);
+    schema.createClass("Manager", schema.getClass("Employee"));
+    for (var polymorphic : List.of(false, true)) {
+      var ctx = new WalkerContext(polymorphic, false, schema);
+      assertThat(ctx.canNarrowClass("Person", "Employee")).isTrue();
+      assertThat(ctx.canNarrowClass("Worker", "Employee")).isTrue();
+      assertThat(ctx.canNarrowClass("Person", "Manager")).isTrue();
+      assertThat(ctx.canNarrowClass("Employee", "Person")).isFalse();
+      assertThat(ctx.canNarrowClass("Person", "Worker")).isFalse();
+      assertThat(ctx.canNarrowClass("Person", "Person")).isTrue();
+      assertThat(ctx.canNarrowClass("V", "Employee")).isTrue();
+      assertThat(ctx.canNarrowClass("V", "V")).isTrue();
+      assertThat(ctx.canNarrowClass(null, "Employee")).isTrue();
+      assertThat(ctx.canNarrowClass(null, "V")).isTrue();
+      assertThat(ctx.canNarrowClass("Ghost", "Employee")).isFalse();
+    }
+  }
+
+  /** Edge, unknown and null replacements fail even with a null, generic or equal current class. */
+  @Test
+  public void canNarrowClass_rejectsEdgeAndUnknownReplacementsBeforeShortcuts() {
+    var schema = session.getSchema();
+    schema.createClass("UserEdge", schema.getClass("E"));
+    var ctx = new WalkerContext(true, false, schema);
+    for (var replacement : List.of("E", "UserEdge", "Ghost")) {
+      assertThat(ctx.canNarrowClass(null, replacement)).isFalse();
+      assertThat(ctx.canNarrowClass("V", replacement)).isFalse();
+      assertThat(ctx.canNarrowClass(replacement, replacement)).isFalse();
+    }
+    assertThat(ctx.canNarrowClass(null, null)).isFalse();
+    assertThat(ctx.canNarrowClass("V", null)).isFalse();
+    assertThat(ctx.canNarrowClass("UserEdge", null)).isFalse();
+    assertThat(ctx.isSubClassOf("Ghost", "V")).isFalse();
+  }
+
+  /** Without a schema, every replacement fails even when a class shortcut would otherwise apply. */
+  @Test
+  public void canNarrowClass_withoutSchema_rejectsEveryReplacement() {
+    var ctx = new WalkerContext(true, false);
+    assertThat(ctx.canNarrowClass(null, "Person")).isFalse();
+    assertThat(ctx.canNarrowClass("V", "Person")).isFalse();
+    assertThat(ctx.canNarrowClass("Person", "Person")).isFalse();
+    assertThat(ctx.canNarrowClass("Person", "Employee")).isFalse();
+    assertThat(ctx.isSubClassOf("Employee", "Person")).isFalse();
+  }
+
+  /**
    * Schema-declared keys on a typed boundary are enumerated for keyed maps; the {@code V} root and a
    * missing class yield none.
    */
@@ -158,6 +213,9 @@ public class CompositionCoverageGapTest extends GraphBaseTest {
     var parent = mock(RecognitionContext.class);
     when(parent.expandPolymorphicClassClosure(List.of("Person")))
         .thenReturn(List.of("Person", "Employee"));
+    when(parent.isVertexClass("Employee")).thenReturn(true);
+    when(parent.isVertexClass("Person")).thenReturn(true);
+    when(parent.isSubClassOf("Employee", "Person")).thenReturn(true);
     when(parent.boundaryDeclaredPropertyKeys()).thenReturn(List.of("name"));
     when(parent.isEdgeAlias("$g2m_e0")).thenReturn(true);
     when(parent.rowDedupAlias()).thenReturn("$g2m_a");
@@ -165,6 +223,10 @@ public class CompositionCoverageGapTest extends GraphBaseTest {
 
     assertThat(adapter.expandPolymorphicClassClosure(List.of("Person")))
         .containsExactly("Person", "Employee");
+    assertThat(adapter.canNarrowClass("Person", "Employee")).isTrue();
+    assertThat(adapter.canNarrowClass("Employee", "Person")).isFalse();
+    verify(parent).isSubClassOf("Employee", "Person");
+    verify(parent).isSubClassOf("Person", "Employee");
     assertThat(adapter.boundaryDeclaredPropertyKeys()).containsExactly("name");
     assertThat(adapter.isEdgeAlias("$g2m_e0")).isTrue();
     assertThat(adapter.rowDedupAlias()).isEqualTo("$g2m_a");

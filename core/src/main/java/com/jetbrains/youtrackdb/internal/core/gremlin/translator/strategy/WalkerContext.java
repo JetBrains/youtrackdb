@@ -553,6 +553,15 @@ final class WalkerContext implements RecognitionContext {
   }
 
   @Override
+  public boolean isSubClassOf(String className, String superClassName) {
+    if (schema == null) {
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    return clazz != null && clazz.isSubClassOf(superClassName);
+  }
+
+  @Override
   public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
     if (schema == null || rootLabels.isEmpty()) {
       return List.copyOf(rootLabels);
