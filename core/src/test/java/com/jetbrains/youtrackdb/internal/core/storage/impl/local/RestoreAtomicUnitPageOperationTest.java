@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,12 +33,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.U
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.List;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -125,7 +128,9 @@ public class RestoreAtomicUnitPageOperationTest {
     var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
-    // Verify redo was called
+    // Existing page-only units need neither file creation nor the deleted-file fallback.
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
     verify(pageOp).redo(any(DurablePage.class));
 
     // Verify page LSN was updated to the WAL record's LSN
@@ -164,6 +169,9 @@ public class RestoreAtomicUnitPageOperationTest {
 
     var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
 
     // Redo must NOT be called — page is already current
     verify(pageOp, never()).redo(any(DurablePage.class));
@@ -293,6 +301,9 @@ public class RestoreAtomicUnitPageOperationTest {
     var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
+
     // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
     // loop, no retry through the since-deleted legacy allocator. These are the only
     // assertions unique to this test; the other PageOperation-branch contracts are
@@ -343,6 +354,9 @@ public class RestoreAtomicUnitPageOperationTest {
     var atLeastOnePageUpdate = new ModifiableBoolean();
     storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
 
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
+
     // Exactly one loadOrAddForWrite call at the recorded pageIndex — no reconciliation
     // loop, no retry through the since-deleted legacy allocator.
     verify(readCache, times(1)).loadOrAddForWrite(
@@ -365,6 +379,53 @@ public class RestoreAtomicUnitPageOperationTest {
   // incomplete unit (no FileCreatedWALRecord, restoreFileById null) must still throw, so a
   // blanket-restore fix is caught.
   // ---------------------------------------------------------------------------------------------
+
+  /** An existing file makes both the early page consult and its later create record no-ops. */
+  @Test
+  public void testExistingFileWithPendingCreateDoesNotMaterializeAgain() throws Exception {
+    when(writeCache.exists("durable.dat")).thenReturn(true);
+    var pageOp = spy(new TestPageOperation(0, DURABLE_EXTERNAL_ID, 1,
+        new LogSequenceNumber(0, 0), 42));
+    pageOp.setLsn(new LogSequenceNumber(1, 100));
+    var entry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, new LogSequenceNumber(0, 0));
+    when(readCache.loadOrAddForWrite(eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache),
+        eq(true), any())).thenReturn(entry);
+    var unit = spy(new ArrayList<WALRecord>(List.of(new AtomicUnitStartRecord(false, 1), pageOp,
+        new FileCreatedWALRecord(1, "durable.dat", DURABLE_EXTERNAL_ID),
+        new AtomicUnitEndRecord(1, false, null))));
+
+    storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+
+    verify(pageOp).redo(any(DurablePage.class));
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
+    // Only the outer replay loop traverses the unit. The pending-create scan is not entered.
+    verify(unit, times(1)).iterator();
+  }
+
+  /** EOF without an end record drops the buffered unit, even if it contains a pending create. */
+  @Test
+  public void testRestoreFromDropsUnitWithoutEndRecord() throws Exception {
+    var wal = mock(WriteAheadLog.class);
+    var startLsn = new LogSequenceNumber(1, 1);
+    var start = new AtomicUnitStartRecord(false, 1);
+    start.setLsn(startLsn);
+    var pageOp = spy(new TestPageOperation(0, CREATED_EXTERNAL_ID, 1,
+        new LogSequenceNumber(0, 0), 42));
+    pageOp.setLsn(new LogSequenceNumber(1, 2));
+    var create = new FileCreatedWALRecord(1, "created.dat", CREATED_EXTERNAL_ID);
+    create.setLsn(new LogSequenceNumber(1, 3));
+    when(wal.read(startLsn, 1_000)).thenReturn(List.of(start, pageOp, create));
+    when(wal.next(create.getLsn(), 1_000)).thenReturn(List.of());
+
+    assertNull(storage.restoreFrom(wal, startLsn));
+
+    verify(wal).next(create.getLsn(), 1_000);
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(readCache, never()).loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any());
+    verify(writeCache, never()).restoreFileById(anyLong());
+    verify(pageOp, never()).redo(any(DurablePage.class));
+  }
 
   private static final int CREATED_INTERNAL_ID = 11;
   private static final long CREATED_EXTERNAL_ID = (1L << 32) | CREATED_INTERNAL_ID;
