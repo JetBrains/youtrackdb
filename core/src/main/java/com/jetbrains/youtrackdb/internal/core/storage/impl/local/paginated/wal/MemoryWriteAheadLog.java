@@ -137,6 +137,11 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
   }
 
   @Override
+  public CutPreflight preflightCut(long segmentId) {
+    return new CutPreflight(false, 0, null);
+  }
+
+  @Override
   public boolean cutAllSegmentsSmallerThan(long segmentId) {
     return false;
   }

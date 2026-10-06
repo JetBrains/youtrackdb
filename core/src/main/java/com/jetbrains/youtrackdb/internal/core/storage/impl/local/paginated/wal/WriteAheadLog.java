@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.c
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import javax.annotation.Nullable;
 
 /**
  * Interface for the write-ahead log used to ensure crash recovery and data durability.
@@ -75,6 +76,27 @@ public interface WriteAheadLog extends AutoCloseable {
   boolean cutTill(LogSequenceNumber lsn) throws IOException;
 
   boolean cutAllSegmentsSmallerThan(long segmentId) throws IOException;
+
+  /**
+   * Predicts segment removal without changing WAL state. Reads the current segment, registered
+   * retention limits, written-up-to position and retained segments under the cut's locks. Releases
+   * those locks before returning. The removal decision uses the cut's same clamps and no-op test.
+   * Coverage is the first retained record start, including when the requested segment is absent.
+   * If no inventoried segment remains at or above the clamped boundary, coverage is the first
+   * record start of the written-up-to segment, whose inventory publication can lag its writer.
+   * Closed disk WALs and empty disk inventories throw IllegalStateException, not a no-op result.
+   * Memory WAL always predicts no removal and returns null coverage.
+   *
+   * <p>The caller fixes the returned effective boundary and passes that boundary, not the original
+   * request, to its later cut. Changes to retention limits can then only lower that cut or make it
+   * a no-op. Removing a limit must not raise the fixed boundary. This prediction does not reserve
+   * segments or replace serialization between checkpoint capture, publication and cutting.
+   */
+  CutPreflight preflightCut(long segmentId) throws IOException;
+
+  record CutPreflight(boolean removesSegments, long effectiveBoundary,
+      @Nullable LogSequenceNumber coverageLsn) {
+  }
 
   void addCheckpointListener(CheckpointRequestListener listener);
 
