@@ -582,7 +582,7 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** Real full and incremental ZIP writes leave a zero-filled gap before a sector-local v4 tail. */
+  /** Real full and incremental ZIP writes leave a zero-filled gap before a sector-local v5 tail. */
   @Test
   public void realBackupTailsStayInsideOneSectorWithZeroPadding() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -736,6 +736,7 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       var name = storage.fullBackup(backupPath);
+      rewriteVersionFiveAsVersionFour(name, storage.getUuid());
       var path = backupPath.resolve(name);
       var unit = Files.readAllBytes(path);
       ByteBuffer.wrap(unit, unit.length - DiskStorage.IBU_V4_METADATA_SIZE, Long.BYTES)
@@ -773,7 +774,8 @@ public class IncrementalBackupExtensionTest {
   public void versionThreeIncompleteHeadIsRemoved() throws Exception {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
-      storage.fullBackup(backupPath);
+      var full = storage.fullBackup(backupPath);
+      rewriteVersionFiveAsVersionFour(full, storage.getUuid());
       var incomplete = writeTrailingUnitOfFormat(storage.getUuid(), BackupUnitFiles.VERSION_3,
           BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
           BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
@@ -807,16 +809,25 @@ public class IncrementalBackupExtensionTest {
   public void extensionReadsOnlyFileTailsForVersionFourChain() throws Exception {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
-      storage.fullBackup(backupPath);
+      var full = storage.fullBackup(backupPath);
+      rewriteVersionFiveAsVersionFour(full, storage.getUuid());
       addOneRecord(youTrackDB);
-      storage.backup(backupPath);
+      var first = storage.backup(backupPath);
+      rewriteVersionFiveAsVersionFour(first, storage.getUuid());
       addOneRecord(youTrackDB);
-      storage.backup(backupPath);
+      var second = storage.backup(backupPath);
+      rewriteVersionFiveAsVersionFour(second, storage.getUuid());
+      var before = unitContent();
       var reader = new CountingTailSupplier();
-      storage.backup(this::unitIterator, reader, this::openOutput,
+      var extension = storage.backup(this::unitIterator, reader, this::openOutput,
           name -> {
             throw new AssertionError("no file should be removed");
           });
+      assertEquals(BackupUnitFiles.VERSION_5,
+          inspectUnit(extension, storage.getUuid()).metadata().backupFormatVersion());
+      var after = unitContent();
+      after.remove(extension);
+      assertEquals("extension must not rewrite any version 4 unit", before, after);
       assertEquals("all three units must be read through the positioned file channel",
           3 * DiskStorage.IBU_V4_METADATA_SIZE, reader.fileBytesRead);
       assertEquals("a tail-only unit must not open its full input stream", 0,
@@ -832,7 +843,8 @@ public class IncrementalBackupExtensionTest {
       var full = storage.fullBackup(backupPath);
       BackupUnitFiles.rewriteVersion4AsVersion3(backupPath.resolve(full));
       addOneRecord(youTrackDB);
-      storage.backup(backupPath);
+      var head = storage.backup(backupPath);
+      rewriteVersionFiveAsVersionFour(head, storage.getUuid());
       var reader = new CountingTailSupplier();
       storage.backup(this::unitIterator, reader, this::openOutput,
           name -> {
@@ -850,6 +862,7 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       var head = storage.fullBackup(backupPath);
+      rewriteVersionFiveAsVersionFour(head, storage.getUuid());
       var path = backupPath.resolve(head);
       var damaged = Files.readAllBytes(path);
       damaged[0] ^= 1;
@@ -869,7 +882,7 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       storage.fullBackup(backupPath);
-      var broken = writeTrailingUnit(storage.getUuid(), false);
+      var broken = writeTrailingUnit(storage.getUuid(), false, BackupUnitFiles.VERSION_4);
       var records = new CopyOnWriteArrayList<LogRecord>();
       withDiskStorageLogs(records, () -> storage.backup(this::unitIterator,
           this::openInput, this::openOutput, this::removeUnit));
@@ -918,6 +931,7 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       var head = storage.fullBackup(backupPath);
+      rewriteVersionFiveAsVersionFour(head, storage.getUuid());
       var path = backupPath.resolve(head);
       var bytes = Files.readAllBytes(path);
       bytes[0] ^= 1;
@@ -956,7 +970,7 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       storage.fullBackup(backupPath);
-      var broken = writeTrailingUnit(storage.getUuid(), false);
+      var broken = writeTrailingUnit(storage.getUuid(), false, BackupUnitFiles.VERSION_4);
       var reader = new CountingTailSupplier();
       var records = new CopyOnWriteArrayList<LogRecord>();
       withDiskStorageLogs(records, () -> storage.backup(this::unitIterator, reader,
@@ -1296,10 +1310,38 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
+  /** Converts a real version 5 unit to version 4 and verifies both checksums before use. */
+  private void rewriteVersionFiveAsVersionFour(String unitName, UUID databaseId)
+      throws IOException {
+    assertEquals(BackupUnitFiles.VERSION_5,
+        inspectUnit(unitName, databaseId).metadata().backupFormatVersion());
+    var path = backupPath.resolve(unitName);
+    var bytes = Files.readAllBytes(path);
+    var tailStart = bytes.length - DiskStorage.IBU_V4_METADATA_SIZE;
+    // Versions 4 and 5 share the layout. Keep the payload, padding and barrier flag unchanged.
+    ByteBuffer.wrap(bytes, tailStart + Long.BYTES + Integer.BYTES, Short.BYTES)
+        .putShort((short) BackupUnitFiles.VERSION_4);
+    ByteBuffer.wrap(bytes, tailStart, Long.BYTES).putLong(
+        DiskStorage.XX_HASH_64.hash(bytes, tailStart + Long.BYTES,
+            DiskStorage.IBU_V4_METADATA_SIZE - 2 * Long.BYTES, DiskStorage.METADATA_HASH_SEED));
+    ByteBuffer.wrap(bytes, bytes.length - Long.BYTES, Long.BYTES).putLong(
+        DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - Long.BYTES,
+            DiskStorage.XX_HASH_SEED));
+    Files.write(path, bytes);
+    assertEquals(BackupUnitFiles.VERSION_4,
+        inspectUnit(unitName, databaseId).metadata().backupFormatVersion());
+  }
+
   /** Writes one trailing unit of this build with a chosen validity of its hash code. */
   private String writeTrailingUnit(UUID databaseId, boolean validHash) throws IOException {
+    return writeTrailingUnit(databaseId, validHash, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION);
+  }
+
+  /** Writes one trailing unit of the chosen version with a chosen validity of its hash code. */
+  private String writeTrailingUnit(UUID databaseId, boolean validHash, int version)
+      throws IOException {
     return BackupUnitFiles.writeUnit(backupPath, databaseId, SOURCE, 1, false,
-        BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION, BackupUnitFiles.supportedFeatureFormat(),
+        version, BackupUnitFiles.supportedFeatureFormat(),
         BackupUnitFiles.supportedLayoutVersion(), BackupUnitFiles.COMPLETED_CREATION_EVIDENCE,
         validHash,
         BackupUnitFiles.unitFileName(databaseId, SOURCE, 1, BackupUnitFiles.FUTURE_DATE_STAMP));

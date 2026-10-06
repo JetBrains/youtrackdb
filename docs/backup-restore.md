@@ -69,9 +69,12 @@ before the database becomes available.
 This release reads backup format versions 3, 4, and 5. It writes version 5, which may contain
 a page-allocation WAL record that older releases cannot replay. Version 5 uses the version 4
 header layout and its checksum and force-barrier flag. An incremental backup can add version 5
-to a version 3 or 4 chain without rewriting older units. An older release refuses restore or
-extension of a chain this release extended, before any target file changes. Keep a copy of the
-old chain before upgrading if a downgrade may be needed.
+to a version 3 or 4 chain without rewriting older units.
+
+An older release that reads format version 3 or 4 refuses a chain that this release extended.
+It refuses restore or extension before any target file changes. See the exception below for
+releases older than format version 3. Keep a copy of the old chain before upgrading if a downgrade
+may be needed.
 
 Versions 1 and 2 lack the database format and creation completion evidence. This release also
 refuses units with an unknown format version. A refusal leaves every source unit in place:

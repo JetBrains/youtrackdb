@@ -17,7 +17,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** Exercises the v4 tail independently of database ZIP replay. */
+/** Exercises the version 4 tail layout shared by versions 4 and 5, without database ZIP replay. */
 public class BackupFormatVersion4Test {
 
   @Rule
