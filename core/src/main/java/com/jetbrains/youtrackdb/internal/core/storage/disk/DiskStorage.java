@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -344,6 +345,7 @@ public class DiskStorage extends AbstractStorage {
 
   private final Path storagePath;
   private final ClosableLinkedContainer<Long, File> files;
+  private ChangedPageTracker changedPageTracker;
 
   private Future<?> fuzzyCheckpointTask;
   private Future<?> recordsGcTask;
@@ -1246,6 +1248,9 @@ public class DiskStorage extends AbstractStorage {
       doubleWriteLog = new DoubleWriteLogNoOP();
     }
 
+    // Initialization holds storage lifecycle exclusion. Both creation and every open start
+    // with empty, untrusted history. Memory-only storage never constructs this tracker.
+    changedPageTracker = new ChangedPageTracker();
     final var wowCache =
         new WOWCache(
             pageSize,
@@ -1268,7 +1273,8 @@ public class DiskStorage extends AbstractStorage {
             iv,
             aesKey,
             callFsync,
-            context.getIoExecutor());
+            context.getIoExecutor(),
+            changedPageTracker);
 
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);

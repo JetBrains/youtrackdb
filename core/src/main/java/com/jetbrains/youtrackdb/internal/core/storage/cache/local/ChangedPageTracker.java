@@ -20,7 +20,7 @@ import javax.annotation.Nullable;
  * save order, external file inventory, then generation state. Save-order holders must not wait for
  * transactions, write pauses, or exclusive storage state.
  */
-final class ChangedPageTracker {
+public final class ChangedPageTracker {
 
   static final int SEGMENT_WORDS = 512;
   static final int SEGMENT_BYTES = SEGMENT_WORDS * Long.BYTES;
@@ -37,7 +37,7 @@ final class ChangedPageTracker {
   private long savedFailureVersion = -1;
   private boolean historyTrusted;
 
-  ChangedPageTracker() {
+  public ChangedPageTracker() {
     this(kind -> {
     });
   }

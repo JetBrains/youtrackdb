@@ -599,6 +599,7 @@ public final class WOWCache extends AbstractWriteCache
   private final ExecutorService executor;
 
   private final boolean logFileDeletion;
+  private final ChangedPageTracker changedPageTracker;
 
   public WOWCache(
       final int pageSize,
@@ -618,7 +619,34 @@ public final class WOWCache extends AbstractWriteCache
       final byte[] aesKey,
       final boolean callFsync,
       ExecutorService executor) {
+    this(pageSize, logFileDeletion, bufferPool, writeAheadLog, doubleWriteLog, pagesFlushInterval,
+        shutdownTimeout, exclusiveWriteCacheMaxSize, storagePath, storageName, files, id,
+        doubleWriteLogFileName, checksumMode, iv, aesKey, callFsync, executor,
+        new ChangedPageTracker());
+  }
 
+  /** The disk storage supplies one fresh, untrusted tracker for each open or creation. */
+  public WOWCache(
+      final int pageSize,
+      final boolean logFileDeletion,
+      final ByteBufferPool bufferPool,
+      final WriteAheadLog writeAheadLog,
+      final DoubleWriteLog doubleWriteLog,
+      final long pagesFlushInterval,
+      final int shutdownTimeout,
+      final long exclusiveWriteCacheMaxSize,
+      final Path storagePath,
+      final String storageName,
+      final ClosableLinkedContainer<Long, File> files,
+      final int id, String doubleWriteLogFileName,
+      final ChecksumMode checksumMode,
+      final byte[] iv,
+      final byte[] aesKey,
+      final boolean callFsync,
+      ExecutorService executor,
+      ChangedPageTracker changedPageTracker) {
+
+    this.changedPageTracker = java.util.Objects.requireNonNull(changedPageTracker);
     this.logFileDeletion = logFileDeletion;
     this.doubleWriteLogFileName = doubleWriteLogFileName;
     if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
@@ -884,6 +912,7 @@ public final class WOWCache extends AbstractWriteCache
                 logger);
 
         openFile(storageName, fileClassic);
+        changedPageTracker.resetFile(fileId);
 
         final var externalId = composeFileId(id, fileId);
         files.add(externalId, fileClassic);
@@ -932,6 +961,7 @@ public final class WOWCache extends AbstractWriteCache
 
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
+      changedPageTracker.resetFile(fileId);
 
       final var externalId = composeFileId(id, fileId);
       files.add(externalId, fileClassic);
@@ -995,6 +1025,10 @@ public final class WOWCache extends AbstractWriteCache
 
     final long pageIndex = pointer.getPageIndex();
 
+    // Commit-time cache application runs before AtomicOperationsManager ends its freezer entry.
+    // TRANSIENT_QUIESCE therefore waits for this mark, not just for the page exclusive lock.
+    // Recovery and restore use lifecycle exclusion instead. Mark again even if still dirty.
+    changedPageTracker.mark(intFileId, pageIndex);
     final var pageKey = new PageKey(intFileId, pageIndex);
 
     LogSequenceNumber dirtyLSN;
@@ -1079,6 +1113,9 @@ public final class WOWCache extends AbstractWriteCache
         files.add(fileId, fileClassic);
       }
 
+      // File events run under the caller's component writer exclusion, or storage lifecycle
+      // exclusion during recovery/restore. filesLock orders inventory, not lock-free marks.
+      changedPageTracker.resetFile(intId);
       idNameMap.remove(-intId);
 
       nameIdMap.put(fileName, intId);
@@ -2079,6 +2116,9 @@ public final class WOWCache extends AbstractWriteCache
             storageName);
       }
 
+      // The caller excludes writers for this file through its component or lifecycle lock.
+      // Clear even an absent file so repeated deletion cannot retain an old identity.
+      changedPageTracker.deleteFile(intId);
       if (file != null) {
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
