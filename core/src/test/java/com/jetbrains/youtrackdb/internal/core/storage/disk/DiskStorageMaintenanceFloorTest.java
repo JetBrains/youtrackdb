@@ -111,7 +111,7 @@ public class DiskStorageMaintenanceFloorTest {
         assertTrue("the pass must remove WAL segments",
             storage.getWALInstance().begin().getSegment() > original);
         assertTrue("the durable floor must include an ID issued after the boundary decision",
-            readFloor() >= issuedAfterBoundary.get());
+            readFloor(storage) >= issuedAfterBoundary.get());
       }
     }
   }
@@ -162,7 +162,7 @@ public class DiskStorageMaintenanceFloorTest {
             storage.getWALInstance().begin().getSegment());
         assertTrue("failure must log an error", errors.reported);
         storage.checkErrorState();
-        assertTrue("a failed floor save must not clear the recovery indication", isDirty());
+        assertTrue("a failed floor save must not clear the recovery indication", isDirty(storage));
         if (vacuum) {
           runVacuum(storage);
         } else {
@@ -171,8 +171,8 @@ public class DiskStorageMaintenanceFloorTest {
         assertTrue("the next pass must remove the old segment",
             storage.getWALInstance().begin().getSegment() > original);
         assertTrue("the durable floor must cover the candidate seen before the failed save",
-            readFloor() >= observed.get());
-        assertTrue("maintenance must leave the recovery indication in place", isDirty());
+            readFloor(storage) >= observed.get());
+        assertTrue("maintenance must leave the recovery indication in place", isDirty(storage));
       }
     }
   }
@@ -276,12 +276,17 @@ public class DiskStorageMaintenanceFloorTest {
   }
 
   private long readFloor() throws IOException {
+    // The caller has closed the storage or waited for the crash child to exit.
     return ByteBuffer.wrap(Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl")))
         .getLong(13);
   }
 
-  private boolean isDirty() throws IOException {
-    return Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0;
+  private static long readFloor(DiskStorage storage) throws IOException {
+    return ByteBuffer.wrap(storage.readStartupMetadataForTesting()).getLong(13);
+  }
+
+  private static boolean isDirty(DiskStorage storage) throws IOException {
+    return storage.readStartupMetadataForTesting()[12] != 0;
   }
 
   private static YouTrackDBImpl manager(Path root) {
@@ -337,8 +342,7 @@ public class DiskStorageMaintenanceFloorTest {
     assertTrue("the pass must actually remove WAL evidence",
         storage.getWALInstance().begin().getSegment() > original);
     assertTrue("the durable floor must cover the value read before WAL removal",
-        ByteBuffer.wrap(Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl")))
-            .getLong(13) >= issued.get());
+        readFloor(storage) >= issued.get());
     Files.writeString(Path.of(args[2]), Long.toString(issued.get()), StandardOpenOption.CREATE_NEW);
     try (var channel = FileChannel.open(Path.of(args[2]), StandardOpenOption.WRITE)) {
       channel.force(true);

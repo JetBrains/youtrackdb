@@ -37,8 +37,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -548,8 +546,7 @@ public class IndexHistogramDurabilityTest {
       var storage = (DiskStorage) session.getStorage();
       var histogram = getHistogramManager(session, "TestClassvalIdx");
       storage.synch();
-      var dirtyFile = Path.of(testDir, dbName, "dirty.fl");
-      assertFalse(Files.readAllBytes(dirtyFile)[12] != 0);
+      assertFalse(storage.readStartupMetadataForTesting()[12] != 0);
 
       histogram.setDirtyMutationsForTest(1);
       var failedWrite = new IOException("histogram indication rejected");
@@ -587,21 +584,21 @@ public class IndexHistogramDurabilityTest {
       assertTrue("background failure must be logged at ERROR", logged.get());
       assertEquals("failed histogram save takes no timestamp", before,
           storage.getIdGen().getLastId());
-      assertFalse(Files.readAllBytes(dirtyFile)[12] != 0);
+      assertFalse(storage.readStartupMetadataForTesting()[12] != 0);
       assertEquals("failed save must retain dirty work for retry", 1,
           histogram.getDirtyMutations());
 
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
         try {
           assertTrue("histogram timestamp follows durable indication",
-              Files.readAllBytes(dirtyFile)[12] != 0);
+              storage.readStartupMetadataForTesting()[12] != 0);
         } catch (IOException failure) {
           throw new AssertionError(failure);
         }
       });
       histogram.flushIfDirtyOrFail();
       assertEquals(0, histogram.getDirtyMutations());
-      assertTrue(Files.readAllBytes(dirtyFile)[12] != 0);
+      assertTrue(storage.readStartupMetadataForTesting()[12] != 0);
       storage.checkErrorState();
     }
   }

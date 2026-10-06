@@ -200,7 +200,7 @@ public class DiskStorageCheckpointFloorTest {
         storage.getWALInstance().appendNewSegment();
         var recoveryBegin = storage.getWALInstance().begin();
         assertTrue("the WAL must hold recovery records", recoveryBegin != null);
-        assertTrue("writes must require recovery", isDirty());
+        assertTrue("writes must require recovery", isDirty((DiskStorage) storage));
         var afterFloor = new AtomicInteger();
         hookedStorage = storage;
         storage.setCheckpointFloorActionForTesting(ignored -> afterFloor.incrementAndGet());
@@ -211,12 +211,13 @@ public class DiskStorageCheckpointFloorTest {
         assertEquals("the checkpoint must stop before reaching the WAL cut", 0, afterFloor.get());
         assertEquals("a failed checkpoint must retain the original WAL recovery segment",
             recoveryBegin, storage.getWALInstance().begin());
-        assertTrue("a failed floor save must not clear the indication", isDirty());
+        assertTrue("a failed floor save must not clear the indication",
+            isDirty((DiskStorage) storage));
         var mark = storage.getIdGen().getLastId();
         storage.synch();
         assertEquals("a later checkpoint must retry the save", 1, afterFloor.get());
         assertTrue(java.nio.ByteBuffer.wrap(
-            Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))).getLong(13) >= mark);
+            ((DiskStorage) storage).readStartupMetadataForTesting()).getLong(13) >= mark);
       }
     }
   }
@@ -251,7 +252,12 @@ public class DiskStorageCheckpointFloorTest {
   }
 
   private boolean isDirty() throws IOException {
+    // Crash children have exited, so no storage holds this file's lock.
     return Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0;
+  }
+
+  private static boolean isDirty(DiskStorage storage) throws IOException {
+    return storage.readStartupMetadataForTesting()[12] != 0;
   }
 
   private long readStartupFloor() throws IOException {
@@ -352,7 +358,7 @@ public class DiskStorageCheckpointFloorTest {
       });
       var failure = assertThrows(StorageException.class, () -> storage.close(session, true));
       assertTrue(failure.getMessage().contains("Error during closing of disk cache"));
-      assertTrue(Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0);
+      assertTrue(isDirty((DiskStorage) storage));
       Runtime.getRuntime().halt(0);
       throw new AssertionError("halt returned");
     } else if (args[0].equals("overlappingClear")) {
@@ -369,7 +375,7 @@ public class DiskStorageCheckpointFloorTest {
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
         try {
           assertTrue("the close timestamp must follow a durable re-mark",
-              Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0);
+              isDirty((DiskStorage) storage));
         } catch (IOException failure) {
           throw new AssertionError(failure);
         }

@@ -402,12 +402,12 @@ public class DiskStorageBootstrapWiringTest {
       try {
         assertTrue(prepared.await(15, TimeUnit.SECONDS));
         storage.synch();
-        assertFalse("checkpoint must clear the pre-admission indication", durableDirty());
+        assertFalse("checkpoint must clear the pre-admission indication", durableDirty(storage));
       } finally {
         proceed.countDown();
       }
       commit.get(15, TimeUnit.SECONDS);
-      assertTrue("admitted commit must re-mark after checkpoint", durableDirty());
+      assertTrue("admitted commit must re-mark after checkpoint", durableDirty(storage));
     }
   }
 
@@ -438,10 +438,10 @@ public class DiskStorageBootstrapWiringTest {
     DiskStorage.setOpenIndicationActionForTesting(
         directory.resolve(DATABASE),
         storage -> storage.setBeforeRecoveryIndicationActionForTesting(() -> {
-          assertFalse("open must start with a clean indication", durableDirty());
+          assertFalse("open must start with a clean indication", durableDirty(storage));
           observedBefore.set(true);
           storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
-            assertTrue("open-time timestamp must follow the durable write", durableDirty());
+            assertTrue("open-time timestamp must follow the durable write", durableDirty(storage));
             observedAtTimestamp.set(true);
           });
         }));
@@ -503,7 +503,7 @@ public class DiskStorageBootstrapWiringTest {
         assertTrue(hasCauseMessage(failure, "dirty.flb"));
         assertEquals("metadata failure must not allocate an id", before,
             storage.getIdGen().getLastId());
-        assertFalse(durableDirty());
+        assertFalse(durableDirty(storage));
         session.rollback();
       } finally {
         Files.deleteIfExists(obstacle);
@@ -512,7 +512,7 @@ public class DiskStorageBootstrapWiringTest {
       session.begin();
       session.newEntity("MetadataFailureCommit").setProperty("payload", "retry");
       session.commit();
-      assertTrue(durableDirty());
+      assertTrue(durableDirty(storage));
       storage.checkErrorState();
     }
   }
@@ -535,12 +535,12 @@ public class DiskStorageBootstrapWiringTest {
       assertTrue(hasCauseMessage(failure, "injected indication failure"));
       assertEquals("failed write must take no timestamp", before,
           storage.getIdGen().getLastId());
-      assertFalse("failed indication must not be treated as durable", durableDirty());
+      assertFalse("failed indication must not be treated as durable", durableDirty(storage));
       session.rollback();
       session.begin();
       session.newEntity("RetryCommit").setProperty("payload", "second");
       session.commit();
-      assertTrue(durableDirty());
+      assertTrue(durableDirty(storage));
     }
   }
 
@@ -551,18 +551,18 @@ public class DiskStorageBootstrapWiringTest {
         var session = manager.open(DATABASE, ADMIN, ADMIN)) {
       var storage = (DiskStorage) session.getStorage();
       storage.synch();
-      assertFalse(durableDirty());
+      assertFalse(durableDirty(storage));
       storage.setBeforeRecoveryIndicationActionForTesting(
-          () -> assertFalse("write must not yet have a durable indication", durableDirty()));
+          () -> assertFalse("write must not yet have a durable indication", durableDirty(storage)));
       assertThrows(IllegalStateException.class,
           () -> storage.setBeforeRecoveryIndicationActionForTesting(() -> {
           }));
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(
-          () -> assertTrue("timestamp follows the durable indication", durableDirty()));
+          () -> assertTrue("timestamp follows the durable indication", durableDirty(storage)));
       storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
         // The same entry point serves histogram, records GC, and open-time writers.
       });
-      assertTrue(durableDirty());
+      assertTrue(durableDirty(storage));
     }
   }
 
@@ -612,18 +612,19 @@ public class DiskStorageBootstrapWiringTest {
       assertTrue("failed records GC must log at ERROR", logged.get());
       assertEquals("failed records GC must not allocate a timestamp", before,
           storage.getIdGen().getLastId());
-      assertFalse(durableDirty());
+      assertFalse(durableDirty(storage));
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(
-          () -> assertTrue("records GC must set indication before timestamp", durableDirty()));
+          () -> assertTrue("records GC must set indication before timestamp",
+              durableDirty(storage)));
       collection.collectDeadRecords(storage.getSharedSnapshotIndex());
-      assertTrue(durableDirty());
+      assertTrue(durableDirty(storage));
       storage.checkErrorState();
     }
   }
 
-  private boolean durableDirty() {
+  private static boolean durableDirty(DiskStorage storage) {
     try {
-      return Files.readAllBytes(directory.resolve(DATABASE).resolve("dirty.fl"))[12] != 0;
+      return storage.readStartupMetadataForTesting()[12] != 0;
     } catch (IOException failure) {
       throw new RuntimeException(failure);
     }
@@ -862,7 +863,7 @@ public class DiskStorageBootstrapWiringTest {
         throw new AssertionError("commit did not reach the pre-admission pause");
       }
       storage.synch();
-      if (Files.readAllBytes(root.resolve(DATABASE).resolve("dirty.fl"))[12] != 0) {
+      if (durableDirty(storage)) {
         throw new AssertionError("checkpoint did not clear the indication");
       }
       // Widen the distance from the checkpoint floor so a skipped replay cannot pass by chance.

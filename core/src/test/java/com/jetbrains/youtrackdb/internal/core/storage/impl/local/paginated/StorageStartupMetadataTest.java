@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.IOException;
@@ -451,7 +452,7 @@ public class StorageStartupMetadataTest {
   @Test
   public void intactMainWinsAndRemovesBackup() throws Exception {
     var meta = prepared(33);
-    var oldMain = Files.readAllBytes(filePath);
+    var oldMain = meta.readMainForTesting();
     meta.setLastTxId(44);
     meta.close();
     Files.copy(filePath, backupPath);
@@ -565,7 +566,7 @@ public class StorageStartupMetadataTest {
     try {
       assertThat(fresh.getLastTxId()).isGreaterThanOrEqualTo(1_000_000);
       assertThat(fresh.isDirty()).isFalse();
-      assertThat(Files.readAllBytes(main)).isEqualTo(persisted);
+      assertThat(fresh.readMainForTesting()).isEqualTo(persisted);
       assertThat(Files.exists(backup)).isFalse();
     } finally {
       fresh.close();
@@ -760,7 +761,7 @@ public class StorageStartupMetadataTest {
       assertThat(live.isDurablyDirty()).isFalse();
       live.makeDirty("v1");
       assertThat(live.isDurablyDirty()).isTrue();
-      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+      assertThat(live.readMainForTesting()[12]).isEqualTo((byte) 1);
     });
   }
 
@@ -769,7 +770,7 @@ public class StorageStartupMetadataTest {
   public void failedClearThenFloorPublicationKeepsRecoveryEnabled() throws Exception {
     withFailedClear((live, failBackup) -> {
       live.publishLastTxIdFloor(10_000);
-      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+      assertThat(live.readMainForTesting()[12]).isEqualTo((byte) 1);
       assertThat(live.isDurablyDirty()).isTrue();
     });
   }
@@ -781,10 +782,10 @@ public class StorageStartupMetadataTest {
       failBackup.set(true);
       assertThatThrownBy(() -> live.makeDirty("v1"))
           .isInstanceOf(IOException.class).hasMessage("backup write interrupted");
-      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 0);
+      assertThat(live.readMainForTesting()[12]).isEqualTo((byte) 0);
       assertThat(live.isDurablyDirty()).isFalse();
       live.makeDirty("v1");
-      assertThat(Files.readAllBytes(filePath)[12]).isEqualTo((byte) 1);
+      assertThat(live.readMainForTesting()[12]).isEqualTo((byte) 1);
     });
   }
 
@@ -958,10 +959,12 @@ public class StorageStartupMetadataTest {
       Files.write(filePath, Arrays.copyOf(full, 9));
       Files.write(backupPath, full);
       // Leave the interrupted files intact while holding the same main-inode process lock.
-      // Calling open() in this process would repair them before the child reaches its reader.
+      // Calling open() in this process would repair them before the child attempts to lock.
       try (var parent = FileChannel.open(filePath, StandardOpenOption.READ,
           StandardOpenOption.WRITE); var held = parent.lock()) {
-        assertLockedChildDoesNotChangeFiles();
+        var mainBefore = readLockedMain(parent);
+        assertChildCannotOpenMetadata();
+        assertThat(readLockedMain(parent)).isEqualTo(mainBefore);
       }
       assertReopened(4242, true);
     } finally {
@@ -998,7 +1001,9 @@ public class StorageStartupMetadataTest {
         try {
           assertThatThrownBy(() -> parent.setLastTxId(5000))
               .isInstanceOf(IOException.class).hasMessage("main write interrupted");
-          assertLockedChildDoesNotChangeFiles();
+          var mainBefore = parent.readMainForTesting();
+          assertChildCannotOpenMetadata();
+          assertThat(parent.readMainForTesting()).isEqualTo(mainBefore);
         } finally {
           parent.close();
         }
@@ -1009,9 +1014,38 @@ public class StorageStartupMetadataTest {
     }
   }
 
-  private void assertLockedChildDoesNotChangeFiles() throws Exception {
-    // Opening and closing another channel on the locked inode can release a POSIX process lock.
-    // The child checks the bytes while the parent's channel and lock remain untouched.
+  /** Reading persisted bytes must retain the OS lock, so a child still cannot open metadata. */
+  @Test
+  public void readMainForTestingKeepsLockHeldAgainstSecondProcess() throws Exception {
+    var previousLock = GlobalConfiguration.FILE_LOCK.getValue();
+    GlobalConfiguration.FILE_LOCK.setValue(true);
+    try {
+      var parent = prepared(4242);
+      parent.close();
+      var expected = parent.readMainForTesting();
+      parent.open("ignored");
+      try {
+        assertThat(parent.readMainForTesting()).isEqualTo(expected);
+        assertChildCannotOpenMetadata();
+        assertThat(parent.readMainForTesting()).isEqualTo(expected);
+      } finally {
+        parent.close();
+      }
+      assertThat(parent.readMainForTesting()).isEqualTo(expected);
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousLock);
+    }
+  }
+
+  private static byte[] readLockedMain(FileChannel channel) throws IOException {
+    var buffer = ByteBuffer.allocate(Math.toIntExact(channel.size()));
+    IOUtils.readByteBuffer(buffer, channel, 0, true);
+    return buffer.array();
+  }
+
+  private void assertChildCannotOpenMetadata() throws Exception {
+    // Only the parent reads the main bytes, through its lock-holding channel. The child checks
+    // the unlocked backup and must fail to acquire the main-file lock before reading or repair.
     var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     var classpath =
         System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
@@ -1033,7 +1067,6 @@ public class StorageStartupMetadataTest {
     GlobalConfiguration.FILE_LOCK.setValue(true);
     var mainPath = Path.of(arguments[0]);
     var backup = Path.of(arguments[1]);
-    var mainBefore = Files.readAllBytes(mainPath);
     var backupBefore = Files.exists(backup) ? Files.readAllBytes(backup) : null;
     var metadata = new StorageStartupMetadata(mainPath, backup);
     try {
@@ -1041,7 +1074,6 @@ public class StorageStartupMetadataTest {
       metadata.close();
       throw new AssertionError("Child unexpectedly opened metadata");
     } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException expected) {
-      assertThat(Files.readAllBytes(mainPath)).isEqualTo(mainBefore);
       if (backupBefore != null) {
         assertThat(Files.readAllBytes(backup)).isEqualTo(backupBefore);
       } else {

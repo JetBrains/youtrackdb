@@ -81,6 +81,25 @@ public class StorageStartupMetadata {
   private final AtomicReference<Runnable> beforeDirtyUpdateTestAction = new AtomicReference<>();
   private volatile AtomicInteger dirtyUpdateCountForTesting;
 
+  /**
+   * Reads persisted main-file bytes for tests through the owning channel while it is open.
+   * Windows locks prohibit reads through another handle. Closing another handle can release
+   * the process lock on POSIX systems.
+   */
+  public byte[] readMainForTesting() throws IOException {
+    lock.lock();
+    try {
+      if (channel == null || !channel.isOpen()) {
+        return Files.readAllBytes(filePath);
+      }
+      var buffer = ByteBuffer.allocate(Math.toIntExact(channel.size()));
+      IOUtils.readByteBuffer(buffer, channel, 0, true);
+      return buffer.array();
+    } finally {
+      lock.unlock();
+    }
+  }
+
   /** Counts completed dirty updates in tests, without changing ordinary write behavior. */
   public void countDirtyUpdatesForTesting(AtomicInteger count) {
     dirtyUpdateCountForTesting = count;

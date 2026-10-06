@@ -1037,6 +1037,11 @@ public class DiskStorage extends AbstractStorage {
     startupMetadata.publishLastTxIdFloor(lastIssued);
   }
 
+  /** Reads persisted startup metadata for tests without opening a second live-file handle. */
+  public byte[] readStartupMetadataForTesting() throws IOException {
+    return startupMetadata.readMainForTesting();
+  }
+
   /** Injects one indication-write failure in this storage, before the metadata update. */
   public void failNextRecoveryIndicationForTesting(IOException failure) {
     if (!indicationFailureForTesting.compareAndSet(null, failure)) {
