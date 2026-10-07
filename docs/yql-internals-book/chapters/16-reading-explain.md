@@ -135,27 +135,40 @@ in your query and this step is absent, something is wrong.
 chose the hash path. The alias list in brackets is the set of shared aliases
 that form the join key. The indented block inside the parentheses is the
 build-side sub-plan: the steps that enumerate the rows to be excluded. Read
-it exactly as you would any sub-plan — it is a complete pipeline ending with
-a step that produces rows; those rows are loaded into a `HashSet` before the
-upstream stream is probed. The `prettyPrint` output is verified at
-`HashJoinMatchStep.java:416`.
+the displayed build as a pipeline. With an origin-only detached key, execution
+scans origins and stops each origin's probe at its first match. Wider keys
+enumerate all paths. The set is built before opening the outer stream
+(`HashJoinMatchStep.java:128–195`). The displayed build remains the full plan
+(`HashJoinMatchStep.java:445–454`).
 
 **`+ HASH SEMI_JOIN on [<alias>] (…)`** — `HashJoinMatchStep` in
 `SEMI_JOIN` mode. Used for back-reference branches whose intermediate aliases
 are not referenced downstream. You will see this when the planner found a
 branch that can be tested for existence without storing full rows.
 
+Detached exists checks also use this mode. They keep each matching incoming
+row once (`MatchExecutionPlanner.java:1173–1179`, `HashJoinMatchStep.java:294–304`).
+
 **`+ HASH INNER_JOIN on [<alias>] (…)`** — `HashJoinMatchStep` in
 `INNER_JOIN` mode. Used for back-reference branches whose intermediate
 aliases are referenced downstream. Unlike SEMI_JOIN, the build side stores
 full rows to be merged into the upstream.
 
-**`+ NOT (…)`** — `FilterNotMatchPatternStep`. The nested-loop fallback for
-`NOT` patterns that the planner could not hash-join: either the build-side
-estimate was above the `QUERY_MATCH_HASH_JOIN_THRESHOLD` (10 000 by default),
-the pattern referenced `$matched`, or the upstream cardinality was below the
-minimum. The sub-steps inside the parentheses are re-executed once per
-upstream row. Seeing this step on a large query is a performance warning.
+**`+ NOT (…)`** — `FilterNotMatchPatternStep`. The per-row path for detached NOT.
+
+**`+ EXISTS (…)`** — `FilterExistsMatchPatternStep`. The per-row path for a
+detached exists check, which keeps rows rather than rejecting them on a match.
+Both use `DetachedMatchPatternProbe` and stop at the first matching path
+(`FilterNotMatchPatternStep.java:70–83`, `FilterExistsMatchPatternStep.java:38–39`,
+`DetachedMatchPatternProbe.java:20–63`).
+
+NOT and exists share eligibility and cost guards. Context-dependent WHERE or
+WHILE conditions, a context-dependent positive origin filter, or nullable
+shared keys can reject hash. The build cap and cost comparison can also select
+per-row execution (`MatchExecutionPlanner.java:1234–1261`, `1397–1489`).
+A small literal LIMIT can make this path cheaper even with a large full input.
+[Chapter 13](13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+explains the discount and its full-input fallbacks (`MatchExecutionPlanner.java:1493–1582`).
 
 **`+ CORRELATED OPTIONAL HASH JOIN probe → target (correlated: X, edge: E)`** —
 `CorrelatedOptionalHashJoinStep`. The specialised step for a correlated
@@ -295,8 +308,10 @@ Reading this plan line by line:
 
 The shape of this plan is correct: Alice is the cheapest root, the Cartesian
 product is necessary because `proj` is genuinely independent, and the hash
-anti-join is appropriate because the `NOT` sub-pattern has no `$matched`
-reference and is expected to produce far fewer rows than the main stream.
+anti-join assumes eligibility, a build estimate below the cap, and costs that
+favour hash (`MatchExecutionPlanner.java:1397–1489`). Independence alone is
+not enough. The composite key requires all build paths and prevents a LIMIT
+discount (`HashJoinMatchStep.java:155–169`, `MatchExecutionPlanner.java:1453–1455`).
 
 ---
 
@@ -430,27 +445,27 @@ inner sub-plan contains multiple `+ MATCH` steps and no selective filter.
 **Likely causes.**
 
 The hash-join threshold (`QUERY_MATCH_HASH_JOIN_THRESHOLD`, default 10 000)
-is a planning-time estimation guard, not a runtime limit. If the statistics
-overestimated selectivity, the planner may have decided the build side was
-small enough when in reality it produces far more rows. At runtime,
-`HashJoinMatchStep.internalStart` materialises the build side eagerly; if the
-actual row count exceeds the threshold, the step detects the overflow and
-falls back to nested-loop per-row evaluation — but the planning-time decision
-to use a hash join was made on bad data.
+guards both planning estimates and runtime builds (`GlobalConfiguration.java:883–891`,
+`MatchExecutionPlanner.java:1423–1426`, `HashJoinMatchStep.java:181–184`, `218–221`).
+ANTI/SEMI_JOIN overflow counts distinct keys, not visited paths. INNER_JOIN
+counts stored rows. Detached overflow uses `DetachedMatchPatternProbe` per
+outer row. Pattern-branch fallback instead repeats the build plan
+(`HashJoinMatchStep.java:362–393`). `HashJoinMatchStep` builds eagerly before opening the
+outer stream (`HashJoinMatchStep.java:109–143`).
 
 For `INNER_JOIN` mode the effective threshold is `threshold /
 INNER_JOIN_MEMORY_WEIGHT`, which is `10000 / 7 ≈ 1428` rows. A build side
 that appears safe at the class-count level (2 000 rows) may actually be well
 above this tighter limit because of the memory-weight factor. The EXPLAIN
-text does not distinguish INNER_JOIN from SEMI_JOIN's threshold calculation —
-you need to count the aliases referenced downstream to know which limit
-applies.
+mode label distinguishes INNER_JOIN from SEMI_JOIN. The tighter cap applies
+at planning time. The runtime map guard uses the general threshold
+(`MatchExecutionPlanner.java:2003–2006`, `HashJoinMatchStep.java:445–449`, `218–221`).
 
 **Fix.** Lower `QUERY_MATCH_HASH_JOIN_THRESHOLD` globally, or restructure
 the query to add a selective filter on the build side. If the build side is
-genuinely large (no filter is possible), the nested-loop path via
-`FilterNotMatchPatternStep` may be more predictable in memory usage even if
-it is slower. Setting the threshold to 0 disables hash joins entirely.
+genuinely large, detached per-row filters avoid storing a complete set.
+Setting the threshold to 0 disables new hash selection, not cached path reuse
+(`MatchExecutionPlanner.java:1423–1426`, `626–630`).
 
 ### 16.5.5 Disjoint-component Cartesian explosion
 
@@ -503,11 +518,10 @@ in order. Each question maps to one of the pathologies above.
    an `(intersection: …)` suffix. If it is absent, verify that an appropriate
    index exists and that the target alias has a `class:` constraint.
 
-4. **Is any `+ NOT (…)` visible?** That token is `FilterNotMatchPatternStep` —
-   the nested-loop fallback. Each upstream row re-runs the sub-plan inside the
-   parentheses. On large inputs this is expensive. Check whether you can
-   restructure the NOT pattern to avoid `$matched` references, which would
-   allow the planner to pick the hash path instead.
+4. **Is `+ NOT (…)` or `+ EXISTS (…)` visible?** Each outer row runs a probe
+   that stops at the first match. Check eligibility and costs, not just input
+   size. A small literal LIMIT may favour this path. `HashJoinMatchStep` still pays its full
+   eager build (`MatchExecutionPlanner.java:1442–1582`, `HashJoinMatchStep.java:128–185`).
 
 5. **Is `+ CartesianProduct` present with two large sub-plans?** Compute
    the rough product size from your schema statistics. If it is above, say,
@@ -536,8 +550,8 @@ flowchart TD
     Arrow -->|No| ArrowFix["Check: while: on edge?\nField traversal?\n$matched dependency?"]
     Arrow -->|Yes| PreFilter{"(intersection: …)\npresent where expected?"}
     PreFilter -->|No| PFix["Check: index exists?\nclass: on target?\nOR condition?"]
-    PreFilter -->|Yes| NL{"+ NOT (…) visible\non large input?"}
-    NL -->|Yes| NLFix["Remove $matched from NOT,\nor reduce NOT build side\nbelow threshold"]
+    PreFilter -->|Yes| NL{"+ NOT or + EXISTS\nslower than expected?"}
+    NL -->|Yes| NLFix["Check eligibility and build cap,\nfull-input or LIMIT costs,\nand cached path choice"]
     NL -->|No| Cart{"CartesianProduct with\nlarge sub-plans?"}
     Cart -->|Yes| CartFix["Add linking edge between\ncomponents or add LIMIT"]
     Cart -->|No| Profile["Use PROFILE MATCH …\nto measure per-step rows"]
@@ -563,10 +577,12 @@ planner attached to each step. It does not show:
   `MatchExecutionPlanner.estimateRootEntries()` or read the configuration
   values and histogram statistics manually.
 - **Whether a runtime fallback fired.** The `HashJoinMatchStep` build phase
-  can detect overflow at runtime and fall back to nested-loop evaluation
-  without any change to the EXPLAIN text — the plan was built for hash join
-  and the text reflects that. The fallback happens silently. Only PROFILE
-  or application-level logging will reveal it.
+  can abandon an oversized build without changing EXPLAIN text. Detached
+  checks then use the per-row probe, while pattern branches repeat their
+  build plan (`HashJoinMatchStep.java:128–134`, `362–393`, `445–454`).
+- **Whether the path was chosen again.** A cached plan retains its path.
+  A cache hit returns before eligibility and cost checks run
+  (`MatchExecutionPlanner.java:626–630`).
 - **Whether a pre-filter is admitted at runtime.** The
   `(intersection: index X selectivity=… estHits=…)` annotation names the index
   and, since both are computed at plan time, prints its class-level selectivity
@@ -605,10 +621,12 @@ is defined there, cross-referenced to the chapter where it first appears.
   — `prettyPrint` for edge steps: direction arrow, alias names, intersection annotation.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchFirstStep.java:125`
   — `prettyPrint` for the root step: `SET <alias> AS <sub-plan>`.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/HashJoinMatchStep.java:416`
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/HashJoinMatchStep.java:445`
   — `prettyPrint` for hash join steps: mode, shared alias list, build sub-plan.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterNotMatchPatternStep.java:123`
-  — `prettyPrint` for the nested-loop NOT fallback.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterNotMatchPatternStep.java:99`
+  — `prettyPrint` for the per-row NOT path.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java:55`
+  — `prettyPrint` for the per-row exists path.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/CorrelatedOptionalHashJoinStep.java:216`
   — `prettyPrint` for the correlated optional hash join.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/InvertedWhileHashJoinStep.java:343`
@@ -626,7 +644,7 @@ is defined there, cross-referenced to the chapter where it first appears.
   when the planner can and cannot reverse an edge.
 - [Chapter 13 in this book](13-hash-joins.md) — hash-join eligibility guards and
   the three join modes.
-- [match-book/13-hash-joins.md](../../match-book/13-hash-joins.md) — authoritative
-  source-level detail on hash-join thresholds and fallback paths.
-- [match-book/14-index-assisted-traversal.md](../../match-book/14-index-assisted-traversal.md)
-  — authoritative source-level detail on pre-filter attachment and runtime guards.
+- [Chapter 13: Hash joins](13-hash-joins.md) — source-level detail on hash-join
+  thresholds and fallback paths.
+- [Chapter 14: Index-assisted traversal](14-index-assisted-traversal.md) — source-level
+  detail on pre-filter attachment and runtime guards.
