@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
@@ -14,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
@@ -51,6 +53,11 @@ public class AbstractStorageCheckpointBoundaryTest {
   @Before
   public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
+    // The real WAL supplies explicit preflight predictions if the bridge is exercised.
+    final var tracker = new ChangedPageTracker();
+    final var sideFile = temporaryFolder.getRoot().toPath().resolve("changed-pages.cpt");
+    doAnswer(call -> tracker.checkpoint(sideFile, storage.writeAheadLog, call.getArgument(0)))
+        .when(storage).checkpointChangedPages(anyLong());
     cache = mock(WriteCache.class);
     table = spy(new AtomicOperationsTable(10_000, 0));
     storage.writeCache = cache;
