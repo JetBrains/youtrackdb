@@ -32,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIn
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -56,10 +57,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 /** Verifies checkpoint WAL retention, force ordering, and maintenance failure handling. */
 public class AbstractStorageWALCutTest {
+
+  @Rule
+  public final TemporaryFolder folder = new TemporaryFolder();
 
   private AbstractStorage storage;
   private WriteAheadLog writeAheadLog;
@@ -71,6 +77,13 @@ public class AbstractStorageWALCutTest {
   public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
     writeAheadLog = mock(WriteAheadLog.class);
+    // This fixture predicts no removal, but still requires the coordinator's bounded cut.
+    when(writeAheadLog.preflightCut(anyLong()))
+        .thenAnswer(call -> new WriteAheadLog.CutPreflight(false, call.getArgument(0), null));
+    final var tracker = new ChangedPageTracker();
+    final var sideFile = folder.getRoot().toPath().resolve("changed-pages.cpt");
+    doAnswer(call -> tracker.checkpoint(sideFile, storage.writeAheadLog, call.getArgument(0)))
+        .when(storage).checkpointChangedPages(anyLong());
     writeCache = mock(WriteCache.class);
     atomicOperationsTable = mock(AtomicOperationsTable.class);
     checkpointLsn = new LogSequenceNumber(20, 1);

@@ -237,17 +237,24 @@ public final class ChangedPageTracker {
 
   /**
    * Publishes coverage or durably invalidates the side file before its associated bounded WAL cut.
-   * The caller supplies a boundary fixed after protection sampling and data-file synchronization.
-   * This method never resamples the active-segment anchor or raises the preflight boundary.
+   * The caller supplies a boundary already lowered by active-segment, operation-table and cache
+   * protections. An operation-table entry may name a segment below the anchor. Fix the boundary
+   * before capture and never raise it. Fuzzy callers fix it before data-file synchronization.
+   * Full-flush callers fix it after cache flush and protection checks. This method never resamples
+   * the anchor or raises the preflight boundary.
    *
-   * <p>Call only after ending the double-write checkpoint bracket and releasing the write-cache
-   * file inventory lock. The save-order holder must not start transactions or wait for a write
-   * pause or exclusive storage state. Lock order here is save order, then short generation state.
-   * No generation-state or WAL cutting lock spans tracker filesystem operations.
+   * <p>Call only after required data synchronization succeeds, the double-write checkpoint bracket
+   * ends and the write-cache file inventory lock is released. The save-order holder must not start
+   * transactions or wait for a write pause or exclusive storage state. In this method, short
+   * generation-state locks and WAL cut locks are taken only after entering save order. Release WAL
+   * cut locks before tracker filesystem work. Code holding WAL cut locks must not enter save order.
+   * No generation state or WAL cutting lock spans tracker filesystem operations.
    *
    * <p>An unavailable preflight returns without capture, save or cut. A no-removal prediction is
    * not a WAL health check. It skips capture and save, but still invokes the bounded cut, as does
    * unchanged durable state. Retention changes can only lower that cut or make it a no-op.
+   * A cutter failure can follow completed publication or invalidation. Cutting can remove segments
+   * incrementally, so that failure does not promise rollback.
    *
    * @throws IOException if preflight or cutting fails, or side-file invalidation is not durable
    */

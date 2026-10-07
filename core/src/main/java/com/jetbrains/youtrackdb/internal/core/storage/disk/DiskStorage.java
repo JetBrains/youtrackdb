@@ -334,7 +334,8 @@ public class DiskStorage extends AbstractStorage {
 
   private final Path storagePath;
   private final ClosableLinkedContainer<Long, File> files;
-  private ChangedPageTracker changedPageTracker;
+  // Replaced under lifecycle exclusion. Checkpoint callers retain storage state exclusion.
+  private volatile ChangedPageTracker changedPageTracker;
 
   private Future<?> fuzzyCheckpointTask;
   private Future<?> recordsGcTask;
@@ -1175,6 +1176,13 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected byte[] getIv() {
     return iv;
+  }
+
+  @Override
+  protected ChangedPageTracker.CheckpointResult checkpointChangedPages(long fixedBoundary)
+      throws IOException {
+    return changedPageTracker.checkpoint(
+        storagePath.resolve(ChangedPageTrackerFile.FILE_NAME), writeAheadLog, fixedBoundary);
   }
 
   @Override

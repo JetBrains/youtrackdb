@@ -119,6 +119,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
@@ -7885,6 +7886,15 @@ public abstract class AbstractStorage
   protected boolean existsBeforeCreation() {
     return exists();
   }
+
+  /**
+   * Publishes changed-page coverage or durable invalidation, then attempts the bounded WAL cut.
+   * The caller fixes the boundary after sampling all protections and calls only after successful
+   * data synchronization, outside the cache checkpoint bracket and file inventory lock. It keeps
+   * its existing storage state exclusion and handles PREFLIGHT_UNAVAILABLE as a retryable no-cut
+   * result. IOException reporting belongs to the caller's checkpoint error boundary.
+   */
+  protected abstract CheckpointResult checkpointChangedPages(long fixedBoundary) throws IOException;
 
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException;
