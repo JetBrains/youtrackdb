@@ -392,6 +392,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
   public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
     final List<Object> sortedKeys = new ArrayList<>(keys);
+    // Stored keys use the index collation. Sort requests in that same key space.
+    sortedKeys.replaceAll(this::getCollatingValue);
     final Comparator<Object> comparator;
     if (ascSortOrder) {
       comparator = DefaultComparator.INSTANCE;
@@ -448,7 +450,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   private Stream<RawPair<Object, RID>> streamForKey(Object key,
       @Nonnull AtomicOperation atomicOperation) {
-    key = getCollatingValue(key);
+    // streamEntries has already collated this requested key.
     final var entryKey = key;
     acquireSharedLock();
     try {

@@ -2,21 +2,17 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotNullCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +20,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Plan-time detection of a single-node MATCH root that can stream an indexed property order the
- * same way {@code SELECT FROM Class ORDER BY prop} uses {@code FetchFromIndexValuesStep}.
+ * Translates single-node MATCH order requests and consumes the chosen root SELECT's order report.
+ * SELECT owns index eligibility. This helper keeps alias and RID tie-break checks in MATCH.
  *
  * <p>Edge-hop index order stays in {@link IndexOrderedPlanner}. This helper covers the edge-free
  * shape {@code MATCH {class: C, as: a} RETURN a ORDER BY a.prop}, including the Gremlin translation
@@ -38,27 +34,57 @@ final class SingleNodeIndexOrder {
   private SingleNodeIndexOrder() {
   }
 
-  /**
-   * When present, the synthetic root SELECT should carry {@link #selectOrderBy()} so the SELECT
-   * planner can open an ordered index scan.
-   *
-   * <p>{@link #orderFullyCovered()} is true only for a single ORDER BY key — MATCH drops its
-   * OrderByStep. A trailing {@code @rid} never claims coverage: MATCH keeps OrderByStep and
-   * {@link #ridTieBreakAccepted()} tells the planner to set {@code indexOrderedUpstream} so
-   * OrderByStep can pass through when the transaction is clean (same runtime contract as
-   * {@link IndexOrderedEdgeStep}).
-   */
-  record Candidate(
-      @Nonnull String alias,
-      @Nonnull SQLOrderBy selectOrderBy,
-      boolean orderFullyCovered,
-      boolean ridTieBreakAccepted) {
+  /** A translated order request whose result comes from the root SELECT's actual scan. */
+  static final class Candidate {
+
+    private final String alias;
+    private final SQLOrderBy selectOrderBy;
+    private final boolean ridTieBreak;
+    private final boolean matchOrderPreserved;
+    private final boolean ridEligible;
+    private boolean orderFullyCovered;
+    private boolean ridTieBreakAccepted;
+
+    Candidate(String alias, SQLOrderBy selectOrderBy, boolean ridTieBreak,
+        boolean matchOrderPreserved, boolean ridEligible) {
+      this.alias = alias;
+      this.selectOrderBy = selectOrderBy;
+      this.ridTieBreak = ridTieBreak;
+      this.matchOrderPreserved = matchOrderPreserved;
+      this.ridEligible = ridEligible;
+    }
+
+    boolean hasRidTieBreak() {
+      return ridTieBreak;
+    }
+
+    String alias() {
+      return alias;
+    }
+
+    SQLOrderBy selectOrderBy() {
+      return selectOrderBy;
+    }
+
+    boolean orderFullyCovered() {
+      return orderFullyCovered;
+    }
+
+    boolean ridTieBreakAccepted() {
+      return ridTieBreakAccepted;
+    }
+
+    void consume(SelectExecutionPlan.OrderReport report) {
+      // RID ordering is a committed-content fact, not permission to drop the runtime sort step.
+      orderFullyCovered = matchOrderPreserved && !ridTieBreak && report.fullOrderCovered();
+      ridTieBreakAccepted = matchOrderPreserved && ridEligible
+          && report.fullOrderCovered() && report.ridOrderWithinEqualKeys();
+    }
   }
 
   /**
-   * Returns a candidate when the pattern is one isolated node, ORDER BY resolves to one indexed
-   * property on that node (optional RID tie-break), and an eligible index exists; otherwise {@code
-   * null}.
+   * Returns a request when all property order items resolve to the isolated node, optionally
+   * followed by a RID tie-break. No index lookup occurs here.
    */
   @Nullable static Candidate detect(
       @Nullable Pattern pattern,
@@ -72,6 +98,7 @@ final class SingleNodeIndexOrder {
       boolean returnPaths,
       boolean returnPatterns,
       boolean returnPathElements,
+      boolean matchOrderPreserved,
       @Nonnull CommandContext context) {
     if (pattern == null || orderBy == null || orderBy.getItems() == null
         || orderBy.getItems().isEmpty()) {
@@ -88,152 +115,39 @@ final class SingleNodeIndexOrder {
     }
 
     var items = orderBy.getItems();
-    var primary = items.getFirst();
-    if (primary.getCollate() != null
-        || !IndexOrderedPlanner.isDefaultCollate(primary.getDeclaredCollate())) {
+    var last = items.getLast();
+    var ridTieBreak = last.getModifier() != null
+        && RECORD_ID_ATTRIBUTE.equalsIgnoreCase(
+            last.getModifier().getSimpleSuffixRecordAttributeName());
+    var propertyCount = items.size() - (ridTieBreak ? 1 : 0);
+    if (propertyCount == 0) {
       return null;
     }
-    var resolved = resolveOrderByToAliasProperty(primary, alias, returnItems, returnAliases);
-    if (resolved == null || !alias.equals(resolved[0])) {
-      return null;
-    }
-    var propertyName = resolved[1];
-    var orderAsc = SQLOrderByItem.ASC.equals(primary.getType())
-        || primary.getType() == null;
-
-    var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
-    if (session == null) {
-      return null;
-    }
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema == null) {
-      return null;
-    }
-    var clazz = schema.getClassInternal(className);
-    if (clazz == null) {
-      return null;
-    }
-
-    Index matchedIndex = null;
-    for (var idx : clazz.getIndexesInternal()) {
-      var definition = idx.getDefinition();
-      if (definition == null || definition.isNullValuesIgnored()) {
-        continue;
+    var translated = new ArrayList<SQLOrderByItem>(propertyCount);
+    for (var item : items.subList(0, propertyCount)) {
+      var resolved = resolveOrderByToAliasProperty(item, alias, returnItems, returnAliases);
+      if (resolved == null || !alias.equals(resolved[0])
+          || item.getRecordAttr() != null || item.getRid() != null) {
+        return null;
       }
-      if (IndexOrderedPlanner.isMultiValueDefinition(definition)
-          || !IndexOrderedPlanner.isDefaultCollate(definition.getCollate())) {
-        continue;
-      }
-      var fields = definition.getProperties();
-      if (fields.size() != 1 || !propertyName.equals(fields.getFirst())) {
-        continue;
-      }
-      matchedIndex = idx;
-      break;
+      // Copy the comparator metadata as well as the printed SQL order. SELECT checks eligibility.
+      var selectItem = item.copy();
+      selectItem.setAlias(resolved[1]);
+      selectItem.setModifier(null);
+      translated.add(selectItem);
     }
-    if (matchedIndex == null) {
-      return null;
-    }
-
-    var aliasFilter = aliasFilters.get(alias);
-    // A non-null WHERE can be served by a different index than the ORDER BY key. The root SELECT
-    // then sorts in memory on the primary key alone, and claiming orderFullyCovered would drop
-    // MATCH's OrderByStep (including the RID tie-break). Only admit when the filter cannot steal
-    // another index — null, or IS NOT NULL on the ordered property alone.
-    if (!filterAllowsCoveredOrder(aliasFilter, propertyName)) {
-      return null;
-    }
-
-    var selectItem = ProjectionExpressionFactories.orderByProjectionAlias(propertyName, orderAsc);
-    selectItem.setNullOrdering(primary.getNullOrdering());
-    selectItem.setDeclaredCollate(primary.getDeclaredCollate());
-    // Keep GremlinOrderComparator when the MATCH item came from the Gremlin→MATCH translator;
-    // a fresh projection-alias item would otherwise use DefaultComparator after elision.
-    selectItem.setGremlinToMatchTranslatorProduced(primary.isGremlinToMatchTranslatorProduced());
-    var selectOrderBy = ProjectionExpressionFactories.orderBy(List.of(selectItem));
-
-    if (items.size() == 1) {
-      return new Candidate(alias, selectOrderBy, true, false);
-    }
-    if (items.size() != 2) {
-      return null;
-    }
-    var ridAccepted =
-        acceptsRidTieBreak(
-            items.get(1),
-            alias,
-            propertyName,
-            matchedIndex,
-            orderAsc,
-            aliasFilter,
-            returnItems,
-            returnAliases,
-            returnDistinct,
-            returnElements,
-            returnPaths,
-            returnPatterns,
-            returnPathElements);
-    // Always open the primary-key VALUES scan. Never elide MATCH OrderBy for two keys
-    // (orderFullyCovered=false): dirty-tx index entries can break @rid order within a key group.
-    // When ridAccepted, the planner sets indexOrderedUpstream and MatchFirstStep signals
-    // PRE_SORTED only for a clean transaction — OrderByStep then pass-throughs (IndexOrdered
-    // contract).
-    return new Candidate(alias, selectOrderBy, false, ridAccepted);
-  }
-
-  /**
-   * True when the alias filter cannot divert the root SELECT onto a different index than {@code
-   * propertyName}. A null filter is safe. The whole filter must be only {@code IS NOT NULL} /
-   * {@code IS DEFINED} on that property (AND of those alone is fine). Any other conjunct may win
-   * {@code handleClassAsTargetWithIndex} over the sort path.
-   */
-  private static boolean filterAllowsCoveredOrder(
-      @Nullable SQLWhereClause filter, String propertyName) {
-    if (filter == null) {
-      return true;
-    }
-    return isOnlyPresenceFilterOn(filter.getBaseExpression(), propertyName);
-  }
-
-  /**
-   * Whole expression is only {@code IS NOT NULL} / {@code IS DEFINED} on {@code propertyName},
-   * possibly wrapped in non-negating NOT / single-OR / AND of the same.
-   */
-  private static boolean isOnlyPresenceFilterOn(
-      @Nullable SQLBooleanExpression expr, String propertyName) {
-    if (expr instanceof SQLIsNotNullCondition notNull) {
-      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
-    }
-    if (expr instanceof SQLIsDefinedCondition defined) {
-      return propertyName.equals(extractSimpleFieldName(defined.getExpression()));
-    }
-    if (expr instanceof SQLAndBlock andBlock) {
-      var subs = andBlock.getSubBlocks();
-      if (subs.isEmpty()) {
-        return false;
-      }
-      for (var sub : subs) {
-        if (!isOnlyPresenceFilterOn(sub, propertyName)) {
-          return false;
-        }
-      }
-      return true;
-    }
-    if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
-      return isOnlyPresenceFilterOn(notBlock.getSub(), propertyName);
-    }
-    if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
-      return isOnlyPresenceFilterOn(orBlock.getSubBlocks().getFirst(), propertyName);
-    }
-    return false;
+    var selectOrderBy = ProjectionExpressionFactories.orderBy(translated);
+    var ridEligible = ridTieBreak && acceptsRidTieBreak(
+        last, alias, className, selectOrderBy, aliasFilters.get(alias), returnItems, returnAliases,
+        returnDistinct, returnElements, returnPaths, returnPatterns, returnPathElements, context);
+    return new Candidate(alias, selectOrderBy, ridTieBreak, matchOrderPreserved, ridEligible);
   }
 
   private static boolean acceptsRidTieBreak(
       SQLOrderByItem ridItem,
       String alias,
-      String propertyName,
-      Index matchedIndex,
-      boolean orderAsc,
+      String className,
+      SQLOrderBy propertyOrder,
       @Nullable SQLWhereClause aliasFilter,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases,
@@ -241,11 +155,13 @@ final class SingleNodeIndexOrder {
       boolean returnElements,
       boolean returnPaths,
       boolean returnPatterns,
-      boolean returnPathElements) {
-    if (!isRecordIdItemOf(ridItem, alias, orderAsc)) {
+      boolean returnPathElements,
+      CommandContext context) {
+    var orderAsc = !SQLOrderByItem.DESC.equals(propertyOrder.getItems().getFirst().getType());
+    if (!propertyOrder.ordersSameDirection() || !isRecordIdItemOf(ridItem, alias, orderAsc)) {
       return false;
     }
-    if (!orderAsc && !nullKeysExcluded(matchedIndex, propertyName, aliasFilter)) {
+    if (!orderAsc && !nullKeysExcluded(className, propertyOrder, aliasFilter, context)) {
       return false;
     }
     if (returnDistinct
@@ -256,38 +172,16 @@ final class SingleNodeIndexOrder {
         || !projectsOnlyAlias(alias, returnItems, returnAliases)) {
       return false;
     }
-    return propertyName.equals(matchedIndex.getDefinition().getProperties().getFirst());
+    return true;
   }
 
   private static boolean nullKeysExcluded(
-      Index index, String propertyName, @Nullable SQLWhereClause filter) {
-    var definition = index.getDefinition();
-    if (definition != null && definition.isNullValuesIgnored()) {
-      return true;
-    }
-    return filter != null && requiresNotNull(filter.getBaseExpression(), propertyName);
-  }
-
-  private static boolean requiresNotNull(
-      @Nullable SQLBooleanExpression expr, String propertyName) {
-    if (expr instanceof SQLIsNotNullCondition notNull) {
-      return propertyName.equals(extractSimpleFieldName(notNull.getExpression()));
-    }
-    if (expr instanceof SQLAndBlock andBlock) {
-      for (var sub : andBlock.getSubBlocks()) {
-        if (requiresNotNull(sub, propertyName)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    if (expr instanceof SQLNotBlock notBlock && !notBlock.isNegate()) {
-      return requiresNotNull(notBlock.getSub(), propertyName);
-    }
-    if (expr instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() == 1) {
-      return requiresNotNull(orBlock.getSubBlocks().getFirst(), propertyName);
-    }
-    return false;
+      String className, SQLOrderBy order, @Nullable SQLWhereClause filter, CommandContext context) {
+    var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
+    var clazz = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
+    // Require the same per-key predicate proof as SELECT. Schema flags do not certify stored keys.
+    return SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, order.getProperties(),
+        filter == null ? null : filter.getBaseExpression());
   }
 
   private static boolean isRecordIdItemOf(SQLOrderByItem item, String alias, boolean orderAsc) {
@@ -302,7 +196,7 @@ final class SingleNodeIndexOrder {
         || !RECORD_ID_ATTRIBUTE.equalsIgnoreCase(modifier.getSimpleSuffixRecordAttributeName())) {
       return false;
     }
-    return orderAsc == SQLOrderByItem.ASC.equals(item.getType());
+    return orderAsc == !SQLOrderByItem.DESC.equals(item.getType());
   }
 
   private static boolean projectsOnlyAlias(

@@ -5,10 +5,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -132,9 +140,13 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   private List<String> matchItemRids(String query) {
+    return matchRids(query, "item");
+  }
+
+  private List<String> matchRids(String query, String alias) {
     var rows = new ArrayList<String>();
     try (var rs = session.query(query)) {
-      rs.forEachRemaining(row -> rows.add(row.getVertex("item").getIdentity().toString()));
+      rs.forEachRemaining(row -> rows.add(row.getVertex(alias).getIdentity().toString()));
     }
     return rows;
   }
@@ -391,10 +403,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * A range filter on the ordered property ({@code score >= 2}) is not a presence-only check, so
-   * {@link SingleNodeIndexOrder} refuses the candidate and MATCH keeps OrderByStep. The root SELECT
-   * still serves the filter via a range index fetch (not a class scan); DESC order of the filtered
-   * rows must be correct.
+   * The root SELECT reports full DESC order for the score range. MATCH uses that report to omit
+   * its sort while keeping the range index fetch and returning the filtered scores in order.
    */
   @Test
   public void bareMatch_withWhereOnIndexedKey_usesIndexWithoutClassFetch() {
@@ -404,7 +414,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     assertThat(plan(query))
         .contains("FETCH FROM INDEX Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored")
-        .contains("+ ORDER BY");
+        .doesNotContain("+ ORDER BY");
 
     var names = new ArrayList<String>();
     try (var rs = session.query(query)) {
@@ -414,9 +424,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * WHERE on another property can steal a different index, so SingleNodeIndexOrder stays off and
-   * MATCH keeps OrderByStep (including an explicit RID tie-break). Result order matches the DESC
-   * score oracle over the filtered set.
+   * A non-indexed name filter preserves SELECT's score index order. DESC nullable RID ties still
+   * require the MATCH sort. The filtered rows match the score and RID oracle.
    */
   @Test
   public void bareMatch_withWhereOnOtherProperty_keepsMatchOrderBy() {
@@ -424,7 +433,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var query = "MATCH {class: Scored, as: s, where: (name <> 'nullish')} RETURN s"
         + " ORDER BY s.score DESC, s.@rid DESC";
     assertThat(plan(query))
-        .doesNotContain("FETCH FROM INDEX VALUES DESC Scored_score")
+        .contains("FETCH FROM INDEX VALUES DESC Scored_score")
         .contains("+ ORDER BY");
 
     var expected = expectedScoredRids(false).stream()
@@ -588,6 +597,46 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
       rs.forEachRemaining(row -> actual.add(row.getVertex("s").getIdentity().toString()));
     }
     assertThat(actual).isEqualTo(expected);
+  }
+
+  /**
+   * A presence-only WHERE excludes null score keys, so DESC + RID streams without buffering in
+   * a clean transaction. ASC + RID also streams, including a nullable key.
+   */
+  @Test
+  @Category(SequentialTest.class)
+  public void bareMatchPresenceFiltersWithRid_streamUnderLowHeapCap() {
+    seedNamedScores(false);
+    var root = "MATCH {class: Scored, as: s, where: (score IS NOT NULL)} RETURN s"
+        + " ORDER BY s.score ";
+    var expected = expectedScoredRids(false).stream()
+        .filter(rid -> {
+          for (var v : graph.traversal().V().hasLabel("Scored").toList()) {
+            if (v.id().toString().equals(rid)) {
+              return v.property("score").isPresent();
+            }
+          }
+          return false;
+        })
+        .toList();
+    var previous = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsInteger();
+    GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(LOW_HEAP_CAP);
+    try {
+      assertThat(matchRids(root + "DESC, s.@rid DESC", "s"))
+          .isEqualTo(expected);
+      assertThat(matchRids(root + "ASC, s.@rid ASC", "s"))
+          .isEqualTo(expected.reversed());
+      var both = "MATCH {class: Scored, as: s,"
+          + " where: (score IS NOT NULL AND score IS DEFINED)} RETURN s"
+          + " ORDER BY s.score DESC, s.@rid DESC";
+      assertThat(matchRids(both, "s")).isEqualTo(expected);
+      // IS DEFINED is also eligible for ASC, regardless of nullability.
+      var defined = "MATCH {class: Scored, as: s, where: (score IS DEFINED)} RETURN s"
+          + " ORDER BY s.score ASC, s.@rid ASC";
+      assertThat(matchRids(defined, "s")).isEqualTo(expected.reversed());
+    } finally {
+      GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.setValue(previous);
+    }
   }
 
   /**
@@ -795,10 +844,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * {@code GROUP BY} the indexed key with {@code ORDER BY} the same key and {@code LIMIT}.
-   * SingleNode elision clears MATCH/SELECT {@code ORDER BY}, which enables aggregation early-stop
-   * on {@code LIMIT}. That is only correct when groups emerge in index order (LinkedHashMap
-   * first-seen) matching the requested {@code ORDER BY}.
+   * GROUP BY retains its post-aggregation sort even when the root SELECT serves the indexed key
+   * order. LIMIT must count complete groups and preserve null-first ASC order.
    */
   @Test
   public void bareMatch_groupByIndexedKey_orderBySameKey_limit() {
@@ -806,7 +853,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     var query = "MATCH {class: Scored, as: s} RETURN s.score AS score, count(*) AS cnt"
         + " GROUP BY score ORDER BY score ASC LIMIT 2";
     var planText = plan(query);
-    // Prefer documenting engagement; assert result regardless.
+    assertThat(planText).contains("+ ORDER BY");
     var scores = new ArrayList<Object>();
     var counts = new ArrayList<Long>();
     try (var rs = session.query(query)) {
@@ -912,9 +959,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * DESC {@code GROUP BY score ORDER BY score LIMIT 1} with a null key in the index. Aggregation
-   * early-stop after SingleNode clears {@code ORDER BY} must still return the top non-null score
-   * group under default null placement (nulls first on DESC would wrongly win LIMIT 1).
+   * DESC GROUP BY with a null key retains its sort and applies LIMIT to the ordered groups. The
+   * top non-null score group must win under default DESC null placement.
    */
   @Test
   public void bareMatch_groupByScore_descLimit1_withNullKey() {
@@ -930,6 +976,191 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
           .isEqualTo(3);
       assertThat(rs.hasNext()).isFalse();
     }
+  }
+
+  /**
+   * Exact-width composite, equality-prefix, and leading IN requests use the chosen SELECT report.
+   * MATCH and SELECT agree on keys. RID ties match the SQL comparator oracle when accepted, and
+   * the IN-list fallback has exactly one MATCH sort rather than a second root SELECT sort.
+   */
+  @Test
+  public void compositeRequestsFollowSelectReportAndSqlComparator() {
+    session.execute("CREATE CLASS CompositeItem EXTENDS V").close();
+    session.execute("CREATE PROPERTY CompositeItem.a INTEGER").close();
+    session.execute("CREATE PROPERTY CompositeItem.b INTEGER").close();
+    session.execute("CREATE INDEX CompositeItem_ab ON CompositeItem (a, b) NOTUNIQUE").close();
+    session.begin();
+    for (var values : List.of(new int[] {2, 1}, new int[] {1, 3}, new int[] {1, 2},
+        new int[] {1, 2}, new int[] {2, 2})) {
+      session.execute("CREATE VERTEX CompositeItem SET a = ?, b = ?", values[0], values[1])
+          .close();
+    }
+    session.execute("CREATE VERTEX CompositeItem SET a = 1").close();
+    session.execute("CREATE VERTEX CompositeItem").close();
+    session.commit();
+
+    for (var shape : List.of(new String[] {"", "a ASC, b ASC", "s.a ASC, s.b ASC"},
+        new String[] {"a = 1", "b ASC", "s.b ASC"},
+        new String[] {"a IN [1, 2]", "b ASC", "s.b ASC"})) {
+      var where = shape[0].isEmpty() ? "" : ", where: (" + shape[0] + ")";
+      var root = "MATCH {class: CompositeItem, as: s" + where + "} RETURN s";
+      var select = "SELECT FROM CompositeItem"
+          + (shape[0].isEmpty() ? "" : " WHERE " + shape[0]) + " ORDER BY " + shape[1];
+      var propertyQuery = root + " ORDER BY " + shape[2];
+      var selectSorted = plan(select).contains("+ ORDER BY");
+      assertThat(plan(propertyQuery).contains("+ ORDER BY")).isEqualTo(selectSorted);
+      assertThat(matchRids(propertyQuery, "s")).containsExactlyInAnyOrderElementsOf(
+          selectRids(select));
+      assertSelectKeyParity(select, propertyQuery);
+      assertSqlOracle(shape[0], propertyQuery);
+      var ridQuery = propertyQuery + ", s.@rid ASC";
+      assertThat(plan(ridQuery)).contains("CompositeItem_ab");
+      assertThat(plan(ridQuery).split("\\+ ORDER BY", -1)).hasSize(2);
+      assertSqlOracle(shape[0], ridQuery);
+    }
+  }
+
+  private void assertSelectKeyParity(String select, String match) {
+    var selectRows = new ArrayList<Result>();
+    try (var result = session.query(select)) {
+      result.forEachRemaining(row -> {
+        var wrapped = new ResultInternal(session);
+        wrapped.setProperty("s", row);
+        selectRows.add(wrapped);
+      });
+    }
+    var order = ((SQLMatchStatement) SQLEngine.parse(match, session)).getOrderBy();
+    var context = new BasicCommandContext(session);
+    var placements = OrderByNullsUtil.resolvePlacementsForSort(context);
+    var i = 0;
+    try (var result = session.query(match)) {
+      while (result.hasNext()) {
+        assertThat(order.compare(result.next(), selectRows.get(i++), context, placements)).isZero();
+      }
+    }
+    assertThat(i).isEqualTo(selectRows.size());
+  }
+
+  private void assertSqlOracle(String filter, String ordered) {
+    var scan = "SELECT FROM CompositeItem";
+    assertThat(plan(scan)).contains("FETCH FROM CLASS").doesNotContain("FETCH FROM INDEX");
+    var where = ((SQLSelectStatement) SQLEngine.parse(
+        scan + (filter.isEmpty() ? "" : " WHERE " + filter), session)).getWhereClause();
+    var context = new BasicCommandContext(session);
+    var rows = new ArrayList<Result>();
+    try (var result = session.query(scan)) {
+      result.forEachRemaining(row -> {
+        if (where == null || where.matchesFilters(row, context)) {
+          var wrapped = new ResultInternal(session);
+          wrapped.setProperty("s", row);
+          rows.add(wrapped);
+        }
+      });
+    }
+    var order = ((SQLMatchStatement) SQLEngine.parse(ordered, session)).getOrderBy();
+    var placements = OrderByNullsUtil.resolvePlacementsForSort(context);
+    rows.sort((left, right) -> order.compare(left, right, context, placements));
+    var expected = rows.stream().map(row -> row.getVertex("s").getIdentity().toString()).toList();
+    var actual = matchRids(ordered, "s");
+    // Without a RID key, ties have no specified identity order. Compare adjacent key values too.
+    if (ordered.contains(".@rid")) {
+      assertThat(actual).isEqualTo(expected);
+    } else {
+      assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+      var orderedRows = new ArrayList<Result>();
+      try (var result = session.query(ordered)) {
+        result.forEachRemaining(orderedRows::add);
+      }
+      assertThat(orderedRows).hasSize(rows.size());
+      for (var i = 0; i < rows.size(); i++) {
+        assertThat(order.compare(orderedRows.get(i), rows.get(i), context, placements)).isZero();
+      }
+    }
+  }
+
+  private void seedNestedProjectionItems() {
+    var cls = session.createVertexClass("NestedOrder");
+    cls.createProperty("a", PropertyType.INTEGER);
+    cls.createProperty("p", PropertyType.INTEGER);
+    session.execute("CREATE INDEX NestedOrder_ap ON NestedOrder (a, p) NOTUNIQUE").close();
+    session.begin();
+    for (var p : List.of(1, 2, 3)) {
+      session.execute("CREATE VERTEX NestedOrder SET a = 1, p = ?", p).close();
+    }
+    session.commit();
+  }
+
+  private List<Integer> nestedProjectionValues(String query) {
+    var values = new ArrayList<Integer>();
+    try (var result = session.query(query)) {
+      result.forEachRemaining(row -> {
+        Result nested = row.getProperty("s");
+        values.add(((Number) nested.getProperty("p")).intValue());
+      });
+    }
+    return values;
+  }
+
+  /** Negating the indexed value in RETURN requires a sort before ASC LIMIT picks -3. */
+  @Test
+  public void nestedReturnProjectionAscLimit_sortsProjectedValues() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p ASC LIMIT 1";
+    assertThat(nestedProjectionValues(query)).containsExactly(-3);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** Negating the indexed value in RETURN requires a sort before DESC LIMIT picks -1. */
+  @Test
+  public void nestedReturnProjectionDescLimit_sortsProjectedValues() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p DESC LIMIT 1";
+    assertThat(nestedProjectionValues(query)).containsExactly(-1);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** A clean RID tie-break must not pass through index order after RETURN reverses the values. */
+  @Test
+  public void nestedReturnProjectionWithRid_sortsInsteadOfPassingThrough() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p ASC, s.@rid ASC";
+    assertThat(nestedProjectionValues(query)).containsExactly(-3, -2, -1);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** A composite trailing key must not replace RID order within an equal leading-key group. */
+  @Test
+  public void bareMatchAscWithRid_compositeOnlyIndex_keepsRidSort() {
+    var cls = session.createVertexClass("TrailingOrder");
+    cls.createProperty("a", PropertyType.INTEGER);
+    cls.createProperty("b", PropertyType.INTEGER);
+    session.execute("CREATE INDEX TrailingOrder_ab ON TrailingOrder (a, b) NOTUNIQUE")
+        .close();
+    session.begin();
+    session.execute("CREATE VERTEX TrailingOrder SET a = 1, b = 0").close();
+    session.execute("CREATE VERTEX TrailingOrder SET a = 1, b = 0").close();
+    session.commit();
+    session.begin();
+    var rids = new ArrayList<RID>();
+    var records = session.browseClass("TrailingOrder");
+    while (records.hasNext()) {
+      rids.add(records.next().getIdentity());
+    }
+    rids.sort(Comparator.naturalOrder());
+    assertThat(rids).hasSize(2);
+    // Choose trailing values from committed RIDs so index order is always the opposite.
+    session.loadEntity(rids.getFirst()).setProperty("b", 2);
+    session.loadEntity(rids.getLast()).setProperty("b", 1);
+    var expected = rids.stream().map(Object::toString).toList();
+    session.commit();
+
+    var query = "MATCH {class: TrailingOrder, as: s} RETURN s"
+        + " ORDER BY s.a ASC, s.@rid ASC";
+    assertThat(matchRids(query, "s")).isEqualTo(expected);
+    assertThat(plan(query)).contains("TrailingOrder_ab").contains("+ ORDER BY");
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {

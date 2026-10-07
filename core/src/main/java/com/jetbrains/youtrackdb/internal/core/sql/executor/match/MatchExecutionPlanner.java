@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -727,8 +728,11 @@ public class MatchExecutionPlanner {
           context.getDatabaseSession());
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
-      // Edge-free root: reuse SELECT's FetchFromIndexValues path (IndexOrderedPlanner needs a hop).
+      // Edge-free root: delegate property ordering to SELECT (IndexOrderedPlanner needs a hop).
       if (indexOrderedCandidate == null) {
+        // Nested RETURN projections can change the values used by the MATCH sort.
+        var hasNestedProjection = returnNestedProjections != null
+            && returnNestedProjections.stream().anyMatch(Objects::nonNull);
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,
@@ -742,6 +746,9 @@ public class MatchExecutionPlanner {
                 returnPaths,
                 returnPatterns,
                 returnPathElements,
+                !hasNestedProjection && groupBy == null && unwind == null && !returnDistinct
+                    && !returnElements && !returnPaths && !returnPatterns && !returnPathElements
+                    && (notMatchExpressions == null || notMatchExpressions.isEmpty()),
                 context);
       }
     }
@@ -752,7 +759,7 @@ public class MatchExecutionPlanner {
       aliasesToPrefetch.remove(indexOrderedCandidate.targetAlias());
     }
     if (singleNodeIndexOrder != null) {
-      // Prefetch loads the class unordered; keep the ordered index scan as MatchFirstStep.
+      // Prefetch uses storage order. Every translated request needs the root SELECT's actual scan.
       aliasesToPrefetch.remove(singleNodeIndexOrder.alias());
     }
     addPrefetchSteps(result, aliasesToPrefetch, context, enableProfiling);
@@ -888,14 +895,14 @@ public class MatchExecutionPlanner {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
-      // Single-node VALUES + accepted @rid: keep OrderByStep, but allow pass-through when
+      // Single-node report + accepted @rid: keep OrderByStep, but allow pass-through when
       // MatchFirstStep signals PRE_SORTED (clean tx). Same contract as IndexOrderedEdgeStep.
       if (singleNodeIndexOrder != null
           && singleNodeIndexOrder.ridTieBreakAccepted()
           && this.groupBy == null) {
         info.indexOrderedUpstream = true;
       }
-      // Single-node root already streamed the full ORDER BY from the index values scan.
+      // The chosen root SELECT reports the full property order after MATCH-only guards.
       if (singleNodeIndexOrder != null && singleNodeIndexOrder.orderFullyCovered()) {
         info.orderBy = null;
       }
@@ -2833,17 +2840,19 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy);
+        var selectPlan = selectOrderBy == null
+            ? select.createExecutionPlan(context, profilingEnabled)
+            : new SelectExecutionPlanner(select).createExecutionPlanForOrderRequest(
+                context, profilingEnabled, singleNodeIndexOrder.hasRidTieBreak(), false);
+        if (selectOrderBy != null) {
+          singleNodeIndexOrder.consume(((SelectExecutionPlan) selectPlan).getOrderReport());
+        }
         var signalRidIndexOrder =
             singleNodeIndexOrder != null
                 && singleNodeIndexOrder.alias().equals(node.alias)
                 && singleNodeIndexOrder.ridTieBreakAccepted();
-        plan.chain(
-            new MatchFirstStep(
-                context,
-                node,
-                select.createExecutionPlan(context, profilingEnabled),
-                signalRidIndexOrder,
-                profilingEnabled));
+        plan.chain(new MatchFirstStep(
+            context, node, selectPlan, signalRidIndexOrder, profilingEnabled));
       }
     }
     if (outerEstimates != null) {

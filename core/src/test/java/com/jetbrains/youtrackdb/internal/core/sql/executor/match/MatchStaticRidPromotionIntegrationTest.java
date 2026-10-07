@@ -169,6 +169,15 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     return plan.substring(start, end);
   }
 
+  /** Returns the direct root fetch before the MATCH projection and sort steps. */
+  private static String rootFetchBlock(String plan, String alias) {
+    assertEquals("the ordered alias must be the direct root", alias, rootAlias(plan));
+    var start = plan.indexOf("+ SET");
+    var end = plan.indexOf("+ CALCULATE PROJECTIONS", start);
+    assertTrue("the direct root must precede its projection", end > start);
+    return plan.substring(start, end);
+  }
+
   /**
    * Multi-hop chain rooted at a Comment pinned by a literal {@code @rid} in the
    * WHERE clause. Exactly one path (alice -> bob -> c1) reaches c1, so the query
@@ -288,7 +297,8 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
 
   /**
    * Production-style {@code @rid IN [#a, #b]} on a MATCH node promotes to a
-   * multi-RID fetch instead of scanning the class and filtering in memory.
+   * multi-RID fetch instead of scanning the class and filtering in memory. A translated order
+   * request uses the direct root fetch, not prefetch, even when no index can serve the order.
    */
   @Test
   public void staticRidList_inWhere_fetchesByRid() {
@@ -307,10 +317,13 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + query).toList();
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    assertTrue("@rid IN list should prefetch via FETCH FROM RIDs, got:\n" + plan,
-        prefetchBlock(plan, "c").contains("FETCH FROM RIDs"));
+    var cBlock = rootFetchBlock(plan, "c");
+    assertFalse("the translated order request must not prefetch, got:\n" + plan,
+        plan.contains("+ PREFETCH"));
+    assertTrue("@rid IN list should fetch directly via FETCH FROM RIDs, got:\n" + plan,
+        cBlock.contains("FETCH FROM RIDs"));
     assertFalse("@rid IN list should not class-scan Comment, got:\n" + plan,
-        prefetchBlock(plan, "c").contains("FETCH FROM CLASS"));
+        cBlock.contains("FETCH FROM CLASS"));
     session.commit();
   }
 
@@ -324,7 +337,8 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
    * alias filter for the traversal paths that still need it, so this asserts the fetch's own copy
    * rather than the filter map.
    *
-   * <p>The compound sibling below covers the other half: only the {@code @rid} term is dropped.
+   * <p>The translated order request uses the direct root fetch without prefetch. The compound
+   * sibling below covers the other half: only the {@code @rid} term is dropped.
    */
   @Test
   public void staticRidList_promotedFetchDropsTheRedundantRidTerm() {
@@ -338,7 +352,9 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     var explain = session.query("EXPLAIN " + query).toList();
     String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
-    var cBlock = prefetchBlock(plan, "c");
+    var cBlock = rootFetchBlock(plan, "c");
+    assertFalse("the translated order request must not prefetch, got:\n" + plan,
+        plan.contains("+ PREFETCH"));
     assertTrue("the promoted alias fetches by RID, got:\n" + plan,
         cBlock.contains("FETCH FROM RIDs"));
     assertFalse("the fetch target enforces membership, so no @rid filter, got:\n" + plan,
