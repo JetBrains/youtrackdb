@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
@@ -205,9 +204,8 @@ public class AbstractStorageCheckpointBoundaryTest {
       });
       doAnswer(invocation -> {
         wal.flush();
-        wal.cutAllSegmentsSmallerThan(invocation.getArgument(0, Long.class));
         return null;
-      }).when(cache).syncDataFiles(anyLong());
+      }).when(cache).syncDataFiles();
 
       switch (checkpoint) {
         case FUZZY -> storage.makeFuzzyCheckpoint();
@@ -239,7 +237,7 @@ public class AbstractStorageCheckpointBoundaryTest {
       if (checkpoint == Checkpoint.FULL) {
         verify(storage, never()).clearStorageDirty();
       } else {
-        verify(cache).syncDataFiles(recordSegment);
+        verify(cache).syncDataFiles();
       }
     } finally {
       try {

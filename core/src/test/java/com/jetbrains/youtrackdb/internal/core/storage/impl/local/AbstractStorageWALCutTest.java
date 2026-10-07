@@ -8,6 +8,7 @@ import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -18,8 +19,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -27,6 +32,9 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIn
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
@@ -34,6 +42,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.List;
@@ -49,7 +58,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
-/** Verifies that full checkpoints retain the earliest operation-owned or cache-owned WAL. */
+/** Verifies checkpoint WAL retention, force ordering, and maintenance failure handling. */
 public class AbstractStorageWALCutTest {
 
   private AbstractStorage storage;
@@ -224,24 +233,176 @@ public class AbstractStorageWALCutTest {
     verify(storage, never()).clearStorageDirty();
   }
 
-  /** A vacuum force failure ends the attempt before WAL cleanup. */
+  /** A vacuum force failure logs the error, skips WAL cleanup, and clears vacuum admission. */
   @Test
   public void vacuumSyncFailurePreventsFurtherCleanup() throws Exception {
-    setPrivateField(storage, "stateLock", new ScalableRWLock());
-    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
-    storage.status = Storage.STATUS.OPEN;
+    prepareFuzzyCheckpoint();
+    final var vacuumInProgress = new AtomicBoolean(true);
+    setPrivateField(storage, "walVacuumInProgress", vacuumInProgress);
     when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
     when(writeAheadLog.activeSegment()).thenReturn(4L);
     when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
     when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
-    doThrow(new IOException("injected file force failure")).when(writeCache).syncDataFiles(4L);
+    doThrow(new IOException("injected file force failure")).when(writeCache).syncDataFiles();
 
-    storage.runWALVacuum();
+    try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+      storage.runWALVacuum();
+      assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+          && message.contains("Error during flushing of data for fuzzy checkpoint"));
+    }
 
-    verify(writeCache).syncDataFiles(4L);
+    verify(writeCache).syncDataFiles();
     verify(writeAheadLog, never()).cutTill(any());
-    verify(writeAheadLog, never())
-        .cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    assertThat(vacuumInProgress).isFalse();
+  }
+
+  /** A fuzzy force failure reaches the caller as YTIOException and skips every WAL cut. */
+  @Test
+  public void fuzzySyncFailurePreventsWalCutAndReports() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    final var failure = new IOException("injected file force failure");
+    doThrow(failure).when(writeCache).syncDataFiles();
+
+    assertThatThrownBy(storage::makeFuzzyCheckpoint)
+        .isInstanceOf(YTIOException.class).hasCause(failure);
+
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    verify(writeAheadLog, never()).cutTill(any());
+  }
+
+  /** Fuzzy cleanup cuts the sampled boundary after floor, data force, WAL force, and unlock. */
+  @Test
+  public void fuzzyCutFollowsForceOutsideCacheLocksWithFixedBoundary() throws Exception {
+    assertMaintenanceCutOutsideCacheLocks(false);
+  }
+
+  /** Vacuum cleanup cuts the sampled boundary after floor, data force, WAL force, and unlock. */
+  @Test
+  public void vacuumCutFollowsForceOutsideCacheLocksWithFixedBoundary() throws Exception {
+    assertMaintenanceCutOutsideCacheLocks(true);
+  }
+
+  private void assertMaintenanceCutOutsideCacheLocks(boolean vacuum) throws Exception {
+    prepareFuzzyCheckpoint();
+    final var stateField = AbstractStorage.class.getDeclaredField("stateLock");
+    stateField.setAccessible(true);
+    final var stateLock = (ScalableRWLock) stateField.get(storage);
+    final var vacuumInProgress = new AtomicBoolean(true);
+    setPrivateField(storage, "walVacuumInProgress", vacuumInProgress);
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(5L);
+
+    // Exercise the real sync method and lock, without a production test hook or timing sleeps.
+    final var cache = mock(WOWCache.class, CALLS_REAL_METHODS);
+    final var filesLock = org.mockito.Mockito.spy(new ReadersWriterSpinLock());
+    final var holdsField = ReadersWriterSpinLock.class.getDeclaredField("lockHolds");
+    holdsField.setAccessible(true);
+    final var holds = (ThreadLocal<?>) holdsField.get(filesLock);
+    final var doubleWrite = mock(DoubleWriteLog.class);
+    final var checkpointActive = new AtomicBoolean();
+    doAnswer(invocation -> {
+      checkpointActive.set(true);
+      return null;
+    }).when(doubleWrite).startCheckpoint();
+    doAnswer(invocation -> {
+      checkpointActive.set(false);
+      return null;
+    }).when(doubleWrite).endCheckpoint();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    final var files = new ClosableLinkedContainer<Long, File>(1);
+    files.add(7L, file);
+    for (var entry : Map.<String, Object>of("filesLock", filesLock, "files", files,
+        "nameIdMap", new ConcurrentHashMap<>(Map.of("data", 7)),
+        "nonDurableFileIds", new IntOpenHashSet(), "callFsync", true,
+        "writeAheadLog", writeAheadLog, "doubleWriteLog", doubleWrite).entrySet()) {
+      final var field = WOWCache.class.getDeclaredField(entry.getKey());
+      field.setAccessible(true);
+      field.set(cache, entry.getValue());
+    }
+    doReturn(null).when(cache).getMinimalNotFlushedSegment();
+    doNothing().when(cache).flushTillSegment(anyLong());
+    storage.writeCache = cache;
+    doAnswer(invocation -> {
+      assertThat(((ModifiableInteger) holds.get()).intValue()).isEqualTo(1);
+      assertThat(checkpointActive).isTrue();
+      // Later samples would raise the boundary. Neither caller may resample after forcing.
+      when(writeAheadLog.activeSegment()).thenReturn(30L);
+      when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(7L);
+      doReturn(9L).when(cache).getMinimalNotFlushedSegment();
+      return null;
+    }).when(file).synch();
+    doAnswer(invocation -> {
+      assertThat(((ModifiableInteger) holds.get()).intValue()).isZero();
+      assertThat(checkpointActive).isFalse();
+      assertThat(stateLock.isReadLockedByCurrentThread()).isTrue();
+      return true;
+    }).when(writeAheadLog).cutAllSegmentsSmallerThan(5L);
+
+    if (vacuum) {
+      storage.runWALVacuum();
+      assertThat(vacuumInProgress).isFalse();
+    } else {
+      storage.makeFuzzyCheckpoint();
+    }
+
+    final var order = inOrder(storage, cache, file, writeAheadLog, doubleWrite, filesLock);
+    order.verify(storage).saveCheckpointFloor(0L);
+    order.verify(cache).syncDataFiles();
+    order.verify(filesLock).acquireReadLock();
+    order.verify(doubleWrite).startCheckpoint();
+    order.verify(file).synch();
+    order.verify(writeAheadLog).flush();
+    order.verify(doubleWrite).endCheckpoint();
+    order.verify(filesLock).releaseReadLock();
+    order.verify(writeAheadLog).cutAllSegmentsSmallerThan(5L);
+    verify(writeAheadLog, times(1)).cutAllSegmentsSmallerThan(anyLong());
+    verify(writeAheadLog, never()).cutTill(any());
+  }
+
+  /** A fuzzy cut failure stays inside its IOException reporting boundary after successful force. */
+  @Test
+  public void fuzzyCutFailureReportsAfterSuccessfulForce() throws Exception {
+    prepareFuzzyCheckpoint();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    final var failure = new IOException("injected cut failure");
+    doThrow(failure).when(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+
+    assertThatThrownBy(storage::makeFuzzyCheckpoint)
+        .isInstanceOf(YTIOException.class).hasCause(failure);
+
+    final var order = inOrder(writeCache, writeAheadLog);
+    order.verify(writeCache).syncDataFiles();
+    order.verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+  }
+
+  /** A vacuum cut failure is logged after force and always releases vacuum admission. */
+  @Test
+  public void vacuumCutFailureLogsAndClearsAdmission() throws Exception {
+    prepareFuzzyCheckpoint();
+    final var vacuumInProgress = new AtomicBoolean(true);
+    setPrivateField(storage, "walVacuumInProgress", vacuumInProgress);
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    doThrow(new IOException("injected cut failure"))
+        .when(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+
+    try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+      storage.runWALVacuum();
+      assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+          && message.contains("Error during flushing of data for fuzzy checkpoint"));
+    }
+
+    final var order = inOrder(writeCache, writeAheadLog);
+    order.verify(writeCache).syncDataFiles();
+    order.verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+    assertThat(vacuumInProgress).isFalse();
   }
 
   /** A failed initial shutdown checkpoint leaves OPEN so a later shutdown can retry. */
@@ -653,7 +814,7 @@ public class AbstractStorageWALCutTest {
       forcing.countDown();
       assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
       return null;
-    }).when(writeCache).syncDataFiles(20L);
+    }).when(writeCache).syncDataFiles();
     final var workers = Executors.newFixedThreadPool(2);
     try {
       final var checkpoint = workers.submit(() -> {
@@ -734,7 +895,8 @@ public class AbstractStorageWALCutTest {
 
     verify(writeCache).getMinimalNotFlushedSegment();
     verify(writeCache).flushTillSegment(4L);
-    verify(writeCache, never()).syncDataFiles(org.mockito.ArgumentMatchers.anyLong());
+    verify(writeCache, never()).syncDataFiles();
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
   }
 
   /** A tracker-only boundary stops vacuum without synchronization and releases the state lock. */
@@ -763,7 +925,8 @@ public class AbstractStorageWALCutTest {
     storage.runWALVacuum();
 
     verify(writeCache).flushTillSegment(6L);
-    verify(writeCache, never()).syncDataFiles(org.mockito.ArgumentMatchers.anyLong());
+    verify(writeCache, never()).syncDataFiles();
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
     verify(atomicOperationsTable, never()).compactTable();
     assertThat(vacuumInProgress).isFalse();
     assertThat(stateLock.writeLock().tryLock(1, TimeUnit.SECONDS)).isTrue();
@@ -786,7 +949,8 @@ public class AbstractStorageWALCutTest {
 
     verify(writeCache, times(2)).flushTillSegment(6L);
     verify(atomicOperationsTable).compactTable();
-    verify(writeCache).syncDataFiles(6L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(6L);
   }
 
   /** A concurrently published earlier boundary receives another flush opportunity. */
@@ -804,7 +968,8 @@ public class AbstractStorageWALCutTest {
     storage.runWALVacuum();
 
     verify(writeCache, times(2)).flushTillSegment(6L);
-    verify(writeCache).syncDataFiles(6L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(6L);
   }
 
   /** Operation-first sampling observes a requirement transferred into cache during the sample. */
@@ -843,7 +1008,8 @@ public class AbstractStorageWALCutTest {
 
     storage.makeFuzzyCheckpoint();
 
-    verify(writeCache).syncDataFiles(6L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(6L);
     assertTableBeforeCacheTransferSample();
   }
 
@@ -858,7 +1024,8 @@ public class AbstractStorageWALCutTest {
 
     storage.runWALVacuum();
 
-    verify(writeCache).syncDataFiles(6L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(6L);
     assertTableBeforeCacheTransferSample();
   }
 
@@ -888,7 +1055,8 @@ public class AbstractStorageWALCutTest {
 
     storage.makeFuzzyCheckpoint();
 
-    verify(writeCache).syncDataFiles(7L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(7L);
   }
 
   /** Operation protection below both the fuzzy anchor and cache boundary still wins. */
@@ -900,7 +1068,8 @@ public class AbstractStorageWALCutTest {
 
     storage.makeFuzzyCheckpoint();
 
-    verify(writeCache).syncDataFiles(5L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(5L);
   }
 
   /** With no cache protection, a fuzzy checkpoint caps its WAL end at the active anchor. */
@@ -913,7 +1082,8 @@ public class AbstractStorageWALCutTest {
 
     storage.makeFuzzyCheckpoint();
 
-    verify(writeCache).syncDataFiles(10L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(10L);
   }
 
   /** An anchor at WAL begin preserves the fuzzy no-progress exit even with a later cache. */
@@ -926,7 +1096,8 @@ public class AbstractStorageWALCutTest {
 
     storage.makeFuzzyCheckpoint();
 
-    verify(writeCache, never()).syncDataFiles(org.mockito.ArgumentMatchers.anyLong());
+    verify(writeCache, never()).syncDataFiles();
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
   }
 
   /** An operation below the final vacuum anchor still retains its earlier WAL segment. */
@@ -942,7 +1113,8 @@ public class AbstractStorageWALCutTest {
 
     storage.runWALVacuum();
 
-    verify(writeCache).syncDataFiles(5L);
+    verify(writeCache).syncDataFiles();
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(5L);
   }
 
   /** Rotation after logging cannot raise the unprotected full-flush cut above its record. */

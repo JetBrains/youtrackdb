@@ -313,7 +313,7 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override

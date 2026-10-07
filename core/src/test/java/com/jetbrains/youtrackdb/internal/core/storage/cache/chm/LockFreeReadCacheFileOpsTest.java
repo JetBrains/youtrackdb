@@ -806,7 +806,7 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override
