@@ -27,6 +27,8 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -57,6 +59,12 @@ public class DirectMemoryStorage extends AbstractStorage {
   public DirectMemoryStorage(
       final String name, final String filePath, final int id, YouTrackDBInternalEmbedded context) {
     super(name, filePath, id, context);
+  }
+
+  @Override
+  protected CheckpointResult checkpointChangedPages(long fixedBoundary) {
+    // Memory WAL predicts no removal and every cut is a no-op. No tracker or side file is needed.
+    return new CheckpointResult(CheckpointOutcome.NO_SAVE, false);
   }
 
   @Override
