@@ -4400,6 +4400,37 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // YTDB-585: SELECT BETWEEN must fetch from the points index, include both bounds,
+  // and exclude values immediately outside the range.
+  @Test
+  public void testBetweenUsesIndexAndIncludesBounds() {
+    var clazz = session.getMetadata().getSchema().createClass("Score");
+    clazz.createProperty("points", PropertyType.INTEGER);
+    clazz.createIndex("Score.points", SchemaClass.INDEX_TYPE.NOTUNIQUE, "points");
+
+    session.begin();
+    for (var points : List.of(0, 14, 15, 20, 25, 30, 35, 36, 50)) {
+      session.execute("insert into Score set points = ?", points).close();
+    }
+    session.commit();
+
+    session.begin();
+    try (var result = session.query("SELECT FROM Score WHERE points BETWEEN 15 AND 35")) {
+      var plan = result.getExecutionPlan();
+      Assert.assertNotNull("SELECT BETWEEN must expose its execution plan", plan);
+      Assert.assertTrue("Expected a fetch from Score.points:\n" + plan.prettyPrint(0, 2),
+          plan.getSteps().stream().anyMatch(step -> step instanceof FetchFromIndexStep indexStep
+              && "Score.points".equals(indexStep.getIndexName())));
+
+      var points = new ArrayList<Integer>();
+      while (result.hasNext()) {
+        points.add(result.next().getProperty("points"));
+      }
+      assertThat(points).containsExactlyInAnyOrder(15, 20, 25, 30, 35);
+    }
+    session.commit();
+  }
+
   @Test
   public void testInWithIndex() {
     var className = "testInWithIndex";
