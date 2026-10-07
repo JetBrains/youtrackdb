@@ -1219,7 +1219,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void syncDataFiles(final long segmentId) throws IOException {
+  public void syncDataFiles() throws IOException {
     filesLock.acquireReadLock();
     try {
       checkForClose();
@@ -1250,7 +1250,6 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         writeAheadLog.flush();
-        writeAheadLog.cutAllSegmentsSmallerThan(segmentId);
       } finally {
         doubleWriteLog.endCheckpoint();
       }

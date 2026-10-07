@@ -106,7 +106,11 @@ public interface WriteCache {
 
   boolean checkLowDiskSpace() throws IOException;
 
-  void syncDataFiles(long segmentId) throws IOException;
+  /**
+   * Forces durable data files and flushes the WAL without removing WAL segments.
+   * The caller owns the WAL cut and must perform it only after this method succeeds.
+   */
+  void syncDataFiles() throws IOException;
 
   void flushTillSegment(long segmentId);
 

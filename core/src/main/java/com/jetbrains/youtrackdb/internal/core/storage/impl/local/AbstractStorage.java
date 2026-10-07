@@ -7611,7 +7611,9 @@ public abstract class AbstractStorage
         }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
         saveMaintenanceFloorBeforeWalRemoval();
-        writeCache.syncDataFiles(fuzzySegment);
+        writeCache.syncDataFiles();
+        // The cache has ended its checkpoint bracket and released filesLock before this cut.
+        writeAheadLog.cutAllSegmentsSmallerThan(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
@@ -10139,7 +10141,9 @@ public abstract class AbstractStorage
         beforeRead.run();
       }
       saveMaintenanceFloorBeforeWalRemoval();
-      writeCache.syncDataFiles(minDirtySegment);
+      writeCache.syncDataFiles();
+      // The cache has ended its checkpoint bracket and released filesLock before this cut.
+      writeAheadLog.cutAllSegmentsSmallerThan(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
           .error(

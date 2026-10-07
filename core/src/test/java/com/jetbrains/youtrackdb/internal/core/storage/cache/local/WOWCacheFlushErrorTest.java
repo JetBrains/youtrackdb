@@ -244,7 +244,7 @@ public class WOWCacheFlushErrorTest {
     }
   }
 
-  /** The owner's checkpoint reopens an evicted file and blocks WAL cleanup on failed sync. */
+  /** Sync retries an evicted file's failed force and never owns WAL cleanup, even on success. */
   @Test
   public void checkpointRetriesFailedEvictionSyncAfterReopen() throws Exception {
     final var path = Files.createTempFile("evicted-checkpoint", ".dat");
@@ -301,10 +301,13 @@ public class WOWCacheFlushErrorTest {
             }
             return null;
           }).when(reopened).force(true);
-          org.junit.Assert.assertThrows(StorageException.class, () -> cache.syncDataFiles(3));
-          Mockito.verify(wal, Mockito.never()).cutAllSegmentsSmallerThan(3);
-          cache.syncDataFiles(3);
-          Mockito.verify(wal).cutAllSegmentsSmallerThan(3);
+          org.junit.Assert.assertThrows(StorageException.class, () -> cache.syncDataFiles());
+          Mockito.verify(wal, Mockito.never()).flush();
+          cache.syncDataFiles();
+          Mockito.verify(wal).flush();
+          Mockito.verify(wal, Mockito.never()).cutAllSegmentsSmallerThan(anyLong());
+          Mockito.verify(wal, Mockito.never()).cutTill(Mockito.any());
+          Mockito.verify(doubleWrite, Mockito.times(2)).endCheckpoint();
           assertEquals(2, attempts.get());
         }
       } finally {
