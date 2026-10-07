@@ -1,7 +1,7 @@
 <!-- workflow-sha: 5db61a37462f0b28965113f39a81b6fcb1ed1340 -->
 # YTDB-496 OpenTelemetry support — Mechanics
 
-Implementation detail for the four sections listed below. Each section gathers the full pseudo-implementation, mapping tables, and edge cases an implementer needs. The text stands on its own; concepts named here either define themselves locally or appear under the same name in the companion polished view.
+Implementation detail for the six sections listed below. Each section gathers the full pseudo-implementation, mapping tables, and edge cases an implementer needs. The text stands on its own; concepts named here either define themselves locally or appear under the same name in the companion polished view.
 
 ## Slow-query threshold gating
 
@@ -40,6 +40,7 @@ Pseudo-implementation at the top of `queryFinished`:
 ```java
 @Override
 public void queryFinished(QueryDetails details, long startedAtMillis, long executionTimeNanos) {
+  // Record enabled query histograms before the trace gate.
   boolean isError = details.getErrorType().isPresent();
   if (!isError) {
     long perTxOrGlobal = details.getSlowQueryThresholdOverrideNanos().orElse(defaultThresholdNanos);
@@ -54,14 +55,17 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
     }
   }
   // Gremlin path: read Span.fromContext(Context.current()), set sem-conv attributes.
-  // SQL path: spanBuilder(...).setParent(Context.current()).startSpan(); attributes; span.end(...)
+  // SQL path: spanBuilder(...).setParent(details.getParentContext().orElse(Context.current()))
+  //     .startSpan(); attributes; span.end(...)
   // dispatched via details.getQuerySource() — see §"Context propagation in embedded".
 }
 ```
 
-`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both fire sites populate it from the caught exception when `statement.execute(...)` (SQL) or the traversal close (Gremlin) throws — the same exception that drives the `error.type` attribute on the emitted span. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
+`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. They capture context, tag, Gremlin-origin marker, mode and start time before the failing work. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
 
-The standalone commit span is not threshold-gated in this design. Commit duration is operationally interesting at every length (fast commits show throughput, slow commits show lock or fsync contention), and the per-TX volume of commit spans is bounded by transaction count rather than query count. If commit-span volume becomes a problem in practice, a follow-up adds `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` against the same shape — single global value plus optional per-tag rules, error bypass, gate inside the listener.
+Direct SQL has no query tag and uses the per-TX fallback. SQL entered inside tagged Gremlin inherits `YTDBContextKeys.QUERY_TAG` captured before execution. An untagged nested Gremlin traversal clears an inherited tag and still stamps `GREMLIN_ORIGIN=true`. Gremlin pins its span name at first `hasNext()` to the tag or `youtrackdb`. SQL uses the sem-conv fallback chain. The resolver reads the inherited tag, not a classifier-derived display summary.
+
+Successful commit spans use the separate `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` gate. Its default `0` emits every successful commit. Failed commits bypass it. Query thresholds, query tags and heartbeat sampling do not govern commit emission.
 
 ### Bundled skinny-span filter
 
@@ -100,21 +104,16 @@ public final class SkinnySpanFilterProcessor implements SpanProcessor {
 }
 ```
 
-SDK builder wiring. Both YTDB-owned-SDK paths (server-mode `OpenTelemetryServerPlugin.onAfterActivate()` and embedded `YouTrackDBOpenTelemetry.autoConfigure()`) install the filter through `AutoConfiguredOpenTelemetrySdkBuilder.addTracerProviderCustomizer(...)`:
+SDK builder wiring uses OpenTelemetry Java SDK 1.66.0 as the reference. This is the chosen latest stable release. It is not an existing repository pin. The implementation plan pins `opentelemetry-bom` 1.66.0 in the POM. Both YTDB-owned paths install the filter through `AutoConfiguredOpenTelemetrySdkBuilder.addSpanProcessorCustomizer(...)`. The resolved YTDB config supplies `dropSkinny` before this hook is registered:
 
 ```java
-sdkBuilder.addTracerProviderCustomizer((tpb, cfg) -> {
-    if (!cfg.getBoolean(OPENTELEMETRY_GREMLIN_DROP_SKINNY_SPANS, true)) return tpb;
-    // The configured BatchSpanProcessor is the last processor added to the builder
-    // by the autoconfigure step. Replace it with a skinny-filter wrapper.
-    SpanProcessor batch = tpb.getActiveSpanProcessor();   // resolved BatchSpanProcessor
-    tpb.clearSpanProcessors();
-    tpb.addSpanProcessor(SkinnySpanFilterProcessor.wrap(batch));
-    return tpb;
-});
+sdkBuilder.addSpanProcessorCustomizer((processor, cfg) ->
+    dropSkinny && processor instanceof BatchSpanProcessor
+        ? SkinnySpanFilterProcessor.wrap(processor)
+        : processor);
 ```
 
-(`getActiveSpanProcessor()` / `clearSpanProcessors()` are illustrative; the actual builder API uses a `Map<String, SpanProcessor>`-shaped registration that the customizer reads and replaces. The intent the design fixes is "filter wraps batch", not the specific builder mechanics, which follow the pinned OTel SDK version.)
+The hook receives each configured processor and returns its replacement. It wraps the batch processor without changing sibling processors. It runs only when YTDB builds the SDK. Embedded discovery checks `GlobalOpenTelemetry.isSet()` and reads `getOrNoop()` when a global is registered. These methods require SDK 1.57 or later. It does not call `get()` to probe, compare no-op identity or cast the returned global wrapper to `OpenTelemetrySdk`. The explicit setter takes priority. A registered global remains host-owned even when it is no-op.
 
 Host-owned SDKs. When the host has wired its own `OpenTelemetry` via `setOpenTelemetry(externalSdk, ownedByYtdb=false, ...)` (or via `GlobalOpenTelemetry.set(...)` before YTDB resolves), YTDB does not modify the SDK and the bundled filter is therefore not installed. Hosts that want the same default skinny-span suppression call the public factory:
 
@@ -143,14 +142,14 @@ Path B downstream effect. When the filter drops the outer Gremlin parent and the
 
 - Default `0` (emit-all) matches the OTel-standard "emit everything, let downstream samplers decide" pattern and gives operators first-run visibility immediately after `OPENTELEMETRY_ENABLED=true`. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook; errors always bypass regardless.
 - A query whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
-- The gate evaluates before any work the listener would otherwise do: no `tracer.spanBuilder(...)`, no attribute reads from `QueryDetails` beyond `getErrorType()` and `getQuerySummary()` (both cheap, lazy in the impl). Gated-out queries pay only the resolver lookup (bounded-LRU lookup once per distinct tag, O(1) on cache hit) and the listener return.
+- The trace gate runs before SQL span allocation and Gremlin span enrichment. It reads the error, original tag and per-TX threshold override. Metrics-enabled listeners record histogram samples before this gate. Gated-out Gremlin still pays for its lifecycle span.
 - Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) would otherwise grow each resolver's cache without bound. Both resolvers use a bounded LRU (`Collections.synchronizedMap` over `LinkedHashMap(1024, 0.75f, true)` with access-order eviction, capacity 1024), so the heap footprint is capped at roughly 2 × 200 KB even under sustained unique-tag-per-request abuse. Eviction logs INFO once per 60 s window with the count of evictions in that window; an evicted tag pays the rule walk again on its next access, and rule walks are deterministic so the resolved value stays stable across miss / re-resolve / re-cache. The heartbeat gate has no resolver and contributes no cache.
 - A tag that matches no rule resolves to the per-TX override (`withSlowQueryThresholdMillis`) when the transaction set one, else the global default. The cache records the rule-walk outcome — the matched value, or an empty marker when no rule matched — so future identical tags skip the walk; the fallback (per-TX override, else global default) is applied after the cache lookup, at the resolver's fallback slot, so a fallback that varies by transaction is never baked into the shared cache.
 - Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
 - The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules). The per-TX override is not subject to either constraint: the fire site reads `FrontendTransaction.getSlowQueryThresholdOverrideNanos()` per query and carries it on `QueryDetails`, so a transaction that calls `withSlowQueryThresholdMillis(...)` takes effect immediately without an SDK rebuild.
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
 - Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means "emit a hot-path span when DB-side active work exceeded 100 ms" — not "real-time exceeded 100 ms". The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag means "real-time exceeded 100 ms". A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices spans on `db.youtrackdb.duration_semantics` to keep histograms semantically homogeneous. Inside a single Path B traversal both the outer Gremlin span and the inner SQL spans gate on the same resolved threshold because inner SQL inherits the outer's tag via `YTDBContextKeys.QUERY_TAG` on the OTel `Context` (see §"Query tagging and per-tag rule resolution" → tag inheritance); no parent-child threshold drift within a traversal. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
-- Skinny-filter ordering with host-chained processors. The bundled filter wraps the autoconfigured `BatchSpanProcessor` only. A host that appends its own `SpanProcessor` to the same `SdkTracerProvider` after YTDB has installed the filter will receive every span the SDK emits, including skinny ones, because that processor sits as a sibling of the filter (added to the provider's processor list separately) and is not wrapped by it. A host that wants the filter to apply to its processor too instead wraps the host processor with `YouTrackDBOpenTelemetry.skinnySpanFilter(...)` and adds the wrapper, mirroring what the bundled customizer does for the batch processor. The bundled customizer never touches host-added processors; touching them would violate the host-owned-SDK contract and could double-wrap an exporter chain.
+- The filter drops end events only for its delegate. Sibling processors receive skinny spans regardless of registration order. Automatic installation applies only to YTDB-owned SDKs. Hosts opt in through `YouTrackDBOpenTelemetry.skinnySpanFilter(...)` and wrap every processor that should drop skinny spans.
 - Path B broken-parent rendering across backends. With the filter ON and the gate dropping the outer Gremlin span, the inner SQL child surfaces with a `parent_span_id` the backend never saw. Jaeger renders this as a root span (the SQL leaf) under the original `trace_id`, with the parent slot greyed out; Tempo renders the SQL span as a standalone root; Datadog APM shows the SQL span as the root of the resource trace. None of the three drop or corrupt the trace; the diagnostic loss is the outer Gremlin name and duration only. Operators who depend on outer-Gremlin visibility for Path B disable the filter for the affected workload.
 - Cross-instrumentation scope safety. The filter's `InstrumentationScopeInfo.name == "io.youtrackdb"` check is the load-bearing safety against collateral damage. A host that wires the YTDB SDK alongside auto-instrumentation for HTTP, gRPC, or its own application code sees those spans flow through `onEnd` unchanged because their scope name differs. Custom YTDB-adjacent code that creates spans via `GlobalOpenTelemetry.getTracer("io.youtrackdb")` (sharing the name) WOULD be subject to the filter; the workaround is to use a distinct scope name (`io.youtrackdb.host`, the host's own package) when authoring custom YTDB-adjacent instrumentation.
 - Filter and `forceFlush` / `shutdown`. The chain wrapper delegates both lifecycle calls unconditionally, so flush semantics during graceful shutdown are identical to the delegate's. Spans dropped by the filter were never added to the batch buffer in the first place, so a flush sees nothing for them.
@@ -170,6 +169,7 @@ private final long defaultHeartbeatNanos;  // populated at SDK init from config
 
 @Override
 public void queryFinished(QueryDetails details, long startedAtMillis, long executionTimeNanos) {
+  // Record enabled query histograms before the trace gates.
   boolean isError = details.getErrorType().isPresent();
   if (!isError) {
     if (defaultHeartbeatNanos > 0 && tryClaimHeartbeat(defaultHeartbeatNanos)) {
@@ -224,6 +224,7 @@ private final long defaultCommitThresholdNanos;  // populated at SDK init from c
 public void writeTransactionCommitted(TransactionDetails details,
                                       long committedAtMillis,
                                       long executionTimeNanos) {
+  // Record the enabled commit histogram before the trace gate.
   if (defaultCommitThresholdNanos > 0 && executionTimeNanos < defaultCommitThresholdNanos) {
     return;  // fast successful commit — skip span allocation
   }
@@ -247,7 +248,7 @@ The `defaultCommitThresholdNanos` final field is initialized at OTel listener co
 - A commit whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms commit against a 100 ms threshold passes the gate.
 - Failed commits (`writeTransactionFailed`) bypass the gate unconditionally. The caught cause populates `error.type` and the span status is set to ERROR. A stream of failing commits emits one span per failure regardless of duration.
 - No per-tag override exists in v1. Commits fire at the transaction boundary and have no per-statement query tag context. If operators need per-database or per-host commit thresholds later, the natural extension is a `TagRule<Long>` resolver keyed on `TransactionDetails.getDatabaseName()` and configured via `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_DATABASE_RULES`; the resolver hierarchy already exists (mirrors the query-side `SlowQueryThresholdResolver`), so adding the per-database axis is one row in the OTel listener's gate. Not in v1 scope because no production demand has surfaced.
-- The gate evaluates before any work the listener would otherwise do. No `tracer.spanBuilder(...)`, no attribute reads beyond the method parameter. Gated-out commits pay only the comparison and the listener return. The cost shape matches the query gate's "drop before allocation" property.
+- The trace gate runs before commit span allocation. It reads only the duration and configured threshold. Metrics-enabled listeners record the commit histogram sample first. A gated-out commit then returns without building a span.
 - Custom (non-OTel) `TransactionMetricsListener` implementations are unaffected. The gate lives only in `OTelTransactionMetricsListener`; the listener iteration in the merged-snapshot view still fires every registered listener for every commit. Custom listeners that want their own gating semantics implement it inside their callbacks.
 
 ### References
@@ -255,7 +256,7 @@ The `defaultCommitThresholdNanos` final field is initialized at OTel listener co
 
 ## OpenTelemetry logs integration
 
-The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. The logs integration adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. Before each iteration the manager skips records whose `requesterName` starts with `io.opentelemetry.` or equals `io.youtrackdb.otel.appender`; this name-prefix filter blocks the cross-thread recursive cycle that the OTel exporter would otherwise create through a `jul-to-slf4j` bridge (the exporter writes on its own thread pool where the per-thread re-entrance guard does not apply). Operators who need to admit specific OTel-internal loggers override the prefix via `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (comma-separated full prefixes; defaults to the two values above). The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, the already-formatted message string, and the optional `Throwable`. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
+The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. The logs integration adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. Before each iteration the manager skips records whose `requesterName` starts with `io.opentelemetry.` or equals `io.youtrackdb.otel.appender`; this name-prefix filter blocks the cross-thread recursive cycle that the OTel exporter would otherwise create through a `jul-to-slf4j` bridge (the exporter writes on its own thread pool where the per-thread re-entrance guard does not apply). Operators who need to admit specific OTel-internal loggers override the prefix via `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (comma-separated full prefixes; defaults to the two values above). The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, both the format string and formatted message, the optional `Throwable` and the event timestamp. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation; the hook surface is not internal-only because a host that wants OTel-independent log routing can register its own.
 
 Severity mapping (slf4j `event.Level` → OTel sem-conv `severityNumber`):
 
@@ -292,8 +293,8 @@ public final class OTelLogAppender implements LogAppenderHook {
                     String formatString, String formattedMessage,
                     Throwable thrown, long eventEpochNanos) {
     if (reentrant.get()) return;
-    int severityNumber = mapSlf4jLevelToOtel(level);
-    if (severityNumber < minSeverityNumber) return;
+    Severity severity = mapSlf4jLevelToOtel(level);
+    if (severity.getSeverityNumber() < minSeverityNumber) return;
 
     reentrant.set(true);
     try {
@@ -301,7 +302,7 @@ public final class OTelLogAppender implements LogAppenderHook {
       // Keeps parameter values (raw SQL, record content, user identifiers) out of the log body.
       String body = includeMessageBody ? formattedMessage : formatString;
       LogRecordBuilder builder = otelLogger.logRecordBuilder()
-          .setSeverity(Severity.fromSeverityNumber(severityNumber))
+          .setSeverity(severity)
           .setSeverityText(level.name())
           .setTimestamp(eventEpochNanos, TimeUnit.NANOSECONDS)   // original log-call wall-clock
           .setObservedTimestamp(Instant.now())                    // appender invocation wall-clock
@@ -335,11 +336,11 @@ The `setTimestamp(eventEpochNanos, NS)` carries the SLF4J `LoggingEvent.getTimeS
 
 **Body-policy default-deny.** The `body` slot is set from `formatString` when `OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY=false` (the default) and from `formattedMessage` when `true`. The default-false matches the trace-pillar discipline of `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS=false`: log lines whose format string is `"Query failed: {} with args {}"` ship that string as the body, rather than `"Query failed: SELECT FROM User WHERE id = 42 with args [42]"`. The `exception.stacktrace` attribute (set from `Throwable.getStackTrace()`) and `exception.message` (from `Throwable.getMessage()`) are NOT gated by the same flag because the throwable identity itself is the load-bearing diagnostic signal for failure investigation; hosts that need to redact those install a host-side OTel `LogRecordProcessor` at the collector boundary. The flag is a default-deny knob for the body slot only.
 
-The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(level)` filter and before the marker/format work the existing path does. Hooks see the same formatted message SLF4J emits, not the raw format string and varargs; that keeps each hook from re-running `String.format(...)` and gives every hook a consistent view.
+The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(level)` filter and before the marker/format work the existing path does. Hooks receive both the format string and the formatted message. The appender chooses the body through its message-body flag without reformatting the arguments.
 
 ### Hard-context correlation across threads
 
-Every span the OTel listeners create runs inside a `try (Scope s = span.makeCurrent())` block. While that scope is open on the current thread, `Context.current()` returns a context carrying the span; any log call from that thread between `makeCurrent()` and `s.close()` reaches `OTelLogAppender.onLog(...)` through the hook iteration, and the `LogRecordBuilder.emit()` call attaches the same span context to the log record. Trace viewers that support log-to-trace correlation (Grafana with the OTel collector, Jaeger with the unified UI) render the log inside the span's timeline.
+Only the Gremlin lifecycle hook makes a YTDB span current during iteration. Logs on that thread inherit the outer Gremlin span. SQL and commit spans are built at completion and never made current. Logs during SQL or commit work therefore inherit the outer Gremlin span or the host span when one is current. They carry no YTDB SQL or commit span ID. Without an active span, the log record has no trace correlation.
 
 The correlation is automatic only when the log call originates on the thread that owns the span scope. Logs emitted from a background thread spawned inside the span scope (a thread-pool task, a `CompletableFuture` continuation) lose the correlation unless the caller propagates the context. Same caveat as for child-span creation across threads, which OTel covers through `Context.taskWrapping(...)` / `Context.makeCurrent()` on the receiving thread.
 
@@ -366,8 +367,8 @@ The bridge surfaces two layers: sem-conv DB metrics with names defined by the Op
 | OTel metric name | Stability | Instrument | YTDB source |
 |---|---|---|---|
 | `db.client.connection.count` | stable | `ObservableLongUpDownCounter` | active session count read from `DatabaseSessionRegistry` (new) |
-| `db.client.operation.duration` | stable | `ObservableDoubleHistogram` | query and commit `executionTimeNanos` aggregated across the last collection period — sourced from the SQL and Gremlin listener fire sites, not from `MetricsRegistry`, so no new profiler-side metric is needed |
-| `db.client.response.returned_rows` | experimental | `ObservableDoubleHistogram` | row-count distribution from `QueryDetails.getResultCount(): OptionalLong` (the listener contract adds the accessor; the SQL fire site populates it from the `InstrumentedSqlResultSet` wrapper's per-`next()` row counter, which is correct for both `LocalResultSet` and `CachedResultSetView` inner result-sets per YTDB-820 coordination; the Gremlin path populates it from `YTDBQueryMetricsStep`'s row counter, incremented after each successful `super.next()` on the terminal step, uniformly across Path A and Path B because the step is appended at the pipeline tail by `YTDBQueryMetricsStrategy.apply`) |
+| `db.client.operation.duration` | stable | `DoubleHistogram` | query and commit listeners record `executionTimeNanos` converted to seconds on every completion, before trace-emission gates. Query samples distinguish outer Gremlin, native SQL and Gremlin-origin SQL. Commit samples remain separate. No profiler-side metric is needed. |
+| `db.client.response.returned_rows` | experimental | `DoubleHistogram` | row-count distribution from `QueryDetails.getResultCount(): OptionalLong` (the listener contract adds the accessor; the SQL fire site populates it from the `InstrumentedSqlResultSet` wrapper's per-`next()` row counter, which is correct for both `LocalResultSet` and `CachedResultSetView` inner result-sets per YTDB-820 coordination; the Gremlin path populates it from `YTDBQueryMetricsStep`'s row counter, incremented after each successful `super.next()` on the terminal step, uniformly across Path A and Path B because the step is appended at the pipeline tail by `YTDBQueryMetricsStrategy.apply`) |
 
 **YTDB-specific (`youtrackdb.*` namespace):**
 
@@ -390,13 +391,22 @@ The bridge surfaces two layers: sem-conv DB metrics with names defined by the Op
 
 Sem-conv stability matters for dashboard authors: `stable` metrics will keep their names and semantics in future spec revisions; `experimental` ones may rename or change attribute shapes between sem-conv versions. The bridge surfaces both, but a downstream dashboard that depends on experimental metrics needs to track the sem-conv changelog between v1.33.0 and whatever version YTDB pins next.
 
+`DatabaseSessionRegistry` is a new component. The metrics work adds its active-session accounting and read sites. `Counter` is also a new profiler primitive, with a matching `MetricType` and writer sites for the new monotonic counts. Existing profiler primitives are `Gauge`, `Stopwatch`, `TimeRate` and `Ratio`.
+
+The query listener records the returned-row histogram on each completion when `getResultCount()` is present. Duration samples carry bounded operation, collection, source and duration-semantics dimensions. Public-query totals select outer Gremlin samples plus SQL with `invoked_via=native`. They exclude commits and Gremlin-origin SQL. The SQL entry context captures `YTDBContextKeys.GREMLIN_ORIGIN`, independent of the tag. Its presence gives `invoked_via=gremlin_dsl` for graph-step fallback as well as DSL passthrough. Parent IDs and span attributes read at close cannot identify this provenance.
+
+Profile preserves one outer Gremlin span plus SQL children on Path B steps that enter SQL. Path A profiles the steps of the held plan before execution and reads their costs afterward. Path B retains its executed graph-step plan. Explain renders those plan objects. ClassCount has no plan and its profiling flag is a no-op. Profile metrics are forwarded to TinkerPop separately from OTel histograms.
+
+Histograms are synchronous instruments. The SDK has no asynchronous histogram. The metrics switch and included-group filter govern listener instruments as well as bridge callbacks. Trace gates do not discard metric samples. The shipped rate, count and latency panels consume these metrics through Prometheus.
+
 ### MetricsRegistry enumeration and lazy-registration API
 
 `OTelMetricsBridge` cannot rely on call-site knowledge of every `MetricDefinition` — this design adds enough new ones that a hand-maintained mirror list would drift. Two new public-API methods on `MetricsRegistry` close the gap:
 
 ```java
 public interface MetricVisitor {
-  void visit(String fullyQualifiedName, MetricDefinition<?, ?> def, Metric<?> metric);
+  void visit(String fullyQualifiedName, MetricDefinition<?, ?> def, Metric<?> metric,
+      @Nullable String databaseName);
 }
 
 public void forEachMetric(MetricVisitor visitor);  // walks GLOBAL + every DatabaseMetrics group, calls visitor exactly once per metric instance currently registered
@@ -412,21 +422,21 @@ public void addRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 public void removeRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 ```
 
-Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel `ObservableInstrument` is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
+Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel observable callback is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
 
-`forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk is a consistent snapshot of `ConcurrentHashMap.entrySet()` — concurrent registrations during the walk may or may not be visible, but every metric registered before `forEachMetric` was called is visited exactly once. The registration listener picks up anything added during or after the walk, so the combination of `forEachMetric` at `start()` plus the listener subscription is a complete enumeration with no race window.
+`forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk over `ConcurrentHashMap.entrySet()` is weakly consistent. The bridge subscribes before the walk, then sends both enumeration results and registration events through one serialized registration path. That path de-duplicates by source metric identity. A metric seen by both paths gets one callback. Enumeration and events both carry the database name. Metrics sharing an OTel name use a shared instrument with a `database` attribute on each database-scoped observation.
 
 ### Async instrument lifecycle
 
 `OTelMetricsBridge.start()` does three things at SDK init:
 
-1. Call `Profiler.getMetricsRegistry().forEachMetric(...)` to enumerate every currently-registered metric, build a `Map<String, ObservableInstrument>` keyed by the OTel metric name, and register each `ObservableInstrument` against the `SdkMeterProvider`'s `Meter` (`provider.get("io.youtrackdb")`). The callback closure captures the source `Metric` reference, not the value, so each collection cycle re-reads through the registry.
-2. Subscribe a `Consumer<MetricRegistrationEvent>` via `registry.addRegistrationListener(...)`. Each event posts a task onto the bridge's `ScheduledExecutorService` that does the same name-build + `ObservableInstrument` register dance as step 1 for the newly-added metric. This covers the per-database metrics created lazily when `Profiler.getMetricsRegistry().databaseMetric(def, dbName)` is first invoked for a database opened after `start()` ran.
+1. Subscribe through `registry.addRegistrationListener(...)`. Each event posts a registration task to the bridge executor.
+2. Enumerate through `Profiler.getMetricsRegistry().forEachMetric(...)`. Send every result to the same executor. Keep an identity-keyed `Map<Metric<?>, AutoCloseable>` of callback handles. Register each source once, even when the walk and listener both see it. Reuse the instrument for a shared OTel name and attach the database attribute to observations. Each callback captures its source `Metric` reference and reads its current value at SDK collection time.
 3. Schedule a periodic task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS`. The SDK's `PeriodicMetricReader` drives the actual export; the bridge's task re-reads YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) via `getRate()`/`getRatio()` independently of the OTel reader. `Meter` flushes those windows internally every `flushRateTicks`; the task keeps the value the exporter sees fresh between polls.
 
-`OTelMetricsBridge.stop()` calls `registry.removeRegistrationListener(...)`, cancels the scheduled task, calls `unregister()` on each `ObservableInstrument` (drops the SDK-side callback registration), and clears the map. Idempotent: stopping a stopped bridge is a no-op.
+`OTelMetricsBridge.stop()` removes the listener and cancels the scheduled task. It prevents queued registrations from installing callbacks after stop. It closes each observable callback handle through `AutoCloseable.close()` and clears the identity map. Stopping a stopped bridge is a no-op. Synchronous histograms need no callback handle.
 
-`OTelMetricsBridge.refresh()` is a test seam: it forces a synchronous read through each registered callback, so unit tests can assert on the exporter side without waiting for the periodic reader's interval.
+`OTelMetricsBridge.refresh()` drains pending bridge registration work for tests. It does not collect SDK metrics. Tests then call `InMemoryMetricReader.collectAllMetrics()` to invoke observable callbacks and collect histogram data without waiting for a periodic export.
 
 ### Counter group filter
 
@@ -450,19 +460,21 @@ Operators wanting metrics on storage health but not query throughput configure `
 - High-cardinality attributes: a `youtrackdb.storage.size_bytes` per-database gauge fans out one OTel data point per `database` attribute value at every collection cycle. Hosts with 10k+ databases see 10k+ data points per period; the exporter side has to absorb that. The bridge does NOT add per-class or per-RID attributes — `MetricScope.Class` profiler entries collapse to one OTel data point per (metric, database) pair. If per-class breakdown is needed downstream, the host configures a dedicated OTel exporter that views the raw profiler dump.
 - Bridge thread vs profiler-thread contention: the profiler's own collection threads (the `ScheduledExecutorService` passed to `Profiler` constructor) may be updating a `TimeRate` or `Ratio` while the bridge's callback reads through it. Both sides use lock-free reads on the metric primitives (`Gauge.value()` is a volatile read; `TimeRate.getRate()` snapshots an `AtomicReference`), so the contention surface is the `AtomicReference` CAS in `Meter`'s internal flush. Worst case: the bridge reads a sample one window behind reality. Acceptable for 10-second collection cadence.
 - Exporter back-pressure: OTel `PeriodicMetricReader` blocks the SDK's internal export thread when the configured exporter (OTLP, Prometheus) backs up. The bridge's scheduled task is independent of the reader — it advances time-windowed YTDB metrics regardless of exporter state — so back-pressure on the OTel side does not stall YTDB's in-JVM metric collection.
-- SDK swap during active metrics: when `setOpenTelemetry` swaps SDKs, the old `OTelMetricsBridge.stop()` runs before the new one's `start()`, so each `ObservableInstrument` is registered against exactly one `SdkMeterProvider` at a time. The window between stop and start is small; any metric reader poll in that window sees zero data points (the SDK-side callbacks are unregistered).
+- SDK swap during active metrics: when `setOpenTelemetry` swaps SDKs, the old `OTelMetricsBridge.stop()` runs before the new one's `start()`, so each source callback is registered against exactly one `SdkMeterProvider` at a time. The window between stop and start is small; any metric reader poll in that window sees zero data points (the SDK-side callbacks are unregistered).
 - Disabled metrics with a host-wired SDK: when `OPENTELEMETRY_ENABLED=true` and `OPENTELEMETRY_METRICS_ENABLED=false`, the bridge is not started even if the host's OTel SDK carries a real `MeterProvider`. The host's other instrumentations continue to emit; only YTDB's bridge stays silent. This is intentional — a host that wants YTDB metrics specifically must opt them in independently of the master switch.
 - Profiler not initialized: if the bridge is started before `Profiler.onStartup()` completes (race during very early bootstrap), the initial `forEachMetric(...)` walk visits zero metrics. The `addRegistrationListener(...)` subscription still fires for every metric `Profiler.onStartup()` subsequently creates, so the bridge ends up fully wired without a separate retry path. No WARN is emitted in this case — the late-arriving registration events are the expected wiring sequence under early bootstrap.
-- Late-DB-open registration event: when `databaseMetric(def, dbName)` first runs for a new database, the registration listener fires synchronously on the registering thread. The bridge handler posts the OTel `ObservableInstrument` registration to its own `ScheduledExecutorService` and returns immediately, so the database-open path is not blocked by OTel-side allocation. The first metric reader poll after the registration sees the new instrument; polls before the registration land see no data point for that database (consistent with the database simply not having been registered yet).
-- Concurrent enumeration race: a database opened concurrently with `start()`'s `forEachMetric(...)` walk may or may not be visited by the walk — `ConcurrentHashMap.entrySet()` is weakly consistent. Either outcome is correct: the `addRegistrationListener(...)` subscription registered before the walk catches anything the walk missed, so every metric registers exactly once across the combination of walk + listener fires (the listener's idempotence check on `registered.containsKey(name)` handles the rare case where both paths see the same registration event).
+- Late-DB-open registration event: when `databaseMetric(def, dbName)` first runs for a new database, the registration listener fires synchronously on the registering thread. The bridge handler posts the OTel observable-callback registration to its own `ScheduledExecutorService` and returns immediately, so the database-open path is not blocked by OTel-side allocation. The first metric reader poll after the registration sees the new instrument; polls before the registration land see no data point for that database (consistent with the database simply not having been registered yet).
+- Concurrent enumeration race: a database opened concurrently with `start()`'s `forEachMetric(...)` walk may or may not be visited by the walk — `ConcurrentHashMap.entrySet()` is weakly consistent. Either outcome is correct: the `addRegistrationListener(...)` subscription registered before the walk catches anything the walk missed, so every metric registers exactly once across the combination of walk + listener fires. The serialized registration path uses source metric identity to handle a metric seen by both paths. Database names are observation attributes, so two databases with the same metric name remain distinct.
 
 ### References
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task re-reading YTDB-side `TimeRate`/`Ratio` rates, flushed internally by `Meter`, independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
-- Invariants: Listener exception isolation (callback exceptions inside `ObservableInstrument` callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
+- Invariants: Listener exception isolation (exceptions in observable callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
 
 ## Quick-start observability stack
 
 The quick-start docker-compose example assembles five containerized services into one Collector pipeline plus three viewer backends, with Grafana provisioning the operator-facing UI surface. The deep mechanism here covers what the upstream tools do, how the Collector pipeline routes the three signals, and what the smoke script actually verifies — material that does not belong in design.md because it is upstream-tool-specific operational detail, not YTDB design.
+
+Grafana is the chosen operator UI, self-hosted or Grafana Cloud. YouTrackDB does not embed or depend on Grafana. The YTDB-owned SDK exports OTLP only to an OTel Collector. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. Other backends work through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards, which leaves operators to assemble the UI. The planned user manual includes "Connect to Grafana" for self-hosted and Cloud endpoints, headers and dashboard import. Other hosted backends have no first-class setup documentation in this deliverable. When the YTDB exporter endpoint is unset, grpc defaults to `http://localhost:4317` and http/protobuf to `http://localhost:4318` with signal-specific `/v1/{signal}` paths.
 
 ### Collector pipeline shape
 
@@ -528,7 +540,7 @@ Three details matter:
 
 ### Grafana datasource provisioning and correlator wiring
 
-Grafana provisions the three datasources at startup via `grafana/provisioning/datasources/datasources.yml`. The load-bearing entries are the trace-to-logs and trace-to-metrics correlators on the Jaeger datasource:
+Grafana provisions the three datasources at startup via `grafana/provisioning/datasources/datasources.yml`. The quick-start uses Jaeger. Production uses Tempo. Both trace data sources link to Loki and Prometheus-compatible metrics through their supported correlation settings. The local Jaeger configuration is:
 
 ```yaml
 apiVersion: 1
@@ -566,7 +578,7 @@ The `tracesToMetrics` correlator points at Prometheus and joins on `service.name
 
 ### Dashboard placeholder strategy
 
-Grafana dashboards reference datasources by UID. The committed JSON files under `grafana/dashboards/` use placeholder strings (`"datasource": "${DS_JAEGER}"`, `"datasource": "${DS_LOKI}"`, `"datasource": "${DS_PROMETHEUS}"`) that Grafana resolves at dashboard load time against the provisioned datasource UIDs. Without placeholders, exported dashboards bake in the UID of whatever Grafana instance authored them and fail to load on a fresh stack with re-provisioned UIDs.
+The same three dashboard JSON files serve the quick-start, self-hosted production and Grafana Cloud. Their data source inputs select a Jaeger or Tempo trace source, a Loki log source and a Prometheus-compatible metrics source. Trace views use the selected trace source. Latency, rate and count panels query Prometheus metrics. Dashboard import maps these inputs to local UIDs. Quick-start provisioning supplies the local defaults. Exported instance UIDs must not become fixed dependencies of the committed JSON.
 
 The author workflow for any dashboard edit: bring the stack up, open Grafana, edit the dashboard in the UI, export via "Share → Export → Save to file", run `scripts/normalize-dashboard.sh <file>` to replace the captured UIDs with the placeholder strings, commit. The normalize script is a thin `jq` wrapper that operates on the exported JSON deterministically.
 
@@ -575,7 +587,7 @@ The author workflow for any dashboard edit: bring the stack up, open Grafana, ed
 `scripts/smoke.sh` exits non-zero when any pillar fails to land within 30 seconds. The sequence:
 
 1. **Bring up the stack** if not already healthy (`docker compose up -d --wait`).
-2. **Run a minimal embedded YTDB query** via a one-shot `java -jar` invocation against the Maven-built artifact, with `OPENTELEMETRY_ENABLED=true` and the local Collector endpoint. The query is a fixed `SELECT FROM OUser LIMIT 1` against an in-memory database — small, deterministic, exercises the SQL pillar through `db.query(...)`.
+2. **Run a minimal embedded YTDB query** via a one-shot `java -jar` invocation against the Maven-built artifact. The sample settings and smoke invocation set `OPENTELEMETRY_ENABLED=true`, `OPENTELEMETRY_LOGS_ENABLED=true` and `OPENTELEMETRY_METRICS_ENABLED=true`, with the local Collector endpoint. Other settings keep their shipped defaults. These example overrides do not change product defaults. The query is a fixed `SELECT FROM OUser LIMIT 1` against an in-memory database — small, deterministic, exercises the SQL pillar through `db.query(...)`.
 3. **Poll Jaeger** at `http://localhost:16686/api/services` until `youtrackdb` appears, then `http://localhost:16686/api/traces?service=youtrackdb&limit=1` until at least one trace lands. 30 s timeout per pillar.
 4. **Poll Loki** at `http://localhost:3100/loki/api/v1/labels` until `service_name` appears, then `http://localhost:3100/loki/api/v1/query?query={service_name="youtrackdb"}` until at least one log record returns.
 5. **Poll Prometheus** at `http://localhost:9090/api/v1/label/service_name/values` until `youtrackdb` appears, then `http://localhost:9090/api/v1/query?query=db_client_operation_duration_seconds_count{service_name="youtrackdb"}` until at least one sample returns.
