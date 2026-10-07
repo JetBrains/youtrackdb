@@ -369,9 +369,13 @@ jobs:
             **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
+      # Publishing errors must not fail the job.
+      # test-failure-gate.py decides test failure.
+      # Omit all-tests and skipped-tests lists. Failed-test annotations remain.
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
+        continue-on-error: true
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -380,6 +384,7 @@ jobs:
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
+          check_run_annotations: none
           check_name: Tests Results (Linux ${{ matrix.arch }}, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
       - name: Upload Coverage Data
         uses: actions/upload-artifact@v7
@@ -465,9 +470,13 @@ jobs:
             **/target/failsafe-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
+      # Publishing errors must not fail the job.
+      # test-failure-gate.py decides test failure.
+      # Omit all-tests and skipped-tests lists. Failed-test annotations remain.
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action/windows@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
+        continue-on-error: true
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -476,8 +485,6 @@ jobs:
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
-          # GitHub can return HTTP 500 for annotation PATCH requests.
-          # The action does not retry PATCH requests for later annotation groups.
           check_run_annotations: none
           check_name: Tests Results (Windows x64, JDK ${{ matrix.java }} - ${{ matrix.distribution }})
 
@@ -623,12 +630,14 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # The publisher remains a second layer. It can also fail the job.
-      # Keep job_summary enabled. Setting it false makes fork runs exit zero despite failing tests.
-      # Upstream issue 789 documents this fork behavior.
+      # Fork runs keep the job summary because they cannot create checks.
+      # Publishing errors must not fail the job.
+      # test-failure-gate.py decides test failure.
+      # Omit all-tests and skipped-tests lists. Failed-test annotations remain.
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
+        continue-on-error: true
         with:
           files: |
             **/target/surefire-reports/TEST-*.xml
@@ -638,6 +647,7 @@ jobs:
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
+          check_run_annotations: none
           check_name: PR Integration Test Results (Linux x86, JDK 21 - temurin)
 
   # ------------------------------------------------------------------
@@ -739,15 +749,20 @@ jobs:
             **/target/surefire-reports/*.dump
           retention-days: 7
           if-no-files-found: ignore
+      # Publishing errors must not fail the job.
+      # test-failure-gate.py decides test failure.
+      # Omit all-tests and skipped-tests lists. Failed-test annotations remain.
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0
         if: always()
+        continue-on-error: true
         with:
           files: 'core/target/failsafe-reports/TEST-*.xml'
           action_fail: true
           large_files: true
           comment_mode: off
           compare_to_earlier_commit: false
+          check_run_annotations: none
           check_name: Tests Results (Small Cache IT)
       - name: Send Zulip notification on failure
         if: failure()
