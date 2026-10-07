@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
@@ -199,6 +200,65 @@ public class IndexScanOrderTest extends DbTestBase {
     assertPendingSelect(
         "SELECT FROM " + CLASS_NAME + " WHERE p >= 'A' AND p <= 'u' ORDER BY p DESC",
         this::withinRange);
+  }
+
+  /** Clean requests convert non-idempotent keys once and follow converted order both ways. */
+  @Test
+  public void cleanRequestedKeysWithNonIdempotentCollation_convertOnce() {
+    session.rollback();
+    var clazz = session.createClass("NonIdempotentOrder");
+    clazz.createProperty("p", PropertyType.STRING);
+    clazz.createIndex("NonIdempotentOrder.p", type, "p");
+    var freshIndex = session.getSharedContext().getIndexManager()
+        .getIndex("NonIdempotentOrder.p");
+    var collate = new PrefixReverseCollate();
+    freshIndex.getDefinition().setCollate(collate);
+    session.begin();
+    for (var key : List.of("az", "ba", "cy")) {
+      var entity = session.newEntity("NonIdempotentOrder");
+      entity.setProperty("p", key);
+    }
+    session.commit();
+    session.begin();
+    var rids = new LinkedHashMap<String, RID>();
+    var records = session.browseClass("NonIdempotentOrder");
+    while (records.hasNext()) {
+      var entity = records.next();
+      rids.put(entity.getProperty("p"), entity.getIdentity());
+    }
+    assertEquals(3, rids.size());
+    var requests = List.of("az", "missing", "cy", "ba");
+    var expected = List.of(new RawPair<Object, RID>("xab", rids.get("ba")),
+        new RawPair<Object, RID>("xyc", rids.get("cy")),
+        new RawPair<Object, RID>("xza", rids.get("az")));
+    for (boolean ascending : new boolean[] {true, false}) {
+      collate.transforms = 0;
+      try (var stream = freshIndex.streamEntries(session, requests, ascending)) {
+        assertEquals("literal converted keys and committed RIDs must match",
+            ascending ? expected : expected.reversed(), stream.toList());
+      }
+      assertEquals("each requested key must be converted exactly once",
+          requests.size(), collate.transforms);
+    }
+  }
+
+  private static final class PrefixReverseCollate implements Collate {
+
+    private int transforms;
+
+    @Override
+    public String getName() {
+      return "test-prefix-reverse";
+    }
+
+    @Override
+    public Object transform(Object value) {
+      if (value instanceof String key) {
+        transforms++;
+        return "x" + new StringBuilder(key).reverse();
+      }
+      return value;
+    }
   }
 
   private void assertPendingSelect(String query, Predicate<Row> filter) {

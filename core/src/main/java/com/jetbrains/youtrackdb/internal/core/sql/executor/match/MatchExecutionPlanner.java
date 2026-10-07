@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -729,6 +730,9 @@ public class MatchExecutionPlanner {
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: delegate property ordering to SELECT (IndexOrderedPlanner needs a hop).
       if (indexOrderedCandidate == null) {
+        // Nested RETURN projections can change the values used by the MATCH sort.
+        var hasNestedProjection = returnNestedProjections != null
+            && returnNestedProjections.stream().anyMatch(Objects::nonNull);
         singleNodeIndexOrder =
             SingleNodeIndexOrder.detect(
                 pattern,
@@ -742,7 +746,7 @@ public class MatchExecutionPlanner {
                 returnPaths,
                 returnPatterns,
                 returnPathElements,
-                groupBy == null && unwind == null && !returnDistinct
+                !hasNestedProjection && groupBy == null && unwind == null && !returnDistinct
                     && !returnElements && !returnPaths && !returnPatterns && !returnPathElements
                     && (notMatchExpressions == null || notMatchExpressions.isEmpty()),
                 context);

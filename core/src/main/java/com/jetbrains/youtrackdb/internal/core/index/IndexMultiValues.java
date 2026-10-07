@@ -450,7 +450,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   private Stream<RawPair<Object, RID>> streamForKey(Object key,
       @Nonnull AtomicOperation atomicOperation) {
-    key = getCollatingValue(key);
+    // streamEntries has already collated this requested key.
     final var entryKey = key;
     acquireSharedLock();
     try {

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
@@ -1075,6 +1076,91 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         assertThat(order.compare(orderedRows.get(i), rows.get(i), context, placements)).isZero();
       }
     }
+  }
+
+  private void seedNestedProjectionItems() {
+    var cls = session.createVertexClass("NestedOrder");
+    cls.createProperty("a", PropertyType.INTEGER);
+    cls.createProperty("p", PropertyType.INTEGER);
+    session.execute("CREATE INDEX NestedOrder_ap ON NestedOrder (a, p) NOTUNIQUE").close();
+    session.begin();
+    for (var p : List.of(1, 2, 3)) {
+      session.execute("CREATE VERTEX NestedOrder SET a = 1, p = ?", p).close();
+    }
+    session.commit();
+  }
+
+  private List<Integer> nestedProjectionValues(String query) {
+    var values = new ArrayList<Integer>();
+    try (var result = session.query(query)) {
+      result.forEachRemaining(row -> {
+        Result nested = row.getProperty("s");
+        values.add(((Number) nested.getProperty("p")).intValue());
+      });
+    }
+    return values;
+  }
+
+  /** Negating the indexed value in RETURN requires a sort before ASC LIMIT picks -3. */
+  @Test
+  public void nestedReturnProjectionAscLimit_sortsProjectedValues() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p ASC LIMIT 1";
+    assertThat(nestedProjectionValues(query)).containsExactly(-3);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** Negating the indexed value in RETURN requires a sort before DESC LIMIT picks -1. */
+  @Test
+  public void nestedReturnProjectionDescLimit_sortsProjectedValues() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p DESC LIMIT 1";
+    assertThat(nestedProjectionValues(query)).containsExactly(-1);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** A clean RID tie-break must not pass through index order after RETURN reverses the values. */
+  @Test
+  public void nestedReturnProjectionWithRid_sortsInsteadOfPassingThrough() {
+    seedNestedProjectionItems();
+    var query = "MATCH {class: NestedOrder, as: s, where: (a = 1)}"
+        + " RETURN s:{p * -1 AS p} AS s ORDER BY s.p ASC, s.@rid ASC";
+    assertThat(nestedProjectionValues(query)).containsExactly(-3, -2, -1);
+    assertThat(plan(query)).contains("NestedOrder_ap").contains("+ ORDER BY");
+  }
+
+  /** A composite trailing key must not replace RID order within an equal leading-key group. */
+  @Test
+  public void bareMatchAscWithRid_compositeOnlyIndex_keepsRidSort() {
+    var cls = session.createVertexClass("TrailingOrder");
+    cls.createProperty("a", PropertyType.INTEGER);
+    cls.createProperty("b", PropertyType.INTEGER);
+    session.execute("CREATE INDEX TrailingOrder_ab ON TrailingOrder (a, b) NOTUNIQUE")
+        .close();
+    session.begin();
+    session.execute("CREATE VERTEX TrailingOrder SET a = 1, b = 0").close();
+    session.execute("CREATE VERTEX TrailingOrder SET a = 1, b = 0").close();
+    session.commit();
+    session.begin();
+    var rids = new ArrayList<RID>();
+    var records = session.browseClass("TrailingOrder");
+    while (records.hasNext()) {
+      rids.add(records.next().getIdentity());
+    }
+    rids.sort(Comparator.naturalOrder());
+    assertThat(rids).hasSize(2);
+    // Choose trailing values from committed RIDs so index order is always the opposite.
+    session.loadEntity(rids.getFirst()).setProperty("b", 2);
+    session.loadEntity(rids.getLast()).setProperty("b", 1);
+    var expected = rids.stream().map(Object::toString).toList();
+    session.commit();
+
+    var query = "MATCH {class: TrailingOrder, as: s} RETURN s"
+        + " ORDER BY s.a ASC, s.@rid ASC";
+    assertThat(matchRids(query, "s")).isEqualTo(expected);
+    assertThat(plan(query)).contains("TrailingOrder_ab").contains("+ ORDER BY");
   }
 
   private List<String> gremlinOrderedIds(GraphTraversalSource source) {

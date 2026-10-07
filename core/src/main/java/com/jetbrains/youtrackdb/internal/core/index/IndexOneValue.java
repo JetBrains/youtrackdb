@@ -169,7 +169,8 @@ public abstract class IndexOneValue extends IndexAbstract {
             sortedKeys.stream()
                 .flatMap(
                     (key) -> {
-                      final var collatedKey = getCollatingValue(key);
+                      // streamEntries has already collated this requested key.
+                      final var collatedKey = key;
                       acquireSharedLock();
                       try {
                         var current = engineStateForRead();
