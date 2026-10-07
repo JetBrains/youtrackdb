@@ -22,6 +22,11 @@ public final class RecoveryPageContext {
     currentRecord = position;
   }
 
+  /** Whether this page has an allocation position in the current replay unit. */
+  public boolean isDeclaredPage(int fileId, long pageIndex) {
+    return declaredPosition(fileId, pageIndex) != null;
+  }
+
   @Nullable public LogSequenceNumber declaredPosition(int fileId, long pageIndex) {
     final var filePages = declaredPages.get(fileId);
     return filePages == null ? null : filePages.get(pageIndex);

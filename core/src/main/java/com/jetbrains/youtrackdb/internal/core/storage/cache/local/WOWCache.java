@@ -1648,7 +1648,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       final var filePagePointer = loadFileContent(
           intId, pageIndex, verifyChecksums,
-          context == null ? null : context.declaredPosition(intId, pageIndex));
+          context != null && context.isDeclaredPage(intId, pageIndex));
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
@@ -3629,11 +3629,12 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
-    return loadFileContent(internalFileId, pageIndex, verifyChecksums, null);
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, false);
   }
 
+  /** Rebuilding is allowed only for a declared page loaded for crash replay writes. */
   @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
-      final boolean verifyChecksums, @Nullable LogSequenceNumber declaredPosition)
+      final boolean verifyChecksums, final boolean rebuildAllowed)
       throws IOException {
     final var fileId = composeFileId(id, internalFileId);
     try {
@@ -3668,9 +3669,9 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                if (declaredPosition != null) {
-                  // Only the replay write-load supplies provenance. Do not stamp the
-                  // allocation LSN into the header: redo must still see an empty page.
+                if (rebuildAllowed) {
+                  // Only the replay write-load allows rebuilding a declared page. Keep the
+                  // header LSN unset so redo still sees an empty page.
                   buffer.clear();
                   buffer.put(new byte[pageSize]);
                   DurablePage.setLogSequenceNumberForPage(

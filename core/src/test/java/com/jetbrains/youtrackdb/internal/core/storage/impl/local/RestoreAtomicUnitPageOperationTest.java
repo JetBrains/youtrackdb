@@ -47,6 +47,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -464,6 +465,30 @@ public class RestoreAtomicUnitPageOperationTest {
     order.verify(writeCache).setRecoveryPageContext(any(RecoveryPageContext.class));
     order.verify(writeCache).setRecoveryPageContext(isNull());
     order.verify(writeCache).restoreModeOff();
+  }
+
+  /**
+   * Declaration membership is false in an empty context and for other pages or files. An
+   * allocation position makes only that page declared, and clearing the unit removes it.
+   * The current redo position does not grant declaration membership.
+   */
+  @Test
+  public void declarationMembershipMatchesOnlyPagesInCurrentUnit() {
+    var context = new RecoveryPageContext();
+    var position = new LogSequenceNumber(3, 12);
+    context.setCurrentRecord(new LogSequenceNumber(3, 20));
+    assertFalse(context.isDeclaredPage(DURABLE_INTERNAL_ID, 0));
+
+    var pages = new TreeMap<Long, LogSequenceNumber>();
+    pages.put(0L, position);
+    context.setDeclaredPages(Map.of(DURABLE_INTERNAL_ID, pages));
+    assertTrue(context.isDeclaredPage(DURABLE_INTERNAL_ID, 0));
+    assertEquals(position, context.declaredPosition(DURABLE_INTERNAL_ID, 0));
+    assertFalse(context.isDeclaredPage(DURABLE_INTERNAL_ID, 1));
+    assertFalse(context.isDeclaredPage(ND_INTERNAL_ID, 0));
+
+    context.setDeclaredPages(null);
+    assertFalse(context.isDeclaredPage(DURABLE_INTERNAL_ID, 0));
   }
 
   /** A unit exposes declarations only while it preloads and applies its own records. */
