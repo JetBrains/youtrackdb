@@ -882,21 +882,21 @@ public enum GlobalConfiguration {
 
   QUERY_MATCH_HASH_JOIN_THRESHOLD(
       "youtrackdb.query.match.hashJoinThreshold",
-      "Maximum estimated build-side cardinality for the MATCH hash join"
-          + " optimization. When the planner estimates that a NOT sub-pattern or"
-          + " secondary branch produces more rows than this threshold, it falls"
-          + " back to nested-loop evaluation. Set to 0 to disable hash join.",
+      "Maximum estimated build rows for MATCH hash joins. This cap covers detached"
+          + " NOT and exists checks and positive-pattern branches. Estimates above the"
+          + " cap select per-row evaluation. Detached hash builds apply a positive run-time"
+          + " threshold to distinct keys. Set to 0 to disable new hash selection.",
       Long.class,
       10000L,
       true),
 
   QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN(
       "youtrackdb.query.match.hashJoinUpstreamMin",
-      "Minimum upstream (probe-side) cardinality for the MATCH hash join"
-          + " optimization. When the probe side has fewer rows than this value,"
-          + " hash join is skipped because nested-loop is already fast."
-          + " Set to 0 to bypass upstream and cost-based guards"
-          + " (only the build-side threshold applies).",
+      "Minimum estimated upstream rows for MATCH hash joins. This setting covers"
+          + " detached NOT and exists checks and positive-pattern branches. Detached"
+          + " checks use the full positive output estimate, even with LIMIT."
+          + " Non-positive values bypass the minimum and cost comparison guards."
+          + " Eligibility and the build cap still apply.",
       Long.class,
       5L,
       true),

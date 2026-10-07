@@ -29,20 +29,23 @@ flowchart LR
       MS1["MatchStep #1"]
       MS2["MatchStep #2"]
       OPT["OptionalMatchStep"]
-      NOT["FilterNotMatchPatternStep"]
+      EXISTS["Detached exists check\nFilterExistsMatchPatternStep\nor HashJoinMatchStep(SEMI_JOIN)"]
+      NOT["Detached NOT check\nFilterNotMatchPatternStep\nor HashJoinMatchStep(ANTI_JOIN)"]
       RE["RemoveEmptyOptionalsStep"]
       RET["Return step\n($elements / $paths / …)"]
-      PF --> FS --> MS1 --> MS2 --> OPT --> NOT --> RE --> RET
+      PF --> FS --> MS1 --> MS2 --> OPT --> EXISTS --> NOT --> RE --> RET
     end
 ```
 
-**Figure 11.1 — A MATCH pipeline with all optional step types shown. Not every query uses
-every slot; the planner assembles the minimum set required.**
+**Figure 11.1 — A MATCH pipeline with optional steps and detached-check paths.
+The planner adds only the steps each query needs.**
 
 Not every query needs every step type. `MatchPrefetchStep` appears only when an alias is
 small enough to cache. `OptionalMatchStep` appears only when a node carries `optional:
-true`. `FilterNotMatchPatternStep` appears only when the query contains a `NOT { … }`
-sub-pattern. The planner omits any step whose condition is not met.
+true`. Detached checks filter rows without adding their internal aliases.
+Exists checks keep matching rows, while NOT checks reject them.
+Each uses either its per-row filter or `HashJoinMatchStep`
+(`MatchExecutionPlanner.java:1128–1181`).
 
 ## 11.2 `MatchFirstStep` — seeding the pipeline
 
@@ -264,28 +267,30 @@ After `RemoveEmptyOptionalsStep`, every `null` property value in a row is a genu
 absence. Before it, a `null` and a sentinel mean different things and should not be
 confused.
 
-## 11.7 `FilterNotMatchPatternStep` — NOT EXISTS in a nested loop
+## 11.7 Detached checks — per-row filters and the shared probe
 
-The `NOT { … }` construct asks the engine to retain only those rows for which the negative
-sub-pattern matches *nothing* in the database — the SQL `NOT EXISTS` equivalent.
+`FilterNotMatchPatternStep` rejects a row when its detached check finds a match.
+`FilterExistsMatchPatternStep` keeps it once on a match, including each duplicate incoming
+row (`FilterNotMatchPatternStep.java:70–83`, `FilterExistsMatchPatternStep.java:38–39`).
+Exists checks come from the Gremlin translator, not literal SQL MATCH syntax.
 
-`FilterNotMatchPatternStep` implements this with a nested-loop strategy. For each upstream
-row, it builds a temporary `SelectExecutionPlan` consisting of a `ChainStep` that injects a
-shallow copy of the current row as the starting point, followed by the NOT pattern's own
-`MatchStep`s (`FilterNotMatchPatternStep.java:100–107`). It then probes that plan with
-`hasNext()`. If the plan produces any result, the NOT pattern matched and the upstream row
-is discarded. If it produces no result, the row passes through.
+Both filters call `DetachedMatchPatternProbe.matches`. The helper copies the outer row
+and injects it into a temporary `SelectExecutionPlan` before the check's traversal steps.
+It publishes the copy as `$matched`, tests `hasNext()`, and closes the stream.
+A successful probe stops at the first match. The helper restores the outer `$matched`
+value or uses a child context when no outer value exists
+(`DetachedMatchPatternProbe.java:20–63`). Internal aliases stay inside the check.
 
-The shallow copy is deliberate: the NOT sub-plan reads property values from the injected
-row to resolve `$matched` references in its WHERE clauses, but it never mutates those
-values. Shallow copy is safe and avoids the cost of a deep clone on every iteration.
+The shared path choice can select these filters because hash is ineligible or more
+expensive. [Chapter 13](13-hash-joins.md#when-the-planner-picks-a-hash-join) describes
+eligibility, cost guards, and LIMIT-aware choice.
 
-The runtime cost of this approach is O(|upstream| × cost(NOT sub-pattern)). For a NOT
-sub-pattern that requires a full class scan per upstream row, that degrades badly. The
-`HashJoinMatchStep` variant described in Chapter 13 converts the same operation to
-O(build + |upstream|) when the NOT side can be materialised independently — but
-`FilterNotMatchPatternStep` remains the correct choice when a `$matched` dependency makes
-independent materialisation impossible.
+The *origin alias* is the positive alias where the check starts.
+Hash uses `ANTI_JOIN` for NOT and `SEMI_JOIN` for exists.
+Origin-only detached builds stop each origin's probe at its first
+match. Wider keys enumerate all paths (`HashJoinMatchStep.java:151–195`).
+A distinct-key overflow returns detached checks to the shared per-row probe
+(`HashJoinMatchStep.java:358–365`).
 
 ## 11.8 The return-step family
 
@@ -326,12 +331,13 @@ each expression against the alias-keyed row and emits a flat property map.
 The pull model is not just a convenience — it changes the cost profile of the entire
 pipeline in ways that matter for real queries.
 
-The pipeline is *lazy*. Nothing is computed until a row is demanded. When the executor
-calls `start()` on the last step, that step calls `start()` on its predecessor, and so
-the demand propagates backward until the `MatchFirstStep` finally yields its first record.
-A `LIMIT 10` clause stops pulling after ten rows, which causes the entire chain to stop
-— no traversal work is done for the rows that were never requested. On a large graph this
-is not a courtesy; it is a fundamental cost guarantee.
+Pull-based traversal computes rows on demand. `LIMIT 10` stops further outer pulls after
+ten results. Per-row detached checks therefore stop probing unrequested outer rows.
+`HashJoinMatchStep` is an eager-build exception. It builds its hash structure before
+opening the outer stream, so LIMIT cannot stop that build early
+(`HashJoinMatchStep.java:109–143`).
+The [detached cost comparison](13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+can favor per-row execution for a small literal LIMIT, but it always charges the full hash build.
 
 The pipeline is also *cancellable*. Because each step yields control back to the caller
 between rows, a timeout, a user cancellation, or an exception thrown by a traversal error
@@ -407,7 +413,11 @@ the target alias is already bound. Chapter 12 opens all six.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/RemoveEmptyOptionalsStep.java` —
   sentinel-to-null replacement at lines 42–47.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` —
-  NOT sub-plan construction at lines 100–107.
+  per-row NOT filter at lines 70–83.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java` —
+  per-row exists filter at lines 38–39.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` —
+  copied-row probe, early stop, and context restoration at lines 20–63.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/ReturnMatchElementsStep.java`,
   `ReturnMatchPathsStep.java`, `ReturnMatchPatternsStep.java`,
   `ReturnMatchPathElementsStep.java` — the four return-step variants.
