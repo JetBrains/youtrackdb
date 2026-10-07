@@ -323,7 +323,7 @@ from the prefetch list at the top of the plan confirms the dependency was detect
 
 ---
 
-## 15.8 NOT with a hash anti-join: a second sub-plan runs in parallel
+## 15.8 NOT path choice: per-row probe or hash anti-join
 
 ```sql
 MATCH {class: Person, as: p}
@@ -331,15 +331,20 @@ NOT   {as: p}.out('Blocked'){class: Person, where: (name='admin')}
 RETURN p
 ```
 
-The new feature is a `NOT` clause. The engine must eliminate every `Person` that has a `Blocked`
-edge leading to the admin record. This is the first query where a second independent sub-plan
-runs alongside the main one — and their results are reconciled by a hash anti-join.
+The new feature is a `NOT` clause. The engine removes every `Person` with a `Blocked`
+edge to the admin record. NOT is a detached check, which filters positive-pattern rows
+without adding its internal aliases.
 
-**Planner phase.** `manageNotPatterns()` (`MatchExecutionPlanner.java:681`) processes the
-negative expression and runs `canUseHashJoin()`. The three guards (covered in full in
-Chapter 13) all pass here: the NOT pattern has no `$matched` reference, the admin set is
-tiny (cardinality ≈ 1), and the upstream `Person` scan is large. The planner wires a
-`HashJoinMatchStep` in `ANTI_JOIN` mode.
+**Planner phase.** `manageNotPatterns()` uses the shared detached path choice
+(`MatchExecutionPlanner.java:1128–1157`). Independence and a small matching set do not
+select hash by themselves. With one outer row per origin, the full-input cost comparison
+prefers the per-row probe (`MatchExecutionPlanner.java:1468–1489`).
+
+The illustrative hash plan below assumes the build estimate fits the threshold and
+`QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` is non-positive. This disables both cost guards,
+not eligibility or the build cap. With the default settings, expect
+`FilterNotMatchPatternStep` for this shape.
+[Chapter 13](13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison) explains the costs.
 
 **Execution steps.**
 
@@ -350,14 +355,15 @@ tiny (cardinality ≈ 1), and the upstream `Person` scan is large. The planner w
 [ ReturnMatch*Step                                                     ]
 ```
 
-The build phase executes the NOT sub-plan once, collecting into a hash set every `p` RID that
-has a `Blocked` path to admin (Chapter 13). The probe phase then streams the positive-pattern
-rows and emits only those whose `p` RID is absent from the set. The cost profile is
-`O(build) + O(probe)` rather than the `O(build × probe)` of a nested-loop approach.
+The origin-only build scans possible `p` bindings and stops each probe at its first match.
+It stores matching RIDs in a hash structure before opening the outer stream.
+A distinct-key overflow falls back to the per-row probe (`HashJoinMatchStep.java:128–195`,
+`358–365`). A complete build keeps only rows whose `p` RID is absent from that structure.
 
-**EXPLAIN.** A `HashJoinMatchStep` with mode `ANTI_JOIN` confirms the optimised path was taken.
-If you see `FilterNotMatchPatternStep` instead, one of the three guards fired — check the
-cardinality estimates and the presence of `$matched` references in the NOT clause.
+**EXPLAIN.** `ANTI_JOIN` identifies the hash path. `FilterNotMatchPatternStep` identifies
+per-row execution, which can be cheaper. Check eligibility, estimates, settings, and cache
+reuse before treating it as a poor plan.
+A small literal LIMIT can also favor per-row execution, as Chapter 13 explains.
 
 ---
 
@@ -373,10 +379,12 @@ NOT   {as: me}.out('BlockedBy'){as: competitor}
 RETURN me.name, friend.name, city.name, employer.name, competitor.name
 ```
 
-The new feature is the composition of everything: a three-hop chain with an optional tail, a
-disjoint second component, a back-reference between the two components through the shared alias
-`competitor`, and a hash anti-join driven by a NOT clause. Every mechanism from sections 15.1
-through 15.8 fires in a single plan.
+The query combines a three-hop chain with an optional tail and a disjoint second component.
+Its NOT check shares `me` and `competitor` with the positive pattern.
+The illustrated plan assumes hash eligibility and a build estimate within the cap.
+It also assumes the cost guards select hash or are disabled by a non-positive upstream minimum.
+The two-alias key uses the full-input comparison even with LIMIT
+(`MatchExecutionPlanner.java:1453–1458`).
 
 **Pattern graph.**
 
@@ -434,12 +442,11 @@ appears in the set.
                              employer.name, competitor.name)             ]
 ```
 
-Each step in the plan is owned by exactly one mechanism. `MatchPrefetchStep` materialises `me`
-(section 15.2). The two forward `MatchStep` entries grow the row alias by alias (section 15.3).
+`MatchPrefetchStep` materialises `me` (section 15.2).
+The two forward `MatchStep` entries extend the row alias by alias (section 15.3).
 `OptionalMatchStep` and `RemoveEmptyOptionalsStep` handle the optional `employer` (section 15.5).
-`CartesianProductStep` joins the two disconnected components (section 15.4 covered the simpler
-two-alias case; this is the same mechanism with a longer component 1). The hash anti-join
-eliminates blocked pairs using the same three-guard decision the planner applied in section 15.8.
+`CartesianProductStep` joins the disconnected components.
+The hash anti-join eliminates blocked pairs under the shared path-choice rule in section 15.8.
 
 **Row evolution** (one row through the happy path):
 
@@ -473,15 +480,15 @@ produced by the Cartesian product still carry the sentinel correctly.
 
 ## Closing reflection
 
-You have now watched every layer of the engine deploy in sequence. A single-node scan becomes
-a prefetched `MatchFirstStep`. Each edge grows the pipeline by one `MatchStep`. A highly
-selective equality filter anchors the root; a `$matched` reference overrides that anchoring by
-data-flow necessity. Optional nodes introduce a sentinel that lives until one dedicated cleanup
-step converts it to `null`. Disjoint components fork into independent sub-plans and reunite at a
-`CartesianProductStep`. Bounded recursion runs as a stateful depth-first walk inside a single
-`MatchStep` that is never reversed. NOT patterns materialise a hash set once and probe it in
-linear time. And all of these mechanisms compose cleanly because each step in the pipeline owns
-exactly one semantic responsibility.
+The examples combine planning and execution. A small alias set can be prefetched before
+`MatchFirstStep`. Each ordinary edge adds a `MatchStep`. Root selection considers both
+selectivity and `$matched` dependencies.
+
+Optional nodes introduce sentinels that cleanup converts to `null`.
+`CartesianProductStep` combines disjoint components. Bounded recursion runs inside a traverser.
+Detached NOT and exists checks use either a hash structure or a per-row probe.
+Their shared path choice considers eligibility, costs, and usable literal slices.
+Cached plans keep that choice, and hash builds remain eager.
 
 Chapter 16 takes this knowledge into the debugging context: how to read a real `EXPLAIN` output,
 how to recognise when the planner has made the wrong choice, and what you can change in the
@@ -492,7 +499,10 @@ every configuration knob, the full glossary.
 
 *Further reading*
 
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` — all eight planning phases; root selection at line 5192; prefetch threshold at line 336; hash-join guards at lines 345 and 355; `manageNotPatterns` at line 681; `splitDisjointPatterns` at line 4407
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` —
+  planning phases at lines 638–808. Root estimates at line 7154. Prefetch threshold at line 365.
+  Detached eligibility and costs at lines 1397–1582. NOT planning at lines 1128–1157.
+  Disjoint-pattern splitting at line 6099.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchFirstStep.java` — initial record scan
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchStep.java` — edge traversal step and traverser delegation
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/OptionalMatchStep.java` — optional edge handling and `EMPTY_OPTIONAL` sentinel
@@ -505,5 +515,6 @@ every configuration knob, the full glossary.
 - Chapter 10 — scheduling, invertibility, and disjoint-component handling
 - Chapter 11 — execution step catalogue and alias-keyed row mechanics
 - Chapter 12 — traverser strategies including back-reference enforcement and WHILE recursion
-- Chapter 13 — hash-join variants and the three-guard planning decision
+- [Chapter 13](13-hash-joins.md#when-the-planner-picks-a-hash-join) — hash-join variants,
+  eligibility, and the cost comparison for path choice
 - Chapter 14 — index pre-filter optimisation for selective target nodes

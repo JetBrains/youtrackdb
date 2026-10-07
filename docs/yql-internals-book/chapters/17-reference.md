@@ -49,13 +49,15 @@ abbreviates
 | `…/internal/core/sql/executor/match/MatchPrefetchStep.java` | Eager materialisation step for small aliases | Ch. 11 |
 | `…/internal/core/sql/executor/match/OptionalMatchStep.java` | OPTIONAL edge step; emits a sentinel row on traversal failure | Ch. 11 |
 | `…/internal/core/sql/executor/match/RemoveEmptyOptionalsStep.java` | Post-join cleanup step: removes rows whose OPTIONAL alias resolved to the sentinel | Ch. 11 |
-| `…/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` | Nested-loop NOT fallback; used when hash join guards are not met | Ch. 11, 13 |
+| `…/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` | Per-row detached NOT filter. (`FilterNotMatchPatternStep.java:70–83`) | Ch. 11, 13 |
+| `…/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java` | Per-row detached exists filter. (`FilterExistsMatchPatternStep.java:38–39`) | Ch. 13, 16 |
+| `…/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` | Shared copied-row probe with first-match stop and context restoration. (`DetachedMatchPatternProbe.java:20–63`) | Ch. 13 |
 | `…/internal/core/sql/executor/match/MatchEdgeTraverser.java` | Standard forward traverser and base class for all traverser strategies | Ch. 12 |
 | `…/internal/core/sql/executor/match/MatchReverseEdgeTraverser.java` | Reverse-direction traverser; walks an edge against its written direction | Ch. 12 |
 | `…/internal/core/sql/executor/match/OptionalMatchEdgeTraverser.java` | Optional-edge traverser; emits a sentinel on empty traversal | Ch. 12 |
 | `…/internal/core/sql/executor/match/MatchFieldTraverser.java` | Field-property traverser; walks a record field rather than a graph edge | Ch. 12 |
 | `…/internal/core/sql/executor/match/MatchMultiEdgeTraverser.java` | Multi-step group traverser; executes a `.(sub1.sub2.…)` path item | Ch. 12 |
-| `…/internal/core/sql/executor/match/HashJoinMatchStep.java` | Generic hash join for NOT/EXISTS/inner patterns | Ch. 13 |
+| `…/internal/core/sql/executor/match/HashJoinMatchStep.java` | Hash join for detached NOT and exists checks and positive-pattern branches. (`MatchExecutionPlanner.java:1148–1179`, `HashJoinMatchStep.java:78–101`) | Ch. 13 |
 | `…/internal/core/sql/executor/match/CorrelatedOptionalHashJoinStep.java` | Correlated OPTIONAL hash join with LRU neighbour cache | Ch. 13 |
 | `…/internal/core/sql/executor/match/InvertedWhileHashJoinStep.java` | Inverted WHILE hash join: builds a reachable-RID set from anchor vertices, then probes upstream rows | Ch. 13 |
 | `…/internal/core/sql/executor/match/JoinKey.java` | Pre-hashed join key value object; three shapes: `SINGLE_RID`, `RID_ARRAY`, `OBJECT_ARRAY` | Ch. 13 |
@@ -81,17 +83,19 @@ abbreviates
 | `…/internal/core/sql/executor/CostModel.java` | Shared cost-arithmetic utility used by the scheduler | Ch. 8 |
 | `…/internal/core/index/engine/SelectivityEstimator.java` | Selectivity estimation for WHERE predicates and class filters | Ch. 8 |
 | `…/internal/core/sql/parser/YqlStatementCache.java` | Per-database LRU cache for parsed `SQLStatement` objects, keyed by raw SQL text; shared across all sessions on the same database | Ch. 4, 7 |
-| `…/internal/core/sql/parser/YqlExecutionPlanCache.java` | Per-database LRU cache for assembled `SelectExecutionPlan` templates; copy-on-read guarantees per-caller isolation; invalidated on any schema, index, or configuration change | Ch. 7 |
+| `…/internal/core/sql/parser/YqlExecutionPlanCache.java` | Per-database LRU cache for assembled `SelectExecutionPlan` templates. Copy-on-read isolates callers. Cache hits retain the chosen hash or per-row path. (`YqlExecutionPlanCache.java:178–184`, `MatchExecutionPlanner.java:626–630`) | Ch. 7 |
 | `…/internal/core/sql/executor/cache/QueryResultCache.java` | Entry point of the per-transaction query-result cache (one instance per `FrontendTransactionImpl`); caches result rows before the pipeline runs, reconciles hits against in-transaction mutations, and evicts under LRU. The rest of the `sql/executor/cache/` package holds its shape classifier, delta builder, and non-determinism detector. | Ch. 7 |
-| `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` | All runtime-configurable parameters; MATCH hash-join knobs at lines 863–892, query-result-cache knobs at 961–1009, and pre-filter knobs at 1389–1425 | Ch. 7, 13, 14 |
+| `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` | All runtime-configurable parameters. MATCH hash-join knobs at lines 883–914, query-result-cache knobs at 994–1042, and pre-filter knobs at 1395–1442 | Ch. 7, 13, 14 |
 
 ---
 
 ## 17.2 Configuration knobs
 
 The runtime properties in Table 17.2 live in `GlobalConfiguration.java` and can be
-adjusted without a server restart — they are read at query planning time,
-not at startup. The two planner constants are `private static final` fields
+adjusted without a server restart. Hash settings affect new path choices at planning
+time. Cached plans keep their path (`MatchExecutionPlanner.java:383–404`, `626–630`).
+The `HashJoinMatchStep` build reads the runtime threshold (`HashJoinMatchStep.java:173–186`).
+The two planner constants are `private static final` fields
 of `MatchExecutionPlanner` and are not externally configurable.
 
 **Table 17.2 — Runtime configuration properties.**
@@ -107,8 +111,8 @@ of `MatchExecutionPlanner` and are not externally configurable.
 | `QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY` | `youtrackdb.query.txResultCache.maxRecordsPerEntry` | `10000` | Per-entry cap on the records a cached result may hold. Crossing it overflows the entry: its key is marked non-cacheable for the rest of the transaction while the consumer still receives every result from the live stream. (`GlobalConfiguration.java:980`) | Ch. 7 |
 | `QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD` | `youtrackdb.query.txResultCache.deltaUnreconcilableInvalidationThreshold` | `3` | Strike limit: how many times a delta-unreconcilable entry may be invalidated by an intervening mutation before its key is routed to the non-cacheable set for the rest of the transaction. Note the property key diverges from the constant name. (`GlobalConfiguration.java:991`) | Ch. 7 |
 | `QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD` | `youtrackdb.query.txResultCache.matchMultiInvalidationThreshold` | `3` | Strike limit for multi-alias MATCH entries, applied the same way as the delta-unreconcilable threshold. Note the property key diverges from the constant name. (`GlobalConfiguration.java:1001`) | Ch. 7 |
-| `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `youtrackdb.query.match.hashJoinThreshold` | `10000` | Maximum estimated build-side cardinality for hash-join eligibility. Build estimates above this value force a nested-loop fallback. Set to `0` to disable all hash joins. (`GlobalConfiguration.java:863`) | Ch. 13 |
-| `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `youtrackdb.query.match.hashJoinUpstreamMin` | `5` | Minimum probe-side (upstream) row count before hash join is considered. Below this threshold nested loops are already fast. Set to `0` to bypass both this guard and the cost comparison, leaving only the build-side cap. (`GlobalConfiguration.java:873`) | Ch. 13 |
+| `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `youtrackdb.query.match.hashJoinThreshold` | `10000` | Planning cap on build estimates. Detached ANTI/SEMI_JOIN runtime overflow counts distinct keys. Set to `0` to disable hash selection. (`GlobalConfiguration.java:883–891`, `MatchExecutionPlanner.java:1423–1426`, `HashJoinMatchStep.java:181–184`) | Ch. 13 |
+| `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `youtrackdb.query.match.hashJoinUpstreamMin` | `5` | Minimum full positive output for detached checks. Non-positive values disable both cost guards, not eligibility or the build cap. Unknown outer rows or walk work bypass both guards. (`GlobalConfiguration.java:893–902`, `MatchExecutionPlanner.java:1442–1489`) | Ch. 13 |
 | `QUERY_MATCH_CORRELATED_CACHE_SIZE` | `youtrackdb.query.match.correlatedCacheSize` | `16` | LRU cache capacity for `CorrelatedOptionalHashJoinStep`. Higher values reduce neighbour-set rebuilds when many distinct correlated vertices interleave in the upstream stream, at the cost of memory. (`GlobalConfiguration.java:884`) | Ch. 13 |
 | `QUERY_STATS_DEFAULT_FAN_OUT` | `youtrackdb.query.stats.defaultFanOut` | `10.0` | Fallback fan-out value used by `EdgeFanOutEstimator` when the schema carries no edge-count statistics for the requested class and direction. (`GlobalConfiguration.java:1240`) | Ch. 8 |
 | `QUERY_STATS_DEFAULT_SELECTIVITY` | `youtrackdb.query.stats.defaultSelectivity` | `0.1` | Fallback selectivity fraction used by `SelectivityEstimator` for non-indexed or unrecognised predicates. (`GlobalConfiguration.java:1233`) | Ch. 8 |
@@ -123,7 +127,7 @@ of `MatchExecutionPlanner` and are not externally configurable.
 | Constant | Location | Value | Role | Chapter |
 |---|---|---|---|---|
 | `THRESHOLD` | `MatchExecutionPlanner.java:336` | `100` | Prefetch cap: aliases whose estimated cardinality falls below this value are materialised by `MatchPrefetchStep` before the main traversal. Also used as the fallback `source_rows` estimate when no cardinality data is available. | Ch. 7, 11 |
-| `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:366` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
+| `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:414` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
 
 ---
 
@@ -147,10 +151,10 @@ flowchart TB
       PH2["Phase 2: splitDisjointPatterns()\nconnected components\nCh. 7"] -->
       PH3["Phase 3: estimateRootEntries()\nalias → cardinality map\nCh. 9"] -->
       PH4["Phase 4: addPrefetchSteps()\nsmall aliases → MatchPrefetchStep\nCh. 11"] -->
-      PH5["Phase 5: getTopologicalSortedSchedule()\ncost-guided DFS → List&lt;EdgeTraversal&gt;\nCh. 10"] -->
-      PH6["Phase 6: step generation\nMatchFirstStep, MatchStep, OptionalMatchStep …\nCh. 11"] -->
-      PH7["Phase 7: manageNotPatterns()\nHashJoinMatchStep or FilterNotMatchPatternStep\nCh. 13"] -->
-      PH8["Phase 8: optional cleanup + RETURN projection\nRemoveEmptyOptionalsStep, ReturnMatch* steps\nCh. 11"]
+      PH5["Phase 5: scheduling + step generation\nMatchFirstStep, MatchStep, OptionalMatchStep …\nCh. 10–11"] -->
+      PH6["Phase 6: manageExistsPatterns(), manageNotPatterns()\nshared detached path choice\nCh. 13"] -->
+      PH7["Phase 7: optional cleanup\nRemoveEmptyOptionalsStep\nCh. 11"] -->
+      PH8["Phase 8: RETURN projection + post-processing\nReturnMatch* steps\nCh. 11"]
     end
 
     MEP --> Planning
@@ -162,7 +166,7 @@ flowchart TB
       ES2["MatchFirstStep\n(root alias scan)"] -->
       ES3["MatchStep × N\n(via Traverser strategy\nCh. 12)"] -->
       ES4["OptionalMatchStep\n(if OPTIONAL edges present)"] -->
-      ES5["HashJoinMatchStep /\nCorrelatedOptionalHashJoinStep /\nInvertedWhileHashJoinStep /\nCartesianProductStep\n(if applicable)"] -->
+      ES5["HashJoinMatchStep /\nFilterExistsMatchPatternStep / FilterNotMatchPatternStep /\nCorrelatedOptionalHashJoinStep /\nInvertedWhileHashJoinStep /\nCartesianProductStep\n(if applicable)"] -->
       ES6["RemoveEmptyOptionalsStep"] -->
       ES7["ReturnMatch* /\nProjectionCalculationStep"]
     end
@@ -171,9 +175,13 @@ flowchart TB
     Execution --> Rows(["Result rows\nreturned to caller"])
 ```
 
-The left spine (Planning) runs once per query, before any row is produced.
-The right spine (Execution) is pull-based: nothing moves until the caller
-calls `next()` on the outermost step. Pre-filter attachment (Chapter 14)
+Planning runs on a cache miss (`MatchExecutionPlanner.java:626–630`). Phase 5 generates
+steps. Phase 6 appends exists then NOT. Phases 7–8 add cleanup and projection
+(`MatchExecutionPlanner.java:760–808`). Execution pulls rows on demand.
+`HashJoinMatchStep` builds eagerly before opening the outer stream
+(`HashJoinMatchStep.java:109–143`).
+
+Pre-filter attachment (Chapter 14)
 is an optimisation applied inside Phase 5 — it annotates individual
 `EdgeTraversal` objects and changes the behaviour of the traverser in the
 Execution spine without adding a new step type.
@@ -273,6 +281,20 @@ by `QUERY_MATCH_CORRELATED_CACHE_SIZE`. (Ch. 13)
 
 ---
 
+**Detached check** — A pattern evaluated after the positive MATCH pattern to filter its
+rows without exporting internal aliases. Its origin is an alias already bound in the
+positive pattern. Exists keeps matching rows. NOT rejects them. Both share hash eligibility
+and costs (`MatchExecutionPlanner.java:1128–1181`, `DetachedMatchPatternProbe.java:20–63`).
+
+Full-input costs are O × W for per-row probing and B + B × W + O for hash.
+O estimates positive output, B estimates scanned origins, and W estimates candidate visits
+in one complete walk.
+A usable literal LIMIT discounts probes, not the eager build in `HashJoinMatchStep`. See
+[Chapter 13](13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+for formulas and full-input fallbacks (`MatchExecutionPlanner.java:1442–1582`).
+
+---
+
 **DFS** (depth-first search) — The traversal strategy the scheduler uses
 to explore the pattern graph when building the edge schedule. Starting from
 the chosen root alias, it picks the cheapest available unscheduled edge
@@ -296,10 +318,11 @@ for back-reference semi-joins). The schedule produced by Phase 5 is a
 **Execution step** — One pull-based iterator node in the assembled
 `SelectExecutionPlan`. Each step exposes a stream via `internalStart(ctx)`,
 consumes the stream of the preceding step, and produces a transformed
-stream. The chain is lazy: nothing executes until the caller invokes
-`next()` on the outermost step. Concrete types in the MATCH pipeline
+stream. `HashJoinMatchStep` builds eagerly when started, before opening the outer stream
+(`HashJoinMatchStep.java:109–143`). Concrete types in the MATCH pipeline
 include `MatchPrefetchStep`, `MatchFirstStep`, `MatchStep`,
-`OptionalMatchStep`, `HashJoinMatchStep`, `FilterNotMatchPatternStep`, and
+`OptionalMatchStep`, `HashJoinMatchStep`, `FilterExistsMatchPatternStep`,
+`FilterNotMatchPatternStep`, and
 the four `ReturnMatch*` projection variants. (Ch. 3, 11)
 
 ---
@@ -323,13 +346,15 @@ can only walk them in the written direction. The runtime delegate is
 
 ---
 
-**`FilterNotMatchPatternStep`** — The nested-loop fallback for NOT
-patterns. For each upstream row, the step constructs a fresh sub-execution
-plan containing a singleton-row source followed by the NOT-pattern step
-chain, and asks whether that plan produces any result. If it does, the NOT
-pattern matched and the upstream row is discarded; if it does not, the row
-passes. Used when hash-join guards are not met, most commonly because the
-NOT expression references `$matched`. (Ch. 11, 13)
+**`FilterExistsMatchPatternStep`** — The per-row detached exists filter.
+It uses `DetachedMatchPatternProbe` and keeps an incoming row on the first match
+(`FilterExistsMatchPatternStep.java:38–39`). (Ch. 13, 16)
+
+---
+
+**`FilterNotMatchPatternStep`** — The per-row detached NOT filter.
+It uses the same copied-row probe but discards an incoming row on a match
+(`FilterNotMatchPatternStep.java:70–83`, `DetachedMatchPatternProbe.java:20–63`). (Ch. 13)
 
 ---
 
@@ -337,8 +362,8 @@ NOT expression references `$matched`. (Ch. 11, 13)
 inner (typically smaller) side once and loads all keys into a hash
 structure. The *probe phase* checks each outer row against the hash
 structure in O(1). Total cost is O(build + outer) rather than O(outer ×
-inner). In the MATCH engine, hash joins are used for NOT patterns
-(`HashJoinMatchStep`), correlated OPTIONAL patterns
+inner). In the MATCH engine, hash joins are used for detached NOT and exists checks
+(`MatchExecutionPlanner.java:1148–1179`), positive-pattern branches, correlated OPTIONAL patterns
 (`CorrelatedOptionalHashJoinStep`), and inverted WHILE recursions
 (`InvertedWhileHashJoinStep`). Memory cost is bounded by the build side;
 the planner enforces this through `QUERY_MATCH_HASH_JOIN_THRESHOLD`. (Ch. 13)
@@ -418,7 +443,9 @@ re-evaluate the inner side (a sub-pattern or filter) from scratch and
 collect its results. Cost is O(outer × inner). Used when hash-join
 eligibility guards are not met (for example when the NOT expression
 references `$matched`). Implemented by `FilterNotMatchPatternStep` for NOT
-patterns. (Ch. 11, 13)
+patterns and `FilterExistsMatchPatternStep` for detached exists checks. Both stop at the
+first match through `DetachedMatchPatternProbe` (`MatchExecutionPlanner.java:1149–1179`,
+`DetachedMatchPatternProbe.java:48–55`). (Ch. 13)
 
 ---
 
@@ -460,8 +487,9 @@ carry no `$matched` dependency are prefetch-eligible. (Ch. 7, 11)
 output until the caller requests a row by invoking `next()` on the
 outermost step. Each step calls `next()` on its predecessor only when it
 needs another input row; the chain is driven entirely by downstream demand.
-Consequences: memory use is bounded by pipeline depth rather than result
-count, and early termination (LIMIT) is effectively free. (Ch. 3)
+LIMIT stops further pulls. `HashJoinMatchStep` builds before opening the outer stream.
+LIMIT does not reduce that build's memory or work (`HashJoinMatchStep.java:109–231`,
+`LimitedExecutionStream.java:18–23`). (Ch. 3, 13)
 
 ---
 
@@ -498,8 +526,8 @@ classes are inflated to `Long.MAX_VALUE` to protect this constraint. (Ch. 7, 9)
 `getTopologicalSortedSchedule()` (Phase 5 of the planner). Each entry is
 an `EdgeTraversal` that records the edge, the direction chosen by the
 scheduler, and any attached optimisation descriptors. The schedule is the
-direct input to Phase 6, where the planner converts it into an ordered list
-of execution steps. (Ch. 10)
+direct input to step generation within Phase 5
+(`MatchExecutionPlanner.java:760–787`). (Ch. 10)
 
 ---
 
@@ -550,9 +578,9 @@ The first is **pull-based streaming**. YouTrackDB does not compute a query
 answer and then deliver it; it wires together a chain of lazy iterators and
 lets the caller drive the pipeline one row at a time. This model — described
 in Chapter 3 with a plain SELECT and then relied upon across every execution
-chapter — is what makes early termination free and memory use proportional to
-pipeline depth rather than result count. Every execution step in the MATCH
-engine is an `ExecutionStream`; every optimisation keeps that contract intact.
+chapter — lets LIMIT stop further outer pulls. `HashJoinMatchStep` still builds its hash
+structure before opening the outer stream (`HashJoinMatchStep.java:109–231`). The stream
+contract does not make that build lazy.
 
 The second is **cost-ranked planning**. The planner does not ask "what is
 the correct traversal order?" It asks "which order is likely cheapest?"

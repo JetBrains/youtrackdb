@@ -56,10 +56,10 @@ engine could have resolved in one pass instead takes O(N) re-executions.
 
 The engine can do better if it is willing to spend some memory up front.
 
-The `NOT` sub-plan has no dependency on which specific outer row is being evaluated. The
-admin's RID is fixed for the entire query. So instead of re-running the sub-plan once per
-outer row, the engine can run it once, collect all `Person` RIDs that *do* block the
-admin into a hash set, and then check each outer row against that set in O(1).
+The `NOT` check starts at `p`, its *origin alias*. It reads no other outer-row context.
+The hash path scans possible origins and collects the record identifiers (RIDs) of those
+with a matching path. It then tests each outer row against that set in O(1)
+(`HashJoinMatchStep.java:151–195`).
 
 The two-phase shape is:
 
@@ -68,10 +68,10 @@ The two-phase shape is:
 2. **Probe phase.** Consume the outer stream. For each row, extract the same join key and
    probe the hash structure. The check is O(1).
 
-The cost changes from O(outer × inner) to O(build + outer). On the five-million-person
-query that is the difference between ten million edge traversals and roughly as many
-traversals as there are people who block the admin — often a fraction of a percent of the
-total.
+The cost changes from O(outer × inner) to O(build + outer). The build includes scanning
+origins that have no matching path. If the outer scan visits each origin only once,
+repeated per-row work may be too small to justify a hash build
+(`MatchExecutionPlanner.java:1468–1489`).
 
 The trade-off is memory: the entire build side must fit in a hash structure before the
 first outer row is processed. The planner enforces this through a series of guards
@@ -81,20 +81,22 @@ described next.
 
 ## When the planner picks a hash join
 
-The planner does not always choose a hash join. It applies up to four guards in sequence.
-All four are evaluated in `MatchExecutionPlanner` before a hash strategy is committed.
+`HashJoinMatchStep` serves detached checks and positive-pattern branches.
+A *detached check* filters positive-pattern rows without adding its internal aliases.
+NOT rejects matching rows. Exists keeps matching rows. Both use the same path-choice rule
+(`MatchExecutionPlanner.java:1128–1181`). Branch costs use a separate rule.
 
 ```mermaid
 flowchart TB
-    Start([NOT / OPTIONAL / WHILE pattern]) --> G0{Context-dependency guard:\nno $matched / $parent reference?}
+    Start([Detached NOT / exists or pattern branch]) --> G0{Context and shared-alias eligibility?}
     G0 -->|fails| NL[Nested-loop fallback]
     G0 -->|passes| G1{Build-side cap:\nestimate ≤ HASH_JOIN_THRESHOLD?}
     G1 -->|fails| NL
-    G1 -->|passes| G1b{INNER_JOIN tighter cap:\nestimate ≤ threshold / 7?}
+    G1 -->|passes| G1b{Not INNER_JOIN or\nestimate ≤ threshold / 7?}
     G1b -->|fails| NL
-    G1b -->|passes| G2{upstreamMin == 0?}
-    G2 -->|yes — bypass remaining guards| HJ[Hash join selected]
-    G2 -->|no| G3{upstream ≥ upstreamMin?}
+    G1b -->|passes| G2{upstreamMin ≤ 0 or\ndetached O or W unknown?}
+    G2 -->|yes: bypass cost guards| HJ[Hash join selected]
+    G2 -->|no| G3{Full upstream ≥ upstreamMin?}
     G3 -->|fails| NL
     G3 -->|passes| G4{hash cost < nested-loop cost?}
     G4 -->|fails| NL
@@ -105,24 +107,25 @@ flowchart TB
 
 ### Guard 1: Context dependency
 
-A sub-pattern or branch that references `$matched` or `$parent` inside any of its `WHERE`
-filters cannot be independently materialised. Its result depends on *which* upstream row
-is currently being evaluated — so it must be re-executed for each one.
+Detached eligibility rejects check `WHERE` or `WHILE` conditions that read `$matched` or
+`$parent`. It also rejects a positive origin filter that reads that context
+(`MatchExecutionPlanner.java:1234–1261`, `1397–1411`). The origin needs a known class.
+A zero-hop check has no edges after its origin. Later shared aliases cannot be optional.
+An optional origin rejects hash for a zero-hop check, but not automatically for a check
+with hops (`MatchExecutionPlanner.java:1412–1426`).
 
-The planner checks this in `MatchExecutionPlanner.notPatternDependsOnMatched()`
-(`MatchExecutionPlanner.java:754`). If any filter in the expression contains a `$matched.`
-or `$parent.` reference, hash join is rejected and the planner falls back to the
-nested-loop `FilterNotMatchPatternStep`, which re-executes the sub-plan in the current
-context on each outer row.
+Branch eligibility checks context dependencies and optional nodes separately
+(`MatchExecutionPlanner.java:2127–2179`).
 
 ### Guard 2: Build-side cardinality cap
 
 If the planner's estimate of how many rows the build side will produce exceeds
 `QUERY_MATCH_HASH_JOIN_THRESHOLD` (default 10,000), the hash structure could consume too
 much heap. The planner rejects hash join and falls back to nested loops
-(`MatchExecutionPlanner.java:1203–1205`; `GlobalConfiguration.java:863`).
+(`MatchExecutionPlanner.java:1423–1426`, `1995–1999`, `GlobalConfiguration.java:883–891`).
 
-Setting this threshold to zero disables hash join entirely across all four variants.
+Setting this threshold to zero disables new hash selection
+(`MatchExecutionPlanner.java:383–385`, `1423–1426`).
 
 ### Guard 2b: Tighter cap for INNER_JOIN
 
@@ -133,13 +136,14 @@ approximately seven to one per entry.
 
 When the join mode is `INNER_JOIN`, the planner applies a tighter cardinality limit:
 `threshold / INNER_JOIN_MEMORY_WEIGHT`, where `INNER_JOIN_MEMORY_WEIGHT` is the constant
-7 (`MatchExecutionPlanner.java:366`, checked at lines 1209–1210). An inner join that
+7 (`MatchExecutionPlanner.java:414`, `2003–2006`). An inner join that
 would pass the general cap may still fail this stricter check.
 
 ### Guards 3 and 4: Upstream size and cost comparison
 
-These two guards are bypassed entirely when `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` is set
-to zero. When it is non-zero (default 5):
+A non-positive `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` disables both cost guards, not
+eligibility or the build cap (`MatchExecutionPlanner.java:393–404`). Its default is 5
+(`GlobalConfiguration.java:893–902`). For positive-pattern branches:
 
 - **Guard 3 (minimum upstream).** If the estimated number of outer rows is below
   `upstreamMin`, the build cost will not amortise over a small probe side. The planner
@@ -152,12 +156,67 @@ to zero. When it is non-zero (default 5):
   ```
 
   If `hashJoinCost >= nestedLoopCost`, the extra build work does not pay off and the
-  planner falls back (`MatchExecutionPlanner.java:1229–1237`).
+  planner falls back (`MatchExecutionPlanner.java:2011–2035`).
 
-All four guards are statically evaluated at planning time using the cardinality estimates
-from Chapter 8. Even when all four pass, a runtime overflow path provides a final safety
-net — if the build side turns out larger than expected at execution time, the step falls
-back to per-row evaluation without producing wrong results.
+Detached NOT and exists use different cost inputs. **O** is the estimated positive output
+before checks. **B** is the estimated origins scanned by the build. **W** counts candidate
+visits in one complete check walk, before each hop's filter. Target filters use the reached
+class, not the source class (`MatchExecutionPlanner.java:1594–1649`).
+
+Unknown O or W bypasses both cost guards after eligibility. Otherwise, O must reach the
+minimum and hash must be strictly cheaper. Ties choose the per-row path
+(`MatchExecutionPlanner.java:1442–1489`):
+
+```text
+nested cost = O × W
+hash cost   = B + B × W + O
+```
+
+A usable literal LIMIT discounts the rows probed, not the build. Define **K** as literal
+LIMIT + literal SKIP, with absent SKIP equal to zero. The *pass fraction* **q** estimates
+the share of origins that pass.
+
+For checks with hops, **lambda** estimates matching paths
+per origin. The planner uses q = 1 − exp(−lambda) for exists and q = exp(−lambda) for NOT.
+`exp(x)` computes e raised to x, where e is approximately 2.718.
+Zero-hop checks use exact q = 1 for exists and q = 0 for NOT
+(`MatchExecutionPlanner.java:1493–1528`, `1540–1551`).
+
+Rows with one origin share its check result. The rule charges complete origin groups
+(`MatchExecutionPlanner.java:1554–1582`). Here, **m** estimates outer rows per origin.
+**P** counts passing origins needed for K rows. **S** estimates origins scanned to find P
+passing origins.
+
+`ceil(x)` rounds x up to the smallest integer at least x.
+Origins are indivisible, so P and S round up to charge complete groups:
+
+```text
+m = max(1, O / B)                 # outer rows per origin
+P = ceil(K / m)                   # passing origins needed
+S = ceil(P / q)                   # origins scanned
+R = O if S > B, otherwise min(O, m × S)
+nested cost = R × W
+hash cost   = B + B × W + R
+```
+
+Guard 3 still uses O. Only Guard 4 uses **R**, the estimated outer rows probed.
+Neither cost discounts work saved by stopping within a probe
+(`MatchExecutionPlanner.java:1475–1489`, `1594–1628`). The pass fraction is a heuristic.
+Default selectivity can supply its inputs when measured statistics are absent
+(`MatchExecutionPlanner.java:1621–1624`, `3439–3468`).
+
+The discount needs one detached check and an origin-only key. The full-input comparison
+uses R = O for wider keys, multiple checks, or any of these cases:
+
+- Missing LIMIT, LIMIT −1, or parameter LIMIT or SKIP, even when bound.
+- ORDER BY, GROUP BY, aggregates, DISTINCT including `distinct(x)`, UNWIND, or EXPAND.
+- `$elements` or `$pathElements` return modes.
+- Unknown q, unusable B, arithmetic overflow, or saturated estimates.
+
+Zero q also uses R = O. Positive q with K = 0 uses R = 0. Unknown q alone does not bypass
+the guards (`MatchExecutionPlanner.java:1453–1458`, `1493–1582`). Cached plans retain their
+chosen path. Cache hits return before planning, and bound slice parameters never supply
+this discount (`MatchExecutionPlanner.java:626–630`, `1510–1528`).
 
 ---
 
@@ -192,33 +251,35 @@ saves memory and avoids materialising properties that will never be projected.
 a downstream `RETURN` or `ORDER BY` references. The build side stores full `ResultInternal`
 rows and merges them into the upstream row on every probe hit.
 
+`SEMI_JOIN` also serves detached exists checks (`MatchExecutionPlanner.java:1173–1179`).
+Alias retention includes shared positive bindings and positive aliases read by detached
+check `WHERE` and `WHILE` text. Branches must retain those aliases even when RETURN does
+not read them (`MatchExecutionPlanner.java:1719–1725`, `1762–1790`).
+
 One edge case worth knowing: if the join key cannot be extracted from an upstream row
 (because a shared alias is null), `ANTI_JOIN` conservatively keeps the row — the absence
 of evidence is not evidence of absence — while `SEMI_JOIN` discards it
-(`HashJoinMatchStep.java:273–274`).
+(`HashJoinMatchStep.java:294–304`).
 
 ---
 
 ## Excluding forbidden rows: the `NOT` variant
 
 Consider the blocking query from the opening. At planning time, `MatchExecutionPlanner`
-calls `canUseHashJoin()` on the `NOT` expression (`MatchExecutionPlanner.java:903`).
-There is no `$matched` reference in the NOT clause, the origin alias `p` has a known
-class, and the estimated cardinality of the NOT sub-pattern is below the threshold. Hash
-join is selected.
+calls `canUseHashJoin()` on the `NOT` expression (`MatchExecutionPlanner.java:1138–1154`).
+Eligibility alone does not select hash. The cost guards must also pass unless disabled
+or bypassed by unknown O or W (`MatchExecutionPlanner.java:1442–1489`).
 
 At execution time, `HashJoinMatchStep.internalStart()` runs the build phase before
-opening the outer stream (`HashJoinMatchStep.java:90`). It copies the build-side
-`SelectExecutionPlan` with an isolated `BasicCommandContext` — a child context whose
-parent chain is preserved so later lookups still work, but whose own `$matched` bindings
-are empty. This isolation prevents the build-side `MatchStep` instances from seeing
-stale binding state from a previous outer row.
+opening the outer stream (`HashJoinMatchStep.java:128–143`). LIMIT cannot stop this eager
+build early. The build uses an isolated child context. For an origin-only detached key,
+it scans origins and probes each one until the first match. Wider keys enumerate all
+paths because each path can contribute a different key (`HashJoinMatchStep.java:155–185`).
 
-The build phase walks the build plan's stream, extracts a `JoinKey` from each result, and
-inserts it into a `HashSet<JoinKey>`. If the set size exceeds the runtime threshold before
-the plan finishes, `buildHashSet()` returns null and the step switches to per-row
-nested-loop evaluation on the fly — correctness is preserved, only performance degrades
-(`HashJoinMatchStep.java:142–167`).
+The build stores matching keys in a `HashSet<JoinKey>`. If its distinct-key count exceeds
+the positive runtime threshold, the step abandons the set. Detached NOT and exists then use
+`DetachedMatchPatternProbe.matches` on each outer row, rather than repeating the full
+build plan (`HashJoinMatchStep.java:181–184`, `362–365`).
 
 Once the build is complete, the probe phase opens the outer stream and applies a filter
 lambda. For each outer row, `extractKey()` reads the shared alias value. If the value is
@@ -234,10 +295,10 @@ reference equality for arrays, which would break composite key comparison. `Join
 precomputes the hash code at construction time and short-circuits equality first on hash
 mismatch, then on kind mismatch (`JoinKey.java:113–123`).
 
-Resulting cost: one pass over the blocked-admin traversal during the build, then one O(1)
-hash lookup per `Person` during the probe. The quadratic blowup is gone.
+The completed build supports one O(1) lookup per outer row
+(`HashJoinMatchStep.java:141–143`, `294–304`). Its cost includes unsuccessful origin probes.
 
-The eligibility tree above governs the *first* variant — `HashJoinMatchStep` in its
+The eligibility tree above governs `HashJoinMatchStep` in its
 `ANTI_JOIN`, `SEMI_JOIN`, and `INNER_JOIN` modes. The next three variants are not reached
 through that tree. `CorrelatedOptionalHashJoinStep` triggers on OPTIONAL edges whose
 `WHERE` clause contains a `$matched` back-reference — a shape the context-dependency
@@ -498,30 +559,19 @@ explore the full hierarchy.
 
 ## The nested-loop fallback: `FilterNotMatchPatternStep`
 
-When the planner chooses not to use a hash join — because the NOT expression references
-`$matched`, the build-side estimate is too large, or the cost comparison favours nested
-loops — it chains a `FilterNotMatchPatternStep` instead.
+The per-row path uses `FilterNotMatchPatternStep` for NOT and
+`FilterExistsMatchPatternStep` for exists (`MatchExecutionPlanner.java:1149–1154`, `1176–1179`).
+Both call `DetachedMatchPatternProbe.matches`. The helper copies the outer row into a
+fresh plan and runs the check's traversal steps. It asks only whether the stream has a
+first result, then closes the stream (`DetachedMatchPatternProbe.java:20–63`).
 
-This step is a filter over the upstream stream. For each upstream row it constructs a
-fresh `SelectExecutionPlan` containing a `ChainStep` (which emits a shallow copy of the
-upstream row as a singleton stream) followed by the NOT-pattern `MatchStep` chain
-(`FilterNotMatchPatternStep.java:100–108`). It then calls `rs.hasNext(ctx)`: if any
-result is produced the NOT pattern matched and the upstream row is discarded. The step
-stops at the first result, so it never enumerates the full NOT sub-pattern for rows that
-do fail the check (`FilterNotMatchPatternStep.java:88–94`).
+NOT discards a row on a match. Exists keeps it once, including each duplicate incoming
+row (`FilterNotMatchPatternStep.java:70–83`, `FilterExistsMatchPatternStep.java:38–39`).
 
-Three structural details drive its cost:
-
-- Every upstream row gets its own freshly allocated `SelectExecutionPlan`. There is no
-  caching of intermediate traversal state between rows.
-- `ChainStep` makes a shallow copy of the upstream row: property names and metadata keys
-  are copied, but the referenced records are shared. This is sufficient because the NOT
-  sub-plan only reads property values, never writes them.
-- A row that has no blocking relationship at all pays the full cost of an unsuccessful
-  traversal — it walks as far into the NOT pattern as the graph allows before giving up.
-
-The hash-join path pays both the plan-rebuild overhead and the sub-pattern traversal cost
-exactly once, during the build phase, and then probes in O(1) per upstream row.
+An unsuccessful probe walks the full reachable check. A successful probe stops early.
+LIMIT can stop further outer pulls on this path. In contrast, `HashJoinMatchStep` with
+an origin-only detached key performs one probe per scanned origin before opening the outer stream
+(`HashJoinMatchStep.java:128–185`, `LimitedExecutionStream.java:18–23`).
 
 ---
 
@@ -531,27 +581,29 @@ exactly once, during the build phase, and then probes in O(1) per upstream row.
 
 | Property key | `GlobalConfiguration` constant | Default | Effect |
 |---|---|---|---|
-| `youtrackdb.query.match.hashJoinThreshold` | `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `10000` | Maximum estimated build-side rows before falling back to nested loops. Set to `0` to disable hash join entirely. |
-| `youtrackdb.query.match.hashJoinUpstreamMin` | `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `5` | Minimum upstream rows for hash join to be worthwhile. Set to `0` to bypass Guards 3 and 4; only the build-side cap applies. |
+| `youtrackdb.query.match.hashJoinThreshold` | `QUERY_MATCH_HASH_JOIN_THRESHOLD` | `10000` | Planning cap on estimated build rows. Detached ANTI/SEMI_JOIN runtime overflow counts distinct keys. Set to `0` to disable hash selection. (`MatchExecutionPlanner.java:383–385`, `1423–1426`, `HashJoinMatchStep.java:181–184`) |
+| `youtrackdb.query.match.hashJoinUpstreamMin` | `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` | `5` | Minimum full positive output O for detached checks. Non-positive values disable both cost guards, but retain eligibility and the build cap. (`MatchExecutionPlanner.java:393–404`, `1468–1489`) |
 | `youtrackdb.query.match.correlatedCacheSize` | `QUERY_MATCH_CORRELATED_CACHE_SIZE` | `16` | LRU cache entries in `CorrelatedOptionalHashJoinStep`. Increase if upstream rows interleave many distinct correlated vertices. |
 
-The `INNER_JOIN_MEMORY_WEIGHT` constant (value 7, `MatchExecutionPlanner.java:366`) is
+The `INNER_JOIN_MEMORY_WEIGHT` constant (value 7, `MatchExecutionPlanner.java:414`) is
 not externally configurable — it reflects an empirically measured memory ratio between
 materialising full `ResultInternal` rows and lightweight `JoinKey` entries, and is not
 expected to change with query shape.
 
-All three properties are hot-configurable at runtime: they are read at query planning time
-via `GlobalConfiguration.getValueAsLong()` / `getValueAsInteger()`, not cached at server
-startup. Adjusting them takes effect on the next query without a restart.
+Hash path selection reads the current settings when planning. Reusing a cached plan keeps
+its chosen path (`MatchExecutionPlanner.java:383–404`, `626–630`). Each `HashJoinMatchStep`
+execution builds a fresh hash structure and reads the runtime threshold
+(`HashJoinMatchStep.java:151–231`, `475–479`).
 
 When diagnosing a slow MATCH that involves `NOT`, `OPTIONAL`, a `$matched` back-reference,
 or a `WHILE` edge, the first diagnostic step is to verify whether the planner chose a
 hash join or fell back to nested loops. The EXPLAIN output emits `HASH ANTI_JOIN`, `HASH SEMI_JOIN`,
 `CORRELATED OPTIONAL HASH JOIN`, `BACK-REF HASH JOIN` (or `BACK-REF HASH JOIN ANTI`), or
 `INVERTED WHILE HASH JOIN` prefixes on the relevant step when the hash path was chosen.
-Absence of those prefixes on a large query is the signal that the planner fell back to
-nested loops — because one of the four guards rejected the generic step, or the threshold
-ruled out a back-reference join — and the threshold properties are the primary levers.
+For detached checks, `+ NOT` and `+ EXISTS` identify the per-row path
+(`FilterNotMatchPatternStep.java:99–107`, `FilterExistsMatchPatternStep.java:55–59`).
+That path can be cheaper even with a large full input, especially with a small literal
+LIMIT. Check eligibility, estimates, slice shape, and cache reuse before changing settings.
 
 ---
 
@@ -570,8 +622,8 @@ executions.
 ## Further reading
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/HashJoinMatchStep.java` —
-  generic hash-join step; build phases at lines 142–167 (ANTI/SEMI) and 173–204
-  (INNER); probe filter at line 130; nested-loop fallback at lines 337 and 373.
+  generic hash-join step. Eager build at lines 128–143, detached build at 151–195,
+  detached overflow fallback at 362–365, and plan copying at 475–479.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/CorrelatedOptionalHashJoinStep.java` —
   LRU-cached correlated optional join; neighbour build at line 148; truncation fallback
   at lines 123–130; inverse-direction SQL at lines 163–164.
@@ -589,7 +641,11 @@ executions.
   inverted-WHILE join; anchor discovery at line 185; level-by-level BFS at line 219;
   forward-BFS fallback at line 256.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` —
-  nested-loop fallback for NOT patterns; ChainStep row injection at line 174.
+  per-row NOT filter at lines 70–83.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java` —
+  per-row exists filter at lines 38–39, EXPLAIN text at 55–59.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` —
+  copied-row probe, early stop, and context restoration at lines 20–63.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/JoinKey.java` —
   composite hash key; `SINGLE_RID` fast path at line 52; `RID_ARRAY` at line 63;
   `OBJECT_ARRAY` fallback at line 76; equality short-circuits at lines 113–123.
@@ -598,12 +654,11 @@ executions.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/JoinMode.java` —
   `ANTI_JOIN`, `SEMI_JOIN`, `INNER_JOIN` enum at line 15.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` —
-  `canUseHashJoin` at line 903; `notPatternDependsOnMatched` at line 754;
-  `traceBackwardBranch` at line 1160; `INNER_JOIN_MEMORY_WEIGHT` constant at line 366;
-  cardinality and cost guards at lines 1198–1237; `getHashJoinThreshold` at line 345;
-  back-reference semi-join detection in `optimizeScheduleWithIntersections` at line 3254;
-  optionality discriminator at lines 3348 and 4166.
+  detached eligibility at lines 1397–1426, costs and slicing at 1442–1582,
+  alias retention at 1719–1790, and branch guards at 1995–2035.
+  Back-reference semi-join detection in `optimizeScheduleWithIntersections` at line 4945.
+  Optionality checks at lines 5039 and 5857.
 - `core/src/main/java/com/jetbrains/youtrackdb/api/config/GlobalConfiguration.java` —
-  `QUERY_MATCH_HASH_JOIN_THRESHOLD` at line 863;
-  `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` at line 873;
-  `QUERY_MATCH_CORRELATED_CACHE_SIZE` at line 884.
+  `QUERY_MATCH_HASH_JOIN_THRESHOLD` at lines 883–891,
+  `QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN` at 893–902,
+  `QUERY_MATCH_CORRELATED_CACHE_SIZE` at 904–914.

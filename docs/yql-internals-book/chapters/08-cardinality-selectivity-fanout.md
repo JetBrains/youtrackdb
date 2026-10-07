@@ -335,14 +335,16 @@ A freshly-created database has no query statistics. No histograms have been comp
 Some edge classes may not yet have enough records to cross the histogram threshold.
 The planner must still make a choice.
 
-Every estimator has a fallback constant that fires when the information needed for a
-real estimate is missing.
+Scheduling uses fallback constants when statistics are missing. The table describes
+those defaults, not every hash decision. Detached checks keep unknown outer-row counts
+or walk work unknown and bypass both cost guards after eligibility
+(`MatchExecutionPlanner.java:1442–1489`).
 
 **Table 8.3 — Fallback constants, the situations that trigger them, and their configuration keys.**
 
 | Situation | Fallback value | Configuration key (`GlobalConfiguration`) |
 |---|---|---|
-| Alias has no estimate in `estimateRootEntries` | 100 (`THRESHOLD`, `MatchExecutionPlanner.java:336`) | Not configurable |
+| Scheduling source alias has no cardinality estimate | 100 (`THRESHOLD`, `MatchExecutionPlanner.java:365`) | Not configurable |
 | Edge or source class missing from schema | 10.0 (`QUERY_STATS_DEFAULT_FAN_OUT`, `GlobalConfiguration.java:1240`) | `youtrackdb.query.stats.defaultFanOut` |
 | Non-indexed or unrecognised predicate | 0.1 (`QUERY_STATS_DEFAULT_SELECTIVITY`, `GlobalConfiguration.java:1233`) | `youtrackdb.query.stats.defaultSelectivity` |
 | Target has no WHERE filter and no cardinality entry | 1.0 (no reduction applied) | N/A |
@@ -360,8 +362,8 @@ are designed to produce a reasonable plan in the absence of evidence.
 All fan-out and selectivity configuration values are read from `GlobalConfiguration`
 at each call, not cached at startup
 (`EdgeFanOutEstimator.java:43`, `SelectivityEstimator.java:89`). A database
-administrator can adjust them at runtime and the next query will immediately use the
-new values.
+administrator can adjust them at runtime. New planning uses the current values.
+A cached plan keeps its chosen path (`MatchExecutionPlanner.java:626–630`).
 
 ---
 
@@ -426,6 +428,22 @@ recursive edges with a `while:` clause: when no explicit `maxdepth:` is set the
 multiplier is 10 (the `DEFAULT_WHILE_DEPTH` constant, line 3074), ensuring the
 planner never treats a potentially unbounded traversal as cheap. Those adjustments
 belong to the scheduling phase; Chapter 10 works through them in detail.
+
+A detached check starts at an *origin alias* in the positive pattern.
+Detached NOT and exists compare *candidate work*, the number of candidates visited
+before each hop's filter. Surviving candidates supply the next hop's input.
+The final surviving-path estimate supplies a *pass fraction*, the estimated share of
+origins that pass the check (`MatchExecutionPlanner.java:1540–1551`, `1594–1628`).
+Defaults can supply these inputs, so the pass fraction is a heuristic, not a measured
+probability. [Chapter 13](13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+gives the full-input costs, literal LIMIT discount, and fallback rules.
+
+Hash decision estimators resolve target-filter statistics from the reached class.
+They prefer the target alias's class, then an explicit path class, then an inferred
+edge endpoint (`MatchExecutionPlanner.java:1638–1651`). In detached walk estimation,
+fan-out uses a separate carried class, updated by explicit path classes
+(`MatchExecutionPlanner.java:1625–1628`).
+A reached target class therefore does not automatically change the fan-out class.
 
 ---
 

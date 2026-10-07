@@ -95,7 +95,7 @@ Draws from: 08-scheduling-edges.md; invertibility paragraphs from 02-what-is-mat
 With a fully scheduled plan, the reader now sees runtime. Part V is the concrete machinery: the step pipeline and the per-edge traverser strategies.
 
 **Chapter 11 — The Step Pipeline: How the Plan Becomes Code**
-Tours the execution-step catalogue: `MatchPrefetchStep`, `MatchFirstStep`, `MatchStep`, `OptionalMatchStep`, `RemoveEmptyOptionalsStep`, `FilterNotMatchPatternStep`, and the four return-projection step variants. Focuses on the pull-based model and how each step grows the `MatchResultRow`. The alias-keyed row — previewed in Chapter 5 — gets its full mechanics here.
+Tours the execution-step catalogue: `MatchPrefetchStep`, `MatchFirstStep`, `MatchStep`, `OptionalMatchStep`, `RemoveEmptyOptionalsStep`, and the four return-projection step variants. Detached checks use `FilterNotMatchPatternStep` or `FilterExistsMatchPatternStep` on the per-row path (`MatchExecutionPlanner.java:1149–1179`). Focuses on the pull-based model and how each step grows the `MatchResultRow`. The alias-keyed row — previewed in Chapter 5 — gets its full mechanics here.
 Draws from: 09-execution-steps.md; row-chain mechanics from 02-what-is-match.md §2.3.1.
 
 **Chapter 12 — Traversers: Six Ways to Walk an Edge**
@@ -109,7 +109,7 @@ Draws from: 10-runtime-traversal.md.
 The basic engine is a nested-loop machine. Part VI covers the two optimisation layers that replace — or accelerate — parts of it. The reader needs everything from Parts I–V in place before this makes sense.
 
 **Chapter 13 — When Nested Loops Aren't Enough: Hash Joins**
-The four hash-join variants (`HashJoinMatchStep`, `CorrelatedOptionalHashJoinStep`, `InvertedWhileHashJoinStep`, `BackRefHashJoinStep`), the conditions under which the planner selects each, and the configuration knobs. Each variant is introduced by the problem it solves — `NOT` patterns, `OPTIONAL` with a back-reference, inverted `WHILE`, required back-references — not by the class name.
+The four hash-join variants and their selection rules. Detached NOT and exists share eligibility and cost guards (`MatchExecutionPlanner.java:1128–1181`, `1397–1489`). Covers LIMIT-aware costs and full-input fallbacks (`MatchExecutionPlanner.java:1493–1582`). Explains the eager build in `HashJoinMatchStep`, origin-only early stop, and detached overflow fallback (`HashJoinMatchStep.java:128–195`, `362–365`).
 Draws from: 13-hash-joins.md.
 
 **Chapter 14 — Index-Assisted Traversal: Pre-Filtering Adjacency Lists**
@@ -127,7 +127,7 @@ A walkthrough of nine queries in ascending complexity. Each query adds exactly o
 Draws from: 11-walkthrough.md.
 
 **Chapter 16 — Reading EXPLAIN: Diagnosing Plans in Practice**
-How to read `EXPLAIN` output, how to tell which plan the planner chose and why, and a gallery of common pathologies: the wrong root, a missing reversal, a missing pre-filter, a disjoint-component cartesian explosion. Ends with a debugging checklist the reader can apply to their own slow MATCH queries. This is the only chapter with new synthesis material beyond the source; authors should still draw factual claims from the source chapters.
+How to read `EXPLAIN` output and diagnose common plan problems. Includes detached hash and per-row checks (`HashJoinMatchStep.java:445–454`, `FilterExistsMatchPatternStep.java:55–59`, `FilterNotMatchPatternStep.java:99–107`). Explains why LIMIT can favour per-row checks and why cached plans keep their path (`MatchExecutionPlanner.java:1493–1582`, `626–630`). Ends with a debugging checklist.
 Draws from: 11-walkthrough.md; 12-cost-model.md; 13-hash-joins.md; 14-index-assisted-traversal.md.
 
 **Chapter 17 — Reference: Files, Classes, Configuration, Glossary**

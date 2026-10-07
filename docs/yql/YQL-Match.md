@@ -841,3 +841,22 @@ MATCH
   NOT {as:a} -FriendOf-> {as:c}
 RETURN c.name
 ```
+
+The planner can execute a NOT pattern in two ways. The hash path builds a set of matching
+keys, then rejects rows whose keys occur in that set. The per-row path probes from each
+incoming row and stops at its first match. The planner checks hash eligibility and compares
+estimated costs before choosing a path. A key contains alias values shared by the positive
+and NOT patterns. The origin is the alias where the NOT pattern starts.
+
+A small literal LIMIT can favor the per-row path because it stops further row requests.
+The hash path builds its full set before reading incoming rows. The LIMIT estimate applies
+only to one NOT check whose key contains only the origin alias. Some result shapes prevent
+this estimate.
+ORDER BY, DISTINCT, and parameterized LIMIT or SKIP use the full-input comparison.
+Cached plans keep their chosen path.
+
+The [hash build threshold](../yql-internals-book/chapters/13-hash-joins.md#configuration-knobs)
+controls the build cap. The [minimum upstream setting](../yql-internals-book/chapters/17-reference.md#172-configuration-knobs)
+controls the minimum row estimate and enables the cost guards.
+The [internals guide](../yql-internals-book/chapters/13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+explains the LIMIT estimate and all full-input fallbacks.

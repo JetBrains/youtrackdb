@@ -1427,10 +1427,15 @@ origin's class.
 conjunctive filters. For each allowed linear hop child of `AndStep`, it
 adds one `SQLMatchExpression` to `MatchPlanInputs.existsMatchExpressions`.
 `TraversalFilterStep` uses the same rule for `where(traversal)` and
-`filter(traversal)`. A detached positive exists check tests each outer
-row and keeps it once if the child has any match. `FilterExistsMatchPatternStep`
-stops at the first match. It does not add hop targets to the positive
-pattern or multiply the outer row. Thus `where(out("l").has("k", v))`
+`filter(traversal)`.
+
+A detached positive exists check tests each outer
+row and keeps it once if the child has any match. The planner chooses between
+`FilterExistsMatchPatternStep` and `HashJoinMatchStep` in `SEMI_JOIN` mode.
+The per-row probe stops at the first match. Neither path adds hop targets
+to the positive pattern or multiplies the outer row.
+
+Thus `where(out("l").has("k", v))`
 adds one exists check. `and(out("a"), out("b"))` adds two checks, and both
 must match. Pure-filter arms can occur alongside hop arms.
 
@@ -1473,17 +1478,21 @@ A child that captures another NOT or exists check declines. Thus
 does not change whether the child has a match. `not(where(out("l")))`
 declines because its child captures an exists check.
 
-`MatchExecutionPlanner.manageNotPatterns` selects a hash anti-join when
-its constraints permit one. Otherwise it uses `FilterNotMatchPatternStep`
-for a per-row negative check. `MatchExecutionPlanner.manageExistsPatterns`
-uses `FilterExistsMatchPatternStep` for each positive check. Both filters
-call `DetachedMatchPatternProbe.matches`. The probe saves the outer
-`$matched` value, publishes a copy of the current row, tests for a match,
-and restores the outer value. If no outer value exists, it uses a child
-context instead. Hop aliases stay inside the check. The planner also
-counts NOT and exists origin aliases as used in
-`MatchExecutionPlanner.collectDownstreamAliases`. A positive-pattern
-hash semi-join must retain an alias that a later check needs.
+`MatchExecutionPlanner.manageExistsPatterns` runs before `manageNotPatterns`.
+Both use the [shared detached path choice](../../../yql-internals-book/chapters/13-hash-joins.md#when-the-planner-picks-a-hash-join).
+Hash uses `SEMI_JOIN` for exists and `ANTI_JOIN` for NOT.
+The per-row paths use `FilterExistsMatchPatternStep` and `FilterNotMatchPatternStep`.
+Both filters call `DetachedMatchPatternProbe.matches`.
+
+The probe saves the outer `$matched` value, publishes a copy of the current row,
+and stops at the first match. It restores the outer value after the check.
+If no outer value exists, it uses a child context instead. Hop aliases stay inside the check.
+Origin-only detached hash builds also stop each origin's probe at its first match.
+Distinct-key overflow returns either detached hash mode to the shared per-row probe.
+
+`MatchExecutionPlanner.collectDownstreamAliases` retains all shared positive bindings,
+not only origins. It also retains positive aliases read by check WHERE or WHILE text.
+A positive-pattern branch must preserve every alias that a later detached check needs.
 
 ### `WhereTraversalStep` and `WherePredicateStep`
 
@@ -1668,6 +1677,12 @@ single rule: `SQLSkip(low) + SQLLimit(high - low)` when `low ≥ 0` and
   traversal's projection (`select`), the recognizer declines because
   the result wouldn't be addressable — under D3 the entire traversal
   declines.
+
+The planner can use a literal LIMIT plus SKIP in detached path choice.
+This needs one detached check and an origin-only key. ORDER BY and dedup use the
+full-input comparison. Child-local grammar restrictions remain separate from this rule.
+[Chapter 13](../../../yql-internals-book/chapters/13-hash-joins.md#guards-3-and-4-upstream-size-and-cost-comparison)
+describes the pass estimate, full-input fallbacks, and cached-plan behavior.
 
 ## GQL refactor and shared builders evolution
 
@@ -2032,16 +2047,18 @@ catch regressions before the slower equivalence tests.
 ## Reused execution steps
 
 The translator produces input that the existing `MatchExecutionPlanner`
-turns into a `SelectExecutionPlan` over the same set of execution steps
-that today runs SQL `MATCH` queries. None of these classes is modified —
-the entire MATCH execution surface is consumed unchanged:
+turns into a `SelectExecutionPlan` over shared MATCH execution steps.
+Detached positive checks can use either a per-row filter or a hash semi-join:
 
 | Class | Role |
 |---|---|
 | `MatchFirstStep` | Initialises the first alias's binding |
 | `MatchStep` | Traverses one edge (one path-item hop) |
 | `OptionalMatchStep` | Optional edge traversal (alias may be null) |
-| `FilterNotMatchPatternStep` | NOT MATCH filter (anti-join) |
+| `FilterNotMatchPatternStep` | Per-row detached NOT filter |
+| `FilterExistsMatchPatternStep` | Per-row detached exists filter |
+| `HashJoinMatchStep` | Hash path for detached NOT, exists, and eligible positive-pattern branches |
+| `DetachedMatchPatternProbe` | Shared early-stop probe for per-row checks and detached hash overflow |
 | `CartesianProductStep` | Joins disjoint patterns |
 | `ReturnMatchElementsStep` | Returns matched elements (`returnElements`) |
 | `ReturnMatchPathsStep` | Returns paths (`returnPaths`) |

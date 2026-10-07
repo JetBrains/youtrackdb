@@ -23,9 +23,8 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * Hash-based join step for MATCH patterns. Replaces {@link FilterNotMatchPatternStep}
- * when the NOT pattern qualifies for hash anti-join (no {@code $matched} dependency,
- * estimated cardinality below threshold).
+ * Hash-based join step for MATCH patterns and eligible detached NOT/exists checks.
+ * Detached checks retain their per-row traversal for early stop and overflow fallback.
  *
  * <p>Execution has two phases:
  * <ol>
@@ -66,6 +65,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   private final SelectExecutionPlan buildPlan;
   private final List<String> sharedAliases;
   private final JoinMode joinMode;
+  // Null selects full-plan evaluation for pattern-branch builds and fallbacks.
+  @Nullable private final List<AbstractExecutionStep> detachedSteps;
 
   @Nullable private Set<JoinKey> hashSet;
   @Nullable private Map<JoinKey, List<Result>> hashMap;
@@ -76,7 +77,18 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       List<String> sharedAliases,
       JoinMode joinMode,
       boolean profilingEnabled) {
+    this(ctx, buildPlan, sharedAliases, joinMode, null, profilingEnabled);
+  }
+
+  HashJoinMatchStep(
+      CommandContext ctx,
+      SelectExecutionPlan buildPlan,
+      List<String> sharedAliases,
+      JoinMode joinMode,
+      @Nullable List<AbstractExecutionStep> detachedSteps,
+      boolean profilingEnabled) {
     super(ctx, profilingEnabled);
+    assert detachedSteps == null || joinMode != JoinMode.INNER_JOIN;
     assert MatchAssertions.checkNotNull(buildPlan, "build-side plan");
     assert MatchAssertions.checkNotNull(sharedAliases, "shared aliases");
     assert MatchAssertions.checkNotNull(joinMode, "join mode");
@@ -84,6 +96,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     this.buildPlan = buildPlan;
     this.sharedAliases = List.copyOf(sharedAliases);
     this.joinMode = joinMode;
+    this.detachedSteps = detachedSteps == null ? null : List.copyOf(detachedSteps);
   }
 
   @Override
@@ -132,9 +145,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
   /**
    * Executes the build-side plan and collects shared alias values into a hash set.
-   * Deep-copies the build plan with a fresh {@link BasicCommandContext} so that
-   * build-side {@link MatchStep}s execute against the isolated context (not the
-   * parent) — this prevents {@code $matched} pollution.
+   * Copies build steps into a fresh {@link BasicCommandContext}. Origin-only detached checks
+   * scan origins and probe each one with early stop. Wider keys execute the full copied plan.
    *
    * <p>Returns null if the build set exceeds the runtime threshold — the caller
    * must fall back to per-row nested-loop evaluation.
@@ -143,7 +155,19 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(ctx);
 
-    var isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
+    var originOnly = detachedSteps != null && sharedAliases.size() == 1;
+    SelectExecutionPlan isolatedPlan;
+    List<AbstractExecutionStep> probeSteps = null;
+    if (originOnly) {
+      // Detached builds start with the origin scan. Probe each origin instead of draining
+      // all its paths. A wider key needs every path, as each can contribute a new key.
+      isolatedPlan = new SelectExecutionPlan(isolatedCtx);
+      var scan = (ExecutionStepInternal) buildPlan.getSteps().getFirst();
+      isolatedPlan.chain((AbstractExecutionStep) scan.copy(isolatedCtx));
+      probeSteps = copyDetachedSteps(isolatedCtx);
+    } else {
+      isolatedPlan = (SelectExecutionPlan) buildPlan.copy(isolatedCtx);
+    }
     var set = new HashSet<JoinKey>();
     var maxSize = MatchExecutionPlanner.getHashJoinThreshold();
 
@@ -152,7 +176,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
       while (stream.hasNext(isolatedCtx)) {
         var row = stream.next(isolatedCtx);
         var key = extractKey(row);
-        if (key != null) {
+        if (key != null && (!originOnly
+            || DetachedMatchPatternProbe.matches(row, probeSteps, isolatedCtx, profilingEnabled))) {
           set.add(key);
           if (maxSize > 0 && set.size() > maxSize) {
             return null; // threshold exceeded — caller falls back
@@ -331,10 +356,14 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
   /**
    * Nested-loop fallback for ANTI/SEMI_JOIN when the build set exceeded the
-   * runtime threshold. For each upstream row, re-executes the build plan in an
-   * isolated context and checks if ANY build-side row has a matching key.
+   * runtime threshold. Detached checks use the early-stop per-row traversal. Pattern branches
+   * re-execute their build plan and check if any build-side row has a matching key.
    */
   @Nullable private Result nestedLoopProbe(Result row, CommandContext ctx) {
+    if (detachedSteps != null) {
+      var found = DetachedMatchPatternProbe.matches(row, detachedSteps, ctx, profilingEnabled);
+      return (joinMode == JoinMode.SEMI_JOIN) == found ? row : null;
+    }
     var upstreamKey = extractKey(row);
     if (upstreamKey == null) {
       return joinMode == JoinMode.ANTI_JOIN ? row : null;
@@ -437,10 +466,15 @@ class HashJoinMatchStep extends AbstractExecutionStep {
     }
   }
 
+  @Nullable private List<AbstractExecutionStep> copyDetachedSteps(CommandContext ctx) {
+    return detachedSteps == null ? null
+        : detachedSteps.stream().map(step -> (AbstractExecutionStep) step.copy(ctx)).toList();
+  }
+
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     var planCopy = (SelectExecutionPlan) buildPlan.copy(ctx);
     return new HashJoinMatchStep(ctx, planCopy, sharedAliases, joinMode,
-        profilingEnabled);
+        copyDetachedSteps(ctx), profilingEnabled);
   }
 }

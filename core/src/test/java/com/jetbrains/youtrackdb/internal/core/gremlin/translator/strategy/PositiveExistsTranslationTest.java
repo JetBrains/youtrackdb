@@ -2,7 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -16,8 +19,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Row-multiset and boundary-engagement checks for detached positive existence filters. */
+@Category(SequentialTest.class)
 public class PositiveExistsTranslationTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
@@ -294,6 +299,54 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
             .where(__.out("a")).dedup());
     equivalent("filter hop", Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Article").filter(__.out("a")));
+  }
+
+  /** Earlier hops amplify outer rows. A literal limit moves exists from hash to per-row. */
+  @Test
+  public void amplifiedExistsWithLimit_changesPlanAndPreservesNativeRows() {
+    var savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      var target = graph.addVertex(T.label, "Target", "name", "Target");
+      for (var i = 0; i < 30; i++) {
+        var article = graph.addVertex(T.label, "Article", "name", "Article" + i);
+        for (var j = 0; j < 10; j++) {
+          graph.addVertex(T.label, "Source").addEdge("entry", article);
+        }
+        // One passing article makes the unordered limited result deterministic across engines.
+        // Its 300 edges retain the estimated average fan-out of ten across all thirty articles.
+        if (i == 0) {
+          for (var j = 0; j < 300; j++) {
+            article.addEdge("owns", target);
+          }
+        }
+      }
+      graph.tx().commit();
+      support.withTranslator(true, () -> {
+        for (var limited : List.of(false, true)) {
+          var traversal = graph.traversal().V().hasLabel("Source").out("entry").hasLabel("Article")
+              .where(__.out("owns"));
+          if (limited) {
+            traversal.limit(1);
+          }
+          var admin = traversal.asAdmin();
+          admin.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isEqualTo(1);
+          var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
+          assertThat(boundary.getPlan().prettyPrint(0, 2))
+              .contains(limited ? "+ EXISTS (" : "+ HASH SEMI_JOIN");
+          assertThat(admin.toList()).hasSize(limited ? 1 : 10);
+        }
+      });
+      equivalent("amplified exists literal limit", Recognition.RECOGNIZED,
+          () -> graph.traversal().V().hasLabel("Source").out("entry").hasLabel("Article")
+              .where(__.out("owns")).limit(1));
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMinimum);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
   }
 
   /** OR and NOT cannot forward the child's conjunctive check to the whole plan. */

@@ -94,7 +94,9 @@ runs four more passes over the scheduled edges:
   the alias that actually binds them under the chosen schedule.
 - edge annotation — records per-edge direction, class, RID, and filter metadata.
 - `identifyHashJoinBranches()` — decides which scheduled branches qualify for a
-  hash-join substitution (Chapter 13).
+  hash-join substitution (Chapter 13). Detached checks count as alias readers.
+  Branches retain every shared positive binding and every positive alias read by check
+  WHERE or WHILE text (`MatchExecutionPlanner.java:1719–1725`, `1762–1790`).
 
 Only then does the method emit one execution step per edge: `MatchFirstStep` for the
 root alias, then `MatchStep` or `OptionalMatchStep` for each subsequent edge, or
@@ -102,17 +104,20 @@ root alias, then `MatchStep` or `OptionalMatchStep` for each subsequent edge, or
 forms the body of the pipeline. Chapter 10 opens the scheduling algorithm, and Chapter
 13 covers hash-join branch selection.
 
-## 7.6 Phase 6 — Managing NOT Patterns
+## 7.6 Phase 6 — Detached Exists and NOT Checks
 
-`MATCH … NOT { … }` sub-expressions are anti-join predicates, not traversal steps.
-`manageNotPatterns()` converts each one into either a `HashJoinMatchStep` in anti-join
-mode or a `FilterNotMatchPatternStep`, depending on whether the sub-pattern can be
-evaluated once up front or must be re-executed per upstream row. The hash anti-join
-materialises the NOT sub-pattern once, keys the results on the shared aliases, and probes
-each upstream row in O(1) time; the nested-loop fallback re-runs the sub-pattern for
-every row and drops any row for which it finds a match. Multiple NOT blocks compose as a
-conjunction: each appends exactly one step to the pipeline. The artifact is the pipeline
-extended with the anti-join filter steps. Chapter 13 covers both strategies in detail.
+A *detached check* filters positive-pattern rows without adding its internal aliases.
+Exists keeps matching rows, while NOT rejects them. Exists checks come from the Gremlin
+translator, not literal SQL MATCH syntax. Phase 6 runs `manageExistsPatterns()` before
+`manageNotPatterns()` (`MatchExecutionPlanner.java:789–798`). Each check adds one step.
+
+Both managers use the [shared path choice](13-hash-joins.md#when-the-planner-picks-a-hash-join).
+Hash uses `SEMI_JOIN` for exists and `ANTI_JOIN` for NOT. The per-row paths use
+`FilterExistsMatchPatternStep` and `FilterNotMatchPatternStep`
+(`MatchExecutionPlanner.java:1128–1181`). Eligibility checks context dependencies and
+shared aliases before the build cap and cost guards. Unknown outer rows or walk work
+bypass both cost guards, not eligibility (`MatchExecutionPlanner.java:1397–1489`).
+Chapter 13 explains the literal LIMIT estimate, full-input fallbacks, and eager hash build.
 
 ## 7.7 Phase 7 — Removing Empty Optional Sentinels
 
@@ -151,9 +156,9 @@ flowchart LR
     P3["3. estimateRootEntries()\n——\nMap&lt;String, Long&gt;\ncardinality oracle"]
     P4["4. addPrefetchSteps()\n——\nMatchPrefetchStep per\nsmall alias + prefetch set"]
     P5["5. getTopologicalSortedSchedule()\n+ createPlanForPattern()\n——\nList&lt;EdgeTraversal&gt;\n+ MatchFirstStep / MatchStep\n/ OptionalMatchStep\n/ HashJoinMatchStep"]
-    P6["6. manageNotPatterns()\n——\nHashJoinMatchStep(ANTI_JOIN)\nor FilterNotMatchPatternStep"]
+    P6["6. manageExistsPatterns()\nthen manageNotPatterns()\n——\nshared detached path choice\nHashJoinMatchStep(SEMI_JOIN / ANTI_JOIN)\nor per-row filter"]
     P7["7. RemoveEmptyOptionalsStep\n——\nsentinel → null\n(conditional)"]
-    P8["8. RETURN projection\n——\nReturnMatch*Step\nor SELECT projection\n+ ORDER BY, LIMIT …"]
+    P8["8. RETURN projection\n+ post-processing\n——\nReturnMatch*Step\nor SELECT projection\n+ ORDER BY, LIMIT …"]
     PLAN["SelectExecutionPlan"]
 
     PG --> P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> PLAN
@@ -222,13 +227,14 @@ The key is the *raw SQL text as submitted by the caller* — no normalisation, n
 stripping. `MATCH {class: Person, as: p} RETURN p` and
 `match {class:Person,as:p} RETURN p` hash to different keys. A query executed with a
 literal value embedded in the WHERE clause (`where: (name = 'Alice')`) gets its own cache
-slot, separate from the slot for `where: (name = 'Bob')`. Applications that want plan
-reuse should use named parameters (`:name`) or positional parameters (`:0`) — queries that
-contain SQL input parameters are treated as non-cacheable by `isCacheable()` on the AST
-nodes, so the execution-plan cache is bypassed for them, but the statement cache still
-applies. If you find your high-throughput queries missing the plan cache, the diagnostic
-is simple: log the `statement.getOriginalStatement()` that reaches the planner and check
-whether it varies by run.
+slot, separate from the slot for `where: (name = 'Bob')`.
+
+Parameter use does not always bypass the plan cache. MATCH checks cacheability of positive
+and NOT expressions and RETURN items (`SQLMatchStatement.java:167–186`).
+Parameterized LIMIT or SKIP can reuse a plan. Detached path choice therefore discounts
+only literal slices, never their bound parameter values (`MatchExecutionPlanner.java:1493–1528`).
+Cache hits return a plan copy without repeating path choice
+(`MatchExecutionPlanner.java:626–630`, `YqlExecutionPlanCache.java:178–184`).
 
 ### Concurrent sharing and the copy-on-read contract
 
@@ -237,18 +243,13 @@ positions, the prefetch lists — that changes as each call to `next()` drives t
 forward. Sharing a single live plan across threads would cause data races. The cache avoids
 this by never handing out the stored object directly.
 
-On the *write* path, `YqlExecutionPlanCache.putInternal()` copies the freshly assembled
-plan (calling `InternalExecutionPlan.copy()`) before storing it
-(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/YqlExecutionPlanCache.java:104`).
-That stored copy is then immediately closed, leaving it in a quiescent, zero-resource
-state. It exists only as a template.
+On the *write* path, `YqlExecutionPlanCache.putInternal()` copies the assembled plan
+with `InternalExecutionPlan.copy()`. It closes the copy before storing it as a template
+(`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/YqlExecutionPlanCache.java:124–132`).
 
-On the *read* path, `getInternal()` calls `result.copy(ctx)` on the stored template before
-returning it to the caller
-(`YqlExecutionPlanCache.java:138`).
-The caller receives a fresh, fully independent copy every time, wired to its own
-`CommandContext`. Two sessions executing the same MATCH query simultaneously each hold
-their own copy of the plan and cannot interfere with each other.
+On the *read* path, `getInternal()` calls `result.plan().copy(ctx)` on the stored template
+(`YqlExecutionPlanCache.java:178–184`). The caller receives an independent copy with its
+own `CommandContext`. Concurrent sessions use separate plan copies.
 
 The deep-copy on planner entry (Chapter 4's AST copy) and the copy-on-read here serve
 complementary purposes: the AST copy protects the statement cache from planner mutation;
@@ -256,15 +257,14 @@ the plan copy protects the execution-plan cache from runtime mutation.
 
 ### When the plan cache is bypassed
 
-Three conditions cause `MatchExecutionPlanner.createExecutionPlan()` to skip the plan
-cache entirely:
+Several conditions can prevent cache reuse or storage:
 
 - **Profiling is enabled.** When the caller passes `enableProfiling = true`, the planner
   never consults or populates the cache. Timing instrumentation would otherwise be attached
   to a shared template.
 - **The statement is not cacheable.** `SQLMatchStatement.executinPlanCanBeCached()` walks
-  every expression and path item and returns `false` if any node signals
-  non-cacheability. SQL input parameters are the most common cause.
+  positive expressions, NOT expressions, and RETURN items for non-cacheability.
+  Parameterized LIMIT alone does not fail this check (`SQLMatchStatement.java:167–186`).
 - **The assembled plan itself is not cacheable.** After all eight phases complete, the
   planner calls `result.canBeCached()` (`SelectExecutionPlan.canBeCached()`, line 280),
   which walks every step in the assembled plan and returns `false` if any step signals
