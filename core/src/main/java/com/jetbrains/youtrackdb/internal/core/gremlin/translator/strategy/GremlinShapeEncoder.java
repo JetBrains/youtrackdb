@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -94,8 +95,8 @@ final class GremlinShapeEncoder {
 
   /**
    * Encodes a predicate's operator tree. Comparison values contribute only their runtime class
-   * unless {@code valuesAreStructural} is set ({@code where(P)} label names are pattern structure,
-   * not rebound slots).
+   * unless {@code valuesAreStructural} is set. Label names, ids and {@code where(P)} labels are
+   * typed pattern structure, not rebound slots.
    */
   void appendPredicate(@Nullable P<?> predicate, boolean valuesAreStructural) {
     if (predicate == null) {
@@ -145,11 +146,27 @@ final class GremlinShapeEncoder {
   }
 
   void appendStructuralValue(@Nullable Object value) {
+    appendStructuralValue(value, new IdentityHashMap<>());
+  }
+
+  private void appendStructuralValue(@Nullable Object value,
+      IdentityHashMap<Collection<?>, Boolean> activeCollections) {
+    // A value that prints like a String must not reuse an accepted String-label plan. Include the
+    // type at every level so null, scalar values and nested collections also stay distinct.
+    appendToken("sc", value == null ? "N" : value.getClass().getName());
     if (value instanceof Collection<?> collection) {
+      if (activeCollections.put(collection, Boolean.TRUE) != null) {
+        // Cyclic values have no finite predicate encoding. Bypass the cache and let native handle
+        // the value rather than overflowing during the pre-walk extraction.
+        markIncomplete();
+        appendToken("cycle");
+        return;
+      }
       sb.append("C:").append(collection.size()).append(':');
       for (var element : collection) {
-        appendToken(String.valueOf(element));
+        appendStructuralValue(element, activeCollections);
       }
+      activeCollections.remove(collection);
       return;
     }
     appendToken(String.valueOf(value));

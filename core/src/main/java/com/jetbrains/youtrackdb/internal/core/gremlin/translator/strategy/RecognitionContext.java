@@ -112,6 +112,20 @@ interface RecognitionContext extends ParamSink {
    */
   @Nullable String boundaryClassName();
 
+  /** The effective scan class for an alias, including any uncommitted child capture. */
+  @Nullable String classForAlias(String alias);
+
+  /**
+   * The replacement must be a declared vertex class. Its scan must preserve the current class
+   * condition in both label modes.
+   */
+  default boolean canNarrowClass(@Nullable String currentClass, String replacement) {
+    return isVertexClass(replacement)
+        && (currentClass == null || currentClass.equals(replacement)
+            || WalkerContext.VERTEX_ROOT_CLASS.equals(currentClass)
+            || isSubClassOf(replacement, currentClass));
+  }
+
   /**
    * The {@link BoundaryOutputType} pinned on the current boundary, or {@code null} before any step
    * pins one. A terminator recogniser reads this to refuse a shape a prior terminator already fixed
@@ -222,6 +236,12 @@ interface RecognitionContext extends ParamSink {
    * never re-types.
    */
   boolean isVertexClass(String className);
+
+  /**
+   * Whether the declared class equals or extends {@code superClassName}. Returns false when the
+   * class or schema is unavailable. Checks ancestry without collecting subclasses.
+   */
+  boolean isSubClassOf(String className, String superClassName);
 
   /**
    * Expands each root label to itself plus every declared vertex subclass, for polymorphic

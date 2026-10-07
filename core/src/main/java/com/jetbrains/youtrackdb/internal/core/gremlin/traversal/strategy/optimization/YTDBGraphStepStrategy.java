@@ -137,21 +137,18 @@ public final class YTDBGraphStepStrategy
 
           // "hasLabel" steps that don't directly follow a GraphStep are replaced by
           // YTDBHasLabelStep, that handles the "polymorphic" flag correctly.
-          final List<P<? super String>> labelPredicates = new ArrayList<>();
+          // Each ~label container is one label condition.
+          // Each condition gets its own step, so every condition must match.
+          // One multi-label container still accepts any of its labels.
           for (var hc : new ArrayList<>(hch.getHasContainers())) {
             if (T.label.getAccessor().equals(hc.getKey())) {
               //noinspection unchecked
-              labelPredicates.add((P<? super String>) hc.getPredicate());
+              final P<? super String> predicate = (P<? super String>) hc.getPredicate();
+              traversal.addStep(idx,
+                  new YTDBHasLabelStep<>(traversal, List.of(predicate), polymorphic));
+              idx++;
               hch.removeHasContainer(hc);
             }
-          }
-
-          if (!labelPredicates.isEmpty()) {
-            // adding a new YTDBHasLabelStep that handles all label predicates
-            final var ytdbHasLabelStep =
-                new YTDBHasLabelStep<>(traversal, labelPredicates, polymorphic);
-            traversal.addStep(idx, ytdbHasLabelStep);
-            idx++;
           }
 
           // Wrap remaining property containers after label containers have been removed.

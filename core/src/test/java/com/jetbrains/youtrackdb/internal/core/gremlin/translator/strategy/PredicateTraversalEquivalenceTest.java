@@ -976,8 +976,8 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
 
   /**
    * Polymorphic {@code or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))} must match
-   * native: each OR arm keeps its label discrimination. Without folding the child's {@code hasLabel}
-   * re-type into the OR operand as {@code classEquals}, the translated WHERE would be roughly
+   * native: each OR arm keeps its label discrimination. The child's named {@code hasLabel} condition
+   * folds into the OR operand as subclass-expanded {@code classIn}. Without it the WHERE would be
    * {@code (age=30) OR (age=40)} and wrongly admit cross-label rows.
    */
   @Test

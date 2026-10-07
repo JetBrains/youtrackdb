@@ -454,8 +454,12 @@ final class WalkerContext implements RecognitionContext {
 
   @Nullable @Override
   public String boundaryClassName() {
-    return boundaryAlias == null ? null
-        : patternBuilder.registeredAliasClasses().get(boundaryAlias);
+    return boundaryAlias == null ? null : classForAlias(boundaryAlias);
+  }
+
+  @Nullable @Override
+  public String classForAlias(String alias) {
+    return patternBuilder.registeredAliasClasses().get(alias);
   }
 
   @Nullable @Override
@@ -546,6 +550,15 @@ final class WalkerContext implements RecognitionContext {
     }
     var clazz = schema.getClass(className);
     return clazz != null && clazz.isVertexType();
+  }
+
+  @Override
+  public boolean isSubClassOf(String className, String superClassName) {
+    if (schema == null) {
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    return clazz != null && clazz.isSubClassOf(superClassName);
   }
 
   @Override

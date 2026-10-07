@@ -143,6 +143,39 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  a fragment of the positive pattern. */
   private boolean hasEdges;
 
+  /** Named polymorphic single-label tests that scan re-types keep out of the captured WHERE. */
+  private final Map<String, List<String>> capturedPolymorphicLabels = new LinkedHashMap<>();
+
+  void capturePolymorphicLabel(String alias, String label) {
+    capturedPolymorphicLabels.computeIfAbsent(alias, ignored -> new ArrayList<>()).add(label);
+  }
+
+  Map<String, List<String>> capturedPolymorphicLabels() {
+    return capturedPolymorphicLabels;
+  }
+
+  void inheritPolymorphicLabels(SubTraversalPredicateAdapter child) {
+    for (var entry : child.capturedPolymorphicLabels.entrySet()) {
+      capturedPolymorphicLabels.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>())
+          .addAll(entry.getValue());
+    }
+  }
+
+  // Captured refinements stay outside the OR/NOT fold's supported acceptance set.
+  private boolean changedCapturedClass;
+
+  boolean changedCapturedClass() {
+    return changedCapturedClass;
+  }
+
+  void markCapturedClassChange() {
+    changedCapturedClass = true;
+  }
+
+  void inheritCapturedClassChange(SubTraversalPredicateAdapter child) {
+    changedCapturedClass |= child.changedCapturedClass;
+  }
+
   /**
    * The boundary alias subsequent filter steps in this child sub-traversal should key on. A hop's
    * {@link #pinBoundary} is swallowed (it must not move the outer traversal's result column) but the
@@ -263,14 +296,23 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   @Nullable @Override
   public String boundaryClassName() {
     var alias = boundaryAlias();
-    if (alias == null) {
-      return null;
+    return alias == null ? null : classForAlias(alias);
+  }
+
+  @Nullable @Override
+  public String classForAlias(String alias) {
+    var local = capturedPattern.registeredAliasClasses().get(alias);
+    return local != null ? local : parent.classForAlias(alias);
+  }
+
+  /** Finds a concrete class in the capture chain. Committed parent classes do not count. */
+  @Nullable String concreteCapturedClassForAlias(String alias) {
+    var local = capturedPattern.registeredAliasClasses().get(alias);
+    if (local != null && !WalkerContext.VERTEX_ROOT_CLASS.equals(local)) {
+      return local;
     }
-    // Once a child hops, the parent's class describes the origin, not the target. Prefer local
-    // target nodes and re-types; use the parent only when the child still filters its boundary.
-    var localClass = capturedPattern.registeredAliasClasses().get(alias);
-    return localClass != null || !alias.equals(parent.boundaryAlias())
-        ? localClass : parent.boundaryClassName();
+    return parent instanceof SubTraversalPredicateAdapter adapter
+        ? adapter.concreteCapturedClassForAlias(alias) : null;
   }
 
   @Nullable @Override
@@ -338,6 +380,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
   }
 
   @Override
+  public boolean isSubClassOf(String className, String superClassName) {
+    return parent.isSubClassOf(className, superClassName);
+  }
+
+  @Override
   public List<String> expandPolymorphicClassClosure(List<String> rootLabels) {
     return parent.expandPolymorphicClassClosure(rootLabels);
   }
@@ -372,6 +419,10 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // the addEdge / addEdgeAsNode that already flipped hasEdges. Deriving hasEdges from addNode would
     // misclassify a hasLabel-bearing pure-filter child as edge-bearing, so only the edge contributions
     // below flip the flag.
+    var previous = concreteCapturedClassForAlias(alias);
+    if (previous != null && !previous.equals(className)) {
+      changedCapturedClass = true;
+    }
     capturedPattern.addNode(alias, className, null, false);
   }
 

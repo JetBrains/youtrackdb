@@ -73,8 +73,8 @@ public class OrStepRecogniserTest extends GraphBaseTest {
 
   /**
    * Under polymorphic mode {@code hasLabel(L)} is re-type-only (no {@code @class} in the child's
-   * WHERE). OR must fold each child's boundary re-type into that child's OR operand as {@code
-   * classEquals}, otherwise {@code or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))}
+   * WHERE). OR must fold each child's named label into a subclass-expanded {@code classIn} test,
+   * otherwise {@code or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))}
    * would keep only the age predicates and lose label discrimination.
    */
   @Test
@@ -101,11 +101,11 @@ public class OrStepRecogniserTest extends GraphBaseTest {
     // end-to-end Person/Company discrimination is pinned by
     // PredicateTraversalEquivalenceTest.polymorphicOrHasLabelPlusHas_matchesNative.
     assertThat(rendered)
-        .contains("@class = ")
+        .contains("@class IN ")
         .contains("age")
         .contains("OR")
         .containsIgnoringCase(" AND ");
-    assertThat(countOccurrences(rendered, "@class = ")).isEqualTo(2);
+    assertThat(countOccurrences(rendered, "@class IN ")).isEqualTo(2);
   }
 
   private static int countOccurrences(String haystack, String needle) {

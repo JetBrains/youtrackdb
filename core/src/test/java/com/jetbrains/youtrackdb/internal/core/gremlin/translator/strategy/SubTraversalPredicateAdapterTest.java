@@ -96,6 +96,7 @@ public class SubTraversalPredicateAdapterTest {
     var parent = mock(RecognitionContext.class);
     when(parent.boundaryAlias()).thenReturn(BOUNDARY_ALIAS);
     when(parent.boundaryClassName()).thenReturn("Source");
+    when(parent.classForAlias(BOUNDARY_ALIAS)).thenReturn("Source");
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
     assertThat(adapter.boundaryClassName()).isEqualTo("Source");
 

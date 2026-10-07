@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 
@@ -52,6 +53,25 @@ final class AndStepRecogniser implements StepRecogniser {
           return Outcome.DECLINE;
         }
         exists.add(expression);
+      }
+    }
+    // Simulate class changes on parent query positions before publishing any contribution.
+    // Detached validation rejects an origin re-type in a hop child. Its new target classes stay
+    // inside the exists check and do not replace a parent class.
+    var proposedClasses = new LinkedHashMap<String, String>();
+    for (var adapter : adapters) {
+      for (var entry : adapter.capturedPattern().registeredAliasClasses().entrySet()) {
+        var alias = entry.getKey();
+        var parentClass = ctx.classForAlias(alias);
+        if (!alias.equals(ctx.boundaryAlias()) && parentClass == null) {
+          continue;
+        }
+        var current = proposedClasses.containsKey(alias)
+            ? proposedClasses.get(alias) : parentClass;
+        if (!ctx.canNarrowClass(current, entry.getValue())) {
+          return Outcome.DECLINE;
+        }
+        proposedClasses.put(alias, entry.getValue());
       }
     }
     for (var adapter : adapters) {

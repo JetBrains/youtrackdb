@@ -156,6 +156,20 @@ final class HasStepRecogniser implements StepRecogniser {
       }
     }
 
+    // A label condition on an edge-bound position must decline, for example after select() of an
+    // edge alias bound by outE().as(...). Otherwise the translator could assign a vertex class to a
+    // MATCH node that holds edges.
+    if (labelConstraint != null && ctx.isEdgeAlias(boundary)) {
+      return Outcome.DECLINE;
+    }
+    // A single label replaces the class of the current MATCH node. Only the same class or a vertex
+    // subclass of the current class keeps every earlier label condition. Any other class declines
+    // so the native planner runs the query.
+    if (labelConstraint instanceof ParsedLabelConstraint.Single single
+        && !ctx.canNarrowClass(ctx.boundaryClassName(), single.name())) {
+      return Outcome.DECLINE;
+    }
+
     // Type gate: single ~label uses that class; multi-label requires the property type on every
     // named class (allMatch — a schemaless sibling must not drop type guards). No ~label → unknown.
     GremlinPredicateAdapter.PropertyTypeGate typeGate;
@@ -219,10 +233,20 @@ final class HasStepRecogniser implements StepRecogniser {
       // The class is known to exist here — a missing class declined above, before any mutation.
       var name = single.name();
       ctx.addNode(boundary, name);
+      if (ctx.polymorphic() && ctx instanceof SubTraversalPredicateAdapter adapter) {
+        // The scan class is not a boolean label test. Keep the named label for the OR/NOT fold.
+        adapter.capturePolymorphicLabel(boundary, name);
+      }
       if (!ctx.polymorphic()) {
         whereExprs.add(WHERE.classEquals(name));
       }
     } else if (labelConstraint instanceof ParsedLabelConstraint.Multi multi) {
+      // Positive commits retain the scan class and intersect explicit label filters.
+      // Captured refinements remain outside the supported boolean fold.
+      if (ctx instanceof SubTraversalPredicateAdapter adapter
+          && adapter.concreteCapturedClassForAlias(boundary) != null) {
+        adapter.markCapturedClassChange();
+      }
       var classNames =
           ctx.polymorphic()
               ? ctx.expandPolymorphicClassClosure(multi.names())
@@ -254,7 +278,7 @@ final class HasStepRecogniser implements StepRecogniser {
     record Single(String name) implements ParsedLabelConstraint {
       @Override
       public boolean conflictsWith(ParsedLabelConstraint other) {
-        return other instanceof Single s && !name.equals(s.name);
+        return !(other instanceof Single s) || !name.equals(s.name);
       }
     }
 
@@ -365,12 +389,12 @@ final class HasStepRecogniser implements StepRecogniser {
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
         encoder.appendToken("lab");
-        encoder.appendStructuralValue(container.getValue());
+        encoder.appendPredicate(container.getPredicate(), true);
         continue;
       }
       if (ID_KEY.equals(key)) {
         encoder.appendToken("id");
-        encoder.appendToken(Integer.toString(idCardinality(container.getValue())));
+        encoder.appendPredicate(container.getPredicate(), true);
         continue;
       }
       encoder.appendToken(key == null ? "" : key);
@@ -378,13 +402,6 @@ final class HasStepRecogniser implements StepRecogniser {
       GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate, encoder.paramSink());
     }
     return true;
-  }
-
-  private static int idCardinality(@Nullable Object value) {
-    if (value instanceof Collection<?> collection) {
-      return collection.size();
-    }
-    return value == null ? 0 : 1;
   }
 
   private static boolean declaredStringOn(

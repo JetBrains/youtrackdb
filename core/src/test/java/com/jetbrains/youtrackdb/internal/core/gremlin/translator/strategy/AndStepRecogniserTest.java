@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -307,6 +308,107 @@ public class AndStepRecogniserTest extends GraphBaseTest {
 
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
     assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+  }
+
+  /** A failed sibling class preflight commits neither class changes nor property filters. */
+  @Test
+  public void wideningSiblingPreflight_declinesWithoutCommittingAnyChild() {
+    var user = session.createVertexClass("User");
+    session.getSchema().createClass("Employee", user);
+    var admin = graph.traversal().V().and(
+        __.hasLabel("Employee").has("name", "e").barrier(),
+        __.hasLabel("User").has("name", "u").barrier()).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+
+    assertThat(AndStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+        .isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.patternBuilder.registeredAliasClasses()).containsOnlyKeys(BOUNDARY_ALIAS)
+        .containsEntry(BOUNDARY_ALIAS, "V");
+    assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.notMatchExpressions).isEmpty();
+    assertThat(ctx.inputParameters).hasSize(2);
+  }
+
+  /** Hop targets keep their local class while a narrowing sibling changes only the parent node. */
+  @Test
+  public void hopAndNarrowingSibling_commitOnlyBoundaryClassAndDetachedCheck() {
+    createLabelHierarchy();
+    for (var polymorphic : List.of(true, false)) {
+      var admin = graph.traversal().V().and(
+          __.out("follows").hasLabel("User"), __.hasLabel("Manager").barrier()).asAdmin();
+      var ctx = contextWithRegistry(polymorphic, session.getSchema());
+      ctx.addNode(BOUNDARY_ALIAS, "Employee");
+
+      assertThat(AndStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+          .isEqualTo(Outcome.ACCEPTED);
+      assertThat(ctx.patternBuilder.registeredAliasClasses())
+          .containsOnlyKeys(BOUNDARY_ALIAS).containsEntry(BOUNDARY_ALIAS, "Manager");
+      assertThat(ctx.existsMatchExpressions).hasSize(1);
+      assertThat(ctx.existsMatchExpressions.getFirst().toString()).contains("User");
+      assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
+    }
+  }
+
+  /** A later widening sibling commits no earlier narrowing, property filter or detached check. */
+  @Test
+  public void hopBetweenWideningSiblings_preflightDeclinesWithoutAnyCommit() {
+    createLabelHierarchy();
+    for (var polymorphic : List.of(true, false)) {
+      var admin = graph.traversal().V().and(
+          __.hasLabel("Employee").has("name", "e").barrier(),
+          __.out("follows"), __.hasLabel("User").barrier()).asAdmin();
+      var ctx = contextWithRegistry(polymorphic, session.getSchema());
+      ctx.addNode(BOUNDARY_ALIAS, "User");
+
+      assertThat(AndStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+          .isEqualTo(Outcome.DECLINE);
+      assertNoChildCommitted(ctx, "User");
+    }
+  }
+
+  /** A label before a hop cannot enter an exists check, even if its origin class narrows. */
+  @Test
+  public void boundaryLabelBeforeHop_declinesWithoutCommittingEarlierSibling() {
+    createLabelHierarchy();
+    for (var polymorphic : List.of(true, false)) {
+      for (var label : List.of("Manager", "User")) {
+        var admin = graph.traversal().V().and(
+            __.hasLabel("Manager").has("name", "m").barrier(),
+            __.hasLabel(label).barrier().out("follows")).asAdmin();
+        var ctx = contextWithRegistry(polymorphic, session.getSchema());
+        ctx.addNode(BOUNDARY_ALIAS, "Employee");
+
+        // Narrowing is accepted by the sub-walk but rejected by detached origin validation.
+        // Widening is rejected by the sub-walk's D5 guard before detached validation.
+        var child = ctx.walkChild(__.hasLabel(label).barrier().out("follows").asAdmin());
+        assertThat(child.outcome()).isEqualTo(
+            label.equals("Manager") ? Outcome.ACCEPTED : Outcome.DECLINE);
+        if (child.outcome() == Outcome.ACCEPTED) {
+          assertThat(child.hasEdges()).isTrue();
+          assertThat(child.capturedPattern().registeredAliasClasses())
+              .containsEntry(BOUNDARY_ALIAS, "Manager");
+          assertThat(ConnectiveStepSupport.detachedExists(ctx, child)).isNull();
+        }
+        assertThat(AndStepRecogniser.INSTANCE.recognize(cursorAfterStart(admin), ctx))
+            .isEqualTo(Outcome.DECLINE);
+        assertNoChildCommitted(ctx, "Employee");
+      }
+    }
+  }
+
+  private void createLabelHierarchy() {
+    var user = session.createVertexClass("User");
+    var employee = session.getSchema().createClass("Employee", user);
+    session.getSchema().createClass("Manager", employee);
+  }
+
+  private static void assertNoChildCommitted(WalkerContext ctx, String originalClass) {
+    assertThat(ctx.patternBuilder.registeredAliasClasses())
+        .containsOnlyKeys(BOUNDARY_ALIAS).containsEntry(BOUNDARY_ALIAS, originalClass);
+    assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.existsMatchExpressions).isEmpty();
+    assertThat(ctx.notMatchExpressions).isEmpty();
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
