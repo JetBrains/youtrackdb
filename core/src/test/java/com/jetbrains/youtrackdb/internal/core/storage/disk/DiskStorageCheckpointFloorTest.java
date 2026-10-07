@@ -10,6 +10,7 @@ import static org.mockito.Mockito.spy;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -96,11 +97,11 @@ public class DiskStorageCheckpointFloorTest {
     }
   }
 
-  /** An older synch clear cannot leave the later close timestamp unprotected (CN-1). */
+  /** Forced close waits for an older synch clear and re-marks its close timestamp (CN-1). */
   @Test
   public void synchOverlappingForcedShutdownRecoversCloseTimestamp() throws Exception {
     var mark = crashChild("overlappingClear");
-    assertTrue("close work must re-mark after the overlapping clear", isDirty());
+    assertTrue("close work must re-mark after the earlier checkpoint clear", isDirty());
     try (var manager = manager(); var session = manager.open(DATABASE, ADMIN, ADMIN)) {
       assertTrue(((AbstractStorage) session.getStorage()).getIdGen().getLastId() > mark);
     }
@@ -374,6 +375,8 @@ public class DiskStorageCheckpointFloorTest {
       storage.setAfterShutdownRemarkActionForTesting(shutdownRemarked::countDown);
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
         try {
+          assertEquals("the close timestamp must follow the shutdown re-mark", 0L,
+              shutdownRemarked.getCount());
           assertTrue("the close timestamp must follow a durable re-mark",
               isDirty((DiskStorage) storage));
         } catch (IOException failure) {
@@ -390,12 +393,15 @@ public class DiskStorageCheckpointFloorTest {
       });
       var shutdown = CompletableFuture.runAsync(() -> storage.close(session, true));
       try {
-        assertTrue("forced shutdown did not re-mark after its checkpoint",
-            shutdownRemarked.await(30, TimeUnit.SECONDS));
+        awaitForcedCloseReaderDrain(storage, shutdown);
+        assertEquals("forced close must not re-mark while synch is paused", 1L,
+            shutdownRemarked.getCount());
       } finally {
         releaseSynch.countDown();
       }
       synch.get(30, TimeUnit.SECONDS);
+      assertTrue("forced shutdown did not re-mark after its checkpoint",
+          shutdownRemarked.await(30, TimeUnit.SECONDS));
       shutdown.get(30, TimeUnit.SECONDS);
       throw new AssertionError("close-time crash hook was not reached");
     } else if (args[0].equals("forced")) {
@@ -485,6 +491,24 @@ public class DiskStorageCheckpointFloorTest {
     }
     writeMark(handshake, mark);
     Runtime.getRuntime().halt(0);
+  }
+
+  private static void awaitForcedCloseReaderDrain(
+      AbstractStorage storage, CompletableFuture<?> close) throws Exception {
+    Field field = AbstractStorage.class.getDeclaredField("stateLock");
+    field.setAccessible(true);
+    var stateLock = (ScalableRWLock) field.get(storage);
+    // The write bit is visible before reader drain, proving close reached lock acquisition.
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!stateLock.isWriteLocked() && !close.isDone() && System.nanoTime() < deadline) {
+      Thread.yield();
+    }
+    if (close.isDone()) {
+      close.get(10, TimeUnit.SECONDS);
+      throw new AssertionError("forced close completed while synch held read mode");
+    }
+    assertTrue("forced close must reach reader drain", stateLock.isWriteLocked());
+    assertFalse("forced close must wait for synch", close.isDone());
   }
 
   private static CompletableFuture<Void> writeOnce(AbstractStorage storage) {

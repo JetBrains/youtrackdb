@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -19,18 +20,28 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -442,6 +453,254 @@ public class AbstractStorageWALCutTest {
     verify(storage).postCloseSteps(false, true, 0L);
     verify(storage, never()).postCloseSteps(false, false, 0L);
     assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+  }
+
+  /**
+   * YTDB-1394: a data commit pauses after state admission and recovery marking, before timestamp
+   * registration. Forced close must wait for its read lock and clear only after commit apply ends.
+   */
+  @Test(timeout = 30_000)
+  public void forcedCloseWaitsForAdmittedCommitBeforeClearingDirtyMarker() throws Exception {
+    final var stateLock = prepareForcedClose();
+    final var admitted = new CountDownLatch(1);
+    final var resume = new CountDownLatch(1);
+    final var commitApplied = new AtomicBoolean();
+    final var dirty = new AtomicBoolean();
+    final var transaction = mock(FrontendTransactionImpl.class);
+    final var session = mock(DatabaseSessionEmbedded.class, RETURNS_DEEP_STUBS);
+    final var operation = mock(AtomicOperation.class);
+    when(transaction.getDatabaseSession()).thenReturn(session);
+    when(session.getTxSchemaState()).thenReturn(null);
+    when(transaction.getIndexOperations()).thenReturn(Map.of());
+    when(transaction.getRecordOperationsInternal()).thenReturn(List.of());
+    when(transaction.getAtomicOperation()).thenReturn(operation);
+    when(transaction.getRecordSerializationContext())
+        .thenReturn(mock(RecordSerializationContext.class));
+    doAnswer(invocation -> {
+      assertThat(stateLock.isReadLockedByCurrentThread()).isTrue();
+      assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+      dirty.set(true);
+      return null;
+    }).when(storage).ensureRecoveryIndicationBeforeTimestamp();
+    doAnswer(invocation -> {
+      // Model the manager's recovery-marking step before timestamp/table registration.
+      storage.ensureRecoveryIndicationBeforeTimestamp();
+      admitted.countDown();
+      assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
+      return null;
+    }).when(storage.atomicOperationsManager).startToApplyOperations(operation, false, null);
+    doAnswer(invocation -> {
+      // Shutdown re-marks after its checkpoint and before close-time atomic work.
+      assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSING);
+      assertThat(stateLock.isWriteLockedByCurrentThread()).isTrue();
+      assertThat(commitApplied).isTrue();
+      dirty.set(true);
+      return null;
+    }).when(storage).makeStorageDirty();
+    doAnswer(invocation -> {
+      assertThat(stateLock.isReadLockedByCurrentThread()).isTrue();
+      commitApplied.set(true);
+      return null;
+    }).when(storage.atomicOperationsManager).ensureThatComponentsUnlocked(operation);
+    doAnswer(invocation -> {
+      assertThat(commitApplied).as("clean marker must follow admitted commit apply").isTrue();
+      assertThat(stateLock.isWriteLockedByCurrentThread()).isTrue();
+      dirty.set(false);
+      return null;
+    }).when(storage).clearStorageDirty();
+    doAnswer(invocation -> {
+      // Model the final metadata clear after the re-mark and successful cache close.
+      assertThat(commitApplied).as("final clean marker must follow admitted commit apply").isTrue();
+      assertThat(stateLock.isWriteLockedByCurrentThread()).isTrue();
+      assertThat(dirty).as("close-time work must retain the recovery indication").isTrue();
+      dirty.set(false);
+      return null;
+    }).when(storage).postCloseSteps(false, false, 0L);
+
+    final var workers = Executors.newFixedThreadPool(2);
+    try {
+      final var commit = workers.submit(() -> storage.commit(transaction, false));
+      assertThat(admitted.await(10, TimeUnit.SECONDS)).isTrue();
+      final var close = workers.submit(() -> storage.close(null, true));
+      awaitForcedCloseReaderDrain(stateLock, close);
+      assertThat(dirty).isTrue();
+      verify(storage, never()).flushAllData();
+      verify(storage, never()).clearStorageDirty();
+      resume.countDown();
+      assertThat(commit.get(10, TimeUnit.SECONDS)).isEmpty();
+      close.get(10, TimeUnit.SECONDS);
+      verify(storage.atomicOperationsManager).startToApplyOperations(operation, false, null);
+      verify(storage.atomicOperationsManager).endAtomicOperation(operation, null);
+      verify(storage).clearStorageDirty();
+      verify(storage).ensureRecoveryIndicationBeforeTimestamp();
+      verify(storage).makeStorageDirty();
+      verify(storage).postCloseSteps(false, false, 0L);
+      assertThat(dirty).isFalse();
+      assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+      assertStateWriteLockReleased(stateLock);
+    } finally {
+      resume.countDown();
+      workers.shutdownNow();
+      assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  /** A running fuzzy checkpoint keeps forced close outside shutdown until its force returns. */
+  @Test(timeout = 30_000)
+  public void forcedCloseWaitsForRunningFuzzyCheckpoint() throws Exception {
+    assertForcedCloseWaitsForCheckpoint(false);
+  }
+
+  /** A running WAL vacuum keeps forced close outside shutdown until its force returns. */
+  @Test(timeout = 30_000)
+  public void forcedCloseWaitsForRunningWalVacuum() throws Exception {
+    assertForcedCloseWaitsForCheckpoint(true);
+  }
+
+  /** An idle forced close completes real shutdown, clears the marker and releases write mode. */
+  @Test
+  public void forcedCloseCompletesNormallyAndReleasesStateWriteLock() throws Exception {
+    final var stateLock = prepareForcedClose();
+    doAnswer(invocation -> {
+      assertThat(stateLock.isWriteLockedByCurrentThread()).isTrue();
+      return null;
+    }).when(storage).clearStorageDirty();
+
+    storage.close(null, true);
+
+    verify(storage).clearStorageDirty();
+    verify(writeAheadLog).close();
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+    assertStateWriteLockReleased(stateLock);
+  }
+
+  /** A failed initial checkpoint releases forced-close write mode so shutdown can retry. */
+  @Test
+  public void forcedCloseCheckpointFailureReleasesStateWriteLockForRetry() throws Exception {
+    final var stateLock = prepareForcedClose();
+    doThrow(new RuntimeException("injected forced-close checkpoint failure"))
+        .doCallRealMethod().when(storage).flushAllData();
+
+    assertThatThrownBy(() -> storage.close(null, true))
+        .hasMessageContaining("injected forced-close checkpoint failure");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    verify(storage, never()).clearStorageDirty();
+    assertStateWriteLockReleased(stateLock);
+    storage.close(null, true);
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+    assertStateWriteLockReleased(stateLock);
+  }
+
+  /** Checked failures and Errors keep the existing reporting path and release forced-close mode. */
+  @Test
+  public void forcedCloseReleasesStateWriteLockAfterCheckedFailureAndError() throws Exception {
+    final var stateLock = prepareForcedClose();
+    doThrow(new IOException("injected checked shutdown failure"))
+        .doThrow(new AssertionError("injected shutdown error")).when(storage).doShutdown();
+
+    assertThatThrownBy(() -> storage.close(null, true))
+        .hasCauseInstanceOf(IOException.class);
+    assertStateWriteLockReleased(stateLock);
+    assertThatThrownBy(() -> storage.close(null, true))
+        .isInstanceOf(AssertionError.class).hasMessage("injected shutdown error");
+    assertStateWriteLockReleased(stateLock);
+  }
+
+  /** Non-forced close delegates within ten seconds while another thread holds state read mode. */
+  @Test
+  public void nonForcedCloseDoesNotAcquireStateWriteLock() throws Exception {
+    final var stateLock = prepareForcedClose();
+    final var session = mock(DatabaseSessionEmbedded.class);
+    doNothing().when(storage).close(session);
+    final var worker = Executors.newSingleThreadExecutor();
+    stateLock.readLock().lock();
+    try {
+      worker.submit(() -> storage.close(session, false)).get(10, TimeUnit.SECONDS);
+      verify(storage).close(session);
+      verify(storage, never()).doShutdown();
+    } finally {
+      // Lock acquisition ignores interrupts, so release the reader before stopping the worker.
+      stateLock.readLock().unlock();
+      worker.shutdownNow();
+      assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+    assertStateWriteLockReleased(stateLock);
+  }
+
+  private ScalableRWLock prepareForcedClose() throws Exception {
+    prepareShutdownTeardown();
+    final var stateLock = new ScalableRWLock();
+    setPrivateField(storage, "stateLock", stateLock);
+    setPrivateField(storage, "error", new AtomicReference<Throwable>());
+    setPrivateField(storage, "beforeCommitApplyTestAction", new AtomicReference<>());
+    storage.configuration = mock(StorageConfiguration.class, RETURNS_DEEP_STUBS);
+    doAnswer(invocation -> false).when(storage).isInError();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+    return stateLock;
+  }
+
+  private void assertForcedCloseWaitsForCheckpoint(final boolean vacuum) throws Exception {
+    final var stateLock = prepareForcedClose();
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    when(writeAheadLog.begin()).thenReturn(new LogSequenceNumber(1, 1));
+    when(writeAheadLog.end()).thenReturn(checkpointLsn);
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    final var forcing = new CountDownLatch(1);
+    final var resume = new CountDownLatch(1);
+    doAnswer(invocation -> {
+      assertThat(stateLock.isReadLockedByCurrentThread()).isTrue();
+      forcing.countDown();
+      assertThat(resume.await(10, TimeUnit.SECONDS)).isTrue();
+      return null;
+    }).when(writeCache).syncDataFiles(20L);
+    final var workers = Executors.newFixedThreadPool(2);
+    try {
+      final var checkpoint = workers.submit(() -> {
+        if (vacuum) {
+          storage.runWALVacuum();
+        } else {
+          storage.makeFuzzyCheckpoint();
+        }
+      });
+      assertThat(forcing.await(10, TimeUnit.SECONDS)).isTrue();
+      final var close = workers.submit(() -> storage.close(null, true));
+      awaitForcedCloseReaderDrain(stateLock, close);
+      assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+      verify(storage, never()).flushAllData();
+      verify(storage, never()).clearStorageDirty();
+      resume.countDown();
+      checkpoint.get(10, TimeUnit.SECONDS);
+      close.get(10, TimeUnit.SECONDS);
+      verify(storage).clearStorageDirty();
+      assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+      assertStateWriteLockReleased(stateLock);
+    } finally {
+      resume.countDown();
+      workers.shutdownNow();
+      assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  private static void awaitForcedCloseReaderDrain(
+      final ScalableRWLock stateLock, final Future<?> close) throws Exception {
+    // ScalableRWLock sets the observable write bit before draining existing readers.
+    // Waiting for that bit proves close reached lock acquisition, not just worker scheduling.
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!stateLock.isWriteLocked() && !close.isDone() && System.nanoTime() < deadline) {
+      Thread.yield();
+    }
+    if (close.isDone()) {
+      close.get(10, TimeUnit.SECONDS);
+      throw new AssertionError("forced close completed while an admitted reader was paused");
+    }
+    assertThat(stateLock.isWriteLocked()).as("forced close must reach reader drain").isTrue();
+    assertThat(close.isDone()).isFalse();
+  }
+
+  private static void assertStateWriteLockReleased(final ScalableRWLock stateLock) {
+    assertThat(stateLock.writeLock().tryLock()).as("forced close must release write mode").isTrue();
+    stateLock.writeLock().unlock();
   }
 
   /** A full checkpoint rejects in-progress operations before making any deletion decision. */

@@ -1968,6 +1968,13 @@ public abstract class AbstractStorage
     return status == STATUS.CLOSED;
   }
 
+  /**
+   * Closes the session, or shuts down the storage when {@code force} is true.
+   *
+   * <p>Forced close waits for admitted commits and running fuzzy checkpoints or WAL vacuum that
+   * hold the storage state read lock. The caller must not hold the storage state lock in read or
+   * write mode, including an open commit window, because {@link ScalableRWLock} is non-reentrant.
+   */
   @Override
   public final void close(DatabaseSessionEmbedded database, final boolean force) {
     try {
@@ -1976,7 +1983,12 @@ public abstract class AbstractStorage
         return;
       }
 
-      doShutdown();
+      stateLock.writeLock().lock();
+      try {
+        doShutdown();
+      } finally {
+        stateLock.writeLock().unlock();
+      }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {

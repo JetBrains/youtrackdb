@@ -1,19 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -231,24 +233,47 @@ public class DiskStorageMaintenanceFloorTest {
           throw new AssertionError(e);
         }
       } else {
-        try {
-          storage.makeFuzzyCheckpoint();
-        } catch (StorageException closedDuringCut) {
-          // Closing the cache can reject the cut. Other failures must still fail this test.
-          assertTrue(closedDuringCut.getMessage().contains("closed"));
-        }
+        storage.makeFuzzyCheckpoint();
       }
     });
+    var close = CompletableFuture.<Void>completedFuture(null);
     try {
       assertTrue("maintenance did not save its floor", saved.await(30, TimeUnit.SECONDS));
-      storage.close(session, true);
+      close = CompletableFuture.runAsync(() -> storage.close(session, true));
+      awaitForcedCloseReaderDrain(storage, close);
     } finally {
+      // Forced close needs the maintenance read lock. Release it before joining either worker.
       release.countDown();
-      maintenance.get(30, TimeUnit.SECONDS);
-      session.close();
-      manager.close();
+      try {
+        maintenance.get(30, TimeUnit.SECONDS);
+      } finally {
+        try {
+          close.get(30, TimeUnit.SECONDS);
+        } finally {
+          session.close();
+          manager.close();
+        }
+      }
     }
     assertTrue("the final close must not lower the background floor", readFloor() >= issued.get());
+  }
+
+  private static void awaitForcedCloseReaderDrain(
+      AbstractStorage storage, CompletableFuture<?> close) throws Exception {
+    Field field = AbstractStorage.class.getDeclaredField("stateLock");
+    field.setAccessible(true);
+    var stateLock = (ScalableRWLock) field.get(storage);
+    // The write bit is visible before reader drain, proving close reached lock acquisition.
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!stateLock.isWriteLocked() && !close.isDone() && System.nanoTime() < deadline) {
+      Thread.yield();
+    }
+    if (close.isDone()) {
+      close.get(10, TimeUnit.SECONDS);
+      throw new AssertionError("forced close completed while maintenance held read mode");
+    }
+    assertTrue("forced close must reach reader drain", stateLock.isWriteLocked());
+    assertFalse("forced close must wait for maintenance", close.isDone());
   }
 
   private static void prepareRemovableSegment(

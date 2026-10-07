@@ -2404,20 +2404,17 @@ public final class WOWCache extends AbstractWriteCache
     // What "quiescent" does and does not mean here. It is FLUSH-side quiescence only, and it
     // rests on the three things this method just did: stopFlush is set (so a periodic flush
     // exits at its entry guard), every triggered ExclusiveFlushTask's completionLatch has been
-    // awaited, and the periodic flushFuture has been awaited. It does NOT rest on stateLock:
-    // close(session, force = true) reaches doShutdown() without taking the write lock at all
-    // (AbstractStorage.close), so page releases on other threads can in principle still fire
-    // addOnlyWriters/removeOnlyWriters while this runs.
+    // awaited, and the periodic flushFuture has been awaited. Storage shutdown, including
+    // forced close, also holds the state write lock. It first drains operations holding state
+    // read mode or a commit window under state write mode.
+    // This cache method does not acquire that lock itself, so its local invariant relies on
+    // flush-side quiescence rather than assuming storage lifecycle exclusion.
     //
-    // That residual is small but it is genuinely a NEW sampling window, not a subset of an
-    // existing one. Two pre-existing assertions on this same counter (in
-    // flushExclusivePagesIfNeeded and in the exclusive-flush task) sample it far more often and
-    // under far more concurrency — but only while flushing is still running, and by the time
-    // control reaches this point flushing has been quiesced, so those two can no longer sample at
-    // all. This assertion therefore covers an instant they never see: rarer than theirs, and not
-    // dominated by them. It is kept because the invariant it checks is the one the clamp exists to
-    // protect, and because a violation here is far cheaper to act on than the silent
-    // back-pressure loss it would otherwise announce much later.
+    // The assertions in flushExclusivePagesIfNeeded and the exclusive-flush task sample this
+    // counter while flushing is running. They cannot check its final value after the flush
+    // workers stop. This assertion checks that shutdown state and the invariant the clamp
+    // protects. Reporting a violation here is cheaper than the silent back-pressure loss it
+    // would otherwise cause later.
     //
     // It is here rather than inside doRemoveCachePages because an assertion firing in the purge
     // aborts it mid-loop — leaking a PageFrame, orphaning a writeCachePages entry whose listener
