@@ -2402,7 +2402,7 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override
