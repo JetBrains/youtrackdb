@@ -1403,3 +1403,36 @@ M52 blocker-2 wording in this log corrected (sibling under `AbstractMatchPlanSte
 
 **Iterations**: 1 of 1 (PASS).
 
+## Mutation 77 — 2026-10-07 — section-add (design.md)
+
+**Diff summary**: Plan a separate OpenTelemetry user manual at `docs/opentelemetry.md` for embedded application developers and server operators. Add an Overview sentence, name the new subsection in the roadmap, and add `### User manual (planned)` inside the quick-start observability stack section near its operator deliverables. State the title, future documentation-index table row, outline, and later-track authorship. Keep the manual outside the Query Engine Internals book and distinct from the example-local README and deferred Phase 2 tuning guide. This mutation does not write the manual or change the documentation index.
+
+**Mechanical checks** (target=design): PASS — baseline and post-edit runs both exited 0 with 0 blockers, 23 should-fix findings, and 0 suggestions. Compare finding sets after normalizing shifted line references: 0 new findings and 0 removed findings. The Overview remains 53 lines and the document retains 20 top-level sections. Preserve the line-1 workflow stamp. Run both checks with this command:
+
+```bash
+python3 .claude/scripts/design-mechanical-checks.py \
+  --design-path docs/adr/ytdb-496-opentelemetry-support/_workflow/design.md \
+  --design-mechanics-path docs/adr/ytdb-496-opentelemetry-support/_workflow/design-mechanics.md \
+  --changed-section "Quick-start observability stack (operator example)" \
+  --target design \
+  --scope bounded
+```
+
+**Cold-read** (scope: bounded): PASS — careful self-read, not an independent sub-reader review. No sub-reader tool is available in this worker. Read the Overview, roadmap, Core Concepts, full quick-start section, and surrounding metrics and SDK lifecycle sections. This is design-touching entry 71 in application order, so the periodic whole-document escalation does not apply. Check the seven comprehension questions against the document:
+
+1. Addition: the Overview plans a separate user manual at `docs/opentelemetry.md`.
+2. Concepts: Core Concepts defines spans, trace context, query tags, slow-query thresholds, heartbeat sampling, log capture, and the metrics bridge.
+3. Claim: the new subsection names the manual's readers, location, title, index entry, outline, and later-track authorship.
+4. Constraint: the manual stays separate from the Query Engine Internals book, the example-local README, and the deferred Phase 2 tuning guide.
+5. Reverting the addition would remove the planned manual deliverable and its navigation entry from the design.
+6. Gotcha: "A later implementation track will write the manual." This is a plan, not a completed user guide.
+7. Detail: the parent References footer points to the quick-start mechanics, while the roadmap points to the new manual subsection.
+
+**Findings**:
+- No new blocker, should-fix, or suggestion findings.
+- Carry forward 23 pre-existing mechanical should-fix findings: one Overview length finding, 19 decision-cited-without-rationale findings, one top-level section cap finding, one D42 parenthetical aside, and one fragmented-header finding in the Phase 2 advisory subsection.
+- Carry forward previously recorded findings outside this mutation's scope. Leave the pre-existing "§ Non-Goals bullet" reference unchanged.
+- The bounded self-read found no new comprehension or structural issue. The parent section retains its TL;DR, edge cases, and References footer.
+
+**Iterations**: 1 of 3 (PASS).
+
