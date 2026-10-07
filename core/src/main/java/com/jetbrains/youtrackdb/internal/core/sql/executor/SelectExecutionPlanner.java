@@ -292,8 +292,8 @@ public class SelectExecutionPlanner {
       if (orderRequestMode) {
         cacheKey += requestRidTieBreak ? "\0orderRequestWithRid" : "\0orderRequest";
       }
-      // SQL text omits comparator marks. Each item's mark can change type agreement, so
-      // requests with different mark positions must never share a cached plan.
+      // SQL text omits Gremlin comparator marks. Keep mark vectors in the cache key so marked
+      // and unmarked ORDER BY plans never collide.
       if (statement.getOrderBy() != null && statement.getOrderBy().getItems() != null) {
         var marks = new StringBuilder();
         for (var item : statement.getOrderBy().getItems()) {
@@ -3305,10 +3305,7 @@ public class SelectExecutionPlanner {
           break;
         }
       }
-      if (!indexFound || orderType == null
-          || !IndexOrderTypeAgreement.agrees(
-              clazz, idx.getDefinition(), info.orderBy.getItems(),
-              indexFields.subList(0, orderItemCount), false)) {
+      if (!indexFound || orderType == null) {
         continue;
       }
       var orderAsc = orderType.equals(SQLOrderByItem.ASC);
@@ -3347,10 +3344,6 @@ public class SelectExecutionPlanner {
     info.orderApplied = true;
     info.ridOrderWithinEqualKeys =
         bestTrailingFields == 0
-            && IndexOrderTypeAgreement.agrees(
-                clazz, bestIndex.getDefinition(), info.orderBy.getItems(),
-                bestIndex.getDefinition().getProperties().subList(0, orderItemCount),
-                true)
             && (!SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
                 || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
                     info.whereClause == null ? null : info.whereClause.getBaseExpression()));
@@ -3689,7 +3682,7 @@ public class SelectExecutionPlanner {
           && orderAsc != null
           && info.orderBy != null
           && fullySorted(
-              info.orderBy, desc, clazz,
+              info.orderBy, desc,
               ctx.getDatabaseSession().getPlanNullPlacements().resolve())) {
         info.orderApplied = true;
         info.ridOrderWithinEqualKeys = ridOrderWithinEqualKeys(clazz, desc, info.orderBy);
@@ -3732,7 +3725,7 @@ public class SelectExecutionPlanner {
    * in the given descriptor (i.e. no in-memory sort is needed).
    */
   private static boolean fullySorted(
-      SQLOrderBy orderBy, IndexSearchDescriptor desc, SchemaClass clazz,
+      SQLOrderBy orderBy, IndexSearchDescriptor desc,
       ResolvedOrderByNullsPlacement placements) {
     if (orderBy.ordersWithCollate() || !orderBy.ordersSameDirection()) {
       return false;
@@ -3757,9 +3750,7 @@ public class SelectExecutionPlanner {
         return false;
       }
     }
-    return desc.fullySorted(orderBy.getProperties())
-        && IndexOrderTypeAgreement.agrees(
-            clazz, definition, orderBy.getItems(), orderBy.getProperties(), false);
+    return desc.fullySorted(orderBy.getProperties());
   }
 
   /** An index may order ties by RID only when no unfixed key component remains. */
@@ -3783,8 +3774,6 @@ public class SelectExecutionPlanner {
     coveredFields.addAll(orderBy.getProperties());
     return coveredFields.size() == definition.getProperties().size()
         && coveredFields.containsAll(definition.getProperties())
-        && IndexOrderTypeAgreement.agrees(
-            clazz, definition, orderBy.getItems(), orderBy.getProperties(), true)
         && (!SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
             || orderedFieldsExcludeNulls(clazz, orderBy.getProperties(), keyCondition));
   }

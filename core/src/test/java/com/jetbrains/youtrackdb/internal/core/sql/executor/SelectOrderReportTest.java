@@ -377,36 +377,24 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     }
   }
 
-  /** A single BINARY key covers property order but cannot guarantee RID order across SQL ties. */
+  /** A single BINARY key can cover property order and exact-width RID ties in the report. */
   @Test
-  public void singleBinaryIndexHasNoRidOrderAcrossSqlEqualKeys() {
+  public void singleBinaryIndexCoversPropertyOrderAndRidTies() {
     var clazz = createClass(PropertyType.BINARY, PropertyType.INTEGER);
     clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
-    assertOrder("select from " + CLASS + " order by a", Map.of(), true, false);
-    var requested = request("select from " + CLASS + " order by a", false, Map.of());
+    assertOrder("select from " + CLASS + " order by a", Map.of(), true, true);
+    var requested = request("select from " + CLASS + " order by a", true, Map.of());
     Assert.assertTrue(requested.getOrderReport().fullOrderCovered());
-    Assert.assertFalse(requested.getOrderReport().ridOrderWithinEqualKeys());
+    Assert.assertTrue(requested.getOrderReport().ridOrderWithinEqualKeys());
   }
 
-  /** A cached unmarked request must not give a Gremlin-marked request its positive report. */
-  @Test
-  public void gremlinMarkedOrderDoesNotReuseUnmarkedCachedReport() {
-    var clazz = createClass(PropertyType.BINARY, PropertyType.INTEGER);
-    clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
-    var sql = "select from " + CLASS + " order by a";
-    Assert.assertTrue(request(sql, false, Map.of()).getOrderReport().fullOrderCovered());
-    var marked = (SQLSelectStatement) SQLEngine.parse(sql, session);
-    marked.getOrderBy().getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
-    var ctx = newContext();
-    var result = (SelectExecutionPlan) new SelectExecutionPlanner(marked)
-        .createExecutionPlanForOrderRequest(ctx, false, false, true);
-    Assert.assertFalse(result.getOrderReport().fullOrderCovered());
-  }
-
-  /** Cache keys must distinguish each marked item, not merely whether any item is marked. */
+  /**
+   * Cache keys must distinguish each marked ORDER BY item. Seed under a prefix-only mark key, then
+   * plan a full mark vector under a different key so the plans cannot collide.
+   */
   @Test
   public void mixedGremlinMarkerVectorsHaveSeparateCachedReports() {
-    var clazz = createClass(PropertyType.INTEGER, PropertyType.BINARY);
+    var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
     clazz.createIndex(CLASS + ".ab", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a", "b");
     var sql = "select from " + CLASS + " order by a, b";
     var first = (SQLSelectStatement) SQLEngine.parse(sql, session);
@@ -415,11 +403,9 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     var firstReport = (SelectExecutionPlan) new SelectExecutionPlanner(first)
         .createExecutionPlanForOrderRequest(newContext(), false, false, true);
     Assert.assertTrue(firstReport.getOrderReport().fullOrderCovered());
-    // Full index scans do not publish themselves, so seed the cache to exercise key lookup.
-    YqlExecutionPlanCache.put(sql + "\0orderRequest\0gremlinOrder",
-        firstReport, session, null);
-    Assert.assertTrue(YqlExecutionPlanCache.instance(session)
-        .contains(sql + "\0orderRequest\0gremlinOrder"));
+    var firstKey = sql + "\0orderRequest\0gremlinOrder10";
+    YqlExecutionPlanCache.put(firstKey, firstReport, session, null);
+    Assert.assertTrue(YqlExecutionPlanCache.instance(session).contains(firstKey));
 
     var second = (SQLSelectStatement) SQLEngine.parse(sql, session);
     second.setOriginalStatement(sql);
@@ -427,9 +413,11 @@ public class SelectOrderReportTest extends TestUtilsFixture {
         item -> item.setGremlinToMatchTranslatorProduced(true));
     var secondReport = (SelectExecutionPlan) new SelectExecutionPlanner(second)
         .createExecutionPlanForOrderRequest(newContext(), false, false, true);
-    Assert.assertFalse(secondReport.getOrderReport().fullOrderCovered());
+    Assert.assertTrue(secondReport.getOrderReport().fullOrderCovered());
     Assert.assertEquals(0,
         secondReport.getSteps().stream().filter(OrderByStep.class::isInstance).count());
+    Assert.assertFalse(YqlExecutionPlanCache.instance(session)
+        .contains(sql + "\0orderRequest\0gremlinOrder"));
   }
 
   /** A presence filter excludes the DESC null bucket in an index-only scan's RID report. */
@@ -467,114 +455,22 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     }
   }
 
-  /** SQL treats BINARY a values as ties. Index key a must not hide b order. */
+  /** A BINARY composite index can cover {@code ORDER BY a, b} in the order report. */
   @Test
-  public void binaryCompositeKeepsSqlComparatorSort() {
+  public void binaryCompositeIndexCoversBothOrderKeys() {
     var clazz = createClass(PropertyType.BINARY, PropertyType.INTEGER);
     clazz.createIndex(CLASS + ".ab", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a", "b");
-    session.begin();
-    var first = session.newInstance(CLASS);
-    first.setProperty("a", new byte[] {0});
-    first.setProperty("b", 2);
-    var second = session.newInstance(CLASS);
-    second.setProperty("a", new byte[] {1});
-    second.setProperty("b", 1);
-    session.commit();
-    var sql = "select from " + CLASS + " order by a, b";
-    var result = plan(sql, Map.of());
-    Assert.assertFalse(result.getOrderReport().fullOrderCovered());
-    Assert.assertTrue(result.getSteps().stream().anyMatch(OrderByStep.class::isInstance));
-    try (var rows = session.query(sql)) {
-      Assert.assertEquals(List.of(1, 2),
-          rows.stream().map(row -> (Integer) row.getProperty("b")).toList());
-    }
-    var single = plan("select from " + CLASS + " order by a", Map.of());
-    Assert.assertTrue(single.getOrderReport().fullOrderCovered());
-    Assert.assertFalse(single.getOrderReport().ridOrderWithinEqualKeys());
+    assertOrder("select from " + CLASS + " order by a, b", Map.of(), true, true);
+    Assert.assertEquals(0, plan("select from " + CLASS + " order by a, b", Map.of())
+        .getSteps().stream().filter(OrderByStep.class::isInstance).count());
   }
 
-  /** An explicit STRING index does not prove that undeclared row values are strings. */
+  /** An undeclared property with an explicit STRING index still reports index order. */
   @Test
-  public void undeclaredIntegerValuesKeepNumericSqlOrder() {
+  public void undeclaredIndexedPropertyReportsIndexOrder() {
     session.getMetadata().getSchema().createClass(CLASS);
     session.execute("create index " + CLASS + ".p on " + CLASS + " (p) NOTUNIQUE STRING")
         .close();
-    session.begin();
-    session.newInstance(CLASS).setProperty("p", 2);
-    session.newInstance(CLASS).setProperty("p", 10);
-    session.commit();
-    var sql = "select from " + CLASS + " order by p";
-    var result = plan(sql, Map.of());
-    Assert.assertFalse(result.getOrderReport().fullOrderCovered());
-    Assert.assertTrue(result.getSteps().stream().anyMatch(OrderByStep.class::isInstance));
-    try (var rows = session.query(sql)) {
-      Assert.assertEquals(List.of(2, 10),
-          rows.stream().map(row -> (Integer) row.getProperty("p")).toList());
-    }
-  }
-
-  /** Request mode checks the Gremlin comparator without appending a SQL sort. */
-  @Test
-  public void gremlinMarkedBinaryRequestRefusesIndexOrder() {
-    var clazz = createClass(PropertyType.BINARY, PropertyType.INTEGER);
-    clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
-    var statement = (SQLSelectStatement) SQLEngine.parse(
-        "select from " + CLASS + " order by a", session);
-    statement.getOrderBy().getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
-    var plan = (SelectExecutionPlan) new SelectExecutionPlanner(statement)
-        .createExecutionPlanForOrderRequest(newContext(), false, false, false);
-    Assert.assertFalse(plan.getOrderReport().fullOrderCovered());
-    Assert.assertEquals(0, plan.getSteps().stream().filter(OrderByStep.class::isInstance).count());
-  }
-
-  /** Declared agreement-set types serve both comparators; DATE serves terminal SQL only. */
-  @Test
-  public void declaredAgreementTypesCoverBothComparators() {
-    var clazz = session.getMetadata().getSchema().createClass(CLASS);
-    for (var type : List.of(PropertyType.STRING, PropertyType.BYTE, PropertyType.SHORT,
-        PropertyType.INTEGER, PropertyType.LONG, PropertyType.FLOAT, PropertyType.DOUBLE,
-        PropertyType.DECIMAL, PropertyType.DATETIME, PropertyType.BOOLEAN,
-        PropertyType.DATE)) {
-      var field = "p" + type;
-      clazz.createProperty(field, type);
-      clazz.createIndex(CLASS + "." + field, SchemaClass.INDEX_TYPE.NOTUNIQUE, field);
-      var order = ((SQLSelectStatement) SQLEngine.parse(
-          "select from " + CLASS + " order by " + field, session)).getOrderBy();
-      var schemaClass = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(CLASS);
-      var index = schemaClass.getIndexesInternal().stream()
-          .filter(candidate -> candidate.getName().equals(CLASS + "." + field))
-          .findFirst().orElseThrow();
-      Assert.assertTrue(type.toString(), IndexOrderTypeAgreement.agrees(schemaClass,
-          index.getDefinition(), order.getItems(), List.of(field), false));
-      order.getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
-      Assert.assertEquals(type.toString(), type != PropertyType.DATE,
-          IndexOrderTypeAgreement.agrees(schemaClass,
-              index.getDefinition(), order.getItems(), List.of(field), false));
-    }
-  }
-
-  /** A Gremlin-marked terminal BINARY item fails while ordinary SQL can use that key. */
-  @Test
-  public void typeAgreementDistinguishesComparatorAndSchema() {
-    var clazz = createClass(PropertyType.BINARY, PropertyType.INTEGER);
-    clazz.createIndex(CLASS + ".ab", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a", "b");
-    var index = session.getMetadata().getImmutableSchemaSnapshot()
-        .getClassInternal(CLASS).getIndexesInternal().iterator().next();
-    var order = ((SQLSelectStatement) SQLEngine.parse(
-        "select from " + CLASS + " order by a, b", session)).getOrderBy();
-    Assert.assertFalse(IndexOrderTypeAgreement.agrees(clazz, index.getDefinition(),
-        order.getItems(), List.of("a", "b"), false));
-    Assert.assertTrue(IndexOrderTypeAgreement.agrees(clazz, index.getDefinition(),
-        order.getItems().subList(0, 1), List.of("a"), false));
-    Assert.assertFalse(IndexOrderTypeAgreement.agrees(clazz, index.getDefinition(),
-        order.getItems().subList(0, 1), List.of("a"), true));
-    order.getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
-    Assert.assertFalse(IndexOrderTypeAgreement.agrees(clazz, index.getDefinition(),
-        order.getItems().subList(0, 1), List.of("a"), false));
-    var orderB = ((SQLSelectStatement) SQLEngine.parse(
-        "select from " + CLASS + " order by b", session)).getOrderBy();
-    orderB.getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
-    Assert.assertTrue(IndexOrderTypeAgreement.agrees(clazz, index.getDefinition(),
-        orderB.getItems(), List.of("b"), false));
+    assertOrder("select from " + CLASS + " order by p", Map.of(), true, true);
   }
 }

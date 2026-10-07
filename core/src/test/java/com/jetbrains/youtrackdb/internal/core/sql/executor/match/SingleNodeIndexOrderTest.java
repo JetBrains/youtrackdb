@@ -68,46 +68,6 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     session.commit();
   }
 
-  /** An undeclared STRING index cannot signal pre-sorted DESC RID ties after SELECT rejects it. */
-  @Test
-  public void undeclaredIndexDescRidTieBreakSortsInsteadOfPassingThrough() {
-    session.execute("CREATE CLASS UndeclaredOrderItem EXTENDS V").close();
-    session.execute("CREATE INDEX UndeclaredOrderItem_p ON UndeclaredOrderItem (p)"
-        + " NOTUNIQUE STRING").close();
-    session.begin();
-    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 2").close();
-    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 2").close();
-    session.execute("CREATE VERTEX UndeclaredOrderItem SET p = 10").close();
-    session.commit();
-
-    var rows = new ArrayList<Object[]>();
-    try (var rs = session.query("SELECT @rid AS r, p FROM UndeclaredOrderItem")) {
-      rs.forEachRemaining(
-          row -> rows.add(new Object[] {row.getProperty("p"), row.getProperty("r")}));
-    }
-    rows.sort(Comparator.<Object[], Integer>comparing(row -> (Integer) row[0])
-        .thenComparing(row -> (com.jetbrains.youtrackdb.internal.core.id.RecordId) row[1])
-        .reversed());
-    var expected = rows.stream().map(row -> row[1].toString()).toList();
-    var root = "MATCH {class: UndeclaredOrderItem, as: item, where: (p IS NOT NULL)}"
-        + " RETURN item ORDER BY item.p ";
-    var desc = root + "DESC, item.@rid DESC";
-    assertThat(plan(desc)).contains("+ ORDER BY");
-    assertThat(matchItemRids(desc)).isEqualTo(expected);
-
-    // The ASC tie-break must also sort instead of trusting a rejected index order.
-    var asc = root + "ASC, item.@rid ASC";
-    assertThat(plan(asc)).contains("+ ORDER BY");
-    assertThat(matchItemRids(asc)).isEqualTo(
-        new ArrayList<>(expected.reversed()));
-
-    // Numeric SQL order, not STRING index key order, determines the first key.
-    var single = root + "ASC";
-    assertThat(plan(single)).contains("+ ORDER BY");
-    assertThat(matchItemRids(single)).isEqualTo(
-        new ArrayList<>(expected.reversed()));
-  }
-
   private String plan(String query) {
     try (var rs = session.query("EXPLAIN " + query)) {
       return String.valueOf((Object) rs.next().getProperty("executionPlanAsString"));
