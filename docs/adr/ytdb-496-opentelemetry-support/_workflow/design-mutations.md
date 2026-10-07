@@ -1436,3 +1436,47 @@ python3 .claude/scripts/design-mechanical-checks.py \
 
 **Iterations**: 1 of 3 (PASS).
 
+## Mutation 78 — 2026-10-07 — design-sync (design.md + design-mechanics.md)
+
+**Diff summary**: Apply approved resolutions 1–13, Grafana G1–G6 and the sample-settings item 7. Keep the separate commit gate and construction-time tag inheritance. Add one SQL error completion for failures before wrapper creation, with wrapper-owned completion after creation. Pin Gremlin names at first `hasNext()` and keep SQL on the sem-conv fallback chain. Use held or retained plans for Explain/Profile, with ClassCount as a profiling no-op. Correct protocol-dependent endpoints, metric registration ordering, identity de-duplication, database attributes and new profiler components. Use SDK 1.66.0 as the chosen reference, synchronous histograms, callback close handles and SDK metric collection. Correct current-span log correlation, delegate-only skinny filtering and public-query totals from captured Gremlin provenance. Record Grafana as the operator UI, production Tempo/Loki/Prometheus-compatible routing, shared dashboards, the manual connection section and the rejected backend-neutral alternative. Enable all three signals in sample settings and smoke invocation without changing product defaults. Preserve the v1.33.0 semconv reference, exception text in logs and the master-switch semantics.
+
+The earlier invocation stopped after a non-unique exact-text apply. This resumed invocation retained all 16 mechanics replacements and used preflighted unique replacements. No apply failed in the resumed invocation. No implementation plan, POM, runtime code, user manual or example asset changed.
+
+**Mechanical checks** (target=both): PASS. Baseline: 0 blockers, 41 should-fix findings and 1 suggestion. Retained partial state: 0/39/1. Resumed round 1: 0/39/1. Rounds 2 and 3: 0/38/1. Normalize shifted line references and the existing section-length value when comparing findings. The final set has 0 new findings and removes 3 fragmented-header findings. Both workflow stamps stay unchanged on line 1. `git diff --check` passes. Use this whole-document command:
+
+```bash
+python3 .claude/scripts/design-mechanical-checks.py \
+  --design-path docs/adr/ytdb-496-opentelemetry-support/_workflow/design.md \
+  --design-mechanics-path docs/adr/ytdb-496-opentelemetry-support/_workflow/design-mechanics.md \
+  --target both \
+  --scope whole-doc
+```
+
+**Cold-read** (scope: whole-doc): PASS after fixes, as a comprehension self-read rather than an independent cold review. No sub-reader tool is available. Read the whole design and mechanics, then recheck corrected passages. The mechanics-link sweep resolves the companion targets. Mutation 78 is design-touching entry 72, and design-sync already requires whole-document scope.
+
+1. Addition: the Overview defines optional three-signal OTel integration, global listeners, SQL completion and the Grafana example.
+2. Concepts: Core Concepts defines spans, context, query tags, timing modes, gates, log capture and the profiler bridge.
+3. Claim: SDK lifecycle defines ownership and global discovery. Explain/Profile defines plan-based costs. Quick-start defines Grafana routing and portable dashboards.
+4. Constraints: host-owned SDKs stay host-owned, listener failures stay isolated, and signal switches remain independent.
+5. Reverting these fixes would restore conflicting commit gates, SQL tags, SDK APIs, log correlation and metric registration order.
+6. Gotcha: public-query totals exclude Gremlin-origin SQL and commits. EXACT active-time endpoints do not guarantee timestamp containment.
+7. Detail: References footers point to the six mechanics sections. Explain/Profile keeps its plan handoff in the design itself.
+
+**Readability-auditor**: PASS on the approved delta after fixes, as one whole-document prose self-pass. This is not an independent auditor result. The revised quick-start summary uses short claims and no longer introduces a fragmented-header finding. Existing dense prose and mechanical style debt remain outside this mutation's approved scope.
+
+**Findings**:
+- Resolved: stale global-discovery aliases and the condition that could auto-configure over a registered no-op.
+- Resolved: untagged nested traversal wording, nullable provenance comparison and script-name fallback.
+- Resolved: query allocation claims that ignored eager Gremlin spans and metric samples before trace gates.
+- Resolved: wrapper completion after drain failure, early-error tag/provenance capture and the strict timestamp claim.
+- Resolved: SDK builder and severity sketches, generic observable-handle wording and inconsistent log-hook body inputs.
+- Resolved: the new quick-start fragmented-header finding and its dense summary.
+- Carry forward 38 pre-existing should-fix findings: 1 Overview length, 19 decision rationale, 1 top-level cap, 1 parenthetical aside and 16 prose-pattern findings.
+- Carry forward 1 pre-existing section-length suggestion for the SQL execution layer hook. Leave pre-existing defects outside the approved resolutions unchanged.
+- Deferred by user decision 2A: reconcile semconv spec v1.33.0 with the Java artifact version in Track 3. All Track 2 approved items are applied.
+- No Maven command ran. This change has no Java or module content and needs no Maven gate.
+
+**Iterations**: 3 of 3 (PASS with pre-existing should-fix findings carried forward).
+
+**Working-mode counter**: 0 mechanics-edits since this design-sync.
+
