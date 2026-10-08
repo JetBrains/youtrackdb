@@ -647,6 +647,67 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     }
   }
 
+  /** A singleton upstream below the default minimum keeps both plans free of branch hash joins. */
+  @Test
+  public void mainPatternDefaultUpstreamMinimumUsesRuntimeSingletonEstimate() {
+    session.createVertexClass("StartPerson");
+    session.createVertexClass("TargetPerson");
+    session.createVertexClass("EndPerson");
+    session.createEdgeClass("Expand");
+    session.createEdgeClass("Close");
+    session.begin();
+    for (var i = 0; i < 200; i++) {
+      session.execute("CREATE VERTEX StartPerson SET name = ?", "s" + i).close();
+    }
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX TargetPerson SET name = ?", "t" + i).close();
+      session.execute("CREATE VERTEX EndPerson SET name = ?", "d" + i).close();
+    }
+    session.execute("CREATE EDGE Expand FROM (SELECT FROM StartPerson)"
+        + " TO (SELECT FROM TargetPerson)").close();
+    session.execute("CREATE EDGE Close FROM (SELECT FROM TargetPerson)"
+        + " TO (SELECT FROM EndPerson)").close();
+    session.commit();
+    var rid = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = 's0'")
+        .toList().getFirst().getProperty("rid");
+    // Forward-only closing hops keep the branch rooted at s. Fan-out two on both main
+    // hops gives four upstream rows for a singleton, below the default minimum of five.
+    // Losing only upstream threading gives 804 rows and selects the refused hash build.
+    // Explicit end classes exclude the depth-zero targets from the recursive closing hops.
+    var query = "MATCH {as:s}.out('Expand'){as:a}"
+        + ".out('Close'){class:EndPerson,as:d,maxDepth:1},"
+        + " {as:s}.out('Expand'){as:b}"
+        + ".out('Close'){class:EndPerson,as:d,maxDepth:1} RETURN a,b,d";
+    var literal = query.replace("MATCH {as:s}",
+        "MATCH {as:s, where:(@rid = " + rid + ")}");
+    var classes = Map.of("s", "StartPerson", "a", "TargetPerson", "b", "TargetPerson",
+        "d", "EndPerson");
+    try (var threshold = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 10000L);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN, 5L)) {
+      var control = plan(literal, classes, false);
+      assertThat(control.getSteps()).noneMatch(HashJoinMatchStep.class::isInstance);
+      assertThat(control.prettyPrint(0, 2)).doesNotContain("HASH INNER_JOIN");
+      var built = plan(query, classes, true);
+      assertThat(built.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
+      assertThat(built.getSteps()).noneMatch(HashJoinMatchStep.class::isInstance);
+      assertThat(built.prettyPrint(0, 2)).doesNotContain("HASH INNER_JOIN")
+          .doesNotContain("PREFETCH").doesNotContain("FETCH FROM CLASS StartPerson");
+      var ctx = built.getContext();
+      ctx.setInputParameters(Map.of(0, rid));
+      var stream = built.start();
+      try {
+        // Each of the four target pairs shares both end vertices.
+        assertThat(stream.stream(ctx).toList()).hasSize(8);
+      } finally {
+        stream.close(ctx);
+        built.close();
+        control.close();
+      }
+    }
+  }
+
   /** An inverted WHILE step finds an anchor through its own SELECT before traversal. */
   @Test
   public void invertedWhileAnchorIsRefused() {
