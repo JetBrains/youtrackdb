@@ -7553,25 +7553,21 @@ public abstract class AbstractStorage
 
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
+      if (endLSN == null) {
+        return;
+      }
 
-      // Sample operation ownership first. A committing operation publishes its page
-      // requirements before WAL completion can remove operation-table protection. The following
-      // cache sample therefore observes either the old owner or the new owner.
+      // Cap the cut at this earlier WAL end. A registration missed by the table sample logs
+      // its records after this position. Separately, sample the table before the cache:
+      // page publication precedes PERSISTED, so transferred ownership remains visible.
       atomicOperationsTable.compactTable();
       final var minAtomicOperationSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var minLSNSegment = writeCache.getMinimalNotFlushedSegment();
 
-      long fuzzySegment;
-
+      long fuzzySegment = endLSN.getSegment();
       if (minLSNSegment != null) {
-        fuzzySegment = minLSNSegment;
-      } else {
-        if (endLSN == null) {
-          return;
-        }
-
-        fuzzySegment = endLSN.getSegment();
+        fuzzySegment = Math.min(fuzzySegment, minLSNSegment);
       }
 
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
@@ -7800,14 +7796,19 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      // Operation protection is sampled before cache protection. Page publication happens
-      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      // The earlier marker bounds records logged by registrations missed by this sample.
+      // Sample the table before the cache: page publication precedes PERSISTED, so an
+      // existing operation's recovery requirement cannot escape both ownership samples.
       final var notPersistedSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
       var protectedSegment = notPersistedSegment;
       if (cacheSegment != null && (protectedSegment < 0 || cacheSegment < protectedSegment)) {
         protectedSegment = cacheSegment;
+      }
+      if (protectedSegment >= 0) {
+        // The marker is a cut cap, not a recovery owner. Keep the no-owner branch distinct.
+        protectedSegment = Math.min(protectedSegment, lastLSN.getSegment());
       }
       // The durable floor must cover every issued identifier before any WAL segment is cut.
       // This direct metadata write does not enter the frozen atomic-operation path.
@@ -10094,13 +10095,15 @@ public abstract class AbstractStorage
         previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
-      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
-      // disappear from operation tracking before its cache requirement becomes visible.
+      // Read the WAL cap before the table: a missed registration logs its records after
+      // this position. Then sample the table before the cache, since page publication
+      // precedes PERSISTED and transfers the existing operation's recovery requirement.
+      final var activeSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
-      final var activeSegment = writeAheadLog.activeSegment();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
-      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+      minDirtySegment =
+          cacheSegment == null ? activeSegment : Math.min(cacheSegment, activeSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
       }

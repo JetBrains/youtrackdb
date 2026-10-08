@@ -4513,10 +4513,10 @@ public final class WOWCache extends AbstractWriteCache
               "Can not write valid page in file because of the problems with data write, %s",
               null,
               flushError.getMessage());
-      // Abandon the stamp, as the log message above already claims. Every other flush-path
-      // entry point returns immediately after reporting flushError (executeFileFlush,
-      // executeFindDirtySegment, executePeriodicFlush, executeFlush); falling through here
-      // contradicted the method's own diagnostic.
+      // Abandon the stamp after a latched write failure. executePeriodicFlush and
+      // executeFlush also skip writes, while executeFileFlush and executeFlushTillSegment
+      // throw instead of claiming durable completion. executeFindDirtySegment still reports
+      // recovery protection, and syncDataFiles can synchronize files and cut at that boundary.
       //
       // The write it skips cannot corrupt existing data — the guard below only writes when
       // getUnderlyingFileSize() <= pagePosition, i.e. strictly at or past end-of-file, so it
