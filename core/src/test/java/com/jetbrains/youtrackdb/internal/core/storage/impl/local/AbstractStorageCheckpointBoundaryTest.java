@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Locale;
@@ -53,7 +54,7 @@ public class AbstractStorageCheckpointBoundaryTest {
   @Before
   public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
-    // The real WAL supplies explicit preflight predictions if the bridge is exercised.
+    // The real WAL supplies removing preflights for each admitted checkpoint.
     final var tracker = new ChangedPageTracker();
     final var sideFile = temporaryFolder.getRoot().toPath().resolve("changed-pages.cpt");
     doAnswer(call -> tracker.checkpoint(sideFile, storage.writeAheadLog, call.getArgument(0)))
@@ -225,6 +226,9 @@ public class AbstractStorageCheckpointBoundaryTest {
       assertThat(startLsn[0].getSegment()).isEqualTo(recordSegment);
       assertThat(endLsn[0].getSegment()).isEqualTo(recordSegment);
       assertThat(wal.begin().getSegment()).isEqualTo(recordSegment);
+      assertThat(Files.isRegularFile(temporaryFolder.getRoot().toPath()
+          .resolve("changed-pages.cpt"))).as("real deletion requires durable tracker coverage")
+          .isTrue();
       final var retainedRecords = wal.read(startLsn[0], 10);
       assertThat(retainedRecords).anyMatch(record -> record.getLsn().equals(startLsn[0])
           && record instanceof AtomicUnitStartRecord);
