@@ -78,6 +78,12 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * whole walk — and a captured child that ends up discarded leaves behind at most an unused slot, an
  * over-conservative cache bypass, or a gap in the alias sequence, none of which changes an answer.
  *
+ * <p>Bindings, their slot layouts, cache eligibility, and alias minting write straight through to
+ * the parent. They describe the whole walk rather than a connective's filter. A failed child
+ * discards the entire walk, so its provisional layout never becomes a cached template.
+ * {@link #boundaryClassName()} uses {@link #classForAlias(String)} for the current boundary alias.
+ * That lookup reads the child's captured class first and then checks the parent.
+ *
  * <h2>Classification the combinator reads back</h2>
  *
  * After a driven walk the adapter exposes {@link #outcome()} and the captured state:

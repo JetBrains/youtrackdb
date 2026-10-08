@@ -33,18 +33,12 @@ record HasBindingContext(
         labels == null ? List.of() : List.of(labels), false);
   }
 
-  /** Child traversals inherit the enclosing walker's class until a local hasLabel re-types it. */
-  static @Nullable String capturedChildBoundary(@Nullable String enclosingBoundary) {
-    return enclosingBoundary;
-  }
-
   /**
-   * A hop always resets the property-type gate to {@code V}. The hop target must not inherit the
-   * source scan class (PositiveExistsTranslationTest.hopTargetSchemaDoesNotInheritSourceType).
-   * {@code capturedChild} is unused: both paths reset identically, and call sites keep the flag.
+   * A hop resets the property-type gate to {@code V}. The hop target does not inherit the source
+   * scan class. PositiveExistsTranslationTest.hopTargetSchemaDoesNotInheritSourceType_forExistsAndNot
+   * checks this rule.
    */
-  @SuppressWarnings("unused")
-  static String afterHopBoundary(String boundaryClass, boolean capturedChild) {
+  static String afterHopBoundary() {
     return WalkerContext.VERTEX_ROOT_CLASS;
   }
 

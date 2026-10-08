@@ -15,7 +15,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
-import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexStep;
@@ -82,7 +81,7 @@ final class GremlinShapeExtractor {
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
     extractor.appendStrategyFlags(
         traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
-    extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS, false);
+    extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS);
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete(), extractor.encoder.hasContributions(),
         List.copyOf(extractor.nativeOperands));
@@ -162,8 +161,7 @@ final class GremlinShapeExtractor {
     return false;
   }
 
-  private void visit(Traversal.Admin<?, ?> traversal, String inheritedBoundaryClass,
-      boolean capturedChild) {
+  private void visit(Traversal.Admin<?, ?> traversal, String inheritedBoundaryClass) {
     if (encodeLambda(traversal)) {
       return;
     }
@@ -254,7 +252,7 @@ final class GremlinShapeExtractor {
         deferredHop = false;
         folded = true;
       } else if (step instanceof VertexStep<?> hop) {
-        boundaryClass = HasBindingContext.afterHopBoundary(boundaryClass, capturedChild);
+        boundaryClass = HasBindingContext.afterHopBoundary();
         edgeClasses = hop.returnsEdge() ? hop.getEdgeLabels() : null;
         edgeOpen = hop.returnsEdge();
         deferredHop = ordered && !hop.returnsEdge();
@@ -263,7 +261,7 @@ final class GremlinShapeExtractor {
       } else if (step instanceof EdgeVertexStep || step instanceof EdgeOtherVertexStep) {
         edgeClasses = null;
         edgeOpen = false;
-        boundaryClass = HasBindingContext.afterHopBoundary(boundaryClass, capturedChild);
+        boundaryClass = HasBindingContext.afterHopBoundary();
         folded = false;
       } else if (!(step instanceof HasStep<?>)) {
         folded = false;
@@ -275,16 +273,13 @@ final class GremlinShapeExtractor {
         sourceSliced = true;
       }
       if (step instanceof TraversalParent parent) {
-        // Union arms are independent prefix+suffix walks, not captured predicate children.
-        // Preserve their ordinary hop reset and leave the fork walker unchanged.
-        boolean capturedPredicate = !(step instanceof UnionStep<?, ?>);
+        // All children inherit the current boundary class, including union arms.
+        // A child-local hasLabel can narrow it. A hop resets it to V.
         for (var child : parent.getLocalChildren()) {
-          visit(child.asAdmin(),
-              HasBindingContext.capturedChildBoundary(boundaryClass), capturedPredicate);
+          visit(child.asAdmin(), boundaryClass);
         }
         for (var child : parent.getGlobalChildren()) {
-          visit(child.asAdmin(),
-              HasBindingContext.capturedChildBoundary(boundaryClass), capturedPredicate);
+          visit(child.asAdmin(), boundaryClass);
         }
       }
     }
