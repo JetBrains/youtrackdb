@@ -122,6 +122,10 @@ public final class YTDBTransaction extends AbstractTransaction {
           tx.commit();
         } catch (Exception e) {
           logger.error("Failed to commit transaction", e);
+          if (e instanceof RuntimeException re) {
+            throw re;
+          }
+          throw new IllegalStateException("Failed to commit transaction", e);
         }
       } else {
         try {
