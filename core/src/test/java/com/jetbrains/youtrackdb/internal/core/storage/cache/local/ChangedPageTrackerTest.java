@@ -9,6 +9,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
@@ -30,8 +31,90 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.IntConsumer;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 public class ChangedPageTrackerTest {
+
+  // Hot marks, first page-bitmap segments after a generation switch, and retained heap pressure
+  // report latency and current-thread allocation without enforcing a machine-specific budget.
+  @Test
+  @Category(SequentialTest.class)
+  public void trackerPerformanceMarks() throws Exception {
+    TrackerPerformanceProbe.launch(MarkPerformanceProbe.class,
+        List.of("hot", "first-segment-after-generation-switch", "pressured-hot"), List.of(0),
+        "nsPerMark", "allocatedBytes");
+  }
+
+  public static final class MarkPerformanceProbe {
+    public static void main(String[] args) {
+      measure(false, false);
+      measure(true, false);
+      measure(false, true);
+      System.out.println(TrackerPerformanceProbe.COMPLETE);
+    }
+
+    private static void measure(boolean first, boolean pressured) {
+      // Sub-region arrays avoid G1 humongous-object rounding in the 256 MiB child heap.
+      byte[][] pressure = new byte[pressured ? 512 : 0][];
+      for (int block = 0; block < pressure.length; block++) {
+        pressure[block] = new byte[256 * 1024];
+        for (int page = 0; page < pressure[block].length; page += 4096) {
+          pressure[block][page] = 1;
+        }
+      }
+      String label =
+          first ? "first-segment-after-generation-switch" : pressured ? "pressured-hot" : "hot";
+      int marks = first ? 1024 : 1_000_000;
+      var series = new TrackerPerformanceProbe.Series(label + " marks=" + marks
+          + " retainedBytes=" + (long) pressure.length * 256 * 1024,
+          "nsPerMark", "allocatedBytes");
+      for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+        var tracker = new ChangedPageTracker();
+        // Segment allocation and the generation switch are outside hot-path sampling.
+        // Hot batches leave one bit clear in the existing word as an execution witness.
+        // Only its first mark changes the word. The other 999,999 marks repeat existing bits.
+        for (int mark = 0; mark < (first ? marks : 63); mark++) {
+          tracker.mark(1, first ? mark * 32768L : mark);
+        }
+        var expected = new TreeSet<Long>();
+        for (int page = 0; page < (first ? marks : 64); page++) {
+          expected.add(first ? page * 32768L : page);
+        }
+        var populated = capture(tracker).active();
+        ChangedPageTracker.SealedGeneration seal = null;
+        if (first) {
+          seal = tracker.beginBackup();
+          assertNotNull(seal);
+          assertSame(populated, seal.pages());
+          assertCandidates(capture(tracker).active(), 1, Set.of());
+        }
+        long before = TrackerPerformanceProbe.allocated();
+        long start = System.nanoTime();
+        for (int mark = 0; mark < marks; mark++) {
+          tracker.mark(1, first ? mark * 32768L : mark & 63);
+        }
+        long elapsed = System.nanoTime() - start;
+        long allocated = TrackerPerformanceProbe.allocated() - before;
+        // Validate only after both clocks stop, including the new active generation's segments.
+        var state = capture(tracker);
+        assertCandidates(state.active(), 1, expected);
+        assertSame(seal, state.sealed());
+        if (first) {
+          assertNotEquals(populated, state.active());
+          assertCandidates(seal.pages(), 1, expected);
+        } else {
+          assertSame(populated, state.active());
+        }
+        if (sample >= 0) {
+          series.add((double) elapsed / marks, allocated);
+        }
+        java.lang.ref.Reference.reachabilityFence(tracker);
+        // Retention extends through every sampled mark, rather than ending after setup.
+        java.lang.ref.Reference.reachabilityFence(pressure);
+      }
+      series.report();
+    }
+  }
 
   // Every mutation kind requires another save. A publication records the requested coverage,
   // while repeat marks leave both the version and allocation count unchanged.
