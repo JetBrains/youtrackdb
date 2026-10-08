@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStart;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStartTestFactory;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -291,18 +292,21 @@ public class MatchExecutionPlannerInputsTest {
         .withMessageContaining("does not match");
   }
 
-  /** One present alias with the matching class is accepted by the additive planner. */
+  /** A matching alias and class retain the descriptor and its parameter slot in the planner. */
   @Test
   public void plannerCtor_runtimeStart_acceptedForMatchingPatternAliasAndClass() {
     var pattern = new Pattern();
     var node = new PatternNode();
     node.alias = "a";
     pattern.aliasToNode.put("a", node);
+    var descriptor = RuntimeRidStartTestFactory.create("a", "V", 3);
     var input = MatchPlanInputs.builder(pattern)
         .aliasClasses(Map.of("a", "V"))
-        .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "V", 0)))
+        .runtimeRidStarts(Map.of("a", descriptor))
         .build();
-    assertThat(new MatchExecutionPlanner(input)).isNotNull();
+    Map<String, RuntimeRidStart> retained =
+        readField(new MatchExecutionPlanner(input), "runtimeRidStarts");
+    assertThat(retained).containsExactly(Map.entry("a", descriptor));
   }
 
   /** More than one source, a missing alias, or a class mismatch cannot honor the descriptor. */
