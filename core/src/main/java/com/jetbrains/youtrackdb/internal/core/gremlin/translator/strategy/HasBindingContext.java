@@ -33,14 +33,19 @@ record HasBindingContext(
         labels == null ? List.of() : List.of(labels), false);
   }
 
-  /** Captured predicate children keep their enclosing walker's type gate across local re-types. */
+  /** Child traversals inherit the enclosing walker's class until a local hasLabel re-types it. */
   static @Nullable String capturedChildBoundary(@Nullable String enclosingBoundary) {
     return enclosingBoundary;
   }
 
-  /** A child hop moves the alias but does not change the gate read by its capturing walker. */
+  /**
+   * A hop always resets the property-type gate to {@code V}. The hop target must not inherit the
+   * source scan class (PositiveExistsTranslationTest.hopTargetSchemaDoesNotInheritSourceType).
+   * {@code capturedChild} is unused: both paths reset identically, and call sites keep the flag.
+   */
+  @SuppressWarnings("unused")
   static String afterHopBoundary(String boundaryClass, boolean capturedChild) {
-    return capturedChild ? capturedChildBoundary(boundaryClass) : WalkerContext.VERTEX_ROOT_CLASS;
+    return WalkerContext.VERTEX_ROOT_CLASS;
   }
 
   GremlinPredicateAdapter.PropertyTypeGate gate(RecognitionContext ctx) {

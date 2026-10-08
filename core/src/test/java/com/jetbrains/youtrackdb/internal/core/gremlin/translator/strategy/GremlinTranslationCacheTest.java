@@ -287,7 +287,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     }
   }
 
-  /** Child-local re-typing does not change the enclosing gate used for the next child HasStep. */
+  /** Child-local hasLabel re-typing narrows the gate for the next property HasStep in extract and walk. */
   @Test
   public void capturedChildRetype_keepsExtractedAndWalkedLayoutsInSync() {
     var parent = graphSession().createVertexClass("ProbePerson");
@@ -320,7 +320,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     }
   }
 
-  /** A captured NOT keeps the enclosing gate after vertex and edge hops, including nested filters. */
+  /** After a hop the gate resets to V, then a target hasLabel narrows it for later property filters. */
   @Test
   public void capturedHopPrefixes_matchWalkAndReuseOneFiniteOrStrictLayout() {
     var parent = graphSession().createVertexClass("ProbePerson");
@@ -360,7 +360,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
                   .contains(GremlinPredicateAdapter.SlotRole.PREFIX));
           // A fingerprint includes every emitted MATCH filter and path item, not extraction slots.
           var sql = GremlinPlanFingerprint.fingerprint(walked.inputs(), walked.shaping());
-          assertThat(sqlDigest(sql)).as(kind + " SQL compared with 6cd90c581c")
+          assertThat(sqlDigest(sql)).as(kind + " SQL fingerprint after hop-gate reset")
               .isEqualTo(baselineSqlDigest(kind, prefix));
           if (firstSql == null) {
             firstSql = sql;
@@ -409,22 +409,27 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     };
   }
 
-  /** SHA-256 of the full MATCH fingerprint emitted at 6cd90c581c for each tested shape. */
+  /**
+   * SHA-256 of the MATCH fingerprint after hop-target gates reset to V (then optional hasLabel
+   * narrow). Finite vs strict prefix layouts differ when the target class declares STRING.
+   */
   private static String baselineSqlDigest(String kind, String prefix) {
     boolean strict = prefix.isEmpty() || prefix.equals("\uDBFF\uDFFF");
     return switch (kind) {
-      case "vertex", "and" -> "aac521ae46b0e91a59ecf214cca333ce7e1313a40607f6b9e9eadcdffa311876";
-      case "edge" -> "ba6df6e524ce684dcbf60de3d5e20c4a1ee25bce823b9008d5a3983e9ad59c7a";
-      case "where" -> "71fb09633248ffbb731c5a1b682ccff9cb5593aaed299481298afc4157e94103";
-      case "or" -> "e7c981b5d26a30e2b29d4e69d2e1a42156be9b82288e716d70dfa1b89d8e0f1e";
-      case "not" -> "2df40b67537fb84076dd7e11daccec8c3cb1db08951f1c95188056dbbb5a0008";
-      case "sameStep" -> strict
-          ? "aac521ae46b0e91a59ecf214cca333ce7e1313a40607f6b9e9eadcdffa311876"
-          : "3e728f68d670ff58c3686dfbeb9fa7240cbca0f8a1924b63369e38cbbf50fa02";
+      case "and" -> "b34ef6b6a61107f4562d1ce8f433dceb26cef1f1f58c5c9a2d7111627904aee3";
+      case "vertex", "sameStep" -> strict
+          ? "b34ef6b6a61107f4562d1ce8f433dceb26cef1f1f58c5c9a2d7111627904aee3"
+          : "c599b9fdb84cdeca0e0c914841d7dfa1be1a7f6da7447b9195a6c0b039768873";
+      case "edge" -> strict
+          ? "bd0241a42ce98f172aac38e67963c47b44a9d6fbf4841b73f1508d6baee9b978"
+          : "8c4b208ab759b73ffcc67c7e26a7addb510ac3b631058c582cb421d63b51a661";
+      case "where" -> "483af2a5eb5ccecd8ea9038e81c0a4150e02d433635e06ccba0eba9fef368374";
+      case "or" -> "7c6a3090276ddcac62036c460ec512cd6280ead216a1e808e59132881696ca47";
+      case "not" -> "352e4e7b2392573fa81bc305c1b7eb718829af056467c65e35560bff72988ec0";
       case "edgeFlag" -> strict
-          ? "3fa83350874cf2411e5ad07bb8bbdea6dad431dd9501a93abd9cf0623c8d73bf"
-          : "1d1e5702655bd579aa8ffdd71f74addd01e8a13f663be71ec8761abdf0f7d59d";
-      case "noHop" -> "d35e96d981c7ff765d158fc584998e964750a043354c2e8b9eb28708446ebf56";
+          ? "1ad622a95455b3974a59fe8482785c4b8e9faf76d0de95ddc19f3b4fe3823055"
+          : "874b372ac1ddf4ce974e3bae55df586fb709aeb7cedfaf2885f37365b78765b1";
+      case "noHop" -> "7f7b7262a2fe009a63c758a34eded6a61a0487aa4e2ab7150cb0fe7419628aa3";
       default -> throw new IllegalArgumentException(kind);
     };
   }

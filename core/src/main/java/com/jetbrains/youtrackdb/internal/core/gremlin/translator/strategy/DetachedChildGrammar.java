@@ -8,6 +8,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
@@ -28,9 +29,9 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
 /**
  * Structural gate for children that carry a detached hop or an independent source, including hops
  * hidden inside nested conjunctive checks. A chain admits hops, target predicates, positive-capacity
- * barriers and recursively checked filter/NOT/AND wrappers. Plain terminal dedup, positive limit and
- * single-key property projections preserve existence. Labelled hops are safe only when no child or
- * outer traversal reads their binding. Recognisers still enforce the captured-pattern constraints.
+ * barriers and recursively checked filter/NOT/AND/OR wrappers. Plain terminal dedup, positive limit
+ * and single-key property projections preserve existence. Labelled hops are safe only when no child
+ * or outer traversal reads their binding. Recognisers still enforce the captured-pattern constraints.
  */
 final class DetachedChildGrammar {
 
@@ -171,6 +172,9 @@ final class DetachedChildGrammar {
     }
     if (step.getClass() == AndStep.class && step instanceof AndStep<?> and) {
       return allChildrenAccepted(and);
+    }
+    if (step.getClass() == OrStep.class && step instanceof OrStep<?> or) {
+      return allChildrenAccepted(or);
     }
     // These steps keep empty input empty and nonempty input nonempty only at the end of the
     // detached chain. A later step could read the changed payload or cardinality.

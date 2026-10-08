@@ -207,10 +207,8 @@ final class GremlinShapeExtractor {
       java.util.List<String> hasLabels = java.util.List.of();
       int slotStart = encoder.hasSlots().size();
       if (step instanceof HasStep<?> hasStep) {
-        if (hasStep.getHasContainers().stream().anyMatch(
-            c -> org.apache.tinkerpop.gremlin.structure.T.id.getAccessor().equals(c.getKey()))) {
-          encoder.markIncomplete();
-        }
+        // hasId RIDs stay structural in the shape key (appendPredicate). Walk-time markRidBearing
+        // is what bypasses GremlinPlanCache reuse — do not mark the extraction incomplete here.
         hasLabels = HasStepRecogniser.labelNames(hasStep.getHasContainers());
         boolean orderedFilter = deferredHop && (sourceSliced
             || followedByOrderedSlice(steps, stepIndex));
@@ -234,7 +232,9 @@ final class GremlinShapeExtractor {
           // A cold walk can use the original native predicate, but must not splice a template.
           encoder.markIncomplete();
         }
-        if (!edgeOpen && !capturedChild) {
+        // Captured children re-type like the walker: a local hasLabel narrows the gate for later
+        // property has steps. Keeping the enclosing class here desynced extract vs walk layouts.
+        if (!edgeOpen) {
           var candidate = HasStepRecogniser.narrowedClass(schemaContext, hasLabels,
               boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
           if (candidate != null) {

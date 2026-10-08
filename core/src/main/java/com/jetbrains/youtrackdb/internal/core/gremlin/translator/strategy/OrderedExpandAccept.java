@@ -114,6 +114,11 @@ final class OrderedExpandAccept {
       if (collected == null) {
         return Outcome.DECLINE;
       }
+      // Same YTDB-1369 guard as recognizePendingOrderedHopHas: a folded single+multi hasLabel
+      // step must not become one NeighbourFilter that ORs the AND conditions.
+      if (HasStepRecogniser.conflictingLabelContainers(collected)) {
+        return Outcome.DECLINE;
+      }
       var contribution = HasStepRecogniser.prepareDeferred(
           ctx, collected, effectiveClass, 0);
       if (contribution == null) {

@@ -1412,24 +1412,26 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .hasLabel("FilterOther").values("name"));
   }
 
-  /** Folded eq then within label containers OR within one HasStep on both cuts and flush. */
+  /**
+   * Chained hasLabel steps AND after a hop (YTDB-1369). Depending on strategy rewrite, the two
+   * calls stay separate (translated AND) or fold into one HasStep (translator declines). Both paths
+   * must match the empty native multiset.
+   */
   @Test
   public void orderedHopMixedSingleAndMultiLabels_orWithinHasStep() {
     seedNativeNeighbourFilters();
     for (boolean poly : new boolean[] {true, false}) {
-      var expected = poly ? List.of("Child", "Other", "Parent")
-          : List.of("Other", "Parent");
-      assertNeighbourFilterResult("mixed labels, hop cut " + poly, expected,
+      assertNeighbourFilterMatchesNative("mixed labels, hop cut " + poly, List.of(),
           () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
               .V().has("name", "Source").order().by("name").out("knows")
               .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
               .limit(4).values("name"));
-      assertNeighbourFilterResult("mixed labels, source cut " + poly, expected,
+      assertNeighbourFilterMatchesNative("mixed labels, source cut " + poly, List.of(),
           () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
               .V().has("name", "Source").order().by("name").limit(1).out("knows")
               .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
               .values("name"));
-      assertNeighbourFilterResult("mixed labels, MATCH flush " + poly, expected,
+      assertNeighbourFilterMatchesNative("mixed labels, MATCH flush " + poly, List.of(),
           () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
               .V().has("name", "Source").order().by("name").out("knows")
               .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
@@ -1531,35 +1533,46 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .has("age", P.gt(25)).values("name"));
   }
 
-  /** Multi-label deferred filters retain their label group across flush, hop cut and source cut. */
+  /**
+   * Multi-label deferred filters retain their label group across flush, hop cut and source cut.
+   * A later hasLabel("FilterParent") folds into the same HasStep (YTDB-1369), so those cells decline
+   * to native. With polymorphism off, Child fails that exact-class AND and the native multiset is
+   * empty.
+   */
   @Test
   public void deferredMultiLabelWithOptionalNarrowing_matchesNativeOnFlushAndCuts() {
     seedNativeNeighbourFilters();
     for (boolean polymorphic : new boolean[] {true, false}) {
       withPolymorphicDefault(polymorphic, () -> {
         for (boolean narrow : new boolean[] {true, false}) {
+          List<String> expected = !narrow || polymorphic ? List.of("Child") : List.of();
           for (int route = 0; route < 3; route++) {
             int selectedRoute = route;
-            assertNeighbourFilterResult("deferred multi poly=" + polymorphic + " narrow=" + narrow
-                + " route=" + route,
-                List.of("Child"),
-                () -> {
-                  var traversal = graph.traversal().V().has("name", "Source")
-                      .order().by("name");
-                  if (selectedRoute == 2) {
-                    traversal = traversal.limit(1);
-                  }
-                  var targets = traversal.out("knows")
-                      .hasLabel("FilterParent", "FilterChild");
-                  if (narrow) {
-                    targets = targets.hasLabel("FilterParent");
-                  }
-                  targets = targets.has("name", "Child");
-                  if (selectedRoute == 1) {
-                    targets = targets.limit(2);
-                  }
-                  return targets.values("name");
-                });
+            Supplier<GraphTraversal<?, ?>> shape = () -> {
+              var traversal = graph.traversal().V().has("name", "Source")
+                  .order().by("name");
+              if (selectedRoute == 2) {
+                traversal = traversal.limit(1);
+              }
+              var targets = traversal.out("knows")
+                  .hasLabel("FilterParent", "FilterChild");
+              if (narrow) {
+                targets = targets.hasLabel("FilterParent");
+              }
+              targets = targets.has("name", "Child");
+              if (selectedRoute == 1) {
+                targets = targets.limit(2);
+              }
+              return targets.values("name");
+            };
+            String tag = "deferred multi poly=" + polymorphic + " narrow=" + narrow
+                + " route=" + route;
+            if (narrow) {
+              // Folded multi+single HasStep declines; barrier-separated form may still translate.
+              assertNeighbourFilterMatchesNative(tag, expected, shape);
+            } else {
+              assertNeighbourFilterResult(tag, expected, shape);
+            }
           }
         }
       });
@@ -1625,6 +1638,32 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
       assertThat(countBoundarySteps(translated)).as(scenario + " translated").isEqualTo(1);
       assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
           .as(scenario + " translated rows").isEqualTo(nativeRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * Native fixture must match {@code expected}. Translator-on may decline (0 boundary) or accept
+   * (1 boundary); either way the row multiset must match native.
+   */
+  private void assertNeighbourFilterMatchesNative(
+      String scenario, List<String> expected, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal)).as(scenario + " native").isZero();
+      var nativeRows = nativeTraversal.toList().stream().map(String::valueOf).sorted().toList();
+      assertThat(nativeRows).as(scenario + " fixture").containsExactlyElementsOf(expected);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated)).as(scenario + " boundary").isIn(0, 1);
+      assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
+          .as(scenario + " rows").isEqualTo(nativeRows);
     } finally {
       setTranslatorEnabled(original);
     }

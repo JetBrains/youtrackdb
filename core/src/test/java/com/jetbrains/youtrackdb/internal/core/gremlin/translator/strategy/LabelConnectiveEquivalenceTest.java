@@ -61,11 +61,13 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
               () -> parentStart(barrier).not(
                   __.hasLabel("ProbeA", "ProbeB").has("name", "amy"))
                   .values("name"));
-          assertRows(tag + " and", polymorphic ? List.of("amy") : List.of(),
+          // and/where after hasLabel(Parent) fold into one GraphStep with Parent plus A|B
+          // (YTDB-1369). The translator declines that conflict; the planner keeps every label.
+          assertRowsAllowDecline(tag + " and", polymorphic ? List.of("amy") : List.of(),
               () -> parentStart(barrier).and(
                   __.hasLabel("ProbeA", "ProbeB").has("name", "amy"),
                   __.has("keep", true)).values("name"));
-          assertRows(tag + " where", polymorphic ? List.of("amy") : List.of(),
+          assertRowsAllowDecline(tag + " where", polymorphic ? List.of("amy") : List.of(),
               () -> parentStart(barrier).where(
                   __.hasLabel("ProbeA", "ProbeB").has("name", "amy"))
                   .values("name"));
@@ -101,10 +103,10 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
                 () -> typedStart(alternatives).not(labelChild(barrier, "ProbeA", "ProbeB"))
                     .values("name"));
             if (!alternatives) {
-              assertRows(tag + " and", yes,
+              assertRowsAllowDecline(tag + " and", yes,
                   () -> typedStart(false).and(labelChild(barrier, "ProbeA", "ProbeB"),
                       __.has("keep", true)).values("name"));
-              assertRows(tag + " where", yes,
+              assertRowsAllowDecline(tag + " where", yes,
                   () -> typedStart(false).where(labelChild(barrier, "ProbeA", "ProbeB"))
                       .values("name"));
             }
@@ -121,7 +123,11 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
     }
   }
 
-  /** A nested B filter must retain its label discrimination after the outer A/B filter. */
+  /**
+   * A nested B filter must retain its label discrimination after the outer A/B filter. OR/NOT may
+   * decline when the nested label re-types a captured class (boolean-fold safety); rows still match
+   * native either way.
+   */
   @Test
   public void nestedMultiLabelConnectivesKeepNativeRowsAndTranslation() {
     var parent = session.createVertexClass("ProbeParent");
@@ -137,17 +143,17 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
     for (boolean polymorphic : new boolean[] {true, false}) {
       withPolymorphic(polymorphic, () -> {
         String tag = "nested multi poly=" + polymorphic;
-        assertRows(tag + " where or", List.of("ben", "other"),
+        assertRowsAllowDecline(tag + " where or", List.of("ben", "other"),
             () -> graph.traversal().V().or(
                 __.hasLabel("ProbeA", "ProbeB").barrier(2)
                     .where(__.hasLabel("ProbeB").barrier(2).has("keep", true)),
                 __.has("name", "other")).values("name"));
-        assertRows(tag + " and or", List.of("ben", "other"),
+        assertRowsAllowDecline(tag + " and or", List.of("ben", "other"),
             () -> graph.traversal().V().or(
                 __.hasLabel("ProbeA", "ProbeB").barrier(2)
                     .and(__.hasLabel("ProbeB").barrier(2).has("keep", true)),
                 __.has("name", "other")).values("name"));
-        assertRows(tag + " where not", List.of("alex", "amy", "other"),
+        assertRowsAllowDecline(tag + " where not", List.of("alex", "amy", "other"),
             () -> graph.traversal().V().not(
                 __.hasLabel("ProbeA", "ProbeB").barrier(2)
                     .where(__.hasLabel("ProbeB").barrier(2).has("keep", true)))
@@ -186,6 +192,20 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
 
   private void assertRows(String name, List<String> expected,
       Supplier<GraphTraversal<?, ?>> traversal) {
+    assertRows(name, expected, traversal, false);
+  }
+
+  /**
+   * Same as {@link #assertRows} but translator-on may decline when InlineFilter folds a parent
+   * hasLabel together with a multi-label and/where child into one GraphStep (YTDB-1369).
+   */
+  private void assertRowsAllowDecline(String name, List<String> expected,
+      Supplier<GraphTraversal<?, ?>> traversal) {
+    assertRows(name, expected, traversal, true);
+  }
+
+  private void assertRows(String name, List<String> expected,
+      Supplier<GraphTraversal<?, ?>> traversal, boolean allowDecline) {
     var sorted = expected.stream().sorted().toList();
     support.withTranslator(false, () -> {
       var nativeTraversal = traversal.get().asAdmin();
@@ -197,8 +217,12 @@ public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
     support.withTranslator(true, () -> {
       var translated = traversal.get().asAdmin();
       translated.applyStrategies();
-      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(translated))
-          .as(name + " translated boundary").isEqualTo(1);
+      var boundaries = TranslatorEquivalenceSupport.countBoundarySteps(translated);
+      if (allowDecline) {
+        assertThat(boundaries).as(name + " translated boundary").isIn(0, 1);
+      } else {
+        assertThat(boundaries).as(name + " translated boundary").isEqualTo(1);
+      }
       assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
           .as(name + " translated rows").isEqualTo(sorted);
     });

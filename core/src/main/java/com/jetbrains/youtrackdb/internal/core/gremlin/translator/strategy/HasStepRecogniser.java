@@ -483,6 +483,11 @@ final class HasStepRecogniser implements StepRecogniser {
     if (containers == null) {
       return Outcome.DECLINE;
     }
+    // TinkerPop folds chained hasLabel() into one HasStep. MATCH declines that shape; the deferred
+    // hop must too — merging the containers into one NeighbourFilter would OR the conditions.
+    if (conflictingLabelContainers(containers)) {
+      return Outcome.DECLINE;
+    }
     if (!ctx.bindStepLabels(hasStep, pending.targetAlias())) {
       return Outcome.DECLINE;
     }
@@ -554,6 +559,30 @@ final class HasStepRecogniser implements StepRecogniser {
     }
 
     boolean conflictsWith(ParsedLabelConstraint other);
+  }
+
+  /**
+   * Whether one HasStep holds label containers that cannot share a single OR group (YTDB-1369).
+   * Chained {@code hasLabel} calls merge into one step; AND across those containers is not a
+   * NeighbourFilter / MATCH classIn disjunction.
+   */
+  static boolean conflictingLabelContainers(List<HasContainer> containers) {
+    ParsedLabelConstraint labelConstraint = null;
+    for (var container : containers) {
+      if (!LABEL_KEY.equals(container.getKey())) {
+        continue;
+      }
+      var parsed = parseLabelContainer(container);
+      if (parsed == null) {
+        return true;
+      }
+      if (labelConstraint == null) {
+        labelConstraint = parsed;
+      } else if (labelConstraint.conflictsWith(parsed)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
