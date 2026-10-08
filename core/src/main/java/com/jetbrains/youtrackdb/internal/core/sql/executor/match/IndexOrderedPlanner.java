@@ -109,6 +109,8 @@ public final class IndexOrderedPlanner {
   // multiple source rows, which the single-source path cannot handle (it reads
   // only the first upstream row), so those fall through to a multi-source mode.
   private final Map<String, List<SQLRid>> aliasPinnedRids;
+  /** At-most-one source proofs used only while probing a runtime-start plan. */
+  private final Set<String> runtimeSingleSources;
   @Nullable private final SQLOrderBy orderBy;
   @Nullable private final SQLSkip skip;
   @Nullable private final SQLLimit limit;
@@ -125,6 +127,7 @@ public final class IndexOrderedPlanner {
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
+      Set<String> runtimeSingleSources,
       @Nullable SQLOrderBy orderBy,
       @Nullable SQLSkip skip,
       @Nullable SQLLimit limit,
@@ -139,6 +142,7 @@ public final class IndexOrderedPlanner {
     this.aliasClasses = aliasClasses;
     this.aliasFilters = aliasFilters;
     this.aliasPinnedRids = aliasPinnedRids;
+    this.runtimeSingleSources = runtimeSingleSources;
     this.orderBy = orderBy;
     this.skip = skip;
     this.limit = limit;
@@ -297,7 +301,8 @@ public final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     if (earlyLimitSize < 0
         && (aliasFilters.get(sourceAlias) != null
-            || aliasPinnedRids.get(sourceAlias) != null)) {
+            || aliasPinnedRids.get(sourceAlias) != null
+            || runtimeSingleSources.contains(sourceAlias))) {
       return null;
     }
 
@@ -378,9 +383,10 @@ public final class IndexOrderedPlanner {
     }
 
     // 9. Determine multi-source mode (null = single-source).
-    // Single-source is safe when the source is guaranteed to produce exactly 1 row:
-    //   (a) explicit RID constraint ({rid: #X:Y}), or
-    //   (b) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
+    // Single-source is safe when the source produces at most one row:
+    //   (a) explicit singleton RID constraint ({rid: #X:Y}),
+    //   (b) a runtime RID source (detection probe only), or
+    //   (c) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
     // With class + non-unique WHERE, the estimator may undercount
     // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,
     // flatMap concatenates per-source results — but OrderByStep is suppressed,
@@ -392,7 +398,8 @@ public final class IndexOrderedPlanner {
     // must NOT go single-source (see aliasPinnedRids field doc); leave those to
     // a multi-source mode below.
     var sourcePins = aliasPinnedRids.get(sourceAlias);
-    var sourceHasRidConstraint = (sourcePins != null && sourcePins.size() == 1)
+    var sourceHasRidConstraint = runtimeSingleSources.contains(sourceAlias)
+        || (sourcePins != null && sourcePins.size() == 1)
         || hasSingleRowGuarantee(
             sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
