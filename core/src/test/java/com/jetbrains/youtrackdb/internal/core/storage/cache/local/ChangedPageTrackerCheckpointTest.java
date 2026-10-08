@@ -22,6 +22,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -50,6 +51,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 public class ChangedPageTrackerCheckpointTest {
@@ -557,6 +559,83 @@ public class ChangedPageTrackerCheckpointTest {
       }
     }
     assertUnlocked(tracker);
+  }
+
+  // A real, fsync-enabled WAL measures SAVED attempts with a fresh mutation and removing
+  // preflight each time. NO_SAVE covers retention blocking and already durable unchanged state.
+  @Test
+  @Category(SequentialTest.class)
+  public void trackerPerformanceCheckpoint() throws Exception {
+    TrackerPerformanceProbe.launch(CheckpointPerformanceProbe.class,
+        List.of("checkpoint-save", "retention-blocked", "unchanged-state"), List.of(0),
+        "totalNs", "allocatedBytes");
+  }
+
+  public static final class CheckpointPerformanceProbe {
+    public static void main(String[] args) throws Exception {
+      var fixture = new ChangedPageTrackerCheckpointTest();
+      fixture.folder.create();
+      try {
+        for (String mode : List.of("checkpoint-save", "retention-blocked", "unchanged-state")) {
+          fixture.measureCheckpoint(mode);
+        }
+        System.out.println(TrackerPerformanceProbe.COMPLETE);
+      } finally {
+        fixture.folder.delete();
+      }
+    }
+  }
+
+  private void measureCheckpoint(String mode) throws Exception {
+    var series = new TrackerPerformanceProbe.Series(mode + " marks=1024 outcome="
+        + (mode.equals("checkpoint-save") ? "SAVED" : "NO_SAVE"), "totalNs", "allocatedBytes");
+    for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+      var directory = folder.newFolder().toPath();
+      var path = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+      var tracker = new ChangedPageTracker();
+      for (int mark = 0; mark < 1024; mark++) {
+        tracker.mark(1, mark * 64L);
+      }
+      try (var wal = createWal(directory)) {
+        rotate(wal, 2);
+        var coverage = wal.begin(2);
+        if (mode.equals("retention-blocked")) {
+          wal.addCutTillLimit(wal.begin(1));
+        } else if (mode.equals("unchanged-state")) {
+          assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+              ChangedPageTrackerFile.save(path, tracker, coverage));
+          tracker.saveOrderLock().lock();
+          try {
+            assertFalse(tracker.hasUnsavedChanges(coverage));
+          } finally {
+            tracker.saveOrderLock().unlock();
+          }
+        } else {
+          // Publish once, then mutate a previously clear bit. The attempt cannot reuse state.
+          assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+              ChangedPageTrackerFile.save(path, tracker, coverage));
+          tracker.mark(1, 1);
+          tracker.saveOrderLock().lock();
+          try {
+            assertTrue(tracker.hasUnsavedChanges(coverage));
+          } finally {
+            tracker.saveOrderLock().unlock();
+          }
+        }
+        assertEquals(!mode.equals("retention-blocked"), wal.preflightCut(2).removesSegments());
+        long before = TrackerPerformanceProbe.allocated();
+        long start = System.nanoTime();
+        var result = tracker.checkpoint(path, wal, 2);
+        long elapsed = System.nanoTime() - start;
+        long allocated = TrackerPerformanceProbe.allocated() - before;
+        assertEquals(mode.equals("checkpoint-save") ? SAVED : NO_SAVE, result.outcome());
+        assertEquals(!mode.equals("retention-blocked"), result.segmentsRemoved());
+        if (sample >= 0) {
+          series.add(elapsed, allocated);
+        }
+      }
+    }
+    series.report();
   }
 
   private Path sideFile() {
