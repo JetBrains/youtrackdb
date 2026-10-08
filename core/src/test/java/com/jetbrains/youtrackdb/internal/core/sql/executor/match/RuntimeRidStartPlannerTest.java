@@ -104,9 +104,9 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
 
   private static final String WALK = "MATCH {as:s}.out('Knows'){as:t} RETURN $elements";
 
-  /** A small target and a larger start still produce a direct first source with no prefetch. */
+  /** A runtime root runs its hop without prefetch even when the target class is small. */
   @Test
-  public void forcedRuntimeRootAndNoPrefetchEvenForSmallTarget() {
+  public void runtimeRootRunsWithoutPrefetchForSmallTarget() {
     session.createVertexClass("StartPerson");
     session.createVertexClass("TargetPerson");
     session.createEdgeClass("Knows");
@@ -119,8 +119,7 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
         + " TO (SELECT FROM TargetPerson WHERE name = 'target')").close();
     session.commit();
 
-    // The target has a singleton filter estimate too. The direct scheduler test below
-    // independently proves that the runtime root wins even when the target is listed first.
+    // This checks the first source and no prefetch. The competing-alias test proves forcing.
     var forcedWalk = "MATCH {as:s}.both('Knows'){as:a, where:(name = 'target')}"
         + " RETURN $elements";
     var built = plan(forcedWalk, Map.of("s", "StartPerson", "a", "TargetPerson"), true);
@@ -265,7 +264,7 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     var query = "MATCH {as:t}.both('Knows'){as:s,optional:true} RETURN $elements";
     assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
         .isThrownBy(() -> plan(query, Map.of("s", "StartPerson", "t", "TargetPerson"), true))
-        .withMessageContaining("schedule");
+        .withMessage("MATCH schedule needs another source");
   }
 
   /** An isolated indexed node keeps the RID source and a normal ORDER BY, not SELECT index order. */
@@ -433,6 +432,7 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     session.createEdgeClass("Knows");
     session.begin();
     session.execute("CREATE VERTEX StartPerson SET name = 'one'").close();
+    session.execute("CREATE VERTEX StartPerson SET name = 'noEdge'").close();
     session.execute("CREATE VERTEX TargetPerson SET name = 'two'").close();
     session.execute("CREATE VERTEX OtherPerson SET name = 'other'").close();
     session.execute("CREATE EDGE Knows FROM (SELECT FROM StartPerson WHERE name = 'one')"
@@ -440,12 +440,15 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     session.commit();
     var valid = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = 'one'")
         .toList().getFirst().getProperty("rid");
+    // This start passes the class check but must be removed by EXISTS itself.
+    var noEdge = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = 'noEdge'")
+        .toList().getFirst().getProperty("rid");
     var wrong = session.query("SELECT @rid AS rid FROM OtherPerson WHERE name = 'other'")
         .toList().getFirst().getProperty("rid");
     var check = "MATCH {as:s}.out('Knows'){as:child} RETURN s";
     try (var ignored = GlobalConfigurationScope.set(
         GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 0L)) {
-      for (var binding : List.of(valid, wrong)) {
+      for (var binding : List.of(valid, noEdge, wrong)) {
         var plan = planWithExists("MATCH {as:s} RETURN s", check,
             Map.of("s", "StartPerson"), true);
         assertThat(plan.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
@@ -460,6 +463,50 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
         } finally {
           stream.close(ctx);
           plan.close();
+        }
+      }
+    }
+  }
+
+  /** A per-row NOT probe keeps an unlinked start and removes a linked start of the same class. */
+  @Test
+  public void notPerRowProbeKeepsRuntimeSourceAndFiltersLinkedStart() {
+    session.createVertexClass("StartPerson");
+    session.createVertexClass("TargetPerson");
+    session.createEdgeClass("Knows");
+    session.begin();
+    session.execute("CREATE VERTEX StartPerson SET name = 'passes'").close();
+    session.execute("CREATE VERTEX StartPerson SET name = 'removed'").close();
+    session.execute("CREATE VERTEX TargetPerson SET name = 'target'").close();
+    session.execute("CREATE EDGE Knows FROM (SELECT FROM StartPerson WHERE name = 'removed')"
+        + " TO (SELECT FROM TargetPerson)").close();
+    session.commit();
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 0L)) {
+      for (var name : List.of("passes", "removed")) {
+        var built = plan("MATCH {as:s}, NOT {as:s}.out('Knows'){as:child}"
+            + " RETURN s.name AS name", Map.of("s", "StartPerson"), true);
+        assertThat(built.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
+        assertThat(built.getSteps()).anyMatch(FilterNotMatchPatternStep.class::isInstance);
+        assertThat(built.prettyPrint(0, 2)).contains("+ NOT (")
+            .doesNotContain("HASH ANTI_JOIN").doesNotContain("PREFETCH")
+            .doesNotContain("FETCH FROM CLASS StartPerson");
+        var ctx = built.getContext();
+        ctx.setInputParameters(Map.of(0, session.query(
+            "SELECT @rid AS rid FROM StartPerson WHERE name = ?", name)
+            .toList().getFirst().getProperty("rid")));
+        var stream = built.start();
+        try {
+          var rows = stream.stream(ctx).toList();
+          if (name.equals("passes")) {
+            assertThat(rows).extracting(row -> row.<String>getProperty("name"))
+                .containsExactly("passes");
+          } else {
+            assertThat(rows).isEmpty();
+          }
+        } finally {
+          stream.close(ctx);
+          built.close();
         }
       }
     }
@@ -552,6 +599,51 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
           .isThrownBy(() -> plan(query, Map.of("s", "StartPerson", "a", "StartPerson",
               "b", "StartPerson", "d", "StartPerson"), true))
           .withMessageContaining("MATCH hash join needs another source");
+    }
+  }
+
+  /** Default cost guards select a pinned branch build and refuse the runtime equivalent. */
+  @Test
+  public void mainPatternDefaultCostGuardsUseRuntimeSingletonEstimate() {
+    session.createVertexClass("StartPerson");
+    session.createVertexClass("TargetPerson");
+    session.createVertexClass("EndPerson");
+    session.createEdgeClass("Expand");
+    session.createEdgeClass("Close");
+    session.begin();
+    for (var i = 0; i < 200; i++) {
+      session.execute("CREATE VERTEX StartPerson SET name = ?", "s" + i).close();
+    }
+    for (var i = 0; i < 10; i++) {
+      session.execute("CREATE VERTEX TargetPerson SET name = ?", "t" + i).close();
+      session.execute("CREATE VERTEX EndPerson SET name = ?", "d" + i).close();
+    }
+    session.execute("CREATE EDGE Expand FROM (SELECT FROM StartPerson)"
+        + " TO (SELECT FROM TargetPerson)").close();
+    session.execute("CREATE EDGE Close FROM (SELECT FROM TargetPerson)"
+        + " TO (SELECT FROM EndPerson)").close();
+    session.commit();
+    var rid = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = 's0'")
+        .toList().getFirst().getProperty("rid");
+    // Forward-only closing hops keep the second branch rooted at s rather than d.
+    // Its build estimate is 10 for a singleton and 2010 for a whole-class start.
+    // INNER_JOIN has a default build cap of 10000 / 7, so the latter cannot use hash.
+    var query = "MATCH {as:s}.out('Expand'){as:a}.out('Close'){as:d,maxDepth:1},"
+        + " {as:s}.out('Expand'){as:b}.out('Close'){as:d,maxDepth:1} RETURN a,b,d";
+    var literal = query.replace("MATCH {as:s}",
+        "MATCH {as:s, where:(@rid = " + rid + ")}");
+    var classes = Map.of("s", "StartPerson", "a", "TargetPerson", "b", "TargetPerson",
+        "d", "EndPerson");
+    try (var threshold = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 10000L);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN, 5L)) {
+      var control = plan(literal, classes, false);
+      assertThat(control.getSteps()).anyMatch(HashJoinMatchStep.class::isInstance);
+      assertThat(control.prettyPrint(0, 2)).contains("HASH INNER_JOIN");
+      assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+          .isThrownBy(() -> plan(query, classes, true))
+          .withMessage("MATCH hash join needs another source");
     }
   }
 
