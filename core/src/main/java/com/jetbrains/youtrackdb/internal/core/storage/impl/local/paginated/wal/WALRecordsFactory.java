@@ -299,6 +299,7 @@ public final class WALRecordsFactory {
       case NON_TX_OPERATION_PERFORMED_WAL_RECORD ->
           walRecord = new NonTxOperationPerformedWALRecord();
       case FILE_DELETED_WAL_RECORD -> walRecord = new FileDeletedWALRecord();
+      case WALRecordTypes.PAGE_ALLOCATED_WAL_RECORD -> walRecord = new PageAllocatedWALRecord();
       case EMPTY_WAL_RECORD -> walRecord = new EmptyWALRecord();
       case COLLECTION_POSITION_MAP_INIT_PO, COLLECTION_POSITION_MAP_ADD_PO,
           COLLECTION_POSITION_MAP_ALLOCATE_PO,

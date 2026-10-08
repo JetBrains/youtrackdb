@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -33,7 +34,9 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -1485,6 +1488,257 @@ public class AsyncFileTest {
       LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
     }
     Assert.fail("await thread did not block in CountDownLatch.await");
+  }
+
+  /**
+   * A metrics error on a partial write must leave its continuation and buffer owned until
+   * completion.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testPartialWriteMetricsFailureDoesNotSettleBeforeContinuation() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var buffer = new AtomicReference<ByteBuffer>();
+    final var submissions = new AtomicInteger();
+    doAnswer(invocation -> {
+      submissions.incrementAndGet();
+      buffer.set(invocation.getArgument(0));
+      attachment.set(invocation.getArgument(2));
+      handler.set(invocation.getArgument(3));
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    final var meter = mock(TimeRate.class);
+    org.mockito.Mockito.doThrow(new AssertionError("injected metrics failure"))
+        .when(meter).record(anyLong());
+    final var meterField = AsyncFile.class.getDeclaredField("diskWriteMeter");
+    meterField.setAccessible(true);
+    meterField.set(file, meter);
+
+    file.allocateSpace(2);
+    final var result = file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(2))));
+    final var awaitStarted = new CountDownLatch(1);
+    final var awaitingThread = new AtomicReference<Thread>();
+    final var awaitFuture = executor.submit(() -> {
+      awaitingThread.set(Thread.currentThread());
+      awaitStarted.countDown();
+      result.await();
+    });
+    try {
+      Assert.assertTrue("await task must start", awaitStarted.await(5, TimeUnit.SECONDS));
+      awaitCountDownLatchWait(awaitingThread.get());
+      buffer.get().position(1);
+      handler.get().completed(1, attachment.get());
+      Assert.assertEquals("metrics failure must not stop the continuation", 2, submissions.get());
+      final var semaphoreField = AsyncFile.class.getDeclaredField("syncSemaphore");
+      semaphoreField.setAccessible(true);
+      final var semaphore = (Semaphore) semaphoreField.get(file);
+      Assert.assertEquals("the continued write still owns its slot", Integer.MAX_VALUE - 1,
+          semaphore.availablePermits());
+      Assert.assertFalse("await must retain the buffer until continuation completes",
+          awaitFuture.isDone());
+      buffer.get().position(2);
+      handler.get().completed(1, attachment.get());
+      awaitFuture.get(5, TimeUnit.SECONDS);
+      Assert.assertEquals(Integer.MAX_VALUE, semaphore.availablePermits());
+    } finally {
+      // Release the slot on an assertion failure so close cannot hang on the mock channel.
+      handler.get().failed(new AssertionError("test cleanup"), attachment.get());
+      file.close();
+    }
+  }
+
+  /** A partial callback followed by a rejected continuation must settle its slot once. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testRejectedContinuationCompletesGroupAndAllowsClose() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var submissions = new AtomicInteger();
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var buffer = new AtomicReference<ByteBuffer>();
+    final var rejection = new IllegalStateException("continuation rejected");
+    doAnswer(invocation -> {
+      if (submissions.getAndIncrement() == 0) {
+        buffer.set(invocation.getArgument(0));
+        attachment.set(invocation.getArgument(2));
+        handler.set(invocation.getArgument(3));
+      } else {
+        throw rejection;
+      }
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    file.allocateSpace(2);
+    final var result = file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(2))));
+    buffer.get().position(1);
+    handler.get().completed(1, attachment.get());
+    final var awaitFuture = executor.submit(result::await);
+    try {
+      awaitFuture.get(5, TimeUnit.SECONDS);
+      Assert.fail("rejected continuation must fail the group");
+    } catch (java.util.concurrent.ExecutionException e) {
+      Assert.assertSame(rejection, e.getCause().getCause());
+    }
+    // A buggy second terminal callback must not release a second permit.
+    handler.get().failed(rejection, attachment.get());
+    final var semaphoreField = AsyncFile.class.getDeclaredField("syncSemaphore");
+    semaphoreField.setAccessible(true);
+    final var semaphore = (Semaphore) semaphoreField.get(file);
+    Assert.assertEquals(Integer.MAX_VALUE, semaphore.availablePermits());
+    Assert.assertEquals(2, submissions.get());
+    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    verify(channel).close();
+  }
+
+  /** The earliest callback error wins over a later rejected submission in the same group. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testGroupRetainsFirstFailureAndAllowsClose() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var firstFailure = new IllegalStateException("first callback failed");
+    final var laterFailure = new IllegalStateException("second submission rejected");
+    final var submissions = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (submissions.getAndIncrement() == 0) {
+        final CompletionHandler<Integer, Object> handler = invocation.getArgument(3);
+        handler.failed(firstFailure, invocation.getArgument(2));
+      } else {
+        throw laterFailure;
+      }
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    file.allocateSpace(2);
+    final var result = file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)),
+        new RawPairLongObject<>(1L, ByteBuffer.allocate(1))));
+    try {
+      result.await();
+      Assert.fail("the first failure must propagate");
+    } catch (StorageException e) {
+      Assert.assertSame(firstFailure, e.getCause());
+    }
+    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    verify(channel).close();
+  }
+
+  /** Interrupted await still owns the buffer until the callback settles the write. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testInterruptedAwaitDrainsWriteAndRestoresInterrupt() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var buffer = new AtomicReference<ByteBuffer>();
+    doAnswer(invocation -> {
+      buffer.set(invocation.getArgument(0));
+      attachment.set(invocation.getArgument(2));
+      handler.set(invocation.getArgument(3));
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    file.allocateSpace(1);
+    final var result = file.write(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1))));
+    final var waiterStarted = new CountDownLatch(1);
+    final var waiter = new AtomicReference<Thread>();
+    final var interruptRestored = new AtomicBoolean();
+    final var awaitFuture = executor.submit(() -> {
+      waiter.set(Thread.currentThread());
+      waiterStarted.countDown();
+      try {
+        result.await();
+        Assert.fail("interruption must be reported after completion");
+      } catch (com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException e) {
+        interruptRestored.set(Thread.currentThread().isInterrupted());
+      }
+    });
+    Assert.assertTrue(waiterStarted.await(5, TimeUnit.SECONDS));
+    waiter.get().interrupt();
+    Assert.assertFalse("interruption must not release the buffer", awaitFuture.isDone());
+    buffer.get().position(1);
+    handler.get().completed(1, attachment.get());
+    awaitFuture.get(5, TimeUnit.SECONDS);
+    Assert.assertTrue("interrupt flag must be restored", interruptRestored.get());
+    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    verify(channel).close();
+  }
+
+  /**
+   * A rejection on the second of three slots must settle the never-submitted third slot.
+   * The result remains awaitable until the first write finishes.
+   * Close must not wait for unused permits.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test
+  public void testRejectedGroupSubmissionReleasesUnstartedSlot() throws Exception {
+    final var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false);
+    file.create();
+    getChannel(file).close();
+    final var channel = mock(AsynchronousFileChannel.class);
+    final var handler = new AtomicReference<CompletionHandler<Integer, Object>>();
+    final var attachment = new AtomicReference<Object>();
+    final var buffer = new AtomicReference<ByteBuffer>();
+    final var rejection = new IllegalStateException("second submission rejected");
+    final var submissions = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (submissions.getAndIncrement() == 0) {
+        buffer.set(invocation.getArgument(0));
+        attachment.set(invocation.getArgument(2));
+        handler.set(invocation.getArgument(3));
+      } else {
+        throw rejection;
+      }
+      return null;
+    }).when(channel).write(any(ByteBuffer.class), anyLong(), any(), any(CompletionHandler.class));
+    setChannel(file, channel);
+    file.allocateSpace(3);
+    final var writeFuture = executor.submit(() -> {
+      final var result = file.write(List.of(
+          new RawPairLongObject<>(0L, ByteBuffer.allocate(1)),
+          new RawPairLongObject<>(1L, ByteBuffer.allocate(1)),
+          new RawPairLongObject<>(2L, ByteBuffer.allocate(1))));
+      result.await();
+    });
+    // Keep the first write pending while the second submission fails. The third slot must
+    // be settled without a channel submission so the caller can drain the first callback.
+    final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (submissions.get() < 2 && System.nanoTime() < deadline) {
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+    }
+    Assert.assertEquals("second submission must be rejected", 2, submissions.get());
+    Assert.assertNotNull("first submission must start", handler.get());
+    Assert.assertFalse("await must drain the first callback", writeFuture.isDone());
+    buffer.get().position(buffer.get().limit());
+    handler.get().completed(1, attachment.get());
+    try {
+      writeFuture.get(5, TimeUnit.SECONDS);
+      Assert.fail("submission rejection must propagate");
+    } catch (java.util.concurrent.ExecutionException e) {
+      Assert.assertSame(rejection, e.getCause().getCause());
+    }
+    final var semaphoreField = AsyncFile.class.getDeclaredField("syncSemaphore");
+    semaphoreField.setAccessible(true);
+    final var semaphore = (Semaphore) semaphoreField.get(file);
+    Assert.assertEquals("every group slot must return its permit", Integer.MAX_VALUE,
+        semaphore.availablePermits());
+    Assert.assertEquals("third buffer must never reach the channel", 2,
+        countInvocations(channel, "write"));
+    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    verify(channel).close();
   }
 
   private static void awaitSemaphoreWait(Thread thread) {

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata.VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -1080,6 +1082,422 @@ public class StorageStartupMetadataTest {
         assertThat(Files.exists(backup)).isFalse();
       }
     }
+  }
+
+  /**
+   * Version 4 stores the dirty flag, transaction identifier, and opened-at version string.
+   * Reading it must not confuse its field layout with version 3's shorter layout.
+   */
+  @Test
+  public void testOpenVersion4ReadsAllFields() throws IOException {
+    writeVersionedMetadata(4);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isEqualTo("prior-build");
+      assertThat(storedVersion(metadata)).isEqualTo(4);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Version 5 has the same fields as version 4 and can be read without rewriting. */
+  @Test
+  public void testOpenVersion5ReadsAllFields() throws IOException {
+    writeVersionedMetadata(5);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isEqualTo("prior-build");
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** A newly created file and every later metadata update must write version 5. */
+  @Test
+  public void testCreateAndWriteEmitVersion5() throws IOException {
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.create("new-build");
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+      metadata.setLastTxId(42L);
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Final floor publication upgrades a clean version 4 file even when its floor is covered. */
+  @Test
+  public void testVersion4IsRewrittenAsVersion5OnFinalFloorPublication() throws IOException {
+    writeVersionedMetadata(4);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    metadata.open("ignored");
+    try {
+      assertThat(storedVersion(metadata)).isEqualTo(4);
+      metadata.publishLastTxIdFloor(42L);
+      metadata.clearDirty();
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+    var reopened = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      reopened.open("ignored");
+      assertThat(reopened.isDirty()).isFalse();
+      assertThat(reopened.getLastTxId()).isEqualTo(42L);
+      assertThat(reopened.getOpenedAtVersion()).isEqualTo("prior-build");
+    } finally {
+      reopened.close();
+    }
+  }
+
+  /** Version 6 is from a newer build and must fail with a database-specific mismatch. */
+  @Test
+  public void testVersion6NamesDatabaseAndNewerBuild() throws IOException {
+    writeVersionedMetadata(6);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      assertThatThrownBy(() -> metadata.open("ignored"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("version mismatch")
+          .hasMessageContaining(tmpDir.getFileName().toString())
+          .hasMessageContaining("version 6")
+          .hasMessageContaining("A newer build wrote the startup metadata");
+      assertThat(storedVersion(metadata)).isEqualTo(6);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Version 3 omits the opened-at version and remains readable after the upgrade. */
+  @Test
+  public void testOpenVersion3StillReadsTransactionId() throws IOException {
+    var buffer = ByteBuffer.allocate(8 + 4 + 1 + 8 + 4);
+    buffer.position(8);
+    buffer.putInt(3);
+    buffer.put((byte) 0);
+    buffer.putLong(42L);
+    buffer.putInt(-1);
+    stampChecksum(buffer);
+    Files.write(filePath, buffer.array());
+
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.isDirty()).isFalse();
+      assertThat(metadata.getLastTxId()).isEqualTo(42L);
+      assertThat(metadata.getOpenedAtVersion()).isNull();
+    } finally {
+      metadata.close();
+    }
+  }
+
+  private static int storedVersion(StorageStartupMetadata metadata) throws IOException {
+    return ByteBuffer.wrap(metadata.readMainForTesting()).getInt(8);
+  }
+
+  private void writeVersionedMetadata(int version) throws IOException {
+    Files.write(filePath, versionedMetadata(version, false));
+  }
+
+  private static byte[] versionedMetadata(int version, boolean dirty) {
+    final byte[] openedAtVersion = "prior-build".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    var buffer = ByteBuffer.allocate(version == 3 ? 25 : 29 + openedAtVersion.length);
+    buffer.position(8);
+    buffer.putInt(version);
+    buffer.put(dirty ? (byte) 1 : (byte) 0);
+    buffer.putLong(42L);
+    buffer.putInt(-1);
+    if (version >= 4) {
+      buffer.putInt(openedAtVersion.length);
+      buffer.put(openedAtVersion);
+    }
+    stampChecksum(buffer);
+    return buffer.array();
+  }
+
+  /** Every supported backup format repairs the main without changing its fields or format. */
+  @Test
+  public void supportedBackupVersionsRepairMainAndKeepOpenedAtVersion() throws IOException {
+    for (int version : new int[] {3, 4, 5}) {
+      var complete = versionedMetadata(version, true);
+      Files.write(filePath, new byte[17]);
+      Files.write(backupPath, complete);
+      var metadata = new StorageStartupMetadata(filePath, backupPath);
+      try {
+        metadata.open("ignored");
+        assertThat(metadata.isDirty()).isTrue();
+        assertThat(metadata.getLastTxId()).isEqualTo(42L);
+        assertThat(metadata.getOpenedAtVersion()).isEqualTo(version == 3 ? null : "prior-build");
+        assertThat(metadata.readMainForTesting()).isEqualTo(complete);
+        assertThat(Files.exists(backupPath)).isFalse();
+      } finally {
+        metadata.close();
+      }
+    }
+  }
+
+  /** A valid newer main refuses open before a supported backup can replace or downgrade it. */
+  @Test
+  public void newerMainWithSupportedBackupRefusesWithoutChangingEitherCopy() throws IOException {
+    var main = versionedMetadata(6, true);
+    var backup = versionedMetadata(5, true);
+    Files.write(filePath, main);
+    Files.write(backupPath, backup);
+    assertNewerCopyRefused(main, backup);
+  }
+
+  /** A valid newer backup refuses repair of damaged, missing, empty, or legacy-sized mains. */
+  @Test
+  public void newerBackupRefusesRepairWithoutChangingEitherCopy() throws IOException {
+    var backup = versionedMetadata(6, true);
+    for (int length : new int[] {-1, 0, 1, 9, 17, 40}) {
+      Files.deleteIfExists(filePath);
+      if (length >= 0) {
+        Files.write(filePath, new byte[length]);
+      }
+      Files.write(backupPath, backup);
+      // Missing mains acquire an empty locked inode, but refusal writes no metadata bytes.
+      assertNewerCopyRefused(new byte[Math.max(0, length)], backup);
+    }
+  }
+
+  private void assertNewerCopyRefused(byte[] main, byte[] backup) throws IOException {
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      assertThatThrownBy(() -> metadata.open("ignored"))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("A newer build wrote the startup metadata");
+      assertThat(metadata.readMainForTesting()).isEqualTo(main);
+      assertThat(Files.readAllBytes(backupPath)).isEqualTo(backup);
+      // Refusal must release the lock before another channel can acquire it.
+      try (var channel = FileChannel.open(filePath, StandardOpenOption.READ,
+          StandardOpenOption.WRITE); var held = channel.tryLock()) {
+        assertThat(held).isNotNull();
+      }
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Invalid checksums make newer-version bytes unusable instead of triggering a refusal. */
+  @Test
+  public void checksumFailurePrecedesVersionRefusalForBothCopies() throws IOException {
+    var invalid = versionedMetadata(6, true);
+    invalid[0] ^= 1;
+    var complete = versionedMetadata(5, true);
+    Files.write(filePath, invalid);
+    Files.write(backupPath, complete);
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    try {
+      metadata.open("ignored");
+      assertThat(metadata.readMainForTesting()).isEqualTo(complete);
+    } finally {
+      metadata.close();
+    }
+    Files.write(filePath, new byte[17]);
+    Files.write(backupPath, invalid);
+    try {
+      metadata.open("fallback");
+      assertThat(metadata.getLastTxId()).isEqualTo(-1L);
+      assertThat(metadata.getOpenedAtVersion()).isEqualTo("fallback");
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+    } finally {
+      metadata.close();
+    }
+  }
+
+  /** Dirty old formats must publish the current format before makeDirty can skip an update. */
+  @Test
+  public void dirtyOldFormatsUpgradeOnMakeDirtyAfterOpenOrRepair() throws IOException {
+    for (int version : new int[] {3, 4}) {
+      for (boolean repair : new boolean[] {false, true}) {
+        var complete = versionedMetadata(version, true);
+        Files.write(filePath, repair ? new byte[17] : complete);
+        if (repair) {
+          Files.write(backupPath, complete);
+        }
+        var metadata = new StorageStartupMetadata(filePath, backupPath);
+        try {
+          metadata.open("ignored");
+          assertThat(metadata.readMainForTesting()).isEqualTo(complete);
+          assertThat(metadata.isDurablyDirty()).isFalse();
+          metadata.makeDirty("current-build");
+          assertThat(storedVersion(metadata)).isEqualTo(5);
+          assertThat(metadata.isDurablyDirty()).isTrue();
+          assertThat(metadata.getLastTxId()).isEqualTo(42L);
+          metadata.makeDirty("ignored-after-upgrade");
+          assertThat(metadata.getOpenedAtVersion()).isEqualTo("current-build");
+        } finally {
+          metadata.close();
+        }
+      }
+    }
+  }
+
+  /**
+   * A synced current-format backup cannot admit writers while a dirty old-format main remains.
+   * Failures before truncation and during the main write must keep admission false, and makeDirty
+   * must repair and rewrite the main on retry without losing the transaction floor.
+   */
+  @Test
+  public void failedOldFormatUpgradeRequiresMainRewriteBeforeDirtyAdmission() throws Exception {
+    for (int version : new int[] {3, 4}) {
+      for (boolean failAtTruncate : new boolean[] {true, false}) {
+        var complete = versionedMetadata(version, true);
+        Files.write(filePath, complete);
+        var failMain = new AtomicBoolean(true);
+        var metadata = new StorageStartupMetadata(filePath, backupPath);
+        try (MockedStatic<FileChannel> channels =
+            mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+          channels.when(() -> FileChannel.open(filePath, StandardOpenOption.SYNC,
+              StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE))
+              .thenAnswer(call -> {
+                var main = spy(new RandomAccessFile(filePath.toFile(), "rws").getChannel());
+                doAnswer(truncate -> {
+                  if (failMain.get()) {
+                    assertThat(ByteBuffer.wrap(Files.readAllBytes(backupPath)).getInt(8))
+                        .isEqualTo(VERSION);
+                    // Read without the metadata lock on another thread during the upgrade.
+                    assertThat(CompletableFuture.supplyAsync(metadata::isDurablyDirty)
+                        .get(5, TimeUnit.SECONDS)).isFalse();
+                    if (failAtTruncate && failMain.getAndSet(false)) {
+                      throw new IOException("main truncate interrupted");
+                    }
+                  }
+                  return truncate.callRealMethod();
+                }).when(main).truncate(anyLong());
+                doAnswer(write -> {
+                  if (!failAtTruncate && failMain.getAndSet(false)) {
+                    throw new IOException("main write interrupted");
+                  }
+                  return write.callRealMethod();
+                }).when(main).write(any(ByteBuffer.class), anyLong());
+                return main;
+              });
+          try {
+            metadata.open("ignored");
+            assertThatThrownBy(() -> metadata.makeDirty("current-build"))
+                .isInstanceOf(IOException.class)
+                .hasMessage(
+                    failAtTruncate ? "main truncate interrupted" : "main write interrupted");
+            assertThat(metadata.isDurablyDirty()).isFalse();
+            assertThat(metadata.readMainForTesting())
+                .isEqualTo(failAtTruncate ? complete : new byte[0]);
+            metadata.makeDirty("retry-build");
+            assertThat(storedVersion(metadata)).isEqualTo(VERSION);
+            assertThat(metadata.isDurablyDirty()).isTrue();
+            assertThat(metadata.getLastTxId()).isEqualTo(42L);
+            assertThat(metadata.getOpenedAtVersion()).isEqualTo("retry-build");
+            assertThat(Files.exists(backupPath)).isFalse();
+          } finally {
+            metadata.close();
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Reopening one instance on dirty legacy bytes must discard its current-format confirmation.
+   * Publishing an already covered floor must rewrite both supported legacy sizes in VERSION.
+   */
+  @Test
+  public void reusedInstanceResetsFormatBeforeLegacyOpenAndCoveredFloorPublication()
+      throws IOException {
+    var metadata = new StorageStartupMetadata(filePath, backupPath);
+    for (int length : new int[] {1, 9}) {
+      Files.write(filePath, versionedMetadata(VERSION, true));
+      try {
+        metadata.open("ignored");
+        assertThat(metadata.isDurablyDirty()).isTrue();
+      } finally {
+        metadata.close();
+      }
+      var legacy = ByteBuffer.allocate(length);
+      legacy.put((byte) 1);
+      if (length == 9) {
+        legacy.putLong(42L);
+      }
+      Files.write(filePath, legacy.array());
+      try {
+        metadata.open("ignored");
+        assertThat(metadata.isDirty()).isTrue();
+        assertThat(metadata.isDurablyDirty()).isFalse();
+        assertThat(metadata.readMainForTesting()).isEqualTo(legacy.array());
+        metadata.publishLastTxIdFloor(42L);
+        assertThat(storedVersion(metadata)).isEqualTo(VERSION);
+        assertThat(metadata.getLastTxId()).isEqualTo(42L);
+        assertThat(metadata.isDurablyDirty()).isTrue();
+      } finally {
+        metadata.close();
+      }
+    }
+  }
+
+  /** A covered floor cannot suppress upgrading dirty version 3 or 4 metadata. */
+  @Test
+  public void dirtyOldFormatsUpgradeOnCoveredFloorPublication() throws IOException {
+    for (int version : new int[] {3, 4}) {
+      Files.write(filePath, versionedMetadata(version, true));
+      var metadata = new StorageStartupMetadata(filePath, backupPath);
+      try {
+        metadata.open("ignored");
+        assertThat(metadata.isDurablyDirty()).isFalse();
+        metadata.publishLastTxIdFloor(41L);
+        assertThat(storedVersion(metadata)).isEqualTo(5);
+        assertThat(metadata.getLastTxId()).isEqualTo(42L);
+        assertThat(metadata.isDurablyDirty()).isTrue();
+        var written = metadata.readMainForTesting();
+        metadata.publishLastTxIdFloor(42L);
+        assertThat(metadata.readMainForTesting()).isEqualTo(written);
+      } finally {
+        metadata.close();
+      }
+    }
+  }
+
+  /** Disk open and atomic admission upgrade a version 4 image before clean close preserves it. */
+  @Test
+  public void diskOpenAtomicOperationAndCloseKeepCurrentStartupFormat() throws Exception {
+    var database = "formatUpgrade";
+    try (var manager = YourTracks.instance(tmpDir.toString())) {
+      manager.create(database, DatabaseType.DISK, "admin", "admin", "admin");
+    }
+    var main = tmpDir.resolve(database).resolve("dirty.fl");
+    var buffer = ByteBuffer.wrap(Files.readAllBytes(main));
+    buffer.putInt(8, 4);
+    stampChecksum(buffer);
+    Files.write(main, buffer.array());
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(tmpDir.toString());
+        var session = manager.open(database, "admin", "admin")) {
+      var storage = (DiskStorage) session.getStorage();
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(operation -> {
+        assertThat(ByteBuffer.wrap(storage.readStartupMetadataForTesting()).getInt(8))
+            .isEqualTo(5);
+      });
+    }
+    var metadata = new StorageStartupMetadata(main, tmpDir.resolve(database).resolve("dirty.flb"));
+    try {
+      metadata.open("ignored");
+      assertThat(storedVersion(metadata)).isEqualTo(5);
+      assertThat(metadata.isDirty()).isFalse();
+    } finally {
+      metadata.close();
+    }
+  }
+
+  private static void stampChecksum(ByteBuffer buffer) {
+    final var hash = XXHashFactory.fastestInstance().hash64()
+        .hash(buffer, 8, buffer.capacity() - 8, 0xADF678FE45L);
+    buffer.putLong(0, hash);
   }
 
   /**

@@ -18,8 +18,8 @@ import net.jpountz.xxhash.XXHashFactory;
  * completion evidence of that database.
  *
  * <p>This helper writes such a header, an old header, and a header of another build. It also
- * writes a header without creation completion evidence. It writes an authentic header of the
- * earlier version 2 format and output without any readable header too.
+ * writes a header without creation completion evidence, authentic version 1 and 2 headers,
+ * and output without any readable header.
  *
  * <p>The written content is arbitrary. Every case of this helper serves an admission decision,
  * which runs before any replay of the content.
@@ -35,10 +35,16 @@ public final class BackupUnitFiles {
   /** The version with a metadata checksum and barrier flag. */
   public static final int VERSION_4 = 4;
 
+  /** The current version with the same header layout as version 4. */
+  public static final int VERSION_5 = 5;
+  public static final int PREVIOUS_BACKUP_FORMAT_VERSION = VERSION_3;
+
   /** Version 2 fixture name used by existing restore admission tests. */
   public static final int OLD_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int LEGACY_BACKUP_FORMAT_VERSION = VERSION_2;
-  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_4;
+  public static final int FIRST_BACKUP_FORMAT_VERSION = 1;
+  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_5;
+  public static final int FUTURE_BACKUP_FORMAT_VERSION = CURRENT_BACKUP_FORMAT_VERSION + 1;
 
   /** The accepted creation completion evidence of this build. */
   public static final int COMPLETED_CREATION_EVIDENCE = DiskStorage.CREATION_COMPLETED_EVIDENCE;
@@ -159,7 +165,7 @@ public final class BackupUnitFiles {
       // before any replay of that content.
       var content = ("backup unit " + sequenceNumber + " of " + databaseName).getBytes("UTF-8");
       dataOutputStream.write(content);
-      if (backupFormatVersion == VERSION_4) {
+      if (backupFormatVersion == VERSION_4 || backupFormatVersion == VERSION_5) {
         var offset = outputStream.size() % DiskStorage.IBU_SECTOR_SIZE;
         var pad = offset + DiskStorage.IBU_V4_METADATA_SIZE <= DiskStorage.IBU_SECTOR_SIZE
             ? 0 : DiskStorage.IBU_SECTOR_SIZE - offset;
@@ -183,7 +189,7 @@ public final class BackupUnitFiles {
       dataOutputStream.flush();
 
       var written = outputStream.toByteArray();
-      if (backupFormatVersion == VERSION_4) {
+      if (backupFormatVersion == VERSION_4 || backupFormatVersion == VERSION_5) {
         var tailOffset = written.length - (DiskStorage.IBU_V4_METADATA_SIZE - Long.BYTES);
         ByteBuffer.wrap(written, tailOffset, Long.BYTES).putLong(
             DiskStorage.XX_HASH_64.hash(written, tailOffset + Long.BYTES,
@@ -201,7 +207,7 @@ public final class BackupUnitFiles {
     }
   }
 
-  /** Rewrites one real version 4 unit as a valid version 3 unit without changing its ZIP data. */
+  /** Rewrites one real version 4 or 5 unit as a valid version 3 unit without changing its ZIP data. */
   public static void rewriteVersion4AsVersion3(Path path) throws IOException {
     var unit = Files.readAllBytes(path);
     var sharedStart = unit.length - DiskStorage.IBU_V4_METADATA_SIZE;
@@ -296,6 +302,34 @@ public final class BackupUnitFiles {
    */
   public static byte[] legacyVersion2UnitBytes(UUID databaseId, String databaseName,
       int sequenceNumber, boolean fullBackup) throws IOException {
+    return legacyUnitBytes(databaseId, databaseName, sequenceNumber, fullBackup, VERSION_2);
+  }
+
+  /** Writes an authentic version 1 backup with its original 54-byte tail. */
+  public static String writeLegacyVersion1Unit(Path directory, UUID databaseId,
+      String databaseName, int sequenceNumber, boolean fullBackup) throws IOException {
+    return writeLegacyVersion1Unit(directory, databaseId, databaseName, sequenceNumber, fullBackup,
+        unitFileName(databaseId, databaseName, sequenceNumber));
+  }
+
+  /** Writes an authentic version 1 backup under a chosen file name. */
+  public static String writeLegacyVersion1Unit(Path directory, UUID databaseId,
+      String databaseName, int sequenceNumber, boolean fullBackup, String fileName)
+      throws IOException {
+    Files.write(directory.resolve(fileName),
+        legacyVersion1UnitBytes(databaseId, databaseName, sequenceNumber, fullBackup));
+    return fileName;
+  }
+
+  /** Builds the bytes of one authentic version 1 unit. */
+  public static byte[] legacyVersion1UnitBytes(UUID databaseId, String databaseName,
+      int sequenceNumber, boolean fullBackup) throws IOException {
+    return legacyUnitBytes(databaseId, databaseName, sequenceNumber, fullBackup,
+        FIRST_BACKUP_FORMAT_VERSION);
+  }
+
+  private static byte[] legacyUnitBytes(UUID databaseId, String databaseName,
+      int sequenceNumber, boolean fullBackup, int version) throws IOException {
     var startLsn = fullBackup ? null : new LogSequenceNumber(1, 10 * sequenceNumber);
     var endLsn = new LogSequenceNumber(1, 10 * (sequenceNumber + 1));
 
@@ -308,7 +342,7 @@ public final class BackupUnitFiles {
           + " written by an earlier release").getBytes("UTF-8");
       dataOutputStream.write(content);
 
-      dataOutputStream.writeShort(LEGACY_BACKUP_FORMAT_VERSION);
+      dataOutputStream.writeShort(version);
       dataOutputStream.writeLong(databaseId.getLeastSignificantBits());
       dataOutputStream.writeLong(databaseId.getMostSignificantBits());
       dataOutputStream.writeInt(sequenceNumber);
@@ -316,7 +350,9 @@ public final class BackupUnitFiles {
       dataOutputStream.writeInt(startLsn == null ? -1 : startLsn.getPosition());
       dataOutputStream.writeLong(endLsn.getSegment());
       dataOutputStream.writeInt(endLsn.getPosition());
-      dataOutputStream.writeLong(42L);
+      if (version == VERSION_2) {
+        dataOutputStream.writeLong(42L);
+      }
       dataOutputStream.flush();
 
       var written = outputStream.toByteArray();

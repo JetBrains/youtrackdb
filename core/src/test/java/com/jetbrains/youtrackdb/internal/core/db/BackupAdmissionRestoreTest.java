@@ -24,6 +24,7 @@ import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.lang.management.ManagementFactory;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -85,7 +86,7 @@ public class BackupAdmissionRestoreTest {
    *
    * <p>An old header carries no semantic database format and no creation completion evidence. The
    * scenario restores one chain of such headers through the path entry. The expected outcome has
-   * three parts. The restore reports the unsupported chain. No database of the target name exists.
+   * three parts. The restore names version 2 and all three accepted versions. No target database exists.
    * No directory of the target name exists.
    */
   @Test
@@ -100,10 +101,27 @@ public class BackupAdmissionRestoreTest {
               () -> internalOf(youTrackDB)
                   .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
-      assertTrue(
-          "the refusal must name the unsupported backup format version, saw: "
-              + refusal.getMessage(),
-          refusal.getMessage().contains("backup format version"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertNoTargetExists(youTrackDB);
+    }
+  }
+
+  /**
+   * A path restore names a real version 1 unit and preserves the absent target.
+   */
+  @Test
+  public void pathRestoreRefusesAnAuthenticVersion1UnitBeforeAnyTargetChange() throws Exception {
+    BackupUnitFiles.writeLegacyVersion1Unit(
+        syntheticBackupPath, syntheticDatabaseId, SOURCE, 0, true);
+
+    try (var youTrackDB = openManager()) {
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> internalOf(youTrackDB)
+              .restore(TARGET, syntheticBackupPath.toString(), null, null));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -198,7 +216,7 @@ public class BackupAdmissionRestoreTest {
    *
    * <p>A mixed chain holds one supported unit and one unsupported unit. The whole chain validation
    * runs before any target change, so the unsupported unit refuses the request. The scenario
-   * writes one supported full backup and one old increment. The expected outcome has two parts.
+   * writes one supported full backup and one increment with an unsupported version 2 number.
    * The restore reports the unsupported chain. No database and no directory of the target name
    * exist.
    */
@@ -217,6 +235,85 @@ public class BackupAdmissionRestoreTest {
           () -> internalOf(youTrackDB)
               .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
+      assertNoTargetExists(youTrackDB);
+    }
+  }
+
+  /**
+   * A real version 3 full backup and version 5 increment restore together.
+   *
+   * <p>The original full unit retains real database content and a valid version 3 hash. The
+   * version 5 increment alone carries a second record. The restore must recover that record,
+   * not just the class and record from the full unit.
+   */
+  @Test
+  public void pathRestoreAcceptsPreviousVersionFullWithCurrentVersionIncrement()
+      throws Exception {
+    createSourceDatabaseAndBackup();
+    var fullUnit = realUnitNames().getFirst();
+    var fullUnitPath = backupPath.resolve(fullUnit);
+    BackupUnitFiles.rewriteVersion4AsVersion3(fullUnitPath);
+    assertEquals("the full unit must have version 3",
+        BackupUnitFiles.VERSION_3, backupFormatVersion(fullUnitPath));
+
+    try (var youTrackDB = openManager();
+        var session = youTrackDB.open(SOURCE, ADMIN, PASSWORD)) {
+      session.begin();
+      session.newEntity(RECORD_CLASS).setProperty("value", "increment-only");
+      session.commit();
+
+      var storage = internalOf(youTrackDB).getStorage(SOURCE);
+      var incrementUnit = storage.backup(backupPath);
+      assertNotNull(incrementUnit);
+      assertNotEquals("the increment must be a separate unit", fullUnit, incrementUnit);
+      assertEquals("the increment must have version 5",
+          BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
+          backupFormatVersion(backupPath.resolve(incrementUnit)));
+    }
+    assertEquals("the chain must contain both releases", 2, realUnitNames().size());
+    assertEquals("the full unit must still have version 3",
+        BackupUnitFiles.VERSION_3, backupFormatVersion(fullUnitPath));
+
+    try (var youTrackDB = openManager()) {
+      internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null);
+
+      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+        session.begin();
+        assertTrue("the mixed chain must restore the database content",
+            session.getMetadata().getSchema().existsClass(RECORD_CLASS));
+        assertEquals("the increment must restore the second record", 2,
+            session.countClass(RECORD_CLASS));
+        try (var result = session.query(
+            "select from " + RECORD_CLASS + " where value = 'increment-only'")) {
+          assertTrue("the restored record must carry the increment-only value", result.hasNext());
+          assertEquals("increment-only", result.next().getProperty("value"));
+          assertFalse("the increment must add just one marked record", result.hasNext());
+        }
+        session.commit();
+      }
+    }
+  }
+
+  /**
+   * A version 6 increment refuses restore before any target file exists.
+   *
+   * <p>The full unit is a real version 5 backup. The unsupported increment carries a valid
+   * header and hash, so refusal must follow the version check, not the content check.
+   */
+  @Test
+  public void pathRestoreRefusesFutureVersionIncrementBeforeAnyTargetChange() throws Exception {
+    var sourceId = createSourceDatabaseAndBackup();
+    BackupUnitFiles.writeUnit(backupPath, sourceId, SOURCE, 1, false,
+        BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION,
+        BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+
+    try (var youTrackDB = openManager()) {
+      var refusal = assertThrows(UnsupportedBackupException.class,
+          () -> internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null));
+
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 6"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -1889,6 +1986,12 @@ public class BackupAdmissionRestoreTest {
       assertNotNull(storage.fullBackup(backupPath));
       return storage.getUuid();
     }
+  }
+
+  /** All accepted versions store their version at EOF-74, with a longer v4/v5 tail. */
+  private static short backupFormatVersion(Path unitPath) throws IOException {
+    var bytes = Files.readAllBytes(unitPath);
+    return ByteBuffer.wrap(bytes, bytes.length - 74, Short.BYTES).getShort();
   }
 
   /** Returns the sorted names of every real backup unit of the backup directory. */

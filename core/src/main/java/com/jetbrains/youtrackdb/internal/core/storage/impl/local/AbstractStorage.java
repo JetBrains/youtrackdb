@@ -117,6 +117,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
@@ -142,6 +143,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -9166,9 +9168,12 @@ public abstract class AbstractStorage
     final var lsn = writeAheadLog.begin();
 
     writeCache.restoreModeOn();
+    final var recoveryContext = new RecoveryPageContext();
+    writeCache.setRecoveryPageContext(recoveryContext);
     try {
-      restoreFrom(writeAheadLog, lsn);
+      restoreFrom(writeAheadLog, lsn, recoveryContext);
     } finally {
+      writeCache.setRecoveryPageContext(null);
       writeCache.restoreModeOff();
     }
   }
@@ -9176,6 +9181,11 @@ public abstract class AbstractStorage
   @SuppressWarnings("UnusedReturnValue")
   protected LogSequenceNumber restoreFrom(WriteAheadLog writeAheadLog, LogSequenceNumber lsn)
       throws IOException {
+    return restoreFrom(writeAheadLog, lsn, null);
+  }
+
+  private LogSequenceNumber restoreFrom(WriteAheadLog writeAheadLog, LogSequenceNumber lsn,
+      RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
 
     long recordsProcessed = 0;
@@ -9206,7 +9216,7 @@ public abstract class AbstractStorage
               // flushed to the disk
               if (atomicUnit != null) {
                 atomicUnit.add(walRecord);
-                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate);
+                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext);
                 lastUpdatedLSN = walRecord.getLsn();
               }
             }
@@ -9286,8 +9296,76 @@ public abstract class AbstractStorage
   protected final void restoreAtomicUnit(
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
+    restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, null);
+  }
+
+  private void restoreAtomicUnit(final List<WALRecord> atomicUnit,
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
+      throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
+    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
+    if (recoveryContext != null) {
+      // A fuzzy-checkpoint WAL cut can leave only the tail of a committed unit. Its
+      // allocations do not prove that earlier page changes remain in WAL.
+      // Still preload every declared page for the dirty-table and flush contract.
+      final boolean hasStartRecord = atomicUnit.getFirst() instanceof AtomicUnitStartRecord;
+      recoveryContext.setDeclaredPages(hasStartRecord ? declaredAllocationPages : null);
+    }
+    try {
+      // An ascending load prevents a high-index allocation from gap-filling past an
+      // earlier declared page before that earlier page has been checked.
+      for (final var filePages : declaredAllocationPages.entrySet()) {
+        final long fileId = writeCache.externalFileId(filePages.getKey());
+        for (final var page : filePages.getValue().entrySet()) {
+          if (recoveryContext != null) {
+            recoveryContext.setCurrentRecord(page.getValue());
+          }
+          final var entry = readCache.loadOrAddForWrite(
+              fileId, page.getKey(), writeCache, true, page.getValue());
+          assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
+              + page.getKey();
+          // Even an unchanged preload entered the dirty table. Publish it so the flush
+          // can remove that entry and a checkpoint can advance the WAL cut.
+          readCache.releaseFromWrite(entry, writeCache, true);
+        }
+      }
+      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext);
+    } finally {
+      if (recoveryContext != null) {
+        recoveryContext.setDeclaredPages(null);
+        recoveryContext.setCurrentRecord(null);
+      }
+    }
+  }
+
+  // Package-private so replay tests can check the allocation map without reflection.
+  Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
+      final List<WALRecord> atomicUnit) throws IOException {
+    final Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = new TreeMap<>();
+    // Scan the whole unit before any redo. Allocation records may follow the
+    // page operations that require their pages, including a pending file create.
+    for (final var record : atomicUnit) {
+      if (record instanceof PageAllocatedWALRecord allocation) {
+        final long fileId = allocation.getFileId();
+        final int internalId = writeCache.internalFileId(fileId);
+        if (deletedNonDurableFileIds.contains(internalId)) {
+          continue;
+        }
+        ensureFileForReplay(atomicUnit, fileId);
+        declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
+            .put(allocation.getPageIndex(), allocation.getLsn());
+      }
+    }
+    return declaredAllocationPages;
+  }
+
+  private void applyAtomicUnitRecords(final List<WALRecord> atomicUnit,
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
+      throws IOException {
     for (final var walRecord : atomicUnit) {
+      if (recoveryContext != null) {
+        recoveryContext.setCurrentRecord(walRecord.getLsn());
+      }
       switch (walRecord) {
         case FileDeletedWALRecord fileDeletedWALRecord -> {
           // Skip WAL records for files deleted during crash recovery (non-durable files)
@@ -9329,8 +9407,9 @@ public abstract class AbstractStorage
           // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
           // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
           // the disk-engine totality is sufficient here.
-          final var cacheEntry =
-              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          final var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true,
+              recoveryContext == null ? null : recoveryContext.positionForReplayLoad(
+                  writeCache.internalFileId(fileId), pageIndex));
           // Asymmetric assert vs throw: see AtomicOperationBinaryTracking.commitChanges
           // for the rationale. This WAL-replay site is disk-only because
           // MemoryWriteAheadLog is a no-op, so -ea is sufficient; the in-memory-reachable
@@ -9387,8 +9466,9 @@ public abstract class AbstractStorage
           // gap-fills any intermediate pages between currentSize and recordedPageIdx); WAL
           // replay never reaches the in-memory engine (MemoryWriteAheadLog is a no-op), so
           // the disk-engine totality is sufficient here.
-          final var cacheEntry =
-              readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true, null);
+          final var cacheEntry = readCache.loadOrAddForWrite(fileId, pageIndex, writeCache, true,
+              recoveryContext == null ? null : recoveryContext.positionForReplayLoad(
+                  writeCache.internalFileId(fileId), pageIndex));
           // -ea assert is sufficient on this disk-only WAL-replay site
           // (MemoryWriteAheadLog is a no-op, so PageOperation never reaches the
           // in-memory engine); the throw-vs-assert rationale is documented in
@@ -9424,6 +9504,9 @@ public abstract class AbstractStorage
           }
 
           atLeastOnePageUpdate.setValue(true);
+        }
+        case PageAllocatedWALRecord ignored -> {
+          // The pre-scan already materialized this page before any redo.
         }
         //noinspection unused
         case AtomicUnitStartRecord atomicUnitStartRecord -> {

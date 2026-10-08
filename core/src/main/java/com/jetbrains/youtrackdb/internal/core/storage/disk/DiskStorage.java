@@ -179,7 +179,7 @@ public class DiskStorage extends AbstractStorage {
   static final String IBU_EXTENSION = ".ibu";
   /// The v3 tail is a 74-byte block at the end of the unit. The v4 tail prefixes this block
   /// with an 8-byte metadata checksum and a 4-byte force-barrier flag. The shared block stores
-  /// version 4 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
+  /// version 4 or 5 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
   /// the full hash. The full hash covers every preceding byte, including ZIP, padding, checksum
   /// and flag. Zero padding places the 86-byte v4 tail inside one aligned 512-byte file sector.
   /// The shared block has the following format:
@@ -256,10 +256,22 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>This build writes version 4 and reads versions 3 and 4. Versions 1 and 2 are unsupported.
+   * <p>This build writes version 5 with the version 4 layout. It reads versions 3, 4, and 5.
+   * Versions 1 and 2 are unsupported.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 4;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 5;
+  static final int PREVIOUS_BACKUP_FORMAT_VERSION = 4;
   static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
+  // Legacy headers have shorter tails, with the database UUID immediately after the version.
+  private static final int VERSION_2_BACKUP_TAIL_SIZE = 62;
+  private static final int VERSION_1_BACKUP_TAIL_SIZE = 54;
+  private static final int LEGACY_UUID_LOW_OFFSET = Short.BYTES;
+  private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
+
+  private static boolean hasBackupMetadataChecksum(int version) {
+    return version == PREVIOUS_BACKUP_FORMAT_VERSION
+        || version == CURRENT_BACKUP_FORMAT_VERSION;
+  }
 
   /**
    * States that the creation of the backed-up database finished.
@@ -1504,8 +1516,8 @@ public class DiskStorage extends AbstractStorage {
    * its own incomplete output joins the removable set. The walk then continues below the head,
    * because one unsupported older unit refuses the extension of the whole chain.
    *
-   * <p>With a tail read capability, a v4 head candidate with a valid metadata checksum and a
-   * present barrier needs only header admission. A v3 head candidate, a v4 candidate without a
+   * <p>With a tail read capability, a v4 or v5 head candidate with a valid metadata checksum and
+   * a present barrier needs only header admission. A v3 head candidate, a v4 or v5 candidate without a
    * barrier, and a candidate with a failed metadata checksum need full inspection. Units below
    * the head use header admission from the tail, except when a failed checksum needs full
    * inspection. Without the capability, head candidates receive full inspection and older
@@ -1556,7 +1568,7 @@ public class DiskStorage extends AbstractStorage {
         }
         if (!needsFullInspection) {
           var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
-          if (version == CURRENT_BACKUP_FORMAT_VERSION) {
+          if (hasBackupMetadataChecksum(version)) {
             if (!metadataChecksumMatches(tail)) {
               needsFullInspection = true;
             } else if (!headFound && !hasBackupBarrier(tail)) {
@@ -1608,7 +1620,7 @@ public class DiskStorage extends AbstractStorage {
           "Backup unit %s is a version 3 head candidate. Inspecting the complete unit because"
               + " version 3 has no metadata checksum or force barrier.",
           unit);
-    } else if (version == CURRENT_BACKUP_FORMAT_VERSION
+    } else if (hasBackupMetadataChecksum(version)
         && metadataChecksumMatches(header) && !hasBackupBarrier(header)) {
       LogManager.instance().info(this,
           "Backup unit %s has no force barrier. Inspecting the complete head candidate.", unit);
@@ -1744,7 +1756,7 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The classification separates three cases. A supported unit passes every header check and
    * every content check. A recognized incomplete unit carries the supported identity of this
-   * database and fails its full hash. A version 4 metadata checksum mismatch with a valid full
+   * database and fails its full hash. A version 4 or 5 metadata checksum mismatch with a valid full
    * hash is unclassifiable and never removable.
    *
    * <p>The unclassifiable outcome covers an old header and a header of another build. It also
@@ -1798,7 +1810,7 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The admission checks the backup format version, the database feature format, the storage
    * layout version, the creation completion evidence, and the database identifier (UUID). A
-   * failed version 4 metadata checksum triggers the full hash check. Only that fallback can
+   * failed version 4 or 5 metadata checksum triggers the full hash check. Only that fallback can
    * classify recognized incomplete output here.
    *
    * @param ibuFileName the name of the inspected unit
@@ -1815,8 +1827,8 @@ public class DiskStorage extends AbstractStorage {
       }
       var header = trailer.header();
       // A failed metadata checksum needs the full inspection even below the chain head.
-      if (ShortSerializer.deserializeLiteral(header, header.length - IBU_METADATA_SIZE)
-          == CURRENT_BACKUP_FORMAT_VERSION && !metadataChecksumMatches(header)) {
+      if (hasBackupMetadataChecksum(ShortSerializer.deserializeLiteral(header,
+          header.length - IBU_METADATA_SIZE)) && !metadataChecksumMatches(header)) {
         hash.update(header, 0, header.length - Long.BYTES);
         return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue());
       }
@@ -1828,8 +1840,8 @@ public class DiskStorage extends AbstractStorage {
   private static BackupUnitInspection inspectBackupUnitTail(String unit, String storageName,
       UUID uuid, byte[] tail) {
     var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
-    var size = version == CURRENT_BACKUP_FORMAT_VERSION ? IBU_V4_METADATA_SIZE : IBU_METADATA_SIZE;
-    // The caller sends short or damaged v4 tails to the full inspection instead.
+    var size = hasBackupMetadataChecksum(version) ? IBU_V4_METADATA_SIZE : IBU_METADATA_SIZE;
+    // The caller sends short or damaged v4/v5 tails to the full inspection instead.
     return classifyBackupUnit(unit, storageName, uuid,
         Arrays.copyOfRange(tail, tail.length - size, tail.length), null);
   }
@@ -1881,7 +1893,7 @@ public class DiskStorage extends AbstractStorage {
 
     var sharedOffset = tailLength - IBU_METADATA_SIZE;
     var version = ShortSerializer.deserializeLiteral(tail, sharedOffset);
-    if (version == CURRENT_BACKUP_FORMAT_VERSION && tailLength == IBU_V4_METADATA_SIZE) {
+    if (hasBackupMetadataChecksum(version) && tailLength == IBU_V4_METADATA_SIZE) {
       return new BackupUnitTrailer(tail, null);
     }
     updateHash(xxHash64, tail, 0, sharedOffset);
@@ -1911,8 +1923,8 @@ public class DiskStorage extends AbstractStorage {
     var sharedOffset = metaDataCandidate.length - IBU_METADATA_SIZE;
     var shared = Arrays.copyOfRange(metaDataCandidate, sharedOffset, metaDataCandidate.length);
     var metadataVersion = ShortSerializer.deserializeLiteral(shared, IBU_METADATA_VERSION_OFFSET);
-    // The v4 checksum protects the barrier and every shared field except the full hash.
-    var checksumMatches = metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
+    // The v4/v5 checksum protects the barrier and every shared field except the full hash.
+    var checksumMatches = !hasBackupMetadataChecksum(metadataVersion)
         || metadataChecksumMatches(metaDataCandidate);
     var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(shared,
         IBU_METADATA_UUID_LOW_OFFSET);
@@ -1941,10 +1953,10 @@ public class DiskStorage extends AbstractStorage {
 
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
         metadataLayoutVersion, metadataCreationEvidence);
-    // A recognized unit carries the complete supported header of this very database. Only such
-    // a unit becomes removable output of an interrupted backup of this build. Every other unit
-    // can hold a valuable old backup, so no automatic removal ever covers it.
+    // Develop recognizes versions 3 and 4 as removable after a failed full hash check.
+    // Extend that rule to version 5 without removing any unknown or foreign unit.
     var recognized = (metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
+        || metadataVersion == PREVIOUS_BACKUP_FORMAT_VERSION
         || metadataVersion == SUPPORTED_OLD_BACKUP_FORMAT_VERSION)
         && semanticIdentity.equals(supportedBackupSemanticIdentity())
         && dbUUID != null
@@ -1955,6 +1967,33 @@ public class DiskStorage extends AbstractStorage {
       LogManager.instance().warn(DiskStorage.class, storageName,
           "Metadata checksum of backup unit %s does not match.",
           ibuFileName);
+    }
+
+    // A shorter legacy tail may look like a current header when read at the shared offset.
+    // Check the actual legacy version and its UUID against the file name before the hash check.
+    if (metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION
+        && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
+        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+      var version2Start = IBU_METADATA_SIZE - VERSION_2_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version2Start) == 2
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version2Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 2);
+      }
+      var version1Start = IBU_METADATA_SIZE - VERSION_1_BACKUP_TAIL_SIZE;
+      if (ShortSerializer.deserializeLiteral(metaDataCandidate, version1Start) == 1
+          && ibuFileName.startsWith(new UUID(
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_HIGH_OFFSET),
+              LongSerializer.deserializeLiteral(metaDataCandidate,
+                  version1Start + LEGACY_UUID_LOW_OFFSET))
+              .toString() + "-")) {
+        return unsupportedBackupVersion(ibuFileName, storageName, 1);
+      }
     }
 
     // The failed content check of a recognized header is the only removable outcome. Every
@@ -1993,13 +2032,9 @@ public class DiskStorage extends AbstractStorage {
     }
 
     if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
+        && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
         && metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION) {
-      LogManager.instance()
-          .warn(DiskStorage.class, storageName,
-              "Version of the file %s stored in metadata %d is unsupported.",
-              ibuFileName, metadataVersion);
-      return unclassifiableUnit("The header carries backup format version "
-          + metadataVersion + ", and this build supports versions 3 and 4 only.");
+      return unsupportedBackupVersion(ibuFileName, storageName, metadataVersion);
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -2106,6 +2141,16 @@ public class DiskStorage extends AbstractStorage {
             : "The unit passes every header check and every content check.");
   }
 
+  /** Names the detected unsupported version and all three accepted versions. */
+  private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
+      String storageName, int version) {
+    LogManager.instance().warn(DiskStorage.class, storageName,
+        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, and 5.",
+        ibuFileName, version);
+    return unclassifiableUnit("The header carries backup format version "
+        + version + ", and this build supports backup format versions 3, 4, and 5 only.");
+  }
+
   /** Builds the inspection of one unit that this build cannot classify. */
   private static BackupUnitInspection unclassifiableUnit(String detail) {
     return new BackupUnitInspection(BackupUnitClassification.UNCLASSIFIABLE, null, false, detail);
@@ -2114,7 +2159,7 @@ public class DiskStorage extends AbstractStorage {
   /**
    * Builds the inspection of one unit that failed its full hash.
    *
-   * @param recognized true when the unit carries the complete supported header of this database
+   * @param recognized true when a version 3, 4, or 5 unit carries this database's header
    */
   private static BackupUnitInspection incompleteOrUnclassifiableUnit(boolean recognized,
       String detail) {
@@ -3209,9 +3254,9 @@ public class DiskStorage extends AbstractStorage {
     /**
      * This build cannot classify the unit.
      *
-     * <p>An old header, a header of another build, and a header without accepted creation
+     * <p>An unsupported header, a header of another build, and a header without accepted creation
      * completion evidence reach this outcome. A file name that disagrees with the header,
-     * unreadable output, and a version 4 metadata checksum mismatch reach it as well. Such a
+     * unreadable output, and a version 4 or 5 metadata checksum mismatch reach it as well. Such a
      * unit stays in place forever, because it can hold a valuable backup of another build.
      */
     UNCLASSIFIABLE

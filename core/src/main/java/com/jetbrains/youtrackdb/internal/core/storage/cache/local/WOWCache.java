@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -350,6 +351,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentHashMap<PageKey, LogSequenceNumber> dirtyPages =
       new ConcurrentHashMap<>();
+
+  // Replay state is confined to the replay thread. Flush and validation tasks never read it.
+  private final ThreadLocal<RecoveryPageContext> recoveryPageContext = new ThreadLocal<>();
 
   /**
    * Copy of content of {@link #dirtyPages} table at the moment when
@@ -1278,6 +1282,15 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public void setRecoveryPageContext(RecoveryPageContext context) {
+    if (context == null) {
+      recoveryPageContext.remove();
+    } else {
+      recoveryPageContext.set(context);
+    }
+  }
+
+  @Override
   public void restoreModeOn() throws IOException {
     filesLock.acquireWriteLock();
     try {
@@ -1620,6 +1633,7 @@ public final class WOWCache extends AbstractWriteCache
    */
   private CachePointer loadOrAddLoadBranch(
       final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+    final var context = recoveryPageContext.get();
     final var pageKey = new PageKey(intId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
@@ -1632,7 +1646,9 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     try {
-      final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+      final var filePagePointer = loadFileContent(
+          intId, pageIndex, verifyChecksums,
+          context != null && context.isDeclaredPage(intId, pageIndex));
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
@@ -1915,8 +1931,8 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   // Retained internal site: the WriteCache implementer must keep this override so the
-  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo},
-  // the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
+  // documented internal callers (LFRC.doLoad, AOBT.{allocatePageForWrite, filledUpTo,
+  // commitChanges}, the Layer A helper body just below) dispatch to a concrete impl. The "deprecation"
   // suppression silences the deprecation warning the override would otherwise inherit
   // from the @Deprecated interface declaration.
   @SuppressWarnings("deprecation")
@@ -3613,6 +3629,13 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, false);
+  }
+
+  /** Rebuilding is allowed only for a declared page loaded for crash replay writes. */
+  @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
+      final boolean verifyChecksums, final boolean rebuildAllowed)
+      throws IOException {
     final var fileId = composeFileId(id, internalFileId);
     try {
       final var entry = files.acquire(fileId);
@@ -3646,7 +3669,22 @@ public final class WOWCache extends AbstractWriteCache
                   doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
 
               if (doubleWritePointer == null) {
-                assertPageIsBroken(pageIndex, fileId, pageFrame);
+                if (rebuildAllowed) {
+                  // Only the replay write-load allows rebuilding a declared page. Keep the
+                  // header LSN unset so redo still sees an empty page.
+                  buffer.clear();
+                  buffer.put(new byte[pageSize]);
+                  DurablePage.setLogSequenceNumberForPage(
+                      buffer, new LogSequenceNumber(-1, -1));
+                  LogManager.instance().warn(this,
+                      "Crash recovery rebuilt new page %d of file '%s' in storage '%s' as an"
+                          + " empty page. The page failed verification and the double write log"
+                          + " has no copy of it. WAL replay applies this page's logged changes,"
+                          + " if any.",
+                      pageIndex, fileNameById(fileId), storageName);
+                } else {
+                  assertPageIsBroken(pageIndex, fileId, pageFrame);
+                }
               } else {
                 // Copy recovered data from double-write log into the PageFrame's buffer
                 // and release the temporary double-write pointer back to ByteBufferPool.
@@ -4951,7 +4989,13 @@ public final class WOWCache extends AbstractWriteCache
           submittedWrites
               .add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue())));
         } catch (final Throwable t) {
-          files.release(fileEntry);
+          try {
+            files.release(fileEntry);
+          } catch (final Throwable releaseFailure) {
+            if (releaseFailure != t) {
+              t.addSuppressed(releaseFailure);
+            }
+          }
           throw t;
         }
         entry = null;
@@ -4966,7 +5010,9 @@ public final class WOWCache extends AbstractWriteCache
         drainSubmittedWrites(submittedWrites);
       } catch (final Throwable drainFailure) {
         if (failure != null) {
-          failure.addSuppressed(drainFailure);
+          if (failure != drainFailure) {
+            failure.addSuppressed(drainFailure);
+          }
         } else {
           rethrowWriteFailure(drainFailure);
         }
@@ -5015,21 +5061,39 @@ public final class WOWCache extends AbstractWriteCache
     final var writes = new ArrayList<>(submittedWrites);
     submittedWrites.clear();
     Throwable failure = null;
+    // A failed await may leave the interrupt flag set. Clear it between writes so the
+    // remaining started writes can finish, then restore it for the caller after the drain.
+    boolean interrupted = Thread.interrupted();
     for (final var write : writes) {
       try {
         write.result.await();
       } catch (final Throwable t) {
         if (failure == null) {
           failure = t;
-        } else {
+        } else if (failure != t) {
+          failure.addSuppressed(t);
+        }
+      } finally {
+        interrupted |= Thread.interrupted();
+      }
+    }
+    // Release all acquired files even if one release fails. No page buffer may be freed
+    // before the wait loop above has seen every started write finish.
+    for (final var write : writes) {
+      try {
+        files.release(write.fileEntry);
+      } catch (final Throwable t) {
+        if (failure == null) {
+          failure = t;
+        } else if (failure != t) {
           failure.addSuppressed(t);
         }
       }
     }
-    for (final var write : writes) {
-      files.release(write.fileEntry);
-    }
 
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
     if (failure != null) {
       rethrowWriteFailure(failure);
     }

@@ -1,22 +1,33 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableEntry;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
+import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
+import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -27,10 +38,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousFileChannel;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
@@ -61,6 +74,375 @@ import org.mockito.Mockito;
 public class WOWCacheFlushErrorTest {
 
   private static final int PAGE_SIZE = 8192;
+
+  /** A failing result cannot release either file until every submitted write completes. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testFailedWriteDrainsAllFilesBeforeReleaseAndKeepsCacheWritable() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    when(files.tryAcquire(1L)).thenReturn(firstEntry);
+    when(files.tryAcquire(2L)).thenReturn(secondEntry);
+    final var firstError = new IllegalStateException("first page write failed");
+    final var writesStarted = new CountDownLatch(2);
+    final var pendingWrite = new CountDownLatch(1);
+    final var awaitCount = new AtomicInteger();
+    final IOResult failedResult = () -> {
+      awaitCount.incrementAndGet();
+      try {
+        writesStarted.await();
+      } catch (InterruptedException e) {
+        throw new AssertionError(e);
+      }
+      throw firstError;
+    };
+    final IOResult pendingResult = () -> {
+      awaitCount.incrementAndGet();
+      try {
+        pendingWrite.await();
+      } catch (InterruptedException e) {
+        throw new AssertionError(e);
+      }
+    };
+    when(firstFile.write(Mockito.anyList())).thenAnswer(invocation -> {
+      writesStarted.countDown();
+      return failedResult;
+    });
+    when(secondFile.write(Mockito.anyList())).thenAnswer(invocation -> {
+      writesStarted.countDown();
+      return pendingResult;
+    });
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    buffers.put(1L, new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    buffers.put(2L, new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    final var executor = Executors.newSingleThreadExecutor();
+    try {
+      final var task = executor.submit(() -> {
+        try {
+          method.invoke(cache, buffers);
+          return null;
+        } catch (InvocationTargetException e) {
+          return e.getCause();
+        }
+      });
+      assertTrue(writesStarted.await(5, TimeUnit.SECONDS));
+      // The second result stays incomplete, so an early return would release its file.
+      assertEquals(0, Mockito.mockingDetails(files).getInvocations().stream()
+          .filter(call -> call.getMethod().getName().equals("release")).count());
+      pendingWrite.countDown();
+      assertEquals(firstError, task.get(5, TimeUnit.SECONDS));
+      assertEquals(2, awaitCount.get());
+      verify(files).release(firstEntry);
+      verify(files).release(secondEntry);
+      assertNull("a per-file write error must not make storage read-only",
+          readFlushError(cache));
+    } finally {
+      pendingWrite.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  /** Release errors do not replace the first write error or prevent releasing the next file. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testResultAndReleaseFailuresKeepFirstErrorAndReleaseEveryFile() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    final var thirdFile = mock(File.class);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    final var thirdEntry = new ClosableEntry<Long, File>(thirdFile);
+    final var attempts = new AtomicInteger();
+    when(files.tryAcquire(anyLong())).thenAnswer(invocation -> switch (attempts.incrementAndGet()) {
+      case 1 -> firstEntry;
+      case 2 -> secondEntry;
+      case 3 -> thirdEntry;
+      default -> throw new AssertionError("unexpected acquisition");
+    });
+    final var writeError = new IllegalStateException("page write failed");
+    final var secondWriteError = new IllegalStateException("second page write failed");
+    final var releaseError = new IllegalStateException("release failed");
+    when(firstFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+      throw writeError;
+    });
+    when(secondFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+      throw secondWriteError;
+    });
+    // Reusing the first error must not try to suppress an exception onto itself.
+    when(thirdFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+      throw writeError;
+    });
+    Mockito.doThrow(releaseError).when(files).release(firstEntry);
+
+    assertEquals(writeError, invokePageWrites(cache, pageBuffers(1L, 2L, 3L)));
+    assertArrayEquals(new Throwable[] {secondWriteError, releaseError}, writeError.getSuppressed());
+    verify(files).release(firstEntry);
+    verify(files).release(secondEntry);
+    verify(files).release(thirdEntry);
+  }
+
+  /** When releases themselves fail, the first error survives even if the same error recurs. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testReleaseFailuresKeepFirstErrorWithoutSelfSuppression() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    final var attempts = new AtomicInteger();
+    when(files.tryAcquire(anyLong()))
+        .thenAnswer(invocation -> attempts.incrementAndGet() == 1 ? firstEntry : secondEntry);
+    when(firstFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+    });
+    when(secondFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+    });
+    final var releaseError = new IllegalStateException("release failed twice");
+    Mockito.doThrow(releaseError).when(files).release(firstEntry);
+    Mockito.doThrow(releaseError).when(files).release(secondEntry);
+
+    assertEquals(releaseError, invokePageWrites(cache, pageBuffers(1L, 2L)));
+    assertEquals(0, releaseError.getSuppressed().length);
+    verify(files).release(firstEntry);
+    verify(files).release(secondEntry);
+  }
+
+  /** The same throwable from submission and a started result must never suppress itself. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testDuplicateSubmissionAndDrainErrorIsNotSelfSuppressed() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    final var attempts = new AtomicInteger();
+    when(files.tryAcquire(anyLong()))
+        .thenAnswer(invocation -> attempts.incrementAndGet() == 1 ? firstEntry : secondEntry);
+    final var error = new IllegalStateException("same error");
+    when(firstFile.write(Mockito.anyList())).thenReturn((IOResult) () -> {
+      throw error;
+    });
+    when(secondFile.write(Mockito.anyList())).thenThrow(error);
+
+    assertEquals(error, invokePageWrites(cache, pageBuffers(1L, 2L)));
+    assertEquals(0, error.getSuppressed().length);
+    verify(files).release(firstEntry);
+    verify(files).release(secondEntry);
+  }
+
+  /** Interruption on the first wait does not skip a second write or release its file early. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testInterruptedWriteWaitDrainsOtherResultAndRestoresFlag() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    when(files.tryAcquire(1L)).thenReturn(firstEntry);
+    when(files.tryAcquire(2L)).thenReturn(secondEntry);
+    final var secondWaiting = new CountDownLatch(1);
+    final var secondFinished = new CountDownLatch(1);
+    final var interruption = new ThreadInterruptedException("interrupted write wait");
+    // Both results start before the flush awaits either one. The first signals an
+    // interrupt, and the second stays pending until the test explicitly completes it.
+    final var awaited = new AtomicInteger();
+    final IOResult controlledResult = () -> {
+      if (awaited.getAndIncrement() == 0) {
+        Thread.currentThread().interrupt();
+        throw interruption;
+      }
+      secondWaiting.countDown();
+      try {
+        secondFinished.await();
+      } catch (InterruptedException e) {
+        throw new AssertionError("interrupt flag should be cleared between waits", e);
+      }
+    };
+    when(firstFile.write(Mockito.anyList())).thenReturn(controlledResult);
+    when(secondFile.write(Mockito.anyList())).thenReturn(controlledResult);
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    buffers.put(1L, new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    buffers.put(2L, new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    final var executor = Executors.newSingleThreadExecutor();
+    try {
+      final var task = executor.submit(() -> {
+        try {
+          method.invoke(cache, buffers);
+          return new Object[] {null, Thread.currentThread().isInterrupted()};
+        } catch (InvocationTargetException e) {
+          return new Object[] {e.getCause(), Thread.currentThread().isInterrupted()};
+        }
+      });
+      assertTrue(secondWaiting.await(5, TimeUnit.SECONDS));
+      assertTrue("both files must remain acquired", Mockito.mockingDetails(files)
+          .getInvocations().stream()
+          .noneMatch(call -> call.getMethod().getName().equals("release")));
+      secondFinished.countDown();
+      final var outcome = task.get(5, TimeUnit.SECONDS);
+      assertEquals(interruption, outcome[0]);
+      assertEquals(Boolean.TRUE, outcome[1]);
+      verify(files).release(firstEntry);
+      verify(files).release(secondEntry);
+    } finally {
+      secondFinished.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  /** A failed durable page write keeps its original page dirty and its copy alive until done. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testFailedFlushRetainsPageUntilStartedWriteFinishes() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    setField(cache, "pageSize", PAGE_SIZE);
+    setField(cache, "checksumMode", ChecksumMode.StoreAndVerify);
+    setField(cache, "storageName", "test");
+    final var pool = Mockito.spy(new ByteBufferPool(PAGE_SIZE));
+    setField(cache, "bufferPool", pool);
+    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    setField(cache, "doubleWriteLog", doubleWriteLog);
+    final var file = mock(File.class);
+    final var entry = new ClosableEntry<Long, File>(file);
+    when(files.tryAcquire(1L)).thenReturn(entry);
+    final var started = new CountDownLatch(1);
+    final var finished = new CountDownLatch(1);
+    final var writeError = new IllegalStateException("page write failed");
+    when(file.write(Mockito.anyList())).thenAnswer(invocation -> {
+      started.countDown();
+      return (IOResult) () -> {
+        try {
+          finished.await();
+        } catch (InterruptedException e) {
+          throw new AssertionError(e);
+        }
+        throw writeError;
+      };
+    });
+    final var pointer = mock(CachePointer.class);
+    when(pointer.getFileId()).thenReturn(1L);
+    when(pointer.getPageIndex()).thenReturn(0);
+    final var pageKey = new PageKey(1, 0);
+    final var cachedPages = new ConcurrentHashMap<PageKey, CachePointer>();
+    cachedPages.put(pageKey, pointer);
+    setField(cache, "writeCachePages", cachedPages);
+    final Pointer pageCopy = pool.acquireDirect(false, Intention.FILE_FLUSH);
+    final var copy = pageCopy.getNativeByteBuffer().order(ByteOrder.nativeOrder());
+    final var recordClass = Class.forName(WOWCache.class.getName() + "$WritePageContainer");
+    final var constructor = recordClass.getDeclaredConstructor(long.class, ByteBuffer.class,
+        Pointer.class, CachePointer.class, PageWriteTracker.PageWriteAttempt.class);
+    constructor.setAccessible(true);
+    final var chunk = new ArrayList<>();
+    chunk.add(constructor.newInstance(1L, copy, pageCopy, pointer, null));
+    final var chunks = new ArrayList<>();
+    chunks.add(chunk);
+    final var method = WOWCache.class.getDeclaredMethod("flushPages", ArrayList.class,
+        LogSequenceNumber.class);
+    method.setAccessible(true);
+    final var executor = Executors.newSingleThreadExecutor();
+    try {
+      final var task = executor.submit(() -> {
+        try {
+          method.invoke(cache, chunks, null);
+          return null;
+        } catch (InvocationTargetException e) {
+          return e.getCause();
+        }
+      });
+      assertTrue(started.await(5, TimeUnit.SECONDS));
+      assertTrue(cachedPages.containsKey(pageKey));
+      Mockito.verify(pool, Mockito.never()).release(pageCopy);
+      finished.countDown();
+      assertEquals(writeError, task.get(5, TimeUnit.SECONDS));
+      assertTrue("failed page stays in write cache for retry", cachedPages.containsKey(pageKey));
+      Mockito.verify(pool).release(pageCopy);
+      verify(files).release(entry);
+      Mockito.verify(pointer, Mockito.never()).decrementWritersReferrer();
+    } finally {
+      finished.countDown();
+      executor.shutdownNow();
+      pool.clear();
+    }
+  }
+
+  /** Synchronous group submission failure still releases its acquired file. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void testSynchronousWriteFailureReleasesFile() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var file = mock(File.class);
+    final var entry = new ClosableEntry<Long, File>(file);
+    when(files.tryAcquire(1L)).thenReturn(entry);
+    final var failure = new IllegalStateException("submission rejected");
+    when(file.write(Mockito.anyList())).thenThrow(failure);
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    buffers.put(1L, new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(cache, buffers);
+      fail("submission failure must propagate");
+    } catch (InvocationTargetException e) {
+      assertEquals(failure, e.getCause());
+    }
+    verify(files).release(entry);
+    assertNull(readFlushError(cache));
+  }
+
+  private static Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> pageBuffers(
+      long... ids) {
+    final var buffers = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
+    for (final long id : ids) {
+      buffers.put(id,
+          new ArrayList<>(List.of(new RawPairLongObject<>(0L, ByteBuffer.allocate(1)))));
+    }
+    return buffers;
+  }
+
+  private static Throwable invokePageWrites(WOWCache cache,
+      Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> buffers) throws Exception {
+    final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
+        Long2ObjectOpenHashMap.class);
+    method.setAccessible(true);
+    try {
+      method.invoke(cache, buffers);
+      return null;
+    } catch (InvocationTargetException e) {
+      return e.getCause();
+    }
+  }
+
+  private static Object readFlushError(WOWCache cache) throws Exception {
+    final var field = WOWCache.class.getDeclaredField("flushError");
+    field.setAccessible(true);
+    return field.get(cache);
+  }
 
   /** The warning starts at 30 seconds, repeats at five minutes, and resets on progress. */
   @Test
