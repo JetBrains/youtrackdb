@@ -19,13 +19,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.lang.reflect.Field;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -293,30 +291,47 @@ public class MatchExecutionPlannerInputsTest {
         .withMessageContaining("does not match");
   }
 
-  /**
-   * The planner rejects a runtime descriptor before copying alias classes. A delayed rejection
-   * would access the poisoned map and throw an AssertionError instead of the expected exception.
-   */
+  /** One present alias with the matching class is accepted by the additive planner. */
   @Test
-  public void plannerCtor_runtimeStart_rejectedBeforePlanning() {
-    Map<String, String> poisonedClasses = new AbstractMap<>() {
-      @Override
-      public int size() {
-        return 1;
-      }
-
-      @Override
-      public Set<Entry<String, String>> entrySet() {
-        throw new AssertionError("planner copied alias classes before rejecting runtime start");
-      }
-    };
-    var input = MatchPlanInputs.builder(new Pattern())
-        .aliasClasses(poisonedClasses)
+  public void plannerCtor_runtimeStart_acceptedForMatchingPatternAliasAndClass() {
+    var pattern = new Pattern();
+    var node = new PatternNode();
+    node.alias = "a";
+    pattern.aliasToNode.put("a", node);
+    var input = MatchPlanInputs.builder(pattern)
+        .aliasClasses(Map.of("a", "V"))
         .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "V", 0)))
         .build();
-    assertThatExceptionOfType(UnsupportedOperationException.class)
-        .isThrownBy(() -> new MatchExecutionPlanner(input))
-        .withMessageContaining("not supported by the MATCH planner yet");
+    assertThat(new MatchExecutionPlanner(input)).isNotNull();
+  }
+
+  /** More than one source, a missing alias, or a class mismatch cannot honor the descriptor. */
+  @Test
+  public void plannerCtor_runtimeStart_rejectsInvalidSource() {
+    var pattern = new Pattern();
+    var node = new PatternNode();
+    node.alias = "a";
+    pattern.aliasToNode.put("a", node);
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "V", "b", "V"))
+            .runtimeRidStarts(Map.of(
+                "a", RuntimeRidStartTestFactory.create("a", "V", 0),
+                "b", RuntimeRidStartTestFactory.create("b", "V", 1)))
+            .build()))
+        .withMessageContaining("only one");
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("b", "V"))
+            .runtimeRidStarts(Map.of("b", RuntimeRidStartTestFactory.create("b", "V", 0)))
+            .build()))
+        .withMessageContaining("not in the pattern");
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "Person"))
+            .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "V", 0)))
+            .build()))
+        .withMessageContaining("class differs");
   }
 
   // ─────────────── Planner ctor — defensive-copy independence (3 maps) ──────────────────
