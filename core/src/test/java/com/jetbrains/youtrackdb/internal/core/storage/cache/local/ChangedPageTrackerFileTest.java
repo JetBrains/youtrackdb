@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -40,6 +41,7 @@ import java.util.zip.CRC32C;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 
 public class ChangedPageTrackerFileTest {
@@ -48,6 +50,153 @@ public class ChangedPageTrackerFileTest {
 
   @Rule
   public final TemporaryFolder folder = new TemporaryFolder();
+
+  // Real side-file publications measure codec/channel writes and both durability barriers.
+  // Sparse, one-bit-per-word, and all-bits-set inputs each cover one and two generations.
+  @Test
+  @Category(SequentialTest.class)
+  public void trackerPerformancePublication() throws Exception {
+    TrackerPerformanceProbe.launch(PublicationPerformanceProbe.class,
+        List.of("sparse", "one-bit-per-word", "all-bits-set"), List.of(1, 2),
+        "encodeWriteNs", "totalNs", "fileForceNs", "publicationBarrierNs", "allocatedBytes");
+  }
+
+  public static final class PublicationPerformanceProbe {
+    public static void main(String[] args) throws Exception {
+      for (String density : List.of("sparse", "one-bit-per-word", "all-bits-set")) {
+        for (int generations = 1; generations <= 2; generations++) {
+          measure(density, generations);
+        }
+      }
+      System.out.println(TrackerPerformanceProbe.COMPLETE);
+    }
+
+    private static void measure(String density, int generations) throws Exception {
+      int segments = density.equals("sparse") ? 1024 : 16;
+      int words = density.equals("sparse") ? 1 : 512;
+      int bits = density.equals("all-bits-set") ? 64 : 1;
+      var tracker = new ChangedPageTracker();
+      for (int generation = 0; generation < generations; generation++) {
+        for (int segment = 0; segment < segments; segment++) {
+          for (int word = 0; word < words; word++) {
+            for (int bit = 0; bit < bits; bit++) {
+              tracker.mark(1, segment * 32768L + word * 64L + bit);
+            }
+          }
+        }
+        if (generation + 1 < generations) {
+          assertNotNull(tracker.beginBackup());
+        }
+      }
+      assertWorkload(tracker, density, generations);
+      var directory = Files.createTempDirectory("tracker-publication");
+      var path = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+      try {
+        var timing = new PublicationTiming();
+        assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+            ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+        long wire = Files.size(path);
+        long nonzero = (long) words * segments * generations;
+        assertTrue(wire >= nonzero * 20 && wire < nonzero * 20 + 128);
+        var series = new TrackerPerformanceProbe.Series(density + " generations=" + generations
+            + " segmentsPerGeneration=" + segments + " nonzeroWords=" + nonzero
+            + " payloadBytes=" + (long) segments * generations * ChangedPageTracker.SEGMENT_BYTES
+            + " fileBytes=" + wire + " barrier="
+            + (IOUtils.isOsWindows() ? "windows-move" : "folder-force"),
+            "encodeWriteNs", "totalNs", "fileForceNs", "publicationBarrierNs", "allocatedBytes");
+        for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+          timing.calls = 0;
+          long before = TrackerPerformanceProbe.allocated();
+          long start = System.nanoTime();
+          var result = ChangedPageTrackerFile.save(path, tracker, COVERAGE, timing);
+          long elapsed = System.nanoTime() - start;
+          long allocated = TrackerPerformanceProbe.allocated() - before;
+          assertEquals(ChangedPageTrackerFile.SaveResult.SAVED, result);
+          assertEquals(3, timing.calls);
+          assertEquals(wire, Files.size(path));
+          if (sample >= 0) {
+            series.add(timing.encode, elapsed, timing.fileForce, timing.barrier, allocated);
+          }
+        }
+        var loaded = ChangedPageTrackerFile.load(path);
+        assertEquals(COVERAGE, loaded.coverageLsn());
+        assertWorkload(loaded.tracker(), density, generations);
+        series.report();
+      } finally {
+        Files.deleteIfExists(ChangedPageTrackerFile.temporaryFile(path));
+        Files.deleteIfExists(path);
+        Files.delete(directory);
+      }
+    }
+  }
+
+  // Word positions and masks come from the label, not the setup loop's bit-count variable.
+  // Check both the input and decoded publication outside the measured save calls.
+  private static void assertWorkload(ChangedPageTracker tracker, String density, int generations) {
+    var state = capture(tracker);
+    assertDensity(state.active(), density);
+    if (generations == 2) {
+      assertNotNull(state.sealed());
+      assertDensity(state.sealed().pages(), density);
+    } else {
+      assertNull(state.sealed());
+    }
+  }
+
+  private static void assertDensity(ChangedPageTracker.Generation generation, String density) {
+    long[] counts = new long[2];
+    generation.forEachFile((file, bitmap) -> {
+      assertEquals(1, file.intValue());
+      counts[0]++;
+      bitmap.forEachWord((index, value) -> {
+        assertEquals(density.equals("sparse") ? counts[1] * 512 : counts[1], index);
+        assertEquals(density.equals("all-bits-set") ? -1L : 1L, value);
+        counts[1]++;
+      });
+    });
+    assertEquals(1, counts[0]);
+    assertEquals(density.equals("sparse") ? 1024 : 8192, counts[1]);
+  }
+
+  private static final class PublicationTiming extends ChangedPageTrackerFile.FileOperations {
+    long encode;
+    long fileForce;
+    long barrier;
+    int calls;
+
+    @Override
+    void write(FileChannel channel, ChangedPageTracker.SaveState state, LogSequenceNumber coverage)
+        throws IOException {
+      long start = System.nanoTime();
+      super.write(channel, state, coverage);
+      encode = System.nanoTime() - start;
+      calls++;
+    }
+
+    @Override
+    void forceFile(FileChannel channel) throws IOException {
+      long start = System.nanoTime();
+      super.forceFile(channel);
+      fileForce = System.nanoTime() - start;
+      calls++;
+    }
+
+    @Override
+    void forceFolder(Path parent) throws IOException {
+      long start = System.nanoTime();
+      super.forceFolder(parent);
+      barrier = System.nanoTime() - start;
+      calls++;
+    }
+
+    @Override
+    void windowsMove(Path temporary, Path target) throws IOException {
+      long start = System.nanoTime();
+      super.windowsMove(temporary, target);
+      barrier = System.nanoTime() - start;
+      calls++;
+    }
+  }
 
   // The shared exact-name rule matches the real publisher temporary sibling. It does not claim
   // unrelated files that happen to use the same extension or a longer suffix.
