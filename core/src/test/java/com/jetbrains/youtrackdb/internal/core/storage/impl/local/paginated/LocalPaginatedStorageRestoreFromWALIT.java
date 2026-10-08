@@ -39,6 +39,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -115,6 +116,30 @@ public class LocalPaginatedStorageRestoreFromWALIT {
         (DatabaseSessionEmbedded) youTrackDB.open("baseLocalPaginatedStorageRestoreFromWAL",
             "admin", "admin");
     createSchema(baseDocumentTx);
+  }
+
+  @After
+  public void afterMethod() {
+    try {
+      try {
+        if (testDocumentTx != null && !testDocumentTx.isClosed()) {
+          testDocumentTx.close();
+        }
+      } finally {
+        if (baseDocumentTx != null && !baseDocumentTx.isClosed()) {
+          baseDocumentTx.close();
+        }
+      }
+    } finally {
+      try {
+        // Directory copies must not reuse a registered storage from another test.
+        youTrackDB.internal.forceDatabaseClose("testLocalPaginatedStorageRestoreFromWAL");
+      } finally {
+        executorService.shutdownNow();
+        // Wait for worker sessions before the next test resets the base database.
+        executorService.close();
+      }
+    }
   }
 
   @Test
@@ -228,7 +253,6 @@ public class LocalPaginatedStorageRestoreFromWALIT {
           "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
       Assert.assertTrue(((DiskStorage) testDocumentTx.getStorage())
           .wereDataRestoredAfterOpen());
-      Assert.assertEquals(500, testDocumentTx.countClass("TestOne"));
       assertRecoveredRecords(testDocumentTx, 500);
       Assert.assertTrue(warnings.warnedWithAll(fileName[0], "page " + pageIndex[0]));
       Assert.assertFalse(warnings.messages().stream().anyMatch(
@@ -240,9 +264,10 @@ public class LocalPaginatedStorageRestoreFromWALIT {
       });
       testDocumentTx.close();
     }
+    // Close the storage too so the next open reads persisted data.
+    youTrackDB.internal.forceDatabaseClose("testLocalPaginatedStorageRestoreFromWAL");
     testDocumentTx = (DatabaseSessionEmbedded) youTrackDB.open(
         "testLocalPaginatedStorageRestoreFromWAL", "admin", "admin");
-    Assert.assertEquals(501, testDocumentTx.countClass("TestOne"));
     assertRecoveredRecords(testDocumentTx, 501);
     testDocumentTx.close();
   }
@@ -250,6 +275,7 @@ public class LocalPaginatedStorageRestoreFromWALIT {
   private static void assertRecoveredRecords(DatabaseSessionEmbedded session, int expectedCount) {
     // Browsing every record reads the collection data pages, including the zeroed page.
     session.executeInTx(tx -> {
+      Assert.assertEquals(expectedCount, session.countClass("TestOne"));
       var seen = new boolean[expectedCount];
       try (var records = session.browseClass("TestOne")) {
         while (records.hasNext()) {
