@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -13,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -138,6 +140,8 @@ public class DiskStorageMaintenanceFloorTest {
         hookedStorage = storage;
         prepareRemovableSegment(session, storage);
         var original = storage.getWALInstance().begin().getSegment();
+        var sideFile = root.resolve(DATABASE).resolve(ChangedPageTrackerFile.FILE_NAME);
+        var savedTracker = Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null;
         var observed = new AtomicLong(-1);
         storage.setBeforeMaintenanceFloorActionForTesting(observed::set);
         var failure = new IOException("injected maintenance floor");
@@ -162,6 +166,8 @@ public class DiskStorageMaintenanceFloorTest {
         assertTrue("the pass must reach its floor save", observed.get() >= 0);
         assertEquals("failure must not remove the WAL segment", original,
             storage.getWALInstance().begin().getSegment());
+        assertArrayEquals("a failed floor save must not publish new tracker coverage",
+            savedTracker, Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null);
         assertTrue("failure must log an error", errors.reported);
         storage.checkErrorState();
         assertTrue("a failed floor save must not clear the recovery indication", isDirty(storage));
@@ -174,6 +180,7 @@ public class DiskStorageMaintenanceFloorTest {
             storage.getWALInstance().begin().getSegment() > original);
         assertTrue("the durable floor must cover the candidate seen before the failed save",
             readFloor(storage) >= observed.get());
+        assertTrue("a removing retry must publish tracker coverage", Files.isRegularFile(sideFile));
         assertTrue("maintenance must leave the recovery indication in place", isDirty(storage));
       }
     }

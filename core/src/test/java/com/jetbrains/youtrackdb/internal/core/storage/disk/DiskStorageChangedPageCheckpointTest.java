@@ -77,7 +77,8 @@ public class DiskStorageChangedPageCheckpointTest {
     storage = (DiskStorage) session.getStorage();
     sideFile = folder.getRoot().toPath().resolve("bridge")
         .resolve(ChangedPageTrackerFile.FILE_NAME);
-    assertFalse(Files.exists(sideFile));
+    // Creation can publish tracker coverage. Normalize only its file, not the shared tracker.
+    Files.deleteIfExists(sideFile);
     stateLock = (ScalableRWLock) field(AbstractStorage.class, storage, "stateLock");
     tracker = (ChangedPageTracker) field(DiskStorage.class, storage, "changedPageTracker");
     realWal = storage.getWALInstance();

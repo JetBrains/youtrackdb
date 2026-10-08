@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -15,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import java.io.IOException;
@@ -202,6 +204,8 @@ public class DiskStorageCheckpointFloorTest {
         var recoveryBegin = storage.getWALInstance().begin();
         assertTrue("the WAL must hold recovery records", recoveryBegin != null);
         assertTrue("writes must require recovery", isDirty((DiskStorage) storage));
+        var sideFile = root.resolve(DATABASE).resolve(ChangedPageTrackerFile.FILE_NAME);
+        var savedTracker = Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null;
         var afterFloor = new AtomicInteger();
         hookedStorage = storage;
         storage.setCheckpointFloorActionForTesting(ignored -> afterFloor.incrementAndGet());
@@ -214,11 +218,49 @@ public class DiskStorageCheckpointFloorTest {
             recoveryBegin, storage.getWALInstance().begin());
         assertTrue("a failed floor save must not clear the indication",
             isDirty((DiskStorage) storage));
+        assertArrayEquals("a failed floor save must not publish new tracker coverage",
+            savedTracker, Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null);
         var mark = storage.getIdGen().getLastId();
         storage.synch();
+        assertTrue("a removing checkpoint must publish tracker coverage",
+            Files.isRegularFile(sideFile));
         assertEquals("a later checkpoint must retry the save", 1, afterFloor.get());
         assertTrue(java.nio.ByteBuffer.wrap(
             ((DiskStorage) storage).readStartupMetadataForTesting()).getLong(13) >= mark);
+      }
+    }
+  }
+
+  /** A failed tracker invalidation keeps real shutdown open and dirty until a successful retry. */
+  @Test
+  public void trackerInvalidationFailureAllowsRealShutdownRetry() throws Exception {
+    try (var manager = manager()) {
+      manager.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+      try (var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+        var storage = (DiskStorage) session.getStorage();
+        var sideFile = root.resolve(DATABASE).resolve(ChangedPageTrackerFile.FILE_NAME);
+        Files.deleteIfExists(sideFile);
+        Files.createDirectory(sideFile);
+        var blocker = sideFile.resolve("blocker");
+        Files.writeString(blocker, "retain authority");
+        var begin = storage.getWALInstance().begin();
+        try {
+          var failure = assertThrows(StorageException.class, () -> storage.close(session, true));
+          assertTrue(failure.getCause().getMessage().contains("side-file invalidation failed"));
+          assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.OPEN,
+              storage.getStatus());
+          assertEquals(begin, storage.getWALInstance().begin());
+          assertTrue("failed tracker publication must preserve recovery", isDirty(storage));
+          storage.checkErrorState();
+        } finally {
+          Files.delete(blocker);
+          Files.delete(sideFile);
+        }
+        storage.close(session, true);
+        assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.CLOSED,
+            storage.getStatus());
+        assertTrue(Files.isRegularFile(sideFile));
+        assertFalse("successful final close can clear recovery independently", isDirty());
       }
     }
   }

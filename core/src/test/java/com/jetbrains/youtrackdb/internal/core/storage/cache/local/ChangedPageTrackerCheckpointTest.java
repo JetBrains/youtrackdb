@@ -17,10 +17,12 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
@@ -53,8 +55,16 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
+import org.mockito.MockedConstruction;
+import org.mockito.stubbing.Answer;
 
 public class ChangedPageTrackerCheckpointTest {
+
+  /** Observes real publisher barriers in caller tests without exposing a production test seam. */
+  public static MockedConstruction<?> observeFilesystem(Answer<Object> operations) {
+    return mockConstruction(ChangedPageTrackerFile.FileOperations.class,
+        withSettings().defaultAnswer(operations));
+  }
 
   private static final LogSequenceNumber COVERAGE = new LogSequenceNumber(2, 32);
 

@@ -1,11 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest.observeFilesystem;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -25,14 +27,17 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -42,12 +47,20 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -72,16 +85,19 @@ public class AbstractStorageWALCutTest {
   private WriteCache writeCache;
   private AtomicOperationsTable atomicOperationsTable;
   private LogSequenceNumber checkpointLsn;
+  private ChangedPageTracker tracker;
+  private Path sideFile;
 
   @Before
   public void setUp() throws Exception {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
     writeAheadLog = mock(WriteAheadLog.class);
-    // This fixture predicts no removal, but still requires the coordinator's bounded cut.
+    // A removing prediction makes every caller exercise real durable tracker publication.
     when(writeAheadLog.preflightCut(anyLong()))
-        .thenAnswer(call -> new WriteAheadLog.CutPreflight(false, call.getArgument(0), null));
-    final var tracker = new ChangedPageTracker();
-    final var sideFile = folder.getRoot().toPath().resolve("changed-pages.cpt");
+        .thenAnswer(call -> new WriteAheadLog.CutPreflight(true, call.getArgument(0),
+            new LogSequenceNumber(call.getArgument(0), 32)));
+    tracker = new ChangedPageTracker();
+    sideFile = folder.getRoot().toPath().resolve(ChangedPageTrackerFile.FILE_NAME);
     doAnswer(call -> tracker.checkpoint(sideFile, storage.writeAheadLog, call.getArgument(0)))
         .when(storage).checkpointChangedPages(anyLong());
     writeCache = mock(WriteCache.class);
@@ -148,7 +164,7 @@ public class AbstractStorageWALCutTest {
     verify(storage, never()).clearStorageDirty();
   }
 
-  /** With no owner, a full checkpoint cuts to its record and clears the dirty marker. */
+  /** With no owner, a full checkpoint cuts to its record's segment and clears recovery. */
   @Test
   public void noProtectionPerformsNormalCutAndClearsDirtyMarker() throws Exception {
     when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
@@ -156,9 +172,9 @@ public class AbstractStorageWALCutTest {
 
     storage.flushAllData();
 
-    verify(writeAheadLog).cutTill(checkpointLsn);
-    verify(writeAheadLog, never())
-        .cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(checkpointLsn.getSegment());
+    verify(writeAheadLog, never()).cutTill(any());
+    assertPublishedCoverage(checkpointLsn.getSegment());
     verify(storage).clearStorageDirty();
   }
 
@@ -202,7 +218,7 @@ public class AbstractStorageWALCutTest {
     when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
     var floorObserved = new AtomicBoolean();
     storage.setCheckpointFloorActionForTesting(ignored -> {
-      assertThat(cutCalls("cutTill")).isZero();
+      assertThat(cutCalls("cutAllSegmentsSmallerThan")).isZero();
       floorObserved.set(true);
     });
 
@@ -211,7 +227,7 @@ public class AbstractStorageWALCutTest {
     assertThat(floorObserved).isTrue();
     var floorCutThenClear = inOrder(storage, writeAheadLog);
     floorCutThenClear.verify(storage).saveCheckpointFloor(0L);
-    floorCutThenClear.verify(writeAheadLog).cutTill(checkpointLsn);
+    floorCutThenClear.verify(writeAheadLog).cutAllSegmentsSmallerThan(checkpointLsn.getSegment());
     floorCutThenClear.verify(storage).clearStorageDirty();
   }
 
@@ -301,6 +317,8 @@ public class AbstractStorageWALCutTest {
 
   private void assertMaintenanceCutOutsideCacheLocks(boolean vacuum) throws Exception {
     prepareFuzzyCheckpoint();
+    final var storageWalForForce = new AtomicReference<CASDiskWriteAheadLog>();
+    final var trackerForces = new AtomicInteger();
     final var stateField = AbstractStorage.class.getDeclaredField("stateLock");
     stateField.setAccessible(true);
     final var stateLock = (ScalableRWLock) stateField.get(storage);
@@ -356,11 +374,39 @@ public class AbstractStorageWALCutTest {
       return true;
     }).when(writeAheadLog).cutAllSegmentsSmallerThan(5L);
 
-    if (vacuum) {
-      storage.runWALVacuum();
-      assertThat(vacuumInProgress).isFalse();
-    } else {
-      storage.makeFuzzyCheckpoint();
+    // A real preflight acquires the actual WAL cutting lock. Neither publisher force may hold it.
+    try (var realWal = createWal(); var publisher = observeFilesystem(call -> {
+      final var method = call.getMethod().getName();
+      if (method.equals("forceFile") || method.equals("forceFolder")
+          || method.equals("windowsMove")) {
+        trackerForces.incrementAndGet();
+        assertThat(((ModifiableInteger) holds.get()).intValue()).isZero();
+        assertThat(checkpointActive).isFalse();
+        assertThat(stateLock.isReadLockedByCurrentThread()).isTrue();
+        final var lockField = CASDiskWriteAheadLog.class.getDeclaredField("cuttingLock");
+        lockField.setAccessible(true);
+        final var lock = (ScalableRWLock) lockField.get(storageWalForForce.get());
+        assertThat(lock.isWriteLocked()).isFalse();
+        assertThat(lock.isReadLockedByCurrentThread()).isFalse();
+      }
+      return call.callRealMethod();
+    })) {
+      storageWalForForce.set(realWal);
+      while (realWal.activeSegment() < 6) {
+        realWal.appendNewSegment();
+        realWal.log(new EmptyWALRecord());
+      }
+      realWal.flush();
+      when(writeAheadLog.preflightCut(5L)).thenAnswer(call -> realWal.preflightCut(5L));
+      if (vacuum) {
+        storage.runWALVacuum();
+        assertThat(vacuumInProgress).isFalse();
+      } else {
+        storage.makeFuzzyCheckpoint();
+      }
+      assertThat(publisher.constructed()).hasSize(1);
+      assertThat(trackerForces.get()).isEqualTo(2);
+      assertPublishedCoverage(5L);
     }
 
     final var order = inOrder(storage, cache, file, writeAheadLog, doubleWrite, filesLock);
@@ -394,7 +440,7 @@ public class AbstractStorageWALCutTest {
     order.verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
   }
 
-  /** A vacuum cut failure is logged after force and always releases vacuum admission. */
+  /** A vacuum cut failure is logged, reaches the caller, and releases vacuum admission. */
   @Test
   public void vacuumCutFailureLogsAndClearsAdmission() throws Exception {
     prepareFuzzyCheckpoint();
@@ -407,7 +453,8 @@ public class AbstractStorageWALCutTest {
         .when(writeAheadLog).cutAllSegmentsSmallerThan(20L);
 
     try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
-      storage.runWALVacuum();
+      assertThatThrownBy(storage::runWALVacuum).isInstanceOf(StorageException.class)
+          .hasCauseInstanceOf(IOException.class);
       assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
           && message.contains("Error during flushing of data for fuzzy checkpoint"));
     }
@@ -588,16 +635,20 @@ public class AbstractStorageWALCutTest {
   @Test
   public void shutdownFinalCacheForceFailureMarksDirtyAndReports() throws Exception {
     prepareShutdownTeardown();
-    // The last pre-close branch skips configuration teardown in this minimal mock fixture.
-    doAnswer(invocation -> true).when(storage).isInError();
+    // Run the real tracker checkpoint before injecting the final cache-close failure.
+    doAnswer(invocation -> false).when(storage).isInError();
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
     storage.status = Storage.STATUS.OPEN;
     storage.readCache = mock(com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class);
     doThrow(new IOException("injected final force failure"))
         .when(storage.readCache).closeStorage(writeCache);
     assertThatThrownBy(storage::doShutdown)
         .hasMessageContaining("Error during closing of disk cache");
-    verify(storage).makeStorageDirty();
+    verify(storage, times(2)).makeStorageDirty();
     verify(storage).postCloseSteps(false, true, 0L);
+    assertPublishedCoverage(20L);
+    verify(storage.atomicOperationsManager, times(2)).unfreezeWriteOperations(0L);
     assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
   }
 
@@ -1147,7 +1198,7 @@ public class AbstractStorageWALCutTest {
     order.verify(writeAheadLog).flush();
     order.verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
     order.verify(writeCache).getMinimalNotFlushedSegment();
-    order.verify(writeAheadLog).cutTill(checkpointLsn);
+    order.verify(writeAheadLog).cutAllSegmentsSmallerThan(checkpointLsn.getSegment());
     verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(21L);
     verify(storage).clearStorageDirty();
   }
@@ -1165,12 +1216,393 @@ public class AbstractStorageWALCutTest {
     storage.flushAllData();
     storage.flushAllData();
 
-    verify(memoryWal).cutAllSegmentsSmallerThan(0L);
-    verify(memoryWal).cutTill(new LogSequenceNumber(0, 2));
+    verify(memoryWal, times(2)).cutAllSegmentsSmallerThan(0L);
+    verify(memoryWal, never()).cutTill(any());
     verify(storage, times(1)).clearStorageDirty();
     assertThat(memoryWal.activeSegment()).isZero();
     assertThat(memoryWal.preflightCut(7).removesSegments()).isFalse();
     storage.runWALVacuum();
+  }
+
+  /** Every ordinary caller completes both durability barriers before its single bounded cut. */
+  @Test
+  public void allCallersPublishBeforeCutWithRemovingPreflight() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      final var events = new ArrayList<String>();
+      doAnswer(call -> {
+        events.add("floor");
+        return null;
+      }).when(storage).saveCheckpointFloor(anyLong());
+      doAnswer(call -> {
+        events.add("data");
+        return null;
+      }).when(writeCache).flush();
+      doAnswer(call -> {
+        events.add("data");
+        return null;
+      }).when(writeCache).syncDataFiles();
+      doAnswer(call -> {
+        assertPublishedCoverage(caller.boundary);
+        assertThat(events).containsSubsequence("data", "forceFile", "published");
+        assertThat(events.indexOf("floor")).isLessThan(events.indexOf("forceFile"));
+        events.add("cut");
+        return true;
+      }).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+      try (var publisher = observeFilesystem(call -> {
+        final var result = call.callRealMethod();
+        final var method = call.getMethod().getName();
+        if (method.equals("forceFile")) {
+          events.add(method);
+        } else if (method.equals("forceFolder") || method.equals("windowsMove")) {
+          events.add("published");
+        }
+        return result;
+      })) {
+        invokeCaller(caller);
+        assertThat(publisher.constructed()).hasSize(1);
+      }
+      verify(storage).checkpointChangedPages(caller.boundary);
+      verify(writeAheadLog, times(1)).cutAllSegmentsSmallerThan(anyLong());
+      verify(writeAheadLog, never()).cutTill(any());
+      assertThat(events).endsWith("cut");
+    }
+  }
+
+  /** Failed publication and failed durable invalidation forbid every cut, then callers retry. */
+  @Test
+  public void allCallersReportFailedInvalidationAndRetryWithoutCut() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      Files.createDirectory(sideFile);
+      final var blocker = sideFile.resolve("blocker");
+      Files.writeString(blocker, "retain authority");
+      try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+        assertThatThrownBy(() -> invokeCaller(caller))
+            .isInstanceOf(caller == CutCaller.FUZZY ? YTIOException.class : StorageException.class)
+            .hasCauseInstanceOf(IOException.class)
+            .rootCause().hasMessageContaining("side-file invalidation failed");
+        if (caller == CutCaller.VACUUM) {
+          assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+              && message.contains("Error during flushing"));
+          assertThat(vacuumAdmission()).isFalse();
+        }
+      }
+      verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+      verify(storage, never()).clearStorageDirty();
+      Files.delete(blocker);
+      Files.delete(sideFile);
+      invokeCaller(caller);
+      assertPublishedCoverage(caller.boundary);
+      verify(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+    }
+  }
+
+  /** A recoverable save failure logs and durably invalidates authority before the allowed cut. */
+  @Test
+  public void allCallersCutOnlyAfterDurableInvalidationOfFailedSave() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      final var invalidated = new AtomicBoolean();
+      final var failNextForce = new AtomicBoolean(true);
+      doAnswer(call -> {
+        assertThat(invalidated).isTrue();
+        assertThat(!Files.exists(sideFile) || Files.size(sideFile) == 0).isTrue();
+        return true;
+      }).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+      try (var publisher = observeFilesystem(call -> {
+        if (call.getMethod().getName().equals("forceFile") && failNextForce.getAndSet(false)) {
+          throw new IOException("injected tracker force failure");
+        }
+        final var result = call.callRealMethod();
+        if (call.getMethod().getName().equals("forceFolder")
+            || call.getMethod().getName().equals("windowsMove")
+            || call.getMethod().getName().equals("truncateAndForce")) {
+          invalidated.set(true);
+        }
+        return result;
+      }); var logs = LogRecordCollector.attachTo(ChangedPageTrackerFile.class)) {
+        invokeCaller(caller);
+        assertThat(publisher.constructed()).hasSize(1);
+        assertThat(logs.messages()).anyMatch(message -> message.contains("Failed to save"));
+      }
+      verify(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+    }
+  }
+
+  /** Unavailable prediction neither publishes nor cuts, and unprotected flush keeps recovery. */
+  @Test
+  public void allCallersLeaveRecoveryPendingWhenPreflightUnavailable() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      doThrow(new IllegalStateException("closed inventory"))
+          .when(writeAheadLog).preflightCut(caller.boundary);
+      try (var publisher = observeFilesystem(call -> call.callRealMethod())) {
+        invokeCaller(caller);
+        assertThat(publisher.constructed()).hasSize(1);
+      }
+      assertThat(Files.exists(sideFile)).isFalse();
+      verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+      verify(storage, never()).clearStorageDirty();
+    }
+  }
+
+  /** A blocked preflight skips both forces but still uses the bounded cut and normal clear rule. */
+  @Test
+  public void noRemovalPredictionSkipsSaveWithoutInventingCoverage() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      doReturn(new WriteAheadLog.CutPreflight(false, 1, null))
+          .when(writeAheadLog).preflightCut(caller.boundary);
+      try (var publisher = observeFilesystem(call -> {
+        assertThat(call.getMethod().getName()).isNotIn("forceFile", "forceFolder", "windowsMove");
+        return call.callRealMethod();
+      })) {
+        invokeCaller(caller);
+        assertThat(publisher.constructed()).hasSize(1);
+      }
+      verify(writeAheadLog).cutAllSegmentsSmallerThan(1L);
+      assertThat(Files.exists(sideFile)).isFalse();
+      if (caller == CutCaller.UNPROTECTED) {
+        verify(storage).clearStorageDirty();
+      } else {
+        verify(storage, never()).clearStorageDirty();
+      }
+    }
+  }
+
+  /** An Error at tracker force propagates unchanged after cleanup and never invokes cutting. */
+  @Test
+  public void allCallersPropagateTrackerErrorWithoutCut() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      final var failure = new AssertionError("injected tracker force error");
+      try (var publisher = observeFilesystem(call -> {
+        if (call.getMethod().getName().equals("forceFile")) {
+          throw failure;
+        }
+        return call.callRealMethod();
+      })) {
+        assertThatThrownBy(() -> invokeCaller(caller)).isSameAs(failure);
+        assertThat(publisher.constructed()).hasSize(1);
+      }
+      verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+      verify(storage, never()).clearStorageDirty();
+      if (caller == CutCaller.VACUUM) {
+        assertThat(vacuumAdmission()).isFalse();
+      }
+    }
+  }
+
+  /** Inventory loss in the cutter remains a reported failure after publication, not unavailability. */
+  @Test
+  public void allCallersReportCutterInventoryLossAndKeepPublicationForRetry() throws Exception {
+    for (var caller : CutCaller.values()) {
+      prepareCaller(caller);
+      final var failure = new NoSuchElementException("inventory lost while cutting");
+      doAnswer(call -> {
+        assertPublishedCoverage(caller.boundary);
+        throw failure;
+      }).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+      try (var logs = LogRecordCollector.attachTo(storage.getClass())) {
+        final var assertion = assertThatThrownBy(() -> invokeCaller(caller));
+        if (caller == CutCaller.VACUUM) {
+          assertion.isInstanceOf(StorageException.class).hasCause(failure);
+          assertThat(logs.messages()).anyMatch(message -> message.startsWith("SEVERE")
+              && message.contains("Error during flushing"));
+          assertThat(vacuumAdmission()).isFalse();
+        } else {
+          assertion.isSameAs(failure);
+        }
+      }
+      assertPublishedCoverage(caller.boundary);
+      verify(storage, never()).clearStorageDirty();
+      doReturn(true).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+      invokeCaller(caller);
+      verify(writeAheadLog, times(2)).cutAllSegmentsSmallerThan(caller.boundary);
+    }
+  }
+
+  /** Fuzzy cancellation before state admission reports interruption without publishing or cutting. */
+  @Test
+  public void fuzzyInterruptBeforeAdmissionSkipsTrackerAndCut() throws Exception {
+    prepareCaller(CutCaller.FUZZY);
+    Thread.currentThread().interrupt();
+    try {
+      assertThatThrownBy(storage::makeFuzzyCheckpoint)
+          .isInstanceOf(
+              com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException.class);
+      verify(storage, never()).checkpointChangedPages(anyLong());
+      verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+      assertThat(Files.exists(sideFile)).isFalse();
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  /** Both background callers preserve cancellation while the cutter sees a cleared flag. */
+  @Test(timeout = 30_000)
+  public void checkpointThreadPreservesInterruptAfterInvalidationAndRetries() throws Exception {
+    final var worker = Executors.newSingleThreadExecutor(r -> new Thread(r, "checkpoint-test"));
+    try {
+      for (var caller : List.of(CutCaller.FUZZY, CutCaller.VACUUM)) {
+        prepareCaller(caller);
+        doAnswer(call -> {
+          assertThat(Thread.currentThread().isInterrupted()).isFalse();
+          // Durable invalidation removes the file or publishes an empty file on Windows.
+          assertThat(!Files.exists(sideFile)
+              || (Files.isRegularFile(sideFile) && Files.size(sideFile) == 0)).isTrue();
+          return true;
+        }).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+        // Cancellation arrives after state admission but before the tracker channel force.
+        doAnswer(call -> {
+          Thread.currentThread().interrupt();
+          return null;
+        }).when(writeCache).syncDataFiles();
+        worker.submit(() -> {
+          try {
+            invokeCaller(caller);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+          } finally {
+            Thread.interrupted();
+          }
+        }).get(10, TimeUnit.SECONDS);
+        doReturn(true).when(writeAheadLog).cutAllSegmentsSmallerThan(caller.boundary);
+        doNothing().when(writeCache).syncDataFiles();
+        worker.submit(() -> invokeCaller(caller)).get(10, TimeUnit.SECONDS);
+        assertPublishedCoverage(caller.boundary);
+      }
+    } finally {
+      worker.shutdownNow();
+      assertThat(worker.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  /** A real shutdown checkpoint failure releases its first pause and restores OPEN for retry. */
+  @Test
+  public void shutdownTrackerFailureReleasesPauseAndCompletesRealRetry() throws Exception {
+    final var stateLock = prepareForcedClose();
+    final var paused = new AtomicBoolean();
+    doAnswer(call -> {
+      paused.set(true);
+      return 0L;
+    }).when(storage.atomicOperationsManager)
+        .freezeWriteOperations(any(), org.mockito.ArgumentMatchers.isNull());
+    doAnswer(call -> {
+      paused.set(false);
+      return null;
+    }).when(storage.atomicOperationsManager).unfreezeWriteOperations(0L);
+    Files.createDirectory(sideFile);
+    final var blocker = sideFile.resolve("blocker");
+    Files.writeString(blocker, "retain authority");
+    assertThatThrownBy(() -> storage.close(null, true)).isInstanceOf(StorageException.class)
+        .rootCause().hasMessageContaining("side-file invalidation failed");
+    assertThat(storage.status).isEqualTo(Storage.STATUS.OPEN);
+    verify(storage.atomicOperationsManager).unfreezeWriteOperations(0L);
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    verify(storage, never()).clearStorageDirty();
+    assertStateWriteLockReleased(stateLock);
+    assertThat(paused).isFalse();
+    Files.delete(blocker);
+    Files.delete(sideFile);
+    final var forces = new AtomicInteger();
+    try (var publisher = observeFilesystem(call -> {
+      final var method = call.getMethod().getName();
+      if (method.equals("forceFile") || method.equals("forceFolder")
+          || method.equals("windowsMove")) {
+        assertThat(paused).isTrue();
+        assertThat(stateLock.isWriteLockedByCurrentThread()).isTrue();
+        forces.incrementAndGet();
+      }
+      return call.callRealMethod();
+    })) {
+      storage.close(null, true);
+      assertThat(publisher.constructed()).hasSize(1);
+      assertThat(forces.get()).isEqualTo(2);
+    }
+    assertThat(paused).isFalse();
+    assertPublishedCoverage(20L);
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+    verify(storage.atomicOperationsManager, times(3)).unfreezeWriteOperations(0L);
+    assertStateWriteLockReleased(stateLock);
+  }
+
+  /** Final clean-close metadata is separate from an unavailable earlier tracker checkpoint. */
+  @Test
+  public void shutdownUnavailableCheckpointStillReachesSeparateFinalCloseClear() throws Exception {
+    prepareForcedClose();
+    doThrow(new IllegalStateException("closed inventory"))
+        .when(writeAheadLog).preflightCut(20L);
+    storage.close(null, true);
+    verify(storage, never()).clearStorageDirty();
+    verify(storage).makeStorageDirty();
+    verify(storage).postCloseSteps(false, false, 0L);
+    verify(storage.atomicOperationsManager, times(2)).unfreezeWriteOperations(0L);
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    assertThat(storage.status).isEqualTo(Storage.STATUS.CLOSED);
+  }
+
+  private void prepareCaller(CutCaller caller) throws Exception {
+    clearInvocations(storage, writeAheadLog, writeCache);
+    Files.deleteIfExists(sideFile);
+    tracker = new ChangedPageTracker();
+    prepareFuzzyCheckpoint();
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation())
+        .thenReturn(caller == CutCaller.PROTECTED ? 7L : -1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+  }
+
+  private AtomicBoolean vacuumAdmission() throws Exception {
+    final var field = AbstractStorage.class.getDeclaredField("walVacuumInProgress");
+    field.setAccessible(true);
+    return (AtomicBoolean) field.get(storage);
+  }
+
+  private void invokeCaller(CutCaller caller) {
+    switch (caller) {
+      case FUZZY -> storage.makeFuzzyCheckpoint();
+      case VACUUM -> {
+        try {
+          vacuumAdmission().set(true);
+        } catch (Exception e) {
+          throw new AssertionError(e);
+        }
+        storage.runWALVacuum();
+      }
+      case PROTECTED, UNPROTECTED -> storage.flushAllData();
+    }
+  }
+
+  private void assertPublishedCoverage(long segment) throws IOException {
+    assertThat(Files.isRegularFile(sideFile)).isTrue();
+    try (var in = new DataInputStream(Files.newInputStream(sideFile))) {
+      assertThat(in.readInt()).isEqualTo(0x59544350);
+      assertThat(in.readInt()).isEqualTo(1);
+      in.readUnsignedByte();
+      assertThat(new LogSequenceNumber(in).getSegment()).isEqualTo(segment);
+    }
+    assertThat(Files.exists(sideFile.resolveSibling(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)))
+        .isFalse();
+  }
+
+  private CASDiskWriteAheadLog createWal() throws IOException {
+    final var directory = folder.newFolder().toPath();
+    return new CASDiskWriteAheadLog("force", directory, directory,
+        ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null,
+        Integer.MAX_VALUE, Integer.MAX_VALUE, 20, true, Locale.US, -1,
+        1000, false, false, false, 10);
+  }
+
+  private enum CutCaller {
+    FUZZY(20), VACUUM(20), PROTECTED(7), UNPROTECTED(20);
+
+    private final long boundary;
+
+    CutCaller(long boundary) {
+      this.boundary = boundary;
+    }
   }
 
   private void prepareFuzzyCheckpoint() throws Exception {
