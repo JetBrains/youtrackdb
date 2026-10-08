@@ -120,6 +120,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
@@ -7615,8 +7616,8 @@ public abstract class AbstractStorage
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
         saveMaintenanceFloorBeforeWalRemoval();
         writeCache.syncDataFiles();
-        // The cache has ended its checkpoint bracket and released filesLock before this cut.
-        writeAheadLog.cutAllSegmentsSmallerThan(fuzzySegment);
+        // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+        checkpointChangedPages(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
@@ -7843,7 +7844,7 @@ public abstract class AbstractStorage
         if (protectedSegment > anchorSegment) {
           protectedSegment = anchorSegment;
         }
-        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
+        checkpointChangedPages(protectedSegment);
         // Unresolved recovery requirements keep the dirty marker for the next open.
         LogManager.instance()
             .warn(
@@ -7852,8 +7853,11 @@ public abstract class AbstractStorage
                 (Throwable) null, name, protectedSegment);
       } else {
         // This record precedes the cache flush, so its segment cannot exceed the anchor.
-        writeAheadLog.cutTill(lastLSN);
-        clearStorageDirty();
+        final var result = checkpointChangedPages(lastLSN.getSegment());
+        // An unavailable preflight leaves recovery pending for the next checkpoint or open.
+        if (result.outcome() != CheckpointOutcome.PREFLIGHT_UNAVAILABLE) {
+          clearStorageDirty();
+        }
       }
 
     } catch (final IOException ioe) {
@@ -10169,6 +10173,7 @@ public abstract class AbstractStorage
   }
 
   void runWALVacuum() {
+    var coordinatorStarted = false;
     stateLock.readLock().lock();
     try {
 
@@ -10235,12 +10240,19 @@ public abstract class AbstractStorage
       }
       saveMaintenanceFloorBeforeWalRemoval();
       writeCache.syncDataFiles();
-      // The cache has ended its checkpoint bracket and released filesLock before this cut.
-      writeAheadLog.cutAllSegmentsSmallerThan(minDirtySegment);
+      // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+      coordinatorStarted = true;
+      checkpointChangedPages(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
           .error(
               this, "Error during flushing of data for fuzzy checkpoint, in storage %s", e, name);
+      // Keep floor and data-force failures retryable. Coordinator failures also reach callers.
+      if (coordinatorStarted) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during changed-page checkpoint for storage " + name),
+            e, name);
+      }
     } finally {
       stateLock.readLock().unlock();
       walVacuumInProgress.set(false);
