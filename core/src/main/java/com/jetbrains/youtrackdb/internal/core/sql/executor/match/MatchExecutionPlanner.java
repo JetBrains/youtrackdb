@@ -2268,12 +2268,7 @@ public class MatchExecutionPlanner {
     return joinMode;
   }
 
-  /**
-   * Estimates the cardinality of a hash join branch. Starts from the branch root's
-   * estimated record count and multiplies by schema-based fan-out per edge
-   * (via {@link EdgeFanOutEstimator}), applying target-class selectivity for WHERE filters.
-   */
-  /** The descriptor-free estimate retains the signature used by SQL planner helper tests. */
+  /** Delegates without runtime descriptors for SQL planner helper tests. */
   private static long estimateBranchCardinality(
       String branchRoot,
       List<EdgeTraversal> branchEdges,
@@ -2285,6 +2280,12 @@ public class MatchExecutionPlanner {
         aliasPinnedRids, Map.of(), context);
   }
 
+  /**
+   * Estimates the cardinality of a hash join branch. Starts from the branch root's
+   * estimated record count and multiplies by schema-based fan-out per edge
+   * (via {@link EdgeFanOutEstimator}), applying target-class selectivity for WHERE filters.
+   * Runtime roots start with an estimate of one.
+   */
   private static long estimateBranchCardinality(
       String branchRoot,
       List<EdgeTraversal> branchEdges,
@@ -2339,23 +2340,7 @@ public class MatchExecutionPlanner {
     return rows;
   }
 
-  /**
-   * Estimates the upstream (probe-side) cardinality at the point where a hash join
-   * branch diverges from the main path. Walks the main-path edges from the scan root
-   * up to (but not including) the branch edges, multiplying by fan-out and selectivity.
-   *
-   * <p>Main-path edges are all edges in {@code scheduledEdges[0..checkIdx-1]} that are
-   * NOT in {@code branchEdges}. The upstream cardinality is:
-   * <pre>
-   *   rootCardinality × Π(fanOut_i × selectivity_i) for each main-path edge i
-   * </pre>
-   *
-   * @param scheduledEdges full edge schedule
-   * @param checkIdx       index of the consistency-check edge
-   * @param branchEdges    edges belonging to the hash join branch
-   * @return estimated upstream row count, or {@link Long#MAX_VALUE} if not estimable
-   */
-  /** The descriptor-free estimate retains the signature used by SQL planner helper tests. */
+  /** Delegates without runtime descriptors for SQL planner helper tests. */
   private static long estimateUpstreamCardinality(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
@@ -2368,6 +2353,23 @@ public class MatchExecutionPlanner {
         aliasClasses, aliasFilters, aliasPinnedRids, Map.of(), context);
   }
 
+  /**
+   * Estimates the upstream (probe-side) cardinality at the point where a hash join
+   * branch diverges from the main path. Walks the main-path edges from the scan root
+   * up to (but not including) the branch edges, multiplying by fan-out and selectivity.
+   * Runtime roots start with an estimate of one.
+   *
+   * <p>Main-path edges are all edges in {@code scheduledEdges[0..checkIdx-1]} that are
+   * NOT in {@code branchEdges}. The upstream cardinality is:
+   * <pre>
+   *   rootCardinality × Π(fanOut_i × selectivity_i) for each main-path edge i
+   * </pre>
+   *
+   * @param scheduledEdges full edge schedule
+   * @param checkIdx       index of the consistency-check edge
+   * @param branchEdges    edges belonging to the hash join branch
+   * @return estimated upstream row count, or {@link Long#MAX_VALUE} if not estimable
+   */
   private static long estimateUpstreamCardinality(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
@@ -2849,10 +2851,10 @@ public class MatchExecutionPlanner {
         ? precomputedSortedEdges
         : getTopologicalSortedSchedule(estimatedRootEntries, pattern,
             aliasClasses, aliasFilters, context.getDatabaseSession());
-    if (!runtimeRidStarts.isEmpty() && !sortedEdges.isEmpty()
-        && !runtimeRidStarts.containsKey(sourceAlias(sortedEdges.getFirst()))) {
-      throw new RuntimeRidStartPlanningException("MATCH cannot schedule runtime RID start first");
-    }
+    // The scheduler checks every edge source in the finished schedule.
+    assert runtimeRidStarts.isEmpty() || sortedEdges.isEmpty()
+        || runtimeRidStarts.containsKey(sourceAlias(sortedEdges.getFirst()))
+        : "The finished schedule must start at the runtime RID alias";
 
     var semiJoinEdges = new HashSet<PatternEdge>();
     var first = true;
