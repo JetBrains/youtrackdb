@@ -61,6 +61,68 @@ public interface WriteAheadLog extends AutoCloseable {
 
   List<WriteableWALRecord> next(LogSequenceNumber lsn, int limit) throws IOException;
 
+  /**
+   * Original segment IDs and exclusive canonical-file byte bounds, captured before this open writes.
+   * A failed capture retains the ID with a zero bound and makes proof reading fail terminally.
+   */
+  PreOpenExtent preOpenExtent();
+
+  record SegmentExtent(long segment, long bytes) {
+  }
+
+  record PreOpenExtent(List<SegmentExtent> segments) {
+    public PreOpenExtent {
+      segments = List.copyOf(segments);
+    }
+  }
+
+  /**
+   * Reads inclusively from a valid record start, including a preflight's RECORDS_OFFSET coverage.
+   * Only the immutable pre-open extent participates. The single-threaded reader holds no cut
+   * protection. Removal during the scan fails the proof. Each batch has at most maxRecords records,
+   * each with encoded content and compressed expanded content bounded by maxRecordBytes.
+   * Oversized content fails before allocation. Page-operation decoders outside the wal package may
+   * still allocate from nested lengths inside checksum-valid records. A resulting Error latches
+   * terminal failure before it propagates. Encryption admission errors also latch and propagate as
+   * in the legacy reader. Channels are released after each batch. A caller must consume batches
+   * until a terminal status. An empty batch is not proof of end.
+   */
+  ProofReader openProofReader(LogSequenceNumber coverage, int maxRecordBytes);
+
+  interface ProofReader {
+    ProofBatch next(int maxRecords);
+  }
+
+  /**
+   * Only REACHED_END certifies completion. IO_ERROR also rejects a pre-open inventory with
+   * multiple paths for one numeric segment ID, regardless of coverage or enumeration order.
+   * Its cause identifies the ambiguous segment. Proof paths and bounds use the canonical filenames
+   * used by recovery, regardless of enumerated spelling. Any canonical file missing at capture
+   * gives MISSING_SEGMENT. Other capture failures give IO_ERROR with their cause. Both reject the
+   * whole admitted inventory before emitting records, even below coverage. A file appearing later
+   * cannot repair a capture failure. Successfully captured files that vanish give SEGMENT_VANISHED.
+   * Constructor filename admission is independent of proof capture failures.
+   */
+  enum ProofStatus {
+    MORE, REACHED_END, BROKEN_PAGE, MISSING_SEGMENT, SEGMENT_VANISHED, COVERAGE_NOT_RETAINED, INVALID_RECORD, INCOMPLETE_RECORD, RECORD_TOO_LARGE, IO_ERROR, UNAVAILABLE
+  }
+
+  /**
+   * position identifies the terminal stop, or is null when proof reading is unavailable.
+   * Missing coverage, including an empty disk extent, echoes the requested coverage position.
+   * A zero-byte segment is a broken page at position (segment, 0).
+   * readablePageFollows is meaningful only for BROKEN_PAGE. False means every later physical page
+   * in the required extent was checked. Shutdown trust policy belongs to the caller, not this API.
+   * IO_ERROR carries its cause. Terminal readers repeat their status with no further records.
+   */
+  record ProofBatch(List<WriteableWALRecord> records, ProofStatus status,
+      @Nullable LogSequenceNumber position, boolean readablePageFollows,
+      @Nullable IOException error) {
+    public ProofBatch {
+      records = List.copyOf(records);
+    }
+  }
+
   LogSequenceNumber getFlushedLsn();
 
   /**
