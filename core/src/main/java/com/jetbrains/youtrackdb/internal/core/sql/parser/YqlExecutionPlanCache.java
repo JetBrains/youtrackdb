@@ -8,12 +8,18 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * LRU cache for already prepared YQL/SQL execution plans using Guava Cache. Stores itself in
  * SharedContext as a resource and acts as an entry point for the SQL executor.
+ *
+ * <p><b>Metadata generation.</b> Every entry carries the generation captured before its build's
+ * first metadata read. Invalidation advances the generation before clearing. Lookup accepts only
+ * the current generation, including when an older build inserts after clearing. Hits return private
+ * copies and take no cache-wide lock.
  *
  * <p><b>Null placement stamp.</b> A plan build can bake the position of null sort keys into a step,
  * so a plan prepared under one placement must never be served under another. Each stored plan
@@ -26,17 +32,20 @@ import javax.annotation.Nullable;
 public class YqlExecutionPlanCache
     extends AbstractMetadataUpdateCache<String, YqlExecutionPlanCache.StampedPlan> {
 
+  private final AtomicLong generation = new AtomicLong();
+
   private volatile long lastGlobalTimeout =
       GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
 
   /**
-   * A prepared plan together with the null placement pair its build resolved.
+   * A prepared plan together with its build-start generation and resolved null placement pair.
    *
    * <p>{@code placements} is {@code null} when the build resolved none, which marks the plan as one
    * no placement change can invalidate.
    */
   record StampedPlan(
       @Nonnull InternalExecutionPlan plan,
+      long generation,
       @Nullable ResolvedOrderByNullsPlacement placements) {
 
   }
@@ -50,6 +59,22 @@ public class YqlExecutionPlanCache
 
   public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
     return instance(db).getLastInvalidation();
+  }
+
+  /** Capture before any metadata or configuration read that shapes this entry's build. */
+  public static long getGeneration(@Nonnull DatabaseSessionEmbedded db) {
+    return instance(db).getGeneration();
+  }
+
+  public long getGeneration() {
+    return generation.get();
+  }
+
+  @Override
+  public void invalidate() {
+    // Advance first. Entries inserted by an overlapping old build must miss even before clearing.
+    generation.incrementAndGet();
+    super.invalidate();
   }
 
   /**
@@ -86,14 +111,16 @@ public class YqlExecutionPlanCache
   /**
    * Publishes a freshly built plan.
    *
-   * @param placements the null placement pair the enclosing scope resolved, or {@code null} when
-   *                   the scope resolved none. Read it inside the scope so lookup can validate any
-   *                   placement-sensitive work covered by that scope.
+   * @param buildGeneration the unchanged generation captured at this entry's own build start
+   * @param placements      the null placement pair the enclosing scope resolved, or {@code null}
+   *                        when the scope resolved none. Read it inside the scope so lookup can
+   *                        validate any placement-sensitive work covered by that scope.
    */
   public static void put(
       String statement,
       ExecutionPlan plan,
       DatabaseSessionEmbedded db,
+      long buildGeneration,
       @Nullable ResolvedOrderByNullsPlacement placements) {
     if (db == null) {
       throw new IllegalArgumentException("DB cannot be null");
@@ -103,13 +130,14 @@ public class YqlExecutionPlanCache
     }
 
     var resource = db.getSharedContext().getYqlExecutionPlanCache();
-    resource.putInternal(statement, plan, db, placements);
+    resource.putInternal(statement, plan, db, buildGeneration, placements);
   }
 
   public void putInternal(
       String statement,
       ExecutionPlan plan,
       DatabaseSessionEmbedded db,
+      long buildGeneration,
       @Nullable ResolvedOrderByNullsPlacement placements) {
     if (statement == null || !cacheEnabled()) {
       return;
@@ -128,7 +156,11 @@ public class YqlExecutionPlanCache
     internal = internal.copy(ctx);
     // this copy is never used, so it has to be closed to free resources
     internal.close();
-    putCached(statement, new StampedPlan(internal, placements));
+    var entry = new StampedPlan(internal, buildGeneration, placements);
+    // Compare inside the map operation. An old publisher must not overwrite a newer build.
+    // There is no post-insert cleanup: a late stale entry misses until a fresh build replaces it.
+    cache.asMap().compute(statement, (key, previous) ->
+        previous == null || previous.generation() <= buildGeneration ? entry : previous);
   }
 
   /**
@@ -166,14 +198,16 @@ public class YqlExecutionPlanCache
 
     // Guava Cache handles LRU eviction and concurrent access internally
     var result = getCached(statement);
-    if (result != null) {
+    if (result != null && result.generation() == generation.get()) {
       var stamp = result.placements();
       if (stamp != null && !stamp.equals(db.getPlanNullPlacements().resolve())) {
         // This plan was prepared under another null placement, so its baked-in order no longer
         // matches what the statement must return. Drop this one plan and report a miss so the
         // caller prepares it again. A plan with no stamp skips this branch and its configuration
         // read entirely.
-        invalidateCached(statement);
+        // Remove only the checked entry, not a replacement published during placement resolution.
+        cache.asMap().computeIfPresent(statement,
+            (key, current) -> current == result ? null : current);
         recordMiss();
         return null;
       }

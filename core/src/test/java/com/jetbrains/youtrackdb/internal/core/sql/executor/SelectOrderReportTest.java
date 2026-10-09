@@ -400,11 +400,12 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     var first = (SQLSelectStatement) SQLEngine.parse(sql, session);
     first.setOriginalStatement(sql);
     first.getOrderBy().getItems().getFirst().setGremlinToMatchTranslatorProduced(true);
+    var buildGeneration = YqlExecutionPlanCache.getGeneration(session);
     var firstReport = (SelectExecutionPlan) new SelectExecutionPlanner(first)
         .createExecutionPlanForOrderRequest(newContext(), false, false, true);
     Assert.assertTrue(firstReport.getOrderReport().fullOrderCovered());
     var firstKey = sql + "\0orderRequest\0gremlinOrder10";
-    YqlExecutionPlanCache.put(firstKey, firstReport, session, null);
+    YqlExecutionPlanCache.put(firstKey, firstReport, session, buildGeneration, null);
     Assert.assertTrue(YqlExecutionPlanCache.instance(session).contains(firstKey));
 
     var second = (SQLSelectStatement) SQLEngine.parse(sql, session);

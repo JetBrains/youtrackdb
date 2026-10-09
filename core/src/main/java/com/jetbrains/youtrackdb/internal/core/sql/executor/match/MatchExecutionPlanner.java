@@ -623,6 +623,8 @@ public class MatchExecutionPlanner {
       CommandContext context, boolean enableProfiling, boolean useCache) {
 
     var session = context.getDatabaseSession();
+    // Capture before eligibility, alias inference, and any other metadata-derived inputs.
+    var buildGeneration = session == null ? 0 : YqlExecutionPlanCache.getGeneration(session);
 
     // --- Check the plan cache before doing any work ---
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
@@ -631,10 +633,6 @@ public class MatchExecutionPlanner {
         return (InternalExecutionPlan) plan;
       }
     }
-
-    // Record the timestamp so we can avoid caching a stale plan if the schema
-    // was modified concurrently during planning.
-    var planningStart = System.nanoTime();
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
@@ -655,12 +653,12 @@ public class MatchExecutionPlanner {
           && !enableProfiling
           && statement != null
           && statement.executinPlanCanBeCached(session)
-          && result.canBeCached()
-          && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+          && result.canBeCached()) {
         YqlExecutionPlanCache.put(
             statement.getOriginalStatement(),
             result,
             session,
+            buildGeneration,
             session.getPlanNullPlacements().recorded());
       }
       return result;
@@ -924,13 +922,13 @@ public class MatchExecutionPlanner {
     if (useCache
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
-        && result.canBeCached()
-        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+        && result.canBeCached()) {
       // Stamp the plan with the placement this build read, still inside the scope.
       YqlExecutionPlanCache.put(
           statement.getOriginalStatement(),
           result,
           session,
+          buildGeneration,
           session.getPlanNullPlacements().recorded());
     }
 

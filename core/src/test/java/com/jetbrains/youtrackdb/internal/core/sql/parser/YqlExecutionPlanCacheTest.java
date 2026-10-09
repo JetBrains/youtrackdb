@@ -1,10 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.sql.PlanNullPlacements;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
@@ -12,6 +17,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Assert;
 import org.junit.Test;
@@ -90,8 +97,8 @@ public class YqlExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
       storageConfig.setValue(placementKey, OrderByNullsPlacement.FIRST);
       var stamp = OrderByNullsUtil.resolvePlacements(session.getConfiguration());
       var cache = new YqlExecutionPlanCache(16);
-      cache.putInternal(orderedSql, orderedPlan, session, stamp);
-      cache.putInternal(unorderedSql, unorderedPlan, session, null);
+      cache.putInternal(orderedSql, orderedPlan, session, cache.getGeneration(), stamp);
+      cache.putInternal(unorderedSql, unorderedPlan, session, cache.getGeneration(), null);
       var invalidationBefore = cache.getLastInvalidation();
 
       storageConfig.setValue(placementKey, OrderByNullsPlacement.LAST);
@@ -140,14 +147,14 @@ public class YqlExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
                   : OrderByNullsPlacement.FIRST,
               current.descending());
 
-      cache.putInternal(sql, plan, session, other);
+      cache.putInternal(sql, plan, session, cache.getGeneration(), other);
       Assert.assertTrue("the stamped plan must be stored", cache.contains(sql));
       Assert.assertNull(
           "a plan stamped with another placement must not be served",
           cache.getInternal(sql, ctx, session));
       Assert.assertFalse("the rejected plan must be dropped", cache.contains(sql));
 
-      cache.putInternal(sql, plan, session, null);
+      cache.putInternal(sql, plan, session, cache.getGeneration(), null);
       var served = cache.getInternal(sql, ctx, session);
       Assert.assertNotNull("a plan with no stamp must be served", served);
       ((InternalExecutionPlan) served).close();
@@ -284,6 +291,122 @@ public class YqlExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
   public void onStorageConfigurationUpdate_invalidatesCache() {
     var cache = new YqlExecutionPlanCache(10);
     cache.onStorageConfigurationUpdate("test", null);
+  }
+
+  /**
+   * Invalidation pauses after its generation advance. Another session must miss before clearing,
+   * after clearing, and after late insertion. Only a new build can replace the retained stale entry.
+   */
+  @Test
+  public void generationAdvanceRejectsLateBuildBeforeAndAfterClear() throws Exception {
+    var advanced = new CountDownLatch(1);
+    var finishClear = new CountDownLatch(1);
+    var cache = new YqlExecutionPlanCache(16) {
+      @Override
+      protected void clearEntries() {
+        advanced.countDown();
+        await(finishClear);
+        super.clearEntries();
+      }
+    };
+    var sql = "SELECT FROM OUser";
+    var generation = cache.getGeneration();
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    var plan = SQLEngine.parse(sql, session).createExecutionPlanNoCache(ctx, false);
+    var executor = Executors.newSingleThreadExecutor();
+    try (var other = openDatabase()) {
+      var otherCtx = new BasicCommandContext();
+      otherCtx.setDatabaseSession(other);
+      cache.putInternal(sql, plan, session, generation, null);
+      var invalidation = executor.submit(cache::invalidate);
+      await(advanced);
+      Assert.assertEquals(generation + 1, cache.getGeneration());
+      Assert.assertNull(cache.getInternal(sql, otherCtx, other));
+      cache.putInternal(sql, plan, session, generation, null);
+      Assert.assertNull(cache.getInternal(sql, otherCtx, other));
+      finishClear.countDown();
+      invalidation.get(30, TimeUnit.SECONDS);
+      Assert.assertNull(cache.getInternal(sql, otherCtx, other));
+      cache.putInternal(sql, plan, session, generation, null);
+      Assert.assertTrue("stale insertion is retained without cleanup", cache.contains(sql));
+      Assert.assertNull(cache.getInternal(sql, otherCtx, other));
+      cache.putInternal(sql, plan, session, cache.getGeneration(), null);
+      var copy = (InternalExecutionPlan) cache.getInternal(sql, otherCtx, other);
+      Assert.assertNotNull(copy);
+      Assert.assertNotSame(plan, copy);
+      copy.close();
+    } finally {
+      finishClear.countDown();
+      executor.shutdownNow();
+      session.activateOnCurrentThread();
+      plan.close();
+    }
+  }
+
+  /** A finishing older build cannot replace the same key's newer generation, even without a hit. */
+  @Test
+  public void olderPublisherPreservesNewerEntry() {
+    var cache = new YqlExecutionPlanCache(16);
+    var sql = "SELECT FROM OUser";
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    var plan = SQLEngine.parse(sql, session).createExecutionPlanNoCache(ctx, false);
+    var oldGeneration = cache.getGeneration();
+    cache.invalidate();
+    try {
+      cache.putInternal(sql, plan, session, cache.getGeneration(), null);
+      cache.putInternal(sql, plan, session, oldGeneration, null);
+      var copy = (InternalExecutionPlan) cache.getInternal(sql, ctx, session);
+      Assert.assertNotNull("older publication must leave the newer entry usable", copy);
+      copy.close();
+      Assert.assertEquals(1, cache.getHits());
+    } finally {
+      plan.close();
+    }
+  }
+
+  /** Placement resolution replaces the checked entry. Conditional removal must keep that entry. */
+  @Test
+  public void nullPlacementRejectionDoesNotRemoveConcurrentReplacement() {
+    var cache = new YqlExecutionPlanCache(16);
+    var sql = "SELECT FROM OUser";
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    var plan = SQLEngine.parse(sql, session).createExecutionPlanNoCache(ctx, false);
+    var current = OrderByNullsUtil.resolvePlacements(session.getConfiguration());
+    var different = new ResolvedOrderByNullsPlacement(
+        current.ascending() == OrderByNullsPlacement.FIRST
+            ? OrderByNullsPlacement.LAST : OrderByNullsPlacement.FIRST,
+        current.descending());
+    var lookupSession = mock(DatabaseSessionEmbedded.class);
+    when(lookupSession.getConfiguration()).thenReturn(session.getConfiguration());
+    when(lookupSession.getPlanNullPlacements()).thenReturn(new PlanNullPlacements(() -> {
+      cache.invalidate();
+      cache.putInternal(sql, plan, session, cache.getGeneration(), null);
+      return session.getConfiguration();
+    }));
+    try {
+      cache.putInternal(sql, plan, session, cache.getGeneration(), different);
+      Assert.assertNull(cache.getInternal(sql, ctx, lookupSession));
+      Assert.assertTrue("the replacement must survive rejection of the checked entry",
+          cache.contains(sql));
+      var copy = (InternalExecutionPlan) cache.getInternal(sql, ctx, session);
+      Assert.assertNotNull(copy);
+      copy.close();
+    } finally {
+      plan.close();
+    }
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      Assert.assertTrue("deterministic race did not reach its checkpoint",
+          latch.await(30, TimeUnit.SECONDS));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
   }
 
   @Test
