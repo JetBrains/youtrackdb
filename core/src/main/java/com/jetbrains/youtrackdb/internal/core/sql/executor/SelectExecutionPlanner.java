@@ -280,6 +280,8 @@ public class SelectExecutionPlanner {
   private InternalExecutionPlan buildExecutionPlan(
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var session = ctx.getDatabaseSession();
+    // Each nested planner captures its own stamp before eligibility and metadata-derived work.
+    var buildGeneration = session == null ? 0 : YqlExecutionPlanCache.getGeneration(session);
 
     // --- 1. Check the plan cache before doing any work ---
     // Include skipExpandPushDown in the cache key so that plans compiled with
@@ -319,10 +321,6 @@ public class SelectExecutionPlanner {
         return (InternalExecutionPlan) plan;
       }
     }
-
-    // Record the timestamp so we can avoid caching a stale plan if the schema
-    // was modified concurrently during planning.
-    var planningStart = System.nanoTime();
 
     // --- 2. Copy AST into mutable QueryPlanningInfo ---
     init(ctx);
@@ -380,12 +378,11 @@ public class SelectExecutionPlanner {
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
         && cacheKey != null
-        && result.canBeCached()
-        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+        && result.canBeCached()) {
       // Stamp the plan with the placement this build read, still inside the scope. A build that read
       // none stamps nothing, so a lookup of that plan does no placement work.
       YqlExecutionPlanCache.put(
-          cacheKey, result, session, session.getPlanNullPlacements().recorded());
+          cacheKey, result, session, buildGeneration, session.getPlanNullPlacements().recorded());
     }
     return result;
   }
