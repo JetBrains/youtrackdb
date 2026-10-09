@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
@@ -379,7 +380,9 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
             iText -> {
             });
 
-    // Index rebuilding is enabled by default.
+    // Null and empty option strings leave the enabled-by-default index rebuilding unchanged.
+    importer.setOptions(null);
+    importer.setOptions("");
     assertTrue(importer.isRebuildIndexes());
 
     importer.setOptions(" -rebuildIndexes=false");
@@ -410,31 +413,43 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
   }
 
   /**
-   * Both option entry points reject migrateLinks for any value, including both booleans,
-   * mixed-case names, and missing values. The error names the option and explains that link
-   * migration always runs, rather than silently ignoring an unsupported setting.
+   * Both option entry points reject migrateLinks with the same message for boolean, arbitrary,
+   * empty, and quoted closing-bracket values, including mixed-case names and missing values.
+   * Rejection also applies when a supported option precedes migrateLinks in the same string.
    */
   @Test
   public void importRejectsMigrateLinksThroughBothOptionEntryPoints() throws IOException {
     var importer = new DatabaseImport(session, new ByteArrayInputStream(new byte[0]), text -> {
     });
     try {
+      var expectedMessage = "The import option -migrateLinks is no longer supported."
+          + " The importer always migrates links.";
       for (var option : List.of("migrateLinks", "MiGrAtElInKs")) {
         for (var value : List.of("false", "true", "invalid", "")) {
           var fromOptions = assertThrows(DatabaseImportException.class,
               () -> importer.setOptions(" -" + option + "=" + value));
           var fromOption = assertThrows(DatabaseImportException.class,
               () -> importer.setOption(option, value));
-          for (var rejection : List.of(fromOptions, fromOption)) {
-            assertTrue(rejection.getMessage().contains("-migrateLinks"));
-            assertTrue(rejection.getMessage().contains("The importer always migrates links."));
-          }
+          assertEquals(expectedMessage, fromOptions.getMessage());
+          assertEquals(expectedMessage, fromOption.getMessage());
+        }
+        // Quotes protect these characters in the outer split, but generic value parsing
+        // would reject them after removing the quotes. The removed option rejects first.
+        for (var value : List.of("]", ")", "}")) {
+          var fromOptions = assertThrows(DatabaseImportException.class,
+              () -> importer.setOptions(" -" + option + "=\"" + value + "\""));
+          var fromOption = assertThrows(DatabaseImportException.class,
+              () -> importer.setOption(option, value));
+          assertEquals(expectedMessage, fromOptions.getMessage());
+          assertEquals(expectedMessage, fromOption.getMessage());
         }
       }
       var withoutValue = assertThrows(DatabaseImportException.class,
           () -> importer.setOptions(" -migrateLinks"));
-      assertTrue(withoutValue.getMessage().contains("-migrateLinks"));
-      assertTrue(withoutValue.getMessage().contains("The importer always migrates links."));
+      assertEquals(expectedMessage, withoutValue.getMessage());
+      var afterSupportedOption = assertThrows(DatabaseImportException.class,
+          () -> importer.setOptions(" -deleteRIDMapping=false -migrateLinks=false"));
+      assertEquals(expectedMessage, afterSupportedOption.getMessage());
     } finally {
       importer.close();
     }

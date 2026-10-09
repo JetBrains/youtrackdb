@@ -271,6 +271,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   @Override
   public DatabaseImport setOptions(final String options) {
+    if (options != null) {
+      // Match DatabaseTool's option-name parsing before it reparses unquoted values.
+      // A quoted closing bracket is a valid token but fails that second parsing pass.
+      for (var token : StringSerializerHelper.smartSplit(options, ' ')) {
+        var separator = token.indexOf('=');
+        rejectMigrateLinksOption(separator == -1 ? token : token.substring(0, separator));
+      }
+    }
     super.setOptions(options);
     return this;
   }
@@ -280,13 +288,17 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     importDatabase();
   }
 
-  @Override
-  protected void parseSetting(final String option, final List<String> items) {
+  private static void rejectMigrateLinksOption(final String option) {
     if (option.equalsIgnoreCase("-migrateLinks")) {
       throw new DatabaseImportException(
           "The import option -migrateLinks is no longer supported."
               + " The importer always migrates links.");
     }
+  }
+
+  @Override
+  protected void parseSetting(final String option, final List<String> items) {
+    rejectMigrateLinksOption(option);
     if (option.equalsIgnoreCase("-deleteRIDMapping")) {
       deleteRIDMapping = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-rebuildIndexes")) {
