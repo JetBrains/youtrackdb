@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.PathProcessor;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FlatMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
@@ -15,6 +16,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ScalarMapStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SackStrategy;
 
 /** Resolved from the final traversal, shared by translation and its shape key. */
@@ -23,7 +25,26 @@ record TraverserMergeFacts(boolean sackPresent, boolean sackGated, boolean sackS
     List<String> labelsAtOrder, List<String> labelsAtAnyBarrier,
     Map<Step<?, ?>, List<String>> labelsAtBarriers) {
 
+  /** An instance-local observer used by tests across extraction and the real walker. */
+  static final class AnalysisObserver
+      extends AbstractTraversalStrategy<TraversalStrategy.DecorationStrategy>
+      implements TraversalStrategy.DecorationStrategy {
+
+    private final Runnable onAnalysis;
+
+    AnalysisObserver(Runnable onAnalysis) {
+      this.onAnalysis = onAnalysis;
+    }
+
+    @Override
+    public void apply(Traversal.Admin<?, ?> traversal) {
+      // Observation belongs to fact computation, not strategy application.
+    }
+  }
+
   static TraverserMergeFacts from(Traversal.Admin<?, ?> traversal) {
+    traversal.getStrategies().getStrategy(AnalysisObserver.class)
+        .ifPresent(observer -> observer.onAnalysis.run());
     // Shape extraction can precede decoration. Installing the supplier does not invoke it.
     traversal.getStrategies().getStrategy(SackStrategy.class)
         .ifPresent(strategy -> strategy.apply(traversal));

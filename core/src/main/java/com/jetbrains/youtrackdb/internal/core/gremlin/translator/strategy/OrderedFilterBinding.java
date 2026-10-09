@@ -19,6 +19,9 @@ final class OrderedFilterBinding {
 
   /** A cached shaping carries structural keys and labels, but no property literal or native wrapper. */
   static ResultShaping unbound(ResultShaping shaping) {
+    if (!hasOrderedExpand(shaping)) {
+      return shaping;
+    }
     var ops = new ArrayList<ListShapingOp>();
     for (var op : shaping.listShapingOps()) {
       if (!(op instanceof OrderedExpandSliceListShapingOp expand)) {
@@ -47,6 +50,9 @@ final class OrderedFilterBinding {
 
   /** A fresh build gets new safe predicates and keeps unsafe predicates on its original path. */
   static ResultShaping fresh(ResultShaping shaping) {
+    if (!hasOrderedExpand(shaping)) {
+      return shaping;
+    }
     var operands = new ArrayList<NativeHasOperands>();
     for (var op : shaping.listShapingOps()) {
       if (op instanceof OrderedExpandSliceListShapingOp expand) {
@@ -63,21 +69,33 @@ final class OrderedFilterBinding {
   /** Return null on a stage/operand disagreement, so the caller walks instead of splicing. */
   @Nullable static ResultShaping fromExtraction(
       ResultShaping shaping, GremlinShapeExtractor.Extraction extraction) {
-    if (extraction.hasContributions().size() != extraction.nativeOperands().size()) {
-      return null;
-    }
-    var operands = new ArrayList<NativeHasOperands>();
-    for (int i = 0; i < extraction.hasContributions().size(); i++) {
-      if (extraction.hasContributions().get(i).context().destination()
-          == HasBindingContext.Destination.ORDERED_FILTER) {
-        operands.add(extraction.nativeOperands().get(i));
+    int orderedFilters = 0;
+    for (var contribution : extraction.hasContributions()) {
+      if (contribution.context().destination() == HasBindingContext.Destination.ORDERED_FILTER) {
+        orderedFilters++;
       }
     }
-    return bind(shaping, operands);
+    if (orderedFilters != extraction.nativeOperands().size()
+        || (extraction.orderedExpandAbsent() && hasOrderedExpand(shaping))) {
+      return null;
+    }
+    return bind(shaping, extraction.nativeOperands());
+  }
+
+  static boolean hasOrderedExpand(ResultShaping shaping) {
+    for (var op : shaping.listShapingOps()) {
+      if (op instanceof OrderedExpandSliceListShapingOp) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Nullable private static ResultShaping bind(ResultShaping shaping,
       List<NativeHasOperands> operands) {
+    if (!hasOrderedExpand(shaping)) {
+      return operands.isEmpty() ? shaping : null;
+    }
     var ops = new ArrayList<ListShapingOp>();
     int index = 0;
     for (var op : shaping.listShapingOps()) {

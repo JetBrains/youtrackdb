@@ -51,8 +51,8 @@ final class GremlinShapeEncoder {
     return hasBindingContext;
   }
 
-  List<HasBindingContext.Slot> hasSlots() {
-    return List.copyOf(hasSlots);
+  int hasSlotCount() {
+    return hasSlots.size();
   }
 
   void recordHasSlot(HasBindingContext.Slot slot) {

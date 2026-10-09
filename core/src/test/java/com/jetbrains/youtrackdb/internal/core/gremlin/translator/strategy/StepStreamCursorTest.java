@@ -214,6 +214,28 @@ public class StepStreamCursorTest extends GraphBaseTest {
     assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(second);
   }
 
+  /** Disabling ordered windows preserves independent label drains and consumed fold boundaries. */
+  @Test
+  public void optionalBarrierTracking_preservesLabelsAndPositionsInBothModes() {
+    var admin = graph.traversal().V().asAdmin();
+    var barrier = new NoOpBarrierStep<>(admin, 3);
+    barrier.addLabel("source");
+    var has = new HasStep<>(admin, new HasContainer("k", P.eq(1)));
+    for (boolean track : List.of(false, true)) {
+      var cursor = new StepStreamCursor(List.of(barrier, has, barrier), TRANSPARENT, track);
+      assertThat(cursor.tracksBarriers()).isEqualTo(track);
+      assertThat(cursor.peek()).isSameAs(has);
+      assertThat(cursor.position()).isEqualTo(1);
+      assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(barrier);
+      assertThat(cursor.drainSkippedTransparent()).hasSize(track ? 1 : 0);
+      assertThat(cursor.take()).isSameAs(has);
+      assertThat(cursor.peek()).isNull();
+      assertThat(cursor.position()).isEqualTo(3);
+      assertThat(cursor.drainSkippedTransparent()).hasSize(track ? 1 : 0);
+      assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(barrier);
+    }
+  }
+
   /** {@code take} past the end is a recogniser bug, so it throws rather than returning null. */
   @Test
   public void takePastEnd_throws() {

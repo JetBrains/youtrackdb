@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
@@ -31,9 +32,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Text;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ConstantTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -250,6 +254,367 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         }
       }
     }
+  }
+
+  /** Ordinary layouts contain no native snapshots, and order-only routes need no merge analysis. */
+  @Test
+  public void absenceControls_skipOrderedExtractionAndPreserveOrdinaryShaping() {
+    seedColourHop();
+    List<Supplier<GraphTraversal<?, ?>>> controls = List.of(
+        () -> graph.traversal().V().hasLabel("ColourSource").has("group", "red").values("group"),
+        () -> graph.traversal().V().hasLabel("ColourSource").out("colourEdge")
+            .order().by("name").limit(2).values("name"),
+        () -> graph.traversal().V().hasLabel("ColourSource").order().by("rank")
+            .limit(2).values("group"),
+        () -> graph.traversal().V().hasLabel("ColourSource")
+            .coalesce(__.values("group"), __.values("rank")));
+    for (var shape : controls) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var analyses = new AtomicInteger();
+      var observer = new TraverserMergeFacts.AnalysisObserver(analyses::incrementAndGet);
+      var admin = observed(shape, observer);
+      var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+      assertThat(analyses.get()).as("real extraction performs no merge analysis").isZero();
+      assertThat(extraction.key()).doesNotContain("sk:6:absent", "lp:6:absent");
+      assertThat(extraction.orderedExpandAbsent()).isTrue();
+      assertThat(extraction.nativeOperands()).isEmpty();
+      assertThat(StepStreamCursor.requiresOrderedBarriers(admin.getSteps())).isFalse();
+      var walk = GremlinStepWalker.production().walk(admin);
+      assertThat(analyses.get()).as("real cold walker performs no merge analysis").isZero();
+      if (walk != null) {
+        assertThat(OrderedFilterBinding.fresh(walk.shaping())).isSameAs(walk.shaping());
+        assertThat(OrderedFilterBinding.unbound(walk.shaping())).isSameAs(walk.shaping());
+        assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), extraction))
+            .isSameAs(walk.shaping());
+      }
+      var walks = new AtomicInteger();
+      var strategy = countingStrategy(walks);
+      for (int call = 0; call < 2; call++) {
+        var compiled = observed(shape, observer);
+        strategy.apply(compiled);
+        assertThat(analyses.get()).as("cold and warm strategy paths skip merge analysis").isZero();
+        assertThat(walks.get()).as("the warm call skips the real walker").isEqualTo(1);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(compiled))
+            .isEqualTo(walk == null ? 0 : 1);
+        support.withTranslator(false, () -> assertThat(compiled.toList().stream()
+            .map(String::valueOf).toList()).containsExactlyElementsOf(runNativeHop(shape)));
+      }
+    }
+    // The same seam must observe real ordered demand on extraction, cold walk, and warm lookup.
+    var analyses = new AtomicInteger();
+    var observer = new TraverserMergeFacts.AnalysisObserver(analyses::incrementAndGet);
+    Supplier<GraphTraversal<?, ?>> ordered = () -> colourHop("red", false);
+    GremlinPlanCache.instance(graphSession()).invalidate();
+    GremlinStepWalker.extractShape(observed(ordered, observer), graphSession());
+    assertThat(analyses.getAndSet(0)).as("ordered extraction analyzes once").isEqualTo(1);
+    assertThat(GremlinStepWalker.production().walk(observed(ordered, observer))).isNotNull();
+    assertThat(analyses.getAndSet(0)).as("ordered walker analyzes once").isEqualTo(1);
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (int call = 0; call < 2; call++) {
+      var compiled = observed(ordered, observer);
+      strategy.apply(compiled);
+      assertThat(analyses.getAndSet(0)).as("cold extraction and walk, then warm extraction")
+          .isEqualTo(call == 0 ? 2 : 1);
+      assertThat(walks.get()).isEqualTo(1);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(compiled)).isEqualTo(1);
+      assertThat(compiled.toList().stream().map(String::valueOf).toList())
+          .containsExactly("A1", "A2");
+    }
+    var nested = graph.traversal().V().where(
+        __.order().by("rank").barrier(3).out("colourEdge").limit(2)).asAdmin();
+    assertThat(GremlinStepWalker.extractShape(nested, graphSession()).orderedExpandAbsent())
+        .isFalse();
+    assertThatThrownBy(() -> GremlinToMatchStrategy.assertAgreement("test disagreement"))
+        .isInstanceOf(AssertionError.class).hasMessage("test disagreement");
+  }
+
+  private static Traversal.Admin<?, ?> observed(Supplier<GraphTraversal<?, ?>> shape,
+      TraverserMergeFacts.AnalysisObserver observer) {
+    var admin = shape.get().asAdmin();
+    var strategies = admin.getStrategies().clone();
+    strategies.addStrategies(observer);
+    admin.setStrategies(strategies);
+    return admin;
+  }
+
+  /** Identity ranges on either side of a hop keep MATCH filters unless an effective slice follows. */
+  @Test
+  public void identityRanges_matchNativeRowsAndSpliceBeforeAndAfterHop() {
+    seedColourHop();
+    for (String spelling : List.of("skip", "range", "maximum")) {
+      for (boolean beforeHop : List.of(false, true)) {
+        for (boolean effectiveSlice : List.of(false, true)) {
+          GremlinPlanCache.instance(graphSession()).invalidate();
+          var walks = new AtomicInteger();
+          var strategy = countingStrategy(walks);
+          for (String colour : List.of("red", "blue", "red", "blue")) {
+            Supplier<GraphTraversal<?, ?>> shape = () -> {
+              var ordered = graph.traversal().V().hasLabel("ColourSource").has("group", colour)
+                  .order().by("rank");
+              var hop = (beforeHop ? identityRange(ordered, spelling) : ordered)
+                  .out("colourEdge").hasLabel("ColourTarget").barrier(3);
+              var filtered = (beforeHop ? hop : identityRange(hop, spelling))
+                  .has("colour", colour);
+              return (effectiveSlice ? filtered.limit(2) : filtered).values("name");
+            };
+            var admin = shape.get().asAdmin();
+            var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+            var walk = GremlinStepWalker.production().walk(admin);
+            assertThat(walk).isNotNull();
+            assertThat(extraction.hasContributions()).isEqualTo(walk.hasContributions());
+            assertThat(extraction.hasContributions().get(1).slots())
+                .as("the separated target label contributes no parameter slots").isEmpty();
+            assertThat(extraction.nativeOperands()).hasSize(effectiveSlice ? 2 : 0);
+            assertThat(runCountedHop(shape, strategy))
+                .containsExactlyElementsOf(runNativeHop(shape));
+          }
+          assertThat(walks.get()).as("identity ranges allow three real warm splices").isEqualTo(1);
+        }
+      }
+    }
+  }
+
+  private static <S, E> GraphTraversal<S, E> identityRange(GraphTraversal<S, E> traversal,
+      String spelling) {
+    return switch (spelling) {
+      case "skip" -> traversal.skip(0);
+      case "range" -> traversal.range(0, -1);
+      case "maximum" -> traversal.range(0, Long.MAX_VALUE);
+      default -> throw new IllegalArgumentException(spelling);
+    };
+  }
+
+  /** A later barrier label does not prevent an unsliced ordered hop from translating to one boundary. */
+  @Test
+  public void unslicedOrderedHopWithLaterBarrierLabel_matchesNativeAndUsesOneBoundary() {
+    seedColourHop();
+    Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V().hasLabel("ColourSource")
+        .order().by("rank").barrier(3).out("colourEdge").as("z").barrier(3).values("name");
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (int call = 0; call < 2; call++) {
+      assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(runNativeHop(shape));
+    }
+    assertThat(walks.get()).as("one cold walk and one warm splice").isEqualTo(1);
+    support.assertEquivalent("unsliced ordered hop with a later barrier label",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        rows -> rows.stream().map(String::valueOf).toList(), shape);
+  }
+
+  /** Mixed MATCH, label-only native, and property native filters align on real alternating splices. */
+  @Test
+  public void orderedOperandPositions_includeZeroSlotsButExcludeMatchFilters() {
+    seedColourHop();
+    for (boolean sourceSlice : List.of(false, true)) {
+      var walks = new AtomicInteger();
+      var strategy = countingStrategy(walks);
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      for (String colour : List.of("red", "blue", "red", "blue")) {
+        Supplier<
+            org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+                () -> {
+                  var ordered = graph.traversal().V().hasLabel("ColourSource").has("group", colour)
+                      .order().by("rank");
+                  var hop = sourceSlice ? ordered.limit(2).out("colourEdge")
+                      : ordered.out("colourEdge");
+                  var filtered = hop.hasLabel("ColourTarget").barrier(3).has("colour", colour);
+                  return (sourceSlice ? filtered : filtered.limit(2)).values("name");
+                };
+        var admin = shape.get().asAdmin();
+        var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+        var walk = GremlinStepWalker.production().walk(admin);
+        assertThat(extraction.hasContributions()).isEqualTo(walk.hasContributions());
+        assertThat(extraction.nativeOperands()).hasSize(2);
+        assertThat(extraction.hasContributions().get(1).slots()).isEmpty();
+        var missing = new GremlinShapeExtractor.Extraction(extraction.key(), extraction.bindings(),
+            true, extraction.hasContributions(), List.of(), false);
+        assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), missing)).isNull();
+        assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), extraction)).isNotNull();
+        assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(runNativeHop(shape));
+      }
+      assertThat(walks.get()).as("three actual warm splices for mixed destinations").isEqualTo(1);
+    }
+  }
+
+  /** Merged duplicate labels use the ordinary first group but retain all deferred native groups. */
+  @Test
+  public void repeatedLabelContainers_matchWalkLayoutsAndSpliceAlternatingValues() {
+    seedColourHop();
+    for (boolean ordered : List.of(false, true)) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var walks = new AtomicInteger();
+      var strategy = countingStrategy(walks);
+      for (String colour : List.of("red", "blue", "red", "blue")) {
+        Supplier<
+            org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+                () -> {
+                  var source = graph.traversal().V();
+                  var filtered = (ordered ? source.hasLabel("ColourSource").order().by("rank")
+                      .out("colourEdge") : source).hasLabel("ColourTarget");
+                  Traversal.Admin<?, ?> filterAdmin = filtered.asAdmin();
+                  ((HasStep<?>) filterAdmin.getEndStep()).addHasContainer(
+                      new HasContainer(T.label.getAccessor(), P.eq("ColourTarget")));
+                  var result = filtered.has("colour", colour);
+                  return (ordered ? result.limit(2) : result).values("name");
+                };
+        var admin = shape.get().asAdmin();
+        var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+        var walk = GremlinStepWalker.production().walk(admin);
+        assertThat(walk).isNotNull();
+        assertThat(extraction.hasContributions()).isEqualTo(walk.hasContributions());
+        assertThat(runCountedHop(shape, strategy).stream().sorted().toList())
+            .containsExactlyElementsOf(runNativeHop(shape).stream().sorted().toList());
+      }
+      assertThat(walks.get()).as("identical merged labels must allow three warm splices")
+          .isEqualTo(1);
+    }
+  }
+
+  /** Missing operands or extra operands against stored stages trigger a real walk with native rows. */
+  @Test
+  public void mismatchedOrderedStageCounts_fallBackToFreshWalkWithoutDecline() {
+    seedColourHop();
+    for (boolean extraStage : List.of(false, true)) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      Supplier<
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> first =
+              () -> colourHop("red", false);
+      assertThat(runCountedHop(first, countingStrategy(new AtomicInteger())))
+          .containsExactly("A1", "A2");
+      var extraction = GremlinStepWalker.extractShape(first.get().asAdmin(), graphSession());
+      var stored = (GremlinTranslationTemplate.Translate) GremlinPlanCache.getTranslation(
+          extraction.key(), graphSession());
+      assertThat(stored).isNotNull();
+      var expand = (OrderedExpandSliceListShapingOp) stored.shaping().listShapingOps().getFirst();
+      var stages = new ArrayList<>(expand.stages());
+      var filter = stages.stream().filter(OrderedHopStage.Filter.class::isInstance)
+          .findFirst().orElseThrow();
+      if (extraStage) {
+        stages.add(stages.indexOf(filter), filter);
+      } else {
+        stages.remove(filter);
+      }
+      var wrongShaping = stored.shaping().withListShapingOps(
+          List.of(new OrderedExpandSliceListShapingOp(stages)));
+      assertThat(OrderedFilterBinding.fromExtraction(wrongShaping, extraction)).isNull();
+      GremlinPlanCache.putTranslation(extraction.key(), new GremlinTranslationTemplate.Translate(
+          stored.planTemplate(), stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
+          wrongShaping, stored.bindingCount(), stored.hasContributions()), graphSession());
+      var walks = new AtomicInteger();
+      var failures = new ArrayList<String>();
+      var strategy = countingStrategy(walks, failures::add);
+      Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =
+          () -> colourHop("blue", false);
+      assertThat(runCountedHop(next, strategy)).containsExactlyElementsOf(runNativeHop(next));
+      assertThat(walks.get()).as("binding disagreement must invoke the translator").isEqualTo(1);
+      assertThat(failures).containsExactly("Translation cache binding agreement failed");
+      assertThat(runCountedHop(first, strategy)).containsExactlyElementsOf(runNativeHop(first));
+      assertThat(walks.get()).as("the fresh template must splice on the next call").isEqualTo(1);
+    }
+  }
+
+  /** Prefix flattening can build ordered union arms that decline without a top-level disagreement. */
+  @Test
+  public void discardedOrderedUnionFork_doesNotTriggerAbsenceAgreement() {
+    seedColourHop();
+    Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+        () -> graph.traversal().V().hasLabel("ColourSource").order().by("rank").limit(2)
+            .union(__.out("colourEdge"), __.out("colourEdge"));
+    var extraction = GremlinStepWalker.extractShape(shape.get().asAdmin(), graphSession());
+    assertThat(extraction.orderedExpandAbsent()).isTrue();
+    assertThat(extraction.complete()).as("union end markers keep this shape incomplete").isFalse();
+    var fork = GremlinStepWalker.production().walk(graph.traversal().V()
+        .hasLabel("ColourSource").order().by("rank").limit(2).out("colourEdge").asAdmin());
+    assertThat(fork).isNotNull();
+    assertThat(OrderedFilterBinding.hasOrderedExpand(fork.shaping())).isTrue();
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (int call = 0; call < 2; call++) {
+      var admin = shape.get().asAdmin();
+      strategy.apply(admin);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+      support.withTranslator(false, () -> assertThat(TranslatorEquivalenceSupport.sortedIds(
+          admin.toList())).containsExactlyElementsOf(TranslatorEquivalenceSupport.sortedIds(
+              shape.get().toList())));
+    }
+    assertThat(walks.get()).as("incomplete union shapes walk without caching the decline")
+        .isEqualTo(2);
+  }
+
+  /** Coalesce absence remains a cached native decline with one real walk for alternating values. */
+  @Test
+  public void absentCoalesce_reusesDeclineWithoutOrderedOperandsOrRepeatedWalks() {
+    seedColourHop();
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    for (String colour : List.of("red", "blue", "red", "blue")) {
+      Supplier<
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
+              () -> graph.traversal().V().hasLabel("ColourSource").has("group", colour)
+                  .coalesce(__.values("group"), __.values("rank"));
+      var admin = shape.get().asAdmin();
+      var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+      assertThat(extraction.orderedExpandAbsent()).isTrue();
+      assertThat(extraction.nativeOperands()).isEmpty();
+      strategy.apply(admin);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+      support.withTranslator(false, () -> assertThat(admin.toList().stream()
+          .map(String::valueOf).toList()).containsExactlyElementsOf(runNativeHop(shape)));
+    }
+    assertThat(walks.get()).as("all three warm calls must skip the walker").isEqualTo(1);
+  }
+
+  /** A missed extraction route still derives sack and live-path facts once and never publishes. */
+  @Test
+  public void missedAbsence_runsFreshOrderedPlanWithoutPublishingWrongIdentity() {
+    var hub = graph.addVertex(T.label, "MissedHub", "name", "Hub");
+    for (String name : List.of("One", "Two")) {
+      graph.addVertex(T.label, "MissedSource", "name", name).addEdge("missedHub", hub);
+    }
+    for (String name : List.of("A", "B")) {
+      hub.addEdge("missedChild", graph.addVertex(T.label, "MissedTarget", "name", name));
+    }
+    graph.tx().commit();
+    var suppliers = new AtomicInteger();
+    Supplier<
+        org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> ordered =
+            () -> graph.traversal().withSack(() -> {
+              suppliers.incrementAndGet();
+              return 1;
+            })
+                .V().hasLabel("MissedSource").as("before").out("missedHub")
+                .order().by("name").as("sorted").barrier(3).out("missedChild")
+                .limit(3).values("name");
+    var admin = ordered.get().asAdmin();
+    var ctx = new WalkerContext(true, false, graphSession().getSchema());
+    ctx.setWalkedTraversal(admin);
+    assertThat(ctx.hasComputedMergeFacts()).isFalse();
+    var facts = ctx.traverserMergeFacts();
+    ctx.userLabelToAlias.put("before", "source");
+    ctx.userLabelToAlias.put("sorted", "hub");
+    ctx.recordOrderByCapture("hub", true);
+    ctx.orderedBarrierStage(new NoOpBarrierStep<>(admin, 3));
+    ctx.orderedSourceMergeKey("hub");
+    assertThat(facts.labelsAtBarriers()).hasSize(1);
+    assertThat(ctx.traverserMergeFacts()).as("successive ordered demands share one analysis")
+        .isSameAs(facts);
+    assertThat(facts.sackGated()).isTrue();
+    assertThat(facts.labelsAtOrder()).contains("before", "sorted");
+    assertThat(suppliers.get()).as("compilation must not call user sack suppliers").isZero();
+    var failures = new ArrayList<String>();
+    var strategy = new GremlinToMatchStrategy(
+        traversal -> GremlinStepWalker.production().walk(ordered.get().asAdmin()),
+        GremlinToMatchStrategy::buildPlan, true, failures::add);
+    Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> absent =
+        () -> graph.traversal().withSack(1).V().hasLabel("MissedSource");
+    String key = GremlinStepWalker.extractShape(absent.get().asAdmin(), graphSession()).key();
+    var expected = runNativeHop(ordered);
+    assertThat(expected).as("live paths keep the two converging sources distinct").hasSize(3);
+    assertThat(expected.getFirst()).isEqualTo(expected.getLast()).isNotEqualTo(expected.get(1));
+    assertThat(runCountedHop(absent, strategy)).containsExactlyElementsOf(expected);
+    assertThat(failures).containsExactly("Ordered expand contradicts extraction absence");
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isNull();
   }
 
   /** Empty and finite deferred prefixes use their own layouts on either side of the slice. */
@@ -699,10 +1064,12 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =
         () -> graph.traversal().V().hasLabel("MismatchPerson")
             .has("name", TextP.startingWith("bo")).values("name");
+    var failures = new ArrayList<String>();
     var nativeRows = runNativeHop(next);
-    assertThat(runCountedHop(next, countingStrategy(walks)))
+    assertThat(runCountedHop(next, countingStrategy(walks, failures::add)))
         .containsExactlyElementsOf(nativeRows);
     assertThat(walks.get()).as("equal count but wrong slot role must walk again").isEqualTo(1);
+    assertThat(failures).containsExactly("Translation cache binding agreement failed");
   }
 
   /** A compiled regex must be reconstructed, not have only its P value replaced. */
@@ -846,6 +1213,11 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   private GremlinToMatchStrategy countingStrategy(AtomicInteger walks) {
+    return countingStrategy(walks, GremlinToMatchStrategy::assertAgreement);
+  }
+
+  private GremlinToMatchStrategy countingStrategy(AtomicInteger walks,
+      java.util.function.Consumer<String> agreementFailure) {
     return new GremlinToMatchStrategy(new GremlinToMatchStrategy.TraversalTranslator() {
       @Override
       public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal) {
@@ -862,7 +1234,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         return GremlinToMatchTranslator.translate(traversal, includesMissing, placements,
             polymorphic);
       }
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlan, true, agreementFailure);
   }
 
   private List<String> runNativeHop(Supplier<

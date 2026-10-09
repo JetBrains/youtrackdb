@@ -551,7 +551,7 @@ final class GremlinStepWalker {
     Schema schema = session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
-    ctx.setTraverserMergeFacts(TraverserMergeFacts.from(traversal));
+    ctx.setWalkedTraversal(traversal);
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
     ctx.setProductiveByKeys(
@@ -574,7 +574,8 @@ final class GremlinStepWalker {
       return null;
     }
     ctx.setOrderByNullsPlacements(resolvedNullsPlacements);
-    var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
+    var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS,
+        StepStreamCursor.requiresOrderedBarriers(steps));
     // Install the union fork host after the cursor exists: the host reads prefix length from the
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
     ctx.setUnionForkHost(
@@ -827,7 +828,8 @@ final class GremlinStepWalker {
         return false;
       }
     }
-    if (ctx instanceof WalkerContext walker && ctx.orderBy() != null) {
+    if (cursor.tracksBarriers() && ctx instanceof WalkerContext walker
+        && ctx.orderBy() != null) {
       var barriers = OrderedExpandAccept.takeBarrierStages(cursor, ctx);
       if (ctx.pendingOrderedHop() != null) {
         ctx.setPendingOrderedHop(ctx.pendingOrderedHop().appendBarriers(barriers));

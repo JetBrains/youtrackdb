@@ -37,7 +37,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * recogniser's — makes {@link GremlinStepWalker} discard the whole walk, so a partial contribution
  * can never leak into a translated plan. "Validate before you mutate" is unnecessary here.
  */
-interface RecognitionContext extends ParamSink {
+interface RecognitionContext extends ParamSink, HasBindingContext.VertexClassFacts {
 
   // --- Resolved flags, each resolved once by the walker -----------------------------------------
 
@@ -241,6 +241,7 @@ interface RecognitionContext extends ParamSink {
    * pipelines agree. Returns {@code false} when the schema is unavailable, so a walk with no schema
    * never re-types.
    */
+  @Override
   boolean isVertexClass(String className);
 
   /**
@@ -261,6 +262,7 @@ interface RecognitionContext extends ParamSink {
    * WalkerContext#VERTEX_ROOT_CLASS} when they only share {@code V}. {@code null} when the schema
    * is missing or any name is not a known vertex class.
    */
+  @Override
   @Nullable String leastCommonVertexAncestor(List<String> classNames);
 
   /**

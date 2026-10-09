@@ -60,11 +60,45 @@ final class StepStreamCursor implements StepCursor {
   private final List<Step<?, ?>> skippedTransparentLabeled = new ArrayList<>();
 
   /** All skipped barriers, independently drained from the labels needed for alias binding. */
-  private final List<Step<?, ?>> skippedTransparent = new ArrayList<>();
+  @Nullable private final List<Step<?, ?>> skippedTransparent;
 
   StepStreamCursor(List<?> steps, Set<Class<?>> transparentSteps) {
+    this(steps, transparentSteps, true);
+  }
+
+  StepStreamCursor(List<?> steps, Set<Class<?>> transparentSteps, boolean trackBarriers) {
     this.steps = steps;
     this.transparentSteps = transparentSteps;
+    skippedTransparent = trackBarriers ? new ArrayList<>() : null;
+  }
+
+  boolean tracksBarriers() {
+    return skippedTransparent != null;
+  }
+
+  /** The full walk determines its own barrier demand, independently of shape extraction. */
+  static boolean requiresOrderedBarriers(List<? extends Step> steps) {
+    boolean ordered = false;
+    boolean hopped = false;
+    boolean sliced = false;
+    for (Step<?, ?> step : steps) {
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep) {
+        ordered = true;
+      } else if (ordered
+          && step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract<
+              ?> hop
+          && !hop.returnsEdge()) {
+        hopped = true;
+      } else if (ordered
+          && step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract<
+              ?>) {
+        sliced = true;
+      }
+      if (hopped && sliced) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Nullable @Override
@@ -174,7 +208,7 @@ final class StepStreamCursor implements StepCursor {
 
   @Override
   public List<Step<?, ?>> drainSkippedTransparent() {
-    if (skippedTransparent.isEmpty()) {
+    if (skippedTransparent == null || skippedTransparent.isEmpty()) {
       return List.of();
     }
     var out = List.copyOf(skippedTransparent);
@@ -194,7 +228,9 @@ final class StepStreamCursor implements StepCursor {
   private void skipTransparent() {
     while (position < steps.size() && isTransparent(stepAt(position))) {
       var skipped = stepAt(position);
-      skippedTransparent.add(skipped);
+      if (skippedTransparent != null) {
+        skippedTransparent.add(skipped);
+      }
       if (GremlinStepLabels.hasUserLabel(skipped)) {
         skippedTransparentLabeled.add(skipped);
       }

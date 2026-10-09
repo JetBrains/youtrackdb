@@ -48,7 +48,83 @@ record HasBindingContext(
 
   GremlinPredicateAdapter.PropertyTypeGate gate(
       @Nullable com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema schema) {
-    return GremlinPredicateAdapter.schemaGate(schema, gateClasses.toArray(String[]::new));
+    if (schema == null || gateClasses.isEmpty()) {
+      return GremlinPredicateAdapter.NO_TYPE_INFO;
+    }
+    // Resolve classes only when the predicate adapter asks for a type. Reuse the last property's
+    // answer across the adapter's repeated guard and prefix checks within this HasStep.
+    return new GremlinPredicateAdapter.PropertyTypeGate() {
+      private com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass[] classes;
+      private String lastKey;
+      private java.util.List<String> lastTypes;
+
+      @Override
+      public boolean isDeclaredString(String key) {
+        return declaredTypeIn(key, List.of("STRING"));
+      }
+
+      @Override
+      public boolean declaredTypeIn(String key, List<String> types) {
+        if (!key.equals(lastKey)) {
+          if (classes == null) {
+            classes =
+                new com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass[gateClasses
+                    .size()];
+            for (int i = 0; i < classes.length; i++) {
+              classes[i] = schema.getClass(gateClasses.get(i));
+            }
+          }
+          var resolved = new java.util.ArrayList<String>(classes.length);
+          for (var clazz : classes) {
+            var property = clazz == null ? null : clazz.getProperty(key);
+            if (property == null || property.getType() == null) {
+              lastKey = key;
+              lastTypes = List.of();
+              return false;
+            }
+            resolved.add(property.getType().name());
+          }
+          lastKey = key;
+          lastTypes = resolved;
+        }
+        return !lastTypes.isEmpty() && types.containsAll(lastTypes);
+      }
+    };
+  }
+
+  /** Class rules shared by extraction and the walk without constructing plan-building state. */
+  interface VertexClassFacts {
+    boolean isVertexClass(String name);
+
+    @Nullable String leastCommonVertexAncestor(List<String> names);
+  }
+
+  static VertexClassFacts schemaFacts(
+      com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema schema) {
+    return new VertexClassFacts() {
+      private final java.util.Map<String,
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass> classes =
+              new java.util.HashMap<>();
+
+      private com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass resolve(
+          String name) {
+        if (!classes.containsKey(name)) {
+          classes.put(name, schema.getClass(name));
+        }
+        return classes.get(name);
+      }
+
+      @Override
+      public boolean isVertexClass(String name) {
+        var clazz = resolve(name);
+        return clazz != null && clazz.isVertexType();
+      }
+
+      @Override
+      public String leastCommonVertexAncestor(List<String> names) {
+        return WalkerContext.leastCommonVertexAncestor(names, this::resolve);
+      }
+    };
   }
 
   /** A binding's source within its HasStep, independent of its current literal value. */

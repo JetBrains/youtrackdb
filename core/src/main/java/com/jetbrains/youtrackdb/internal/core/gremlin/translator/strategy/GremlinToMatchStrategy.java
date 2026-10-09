@@ -255,6 +255,8 @@ public final class GremlinToMatchStrategy
    */
   private final boolean populateTranslationCache;
 
+  private final java.util.function.Consumer<String> agreementFailure;
+
   /**
    * Package-private — tests construct a strategy with a fixture translator (and the production
    * plan builder). Production code goes through {@link #instance()}.
@@ -278,9 +280,21 @@ public final class GremlinToMatchStrategy
       TraversalTranslator translator,
       MatchPlanBuilder planBuilder,
       boolean populateTranslationCache) {
+    this(translator, planBuilder, populateTranslationCache,
+        GremlinToMatchStrategy::assertAgreement);
+  }
+
+  // Fault-injection tests observe refusal and exercise the production fallback in the same call.
+  GremlinToMatchStrategy(TraversalTranslator translator, MatchPlanBuilder planBuilder,
+      boolean populateTranslationCache, java.util.function.Consumer<String> agreementFailure) {
     this.translator = translator;
     this.planBuilder = planBuilder;
     this.populateTranslationCache = populateTranslationCache;
+    this.agreementFailure = agreementFailure;
+  }
+
+  static void assertAgreement(String reason) {
+    assert false : reason;
   }
 
   /** Singleton accessor — the strategy is stateless and cheap to share. */
@@ -377,15 +391,16 @@ public final class GremlinToMatchStrategy
         metrics.recordDecline(stepShape(traversal));
         return;
       }
-      if (cached instanceof GremlinTranslationTemplate.Translate translate
-          && extraction.bindings().size() == translate.bindingCount()
-          && matchingLayout(extraction.hasContributions(), translate.hasContributions())) {
-        var boundShaping = OrderedFilterBinding.fromExtraction(translate.shaping(), extraction);
+      if (cached instanceof GremlinTranslationTemplate.Translate translate) {
+        var boundShaping = extraction.bindings().size() == translate.bindingCount()
+            && matchingLayout(extraction.hasContributions(), translate.hasContributions())
+                ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
         if (boundShaping != null) {
           spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
           metrics.recordSuccess();
           return;
         }
+        agreementFailure.accept("Translation cache binding agreement failed");
       }
     }
     // Capture the planning start before the walk: the schema read that shapes the plan happens
@@ -565,12 +580,23 @@ public final class GremlinToMatchStrategy
     }
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     var copyOnOpen = isSharedPlanTemplate(session, translation, plan);
-    var bound = translation.withShaping(OrderedFilterBinding.fresh(translation.shaping()));
+    var shaping = OrderedFilterBinding.fresh(translation.shaping());
+    var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
+    // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
+    boolean absenceAgrees = !extraction.orderedExpandAbsent()
+        || !OrderedFilterBinding.hasOrderedExpand(translation.shaping());
+    if (!absenceAgrees) {
+      agreementFailure.accept("Ordered expand contradicts extraction absence");
+    }
     replaceAllStepsWithBoundary(traversal, plan, bound, copyOnOpen);
-    if (populateTranslationCache && copyOnOpen && extraction.complete()
-        && extraction.bindings().size() == translation.inputParameters().size()
-        && matchingLayout(extraction.hasContributions(), translation.hasContributions())
-        && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null) {
+    if (populateTranslationCache && copyOnOpen && extraction.complete() && absenceAgrees) {
+      boolean bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
+          && matchingLayout(extraction.hasContributions(), translation.hasContributions())
+          && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null;
+      if (!bindingsAgree) {
+        agreementFailure.accept("Cold translation binding agreement failed");
+        return;
+      }
       GremlinPlanCache.putTranslation(
           extraction.key(),
           new GremlinTranslationTemplate.Translate(

@@ -261,7 +261,7 @@ final class HasStepRecogniser implements StepRecogniser {
   }
 
   /**
-   * Prepare the MATCH and native-op views together. Deferred label alternatives OR within this
+   * Prepare the MATCH view and, only when deferred, the native-op view. Label alternatives OR within this
    * HasStep; the caller applies each prepared step separately, so steps AND at the MATCH alias.
    * Missing deferred alternatives remain in the class predicate, never in a MATCH source class.
    */
@@ -282,7 +282,7 @@ final class HasStepRecogniser implements StepRecogniser {
     var bindingContext = HasBindingContext.forVertex(names, boundaryClass,
         ctx.atTraversalStart(), deferred ? HasBindingContext.Destination.ORDERED_FILTER
             : HasBindingContext.Destination.MATCH_VERTEX);
-    var typeGate = bindingContext.gate(ctx);
+    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
     var slots = new ArrayList<HasBindingContext.Slot>();
     // A range comparison needs the per-record type guard exactly when this HasStep will NOT be
     // folded into YTDBGraphStep — folded, the native fallback runs the same SQL-style comparison the
@@ -312,6 +312,9 @@ final class HasStepRecogniser implements StepRecogniser {
           whereExprs.add(ridExpr);
         }
         continue;
+      }
+      if (typeGate == null) {
+        typeGate = bindingContext.gate(ctx);
       }
       int containerIndex = index;
       var recordedSink = GremlinPredicateAdapter.withRoles(sink,
@@ -349,9 +352,10 @@ final class HasStepRecogniser implements StepRecogniser {
     // A native-only predicate has no SQL representation, but retains its original containers.
     var expression = matchCapable && !whereExprs.isEmpty()
         ? WHERE.and(whereExprs.toArray(new SQLBooleanExpression[0])) : null;
-    return new HasContribution(containers, names, expression, matchCapable, targetClass,
+    return new HasContribution(deferred ? containers : List.of(), names, expression,
+        matchCapable, targetClass,
         targetClass == null ? boundaryClass : targetClass, List.of(), 0, cacheSafe,
-        bindingContext, slots, NativeHasOperands.capture(containers));
+        bindingContext, slots, deferred ? NativeHasOperands.capture(containers) : null);
   }
 
   /**
@@ -359,7 +363,7 @@ final class HasStepRecogniser implements StepRecogniser {
    * contribution re-types to its LCA only at the generic vertex root. Deferred contributions
    * accumulate on one alias and may narrow that alias but never broaden it.
    */
-  static @Nullable String narrowedClass(RecognitionContext ctx, List<String> names,
+  static @Nullable String narrowedClass(HasBindingContext.VertexClassFacts ctx, List<String> names,
       @Nullable String boundaryClass, boolean singleMatchLabel, boolean deferredRoute) {
     if (names.isEmpty() || !names.stream().allMatch(ctx::isVertexClass)) {
       return null;
@@ -664,7 +668,7 @@ final class HasStepRecogniser implements StepRecogniser {
       context = HasBindingContext.forVertex(labelNames(containers), null, false,
           HasBindingContext.Destination.MATCH_VERTEX);
     }
-    var typeGate = context.gate(encoder.schema());
+    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
     for (int index = 0; index < containers.size(); index++) {
       HasContainer container = containers.get(index);
       var key = container.getKey();
@@ -683,9 +687,12 @@ final class HasStepRecogniser implements StepRecogniser {
       int containerIndex = index;
       // Ordered-filter slots describe the native predicate's layout, but never enter MATCH's
       // positional map. Otherwise a later MATCH HasStep would be bound at the wrong SQL slot.
-      int[] localSlot = {0};
+      if (typeGate == null) {
+        typeGate = context.gate(encoder.schema());
+      }
+      // Harvest ignores the returned parameter. The native layout uses roles, not SQL indexes.
       ParamSink sink = context.destination() == HasBindingContext.Destination.ORDERED_FILTER
-          ? value -> SQLPositionalParameter.forSlot(localSlot[0]++) : encoder.paramSink();
+          ? value -> SQLPositionalParameter.forSlot(0) : encoder.paramSink();
       GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
           GremlinPredicateAdapter.withRoles(sink,
               role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
@@ -694,20 +701,31 @@ final class HasStepRecogniser implements StepRecogniser {
     return true;
   }
 
-  /** The label group of one step, independent of the prior boundary's class. */
+  /** The MATCH label group uses the first constraint, independent of the prior boundary's class. */
   static List<String> labelNames(List<HasContainer> containers) {
-    var names = new ArrayList<String>();
+    return labelNames(containers, false);
+  }
+
+  /** Deferred preparation retains every native label container, including repeated constraints. */
+  static List<String> labelNames(List<HasContainer> containers, boolean deferred) {
+    ArrayList<String> names = null;
     for (var container : containers) {
       if (LABEL_KEY.equals(container.getKey())) {
+        if (names == null) {
+          names = new ArrayList<>();
+        }
         var parsed = parseLabelContainer(container);
         if (parsed instanceof ParsedLabelConstraint.Single single) {
           names.add(single.name());
         } else if (parsed instanceof ParsedLabelConstraint.Multi multi) {
           names.addAll(multi.names());
         }
+        if (!deferred) {
+          break;
+        }
       }
     }
-    return List.copyOf(names);
+    return names == null ? List.of() : List.copyOf(names);
   }
 
 }

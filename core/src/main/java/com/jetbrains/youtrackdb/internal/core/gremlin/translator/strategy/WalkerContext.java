@@ -244,9 +244,27 @@ final class WalkerContext implements RecognitionContext {
    *  the walker. */
   private final boolean polymorphic;
 
-  private TraverserMergeFacts mergeFacts =
-      new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(),
-          java.util.Map.of());
+  @Nullable private TraverserMergeFacts mergeFacts;
+  @Nullable private Traversal.Admin<?, ?> walkedTraversal;
+
+  void setWalkedTraversal(Traversal.Admin<?, ?> traversal) {
+    walkedTraversal = traversal;
+  }
+
+  TraverserMergeFacts traverserMergeFacts() {
+    if (mergeFacts == null) {
+      // Production demands derive from the walked traversal, never an extraction verdict.
+      mergeFacts = walkedTraversal == null
+          ? new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(), Map.of())
+          : TraverserMergeFacts.from(walkedTraversal);
+    }
+    return mergeFacts;
+  }
+
+  boolean hasComputedMergeFacts() {
+    return mergeFacts != null;
+  }
+
   @Nullable private com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice orderedSourceSlice;
 
   void setOrderedSourceSlice(long skip, long limit) {
@@ -263,32 +281,28 @@ final class WalkerContext implements RecognitionContext {
   }
 
   List<String> orderedSourceAliases(String alias) {
-    return mergeFacts.liveAliasColumns(this, alias);
+    return traverserMergeFacts().liveAliasColumns(this, alias);
   }
 
   com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.SourceMerge
       orderedSourceMerge(String alias) {
-    return mergeFacts.sourceMergeFor(this, alias);
+    return traverserMergeFacts().sourceMergeFor(this, alias);
   }
 
   boolean orderedProjectionSplits() {
-    return mergeFacts.postOrderProjectionSplit();
+    return traverserMergeFacts().postOrderProjectionSplit();
   }
 
   com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier
       orderedBarrierStage(
           org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<?> step) {
-    return mergeFacts.barrierFor(this, step, orderByAlias);
-  }
-
-  void setTraverserMergeFacts(TraverserMergeFacts facts) {
-    mergeFacts = facts;
+    return traverserMergeFacts().barrierFor(this, step, orderByAlias);
   }
 
   @Override
   public com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.MergeKey
       orderedSourceMergeKey(String sourceAlias) {
-    return mergeFacts.keyFor(this, sourceAlias);
+    return traverserMergeFacts().keyFor(this, sourceAlias);
   }
 
   /** Whether the traversal opts into {@code EdgeLabelVerificationStrategy}, resolved once by
@@ -665,15 +679,20 @@ final class WalkerContext implements RecognitionContext {
 
   @Override
   public String leastCommonVertexAncestor(List<String> classNames) {
-    if (schema == null || classNames == null || classNames.isEmpty()) {
+    return schema == null ? null : leastCommonVertexAncestor(classNames, schema::getClass);
+  }
+
+  static String leastCommonVertexAncestor(List<String> classNames,
+      java.util.function.Function<String, SchemaClass> resolve) {
+    if (classNames == null || classNames.isEmpty()) {
       return null;
     }
-    var current = schema.getClass(classNames.getFirst());
+    var current = resolve.apply(classNames.getFirst());
     if (current == null || !current.isVertexType()) {
       return null;
     }
     for (int i = 1; i < classNames.size(); i++) {
-      var other = schema.getClass(classNames.get(i));
+      var other = resolve.apply(classNames.get(i));
       if (other == null || !other.isVertexType()) {
         return null;
       }

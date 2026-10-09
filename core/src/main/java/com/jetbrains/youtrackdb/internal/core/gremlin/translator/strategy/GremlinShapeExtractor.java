@@ -21,7 +21,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexSt
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 
@@ -80,29 +80,39 @@ final class GremlinShapeExtractor {
         new GremlinShapeExtractor(
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
     extractor.appendStrategyFlags(
-        traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+        traversal, orderIncludesMissingKey, polymorphic);
     extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS);
+    // The verdict reads only encoded step structure. Absent tokens cannot equal real facts.
+    if (extractor.possibleOrderedExpand) {
+      var facts = TraverserMergeFacts.from(traversal);
+      extractor.encoder.appendToken("sk", facts.sackToken());
+      extractor.encoder.appendToken("lp", "real:" + facts.pathToken());
+    }
+    if (extractor.globalOrder) {
+      extractor.encoder.appendToken("onp", orderByNullsPlacements.ascending().name()
+          + "/" + orderByNullsPlacements.descending().name());
+    }
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete(), extractor.encoder.hasContributions(),
-        List.copyOf(extractor.nativeOperands));
+        List.copyOf(extractor.nativeOperands), !extractor.possibleOrderedExpand);
   }
 
   record Extraction(@Nonnull String key, @Nonnull Map<Object, Object> bindings, boolean complete,
       @Nonnull java.util.List<HasBindingContext.Contribution> hasContributions,
-      @Nonnull java.util.List<NativeHasOperands> nativeOperands) {
+      @Nonnull java.util.List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent) {
   }
+
+  private boolean possibleOrderedExpand;
+  private boolean globalOrder;
+  private HasBindingContext.VertexClassFacts schemaFacts;
 
   private final java.util.List<NativeHasOperands> nativeOperands = new java.util.ArrayList<>();
 
   private void appendStrategyFlags(
       Traversal.Admin<?, ?> traversal,
       @Nullable Boolean orderIncludesMissingKey,
-      ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
-    var mergeFacts = TraverserMergeFacts.from(traversal);
-    encoder.appendToken("sk", mergeFacts.sackToken());
-    encoder.appendToken("lp", mergeFacts.pathToken());
     encoder.appendToken(
         "elv",
         traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()
@@ -121,15 +131,6 @@ final class GremlinShapeExtractor {
     encoder.appendToken(
         "oim",
         orderIncludesMissingKey == null ? "n" : (orderIncludesMissingKey ? "1" : "0"));
-    // Only a global order step can embed these values in a translated plan. Search every child
-    // because union arms and other nested traversals are encoded into the same shape key.
-    if (containsGlobalOrder(traversal)) {
-      encoder.appendToken(
-          "onp",
-          orderByNullsPlacements.ascending().name()
-              + "/"
-              + orderByNullsPlacements.descending().name());
-    }
     if (productiveKeys == null) {
       encoder.appendToken("pb", "-");
     } else {
@@ -140,41 +141,35 @@ final class GremlinShapeExtractor {
     }
   }
 
-  private static boolean containsGlobalOrder(Traversal.Admin<?, ?> traversal) {
-    for (Step<?, ?> step : traversal.getSteps()) {
-      if (step instanceof OrderGlobalStep) {
-        return true;
-      }
-      if (step instanceof TraversalParent parent) {
-        for (var child : parent.getLocalChildren()) {
-          if (containsGlobalOrder(child.asAdmin())) {
-            return true;
-          }
-        }
-        for (var child : parent.getGlobalChildren()) {
-          if (containsGlobalOrder(child.asAdmin())) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
-  }
-
   private void visit(Traversal.Admin<?, ?> traversal, String inheritedBoundaryClass) {
     if (encodeLambda(traversal)) {
       return;
     }
     int counted = 0;
+    boolean sawOrder = false;
+    boolean sawHop = false;
+    boolean sawSlice = false;
+    boolean scopeOrderedExpand = false;
+    // Reuse the existing count pass. This conservative check needs only three local bits and
+    // covers both slice placements, including projections and transparent barriers between them.
     for (Step<?, ?> step : traversal.getSteps()) {
       if (!isTransparent(step)) {
         counted++;
       }
+      if (step instanceof OrderGlobalStep) {
+        globalOrder = true;
+        sawOrder = true;
+      } else if (sawOrder && step instanceof VertexStepContract<?> hop && !hop.returnsEdge()) {
+        sawHop = true;
+      } else if (sawOrder && step instanceof RangeGlobalStepContract<?>) {
+        sawSlice = true;
+      }
+      scopeOrderedExpand |= sawHop && sawSlice;
     }
+    possibleOrderedExpand |= scopeOrderedExpand;
     encoder.appendToken("T", Integer.toString(counted));
     // Track only the facts needed to bind HasSteps. This does not dispatch or build a second
     // MATCH walk. A GraphStep opens the native fold; every other non-HasStep closes it.
-    var schemaContext = new WalkerContext(false, false, encoder.schema());
     String boundaryClass = inheritedBoundaryClass;
     String[] edgeClasses = null;
     boolean edgeOpen = false;
@@ -203,19 +198,21 @@ final class GremlinShapeExtractor {
       encoder.appendToken("S", step.getClass().getName());
       HasBindingContext hasContext = null;
       java.util.List<String> hasLabels = java.util.List.of();
-      int slotStart = encoder.hasSlots().size();
+      int slotStart = encoder.hasSlotCount();
       if (step instanceof HasStep<?> hasStep) {
         // hasId RIDs stay structural in the shape key (appendPredicate). Walk-time markRidBearing
         // is what bypasses GremlinPlanCache reuse — do not mark the extraction incomplete here.
-        hasLabels = HasStepRecogniser.labelNames(hasStep.getHasContainers());
-        boolean orderedFilter = deferredHop && (sourceSliced
+        hasLabels = HasStepRecogniser.labelNames(hasStep.getHasContainers(), pendingDeferred);
+        boolean orderedFilter = scopeOrderedExpand && deferredHop && (sourceSliced
             || followedByOrderedSlice(steps, stepIndex));
         hasContext = edgeOpen ? HasBindingContext.forEdge(edgeClasses)
             : HasBindingContext.forVertex(hasLabels, boundaryClass, folded,
                 orderedFilter ? HasBindingContext.Destination.ORDERED_FILTER
                     : HasBindingContext.Destination.MATCH_VERTEX);
         encoder.setHasBindingContext(hasContext);
-        nativeOperands.add(NativeHasOperands.capture(hasStep.getHasContainers()));
+        if (orderedFilter) {
+          nativeOperands.add(NativeHasOperands.capture(hasStep.getHasContainers()));
+        }
       }
       var labels = GremlinStepLabels.userLabels(step);
       encoder.appendStringSeq("L", labels);
@@ -233,14 +230,18 @@ final class GremlinShapeExtractor {
         // Captured children re-type like the walker: a local hasLabel narrows the gate for later
         // property has steps. Keeping the enclosing class here desynced extract vs walk layouts.
         if (!edgeOpen) {
-          var candidate = HasStepRecogniser.narrowedClass(schemaContext, hasLabels,
-              boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
+          if (!hasLabels.isEmpty() && schemaFacts == null) {
+            schemaFacts = HasBindingContext.schemaFacts(encoder.schema());
+          }
+          var candidate = hasLabels.isEmpty() ? null
+              : HasStepRecogniser.narrowedClass(schemaFacts, hasLabels,
+                  boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
           if (candidate != null) {
             boundaryClass = candidate;
           }
         }
       }
-      if (!(step instanceof HasStep<?>)) {
+      if (!(step instanceof HasStep<?>) && (!pendingDeferred || !isNonSelectingRange(step))) {
         pendingDeferred = false;
       }
       if (step instanceof GraphStep<?, ?>) {
@@ -251,7 +252,7 @@ final class GremlinShapeExtractor {
         sourceSliced = false;
         deferredHop = false;
         folded = true;
-      } else if (step instanceof VertexStep<?> hop) {
+      } else if (step instanceof VertexStepContract<?> hop) {
         boundaryClass = HasBindingContext.afterHopBoundary();
         edgeClasses = hop.returnsEdge() ? hop.getEdgeLabels() : null;
         edgeOpen = hop.returnsEdge();
@@ -269,7 +270,8 @@ final class GremlinShapeExtractor {
       if (step instanceof OrderGlobalStep) {
         ordered = true;
         sourceSliced = false;
-      } else if (step instanceof RangeGlobalStepContract<?> && ordered && !deferredHop) {
+      } else if (step instanceof RangeGlobalStepContract<?> && ordered && !deferredHop
+          && !isNonSelectingRange(step)) {
         sourceSliced = true;
       }
       if (step instanceof TraversalParent parent) {
@@ -300,12 +302,19 @@ final class GremlinShapeExtractor {
   private boolean followedByOrderedSlice(java.util.List<? extends Step> steps, int index) {
     for (int next = index + 1; next < steps.size(); next++) {
       Step<?, ?> step = steps.get(next);
-      if (step instanceof HasStep<?> || isTransparent(step)) {
+      // Identity ranges leave the hop pending, so only an effective later slice owns its filters.
+      if (step instanceof HasStep<?> || isTransparent(step) || isNonSelectingRange(step)) {
         continue;
       }
       return step instanceof RangeGlobalStepContract<?>;
     }
     return false;
+  }
+
+  private static boolean isNonSelectingRange(Step<?, ?> step) {
+    // Use the walker's normalization. Invalid ranges also select nothing here and decline in the walk.
+    return step instanceof RangeGlobalStepContract<?>
+        && !RangeGlobalStepRecogniser.INSTANCE.selectsPositionally(step);
   }
 
   /**
