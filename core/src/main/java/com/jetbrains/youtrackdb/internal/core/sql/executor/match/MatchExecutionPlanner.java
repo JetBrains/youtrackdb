@@ -860,11 +860,12 @@ public class MatchExecutionPlanner {
             context, -1, enableProfiling));
       }
 
-      if (this.skip != null && skip.getValue(context) >= 0) {
+      // Clause presence is structural. A negative first binding must not remove a later slice.
+      if (this.skip != null) {
         result.chain(new SkipExecutionStep(skip, context, enableProfiling));
       }
-      if (this.limit != null && limit.getValue(context) >= 0) {
-        result.chain(new LimitExecutionStep(limit, context, enableProfiling));
+      if (this.limit != null) {
+        result.chain(new LimitExecutionStep(limit, context, enableProfiling, true));
       }
     } else {
       // Custom RETURN expressions — delegate to the SELECT planner for projection,
@@ -6260,8 +6261,8 @@ public class MatchExecutionPlanner {
           candidate.orderAsc(),
           candidate.comparisonItem(),
           candidate.nullsPlacement(),
-          edge,
-          candidate.limit(),
+          candidate.skipClause(),
+          candidate.limitClause(),
           candidate.multiSourceMode(),
           candidate.reverseFieldName(),
           candidate.sourceClassName(),

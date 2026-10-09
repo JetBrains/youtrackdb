@@ -6,14 +6,18 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ScanFactorFunctionScope;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import javax.annotation.Nullable;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -386,6 +390,170 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     }
   }
 
+  /** A zero-bound template must reprice positive copies and bail out before emitting any row. */
+  @Test
+  public void zeroThenPositiveCopiesResolveCurrentTargetBeforeBudgetFallback() {
+    seedSkewed();
+    session.begin();
+    String sourceRid;
+    try (var source = session.query("SELECT FROM Author WHERE name = 'author0'")) {
+      sourceRid = source.next().getIdentity().toString();
+    }
+    // A pinned source admits LIMIT 0 without the FILTERED plan-time cost gate. Zero cost bias
+    // keeps scanning for unbounded copies too, so the test proves the cursor budget is lifted.
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0)) {
+      var query = orderedQuery("ASC", 0).replace("name LIKE 'author%'", "@rid = " + sourceRid)
+          .replace("LIMIT 0", "SKIP :skip LIMIT :limit");
+      var buildCtx = new BasicCommandContext(session);
+      buildCtx.setInputParameters(Map.of("skip", 0, "limit", 0));
+      var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+      var template = statement.createExecutionPlanNoCache(buildCtx, false);
+      assertThat(findStep(template.getSteps())).isNotNull();
+      assertThat(template.canBeCached()).isFalse();
+      for (var limit : List.of(0, 1, -1, 1)) {
+        var ctx = new BasicCommandContext(session);
+        ctx.setInputParameters(Map.of("skip", limit == 1 ? 1 : 0, "limit", limit));
+        var copy = template.copy(ctx);
+        var actual = new ArrayList<String>();
+        try {
+          var stream = copy.start();
+          try {
+            while (stream.hasNext(ctx)) {
+              actual.add(stream.next(ctx).getProperty("mid"));
+            }
+          } finally {
+            stream.close(ctx);
+          }
+        } finally {
+          copy.close();
+        }
+        if (limit == 1) {
+          var step = findStep(copy.getSteps());
+          assertThat(step.getChosenRuntimePath())
+              .isEqualTo(IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT);
+          assertThat(step.lastScanConsumedEntries()).isBetween(step.lastScanBudget(),
+              step.lastScanBudget() + 8);
+          assertThat(actual).containsExactly("m" + slot(1));
+        } else {
+          assertThat(actual).hasSize(limit == 0 ? 0 : REACHABLE);
+          assertThat(findStep(copy.getSteps()).getChosenRuntimePath())
+              .isEqualTo(IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+        }
+        try (var fresh = session.query(query, ctx.getInputParameters())) {
+          assertThat(actual).isEqualTo(drain(fresh, "mid"));
+        }
+      }
+      assertThat(findStep(template.getSteps()).getChosenRuntimePath()).isNull();
+    }
+    session.rollback();
+  }
+
+  /**
+   * Nonzero costs choose a budgeted scan for target 2 and loading for an unbounded or target-20
+   * copy. Changing only SKIP must reprice the same template too. Every slice matches a fresh plan.
+   */
+  @Test
+  public void alternatingCopyBoundsRepriceScanVersusLoadWithNonzeroCosts() {
+    seedSkewed();
+    session.begin();
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 1.2);
+        var random = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_STATS_COST_RANDOM_PAGE_READ, 4.0);
+        var sequential = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_STATS_COST_SEQ_PAGE_READ, 1.0);
+        var cpu = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_STATS_COST_PER_ROW_CPU, 0.01);
+        var depth = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH, 4);
+        var factor = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, 5.0);
+        var page = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_ENTRIES_PER_PAGE, 200);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG, 10);
+        var maximum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN, 5_000_000L)) {
+      String sourceRid;
+      try (var source = session.query("SELECT FROM Author WHERE name = 'author0'")) {
+        sourceRid = source.next().getIdentity().toString();
+      }
+      var query = orderedQuery("ASC", 1).replace("name LIKE 'author%'", "@rid = " + sourceRid)
+          .replace("LIMIT 1", "SKIP :skip LIMIT :limit");
+      var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+      var buildCtx = new BasicCommandContext(session);
+      buildCtx.setInputParameters(Map.of("skip", 1, "limit", 1));
+      var template = statement.createExecutionPlanNoCache(buildCtx, false);
+      var slices = List.of(Map.of("skip", 1, "limit", 1), Map.of("skip", 0, "limit", -1),
+          Map.of("skip", 1, "limit", 1), Map.of("skip", 19, "limit", 1),
+          Map.of("skip", 0, "limit", 2), Map.of("skip", 1, "limit", 1));
+      var all = new ArrayList<String>();
+      for (var i = 0; i < REACHABLE; i++) {
+        all.add("m" + slot(i));
+      }
+      var expected = List.of(List.of("m0001"), all, List.of("m0001"), List.of("m0019"),
+          List.of("m0000", "m0001"), List.of("m0001"));
+      try {
+        assertThat(findStep(template.getSteps())).isNotNull();
+        assertThat(template.canBeCached()).isFalse();
+        for (var i = 0; i < slices.size(); i++) {
+          var ctx = new BasicCommandContext(session);
+          ctx.setInputParameters(new java.util.HashMap<>(slices.get(i)));
+          var path = i == 1 || i == 3 ? IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED
+              : IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT;
+          var actual = runWithPath(template.copy(ctx), path);
+          assertThat(actual).as("copy slice %s", slices.get(i)).isEqualTo(expected.get(i));
+          var freshCtx = new BasicCommandContext(session);
+          freshCtx.setInputParameters(new java.util.HashMap<>(slices.get(i)));
+          // Fresh unbounded filtered plans use ordinary MATCH. Copies retain ordered admission.
+          var freshPath = slices.get(i).get("limit") < 0 ? null : path;
+          assertThat(runWithPath(statement.createExecutionPlanNoCache(freshCtx, false), freshPath))
+              .isEqualTo(expected.get(i)).isEqualTo(actual);
+        }
+        assertThat(findStep(template.getSteps()).getChosenRuntimePath()).isNull();
+        assertThat(findStep(template.getSteps()).lastScanConsumedEntries()).isEqualTo(-1);
+      } finally {
+        template.close();
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private static List<String> runWithPath(InternalExecutionPlan plan,
+      @Nullable IndexOrderedEdgeStep.RuntimePath expectedPath) {
+    var ctx = plan.getContext();
+    var rows = new ArrayList<String>();
+    try {
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          rows.add(stream.next(ctx).getProperty("mid"));
+        }
+        var step = findStep(plan.getSteps());
+        if (expectedPath == null) {
+          assertThat(step).isNull();
+        } else {
+          assertThat(step).isNotNull();
+          assertThat(step.getChosenRuntimePath()).isEqualTo(expectedPath);
+          if (expectedPath == IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT) {
+            assertThat(step.lastScanBudget()).isPositive();
+            assertThat(step.lastScanConsumedEntries())
+                .isBetween(step.lastScanBudget(), step.lastScanBudget() + 8);
+          } else {
+            assertThat(step.lastScanConsumedEntries()).isEqualTo(-1);
+          }
+        }
+      } finally {
+        stream.close(ctx);
+      }
+      return rows;
+    } finally {
+      plan.close();
+    }
+  }
+
   /** Clone and re-arm must not expose observations from a previous scan. */
   @Test
   public void cloneAndRearmClearLastScanObservations() {
@@ -403,6 +571,7 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
           .isEqualTo(-1L);
 
       step.reset();
+      assertThat(step.getChosenRuntimePath()).as("re-arm clears the previous path").isNull();
       assertThat(step.lastScanBudget()).as("re-arm clears the previous scan budget").isEqualTo(-1L);
       assertThat(step.lastScanConsumedEntries())
           .as("re-arm clears the previous consumed-entry count")
