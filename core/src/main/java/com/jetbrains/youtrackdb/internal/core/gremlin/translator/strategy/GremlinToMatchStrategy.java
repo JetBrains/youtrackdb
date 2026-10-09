@@ -778,10 +778,15 @@ public final class GremlinToMatchStrategy
                 child.cacheEligible(),
                 translation.shaping());
         var childPlan = planBuilder.buildPlan(session, childTranslation, cacheScope);
-        // Multi-plan boundaries own every child. Copy only an explicitly shared template and never
-        // bind parameters or close resources on the template itself. Private children stay private.
+        // Multi-plan boundaries own every child. Only shared templates need a private copy.
         if (cacheScope.isShared(childPlan)) {
-          childPlan = childPlan.copy(YTDBMatchPlanStep.cleanCopyContext(childPlan.getContext()));
+          if (childPlan.getContext() instanceof BasicCommandContext context
+              && context.hasLocalVariableKeys()) {
+            throw new IllegalStateException("Shared MATCH template context contains variable keys");
+          }
+          var isolatedCtx = new BasicCommandContext(session);
+          isolatedCtx.setInputParameters(child.parameters());
+          childPlan = childPlan.copy(isolatedCtx);
         }
         if (!child.parameters().isEmpty()) {
           childPlan.getContext().setInputParameters(child.parameters());

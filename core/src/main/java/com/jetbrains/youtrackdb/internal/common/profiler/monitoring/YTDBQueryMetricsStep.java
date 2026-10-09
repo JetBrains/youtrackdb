@@ -89,6 +89,9 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   /// plan is {@code null}, which is correct. For a multi-plan union the first child's plan is
   /// surfaced — enough for scan/index detectors that inspect step types.
   ///
+  /// MATCH boundaries report no plan until the execution copy has its current session and
+  /// parameters. Diagnostic accessors can still expose a template before opening.
+  ///
   /// Called from inside the listener callback [#close] fires, which is what pins WHICH plan object
   /// a re-iterated traversal reports. A boundary step re-armed after a close swaps its plan for a
   /// fresh copy, so its accessor returns a different object per pass; the boundary's contract is
@@ -99,7 +102,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
     var matchPlan =
         TraversalHelper.getFirstStepOfAssignableClass(YTDBMatchPlanStep.class, traversal);
     if (matchPlan.isPresent()) {
-      return matchPlan.get().getPlan();
+      return matchPlan.get().isExecutionPlanBound() ? matchPlan.get().getPlan() : null;
     }
     var multiPlan =
         TraversalHelper.getFirstStepOfAssignableClass(MultiPlanMatchStep.class, traversal);
@@ -107,6 +110,9 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
       // getFirstStepOfAssignableClass returns a raw Optional; pin the wildcard so getPlans()
       // keeps InternalExecutionPlan rather than erasing to Object.
       MultiPlanMatchStep<?, ?> multi = multiPlan.get();
+      if (!multi.isExecutionPlanBound()) {
+        return null;
+      }
       var plans = multi.getPlans();
       return plans.isEmpty() ? null : plans.getFirst();
     }

@@ -223,6 +223,50 @@ public class FilterBooleanMatchStepTest {
     }
   }
 
+  /** Both copies start before A remembers the same tuple. B and the template stay empty. */
+  @Test
+  public void copiedBooleanChecksOwnMemoryForTheSameActiveTuple() throws Exception {
+    var ctx = context();
+    var row = new ResultInternal(null);
+    row.setProperty("s", new com.jetbrains.youtrackdb.internal.core.id.RecordId(25, 7));
+    var template = new FilterBooleanMatchStep(ctx, false, FilterBooleanMatchStep.Kind.PROBE,
+        List.of(), null, null, List.of(source(ctx, List.of(row))), null,
+        new DetachedCheckReadSet(List.of("s"), true, true));
+    var aContext = context();
+    var bContext = context();
+    var a = (FilterBooleanMatchStep) template.copy(aContext);
+    var b = (FilterBooleanMatchStep) template.copy(bContext);
+    a.setPrevious(source(aContext, List.of(row, row)));
+    b.setPrevious(source(bContext, List.of(row, row)));
+    var memoryField = FilterBooleanMatchStep.class.getDeclaredField("memory");
+    memoryField.setAccessible(true);
+    var templateMemory = (DetachedCheckMemory) memoryField.get(template);
+    var aMemory = (DetachedCheckMemory) memoryField.get(a);
+    var bMemory = (DetachedCheckMemory) memoryField.get(b);
+    var aStream = a.start(aContext);
+    var bStream = b.start(bContext);
+    try {
+      assertThat(aStream.next(aContext)).isSameAs(row);
+      assertThat(aMemory.size()).isEqualTo(1);
+      assertThat(bMemory.size()).isZero();
+      assertThat(bMemory.hits()).isZero();
+      assertThat(templateMemory.size()).isZero();
+      assertThat(bStream.next(bContext)).isSameAs(row);
+      assertThat(bMemory.size()).isEqualTo(1);
+      a.close();
+      assertThat(bMemory.size()).isEqualTo(1);
+      assertThat(bStream.stream(bContext).toList()).containsExactly(row);
+      assertThat(bMemory.hits()).isEqualTo(1);
+      assertThat(templateMemory.size()).isZero();
+    } finally {
+      aStream.close(aContext);
+      bStream.close(bContext);
+      a.close();
+      b.close();
+      template.close();
+    }
+  }
+
   private BasicCommandContext context() {
     var session = mock(DatabaseSessionEmbedded.class);
     when(session.assertIfNotActive()).thenReturn(true);
