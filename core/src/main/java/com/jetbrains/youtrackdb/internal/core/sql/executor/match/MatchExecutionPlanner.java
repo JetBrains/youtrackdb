@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FilterByClassStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.HardwiredCountOptimizations;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -793,6 +794,24 @@ public class MatchExecutionPlanner {
       }
     }
 
+    // Inspect the built source before detached hash builds are attached. The alternative boundary
+    // surrounds both branches, so no current-path build can run ahead of the execution-time choice.
+    KnownEndpointExistsAccess endpointAccess = null;
+    SelectExecutionPlan targetPlan = null;
+    boolean endpointTxWasActive = session.isTxActive();
+    try {
+      KnownEndpointExistsStep.checkpoint("plan");
+      endpointAccess = subPatterns.size() == 1
+          ? KnownEndpointExistsAccess.find(result, pattern, existsMatchExpressions,
+              aliasClasses, aliasFilters, context)
+          : null;
+      targetPlan = endpointAccess == null ? null : (SelectExecutionPlan) result.copy(context);
+    } catch (RuntimeException failure) {
+      KnownEndpointExistsStep.discardAttempt(targetPlan, failure, session, endpointTxWasActive);
+      endpointAccess = null;
+      targetPlan = null;
+    }
+
     // Phase 6: Detached checks run after the positive pattern and before projection.
     var requiredRows = detachedRequiredRows(context);
     manageExistsPatterns(result, pattern, existsMatchExpressions, aliasClasses, aliasFilters,
@@ -802,6 +821,37 @@ public class MatchExecutionPlanner {
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
         aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
         new DetachedSlice(requiredRows, false), enableProfiling);
+
+    if (endpointAccess != null) {
+      endpointTxWasActive = session.isTxActive();
+      try {
+        KnownEndpointExistsStep.checkpoint("plan preparation");
+        double probeWork = 0;
+        for (var exp : existsMatchExpressions) {
+          var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
+          targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+          probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
+              .orElse(EdgeFanOutEstimator.defaultFanOut());
+        }
+        for (var exp : notMatchExpressions) {
+          var steps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
+          targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling));
+          probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
+              .orElse(EdgeFanOutEstimator.defaultFanOut());
+        }
+        prepareEndpointSource(targetPlan, endpointAccess, true, context, enableProfiling);
+        var wrapper = new SelectExecutionPlan(context);
+        wrapper.chain(new KnownEndpointExistsStep(context, endpointAccess, result, targetPlan,
+            probeWork, Math.max(0, pattern.numOfEdges * EdgeFanOutEstimator.defaultFanOut()),
+            limit, skip, detachedReturnNeedsFullInput(context), enableProfiling));
+        // This call replaces the current root only as its final operation. Publish last so a
+        // preparation failure keeps the complete current plan without an alternative boundary.
+        prepareEndpointSource(result, endpointAccess, false, context, enableProfiling);
+        result = wrapper;
+      } catch (RuntimeException failure) {
+        KnownEndpointExistsStep.discardAttempt(targetPlan, failure, session, endpointTxWasActive);
+      }
+    }
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -934,6 +984,27 @@ public class MatchExecutionPlanner {
     }
 
     return result;
+  }
+
+  private static void prepareEndpointSource(SelectExecutionPlan plan,
+      KnownEndpointExistsAccess access, boolean candidates, CommandContext context,
+      boolean profilingEnabled) {
+    var root = (MatchFirstStep) plan.getSteps().getFirst();
+    var scan = (SelectExecutionPlan) root.getSourcePlan();
+    var fetch = (ExecutionStepInternal) scan.getSteps().getFirst();
+    var replacement = new SelectExecutionPlan(scan.getContext());
+    replacement.chain(new KnownEndpointSourceStep(scan.getContext(), access.sourceClass,
+        candidates ? null : fetch, profilingEnabled));
+    if (candidates) {
+      // A class scan supplied this constraint implicitly. Never replace it with a schema proof.
+      replacement.chain(new FilterByClassStep(new SQLIdentifier(access.sourceClass),
+          scan.getContext(), profilingEnabled));
+    }
+    for (var step : scan.getSteps().subList(1, scan.getSteps().size())) {
+      replacement.chain((ExecutionStepInternal) ((ExecutionStepInternal) step)
+          .copy(scan.getContext()));
+    }
+    plan.replaceFirstStep(root.withSourcePlan(replacement, context));
   }
 
   /**

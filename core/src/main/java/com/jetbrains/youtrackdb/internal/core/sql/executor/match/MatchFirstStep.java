@@ -217,8 +217,17 @@ public class MatchFirstStep extends AbstractExecutionStep {
     return result.toString();
   }
 
-  private String getAlias() {
+  String getAlias() {
     return this.node.alias;
+  }
+
+  InternalExecutionPlan getSourcePlan() {
+    return executionPlan;
+  }
+
+  MatchFirstStep withSourcePlan(InternalExecutionPlan sourcePlan, CommandContext context) {
+    // A candidate source has scan order, not an index order requested by the query.
+    return new MatchFirstStep(context, node.copy(), sourcePlan, false, profilingEnabled);
   }
 
   @Override
