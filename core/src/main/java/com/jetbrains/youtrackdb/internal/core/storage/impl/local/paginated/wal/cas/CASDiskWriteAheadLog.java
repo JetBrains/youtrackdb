@@ -34,8 +34,11 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
@@ -44,6 +47,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -122,6 +128,10 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   private final AtomicReference<LogSequenceNumber> end = new AtomicReference<>();
   private final ConcurrentSkipListSet<Long> segments = new ConcurrentSkipListSet<>();
+  private final PreOpenExtent preOpenExtent;
+  private final Map<Long, Path> preOpenSegmentPaths = new TreeMap<>();
+  private final TreeSet<Long> ambiguousPreOpenSegments = new TreeSet<>();
+  private final TreeMap<Long, IOException> preOpenCaptureFailures = new TreeMap<>();
 
   private final Path walLocation;
   private final String storageName;
@@ -273,7 +283,12 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     this.maxCacheSize =
         multiplyIntsWithOverflowDefault(maxPagesCacheSize, pageSize, DEFAULT_MAX_CACHE_SIZE);
 
-    logSize.set(initSegmentSet(filterWALFiles, locale));
+    // Proof bounds come from the canonical recovery paths, before this open writes. Capture
+    // failures only invalidate proof reading, never filename admission or constructor opening.
+    var originalSegments = new TreeMap<Long, SegmentExtent>();
+    logSize.set(initSegmentSet(filterWALFiles, locale, originalSegments));
+    captureProofExtents(originalSegments);
+    preOpenExtent = new PreOpenExtent(new ArrayList<>(originalSegments.values()));
 
     final long nextSegmentId;
 
@@ -336,8 +351,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return (int) maxCacheSize;
   }
 
-  private long initSegmentSet(final boolean filterWALFiles, final Locale locale)
-      throws IOException {
+  private long initSegmentSet(final boolean filterWALFiles, final Locale locale,
+      Map<Long, SegmentExtent> originalSegments) throws IOException {
     final Stream<Path> walFiles;
 
     final var walSize = new ModifiableLong();
@@ -359,14 +374,46 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     try {
       walFiles.forEach(
           (Path path) -> {
-            segments.add(extractSegmentId(path.getFileName().toString()));
-            walSize.increment(path.toFile().length());
+            long segment = extractSegmentId(path.getFileName().toString());
+            long bytes = path.toFile().length();
+            segments.add(segment);
+            walSize.increment(bytes);
+            // Keep admission and size accounting enumeration-based. Duplicate IDs invalidate
+            // proofs even when canonical lookup resolves one of the admitted paths.
+            if (originalSegments.putIfAbsent(segment, new SegmentExtent(segment, 0)) != null) {
+              ambiguousPreOpenSegments.add(segment);
+            }
           });
     } finally {
       walFiles.close();
     }
 
     return walSize.value;
+  }
+
+  private void captureProofExtents(Map<Long, SegmentExtent> originalSegments) {
+    for (long segment : originalSegments.keySet()) {
+      var path = walLocation.resolve(getSegmentName(segment));
+      preOpenSegmentPaths.put(segment, path);
+      // Follow canonical links without opening files, which could block on an admitted FIFO.
+      // Failed captures keep the ID with a zero bound and cannot be repaired by a later file.
+      long bytes;
+      try {
+        var attributes = Files.readAttributes(path, BasicFileAttributes.class);
+        if (!attributes.isRegularFile()) {
+          throw new IOException("WAL proof segment " + segment + " is not a regular file: " + path);
+        }
+        bytes = attributes.size();
+      } catch (IOException failure) {
+        preOpenCaptureFailures.put(segment, failure);
+        continue;
+      } catch (java.lang.SecurityException failure) {
+        preOpenCaptureFailures.put(segment,
+            new IOException("Cannot capture WAL proof extent: " + path, failure));
+        continue;
+      }
+      originalSegments.put(segment, new SegmentExtent(segment, bytes));
+    }
   }
 
   private static long extractSegmentId(final String name) {
@@ -547,6 +594,331 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   long size() {
     return logSize.get();
+  }
+
+  @Override
+  public PreOpenExtent preOpenExtent() {
+    return preOpenExtent;
+  }
+
+  @Override
+  public ProofReader openProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+    if (maxRecordBytes < 10) {
+      throw new IllegalArgumentException("Record bound must allow WAL metadata");
+    }
+    return new DiskProofReader(coverage, maxRecordBytes);
+  }
+
+  private final class DiskProofReader implements ProofReader {
+    private final int maxRecordBytes;
+    private final ByteBuffer page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
+    private final byte[] lengthBytes = new byte[IntegerSerializer.INT_SIZE];
+    private final int firstSegment;
+    private int segmentIndex;
+    private long nextPage;
+    private int initialOffset;
+    private boolean seenRecord;
+    private ProofStatus status = ProofStatus.MORE;
+    private LogSequenceNumber stop;
+    private boolean readablePageFollows;
+    private boolean brokenPage;
+    private boolean decoding;
+    private IOException error;
+
+    private DiskProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+      this.maxRecordBytes = maxRecordBytes;
+      stop = coverage;
+      var inventory = preOpenExtent.segments();
+      while (segmentIndex < inventory.size()
+          && inventory.get(segmentIndex).segment() < coverage.getSegment()) {
+        segmentIndex++;
+      }
+      firstSegment = segmentIndex;
+      page.limit(0);
+      // Reject an ambiguous inventory before emitting any records, regardless of enumeration
+      // order or coverage. Constructor admission and the legacy canonical-path reader stay intact.
+      if (!ambiguousPreOpenSegments.isEmpty()) {
+        long segment = ambiguousPreOpenSegments.first();
+        status = ProofStatus.IO_ERROR;
+        stop = new LogSequenceNumber(segment, CASWALPage.RECORDS_OFFSET);
+        error = new IOException("Multiple WAL paths map to segment " + segment);
+        return;
+      }
+      // Recovery starts at begin(), so even a failed capture below coverage blocks proof.
+      // Check immutable failures before reading. A late canonical file cannot repair them.
+      if (!preOpenCaptureFailures.isEmpty()) {
+        var failure = preOpenCaptureFailures.firstEntry();
+        error = failure.getValue();
+        status = error instanceof NoSuchFileException
+            ? ProofStatus.MISSING_SEGMENT : ProofStatus.IO_ERROR;
+        stop = new LogSequenceNumber(failure.getKey(), CASWALPage.RECORDS_OFFSET);
+        return;
+      }
+      if (segmentIndex == inventory.size()
+          || inventory.get(segmentIndex).segment() != coverage.getSegment()) {
+        status = ProofStatus.COVERAGE_NOT_RETAINED;
+        return;
+      }
+      // Neither the directory nor WAL records certify intentional moveLsnAfter gaps. Reject an
+      // unexplained numeric hole, even if it was already absent from the inventory at open.
+      for (int i = segmentIndex + 1; i < inventory.size(); i++) {
+        if (inventory.get(i).segment() != inventory.get(i - 1).segment() + 1) {
+          status = ProofStatus.MISSING_SEGMENT;
+          stop = new LogSequenceNumber(inventory.get(i - 1).segment() + 1,
+              CASWALPage.RECORDS_OFFSET);
+          return;
+        }
+      }
+      nextPage = coverage.getPosition() / pageSize;
+      initialOffset = coverage.getPosition() % pageSize;
+      if (coverage.getPosition() < CASWALPage.RECORDS_OFFSET
+          || (inventory.get(segmentIndex).bytes() != 0
+              && coverage.getPosition() >= inventory.get(segmentIndex).bytes())
+          || initialOffset < CASWALPage.RECORDS_OFFSET) {
+        status = ProofStatus.COVERAGE_NOT_RETAINED;
+      }
+    }
+
+    @Override
+    public ProofBatch next(int maxRecords) {
+      if (maxRecords <= 0) {
+        throw new IllegalArgumentException("Batch record bound must be positive");
+      }
+      try {
+        return readBatch(maxRecords);
+      } catch (RuntimeException | Error failure) {
+        // A failed batch may already have advanced its cursor. Latch before propagating so no
+        // later call can turn that failure into an end proof, including encryption admission.
+        status = decoding ? ProofStatus.INVALID_RECORD : ProofStatus.IO_ERROR;
+        if (!decoding) {
+          error = new IOException("WAL proof batch failed", failure);
+        }
+        throw failure;
+      }
+    }
+
+    private ProofBatch readBatch(int maxRecords) {
+      if (status != ProofStatus.MORE) {
+        return new ProofBatch(List.of(), status, stop, readablePageFollows, error);
+      }
+      List<WriteableWALRecord> result = List.of();
+      // Channels are batch-scoped because ProofReader has no close contract. All pages in a
+      // segment share one channel within a batch, including broken-page lookahead. No abandoned
+      // reader can retain a descriptor between calls.
+      try (var channels = new ProofChannels()) {
+        result = new ArrayList<>();
+        while (status == ProofStatus.MORE && result.size() < maxRecords
+            && ensurePage(false, channels)) {
+          var recordLsn = new LogSequenceNumber(currentSegmentExtent().segment(),
+              (int) ((nextPage - 1) * pageSize + page.position()));
+          stop = recordLsn;
+          if (!copyRecordBytes(lengthBytes, channels)) {
+            break;
+          }
+          int length = IntegerSerializer.deserializeNative(lengthBytes, 0);
+          if (length == 0) {
+            page.position(page.limit());
+            continue;
+          }
+          if (length < 6) {
+            status = ProofStatus.INVALID_RECORD;
+            break;
+          }
+          if (length > maxRecordBytes) {
+            status = ProofStatus.RECORD_TOO_LARGE;
+            break;
+          }
+          var content = new byte[length];
+          if (!copyRecordBytes(content, channels)) {
+            break;
+          }
+          // The factory allocates the expanded content for compressed records. Check its bound
+          // before deserializing, as the compressed length alone does not bound memory use.
+          var metadata = ByteBuffer.wrap(content).order(ByteOrder.nativeOrder());
+          if (metadata.getShort(0) < 0) {
+            if (length < 10 || metadata.getInt(6) < 6) {
+              status = ProofStatus.INVALID_RECORD;
+              break;
+            }
+            if (metadata.getInt(6) > maxRecordBytes) {
+              status = ProofStatus.RECORD_TOO_LARGE;
+              break;
+            }
+          }
+          try {
+            decoding = true;
+            var record = WALRecordsFactory.INSTANCE.fromStream(content);
+            record.setLsn(recordLsn);
+            result.add(record);
+            seenRecord = true;
+          } catch (RuntimeException malformedRecord) {
+            status = ProofStatus.INVALID_RECORD;
+          }
+          decoding = false;
+        }
+        if (brokenPage) {
+          findReadablePageAfter(channels);
+        }
+        if (status == ProofStatus.REACHED_END || brokenPage) {
+          // Also catch unlink of a segment already consumed, including POSIX open-file unlink.
+          for (int i = firstSegment; i < preOpenExtent.segments().size(); i++) {
+            var segment = preOpenExtent.segments().get(i);
+            try {
+              if (Files.size(preOpenSegmentPaths.get(segment.segment())) < segment.bytes()) {
+                throw new IOException(
+                    "WAL segment shrank after extent capture: " + segment.segment());
+              }
+            } catch (IOException failure) {
+              stop = new LogSequenceNumber(segment.segment(), CASWALPage.RECORDS_OFFSET);
+              throw failure;
+            }
+          }
+        }
+        // BROKEN_PAGE certifies completed lookahead, never a partially checked suffix.
+        if (brokenPage) {
+          status = ProofStatus.BROKEN_PAGE;
+        }
+      } catch (NoSuchFileException vanished) {
+        status = ProofStatus.SEGMENT_VANISHED;
+        error = vanished;
+      } catch (IOException failure) {
+        status = ProofStatus.IO_ERROR;
+        error = failure;
+      }
+      return new ProofBatch(result, status, stop, readablePageFollows, error);
+    }
+
+    private SegmentExtent currentSegmentExtent() {
+      return preOpenExtent.segments().get(segmentIndex);
+    }
+
+    private boolean ensurePage(boolean insideRecord, ProofChannels channels) throws IOException {
+      while (!page.hasRemaining()) {
+        var segment = currentSegmentExtent();
+        if (segment.bytes() == 0) {
+          stop = new LogSequenceNumber(segment.segment(), 0);
+          channels.open(segment);
+          brokenPage = true;
+          return false;
+        }
+        if (nextPage * pageSize >= segment.bytes()) {
+          if (insideRecord || !seenRecord) {
+            status = ProofStatus.INCOMPLETE_RECORD;
+            return false;
+          }
+          stop = new LogSequenceNumber(segment.segment(), (int) segment.bytes());
+          segmentIndex++;
+          if (segmentIndex == preOpenExtent.segments().size()) {
+            status = ProofStatus.REACHED_END;
+            return false;
+          }
+          nextPage = 0;
+          initialOffset = CASWALPage.RECORDS_OFFSET;
+          continue;
+        }
+        long pageIndex = nextPage++;
+        if (readProofPage(segment, pageIndex, channels)) {
+          brokenPage = true;
+          stop = new LogSequenceNumber(segment.segment(), (int) (pageIndex * pageSize));
+          return false;
+        }
+        if (initialOffset > page.limit()) {
+          status = ProofStatus.INVALID_RECORD;
+          return false;
+        }
+        page.position(initialOffset);
+        initialOffset = CASWALPage.RECORDS_OFFSET;
+      }
+      return true;
+    }
+
+    private boolean copyRecordBytes(byte[] target, ProofChannels channels) throws IOException {
+      int copied = 0;
+      while (copied < target.length) {
+        if (!ensurePage(true, channels)) {
+          return false;
+        }
+        int count = Math.min(target.length - copied, page.remaining());
+        page.get(target, copied, count);
+        copied += count;
+      }
+      return true;
+    }
+
+    private boolean readProofPage(SegmentExtent segment, long pageIndex, ProofChannels channels)
+        throws IOException {
+      var path = preOpenSegmentPaths.get(segment.segment());
+      try {
+        var file = channels.open(segment);
+        page.clear();
+        page.limit((int) Math.min(pageSize, segment.bytes() - pageIndex * pageSize));
+        while (page.hasRemaining()) {
+          if (file.read(page, pageIndex * pageSize + page.position()) < 0) {
+            throw new IOException("WAL page disappeared during read: " + path);
+          }
+        }
+        int physicalBytes = page.position();
+        // The writer persists full pages. Reject a torn physical page before full-page decrypt
+        // can overflow its limit or a checksum can borrow stale bytes from the reusable buffer.
+        if (physicalBytes < pageSize) {
+          return true;
+        }
+        try {
+          return checkPageIsBrokenAndDecrypt(page, segment.segment(), pageIndex, pageSize);
+        } catch (IllegalArgumentException malformedPage) {
+          // Only a decoded logical size below the header can cause this buffer-position error.
+          // Decrypt configuration errors leave the full-page limit intact and must propagate.
+          if (page.limit() < CASWALPage.RECORDS_OFFSET) {
+            return true;
+          }
+          throw malformedPage;
+        }
+      } catch (IOException failure) {
+        stop = new LogSequenceNumber(segment.segment(), (int) (pageIndex * pageSize));
+        throw failure;
+      }
+    }
+
+    private void findReadablePageAfter(ProofChannels channels) throws IOException {
+      var inventory = preOpenExtent.segments();
+      for (int i = segmentIndex; i < inventory.size(); i++) {
+        var segment = inventory.get(i);
+        for (long p = i == segmentIndex ? nextPage : 0; p * pageSize < segment.bytes(); p++) {
+          if (!readProofPage(segment, p, channels)) {
+            readablePageFollows = true;
+            return;
+          }
+        }
+      }
+    }
+
+    private final class ProofChannels implements AutoCloseable {
+      private FileChannel file;
+      private long segmentId = -1;
+
+      private FileChannel open(SegmentExtent segment) throws IOException {
+        if (segmentId != segment.segment()) {
+          close();
+          var path = preOpenSegmentPaths.get(segment.segment());
+          file = FileChannel.open(path, StandardOpenOption.READ);
+          if (file.size() < segment.bytes()) {
+            throw new IOException("WAL segment shrank after extent capture: " + path);
+          }
+          segmentId = segment.segment();
+        }
+        return file;
+      }
+
+      @Override
+      public void close() throws IOException {
+        if (file != null) {
+          var closing = file;
+          file = null;
+          segmentId = -1;
+          closing.close();
+        }
+      }
+    }
   }
 
   private List<WriteableWALRecord> readFromDisk(final LogSequenceNumber lsn, final int limit)

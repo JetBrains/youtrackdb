@@ -87,6 +87,17 @@ public class MemoryWriteAheadLog extends AbstractWriteAheadLog {
   }
 
   @Override
+  public PreOpenExtent preOpenExtent() {
+    return new PreOpenExtent(List.of());
+  }
+
+  @Override
+  public ProofReader openProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+    // Memory storage retains no records across opens, so it cannot prove persistent coverage.
+    return maxRecords -> new ProofBatch(List.of(), ProofStatus.UNAVAILABLE, null, false, null);
+  }
+
+  @Override
   public LogSequenceNumber getFlushedLsn() {
     throw new UnsupportedOperationException("Operation not supported for in memory storage.");
   }
