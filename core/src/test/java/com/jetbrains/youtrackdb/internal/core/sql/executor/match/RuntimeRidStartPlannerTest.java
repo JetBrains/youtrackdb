@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -10,9 +11,16 @@ import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStartTestFactory;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.EmptyStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
@@ -21,11 +29,19 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
+import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -100,6 +116,320 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     var checks = parse(check).getMatchExpressions();
     return new MatchExecutionPlanner(inputs(positive, classes, runtime, checks))
         .createExecutionPlan(context, false, false);
+  }
+
+  /**
+   * Six real sessions overlap BackRef fallback copies opened by the boundary. Distinct RID and
+   * indexed-name bindings must survive lazy clone, unchanged-data reset, close and fresh reopen.
+   */
+  @Test
+  public void sharedRuntimeTemplateRunsIndependentCopiesAcrossManySessions() throws Exception {
+    session.createVertexClass("StartPerson");
+    session.createVertexClass("TargetPerson");
+    session.createEdgeClass("Knows");
+    session.createEdgeClass("Back");
+    session.execute("CREATE PROPERTY StartPerson.name STRING").close();
+    session.execute("CREATE INDEX StartPerson.name ON StartPerson(name) NOTUNIQUE").close();
+    session.begin();
+    var starts = IntStream.range(0, 6).mapToObj(index -> {
+      var start = session.newVertex("StartPerson");
+      start.setProperty("name", "color" + index);
+      return start;
+    }).toList();
+    var rids = new ArrayList<RID>();
+    for (int i = 0; i < starts.size(); i++) {
+      var start = starts.get(i);
+      rids.add(start.getIdentity());
+      for (int neighbor = 0; neighbor < 2; neighbor++) {
+        var target = session.newVertex("TargetPerson");
+        target.setProperty("name", "target" + i + "-" + neighbor);
+        start.addEdge(target, "Knows");
+        // Every candidate has six back links. The parameterized prefilter keeps only this start.
+        for (var back : starts) {
+          target.addEdge(back, "Back");
+        }
+      }
+    }
+    session.commit();
+    assertThat(rids).doesNotHaveDuplicates();
+    var query = "MATCH {as:s}.out('Knows'){as:p}.out('Back')"
+        + "{as:r, where:(@rid = $matched.s.@rid AND name = :color)}"
+        + " RETURN p.name AS neighbor, r.name AS name";
+    var planning = new BasicCommandContext(session);
+    planning.setInputParameters(Map.of("color", "color0"));
+    var built = new MatchExecutionPlanner(inputs(query,
+        Map.of("s", "StartPerson", "p", "TargetPerson", "r", "StartPerson"), true))
+        .createExecutionPlan(planning, false, false);
+    assertThat(built.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
+    var templateContext = new BasicCommandContext(session);
+    var template = built.copy(templateContext);
+    built.close();
+    template.close();
+    var templateEdge = backRefFallback(template);
+    var descriptor = templateEdge.getIntersectionDescriptor();
+    var indexFilter = descriptor instanceof RidFilterDescriptor.Composite composite
+        ? composite.findIndexLookup() : (RidFilterDescriptor.IndexLookup) descriptor;
+    assertThat(indexFilter).isNotNull();
+    // Isolate the index's structural cache key from the correlated RID lookup. The AST still
+    // enforces both predicates. Force eager materialization through the real fallback traversal.
+    templateEdge.setIntersectionDescriptor(indexFilter);
+    templateEdge.setForecastN(1_000_000);
+    templateEdge.setRootSourceRows(EdgeTraversal.MIN_FOR_CLT);
+    assertUnusedPrefilter(templateEdge);
+    var barrier = new CyclicBarrier(6);
+    var seeded = IntStream.range(0, 3).mapToObj(round -> new CountDownLatch(1)).toList();
+    var workers = Executors.newFixedThreadPool(6);
+    try (var threshold = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 1);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 1);
+        var ratio = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO, 100.0)) {
+      var futures = new ArrayList<java.util.concurrent.Future<?>>();
+      var sessions = java.util.concurrent.ConcurrentHashMap.<DatabaseSessionEmbedded>newKeySet();
+      try {
+        for (int i = 0; i < 6; i++) {
+          final int workerIndex = i;
+          futures.add(workers.submit(() -> {
+            try (var worker = openDatabase()) {
+              assertThat(sessions.add(worker)).isTrue();
+              worker.begin();
+              // Only the graph/session admission adapter is mocked. Copies and execution are real.
+              var graph = mock(YTDBGraphInternal.class);
+              var tx = mock(YTDBTransaction.class);
+              when(graph.tx()).thenReturn(tx);
+              when(tx.getDatabaseSession()).thenReturn(worker);
+              var traversal = new DefaultTraversal<Object, Vertex>(graph);
+              for (int round = 0; round < 3; round++) {
+                int selected = (workerIndex + round) % 6;
+                var parameters = Map.<Object, Object>of(0, rids.get(selected),
+                    "color", "color" + selected);
+                var boundary = new YTDBMatchPlanStep<>(traversal, Vertex.class, template, "s",
+                    BoundaryOutputType.MAP, parameters, ResultShaping.NONE, true);
+                var clone = boundary.clone();
+                clone.setTraversal(traversal);
+                assertThat(boundary.getPlan()).isSameAs(template);
+                assertThat(clone.getPlan()).isSameAs(template);
+                EdgeTraversal boundaryEdge = null;
+                try {
+                  for (var step : List.of(boundary, clone)) {
+                    InternalExecutionPlan previous = null;
+                    EdgeTraversal previousEdge = null;
+                    for (int pass = 0; pass < 3; pass++) {
+                      if (pass > 0) {
+                        step.reset(); // Same bindings and unchanged data.
+                      }
+                      barrier.await(30, TimeUnit.SECONDS);
+                      if (step == boundary && pass == 0 && workerIndex != 0) {
+                        assertThat(seeded.get(round).await(30, TimeUnit.SECONDS)).isTrue();
+                      }
+                      // hasNext opens a copy and fetches its first row without draining the stream.
+                      assertThat(step.hasNext()).as("first fallback row for color%d", selected)
+                          .isTrue();
+                      if (step == boundary && pass == 0 && workerIndex == 0) {
+                        // Deterministic warmup: a shared edge would retain the seeding session's
+                        // RID set for the other five bindings while this execution stays open.
+                        seeded.get(round).countDown();
+                      }
+                      var copy = step.getPlan();
+                      var context = copy.getContext();
+                      assertThat(copy).isNotSameAs(template);
+                      assertThat(context.getParent()).isNull();
+                      assertThat(context.getDatabaseSession()).isSameAs(worker);
+                      assertThat(context.getInputParameters()).isEqualTo(parameters);
+                      var edge = backRefFallback(copy);
+                      if (pass == 1) {
+                        assertThat(copy).isSameAs(previous);
+                        assertThat(edge).isSameAs(previousEdge);
+                      } else {
+                        if (pass == 2) {
+                          assertThat(copy).isNotSameAs(previous);
+                          assertThat(edge).isNotSameAs(previousEdge);
+                        }
+                        // One application before the first row proves fresh counters on each copy.
+                        assertThat(edge.getPreFilterAppliedCount()).isEqualTo(1);
+                      }
+                      if (step == clone) {
+                        assertThat(edge).isNotSameAs(boundaryEdge);
+                      }
+                      assertThat(edge.getMode()).isEqualTo(EdgeTraversal.Mode.BUILD_EAGER);
+                      var accepted = edge.resolveWithCache(context, 6);
+                      assertThat(accepted).isNotNull();
+                      assertThat(accepted.size()).isEqualTo(1);
+                      assertThat(accepted.contains(rids.get(selected))).isTrue();
+                      // All six copies now have an open stream and a buffered first row. No worker
+                      // can drain its remaining row before every session reaches this barrier.
+                      barrier.await(30, TimeUnit.SECONDS);
+                      var rows = new ArrayList<Object>();
+                      while (step.hasNext()) {
+                        rows.add(((org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin<
+                            ?>) step.next()).get());
+                      }
+                      assertThat(rows).containsExactlyInAnyOrder(
+                          Map.of("neighbor", "target" + selected + "-0", "name",
+                              "color" + selected),
+                          Map.of("neighbor", "target" + selected + "-1", "name",
+                              "color" + selected));
+                      // Only nested-loop fallback updates these edge counters. A hash hit cannot.
+                      assertThat(edge.getPreFilterAppliedCount()).isEqualTo(pass == 1 ? 4 : 2);
+                      assertThat(edge.getPreFilterRidSetSize()).isEqualTo(1);
+                      previous = copy;
+                      previousEdge = edge;
+                      if (step == boundary) {
+                        boundaryEdge = edge;
+                      }
+                      if (pass == 1) {
+                        step.close();
+                      }
+                    }
+                    step.close();
+                  }
+                } finally {
+                  boundary.close();
+                  clone.close();
+                }
+              }
+              worker.rollback();
+            } catch (Exception e) {
+              throw new AssertionError(e);
+            }
+          }));
+        }
+        // Observe a non-seeding worker first so a missing-row failure is not hidden by warmup waits.
+        for (int i = 1; i <= 6; i++) {
+          futures.get(i % 6).get(120, TimeUnit.SECONDS);
+        }
+        assertThat(sessions).hasSize(6);
+      } finally {
+        workers.shutdownNow();
+        assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        session.activateOnCurrentThread();
+      }
+    }
+    assertUnusedPrefilter(templateEdge);
+    assertThat(templateContext.getParent()).isNull();
+    assertThat(templateContext.hasLocalVariableKeys()).isFalse();
+    assertThat(templateContext.getInputParameters()).isNull();
+  }
+
+  private static EdgeTraversal backRefFallback(InternalExecutionPlan plan) throws Exception {
+    var join = plan.getSteps().stream().filter(BackRefHashJoinStep.class::isInstance)
+        .findFirst().orElseThrow();
+    var field = BackRefHashJoinStep.class.getDeclaredField("fallbackEdge");
+    field.setAccessible(true);
+    return (EdgeTraversal) field.get(join);
+  }
+
+  private static void assertUnusedPrefilter(EdgeTraversal edge) throws Exception {
+    for (String name : List.of("cache", "cachedSkipReasons")) {
+      var field = EdgeTraversal.class.getDeclaredField(name);
+      field.setAccessible(true);
+      assertThat(field.get(edge)).as("unused template %s", name).isNull();
+    }
+    assertThat(edge.getMode()).isEqualTo(EdgeTraversal.Mode.UNDETERMINED);
+    assertThat(edge.getIndexLookupSelectivity()).isNaN();
+    assertThat(edge.getCachedEffectiveness()).isNull();
+    assertThat(edge.getPreFilterAppliedCount()).isZero();
+    assertThat(edge.getPreFilterSkippedCount()).isZero();
+    assertThat(edge.getPreFilterTotalProbed()).isZero();
+    assertThat(edge.getPreFilterTotalFiltered()).isZero();
+    assertThat(edge.getPreFilterBuildTimeNanos()).isZero();
+    assertThat(edge.getPreFilterRidSetSize()).isZero();
+    assertThat(edge.getLastSkipReason()).isEqualTo(PreFilterSkipReason.NONE);
+  }
+
+  /** Forced BackRef fallback materializes a real parameterized index prefilter independently per copy. */
+  @Test
+  public void fallbackCopiesDoNotReuseAnotherIndexedParameterValue() throws Exception {
+    session.createVertexClass("StartPerson");
+    session.createVertexClass("TargetPerson");
+    session.createEdgeClass("Knows");
+    session.createEdgeClass("Back");
+    session.execute("CREATE PROPERTY StartPerson.name STRING").close();
+    session.execute("CREATE INDEX StartPerson.name ON StartPerson(name) NOTUNIQUE").close();
+    session.begin();
+    for (String color : List.of("red", "blue")) {
+      var start = session.newVertex("StartPerson");
+      start.setProperty("name", color);
+      for (int i = 0; i < 2; i++) {
+        var target = session.newVertex("TargetPerson");
+        start.addEdge(target, "Knows");
+        target.addEdge(start, "Back");
+      }
+    }
+    session.commit();
+    var query = "MATCH {as:s}.out('Knows'){as:p}.out('Back')"
+        + "{as:r, where:(@rid = $matched.s.@rid AND name = :color)} RETURN r.name AS name";
+    var planning = new BasicCommandContext(session);
+    planning.setInputParameters(Map.of("color", "red"));
+    var template = new MatchExecutionPlanner(inputs(query,
+        Map.of("s", "StartPerson", "p", "TargetPerson", "r", "StartPerson"), true))
+        .createExecutionPlan(planning, false, false);
+    var join = template.getSteps().stream().filter(BackRefHashJoinStep.class::isInstance)
+        .findFirst().orElseThrow();
+    var field = BackRefHashJoinStep.class.getDeclaredField("fallbackEdge");
+    field.setAccessible(true);
+    var templateEdge = (EdgeTraversal) field.get(join);
+    var descriptor = templateEdge.getIntersectionDescriptor();
+    var index = descriptor instanceof RidFilterDescriptor.Composite composite
+        ? composite.findIndexLookup() : (RidFilterDescriptor.IndexLookup) descriptor;
+    assertThat(index).isNotNull();
+    // Isolate the index's structural cache key from the correlated RID lookup.
+    templateEdge.setIntersectionDescriptor(index);
+    template.close();
+    try (var threshold = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 1);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 1);
+        var ratio = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO, 100.0)) {
+      session.begin();
+      for (String color : List.of("red", "blue")) {
+        var rid = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = ?", color)
+            .toList().getFirst().getProperty("rid");
+        var context = new BasicCommandContext(session);
+        context.setInputParameters(Map.of(0, rid, "color", color));
+        var copy = template.copy(context);
+        var copiedJoin = copy.getSteps().stream().filter(BackRefHashJoinStep.class::isInstance)
+            .findFirst().orElseThrow();
+        var edge = (EdgeTraversal) field.get(copiedJoin);
+        // Force index materialization even when the fixture's tiny adjacency defers amortization.
+        assertThat(edge.resolveWithCache(context, 1_000_000)).isNotNull();
+        var stream = copy.start();
+        try {
+          var rows = stream.stream(context).toList();
+          assertThat(rows).hasSize(2);
+          assertThat(rows)
+              .allSatisfy(row -> assertThat(row.<String>getProperty("name")).isEqualTo(color));
+          assertThat(edge.getPreFilterAppliedCount()).isGreaterThan(0);
+        } finally {
+          stream.close(context);
+          copy.close();
+        }
+      }
+      session.rollback();
+    }
+    assertThat(templateEdge.getPreFilterAppliedCount()).isZero();
+  }
+
+  /** Sort plan text resolves bound limits from the copy, not the template's construction bindings. */
+  @Test
+  public void sortPlanTextUsesCopiedConstructionContextForDisplayedBufferLimit() {
+    backReferenceFixture();
+    var planning = new BasicCommandContext(session);
+    planning.setInputParameters(Map.of("limit", 3));
+    var template = new MatchExecutionPlanner(inputs("MATCH {as:s}.out('Knows'){as:t}"
+        + " RETURN t.name AS name ORDER BY name LIMIT :limit",
+        Map.of("s", "StartPerson", "t", "TargetPerson"), true))
+        .createExecutionPlan(planning, false, false);
+    var context = new BasicCommandContext(session);
+    context.setInputParameters(Map.of("limit", 7));
+    var copy = template.copy(context);
+    assertThat(copy.prettyPrint(0, 2)).contains("buffer size: 7");
+    context.setInputParameters(Map.of("limit", 11));
+    assertThat(copy.prettyPrint(0, 2)).contains("buffer size: 11");
+    copy.close();
+    template.close();
   }
 
   private static final String WALK = "MATCH {as:s}.out('Knows'){as:t} RETURN $elements";
@@ -540,7 +870,8 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
 
   /** A correlated optional join preserves both neighbors and binds null for the missing link. */
   @Test
-  public void correlatedOptionalHashJoinKeepsRuntimeSourceAndPreservesUnmatchedNeighbor() {
+  public void correlatedOptionalHashJoinKeepsRuntimeSourceAndPreservesUnmatchedNeighbor()
+      throws Exception {
     var rid = backReferenceFixture();
     var built = plan("MATCH {as:s}.out('Knows'){as:p}"
         + ".out('Back'){as:r, where:(@rid = $matched.s.@rid), optional:true}"
@@ -548,6 +879,14 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
         Map.of("s", "StartPerson", "p", "TargetPerson", "r", "StartPerson"), true);
     assertThat(built.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
     assertThat(built.getSteps()).anyMatch(CorrelatedOptionalHashJoinStep.class::isInstance);
+    var optional = (CorrelatedOptionalHashJoinStep) built.getSteps().stream()
+        .filter(CorrelatedOptionalHashJoinStep.class::isInstance).findFirst().orElseThrow();
+    var copiedOptional = (CorrelatedOptionalHashJoinStep) optional.copy(
+        new BasicCommandContext(session));
+    var neighborCache = CorrelatedOptionalHashJoinStep.class.getDeclaredField("neighborCache");
+    neighborCache.setAccessible(true);
+    assertThat(neighborCache.get(copiedOptional)).isNotSameAs(neighborCache.get(optional));
+    copiedOptional.close();
     assertThat(built.prettyPrint(0, 2)).contains("CORRELATED OPTIONAL HASH JOIN")
         .doesNotContain("PREFETCH").doesNotContain("FETCH FROM CLASS StartPerson");
     var ctx = built.getContext();

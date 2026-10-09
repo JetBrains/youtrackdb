@@ -366,6 +366,14 @@ public class BasicCommandContext implements CommandContext {
   }
 
   /**
+   * Whether either local variable map contains a key, including a key with a null value.
+   * Parent and child contexts are not inspected.
+   */
+  public boolean hasLocalVariableKeys() {
+    return (variables != null && !variables.isEmpty()) || !systemVariables.isEmpty();
+  }
+
+  /**
    * Returns a read-only map with all the variables.
    */
   @Override
