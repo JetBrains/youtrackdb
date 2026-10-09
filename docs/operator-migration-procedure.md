@@ -143,7 +143,7 @@ resolve the cause in the source database and export again before retrying.
 
 | Dump | Outcome |
 |---|---|
-| Exporter version ≤ 14 (legacy dumps) | Imported through the legacy lenient path, unchanged — no manifest, section, or stream verification exists for these dumps |
+| Exporter version ≤ 14 (legacy dumps) | Imported through the legacy lenient path. These dumps have no manifest, section, or stream verification |
 | Exporter version 15 (current) | Imported under full structural validation: gzip framing mandatory, whole-stream verification, section presence and exporter order, manifest cross-check of parsed and committed records |
 | Exporter version ≥ 16 (newer binaries) | Rejected with a redirect naming both versions — import it with a release that supports that exporter version |
 | No / unparseable exporter version | Rejected (unverifiable input) |
@@ -155,7 +155,7 @@ resolve the cause in the source database and export again before retrying.
 | V15 dump with a record marked as internal, schema manager, or index manager | Rejected naming the record ID. Discard the target. Do not edit the dump. Export again from the source with the current exporter and import into a fresh target |
 | V15 dump with a schema class named exactly `___exportImportRIDMap` | Rejected naming the source class and reserved class. Discard the target. Drop this leftover helper class from the source database, then export again and import into a fresh target. Do not delete the class until its data is no longer needed |
 | V15 dump with a record in the reserved `___exportImportRIDMap` class | Rejected naming the record ID. Discard the target. Remove the leftover helper class from the source database after preserving any needed data. Export again and import into a fresh target |
-| V15 dump imported with `-migrateLinks=false` or `setMigrateLinks(false)` | Rejected after the info section, before target data is changed. Discard the target. Leave link migration enabled (the default) and import again into a fresh target |
+| Any dump configured with `-migrateLinks=false` or `-migrateLinks=true` | The importer always migrates links for every dump version. It rejects both options before the import starts. Remove the option from your import command or script |
 | V15 dump with a missing linked class | Rejected naming the property and missing class. Discard the target. Fix the schema in the source database, export again, and import into a fresh target |
 | V15 dump with a schema-apply or record-write error | Rejected naming the failed check. Schema errors name the class when the failure belongs to a class. Discard the target. Fix the named class in the source database, for example a missing superclass, and export again. If no class is named, use the error cause to find the schema problem. For record errors, fix the record named by its ID in the source database and export again. Import into a fresh target |
 | Dump truncated inside a section, damaged/dangling info fields | Rejected loudly, on every path and for every declared version |

@@ -119,7 +119,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private boolean deleteRIDMapping = true;
 
-  private boolean migrateLinks = true;
   private boolean rebuildIndexes = true;
 
   private final Set<String> indexesToRebuild = new HashSet<>();
@@ -272,6 +271,14 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   @Override
   public DatabaseImport setOptions(final String options) {
+    if (options != null) {
+      // Match DatabaseTool's option-name parsing before it reparses unquoted values.
+      // A quoted closing bracket is a valid token but fails that second parsing pass.
+      for (var token : StringSerializerHelper.smartSplit(options, ' ')) {
+        var separator = token.indexOf('=');
+        rejectMigrateLinksOption(separator == -1 ? token : token.substring(0, separator));
+      }
+    }
     super.setOptions(options);
     return this;
   }
@@ -281,12 +288,19 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
     importDatabase();
   }
 
+  private static void rejectMigrateLinksOption(final String option) {
+    if (option.equalsIgnoreCase("-migrateLinks")) {
+      throw new DatabaseImportException(
+          "The import option -migrateLinks is no longer supported."
+              + " The importer always migrates links.");
+    }
+  }
+
   @Override
   protected void parseSetting(final String option, final List<String> items) {
+    rejectMigrateLinksOption(option);
     if (option.equalsIgnoreCase("-deleteRIDMapping")) {
       deleteRIDMapping = Boolean.parseBoolean(items.getFirst());
-    } else if (option.equalsIgnoreCase("-migrateLinks")) {
-      migrateLinks = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-rebuildIndexes")) {
       rebuildIndexes = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-acceptBestEffortDump")) {
@@ -470,11 +484,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
               + " with a release supporting exporter version " + exporterVersion);
     }
     if (exporterVersion >= 15) {
-      if (!migrateLinks) {
-        throw new DatabaseImportException(
-            "Import rejected: a v15 dump requires link migration. Remove -migrateLinks=false"
-                + " or avoid setMigrateLinks(false)");
-      }
       // Q-M2(2): schema-version is MANDATORY in a v15 dump and must sit inside the
       // importable range; missing, malformed, or out-of-range — reject naming declared vs
       // supported. The declared-legacy path never reaches these arms (FM-M12).
@@ -731,15 +740,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         throw truncatedDump("its brokenRids section");
       }
     }
-    if (migrateLinks) {
-      if (exporterVersion >= 12) {
-        listener.onMessage(
-            brokenRids.size()
-                + " were detected as broken during database export, links on those records will be"
-                + " removed from result database");
-      }
-      migrateLinksInImportedDocuments(brokenRids);
-    }
+    listener.onMessage(
+        brokenRids.size()
+            + " were detected as broken during database export, links on those records will be"
+            + " removed from result database");
+    migrateLinksInImportedDocuments(brokenRids);
   }
 
   public void rebuildIndexes() {
@@ -785,16 +790,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
       validatedGzipStream = null;
     }
-  }
-
-  @SuppressWarnings("unused")
-  public boolean isMigrateLinks() {
-    return migrateLinks;
-  }
-
-  @SuppressWarnings("unused")
-  public void setMigrateLinks(boolean migrateLinks) {
-    this.migrateLinks = migrateLinks;
   }
 
   @SuppressWarnings("unused")
@@ -2255,7 +2250,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         """
 
 
-            Started migration of links (-migrateLinks=true). Links are going to be updated\
+            Started migration of links. Links are going to be updated\
              according to new RIDs:""");
 
     final var ridMapCollections =
