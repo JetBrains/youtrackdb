@@ -138,7 +138,7 @@ public class DirectMemoryOnlyDiskCacheTest {
     cache.flush(fileId);
     cache.close(fileId, true);
     cache.flush();
-    cache.syncDataFiles(0L);
+    cache.syncDataFiles();
     cache.flushTillSegment(0L);
     cache.changeMaximumAmountOfMemory(Long.MAX_VALUE);
     cache.recordOptimisticAccess(fileId, 0L);

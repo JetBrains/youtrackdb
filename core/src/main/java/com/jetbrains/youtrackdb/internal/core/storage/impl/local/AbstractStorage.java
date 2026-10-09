@@ -120,6 +120,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
@@ -1970,6 +1972,13 @@ public abstract class AbstractStorage
     return status == STATUS.CLOSED;
   }
 
+  /**
+   * Closes the session, or shuts down the storage when {@code force} is true.
+   *
+   * <p>Forced close waits for admitted commits and running fuzzy checkpoints or WAL vacuum that
+   * hold the storage state read lock. The caller must not hold the storage state lock in read or
+   * write mode, including an open commit window, because {@link ScalableRWLock} is non-reentrant.
+   */
   @Override
   public final void close(DatabaseSessionEmbedded database, final boolean force) {
     try {
@@ -1978,7 +1987,12 @@ public abstract class AbstractStorage
         return;
       }
 
-      doShutdown();
+      stateLock.writeLock().lock();
+      try {
+        doShutdown();
+      } finally {
+        stateLock.writeLock().unlock();
+      }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -7556,9 +7570,9 @@ public abstract class AbstractStorage
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
-      // Sample operation ownership first. A committing operation publishes its page
-      // requirements before WAL completion can remove operation-table protection. The following
-      // cache sample therefore observes either the old owner or the new owner.
+      // The anchor keeps WAL for operations that register after the table sample.
+      // Sample the table before the cache so a transfer of page ownership cannot escape both.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var minAtomicOperationSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
@@ -7579,6 +7593,9 @@ public abstract class AbstractStorage
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
       }
+      if (fuzzySegment > anchorSegment) {
+        fuzzySegment = anchorSegment;
+      }
 
       LogManager.instance()
           .debug(
@@ -7598,7 +7615,9 @@ public abstract class AbstractStorage
         }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
         saveMaintenanceFloorBeforeWalRemoval();
-        writeCache.syncDataFiles(fuzzySegment);
+        writeCache.syncDataFiles();
+        // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+        checkpointChangedPages(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
@@ -7793,6 +7812,8 @@ public abstract class AbstractStorage
 
       writeCache.flush();
 
+      // Read the anchor before either table check to retain WAL for later registrations.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestOperationInProgress();
       if (operationSegment >= 0) {
@@ -7802,8 +7823,8 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      // Operation protection is sampled before cache protection. Page publication happens
-      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      // Sample the table before the cache to cover page ownership transfers.
+      // The anchor also covers operations that register after these table checks.
       final var notPersistedSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
@@ -7820,7 +7841,10 @@ public abstract class AbstractStorage
       }
 
       if (protectedSegment >= 0) {
-        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
+        if (protectedSegment > anchorSegment) {
+          protectedSegment = anchorSegment;
+        }
+        checkpointChangedPages(protectedSegment);
         // Unresolved recovery requirements keep the dirty marker for the next open.
         LogManager.instance()
             .warn(
@@ -7828,8 +7852,12 @@ public abstract class AbstractStorage
                 "Storage %s keeps write ahead log starting from protected segment %d",
                 (Throwable) null, name, protectedSegment);
       } else {
-        writeAheadLog.cutTill(lastLSN);
-        clearStorageDirty();
+        // This record precedes the cache flush, so its segment cannot exceed the anchor.
+        final var result = checkpointChangedPages(lastLSN.getSegment());
+        // An unavailable preflight leaves recovery pending for the next checkpoint or open.
+        if (result.outcome() != CheckpointOutcome.PREFLIGHT_UNAVAILABLE) {
+          clearStorageDirty();
+        }
       }
 
     } catch (final IOException ioe) {
@@ -7864,6 +7892,15 @@ public abstract class AbstractStorage
   protected boolean existsBeforeCreation() {
     return exists();
   }
+
+  /**
+   * Publishes changed-page coverage or durable invalidation, then attempts the bounded WAL cut.
+   * The caller fixes the boundary after sampling all protections and calls only after successful
+   * data synchronization, outside the cache checkpoint bracket and file inventory lock. It keeps
+   * its existing storage state exclusion and handles PREFLIGHT_UNAVAILABLE as a retryable no-cut
+   * result. IOException reporting belongs to the caller's checkpoint error boundary.
+   */
+  protected abstract CheckpointResult checkpointChangedPages(long fixedBoundary) throws IOException;
 
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException;
@@ -10136,6 +10173,7 @@ public abstract class AbstractStorage
   }
 
   void runWALVacuum() {
+    var coordinatorStarted = false;
     stateLock.readLock().lock();
     try {
 
@@ -10177,15 +10215,18 @@ public abstract class AbstractStorage
         previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
-      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
-      // disappear from operation tracking before its cache requirement becomes visible.
+      // Take a new anchor before the final table sample to cover later registrations.
+      // Keep table-before-cache order to cover page ownership transfers.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
-      final var activeSegment = writeAheadLog.activeSegment();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
-      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+      minDirtySegment = Objects.requireNonNullElse(cacheSegment, anchorSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
+      }
+      if (minDirtySegment > anchorSegment) {
+        minDirtySegment = anchorSegment;
       }
 
       if (minDirtySegment <= nonActiveSegments[0]) {
@@ -10198,11 +10239,20 @@ public abstract class AbstractStorage
         beforeRead.run();
       }
       saveMaintenanceFloorBeforeWalRemoval();
-      writeCache.syncDataFiles(minDirtySegment);
+      writeCache.syncDataFiles();
+      // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+      coordinatorStarted = true;
+      checkpointChangedPages(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
           .error(
               this, "Error during flushing of data for fuzzy checkpoint, in storage %s", e, name);
+      // Keep floor and data-force failures retryable. Coordinator failures also reach callers.
+      if (coordinatorStarted) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during changed-page checkpoint for storage " + name),
+            e, name);
+      }
     } finally {
       stateLock.readLock().unlock();
       walVacuumInProgress.set(false);

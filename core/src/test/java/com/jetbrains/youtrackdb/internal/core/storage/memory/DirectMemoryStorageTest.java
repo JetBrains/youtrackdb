@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -13,7 +14,11 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
@@ -82,6 +87,28 @@ public class DirectMemoryStorageTest {
         }
       }
     }
+  }
+
+  /** The memory bridge reports no persistence and leaves its storage folder unchanged. */
+  @Test
+  public void checkpointBridgeNeedsNoTrackerOrSideFile() throws Exception {
+    withMemoryStorage(storage -> {
+      var root = Paths.get(DbTestBase.getBaseDirectoryPathStr(DirectMemoryStorageTest.class));
+      try (var before = Files.list(root)) {
+        var names = before.sorted().toList();
+        var result = storage.checkpointChangedPages(100);
+        assertEquals(CheckpointOutcome.NO_SAVE, result.outcome());
+        assertFalse(result.segmentsRemoved());
+        assertEquals(new CutPreflight(false, 0, null),
+            storage.getWALInstance().preflightCut(100));
+        try (var after = Files.list(root)) {
+          assertEquals(names, after.sorted().toList());
+        }
+      }
+      var storagePath = Paths.get(storage.getURL().substring("memory:".length()));
+      assertFalse(Files.exists(storagePath.resolve(ChangedPageTrackerFile.FILE_NAME)));
+      assertFalse(Files.exists(storagePath.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)));
+    });
   }
 
   /** Each memory storage instance receives a distinct volatile identity pair. */
