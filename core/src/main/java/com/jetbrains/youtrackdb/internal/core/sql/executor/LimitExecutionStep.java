@@ -32,9 +32,18 @@ public class LimitExecutionStep extends AbstractExecutionStep {
   /** The LIMIT clause (may contain a parameter reference, resolved at execution time). */
   private final SQLLimit limit;
 
+  /** Built-in MATCH returns interpret every negative limit as unbounded. */
+  private final boolean negativeIsUnbounded;
+
   public LimitExecutionStep(SQLLimit limit, CommandContext ctx, boolean profilingEnabled) {
+    this(limit, ctx, profilingEnabled, false);
+  }
+
+  public LimitExecutionStep(SQLLimit limit, CommandContext ctx, boolean profilingEnabled,
+      boolean negativeIsUnbounded) {
     super(ctx, profilingEnabled);
     this.limit = limit;
+    this.negativeIsUnbounded = negativeIsUnbounded;
   }
 
   @Override
@@ -42,7 +51,7 @@ public class LimitExecutionStep extends AbstractExecutionStep {
     // LimitExecutionStep is always chained after another step (never a source step).
     assert prev != null;
     var limitVal = limit.getValue(ctx);
-    if (limitVal == -1) {
+    if (limitVal == -1 || (negativeIsUnbounded && limitVal < 0)) {
       return prev.start(ctx);
     }
     var result = prev.start(ctx);
@@ -90,6 +99,6 @@ public class LimitExecutionStep extends AbstractExecutionStep {
       limitCopy = limit.copy();
     }
 
-    return new LimitExecutionStep(limitCopy, ctx, profilingEnabled);
+    return new LimitExecutionStep(limitCopy, ctx, profilingEnabled, negativeIsUnbounded);
   }
 }
