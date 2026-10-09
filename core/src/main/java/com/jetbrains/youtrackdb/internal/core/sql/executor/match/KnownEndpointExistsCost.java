@@ -19,6 +19,56 @@ final class KnownEndpointExistsCost {
     }
   }
 
+  /** Charges before each action. A rejected action does not spend any work or emit a row. */
+  static final class WorkBudget {
+    private boolean enabled;
+    private double limit;
+    private double spent;
+
+    WorkBudget(boolean enabled, double limit) {
+      this.enabled = enabled;
+      this.limit = limit;
+    }
+
+    void enable(boolean enable) {
+      enabled |= enable;
+    }
+
+    void refine(double estimate) {
+      limit = estimate;
+      charge(0);
+    }
+
+    void charge(double work) {
+      if (!enabled) {
+        return;
+      }
+      if (!Double.isFinite(limit) || work < 0 || spent + work > limit) {
+        throw new BudgetExceeded();
+      }
+      spent += work;
+    }
+
+    double limit() {
+      return enabled ? limit : 0;
+    }
+
+    double spent() {
+      return spent;
+    }
+  }
+
+  static final class BudgetExceeded extends RuntimeException {
+    BudgetExceeded() {
+      super(null, null, false, false);
+    }
+  }
+
+  static double sortWork(double candidates) {
+    return candidates < 2 ? 0
+        : candidates * (Math.log(candidates) / Math.log(2)) * SORT_COMPARISON;
+  }
+
   static Estimate estimate(double sourceCount, double degree, double targetLoads,
       double sourceTypeShare, double filterShare, double probeWork, double laterWork,
       long requiredRows, boolean fullInput) {
@@ -29,8 +79,7 @@ final class KnownEndpointExistsCost {
     double scan = fullInput || requiredRows < 0 || pass <= 0 ? sourceCount
         : Math.min(sourceCount, requiredRows / pass);
     double sourceFull = scan + scan * filterShare * (probeWork + laterWork);
-    double sort = degree < 2 ? 0 : degree * (Math.log(degree) / Math.log(2))
-        * SORT_COMPARISON;
+    double sort = sortWork(degree);
     double preparation = targetLoads + degree + sort;
     double loaded = fullInput || requiredRows < 0 || filterShare <= 0 ? candidates
         : Math.min(candidates, requiredRows / filterShare);

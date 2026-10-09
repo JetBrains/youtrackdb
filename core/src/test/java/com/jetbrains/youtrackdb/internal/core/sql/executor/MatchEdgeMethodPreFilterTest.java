@@ -125,6 +125,27 @@ public class MatchEdgeMethodPreFilterTest extends DbTestBase {
     session.commit();
   }
 
+  /** A RID-rooted reverse inV step must not admit another edge class with the same filter. */
+  @Test
+  public void reverseEdgeFilterEnforcesItsRelationshipClass() throws Exception {
+    session.createEdgeClass("PFWrong");
+    session.begin();
+    var target = session.query("SELECT FROM PFCompany WHERE name = 'company0'")
+        .next().getIdentity();
+    session.execute("CREATE EDGE PFWrong FROM"
+        + " (SELECT FROM PFPerson WHERE name = 'person9') TO " + target
+        + " SET workFrom = 2010").close();
+    session.commit();
+    var graph = (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) pool.asGraph();
+    java.util.List<String> names;
+    try (graph; var traversal = graph.traversal().V().hasLabel("PFPerson").as("p")
+        .outE("PFWorkAt").has("workFrom", org.apache.tinkerpop.gremlin.process.traversal.P.lt(2015))
+        .inV().hasId(target).select("p").values("name")) {
+      names = traversal.toList().stream().map(Object::toString).toList();
+    }
+    assertEquals(Set.of("person0"), new HashSet<>(names));
+  }
+
   // ---- Correctness tests ----
 
   /**

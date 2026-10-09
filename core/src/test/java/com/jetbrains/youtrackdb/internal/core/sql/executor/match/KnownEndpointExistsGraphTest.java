@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
@@ -17,9 +18,13 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -36,6 +41,8 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
   private RecordIdInternal first;
   private RecordIdInternal second;
   private RecordIdInternal unconnected;
+  private RecordIdInternal middle;
+  private List<RecordIdInternal> longTargets;
 
   @Override
   public void beforeTest() throws Exception {
@@ -228,6 +235,7 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
   /** Catch-all policies use the same field resolution as enforcement, not the property index. */
   @Test
   public void catchAllFieldPolicyForcesFallback() throws Exception {
+    installExtendedPaths();
     session.begin();
     var security = session.getSharedContext().getSecurity();
     var role = security.createRole(session, "endpointCustom");
@@ -241,6 +249,9 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
     allow.setReadRule("true");
     security.saveSecurityPolicy(session, allow);
     security.setSecurityPolicy(session, role, "database.class.V", allow);
+    // Both record kinds remain readable. The catch-all rule restricts their fields, including
+    // edge filter fields, rather than merely hiding the edge record itself.
+    security.setSecurityPolicy(session, role, "database.class.E", allow);
     var deny = security.createSecurityPolicy(session, "endpointDenyFields");
     deny.setActive(true);
     deny.setReadRule("false");
@@ -251,16 +262,22 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
     session.commit();
     useUser("endpointCustomUser", "custompwd");
     for (boolean translated : List.of(false, true)) {
-      var baseline = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, "all");
-      var reverse = run(translated, KnownEndpointExistsStep.Path.TARGET, target, "all");
-      assertThat(baseline.error).as(baseline.plan).isNull();
-      assertThat(reverse.error).as(reverse.plan).isNull();
-      assertThat(reverse.rows).isEqualTo(baseline.rows);
-      if (translated) {
-        assertThat(reverse.path).as(reverse.plan).isEqualTo("source");
-        assertThat(reverse.reason).as(reverse.plan).isEqualTo("edge-list read policy");
-        assertThat(reverse.candidates).isZero();
-        assertThat(reverse.edgeReads).isZero();
+      for (var shape : List.of("all", "middle", "edge", "middle-edge")) {
+        var baseline = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, shape);
+        assertThat(baseline.error).as(baseline.plan).isNull();
+        for (var path : KnownEndpointExistsStep.Path.values()) {
+          var actual = run(translated, path, target, shape);
+          assertThat(actual.error).as(actual.plan).isNull();
+          assertThat(actual.rows).isEqualTo(baseline.rows);
+          if (translated) {
+            assertThat(actual.path).as(actual.plan).isEqualTo("source");
+            assertThat(actual.reason).as(actual.plan).isEqualTo(
+                path == KnownEndpointExistsStep.Path.SOURCE ? "test selector"
+                    : "edge-list read policy");
+            assertThat(actual.candidates).isZero();
+            assertThat(actual.edgeReads).isZero();
+          }
+        }
       }
     }
   }
@@ -548,6 +565,398 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
     graph.tx().rollback();
   }
 
+  /** Middle classes, local filters and edge labels reject tempting paths in every selector mode. */
+  @Test
+  public void middleAndEdgeFiltersKeepTheForwardRowOracle() throws Exception {
+    installExtendedPaths();
+    for (var shape : List.of("middle", "edge", "middle-edge", "long")) {
+      for (boolean translated : List.of(false, true)) {
+        var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, shape);
+        assertThat(expected.error).as(expected.plan).isNull();
+        assertThat(expected.rows).containsExactly(first.toString());
+        for (var path : KnownEndpointExistsStep.Path.values()) {
+          var actual = run(translated, path, target, shape);
+          assertThat(actual.error).as(shape + actual.plan).isNull();
+          assertThat(actual.rows).as(shape + actual.plan).isEqualTo(expected.rows);
+          if (translated) {
+            assertThat(actual.path).as(shape + " " + actual.reason + actual.plan)
+                .isEqualTo(path == KnownEndpointExistsStep.Path.SOURCE ? "source" : "target");
+            if (path != KnownEndpointExistsStep.Path.SOURCE) {
+              assertThat(actual.candidates).as(shape).isEqualTo(1);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Hidden middle records cannot supply sources, even when their raw adjacency contains them. */
+  @Test
+  public void hiddenMiddleVerticesDoNotExposeSourcesOrCandidates() throws Exception {
+    installExtendedPaths();
+    policy("database.class.GraphMiddle", "false");
+    useReader();
+    extendedSecurityParity("middle", true);
+  }
+
+  /** Edge-record steps must load visible edges and read filter fields through their policies. */
+  @Test
+  public void hiddenFilteredEdgesDoNotExposeSourcesOrCandidates() throws Exception {
+    installExtendedPaths();
+    policy("database.class.GraphLink", "false");
+    useReader();
+    extendedSecurityParity("edge", true);
+    extendedSecurityParity("middle-edge", true);
+  }
+
+  /** Source READ predicates must not expose metadata-derived hidden counts in PROFILE output. */
+  @Test
+  public void sourceReadPoliciesDoNotPublishTheMetadataWorkBudget() throws Exception {
+    installExtendedPaths();
+    session.begin();
+    session.newVertex("GraphSourceSub").setProperty("n", 9999);
+    session.commit();
+    policy("database.class.GraphSource", "n < 1000");
+    useReader();
+    for (var path : KnownEndpointExistsStep.Path.values()) {
+      var actual = run(true, path, target, "middle");
+      assertThat(actual.error).as(actual.plan).isNull();
+      assertThat(actual.rows).containsExactly(first.toString());
+      assertThat(actual.path).isEqualTo(
+          path == KnownEndpointExistsStep.Path.SOURCE ? "source" : "target");
+      assertThat(actual.workBudgetPublished).isFalse();
+      assertThat(actual.plan).doesNotContain("workBudget");
+    }
+  }
+
+  /**
+   * Exhausting long-list preparation under a source READ predicate must not publish the spent
+   * allowance. Two hidden populations keep identical visible sources, edges and query results.
+   */
+  @Test
+  public void budgetSwitchUnderReadPoliciesDoesNotPublishDiscoveryWork() throws Exception {
+    policy("database.class.GraphSource", "n < 1000");
+    longTargets = java.util.Collections.nCopies(100000, target);
+    useReader();
+    assertSameOutputForHiddenPopulations("long-profile", 32, 96,
+        List.of(first.toString(), second.toString()), "discoveryWork");
+  }
+
+  /** Distinct targets exhaust loading, so hidden sources must not change published targetLoads. */
+  @Test
+  public void targetLoadingBudgetSwitchDoesNotPublishHiddenPopulation() throws Exception {
+    session.begin();
+    var targets = new ArrayList<RecordIdInternal>();
+    targets.add(target);
+    var vertices = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex>();
+    for (int i = 1; i < 400; i++) {
+      vertices.add(session.newVertex("GraphTarget"));
+    }
+    session.commit();
+    vertices.forEach(vertex -> targets.add((RecordIdInternal) vertex.getIdentity()));
+    longTargets = targets;
+    policy("database.class.GraphSource", "n < 1000");
+    useReader();
+    assertSameOutputForHiddenPopulations("long-profile", 32, 96,
+        List.of(first.toString(), second.toString()), "targetLoads");
+  }
+
+  /** A skewed middle bag exhausts walking, so hidden sources must not change published edgeReads. */
+  @Test
+  public void middleWalkingBudgetSwitchDoesNotPublishHiddenPopulation() throws Exception {
+    session.createVertexClass("GraphMiddle");
+    session.createEdgeClass("GraphTail");
+    session.begin();
+    var mid = session.newVertex("GraphMiddle");
+    mid.setProperty("ok", true);
+    session.loadVertex(first).addEdge(mid, "GraphLink");
+    mid.addEdge(session.loadVertex(target), "GraphTail");
+    // Reverse-only entries change neither the forward result nor the statistics fan-out estimate.
+    var bag = (LinkBag) ((EntityImpl) mid).getPropertyInternal("in_GraphLink");
+    int collection = session.getMetadata().getSchema().getClass("GraphLink").getCollectionIds()[0];
+    for (int i = 0; i < 5000; i++) {
+      bag.add(RecordIdInternal.fromString("#" + collection + ":" + (100000 + i), false), first);
+    }
+    session.commit();
+    policy("database.class.GraphSource", "n < 1000");
+    useReader();
+    assertSameOutputForHiddenPopulations("middle-profile", 32, 96,
+        List.of(first.toString()), "edgeReads");
+  }
+
+  private void assertSameOutputForHiddenPopulations(String scenario, int firstHidden,
+      int secondHidden, List<String> expectedRows, String witness) throws Exception {
+    var previous = new LinkedHashMap<String, Run>();
+    int hidden = 0;
+    for (int population : List.of(firstHidden, secondHidden)) {
+      session.activateOnCurrentThread();
+      session.begin();
+      for (int i = hidden; i < population; i++) {
+        session.newVertex("GraphSource").setProperty("n", 9999);
+      }
+      session.commit();
+      hidden = population;
+      for (boolean translated : List.of(false, true)) {
+        var oracle = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, scenario);
+        assertThat(oracle.error).as(oracle.plan).isNull();
+        assertThat(oracle.rows).containsExactlyElementsOf(expectedRows);
+        for (var path : List.of(KnownEndpointExistsStep.Path.AUTO,
+            KnownEndpointExistsStep.Path.TARGET)) {
+          var actual = run(translated, path, target, scenario);
+          var key = scenario + ", translated=" + translated + ", path=" + path;
+          assertThat(actual.error).as(key + actual.plan).isNull();
+          assertThat(actual.rows).as(key).isEqualTo(oracle.rows);
+          if (translated) {
+            assertThat(actual.path).as(actual.plan).isEqualTo("source");
+            assertThat(actual.reason).isEqualTo("work budget exceeded");
+            assertThat(actual.budgetSwitch).as(actual.plan).isTrue();
+            assertThat(actual.candidates).isZero();
+            assertThat(actual.workBudgetPublished).isFalse();
+            assertThat(actual.discoveryWorkPublished).isFalse();
+            switch (witness) {
+              case "discoveryWork" -> {
+                assertThat(actual.targetLoads).isZero();
+                assertThat(actual.edgeReads).isZero();
+              }
+              case "targetLoads" -> {
+                assertThat(actual.targetLoads).isBetween(1L, (long) longTargets.size() - 1);
+                assertThat(actual.edgeReads).isZero();
+              }
+              case "edgeReads" -> {
+                assertThat(actual.targetLoads).isEqualTo(1);
+                assertThat(actual.edgeReads).isBetween(1L, 4999L);
+              }
+              default -> throw new AssertionError(witness);
+            }
+          } else {
+            assertThat(actual.boundaries).isZero();
+          }
+          var earlier = previous.put(key, actual);
+          if (earlier != null) {
+            assertThat(actual.rows).as(key).isEqualTo(earlier.rows);
+            if (translated) {
+              // First establish a changed internal value. Equal output alone is not a leak test.
+              double before = counterWitness(earlier, witness);
+              double after = counterWitness(actual, witness);
+              assertThat(after).as(key + " internal " + witness).isGreaterThan(before);
+              assertThat(actual.published).as(key + " internal " + witness + "=" + before
+                  + " -> " + after).isEqualTo(earlier.published);
+              assertThat(actual.bracket).as(key).isEqualTo(earlier.bracket);
+            }
+          }
+        }
+      }
+      // SQL has no detached EXISTS syntax. Exercise its real PROFILE MATCH entry point too.
+      try (var result = graphSession().query("PROFILE MATCH {class:GraphSource,as:s}"
+          + ".out('GraphLink'){as:t,where:(@rid=" + target + ")} RETURN s.@rid")) {
+        var profile = result.next();
+        assertThat(profile.<String>getProperty("executionPlanAsString")).contains("MATCH");
+        assertThat((Object) profile.getProperty("executionPlan")).isNotNull();
+        assertThat(result.hasNext()).isFalse();
+      }
+      graph.tx().rollback();
+    }
+  }
+
+  private static double counterWitness(Run run, String witness) {
+    return switch (witness) {
+      case "discoveryWork" -> run.discoveryWork;
+      case "targetLoads" -> run.targetLoads;
+      case "edgeReads" -> run.edgeReads;
+      default -> throw new AssertionError(witness);
+    };
+  }
+
+  // Only framework metadata is excluded. An unexpected new step property remains visible here.
+  private static Map<String, Object> stepProperties(Result result) {
+    var properties = new LinkedHashMap<String, Object>();
+    var framework = Set.of("name", "type", "targetNode", "javaType", "cost", "description",
+        "subSteps", "subExecutionPlans");
+    result.getPropertyNames().stream().filter(name -> !framework.contains(name))
+        .forEach(name -> properties.put(name, result.getProperty(name)));
+    return properties;
+  }
+
+  private static String profileBracket(KnownEndpointExistsStep choice) {
+    var line = choice.prettyPrint(0, 2).lines().findFirst().orElseThrow();
+    return line.substring(line.indexOf(" [") + 2, line.lastIndexOf(']'));
+  }
+
+  /** A denied non-link filter field prunes TARGET just as the secured forward probe does. */
+  @Test
+  public void hiddenEdgeFilterFieldsKeepTheModeLocalOracle() throws Exception {
+    installExtendedPaths();
+    policy("database.class.GraphLink.weight", "false");
+    useReader();
+    for (boolean translated : List.of(false, true)) {
+      for (var shape : List.of("edge", "middle-edge")) {
+        var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, shape);
+        assertThat(expected.error).as(expected.plan).isNull();
+        assertThat(expected.rows).isEmpty();
+        for (var path : KnownEndpointExistsStep.Path.values()) {
+          var actual = run(translated, path, target, shape);
+          assertThat(actual.error).as(actual.plan).isNull();
+          assertThat(actual.rows).isEqualTo(expected.rows);
+          assertThat(actual.candidates).isZero();
+          assertThat(actual.path).as(actual.plan).isEqualTo(!translated ? "none"
+              : path == KnownEndpointExistsStep.Path.SOURCE ? "source" : "target");
+          assertThat(actual.reason).isEqualTo(!translated ? "none"
+              : path == KnownEndpointExistsStep.Path.AUTO ? "cost and first-row margin"
+                  : "test selector");
+        }
+      }
+    }
+  }
+
+  /** Actual middle LINKLIST storage forces fallback even under a LINKBAG declaration. */
+  @Test
+  public void middleActualStorageFormIsCheckedBeforeSourceEmission() throws Exception {
+    installExtendedPaths();
+    var clazz = (SchemaClassInternal) session.getMetadata().getSchema().getClass("GraphMiddle");
+    clazz.createProperty("in_GraphLink", PropertyTypeInternal.LINKLIST, (SchemaClass) null, true);
+    session.begin();
+    var vertex = (EntityImpl) session.loadVertex(middle);
+    var edges =
+        new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable>();
+    vertex.asVertex().getEdges(Direction.IN, "GraphLink").forEach(edges::add);
+    vertex.removePropertyInternal("in_GraphLink");
+    vertex.setPropertyInternal("in_GraphLink", new EntityLinkListImpl(vertex, edges),
+        PropertyTypeInternal.LINKLIST);
+    session.commit();
+    session.execute("DROP PROPERTY GraphMiddle.in_GraphLink").close();
+    clazz.createProperty("in_GraphLink", PropertyTypeInternal.LINKBAG, (SchemaClass) null, true);
+    for (boolean translated : List.of(false, true)) {
+      var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, "middle");
+      assertThat(expected.error).as(expected.plan).isNull();
+      assertThat(expected.rows).containsExactly(first.toString());
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        var actual = run(translated, path, target, "middle");
+        assertThat(actual.rows).isEqualTo(expected.rows);
+        assertThat(actual.error).as(actual.plan).isNull();
+        if (translated) {
+          assertThat(actual.path).isEqualTo("source");
+          assertThat(actual.reason).isEqualTo(path == KnownEndpointExistsStep.Path.SOURCE
+              ? "test selector" : "edge-list storage form");
+          assertThat(actual.candidates).isZero();
+        }
+      }
+    }
+  }
+
+  /** A middle reverse adjacency read policy selects the source oracle before exposing candidates. */
+  @Test
+  public void middleEdgeListReadPoliciesForceFallback() throws Exception {
+    installExtendedPaths();
+    policy("database.class.GraphMiddle.in_GraphLink", "false");
+    useReader();
+    for (boolean translated : List.of(false, true)) {
+      var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, "middle");
+      assertThat(expected.error).as(expected.plan).isNull();
+      assertThat(expected.rows).containsExactly(first.toString());
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        var actual = run(translated, path, target, "middle");
+        assertThat(actual.rows).isEqualTo(expected.rows);
+        assertThat(actual.error).as(actual.plan).isNull();
+        if (translated) {
+          assertThat(actual.path).isEqualTo("source");
+          assertThat(actual.reason).isEqualTo(path == KnownEndpointExistsStep.Path.SOURCE
+              ? "test selector" : "edge-list read policy");
+          assertThat(actual.candidates).isZero();
+        }
+      }
+    }
+  }
+
+  /** Both added and removed middle attachments remain visible in the active transaction. */
+  @Test
+  public void transactionMiddleEdgesKeepBothPathsInSync() throws Exception {
+    installExtendedPaths();
+    for (boolean added : List.of(false, true)) {
+      var db = graphSession();
+      try {
+        if (added) {
+          db.loadVertex(unconnected).addEdge(db.loadVertex(middle), "GraphLink");
+        } else {
+          db.loadVertex(middle).getEdges(Direction.OUT, "GraphTail").iterator().next().delete();
+        }
+        for (boolean translated : List.of(false, true)) {
+          var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, "middle");
+          assertThat(expected.error).as(expected.plan).isNull();
+          assertThat(expected.rows).containsExactlyElementsOf(added
+              ? List.of(first.toString(), unconnected.toString()) : List.of());
+          for (var path : KnownEndpointExistsStep.Path.values()) {
+            var actual = run(translated, path, target, "middle");
+            assertThat(actual.error).as(actual.plan).isNull();
+            assertThat(actual.rows).isEqualTo(expected.rows);
+            if (translated && path != KnownEndpointExistsStep.Path.SOURCE) {
+              assertThat(actual.path).as(actual.reason + actual.plan).isEqualTo("target");
+            }
+          }
+        }
+      } finally {
+        graph.tx().rollback();
+      }
+    }
+  }
+
+  private void extendedSecurityParity(String shape, boolean empty) throws Exception {
+    for (boolean translated : List.of(false, true)) {
+      var expected = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, shape);
+      assertThat(expected.error).as(expected.plan).isEqualTo(translated && shape.equals("middle")
+          ? com.jetbrains.youtrackdb.api.exception.RecordNotFoundException.class.getName() : null);
+      if (empty) {
+        assertThat(expected.rows).isEmpty();
+      }
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        var actual = run(translated, path, target, shape);
+        assertThat(actual.error).as(actual.plan).isEqualTo(expected.error);
+        assertThat(actual.rows).as(actual.plan).isEqualTo(expected.rows);
+        assertThat(actual.candidates).as(actual.plan).isZero();
+      }
+    }
+  }
+
+  private void installExtendedPaths() {
+    session.createVertexClass("GraphMiddle");
+    session.createEdgeClass("GraphTail");
+    session.createEdgeClass("GraphWrong");
+    session.begin();
+    // Keep the sparse target attractive on both full-cost and first-row estimates for AUTO.
+    for (int i = 0; i < 2048; i++) {
+      session.newVertex("GraphSource").setProperty("n", 1000 + i);
+    }
+    var endpoint = session.loadVertex(target);
+    var mid = session.newVertex("GraphMiddle");
+    mid.setProperty("ok", true);
+    var rejected = session.newVertex("GraphMiddle");
+    rejected.setProperty("ok", false);
+    var wrongClass = session.newVertex("GraphTarget");
+    wrongClass.setProperty("ok", true);
+    for (var vertex : List.of(mid, rejected, wrongClass)) {
+      vertex.addEdge(endpoint, "GraphTail").setProperty("weight", 1);
+    }
+    session.loadVertex(first).addEdge(mid, "GraphLink").setProperty("weight", 1);
+    session.loadVertex(second).addEdge(rejected, "GraphLink").setProperty("weight", 1);
+    session.loadVertex(second).addEdge(wrongClass, "GraphLink").setProperty("weight", 1);
+    // Wrong edge class and wrong edge field both lead directly to the known endpoint.
+    session.loadVertex(unconnected).addEdge(endpoint, "GraphWrong").setProperty("weight", 1);
+    for (var source : List.of(first, second)) {
+      session.loadVertex(source).getEdges(Direction.OUT, "GraphLink").forEach(edge -> {
+        if (edge.getVertex(Direction.IN).getIdentity().equals(target)) {
+          edge.setProperty("weight", source.equals(first) ? 1 : 0);
+        }
+      });
+    }
+    var targets = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex>();
+    for (int i = 0; i < 9; i++) {
+      targets.add(session.newVertex("GraphTarget"));
+    }
+    session.loadVertex(first).addEdge(targets.getFirst(), "GraphLink");
+    session.commit();
+    middle = (RecordIdInternal) mid.getIdentity();
+    longTargets = targets.stream().map(v -> (RecordIdInternal) v.getIdentity()).toList();
+  }
+
   private void policy(String resource, String read) {
     policy(resource, read, false);
   }
@@ -603,7 +1012,9 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
   }
 
   private record Run(List<String> rows, String error, String path, String reason, long candidates,
-      long edgeReads, int boundaries, String plan) {
+      long edgeReads, int boundaries, boolean budgetSwitch, boolean workBudgetPublished,
+      boolean discoveryWorkPublished, String plan, long targetLoads, double discoveryWork,
+      Map<String, Object> published, String bracket) {
   }
 
   private Run run(boolean translated, KnownEndpointExistsStep.Path path, RecordIdInternal endpoint,
@@ -621,17 +1032,27 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
         translated);
     AutoCloseable cleanup = null;
     try (var forced = KnownEndpointExistsStep.forcePath(path)) {
-      var hop = switch (direction) {
-        case "out" -> __.out("GraphLink");
-        case "in" -> __.in("GraphLink");
-        case "both" -> __.both("GraphLink");
-        default -> throw new AssertionError(direction);
+      var hop = switch (shape) {
+        case "middle", "middle-profile" ->
+            __.out("GraphLink").hasLabel("GraphMiddle").has("ok", true)
+                .out("GraphTail");
+        case "middle-edge" -> __.outE("GraphLink").has("weight", 1).inV()
+            .hasLabel("GraphMiddle").has("ok", true)
+            .outE("GraphTail").has("weight", 1).inV();
+        case "edge" -> __.outE("GraphLink").has("weight", 1).inV();
+        default -> switch (direction) {
+          case "out" -> __.out("GraphLink");
+          case "in" -> __.in("GraphLink");
+          case "both" -> __.both("GraphLink");
+          default -> throw new AssertionError(direction);
+        };
       };
       var traversal = graph.traversal().V().hasLabel("GraphSource");
       if (shape.equals("negative")) {
         traversal.has("n", P.lt(0));
       }
-      traversal.where(hop.hasId(endpoint));
+      traversal.where(shape.startsWith("long") ? hop.hasId(P.within(longTargets))
+          : hop.hasId(endpoint));
       cleanup = traversal;
       if (shape.equals("ordered")) {
         traversal.order().by("n", Order.desc);
@@ -646,6 +1067,13 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
       admin.applyStrategies();
       var boundaries =
           admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance).toList();
+      if (shape.endsWith("-profile")) {
+        // Enable PROFILE before execution, including on a template copied by the boundary step.
+        boundaries.forEach(step -> ((YTDBMatchPlanStep<?, ?>) step).getPlan().getSteps().stream()
+            .filter(KnownEndpointExistsStep.class::isInstance)
+            .map(KnownEndpointExistsStep.class::cast)
+            .forEach(choice -> choice.setProfilingEnabled(true)));
+      }
       var rows = new ArrayList<String>();
       String error = null;
       String errorDetail = "";
@@ -670,9 +1098,16 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
           chosen == null ? "none" : chosen.counters().reason,
           chosen == null ? 0 : chosen.counters().candidates,
           chosen == null ? 0 : chosen.counters().edgeReads, boundaries.size(),
+          chosen != null && chosen.counters().budgetSwitch,
+          chosen != null && chosen.toResult(db).getPropertyNames().contains("workBudget"),
+          chosen != null && chosen.toResult(db).getPropertyNames().contains("discoveryWork"),
           (boundaries.isEmpty() ? admin.toString()
               : ((YTDBMatchPlanStep<?, ?>) boundaries.getFirst()).getPlan().prettyPrint(0, 2))
-              + "\n" + errorDetail);
+              + "\n" + errorDetail,
+          chosen == null ? 0 : chosen.counters().targetLoads,
+          chosen == null ? 0 : chosen.counters().discoveryWork,
+          chosen == null ? Map.of() : stepProperties(chosen.toResult(db)),
+          chosen == null || !shape.endsWith("-profile") ? "" : profileBracket(chosen));
       return result;
     } finally {
       try {
