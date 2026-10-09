@@ -14,6 +14,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.YTDBQueryMetricsStep;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -95,6 +98,47 @@ public class MultiPlanMatchStepTest {
     // every ResultInternal mutation asserts the session is active. A bare mock answers false and
     // trips that assert under -ea, so report the session as active.
     lenient().when(threadSession.assertIfNotActive()).thenReturn(true);
+  }
+
+  /** Monitoring requires admission and binding of every child, without opening later children. */
+  @Test
+  public void monitoringBindsAllChildrenBeforeStartAndRejectsUnboundAdmission() throws Exception {
+    for (boolean rejectAdmission : new boolean[] {true, false}) {
+      setUp();
+      var firstContext = new BasicCommandContext(mock(DatabaseSessionEmbedded.class));
+      firstContext.setInputParameters(Map.of(0, "first"));
+      var secondContext = new BasicCommandContext(mock(DatabaseSessionEmbedded.class));
+      secondContext.setInputParameters(Map.of(0, "second"));
+      var first = mock(InternalExecutionPlan.class);
+      var second = mock(InternalExecutionPlan.class);
+      when(first.getContext()).thenReturn(firstContext);
+      when(second.getContext()).thenReturn(secondContext);
+      when(first.start()).thenThrow(new IllegalStateException("bound child failed"));
+      if (rejectAdmission) {
+        doThrow(new IllegalStateException("admission failed")).when(tx).readWrite();
+      }
+      var step = new MultiPlanMatchStep<>(traversal, Vertex.class, List.of(first, second),
+          "v", BoundaryOutputType.ELEMENT);
+      when(traversal.getSteps()).thenReturn(List.of(step));
+      var reported = new ArrayList<com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan>();
+      when(tx.getQueryMonitoringMode()).thenReturn(QueryMonitoringMode.EXACT);
+      when(tx.getQueryMetricsListener())
+          .thenReturn((details, started, duration) -> reported.add(details.getExecutionPlan()));
+      var metrics = new YTDBQueryMetricsStep<Vertex>(traversal, tx, null, mock(Ticker.class));
+      metrics.setPreviousStep(step);
+      assertThatExceptionOfType(IllegalStateException.class).isThrownBy(metrics::hasNext);
+      step.close();
+      metrics.close();
+      assertThat(reported).hasSize(1);
+      assertThat(reported.getFirst()).isSameAs(rejectAdmission ? null : first);
+      if (!rejectAdmission) {
+        assertThat(firstContext.getDatabaseSession()).isSameAs(threadSession);
+        assertThat(secondContext.getDatabaseSession()).isSameAs(threadSession);
+        assertThat(firstContext.getInputParameters()).containsEntry(0, "first");
+        assertThat(secondContext.getInputParameters()).containsEntry(0, "second");
+      }
+      verify(second, never()).start();
+    }
   }
 
   // ---- Concatenation & one-live-stream ----
@@ -198,8 +242,9 @@ public class MultiPlanMatchStepTest {
     step.forEachRemaining(t -> {
     });
 
-    verify(c1.ctx).setDatabaseSession(threadSession);
-    verify(c2.ctx).setDatabaseSession(threadSession);
+    // Bind all contexts for monitoring readiness, then rebind at each lazy child start.
+    verify(c1.ctx, times(2)).setDatabaseSession(threadSession);
+    verify(c2.ctx, times(2)).setDatabaseSession(threadSession);
   }
 
   /**
@@ -422,9 +467,9 @@ public class MultiPlanMatchStepTest {
     verify(c2.plan, times(2)).start();
     verify(c1.plan, times(1)).reset(any());
     verify(c2.plan, times(1)).reset(any());
-    // Session rebound again on the second arming (two armings × one rebind per child).
-    verify(c1.ctx, times(2)).setDatabaseSession(threadSession);
-    verify(c2.ctx, times(2)).setDatabaseSession(threadSession);
+    // Each arming binds for monitoring and again at the child's lazy start.
+    verify(c1.ctx, times(4)).setDatabaseSession(threadSession);
+    verify(c2.ctx, times(4)).setDatabaseSession(threadSession);
   }
 
   /**

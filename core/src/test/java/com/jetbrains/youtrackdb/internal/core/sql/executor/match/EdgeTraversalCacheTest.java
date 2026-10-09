@@ -94,6 +94,28 @@ public class EdgeTraversalCacheTest {
         .thenReturn(true);
   }
 
+  /** Descriptor plan text reads estimates only from the copied step's construction context. */
+  @Test
+  public void descriptorPlanTextUsesCopyContextForSelectivityAndHitEstimates() {
+    var edge = createEdgeTraversal();
+    var index = mock(Index.class);
+    when(index.getName()).thenReturn("target.name");
+    var descriptor = mock(IndexSearchDescriptor.class);
+    when(descriptor.getIndex()).thenReturn(index);
+    when(descriptor.estimateSelectivity(any())).thenReturn(0.25);
+    when(descriptor.estimateHits(any())).thenReturn(7L);
+    edge.setIntersectionDescriptor(new IndexLookup(descriptor));
+    var templateContext = new BasicCommandContext();
+    var copyContext = new BasicCommandContext();
+    var templateStep = new MatchStep(templateContext, edge, false);
+    var copy = (MatchStep) templateStep.copy(copyContext);
+    assertThat(copy.prettyPrint(0, 2)).contains("selectivity=0.2500", "estHits=7");
+    verify(descriptor).estimateSelectivity(copyContext);
+    verify(descriptor).estimateHits(copyContext);
+    verify(descriptor, never()).estimateSelectivity(templateContext);
+    verify(descriptor, never()).estimateHits(templateContext);
+  }
+
   /**
    * When the cache key is non-null and unchanged between calls,
    * resolve() is called only once and the cached RidSet is reused.

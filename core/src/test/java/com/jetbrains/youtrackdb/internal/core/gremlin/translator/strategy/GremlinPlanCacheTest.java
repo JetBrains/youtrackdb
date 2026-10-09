@@ -1,18 +1,28 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import java.lang.reflect.InvocationTargetException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +51,56 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
   public void enableTranslator() {
     support.setTranslatorEnabled(true);
     GremlinPlanCache.instance(graphSession()).invalidate();
+  }
+
+  /** Union copies have no template parent, bind explicit parameters and reject every local key. */
+  @Test
+  @SuppressWarnings("unchecked")
+  public void unionChildCopyIsParentlessBoundAndGuarded() throws Exception {
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
+    var translation = GremlinToMatchTranslator.TranslationResult.multiPlan(
+        List.of(new GremlinToMatchTranslator.TranslationResult.ChildPlan(
+            inputs, Map.of(0, "child"), true)),
+        List.of(), "v",
+        BoundaryOutputType.ELEMENT, Vertex.class, ResultShaping.NONE);
+    var template = mock(InternalExecutionPlan.class);
+    var templateContext = new BasicCommandContext();
+    when(template.getContext()).thenReturn(templateContext);
+    when(template.canBeCached()).thenReturn(true);
+    var copy = mock(InternalExecutionPlan.class);
+    when(template.copy(any())).thenAnswer(invocation -> {
+      CommandContext context = invocation.getArgument(0);
+      assertThat(context.getParent()).isNull();
+      assertThat(context.getDatabaseSession()).isSameAs(graphSession());
+      assertThat(context.getInputParameters()).containsEntry(0, "child");
+      when(copy.getContext()).thenReturn(context);
+      return copy;
+    });
+    var strategy = new GremlinToMatchStrategy(ignored -> translation,
+        (session, result, generation) -> template);
+    var method = GremlinToMatchStrategy.class.getDeclaredMethod("buildChildPlans",
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+        GremlinToMatchTranslator.TranslationResult.class, long.class);
+    method.setAccessible(true);
+    assertThat(
+        (List<InternalExecutionPlan>) method.invoke(strategy, graphSession(), translation, 0L))
+        .containsExactly(copy);
+    for (boolean system : new boolean[] {false, true}) {
+      for (Object value : new Object[] {"seeded", null}) {
+        var dirty = new BasicCommandContext();
+        if (system) {
+          dirty.setSystemVariable(12345, value);
+        } else {
+          dirty.setVariable("seeded", value);
+        }
+        when(template.getContext()).thenReturn(dirty);
+        assertThatExceptionOfType(InvocationTargetException.class)
+            .isThrownBy(() -> method.invoke(strategy, graphSession(), translation, 0L))
+            .withCauseInstanceOf(IllegalStateException.class);
+      }
+    }
+    verify(template, never()).start();
+    verify(template, never()).close();
   }
 
   /** {@code eq(null)} (bare {@code IS NULL}) and scalar {@code eq(v)} ({@code = ?}) differ in fingerprint. */

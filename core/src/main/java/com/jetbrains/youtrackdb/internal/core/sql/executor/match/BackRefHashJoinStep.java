@@ -882,7 +882,13 @@ class BackRefHashJoinStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
+    var copiedConsumed = consumedEdge == null ? null : consumedEdge.copy();
+    var copiedFallback = fallbackEdge == null ? null : fallbackEdge.copy();
+    if (copiedFallback != null) {
+      // Keep the planner's consumed-edge link inside the copied traversal graph too.
+      copiedFallback.setConsumedPredecessor(copiedConsumed);
+    }
     return new BackRefHashJoinStep(
-        ctx, descriptor, fallbackEdge, consumedEdge, profilingEnabled);
+        ctx, descriptor, copiedFallback, copiedConsumed, profilingEnabled);
   }
 }

@@ -173,8 +173,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
   }
 
   private InternalExecutionPlan copyTemplate() {
+    if (template.getContext() instanceof BasicCommandContext context
+        && context.hasLocalVariableKeys()) {
+      throw new IllegalStateException("Shared MATCH template context contains variable keys");
+    }
+    // No parent channel to the publishing session or its variables. Opening binds this copy.
     var isolatedCtx = new BasicCommandContext();
-    isolatedCtx.setParentWithoutOverridingChild(template.getContext());
     var copy = template.copy(isolatedCtx);
     assert copy != null && copy != template
         : "InternalExecutionPlan.copy returned " + (copy == null ? "null" : "the same instance")

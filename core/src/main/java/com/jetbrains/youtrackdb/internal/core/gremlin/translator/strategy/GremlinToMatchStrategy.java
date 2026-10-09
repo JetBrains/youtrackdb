@@ -693,8 +693,12 @@ public final class GremlinToMatchStrategy
         // Outside schema transactions buildPlan can return a shared closed template. Copying also
         // isolates freshly built tx-local children for MultiPlanMatchStep to own and close.
         if (child.cacheEligible() && childPlan.canBeCached()) {
-          var isolatedCtx = new BasicCommandContext();
-          isolatedCtx.setParentWithoutOverridingChild(childPlan.getContext());
+          if (childPlan.getContext() instanceof BasicCommandContext context
+              && context.hasLocalVariableKeys()) {
+            throw new IllegalStateException("Shared MATCH template context contains variable keys");
+          }
+          var isolatedCtx = new BasicCommandContext(session);
+          isolatedCtx.setInputParameters(child.parameters());
           childPlan = childPlan.copy(isolatedCtx);
         }
         if (!child.parameters().isEmpty()) {

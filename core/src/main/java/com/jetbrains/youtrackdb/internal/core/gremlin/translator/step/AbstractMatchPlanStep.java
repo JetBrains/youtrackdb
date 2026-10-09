@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl;
@@ -289,6 +290,17 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
 
   private State state = State.NEW;
 
+  // Monitoring must not inspect a template or a copy before transaction admission and binding.
+  private boolean executionPlanBound;
+
+  public final boolean isExecutionPlanBound() {
+    return executionPlanBound;
+  }
+
+  /** Bind additional plan contexts without starting their cursors. */
+  protected void bindAdditionalPlanContexts(DatabaseSessionEmbedded session) {
+  }
+
   // Strong consumer ownership keeps the handle alive in embedded weak-value registries.
   private StreamQueryHandle registration;
   private boolean planReleased;
@@ -571,6 +583,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   private void openArming() {
+    executionPlanBound = false;
     // Supersession ends the old cursor and handle, not the plan needed by live rewind.
     try {
       releaseStream();
@@ -622,6 +635,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       if (!inputParameters.isEmpty()) {
         ctx.setInputParameters(inputParameters);
       }
+      bindAdditionalPlanContexts(session);
+      executionPlanBound = true;
       // Only a live rearm rewinds. A closed execution uses the fresh copy installed above.
       if (state == State.REARMED) {
         rewindPlan(ctx);
@@ -810,6 +825,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    * enum directly.
    */
   protected final void resetLifecycleForClone() {
+    executionPlanBound = false;
     // The shallow clone aliases the source handle. Drop it without retirement.
     this.registration = null;
     this.planReleased = false;

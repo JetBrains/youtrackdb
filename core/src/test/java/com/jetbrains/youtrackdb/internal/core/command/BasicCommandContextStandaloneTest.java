@@ -54,6 +54,28 @@ import org.junit.Test;
  */
 public class BasicCommandContextStandaloneTest {
 
+  /** Only local keys count, and null values in either map still make the context non-empty. */
+  @Test
+  public void localVariableKeyPresenceIncludesNullButNotRelatedContexts() {
+    var parent = new BasicCommandContext();
+    parent.setVariable("parentKey", null);
+    var context = new BasicCommandContext();
+    context.setParentWithoutOverridingChild(parent);
+    var child = new BasicCommandContext();
+    context.setChild(child);
+    child.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, null);
+    child.setVariable("childKey", 1);
+    assertFalse(context.hasLocalVariableKeys());
+    assertTrue(parent.hasLocalVariableKeys());
+    assertTrue(child.hasLocalVariableKeys());
+    context.setVariable("localKey", null);
+    assertTrue(context.hasLocalVariableKeys());
+    var systemOnly = new BasicCommandContext();
+    systemOnly.setSystemVariable(12345, null);
+    assertTrue(systemOnly.hasLocalVariableKeys());
+    assertTrue(systemOnly.getVariables().isEmpty());
+  }
+
   // ---------------------------------------------------------------------------
   // setVariable — dot-path propagation to a nested CommandContext
   // Source: BasicCommandContext.java:277-288. The outer ctx looks up the prefix,
