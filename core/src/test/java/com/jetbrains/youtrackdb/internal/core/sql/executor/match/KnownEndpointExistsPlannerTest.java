@@ -27,11 +27,16 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.io.ByteArrayInputStream;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -277,7 +282,7 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
     session.rollback();
   }
 
-  /** Optional, correlated and multi-hop checks cannot introduce a target alternative. */
+  /** Optional, recursive and record-dependent endpoints cannot introduce a target alternative. */
   @Test
   public void ineligibleCheckShapesKeepTheCurrentPlan() {
     session.begin();
@@ -285,9 +290,7 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
         "MATCH {as:s}.out('KnownLink'){as:t,optional:true,where:(@rid=" + target + ")} RETURN s",
         "MATCH {as:s}.out('KnownLink'){as:t,where:(@rid=$matched.s.@rid)} RETURN s",
         "MATCH {as:s}.out('KnownLink'){as:t,rid:{\"@rid\":$matched.s.@rid}} RETURN s",
-        "MATCH {as:s}.out('KnownLink'){as:t,maxDepth:2,where:(@rid=" + target + ")} RETURN s",
-        "MATCH {as:s}.out('KnownOther'){as:m}.in('KnownLink')"
-            + "{as:t,where:(@rid=" + target + ")} RETURN s")) {
+        "MATCH {as:s}.out('KnownLink'){as:t,maxDepth:2,where:(@rid=" + target + ")} RETURN s")) {
       var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check, Map.of());
       assertThat(plan.getSteps()).noneMatch(KnownEndpointExistsStep.class::isInstance);
       plan.close();
@@ -375,12 +378,11 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
     session.rollback();
   }
 
-  /** Short RID lists are bounded by input length and do not consume arbitrary iterables. */
+  /** One-shot RID iterables are not consumed during alternative preparation. */
   @Test
   public void longAndOneShotRidListsFallBackAtExecution() throws Exception {
     session.begin();
-    var values = List.of(java.util.Collections.nCopies(9, target),
-        (Iterable<RecordIdInternal>) () -> List.of(target).iterator());
+    var values = List.of((Iterable<RecordIdInternal>) () -> List.of(target).iterator());
     for (var value : values) {
       var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n",
           "MATCH {as:s}.out('KnownLink'){as:t,where:(@rid IN :rids)} RETURN s",
@@ -397,6 +399,260 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
         plan.close();
       }
     }
+    session.rollback();
+  }
+
+  /** Early middle constraints shrink the superset, while normal forward probes still own results. */
+  @Test
+  public void middleClassAndEdgeFiltersAreSecuredCandidateConstraints() throws Exception {
+    session.createVertexClass("KnownMiddle");
+    session.createEdgeClass("KnownTail");
+    session.begin();
+    var middle = session.newVertex("KnownMiddle");
+    var wrong = session.newVertex("KnownTarget");
+    middle.setProperty("ok", true);
+    wrong.setProperty("ok", true);
+    session.loadVertex(sources.get(7)).addEdge(middle, "KnownLink").setProperty("weight", 1);
+    session.loadVertex(sources.get(200)).addEdge(wrong, "KnownLink").setProperty("weight", 1);
+    session.loadVertex(sources.get(300)).addEdge(middle, "KnownLink").setProperty("weight", 0);
+    middle.addEdge(session.loadVertex(target), "KnownTail");
+    wrong.addEdge(session.loadVertex(target), "KnownTail");
+    var check = "MATCH {as:s}.outE('KnownLink'){class:KnownLink,as:e,where:(weight=1)}"
+        + ".inV(){class:KnownMiddle,as:m,where:(ok=true)}"
+        + ".out('KnownTail'){as:t,where:(@rid=" + target + ")} RETURN s";
+    withTranslationSettings(() -> {
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+          var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check, Map.of());
+          var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+          assertThat(drain(plan)).containsExactly(7);
+          if (path == KnownEndpointExistsStep.Path.TARGET) {
+            assertThat(boundary.counters().path).isEqualTo("target");
+            assertThat(boundary.counters().candidates).isEqualTo(1);
+          }
+        }
+      }
+    });
+    session.rollback();
+  }
+
+  /** LIMIT 1 must keep a sparse two-hop TARGET winner after preparation and degree refinement. */
+  @Test
+  public void multiStepLimitKeepsTheClearTargetWinner() throws Exception {
+    session.createVertexClass("KnownMiddle");
+    session.createEdgeClass("KnownTail");
+    session.begin();
+    var middle = session.newVertex("KnownMiddle");
+    session.loadVertex(sources.get(200)).addEdge(middle, "KnownLink");
+    middle.addEdge(session.loadVertex(target), "KnownTail");
+    var check = "MATCH {as:s}.out('KnownLink'){class:KnownMiddle,as:m}"
+        + ".out('KnownTail'){as:t,where:(@rid=" + target + ")} RETURN s";
+    withTranslationSettings(() -> {
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+          var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n LIMIT 1", check,
+              Map.of());
+          var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+          assertThat(drain(plan)).containsExactly(200);
+          if (path != KnownEndpointExistsStep.Path.SOURCE) {
+            assertThat(boundary.counters().path).as(plan.prettyPrint(0, 2)).isEqualTo("target");
+            assertThat(boundary.counters().budgetSwitch).isFalse();
+            assertThat(boundary.counters().discoveryWork).isPositive()
+                .isLessThanOrEqualTo(boundary.counters().workBudget);
+          }
+        }
+      }
+    });
+    session.rollback();
+  }
+
+  /** A broad adjacency label must still enforce the narrower edge-node class during discovery. */
+  @Test
+  public void edgeNodeClassRejectsWrongClassesFromTheSameReverseWalk() throws Exception {
+    session.begin();
+    session.loadVertex(sources.get(7)).addEdge(session.loadVertex(target), "KnownLink")
+        .setProperty("weight", 1);
+    session.loadVertex(sources.get(200)).addEdge(session.loadVertex(target), "KnownOther")
+        .setProperty("weight", 1);
+    var check = "MATCH {as:s}.outE(){class:KnownLink,as:e,where:(weight=1)}"
+        + ".inV(){as:t,where:(@rid=" + target + ")} RETURN s";
+    withTranslationSettings(() -> {
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+          var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check, Map.of());
+          var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+          assertThat(drain(plan)).containsExactly(7);
+          if (path != KnownEndpointExistsStep.Path.SOURCE) {
+            assertThat(boundary.counters().path).as(plan.prettyPrint(0, 2)).isEqualTo("target");
+            assertThat(boundary.counters().candidates).isEqualTo(1);
+          }
+        }
+      }
+    });
+    session.rollback();
+  }
+
+  /** Collection-valued earlier labels retain SOURCE conversion instead of becoming class names. */
+  @Test
+  public void collectionMiddleLabelsKeepTheForwardSuperset() throws Exception {
+    middleLabelParity(List.of("['KnownLink','KnownOther']", ":labels"),
+        Map.of("labels", List.of("KnownLink", "KnownOther")), "source");
+  }
+
+  /** Quoted parameter labels use the same string-content conversion as forward navigation. */
+  @Test
+  public void quotedMiddleLabelsKeepTheForwardSuperset() throws Exception {
+    middleLabelParity(List.of(":labels"), Map.of("labels", "'KnownLink'"), "target");
+  }
+
+  private void middleLabelParity(List<String> labels, Map<String, Object> params,
+      String targetPath) throws Exception {
+    session.createVertexClass("KnownMiddle");
+    session.createEdgeClass("KnownTail");
+    session.begin();
+    var middle = session.newVertex("KnownMiddle");
+    session.loadVertex(sources.get(7)).addEdge(middle, "KnownLink");
+    middle.addEdge(session.loadVertex(target), "KnownTail");
+    withTranslationSettings(() -> {
+      for (var label : labels) {
+        var check = "MATCH {as:s}.out(" + label + "){class:KnownMiddle,as:m}"
+            + ".out('KnownTail'){as:t,where:(@rid=" + target + ")} RETURN s";
+        List<Integer> expected;
+        try (var forced = KnownEndpointExistsStep.forcePath(KnownEndpointExistsStep.Path.SOURCE)) {
+          expected = drain(plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check, params));
+        }
+        // Forward navigation stringifies a collection parameter as one label. It does not flatten
+        // this value into class names. Quoted scalar parameters do resolve to the linked class.
+        assertThat(expected).containsExactlyElementsOf(
+            targetPath.equals("source") ? List.of() : List.of(7));
+        for (var path : KnownEndpointExistsStep.Path.values()) {
+          try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+            var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check, params);
+            var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+            assertThat(drain(plan)).as(label + " " + path).isEqualTo(expected);
+            assertThat(boundary.counters().path).isEqualTo(
+                path == KnownEndpointExistsStep.Path.SOURCE ? "source" : targetPath);
+            if (targetPath.equals("source") && path != KnownEndpointExistsStep.Path.SOURCE) {
+              assertThat(boundary.counters().reason).isEqualTo("unknown edge label");
+            }
+          }
+        }
+      }
+    });
+    session.rollback();
+  }
+
+  /** Repeated record classes share one policy lookup per class, direction and labels key. */
+  @Test
+  public void fieldPolicyCacheIsScopedToOneDecisionAndEveryRelevantKey() {
+    session.begin();
+    var policies = new KnownEndpointExistsStep.FieldPolicies(session);
+    var out = com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.OUT;
+    var in = com.jetbrains.youtrackdb.internal.core.db.record.record.Direction.IN;
+    for (int i = 0; i < 2000; i++) {
+      assertThat(policies.has("KnownSource", out, List.of("KnownLink"))).isFalse();
+      assertThat(policies.has("KnownTarget", in, List.of("KnownLink"))).isFalse();
+    }
+    assertThat(policies.size()).isEqualTo(2);
+    assertThat(policies.has("KnownSource", in, List.of("KnownLink"))).isFalse();
+    assertThat(policies.has("KnownSource", out, List.of("KnownOther"))).isFalse();
+    assertThat(policies.has("KnownSource", out, List.of())).isFalse();
+    assertThat(policies.size()).isEqualTo(5);
+    var nextDecision = new KnownEndpointExistsStep.FieldPolicies(session);
+    assertThat(nextDecision.size()).isZero();
+    assertThat(nextDecision.has("KnownSource", out, List.of("KnownLink"))).isFalse();
+    assertThat(nextDecision.size()).isEqualTo(1);
+    session.rollback();
+  }
+
+  /** A skewed middle bag exhausts the refined LIMIT budget before a source row can be emitted. */
+  @Test
+  public void middleDiscoveryBudgetSwitchPrecedesEveryRowAndAppearsInProfile() throws Exception {
+    session.createVertexClass("KnownMiddle");
+    session.createEdgeClass("KnownTail");
+    session.begin();
+    var middle = session.newVertex("KnownMiddle");
+    session.loadVertex(sources.get(7)).addEdge(middle, "KnownLink");
+    middle.addEdge(session.loadVertex(target), "KnownTail");
+    // The source oracle never visits these reverse-only entries. They model extreme degree skew
+    // without increasing the schema's average fan-out estimate or changing any forward result.
+    var bag =
+        (com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag) ((com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) middle)
+            .getPropertyInternal("in_KnownLink");
+    int collection = session.getMetadata().getSchema().getClass("KnownLink").getCollectionIds()[0];
+    for (int i = 0; i < 5000; i++) {
+      bag.add(RecordIdInternal.fromString("#" + collection + ":" + (100000 + i), false),
+          sources.get(7));
+    }
+    var check = "MATCH {as:s}.out('KnownLink'){class:KnownMiddle,as:m}"
+        + ".out('KnownTail'){as:t,where:(@rid=" + target + ")} RETURN s";
+    withTranslationSettings(() -> {
+      for (var path : List.of(KnownEndpointExistsStep.Path.AUTO,
+          KnownEndpointExistsStep.Path.TARGET)) {
+        try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+          var plan =
+              plan("MATCH {class:KnownSource,as:s} RETURN s.n as n LIMIT 1", check, Map.of());
+          var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+          var stream = plan.start();
+          try {
+            var counters = boundary.counters();
+            assertThat(counters.path).as(plan.prettyPrint(0, 2)).isEqualTo("source");
+            assertThat(counters.budgetSwitch).isTrue();
+            assertThat(counters.reason).isEqualTo("work budget exceeded");
+            assertThat(counters.candidates).isZero();
+            assertThat(counters.sourceRecordsRead).isZero();
+            assertThat(counters.edgeReads).isBetween(1L, 4999L);
+            assertThat(counters.discoveryWork).isLessThanOrEqualTo(counters.workBudget);
+            assertThat(boundary.toResult(session).<Boolean>getProperty("budgetSwitch")).isTrue();
+            assertThat(boundary.prettyPrint(0, 2)).contains("budgetSwitch=true")
+                .doesNotContain("edgeReads", "targetLoads");
+            assertThat(boundary.toResult(session).getPropertyNames())
+                .doesNotContain("edgeReads", "targetLoads");
+            assertThat(stream.stream(plan.getContext()).map(r -> r.<Integer>getProperty("n")))
+                .containsExactly(7);
+          } finally {
+            stream.close(plan.getContext());
+            plan.close();
+          }
+        }
+      }
+    });
+    session.rollback();
+  }
+
+  /** Long finite lists use target discovery, but their preparation also obeys the work budget. */
+  @Test
+  public void longRidListsAreCostedAndBudgeted() throws Exception {
+    session.begin();
+    var check = "MATCH {as:s}.out('KnownLink'){as:t,where:(@rid IN :rids)} RETURN s";
+    withTranslationSettings(() -> {
+      for (var values : List.of(java.util.Collections.nCopies(9, target),
+          java.util.Collections.nCopies(10000, target))) {
+        List<Integer> expected;
+        try (var forced = KnownEndpointExistsStep.forcePath(KnownEndpointExistsStep.Path.SOURCE)) {
+          expected = drain(plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check,
+              Map.of("rids", values)));
+        }
+        for (var path : KnownEndpointExistsStep.Path.values()) {
+          try (var forced = KnownEndpointExistsStep.forcePath(path)) {
+            var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check,
+                Map.of("rids", values));
+            var boundary = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+            assertThat(drain(plan)).isEqualTo(expected).containsExactly(7, 200);
+            if (path != KnownEndpointExistsStep.Path.SOURCE) {
+              boolean switchExpected = values.size() > 9;
+              assertThat(boundary.counters().path).isEqualTo(switchExpected ? "source" : "target");
+              assertThat(boundary.counters().budgetSwitch).isEqualTo(switchExpected);
+              assertThat(boundary.counters().discoveryWork)
+                  .isLessThanOrEqualTo(boundary.counters().workBudget);
+              if (switchExpected) {
+                assertThat(boundary.counters().targetLoads).isZero();
+              }
+            }
+          }
+        }
+      }
+    });
     session.rollback();
   }
 
@@ -529,7 +785,7 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
         assertThat(cached).isNotNull();
         assertThat(drain(cached)).containsExactly(7, 200);
         assertThat(((KnownEndpointExistsStep) cached.getSteps().getFirst()).counters().path)
-            .isEqualTo(binding.size() > 8 ? "source" : "target");
+            .isEqualTo("target");
       }
     }
     session.rollback();
@@ -845,6 +1101,71 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
       }
     }
     session.rollback();
+  }
+
+  /** Every counter has a publication class, and structured/text keys agree in each state. */
+  @Test
+  public void profileOutputClassifiesEveryCounterInEveryOutcome() {
+    var always = Set.of("path", "reason", "candidates", "sourceRecordsRead", "budgetSwitch");
+    var untilSwitch = Set.of("edgeReads", "targetLoads");
+    var internal = Set.of("workBudget", "discoveryWork");
+    var classified = new LinkedHashSet<>(always);
+    assertThat(classified.addAll(untilSwitch)).isTrue();
+    assertThat(classified.addAll(internal)).isTrue();
+    assertThat(Arrays.stream(KnownEndpointExistsStep.Counters.class.getDeclaredFields())
+        .filter(field -> !Modifier.isStatic(field.getModifiers())).map(field -> field.getName()))
+        .containsExactlyInAnyOrderElementsOf(classified);
+    session.begin();
+    var plan = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check(), Map.of());
+    try {
+      var choice = (KnownEndpointExistsStep) plan.getSteps().getFirst();
+      for (var state : List.of("not started", "target", "source")) {
+        for (boolean switched : List.of(false, true)) {
+          var counters = choice.counters();
+          counters.path = state;
+          counters.reason = switched ? "work budget exceeded" : "test selector";
+          counters.budgetSwitch = switched;
+          counters.edgeReads = 19;
+          counters.targetLoads = 7;
+          counters.workBudget = 9000;
+          counters.discoveryWork = 8000;
+          var expected = new LinkedHashSet<>(always);
+          if (!switched) {
+            expected.addAll(untilSwitch);
+          }
+          var result = choice.toResult(session);
+          var framework = Set.of("name", "type", "javaType", "cost", "subSteps",
+              "description", "subExecutionPlans");
+          var published = new LinkedHashMap<String, Object>();
+          result.getPropertyNames().stream().filter(name -> !framework.contains(name))
+              .forEach(name -> published.put(name, result.getProperty(name)));
+          assertThat(published.keySet()).as(state + " switched=" + switched)
+              .containsExactlyInAnyOrderElementsOf(expected);
+          var text = choice.prettyPrint(0, 2).lines().findFirst().orElseThrow();
+          var bracket = text.substring(text.indexOf(" [") + 2, text.lastIndexOf(']'));
+          var textValues = new LinkedHashMap<String, String>();
+          for (var entry : bracket.split(", ")) {
+            var pair = entry.split("=", 2);
+            textValues.put(pair[0], pair[1]);
+          }
+          // Result property names are unordered. Check key equality and text order separately.
+          assertThat(textValues.keySet()).containsExactlyInAnyOrderElementsOf(published.keySet());
+          assertThat(textValues.keySet()).containsExactlyElementsOf(switched
+              ? List.of("path", "reason", "candidates", "sourceRecordsRead", "budgetSwitch")
+              : List.of("path", "reason", "candidates", "edgeReads", "targetLoads",
+                  "sourceRecordsRead", "budgetSwitch"));
+          published.forEach((name, value) -> assertThat(textValues.get(name))
+              .as(name).isEqualTo(value.toString()));
+          choice.setProfilingEnabled(false);
+          assertThat(choice.prettyPrint(0, 2).lines().findFirst().orElseThrow())
+              .doesNotContain(" [");
+          choice.setProfilingEnabled(true);
+        }
+      }
+    } finally {
+      plan.close();
+      session.rollback();
+    }
   }
 
   /** Reverse-only legacy or dropped-collection entries must not bypass source filtering. */

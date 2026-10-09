@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -33,17 +34,20 @@ import java.util.Locale;
 import java.util.Map;
 import javax.annotation.Nullable;
 
-/** Owns the built-source and single-hop checks for a detached candidate alternative. */
+/** Owns built-source eligibility and fixed endpoints for a detached candidate alternative. */
 final class KnownEndpointExistsAccess {
 
-  // Longer lists need the discovery budget supplied by the multi-hop access path.
-  private static final int MAX_TARGETS = 8;
+  static final int UNBUDGETED_TARGETS = 8;
+
+  record Hop(Direction forward, SQLMatchPathItem edge, SQLMatchPathItem vertex) {
+  }
 
   final String alias;
   final String sourceClass;
   final SQLWhereClause sourceFilter;
   final SQLMatchExpression check;
   final Direction forward;
+  final List<Hop> hops;
   final SQLExpression ridExpression;
   final SQLRid ridSlot;
   final SQLInCondition ridIn;
@@ -57,6 +61,7 @@ final class KnownEndpointExistsAccess {
     this.sourceFilter = sourceFilter == null ? null : sourceFilter.copy();
     this.check = check.copy();
     this.forward = forward;
+    this.hops = hops(this.check, null);
     this.ridExpression = ridExpression == null ? null : ridExpression.copy();
     this.ridSlot = ridSlot == null ? null : ridSlot.copy();
     this.ridIn = ridIn == null ? null : ridIn.copy();
@@ -92,32 +97,17 @@ final class KnownEndpointExistsAccess {
     }
     for (var check : checks) {
       if (!alias.equals(check.getOrigin().getAlias()) || check.getOrigin().isOptional()
-          || check.getItems().size() != 1 || MatchExecutionPlanner.notPatternDependsOnMatched(check)
+          || check.getItems().isEmpty() || MatchExecutionPlanner.notPatternDependsOnMatched(check)
           || MatchExecutionPlanner.findSharedAliases(check, pattern).size() != 1) {
         continue;
       }
-      SQLMatchPathItem item = check.getItems().getFirst();
-      if (item.getClass() != SQLMatchPathItem.class || item.getMethod() == null
-          || item.getFilter() == null || item.getFilter().isOptional()
-          || item.getFilter().getWhileCondition() != null || item.getFilter().getMaxDepth() != null
-          || item.getFilter().getDepthAlias() != null || item.getFilter().getPathAlias() != null
-          || (check.getOrigin().getFilter() != null
-              && check.getOrigin().getFilter().toString().contains("$"))
-          || (item.getFilter().getFilter() != null
-              && item.getFilter().getFilter().toString().contains("$"))) {
+      var hops = hops(check, ctx);
+      if (hops == null || (check.getOrigin().getFilter() != null
+          && check.getOrigin().getFilter().toString().contains("$"))) {
         continue;
       }
-      var method = item.getMethod();
-      Direction direction = switch (method.getMethodNameString().toLowerCase(Locale.ROOT)) {
-        case "out" -> Direction.OUT;
-        case "in" -> Direction.IN;
-        case "both" -> Direction.BOTH;
-        default -> null;
-      };
-      if (direction == null || method.getParams().stream()
-          .anyMatch(param -> !fixedExpression(param, ctx))) {
-        continue;
-      }
+      SQLMatchPathItem item = check.getItems().getLast();
+      Direction direction = hops.getFirst().forward();
       var slot = item.getFilter().getRid(ctx);
       if (slot != null && !resolvableSlot(slot, ctx)) {
         continue;
@@ -139,6 +129,52 @@ final class KnownEndpointExistsAccess {
       return access;
     }
     return null;
+  }
+
+  /** Collapses a canonical edge-record step and its endpoint step into one vertex hop. */
+  @Nullable private static List<Hop> hops(SQLMatchExpression check, CommandContext ctx) {
+    var result = new ArrayList<Hop>();
+    var items = check.getItems();
+    for (int i = 0; i < items.size(); i++) {
+      var item = items.get(i);
+      if (!ordinary(item, ctx)) {
+        return null;
+      }
+      String name = item.getMethod().getMethodNameString().toLowerCase(Locale.ROOT);
+      Direction direction = switch (name) {
+        case "out", "oute" -> Direction.OUT;
+        case "in", "ine" -> Direction.IN;
+        case "both" -> Direction.BOTH;
+        default -> null;
+      };
+      if (direction == null) {
+        return null;
+      }
+      SQLMatchPathItem edge = null;
+      if (name.endsWith("e")) {
+        edge = item;
+        if (++i >= items.size()) {
+          return null;
+        }
+        item = items.get(i);
+        if (!ordinary(item, ctx) || !item.getMethod().getParams().isEmpty()
+            || !item.getMethod().getMethodNameString()
+                .equalsIgnoreCase(direction == Direction.OUT ? "inV" : "outV")) {
+          return null;
+        }
+      }
+      result.add(new Hop(direction, edge, item));
+    }
+    return result;
+  }
+
+  private static boolean ordinary(SQLMatchPathItem item, CommandContext ctx) {
+    return item.getClass() == SQLMatchPathItem.class && item.getMethod() != null
+        && item.getFilter() != null && !item.getFilter().isOptional()
+        && item.getFilter().getWhileCondition() == null && item.getFilter().getMaxDepth() == null
+        && item.getFilter().getDepthAlias() == null && item.getFilter().getPathAlias() == null
+        && (ctx == null || item.getMethod().getParams().stream()
+            .allMatch(param -> fixedExpression(param, ctx)));
   }
 
   private static boolean resolvableSlot(SQLRid slot, CommandContext ctx) {
@@ -229,8 +265,31 @@ final class KnownEndpointExistsAccess {
         ridExpression, ridSlot, ridIn, equality);
   }
 
+  /** Resolves fixed scalar labels once. Unsupported values retain the forward path's meaning. */
+  @Nullable List<List<String>> labels(CommandContext ctx) {
+    var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+    var result = new ArrayList<List<String>>();
+    for (var hop : hops) {
+      var labels = new ArrayList<String>();
+      var method = (hop.edge() == null ? hop.vertex() : hop.edge()).getMethod();
+      for (var expression : method.getParams()) {
+        Object value = expression.execute((Result) null, ctx);
+        if (!(value instanceof String)) {
+          // Collections and null have special forward conversion rules. Do not stringify them.
+          return null;
+        }
+        var label = IOUtils.getStringContent(value);
+        var clazz = schema.getClass(label);
+        labels.add(clazz == null ? label : clazz.getName());
+      }
+      result.add(List.copyOf(labels));
+    }
+    return result;
+  }
+
   // Resolution runs inside the guarded decision phase. The retained check owns query errors.
-  @Nullable List<RecordIdInternal> targets(CommandContext ctx) {
+  @Nullable List<RecordIdInternal> targets(CommandContext ctx,
+      KnownEndpointExistsCost.WorkBudget budget) {
     if (ridSlot != null) {
       try {
         var rid = ridSlot.toRecordId((Result) null, ctx);
@@ -250,11 +309,13 @@ final class KnownEndpointExistsAccess {
     }
     var result = new LinkedHashSet<RecordIdInternal>();
     if (!equality) {
-      // Do not consume one-shot iterables or unbounded RID lists while preparing an alternative.
-      if (!(value instanceof Collection<?> collection) || collection.size() > MAX_TARGETS) {
+      // Do not consume one-shot iterables. Long finite lists are bounded during preparation.
+      if (!(value instanceof Collection<?> collection)) {
         return null;
       }
+      budget.enable(collection.size() > UNBUDGETED_TARGETS);
       for (var element : collection) {
+        budget.charge(1);
         var rid = asRid(element);
         if (rid == null) {
           return null;

@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.SessionNotActivatedException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
@@ -31,9 +32,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -127,6 +132,25 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     long edgeReads;
     long targetLoads;
     long sourceRecordsRead;
+    boolean budgetSwitch;
+    // Allowance and spent work stay internal. After a switch, discovery counters also depend on
+    // the allowance derived from unsecured class statistics. Keep real values for internal use.
+    double workBudget;
+    double discoveryWork;
+
+    Map<String, Object> published() {
+      var values = new LinkedHashMap<String, Object>();
+      values.put("path", path);
+      values.put("reason", reason);
+      values.put("candidates", candidates);
+      if (!budgetSwitch) {
+        values.put("edgeReads", edgeReads);
+        values.put("targetLoads", targetLoads);
+      }
+      values.put("sourceRecordsRead", sourceRecordsRead);
+      values.put("budgetSwitch", budgetSwitch);
+      return values;
+    }
   }
 
   private final KnownEndpointExistsAccess access;
@@ -189,6 +213,10 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
       checkpoint("target copy");
       bind(partial, candidates);
       return partial;
+    } catch (KnownEndpointExistsCost.BudgetExceeded exhausted) {
+      counters.budgetSwitch = true;
+      counters.reason = "work budget exceeded";
+      return null;
     } catch (RuntimeException failure) {
       discardAttempt(partial, failure, session, txWasActive);
       counters.candidates = 0;
@@ -209,7 +237,33 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var sourceClass = schema.getClassInternal(access.sourceClass);
-    var rids = access.targets(ctx);
+    double count = sourceClass == null ? 0 : sourceClass.approximateCount(session);
+    double filterShare = filterShare(ctx);
+    long demand = limit == null || fullInput ? -1 : limit.getValue(ctx);
+    if (demand >= 0 && skip != null) {
+      long skipped = skip.getValue(ctx);
+      demand = skipped < 0 || Long.MAX_VALUE - demand < skipped ? -1 : demand + skipped;
+    }
+    // Until visible degree is known, estimate a complete source scan. A sparse LIMIT can still
+    // need that whole scan. Use the same model as the later degree-based refinement.
+    var initialCosts = KnownEndpointExistsCost.estimate(count, 0, 0, 1, filterShare,
+        probeWork, laterWork, demand, fullInput);
+    var budget = new KnownEndpointExistsCost.WorkBudget(access.check.getItems().size() > 1,
+        initialCosts.sourceFull());
+    try {
+      return discover(ctx, selected, sourceClass, count, filterShare, demand, budget);
+    } finally {
+      counters.workBudget = budget.limit();
+      counters.discoveryWork = budget.spent();
+    }
+  }
+
+  @Nullable private List<RecordIdInternal> discover(CommandContext ctx, Path selected,
+      SchemaClassInternal sourceClass,
+      double count, double filterShare, long demand, KnownEndpointExistsCost.WorkBudget budget) {
+    var session = ctx.getDatabaseSession();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var rids = access.targets(ctx, budget);
     if (rids == null || sourceClass == null) {
       return fallback("unknown targets");
     }
@@ -218,22 +272,22 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
         return fallback("source collection denied");
       }
     }
-    var labels = new ArrayList<String>();
-    for (var expression : access.check.getItems().getFirst().getMethod().getParams()) {
-      Object label = expression.execute((Result) null, ctx);
-      if (!(label instanceof String string)) {
-        return fallback("unknown edge label");
-      }
-      // Vertex traversal resolves class aliases and case before choosing edge-list fields.
-      var edgeClass = schema.getClass(string);
-      labels.add(edgeClass == null ? string : edgeClass.getName());
+    var labelsByHop = access.labels(ctx);
+    if (labelsByHop == null) {
+      return fallback("unknown edge label");
     }
+    var fieldPolicies = new FieldPolicies(session);
+    var farHop = access.hops.getLast();
+    var labels = labelsByHop.getLast();
     var labelArray = labels.toArray(String[]::new);
-    var reverse = switch (access.forward) {
+    var reverse = switch (farHop.forward()) {
       case OUT -> Direction.IN;
       case IN -> Direction.OUT;
       case BOTH -> Direction.BOTH;
     };
+    var fixedProperties = labels.isEmpty() ? List.<String>of()
+        : VertexEntityImpl.getAllPossibleEdgePropertyNames(schema, reverse, labelArray);
+    String upstreamClass = access.hops.size() == 1 ? access.sourceClass : "V";
     var bags = new ArrayList<LinkBag>();
     double degree = 0;
     for (var rid : rids) {
@@ -242,18 +296,19 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
           || (!rid.isPersistent() && session.getTransactionInternal().getRecord(rid) == null)) {
         return fallback("target unavailable");
       }
+      budget.charge(1);
       var record = session.executeReadRecord(rid, null, false);
       if (!(record instanceof VertexEntityImpl vertex)) {
         return fallback("target is missing, hidden or not a vertex");
       }
       counters.targetLoads++;
-      var properties = labels.isEmpty() ? vertex.getEdgeNames(reverse)
-          : VertexEntityImpl.getAllPossibleEdgePropertyNames(schema, reverse, labelArray);
-      if (hasFieldPolicy(session, access.sourceClass, access.forward, labelArray)
-          || hasFieldPolicy(session, vertex.getSchemaClassName(), reverse, labelArray)) {
+      var properties = labels.isEmpty() ? vertex.getEdgeNames(reverse) : fixedProperties;
+      if (fieldPolicies.has(upstreamClass, farHop.forward(), labels)
+          || fieldPolicies.has(vertex.getSchemaClassName(), reverse, labels)) {
         return fallback("edge-list read policy");
       }
       for (var property : properties) {
+        budget.charge(1);
         if (VertexEntityImpl.getConnection(schema, reverse, property, labelArray) == null) {
           continue;
         }
@@ -269,43 +324,59 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
         degree += bag.size();
       }
     }
-    double count = sourceClass.approximateCount(session);
-    double filterShare = filterShare(ctx);
+    double walkedDegree = degree;
+    // Each earlier hop adds its estimated reverse fan-out and secured middle-record load.
+    for (int i = access.hops.size() - 2; i >= 0; i--) {
+      var hop = access.hops.get(i);
+      var method = (hop.edge() == null ? hop.vertex() : hop.edge()).getMethod();
+      double fanOut = 0;
+      String middleClass = hop.vertex().getFilter().getClassName(ctx);
+      if (middleClass == null) {
+        middleClass = "V";
+      }
+      for (var label : labelsByHop.get(i)) {
+        fanOut += EdgeFanOutEstimator.estimateFanOut(session, label, middleClass,
+            hop.forward() == Direction.OUT ? Direction.IN : Direction.OUT, null, null);
+      }
+      degree *= method.getParams().isEmpty() ? EdgeFanOutEstimator.defaultFanOut() : fanOut;
+      walkedDegree += degree;
+    }
     var vertices = schema.getClassInternal("V");
     double vertexCount = vertices == null ? count : vertices.approximateCount(session);
     double typeShare = vertexCount <= 0 ? 0 : Math.min(1, count / vertexCount);
     // A linked endpoint proves the type only if every selected edge subtype declares that endpoint.
-    if (provenSourceType(ctx, labels)) {
+    if (provenSourceType(ctx, labelsByHop.getFirst())) {
       typeShare = 1;
-    }
-    long demand = limit == null || fullInput ? -1 : limit.getValue(ctx);
-    if (demand >= 0 && skip != null) {
-      long skipped = skip.getValue(ctx);
-      demand = skipped < 0 || Long.MAX_VALUE - demand < skipped ? -1 : demand + skipped;
     }
     var costs = KnownEndpointExistsCost.estimate(count, degree, counters.targetLoads, typeShare,
         filterShare, probeWork, laterWork, demand, fullInput);
+    if (access.check.getItems().size() > 1
+        || rids.size() > KnownEndpointExistsAccess.UNBUDGETED_TARGETS || budget.spent() > 0) {
+      // Include already-spent preparation, all estimated deduplication work, middle loads and
+      // edge-record loads. Statistics estimate discovery only. The running budget bounds skew.
+      double additional = budget.spent() - counters.targetLoads + walkedDegree;
+      if (access.hops.size() > 1) {
+        additional += walkedDegree - degree;
+      }
+      if (access.hops.stream().anyMatch(hop -> hop.edge() != null)) {
+        additional += walkedDegree;
+      }
+      costs = new KnownEndpointExistsCost.Estimate(costs.sourceFull(),
+          costs.targetFull() + additional, costs.sourceFirst(), costs.targetFirst() + additional);
+    }
+    budget.refine(costs.sourceFull());
     // LIMIT bounds output. It does not prove that a lazy caller consumes that many rows.
     // Full-input plans already include all required work in their first-row estimate.
     if (selected != Path.TARGET && !costs.targetWins()) {
       return fallback("cost or first-row margin");
     }
-    var identities = new LinkedHashSet<RecordIdInternal>();
     checkpoint("reverse walk");
-    for (var bag : bags) {
-      for (var pair : bag) {
-        counters.edgeReads++;
-        // The current path may never visit this reverse-only entry. Leave its errors to it.
-        if (pair.primaryRid().equals(pair.secondaryRid())) {
-          return fallback("legacy edge entry");
-        }
-        var source = (RecordIdInternal) pair.secondaryRid();
-        if (schema.getClassByCollectionId(source.getCollectionId()) == null) {
-          return fallback("unknown candidate collection");
-        }
-        identities.add(source);
-      }
+    var identities = new KnownEndpointExistsWalk(access, counters, budget, fieldPolicies,
+        labelsByHop).collect(ctx, bags);
+    if (identities == null) {
+      return null;
     }
+    budget.charge(identities.size() + KnownEndpointExistsCost.sortWork(identities.size()));
     var ordered = new ArrayList<>(identities);
     ordered.sort(Comparator.comparingInt(RecordIdInternal::getCollectionId)
         .thenComparingLong(RecordIdInternal::getCollectionPosition));
@@ -347,11 +418,14 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
   }
 
   private boolean provenSourceType(CommandContext ctx, List<String> labels) {
-    if (labels.isEmpty() || access.forward == Direction.BOTH) {
+    // Only the hop next to the original source can prove its endpoint type. The far hop can
+    // have a different edge class and direction in a multi-step path.
+    var first = access.hops.getFirst();
+    if (labels.isEmpty() || first.forward() == Direction.BOTH) {
       return false;
     }
     var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
-    String endpoint = access.forward == Direction.OUT ? "out" : "in";
+    String endpoint = first.forward() == Direction.OUT ? "out" : "in";
     for (var label : labels) {
       var edgeClass = schema.getClass(label);
       if (edgeClass == null || !edgeClass.isEdgeType()) {
@@ -370,7 +444,7 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     return true;
   }
 
-  private static boolean canReadCollection(DatabaseSessionEmbedded session, int collection) {
+  static boolean canReadCollection(DatabaseSessionEmbedded session, int collection) {
     try {
       session.checkSecurity(ResourceGeneric.COLLECTION, Role.PERMISSION_READ,
           session.getCollectionNameById(collection));
@@ -380,7 +454,33 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     }
   }
 
-  private static boolean hasFieldPolicy(DatabaseSessionEmbedded session, String className,
+  /** A decision owns its policy cache. Record loops never repeat a schema-wide policy scan. */
+  static final class FieldPolicies {
+    private record Key(String className, Direction direction, List<String> labels) {
+      Key {
+        labels = List.copyOf(labels);
+      }
+    }
+
+    private final DatabaseSessionEmbedded session;
+    private final Map<Key, Boolean> results = new HashMap<>();
+
+    FieldPolicies(DatabaseSessionEmbedded session) {
+      this.session = session;
+    }
+
+    boolean has(String className, Direction direction, List<String> labels) {
+      var key = new Key(className, direction, labels);
+      return results.computeIfAbsent(key, k -> hasFieldPolicy(session, k.className(),
+          k.direction(), k.labels().toArray(String[]::new)));
+    }
+
+    int size() {
+      return results.size();
+    }
+  }
+
+  static boolean hasFieldPolicy(DatabaseSessionEmbedded session, String className,
       Direction direction, String[] labels) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     var clazz = schema.getClass(className);
@@ -432,12 +532,7 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     var result = (ResultInternal) super.toResult(session);
     result.setProperty("subExecutionPlans", getSubExecutionPlans().stream()
         .map(plan -> plan.toResult(session)).toList());
-    result.setProperty("path", counters.path);
-    result.setProperty("reason", counters.reason);
-    result.setProperty("candidates", counters.candidates);
-    result.setProperty("edgeReads", counters.edgeReads);
-    result.setProperty("targetLoads", counters.targetLoads);
-    result.setProperty("sourceRecordsRead", counters.sourceRecordsRead);
+    counters.published().forEach(result::setProperty);
     return result;
   }
 
@@ -446,10 +541,9 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     String spaces = ExecutionStepInternal.getIndent(depth, indent);
     return spaces + "+ KNOWN-ENDPOINT EXISTS CHOICE (margin "
         + KnownEndpointExistsCost.SAFETY_MARGIN + ", full and first-row cost)"
-        + (profilingEnabled ? " [path=" + counters.path + ", reason=" + counters.reason
-            + ", candidates=" + counters.candidates + ", edgeReads=" + counters.edgeReads
-            + ", targetLoads=" + counters.targetLoads
-            + ", sourceRecordsRead=" + counters.sourceRecordsRead + "]" : "")
+        + (profilingEnabled ? counters.published().entrySet().stream()
+            .map(entry -> entry.getKey() + "=" + entry.getValue())
+            .collect(Collectors.joining(", ", " [", "]")) : "")
         + "\n" + spaces + "  CURRENT:\n"
         + getSubExecutionPlans().getFirst().prettyPrint(depth + 2, indent)
         + "\n" + spaces + "  TARGET:\n"
