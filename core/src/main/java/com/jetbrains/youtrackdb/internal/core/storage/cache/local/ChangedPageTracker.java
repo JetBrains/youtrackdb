@@ -27,6 +27,9 @@ import javax.annotation.Nullable;
  * identity reset or deletion. The total lock order is
  * save order, external file inventory, then generation state. Save-order holders must not wait for
  * transactions, write pauses, or exclusive storage state.
+ *
+ * <p>Startup loading, verification and resolution run on one thread. The caller excludes backup
+ * and checkpoint work throughout these startup operations.
  */
 public final class ChangedPageTracker {
 
@@ -47,6 +50,7 @@ public final class ChangedPageTracker {
   @Nullable private UUID lastCompleted;
   private long savedFailureVersion = -1;
   private boolean historyTrusted;
+  private boolean startupVerificationPending;
 
   public ChangedPageTracker() {
     this(kind -> {
@@ -101,7 +105,7 @@ public final class ChangedPageTracker {
   boolean isTrusted() {
     generationState.lock();
     try {
-      return historyTrusted && savedFailureVersion == failures.get();
+      return !startupVerificationPending && historyTrusted && savedFailureVersion == failures.get();
     } finally {
       generationState.unlock();
     }
@@ -142,7 +146,8 @@ public final class ChangedPageTracker {
     try {
       requireSealed(expected);
       long version = failures.get();
-      historyTrusted = expected.failureVersion() == version && savedFailureVersion == version
+      historyTrusted = !startupVerificationPending
+          && expected.failureVersion() == version && savedFailureVersion == version
           && expected.trackerIdentifier().equals(trackerId);
       lastCompleted = historyTrusted ? expected.identifier() : null;
       sealed = null;
@@ -337,7 +342,8 @@ public final class ChangedPageTracker {
       long version = failures.get();
       boolean reset = version != savedFailureVersion;
       return new SaveState(reset ? UUID.randomUUID() : trackerId,
-          reset ? null : lastCompleted, !reset && historyTrusted, active, sealed, version, reset,
+          reset ? null : lastCompleted, !reset && !startupVerificationPending && historyTrusted,
+          active, sealed, version, reset,
           mutationVersion);
     } finally {
       generationState.unlock();
@@ -401,6 +407,20 @@ public final class ChangedPageTracker {
     generationState.lock();
     try {
       return durableCoverageLsn;
+    } finally {
+      generationState.unlock();
+    }
+  }
+
+  /** Toggles the trust gate under the class's startup threading contract. */
+  void startupVerificationPending(boolean pending) {
+    generationState.lock();
+    try {
+      if (startupVerificationPending != pending) {
+        startupVerificationPending = pending;
+        // A save made while pending must not hide a later trust resolution.
+        mutations.changed();
+      }
     } finally {
       generationState.unlock();
     }
