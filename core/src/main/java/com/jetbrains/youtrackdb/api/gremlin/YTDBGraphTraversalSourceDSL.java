@@ -56,9 +56,11 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
   /// Start a new transaction if it is not yet started and executes passed in code in it.
   ///
-  /// If a transaction is already started, executes passed in code in it. In case of exception,
-  /// rolls back the transaction and commits the changes if the transaction was started by this
-  /// method.
+  /// Uses any transaction already open. Commits any open transaction when the code returns
+  /// successfully, or rolls it back when the code throws. Commit failures reach the caller.
+  /// Unchecked commit failures propagate unchanged. Other commit exceptions are wrapped in
+  /// [IllegalStateException] with the original cause. A commit exception can occur after changes
+  /// have been saved.
   public <X extends Exception> void executeInTx(
       @Nonnull FailableConsumer<YTDBGraphTraversalSource, X> code) throws X {
     YTDBTransaction.executeInTX(code, (YTDBGraphTraversalSource) this);
@@ -66,9 +68,11 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
 
   /// Start a new transaction if it is not yet started and executes passed in code in it.
   ///
-  /// If a transaction is already started, executes passed in code in it. In case of exception,
-  /// rolls back the transaction and commits the changes if the transaction was started by this
-  /// method.
+  /// Uses any transaction already open. Commits any open transaction when the code returns
+  /// successfully, or rolls it back when the code throws. Commit failures reach the caller.
+  /// Unchecked commit failures propagate unchanged. Other commit exceptions are wrapped in
+  /// [IllegalStateException] with the original cause. A commit exception can occur after changes
+  /// have been saved.
   ///
   /// Unlike {@link #executeInTx(FailableConsumer)} also iterates over the returned
   /// [YTDBGraphTraversal] triggering its execution.
@@ -81,9 +85,11 @@ public class YTDBGraphTraversalSourceDSL extends GraphTraversalSource {
   /// Start a new transaction if it is not yet started and executes passed in code in it and then
   /// returns the result of the code execution.
   ///
-  /// If a transaction is already started, executes passed in code in it. In case of exception,
-  /// rolls back the transaction and commits the changes if the transaction was started by this
-  /// method.
+  /// Uses any transaction already open. Commits any open transaction when the code returns
+  /// successfully, or rolls it back when the code throws. Commit failures reach the caller.
+  /// Unchecked commit failures propagate unchanged. Other commit exceptions are wrapped in
+  /// [IllegalStateException] with the original cause. A commit exception can occur after changes
+  /// have been saved.
   public <X extends Exception, R> R computeInTx(
       @Nonnull FailableFunction<YTDBGraphTraversalSource, R, X> code) throws X {
     return YTDBTransaction.computeInTx(code, (YTDBGraphTraversalSource) this);

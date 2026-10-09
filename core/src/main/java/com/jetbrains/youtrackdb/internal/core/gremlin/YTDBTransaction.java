@@ -30,15 +30,16 @@ public final class YTDBTransaction extends AbstractTransaction {
       new CopyOnWriteArraySet<>();
   private final YTDBGraphImplAbstract graph;
   private DatabaseSessionEmbedded activeSession;
+  private YTDBGraphImplAbstract.ThreadLocalState owningScope;
+  private long activation;
+  private Completion completion;
+  private final Consumer<Status> sessionCloseListener = status -> closeCompletedSession();
   private TransactionRole transactionRole;
   private boolean strategyInspection;
   private int helperScopeDepth;
 
-  // Query monitoring
-  private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
-  private String trackingId;
-  private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
-  private TransactionMetricsListener transactionMetricsListener = TransactionMetricsListener.NO_OP;
+  // Monitoring generations separate completed settings from callback-created settings.
+  private MonitoringState monitoring = new MonitoringState();
 
   public YTDBTransaction(YTDBGraphImplAbstract graph) {
     super(graph);
@@ -122,6 +123,10 @@ public final class YTDBTransaction extends AbstractTransaction {
           tx.commit();
         } catch (Exception e) {
           logger.error("Failed to commit transaction", e);
+          if (e instanceof RuntimeException re) {
+            throw re;
+          }
+          throw new IllegalStateException("Failed to commit transaction", e);
         }
       } else {
         try {
@@ -223,10 +228,13 @@ public final class YTDBTransaction extends AbstractTransaction {
 
   @Override
   protected void doOpen() {
+    monitoringForConfiguration();
     var ok = false;
     try {
       activeSession = graph.getUnderlyingDatabaseSession();
+      owningScope = graph.currentScope();
       activeSession.begin();
+      activation++;
       transactionRole = strategyInspection && helperScopeDepth == 0
           ? TransactionRole.INSPECTION_ONLY
           : TransactionRole.CALLER_ACTIVE;
@@ -240,13 +248,85 @@ public final class YTDBTransaction extends AbstractTransaction {
   }
 
   @Override
+  public void commit() {
+    complete(true);
+  }
+
+  @Override
+  public void rollback() {
+    complete(false);
+  }
+
+  private void complete(boolean commit) {
+    // Match AbstractTransaction's read-write, database step, and listener order.
+    readWrite();
+    var attempted = new Completion(activeSession, owningScope, activation, monitoring);
+    var previousCompletion = completion;
+    completion = attempted;
+    try {
+      if (commit) {
+        doCommit();
+      } else {
+        doRollback();
+      }
+      if (commit) {
+        fireOnCommit();
+      } else {
+        fireOnRollback();
+      }
+    } catch (RuntimeException | Error failure) {
+      // A listener can reopen this transaction, even on the same pooled session.
+      // Its session belongs to the newer activation, not this completion attempt.
+      if (activation == attempted.activation()) {
+        try {
+          graph.closeCachedSession(attempted.scope(), attempted.session());
+        } catch (RuntimeException | Error cleanupFailure) {
+          if (failure != cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      throw failure;
+    } finally {
+      // Keep completed settings visible through notification and teardown. A callback can
+      // replace this generation, even with identical values, without losing its settings.
+      if (monitoring == attempted.monitoring()) {
+        monitoring = new MonitoringState();
+      }
+      // A callback can complete a reopened activation. Restore the enclosing attempt.
+      completion = previousCompletion;
+    }
+  }
+
+  void addSessionCloseListener() {
+    // One stable listener per transaction preserves registration order and set deduplication.
+    addTransactionListener(sessionCloseListener);
+  }
+
+  private void closeCompletedSession() {
+    var completed = completion;
+    if (completed == null || activation != completed.activation()) {
+      return;
+    }
+    var session = completed.session();
+    if (session != null && session.isTxActive()) {
+      throw new IllegalStateException("Transaction is still active");
+    }
+    graph.closeCachedSession(completed.scope(), session);
+  }
+
+  private record Completion(DatabaseSessionEmbedded session,
+      YTDBGraphImplAbstract.ThreadLocalState scope, long activation, MonitoringState monitoring) {
+  }
+
+  @Override
   protected void doCommit() throws TransactionException {
     if (activeSession != null) {
       try {
         if (isTransactionMetricsEnabled()) {
           activeSession.monitoredCommit(
-              transactionMetricsListener,
-              queryMonitoringMode,
+              monitoring.transactionMetricsListener,
+              monitoring.queryMonitoringMode,
               getTrackingId());
         } else {
           activeSession.commit();
@@ -279,20 +359,29 @@ public final class YTDBTransaction extends AbstractTransaction {
   @Override
   protected void fireOnCommit() {
     this.transactionListeners.forEach(c -> c.accept(Status.COMMIT));
-    clearMonitoringState();
   }
 
   @Override
   protected void fireOnRollback() {
     this.transactionListeners.forEach(c -> c.accept(Status.ROLLBACK));
-    clearMonitoringState();
   }
 
-  private void clearMonitoringState() {
-    this.trackingId = null;
-    this.queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
-    this.queryMetricsListener = QueryMetricsListener.NO_OP;
-    this.transactionMetricsListener = TransactionMetricsListener.NO_OP;
+  private MonitoringState monitoringForConfiguration() {
+    // Opening or configuring after the database step starts a fresh generation. Detach before
+    // applying setters so configuration before open is retained without inheriting old fields.
+    if (completion != null && activeSession == null && monitoring == completion.monitoring()) {
+      monitoring = new MonitoringState();
+    }
+    return monitoring;
+  }
+
+  private static final class MonitoringState {
+
+    private QueryMonitoringMode queryMonitoringMode = QueryMonitoringMode.LIGHTWEIGHT;
+    private String trackingId;
+    private QueryMetricsListener queryMetricsListener = QueryMetricsListener.NO_OP;
+    private TransactionMetricsListener transactionMetricsListener =
+        TransactionMetricsListener.NO_OP;
   }
 
   public DatabaseSessionEmbedded getDatabaseSession() {
@@ -307,7 +396,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   /// listener. If not set, YTDB will generate its own tracking ID.
   public YTDBTransaction withTrackingId(@Nonnull String trackingId) {
     Objects.requireNonNull(trackingId);
-    this.trackingId = trackingId;
+    monitoringForConfiguration().trackingId = trackingId;
     return this;
   }
 
@@ -316,7 +405,7 @@ public final class YTDBTransaction extends AbstractTransaction {
   /// heavier performance-wise.
   public YTDBTransaction withQueryMonitoringMode(@Nonnull QueryMonitoringMode mode) {
     Objects.requireNonNull(mode);
-    this.queryMonitoringMode = mode;
+    monitoringForConfiguration().queryMonitoringMode = mode;
     return this;
   }
 
@@ -324,38 +413,39 @@ public final class YTDBTransaction extends AbstractTransaction {
   /// in embedded mode.
   public YTDBTransaction withQueryListener(@Nonnull QueryMetricsListener listener) {
     Objects.requireNonNull(listener);
-    this.queryMetricsListener = listener;
+    monitoringForConfiguration().queryMetricsListener = listener;
     return this;
   }
 
   public boolean isQueryMetricsEnabled() {
-    return queryMetricsListener != null && queryMetricsListener != QueryMetricsListener.NO_OP;
+    return monitoring.queryMetricsListener != null
+        && monitoring.queryMetricsListener != QueryMetricsListener.NO_OP;
   }
 
   public @Nonnull QueryMonitoringMode getQueryMonitoringMode() {
-    return queryMonitoringMode;
+    return monitoring.queryMonitoringMode;
   }
 
   public @Nonnull String getTrackingId() {
-    return trackingId != null ? trackingId
+    return monitoring.trackingId != null ? monitoring.trackingId
         : String.valueOf(getDatabaseSession().getActiveTransaction().getId());
   }
 
   public QueryMetricsListener getQueryMetricsListener() {
-    return queryMetricsListener;
+    return monitoring.queryMetricsListener;
   }
 
   /// Register a metrics listener for this transaction. Supported only when YouTrackDB is run in
   /// embedded mode.
   public YTDBTransaction withTransactionListener(@Nonnull TransactionMetricsListener listener) {
     Objects.requireNonNull(listener);
-    this.transactionMetricsListener = listener;
+    monitoringForConfiguration().transactionMetricsListener = listener;
     return this;
   }
 
   public boolean isTransactionMetricsEnabled() {
-    return transactionMetricsListener != null
-        && transactionMetricsListener != TransactionMetricsListener.NO_OP;
+    return monitoring.transactionMetricsListener != null
+        && monitoring.transactionMetricsListener != TransactionMetricsListener.NO_OP;
   }
 
   private enum TransactionRole {

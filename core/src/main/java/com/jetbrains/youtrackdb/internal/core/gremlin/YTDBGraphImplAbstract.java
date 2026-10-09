@@ -60,7 +60,6 @@ import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.T;
-import org.apache.tinkerpop.gremlin.structure.Transaction.Status;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.io.Io;
 import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
@@ -69,7 +68,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @SuppressWarnings("resource")
-public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consumer<Status> {
+public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal {
 
   public static void registerOptimizationStrategies(Class<? extends YTDBGraphImplAbstract> cls) {
     TraversalStrategies.GlobalCache.registerStrategies(
@@ -441,35 +440,31 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
     if (currentSession != null) {
       if (!currentSession.isTxActive()) {
-        tx().addTransactionListener(this);
+        threadLocalState.transaction.addSessionCloseListener();
       }
 
       return currentSession;
     }
 
     currentSession = acquireSession();
-    tx().addTransactionListener(this);
+    threadLocalState.transaction.addSessionCloseListener();
 
     threadLocalState.sessionEmbedded = currentSession;
     return currentSession;
   }
 
-  @Override
-  public void accept(Status status) {
-    var threadLocalState = this.threadLocalState.get();
-    var currentSession = threadLocalState.sessionEmbedded;
-    if (currentSession == null) {
+  ThreadLocalState currentScope() {
+    return threadLocalState.get();
+  }
+
+  void closeCachedSession(ThreadLocalState scope, DatabaseSessionEmbedded session) {
+    if (session == null || scope.sessionEmbedded != session) {
       return;
     }
-
-    if (currentSession.isTxActive()) {
-      throw new IllegalStateException("Transaction is still active");
-    }
-
-    // Null the field before closing so that cleanup code (e.g., withSuspendedTransaction)
-    // never attempts a second close on the same session if close() throws.
-    threadLocalState.sessionEmbedded = null;
-    currentSession.close();
+    // Detach before teardown. A completed close can return the session to its pool even
+    // when it throws. An incomplete close stays detached and checked out until pool shutdown.
+    scope.sessionEmbedded = null;
+    session.close();
   }
 
   @Override
@@ -519,8 +514,8 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       try {
         // Clean up any transaction/session left open by the lambda.
         // Using tx().rollback() goes through the normal TinkerPop path:
-        // doRollback() nulls activeSession, fireOnRollback() calls accept(Status)
-        // which closes sessionEmbedded. This handles both in a single call.
+        // doRollback() nulls activeSession, then the bound completion listener closes
+        // this transaction's cached session. This handles both in a single call.
         // The isOpen() + rollback() is wrapped in a single try-catch because isOpen()
         // itself can throw if the lambda left the session in a bad state (e.g., manually
         // closed the session without going through tx().rollback()).
@@ -556,7 +551,7 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   public abstract DatabaseSessionEmbedded acquireSession();
 
-  private static final class ThreadLocalState {
+  static final class ThreadLocalState {
 
     @Nullable private DatabaseSessionEmbedded sessionEmbedded;
     private final YTDBTransaction transaction;
