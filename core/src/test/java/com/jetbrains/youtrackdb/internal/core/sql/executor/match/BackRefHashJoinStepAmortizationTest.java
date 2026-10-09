@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -69,6 +70,40 @@ public class BackRefHashJoinStepAmortizationTest {
   private BackRefHashJoinStep buildStep(ChainSemiJoin descriptor) {
     return new BackRefHashJoinStep(
         new BasicCommandContext(), descriptor, null, null, false);
+  }
+
+  /** Both fallback edges, predecessor links and mutable prefilter counters belong to each copy. */
+  @Test
+  public void copyOwnsFallbackConsumedEdgeAndPredecessorLink() throws Exception {
+    var a = new PatternNode();
+    a.alias = "a";
+    var b = new PatternNode();
+    b.alias = "b";
+    a.addEdge(new SQLMatchPathItem(-1), b);
+    var consumed = new EdgeTraversal(a.out.iterator().next(), true);
+    var fallback = consumed.copy();
+    fallback.setConsumedPredecessor(consumed);
+    var template = new BackRefHashJoinStep(new BasicCommandContext(),
+        buildChain(null), fallback, consumed, false);
+    var first = template.copy(new BasicCommandContext());
+    var second = template.copy(new BasicCommandContext());
+    var fallbackField = BackRefHashJoinStep.class.getDeclaredField("fallbackEdge");
+    var consumedField = BackRefHashJoinStep.class.getDeclaredField("consumedEdge");
+    fallbackField.setAccessible(true);
+    consumedField.setAccessible(true);
+    var firstFallback = (EdgeTraversal) fallbackField.get(first);
+    var firstConsumed = (EdgeTraversal) consumedField.get(first);
+    // Compare identity without rendering the deliberately minimal path AST in failure messages.
+    assertThat(firstFallback == fallback || firstFallback == fallbackField.get(second)).isFalse();
+    assertThat(firstConsumed == consumed || firstConsumed == consumedField.get(second)).isFalse();
+    assertThat(firstFallback.getConsumedPredecessor()).isSameAs(firstConsumed);
+    firstFallback.recordPreFilterApplied();
+    firstConsumed.recordPreFilterApplied();
+    assertThat(fallback.getPreFilterAppliedCount()).isZero();
+    assertThat(consumed.getPreFilterAppliedCount()).isZero();
+    assertThat(((EdgeTraversal) consumedField.get(second)).getPreFilterAppliedCount()).isZero();
+    // Descriptor-only joins also support copies without either fallback edge.
+    assertThat(buildStep(buildChain(null)).copy(new BasicCommandContext())).isNotNull();
   }
 
   /**
