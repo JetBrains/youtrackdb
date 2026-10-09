@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -355,7 +356,7 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
 
   /**
    * Pins the option-flag dispatch on {@link DatabaseImport#parseSetting} for the
-   * {@code -migrateLinks} / {@code -rebuildIndexes} / {@code -deleteRIDMapping} /
+   * {@code -rebuildIndexes} / {@code -deleteRIDMapping} /
    * {@code -backwardCompatMode} flags. Each flag flips a getter the import exposes
    * (or, for {@code -backwardCompatMode}, leaves a non-default JSON serializer in
    * place); we don't run a full import here — that is covered by the round-trip test
@@ -378,12 +379,8 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
             iText -> {
             });
 
-    // Defaults: both flags are true.
-    assertTrue(importer.isMigrateLinks());
+    // Index rebuilding is enabled by default.
     assertTrue(importer.isRebuildIndexes());
-
-    importer.setOptions(" -migrateLinks=false");
-    assertFalse(importer.isMigrateLinks());
 
     importer.setOptions(" -rebuildIndexes=false");
     assertFalse(importer.isRebuildIndexes());
@@ -399,21 +396,48 @@ public class DatabaseExportImportRoundTripTest extends DbTestBase {
     importer.setOptions(" -backwardCompatMode=true");
     importer.setOptions(" -backwardCompatMode=false");
 
-    // setMigrateLinks / setRebuildIndexes setter paths.
-    importer.setMigrateLinks(true);
-    assertTrue(importer.isMigrateLinks());
+    // setRebuildIndexes setter path.
     importer.setRebuildIndexes(true);
     assertTrue(importer.isRebuildIndexes());
 
     // setOption(name, value) is the public Option API surface — exercise each path.
-    importer.setOption("migrateLinks", "false");
-    assertFalse(importer.isMigrateLinks());
     importer.setOption("rebuildIndexes", "false");
     assertFalse(importer.isRebuildIndexes());
 
     // Unknown options fall through to DatabaseImpExpAbstract.parseSetting, which only
     // recognises -useLineFeedForRecords. An unrecognised setting is silently ignored.
     importer.setOptions(" -unrecognised=value");
+  }
+
+  /**
+   * Both option entry points reject migrateLinks for any value, including both booleans,
+   * mixed-case names, and missing values. The error names the option and explains that link
+   * migration always runs, rather than silently ignoring an unsupported setting.
+   */
+  @Test
+  public void importRejectsMigrateLinksThroughBothOptionEntryPoints() throws IOException {
+    var importer = new DatabaseImport(session, new ByteArrayInputStream(new byte[0]), text -> {
+    });
+    try {
+      for (var option : List.of("migrateLinks", "MiGrAtElInKs")) {
+        for (var value : List.of("false", "true", "invalid", "")) {
+          var fromOptions = assertThrows(DatabaseImportException.class,
+              () -> importer.setOptions(" -" + option + "=" + value));
+          var fromOption = assertThrows(DatabaseImportException.class,
+              () -> importer.setOption(option, value));
+          for (var rejection : List.of(fromOptions, fromOption)) {
+            assertTrue(rejection.getMessage().contains("-migrateLinks"));
+            assertTrue(rejection.getMessage().contains("The importer always migrates links."));
+          }
+        }
+      }
+      var withoutValue = assertThrows(DatabaseImportException.class,
+          () -> importer.setOptions(" -migrateLinks"));
+      assertTrue(withoutValue.getMessage().contains("-migrateLinks"));
+      assertTrue(withoutValue.getMessage().contains("The importer always migrates links."));
+    } finally {
+      importer.close();
+    }
   }
 
   /**

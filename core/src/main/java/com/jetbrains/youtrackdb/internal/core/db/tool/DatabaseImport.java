@@ -119,7 +119,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   private boolean deleteRIDMapping = true;
 
-  private boolean migrateLinks = true;
   private boolean rebuildIndexes = true;
 
   private final Set<String> indexesToRebuild = new HashSet<>();
@@ -283,10 +282,13 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
 
   @Override
   protected void parseSetting(final String option, final List<String> items) {
+    if (option.equalsIgnoreCase("-migrateLinks")) {
+      throw new DatabaseImportException(
+          "The import option -migrateLinks is no longer supported."
+              + " The importer always migrates links.");
+    }
     if (option.equalsIgnoreCase("-deleteRIDMapping")) {
       deleteRIDMapping = Boolean.parseBoolean(items.getFirst());
-    } else if (option.equalsIgnoreCase("-migrateLinks")) {
-      migrateLinks = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-rebuildIndexes")) {
       rebuildIndexes = Boolean.parseBoolean(items.getFirst());
     } else if (option.equalsIgnoreCase("-acceptBestEffortDump")) {
@@ -731,15 +733,11 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         throw truncatedDump("its brokenRids section");
       }
     }
-    if (migrateLinks) {
-      if (exporterVersion >= 12) {
-        listener.onMessage(
-            brokenRids.size()
-                + " were detected as broken during database export, links on those records will be"
-                + " removed from result database");
-      }
-      migrateLinksInImportedDocuments(brokenRids);
-    }
+    listener.onMessage(
+        brokenRids.size()
+            + " were detected as broken during database export, links on those records will be"
+            + " removed from result database");
+    migrateLinksInImportedDocuments(brokenRids);
   }
 
   public void rebuildIndexes() {
@@ -785,16 +783,6 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
       }
       validatedGzipStream = null;
     }
-  }
-
-  @SuppressWarnings("unused")
-  public boolean isMigrateLinks() {
-    return migrateLinks;
-  }
-
-  @SuppressWarnings("unused")
-  public void setMigrateLinks(boolean migrateLinks) {
-    this.migrateLinks = migrateLinks;
   }
 
   @SuppressWarnings("unused")
@@ -2255,7 +2243,7 @@ public class DatabaseImport extends DatabaseImpExpAbstract<DatabaseSessionEmbedd
         """
 
 
-            Started migration of links (-migrateLinks=true). Links are going to be updated\
+            Started migration of links. Links are going to be updated\
              according to new RIDs:""");
 
     final var ridMapCollections =
