@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.db.tool;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -1048,48 +1049,49 @@ public class DatabaseImportHardeningTest extends DbTestBase {
     }
   }
 
-  /** Both public ways to disable link migration must reject v15 before the preamble runs. */
+  /**
+   * Real v15 and v14 dumps reject the removed option during configuration, before import work.
+   * The rejection must preserve the target schema and record contents and import no source class.
+   */
   @Test
-  public void v15DisabledLinkMigrationIsRejectedBeforeMutation() throws Exception {
+  public void removedLinkMigrationOptionRejectsBothDumpVersionsBeforeMutation() throws Exception {
     var dump = exportSmallDump();
-    for (var throughSetter : new boolean[] {false, true}) {
-      try (var target = createTargetDatabase("disabledLinksTarget" + throughSetter)) {
-        target.getMetadata().getSchema().createClass("PreFlightMarker");
-        RuntimeException rejection = null;
-        try {
-          var importer = new DatabaseImport(target, dump.toString(), text -> {
-          });
-          if (throughSetter) {
-            importer.setMigrateLinks(false);
-          } else {
-            importer.setOptions("-migrateLinks=false");
-          }
-          importer.importDatabase();
-        } catch (DatabaseImportException | DatabaseExportException e) {
-          rejection = e;
-        }
-        assertNotNull("v15 needs link migration", rejection);
-        assertRejectionMentions(rejection, "v15 dump requires link migration");
-        assertRejectionMentions(rejection, "-migrateLinks=false");
-        assertRejectionMentions(rejection, "setMigrateLinks(false)");
-        assertTrue("pre-flight must leave the target untouched",
-            target.getMetadata().getSchema().existsClass("PreFlightMarker"));
+    for (var version : new int[] {15, 14}) {
+      if (version == 14) {
+        mutateDump(dump, root -> {
+          ((ObjectNode) root.get("info")).put("exporter-version", 14);
+          root.remove("manifest");
+        });
       }
-    }
-  }
-
-  /** Legacy dumps keep their existing ability to import without link migration. */
-  @Test
-  public void v14DisabledLinkMigrationStillImports() throws Exception {
-    var dump = exportSmallDump();
-    mutateDump(dump, root -> {
-      ((ObjectNode) root.get("info")).put("exporter-version", 14);
-      root.remove("manifest");
-    });
-    try (var target = createTargetDatabase("legacyDisabledLinksTarget")) {
-      runImport(target, dump, "-migrateLinks=false");
-      assertTrue("a v14 dump must still import with link migration disabled",
-          target.getMetadata().getSchema().existsClass("Hardened"));
+      try (var target = createTargetDatabase("removedLinksTarget" + version)) {
+        target.getMetadata().getSchema().createClass("PreFlightMarker");
+        target.executeInTx(tx -> target.newEntity("PreFlightMarker").setString("payload", "keep"));
+        var importer = new DatabaseImport(target, dump.toString(), text -> {
+        });
+        try {
+          var rejection = assertThrows(DatabaseImportException.class,
+              () -> importer.setOptions("-migrateLinks=false"));
+          assertEquals("the option must reject during configuration for version " + version,
+              "The import option -migrateLinks is no longer supported."
+                  + " The importer always migrates links.",
+              rejection.getMessage());
+        } finally {
+          importer.close();
+        }
+        assertTrue("configuration rejection must preserve the target class",
+            target.getMetadata().getSchema().existsClass("PreFlightMarker"));
+        assertFalse("no source class may reach the target",
+            target.getMetadata().getSchema().existsClass("Hardened"));
+        target.executeInTx(tx -> {
+          try (var records = target.browseClass("PreFlightMarker")) {
+            assertTrue("the target record must survive", records.hasNext());
+            assertEquals("the target record contents must not change", "keep",
+                records.next().getString("payload"));
+            assertFalse("the target must still contain exactly one marker record",
+                records.hasNext());
+          }
+        });
+      }
     }
   }
 }
