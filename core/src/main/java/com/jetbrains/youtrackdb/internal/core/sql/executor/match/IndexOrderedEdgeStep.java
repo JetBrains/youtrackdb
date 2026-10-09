@@ -288,6 +288,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Prefill can build several rows before emission. Refresh $matched only at this external
+    // boundary so downstream hops never mutate a previously emitted or buffered binding.
+    return startOrdered(ctx).map((row, context) -> {
+      context.setSystemVariable(CommandContext.VAR_MATCHED, row);
+      return row;
+    });
+  }
+
+  private ExecutionStream startOrdered(CommandContext ctx) {
     assert MatchAssertions.checkNotNull(prev, "previous step");
     reset();
     ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
@@ -302,7 +311,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (multiSourceMode != null) {
       return multiSourceDispatch(ctx);
     }
-    // Guaranteed single-source: exactly 1 upstream row (source has RID constraint).
+    // Single-source is a plan-time assumption. Check it before loading targets or emitting rows.
     // Consume the upstream eagerly and compute the cost model decision NOW, so
     // that VAR_INDEX_ORDERED_PRE_SORTED is correctly set BEFORE OrderByStep
     // checks it. The pipeline starts bottom-up (LimitStep → OrderByStep →
@@ -312,14 +321,51 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     // the flag as null and always fall through to collect-all mode — defeating
     // the sort push-down that makes index scan + LIMIT worthwhile.
     var resultSet = prev.start(ctx);
-    if (!resultSet.hasNext(ctx)) {
-      resultSet.close(ctx);
-      ctx.setSystemVariable(
-          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
-      return ExecutionStream.empty();
+    Result upstreamRow;
+    Throwable readFailure = null;
+    try {
+      if (!resultSet.hasNext(ctx)) {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        return ExecutionStream.empty();
+      }
+      upstreamRow = resultSet.next(ctx);
+      if (resultSet.hasNext(ctx)) {
+        // A frozen root schedule can repeat even a UNIQUE-matched source. Keep all bindings and
+        // duplicates, including the first row. This map belongs only to the running execution.
+        var rows = new ArrayList<Result>();
+        rows.add(upstreamRow);
+        while (resultSet.hasNext(ctx)) {
+          rows.add(resultSet.next(ctx));
+        }
+        var sourceMap = new LinkedHashMap<RID, List<Result>>();
+        for (var row : rows) {
+          var sourceRid = extractSourceRid(row);
+          if (sourceRid != null) {
+            sourceMap.computeIfAbsent(sourceRid, k -> new ArrayList<>(1)).add(row);
+          }
+        }
+        // Local per-source ordering cannot satisfy global ORDER BY. Do not use the singleton
+        // cost path, which can signal pre-sorted after sorting only one source's targets.
+        chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        return loadFromSourcesUnsorted(sourceMap, ctx);
+      }
+    } catch (RuntimeException | Error failure) {
+      readFailure = failure;
+      throw failure;
+    } finally {
+      try {
+        resultSet.close(ctx);
+      } catch (RuntimeException | Error closeFailure) {
+        if (readFailure == null) {
+          throw closeFailure;
+        }
+        // Cleanup must not replace the upstream failure, even if both operations throw.
+        if (readFailure != closeFailure) {
+          readFailure.addSuppressed(closeFailure);
+        }
+      }
     }
-    var upstreamRow = resultSet.next(ctx);
-    resultSet.close(ctx); // single-source: at most 1 row
 
     return processUpstreamRow(upstreamRow, ctx);
   }
