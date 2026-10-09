@@ -6,16 +6,22 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchStep;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -102,6 +108,59 @@ public class OrderIndexShortcutEquivalenceTest extends GraphBaseTest {
         "g.V().hasLabel(Src).out(LINK).hasLabel(Tgt).order().by(name)",
         () -> targets().order().by("name"),
         expectedOrder("name", true)));
+  }
+
+  /** A two-key buffered sort after an ordered hop must keep each Message paired with its Reply. */
+  @Test
+  public void downstreamBindingsMatchNativeAfterOrderedHop() {
+    session.execute("CREATE CLASS Person EXTENDS V").close();
+    session.execute("CREATE PROPERTY Person.id INTEGER").close();
+    session.execute("CREATE INDEX Person_id ON Person (id) UNIQUE").close();
+    session.execute("CREATE CLASS Message EXTENDS V").close();
+    session.execute("CREATE PROPERTY Message.creationDate INTEGER").close();
+    session.execute("CREATE INDEX Message_date ON Message (creationDate) NOTUNIQUE").close();
+    session.execute("CREATE CLASS Reply EXTENDS V").close();
+    session.execute("CREATE CLASS LIKES EXTENDS E").close();
+    session.execute("CREATE CLASS NEXT EXTENDS E").close();
+    session.begin();
+    session.execute("CREATE VERTEX Person SET id = 0").close();
+    for (var i = 0; i < 2; i++) {
+      session.execute("CREATE VERTEX Message SET creationDate = " + i).close();
+      session.execute("CREATE VERTEX Reply SET id = " + i).close();
+      session.execute("CREATE EDGE LIKES FROM (SELECT FROM Person)"
+          + " TO (SELECT FROM Message WHERE creationDate = " + i + ")").close();
+      session.execute("CREATE EDGE NEXT FROM (SELECT FROM Message WHERE creationDate = " + i
+          + ") TO (SELECT FROM Reply WHERE id = " + i + ")").close();
+    }
+    session.commit();
+    // Label the hops and keep property filters on both targets. Native filter folding then
+    // retains the bindings on property-bearing steps, while MATCH still types both targets.
+    Supplier<GraphTraversal<?, ?>> traversal = () -> graph.traversal().V()
+        .hasLabel("Person").has("id", 0)
+        .out("LIKES").as("m").hasLabel("Message").has("creationDate", P.gte(0))
+        .out("NEXT").as("r").hasLabel("Reply").has("id", P.gte(0))
+        .order().by(__.select("m").by("creationDate")).by("id")
+        .limit(2).select("m", "r").by("creationDate").by("id");
+    support.assertEquivalent("ordered hop with downstream bindings", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, rows -> rows.stream().map(String::valueOf).toList(), traversal);
+    var expected = List.of(Map.of("m", 0, "r", 0), Map.of("m", 1, "r", 1));
+    support.withTranslator(false, () -> assertThat(traversal.get().toList()).isEqualTo(expected));
+    support.withTranslator(true, () -> {
+      var admin = traversal.get().asAdmin();
+      admin.applyStrategies();
+      assertThat(admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance).count())
+          .isEqualTo(1);
+      var boundary = admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance)
+          .map(YTDBMatchPlanStep.class::cast).findFirst().orElseThrow();
+      var steps = boundary.getPlan().getSteps();
+      var ordered = steps.stream().filter(IndexOrderedEdgeStep.class::isInstance)
+          .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
+      assertThat(steps.subList(steps.indexOf(ordered) + 1, steps.size()))
+          .anyMatch(MatchStep.class::isInstance);
+      assertThat(admin.toList()).isEqualTo(expected);
+      assertThat(ordered.getChosenRuntimePath())
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
+    });
   }
 
   private GraphTraversal<Vertex, Vertex> targets() {
