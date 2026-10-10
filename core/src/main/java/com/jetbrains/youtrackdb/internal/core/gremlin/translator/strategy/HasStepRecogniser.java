@@ -701,6 +701,27 @@ final class HasStepRecogniser implements StepRecogniser {
     return true;
   }
 
+  /**
+   * Allocation-free eligibility check matching the walker's Single classification. Multiple label
+   * containers and singleton within constraints are not one equality constraint.
+   */
+  static @Nullable String singleEqualityLabel(List<HasContainer> containers) {
+    String label = null;
+    for (int index = 0; index < containers.size(); index++) {
+      var container = containers.get(index);
+      if (!LABEL_KEY.equals(container.getKey())) {
+        continue;
+      }
+      var predicate = container.getPredicate();
+      if (label != null || predicate == null || predicate.getBiPredicate() != Compare.eq
+          || !(predicate.getValue() instanceof String name) || name.isBlank()) {
+        return null;
+      }
+      label = name;
+    }
+    return label;
+  }
+
   /** The MATCH label group uses the first constraint, independent of the prior boundary's class. */
   static List<String> labelNames(List<HasContainer> containers) {
     return labelNames(containers, false);

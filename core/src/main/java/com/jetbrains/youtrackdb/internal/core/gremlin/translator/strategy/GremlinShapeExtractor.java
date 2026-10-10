@@ -179,6 +179,9 @@ final class GremlinShapeExtractor {
     boolean deferredHop = false;
     boolean pendingDeferred = false;
     var steps = traversal.getSteps();
+    boolean initialVertexStart = WalkerContext.VERTEX_ROOT_CLASS.equals(inheritedBoundaryClass)
+        && !steps.isEmpty() && steps.getFirst() instanceof GraphStep<?, ?> start
+        && start.returnsVertex();
     for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
       Step<?, ?> step = steps.get(stepIndex);
       if (isTransparent(step)) {
@@ -198,13 +201,20 @@ final class GremlinShapeExtractor {
       encoder.appendToken("S", step.getClass().getName());
       HasBindingContext hasContext = null;
       java.util.List<String> hasLabels = java.util.List.of();
+      String provisionalLabel = null;
       int slotStart = encoder.hasSlotCount();
       if (step instanceof HasStep<?> hasStep) {
         // hasId RIDs stay structural in the shape key (appendPredicate). Walk-time markRidBearing
         // is what bypasses GremlinPlanCache reuse — do not mark the extraction incomplete here.
-        hasLabels = HasStepRecogniser.labelNames(hasStep.getHasContainers(), pendingDeferred);
         boolean orderedFilter = scopeOrderedExpand && deferredHop && (sourceSliced
             || followedByOrderedSlice(steps, stepIndex));
+        if (initialVertexStart && folded && !edgeOpen && !pendingDeferred && !orderedFilter
+            && WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass)) {
+          provisionalLabel = HasStepRecogniser.singleEqualityLabel(hasStep.getHasContainers());
+        }
+        hasLabels = provisionalLabel == null
+            ? HasStepRecogniser.labelNames(hasStep.getHasContainers(), pendingDeferred)
+            : List.of(provisionalLabel);
         hasContext = edgeOpen ? HasBindingContext.forEdge(edgeClasses)
             : HasBindingContext.forVertex(hasLabels, boundaryClass, folded,
                 orderedFilter ? HasBindingContext.Destination.ORDERED_FILTER
@@ -227,15 +237,19 @@ final class GremlinShapeExtractor {
           // A cold walk can use the original native predicate, but must not splice a template.
           encoder.markIncomplete();
         }
-        // Captured children re-type like the walker: a local hasLabel narrows the gate for later
-        // property has steps. Keeping the enclosing class here desynced extract vs walk layouts.
-        if (!edgeOpen) {
-          if (!hasLabels.isEmpty() && schemaFacts == null) {
+        if (provisionalLabel != null) {
+          // This is query context, not schema validation. The full walker validates existence,
+          // vertex status and narrowing before a template can pass binding/layout agreement.
+          // Later property HasSteps still resolve this class through their real type gates.
+          boundaryClass = provisionalLabel;
+        } else if (!edgeOpen && !hasLabels.isEmpty()) {
+          // Captured children and complex constraints retain schema-based narrowing. Initialize
+          // these facts only on the fallback, never for an ordinary provisional equality label.
+          if (schemaFacts == null) {
             schemaFacts = HasBindingContext.schemaFacts(encoder.schema());
           }
-          var candidate = hasLabels.isEmpty() ? null
-              : HasStepRecogniser.narrowedClass(schemaFacts, hasLabels,
-                  boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
+          var candidate = HasStepRecogniser.narrowedClass(schemaFacts, hasLabels,
+              boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
           if (candidate != null) {
             boundaryClass = candidate;
           }

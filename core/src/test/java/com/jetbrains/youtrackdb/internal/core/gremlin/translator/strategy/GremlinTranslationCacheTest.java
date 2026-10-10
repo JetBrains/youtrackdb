@@ -130,6 +130,80 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   /**
+   * IS1-like prefix, IS4-like equality and IS5-like filtered hop starts preserve native rows.
+   * Alternating literals use one real cold walk and three warm boundaries with no disagreement.
+   */
+  @Test
+  public void ordinaryEqualityStarts_reuseTemplatesWithFreshRowsAndLayouts() {
+    graphSession().createVertexClass("OrdinaryPerson")
+        .createProperty("name", PropertyType.STRING);
+    var alice = graph.addVertex(T.label, "OrdinaryPerson", "name", "alice", "age", 30);
+    var bob = graph.addVertex(T.label, "OrdinaryPerson", "name", "bob", "age", 40);
+    alice.addEdge("ordinaryKnows", bob);
+    bob.addEdge("ordinaryKnows", alice);
+    graph.tx().commit();
+    for (String kind : List.of("prefix", "equality", "hop", "barrierPrefix")) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var cache = GremlinPlanCache.instance(graphSession());
+      long hits = cache.getTranslationHits();
+      var walks = new AtomicInteger();
+      var failures = new ArrayList<String>();
+      var strategy = countingStrategy(walks, failures::add);
+      for (boolean first : List.of(true, false, true, false)) {
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var start = graph.traversal().V().hasLabel("OrdinaryPerson");
+          return switch (kind) {
+            case "prefix" -> start.has("name", TextP.startingWith(first ? "al" : "bo"))
+                .values("name");
+            case "equality" -> start.has("age", first ? 30 : 40).values("name");
+            case "hop" -> start.has("age", first ? 30 : 40).out("ordinaryKnows")
+                .values("name");
+            case "barrierPrefix" -> start.barrier(2)
+                .has("name", TextP.startingWith(first ? "al" : "bo")).values("name");
+            default -> throw new IllegalArgumentException(kind);
+          };
+        };
+        var admin = shape.get().asAdmin();
+        var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+        var walk = GremlinStepWalker.production().walk(admin);
+        assertThat(walk).isNotNull();
+        assertThat(extraction.hasContributions()).isEqualTo(walk.hasContributions());
+        assertThat(extraction.bindings()).isEqualTo(walk.inputParameters());
+        var expected = List.of(first != kind.equals("hop") ? "alice" : "bob");
+        assertThat(runNativeHop(shape)).containsExactlyElementsOf(expected);
+        assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(expected);
+      }
+      assertThat(walks.get()).as(kind + " skips the walker on every warm call").isEqualTo(1);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 3);
+      assertThat(failures).isEmpty();
+    }
+  }
+
+  /** Missing and non-vertex equality labels still decline, cache the decline and return no rows. */
+  @Test
+  public void provisionalMissingAndEdgeLabels_keepCachedDeclines() {
+    graphSession().createEdgeClass("OrdinaryEdge");
+    graph.tx().commit();
+    for (String label : List.of("OrdinaryMissing", "OrdinaryEdge")) {
+      GremlinPlanCache.instance(graphSession()).invalidate();
+      var walks = new AtomicInteger();
+      var failures = new ArrayList<String>();
+      var strategy = countingStrategy(walks, failures::add);
+      for (int age : List.of(30, 40, 30, 40)) {
+        Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V().hasLabel(label)
+            .has("age", age).values("name");
+        var admin = shape.get().asAdmin();
+        strategy.apply(admin);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+        support.withTranslator(false, () -> assertThat(admin.toList()).isEmpty());
+        assertThat(runNativeHop(shape)).isEmpty();
+      }
+      assertThat(walks.get()).isEqualTo(1);
+      assertThat(failures).isEmpty();
+    }
+  }
+
+  /**
    * Equal total slot counts must not let two prefix leaves exchange their range and strict slots.
    * Each cache-warming order is checked against native rows through both strategy paths.
    */

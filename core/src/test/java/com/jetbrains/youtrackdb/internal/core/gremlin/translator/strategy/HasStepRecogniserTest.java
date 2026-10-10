@@ -1,9 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -1075,6 +1081,85 @@ public class HasStepRecogniserTest extends GraphBaseTest {
         "RouteA", false, true)).isNull();
     assertThat(HasStepRecogniser.narrowedClass(ctx, List.of("RouteB"),
         "RouteA", false, true)).isNull();
+  }
+
+  /** Only one nonblank string eq label qualifies, even when property containers surround it. */
+  @Test
+  public void singleEqualityLabel_excludesMembershipAndMultipleContainers() {
+    var label = new HasContainer(T.label.getAccessor(), P.eq("ReadPerson"));
+    assertThat(HasStepRecogniser.singleEqualityLabel(List.of(
+        new HasContainer("age", P.eq(7)), label, new HasContainer("name", P.eq("al")))))
+        .isEqualTo("ReadPerson");
+    for (var predicate : List.of(P.within("ReadPerson"), P.within("ReadPerson", "Other"),
+        P.neq("ReadPerson"), P.eq(" "), P.eq(7))) {
+      assertThat(HasStepRecogniser.singleEqualityLabel(List.of(
+          new HasContainer(T.label.getAccessor(), predicate)))).isNull();
+    }
+    assertThat(HasStepRecogniser.singleEqualityLabel(List.of(label, label))).isNull();
+    assertThat(HasStepRecogniser.singleEqualityLabel(List.of(
+        new HasContainer("age", P.eq(7))))).isNull();
+    assertThat(HasStepRecogniser.singleEqualityLabel(List.of())).isNull();
+  }
+
+  /**
+   * Real extraction of ordinary equality and scalar predicates performs no class lookup. Each
+   * excluded spelling still resolves the named class through the narrowing fallback.
+   */
+  @Test
+  public void ordinaryEqualityExtraction_skipsSchemaReadsButFallbackStillResolvesClass() {
+    var person = session.createVertexClass("ReadPerson");
+    var schema = mock(Schema.class);
+    when(schema.getClass("ReadPerson")).thenReturn(person);
+    var extractionSession = mock(DatabaseSessionEmbedded.class);
+    when(extractionSession.getSchema()).thenReturn(schema);
+    var ordinary = graph.traversal().V().hasLabel("ReadPerson").has("age", 7)
+        .barrier(2).has("age", 8).asAdmin();
+    var extraction = GremlinStepWalker.extractShape(ordinary, extractionSession);
+    verify(schema, never()).getClass(anyString());
+    assertThat(extraction.complete()).isTrue();
+    assertThat(extraction.bindings()).containsEntry(0, 7).containsEntry(1, 8);
+    assertThat(extraction.hasContributions()).hasSize(2).allSatisfy(c -> {
+      assertThat(c.context().destination()).isEqualTo(HasBindingContext.Destination.MATCH_VERTEX);
+      assertThat(c.context().gateClasses()).containsExactly("ReadPerson");
+    });
+    assertThat(extraction.hasContributions().getFirst().context().folded()).isTrue();
+    assertThat(extraction.hasContributions().getLast().context().folded()).isFalse();
+
+    Traversal.Admin<?, ?> duplicate = graph.traversal().V().hasLabel("ReadPerson").asAdmin();
+    ((HasStep<?>) duplicate.getEndStep()).addHasContainer(
+        new HasContainer(T.label.getAccessor(), P.eq("ReadPerson")));
+    List<Traversal.Admin<?, ?>> fallbacks = List.of(
+        graph.traversal().V().has(T.label, P.within("ReadPerson")).asAdmin(),
+        graph.traversal().V().hasLabel("ReadPerson", "Other").asAdmin(), duplicate,
+        graph.traversal().V().barrier(2).hasLabel("ReadPerson").asAdmin(),
+        graph.traversal().E().hasLabel("ReadPerson").asAdmin(),
+        graph.traversal().V().out("readEdge").hasLabel("ReadPerson").asAdmin(),
+        graph.traversal().V().order().by("age").out("readEdge")
+            .hasLabel("ReadPerson").limit(2).asAdmin(),
+        graph.traversal().V().where(__.hasLabel("ReadPerson")).asAdmin());
+    for (var fallback : fallbacks) {
+      clearInvocations(schema);
+      GremlinStepWalker.extractShape(fallback, extractionSession);
+      verify(schema, atLeastOnce()).getClass("ReadPerson");
+    }
+  }
+
+  /** A provisional label carries the declared STRING gate across a barrier without losing slots. */
+  @Test
+  public void ordinaryEqualityExtraction_preservesLaterPrefixGateAndBindings() {
+    session.createVertexClass("ReadPerson").createProperty("name", PropertyType.STRING);
+    var traversal = graph.traversal().V().hasLabel("ReadPerson").has("age", 7)
+        .barrier(2).has("name", TextP.startingWith("al")).asAdmin();
+    assertExtractedBindingsAndRoles(traversal);
+    var extraction = GremlinStepWalker.extractShape(traversal, session);
+    var later = extraction.hasContributions().getLast();
+    assertThat(later.context()).isEqualTo(new HasBindingContext(
+        HasBindingContext.Destination.MATCH_VERTEX, List.of("ReadPerson"), false));
+    assertThat(later.slots()).extracting(HasBindingContext.Slot::role)
+        .containsExactly(GremlinPredicateAdapter.SlotRole.PREFIX,
+            GremlinPredicateAdapter.SlotRole.DERIVED_UPPER_BOUND);
+    assertThat(extraction.bindings()).containsEntry(0, 7).containsEntry(1, "al")
+        .containsEntry(2, "am");
   }
 
   private void assertExtractedBindingsAndRoles(Traversal.Admin<?, ?> traversal) {
