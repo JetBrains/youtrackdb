@@ -320,4 +320,28 @@ public class FrontendTransactionImplCoverageTest extends DbTestBase {
     var tx = new FrontendTransactionImpl(session);
     Assert.assertThrows(TransactionException.class, tx::commitInternal);
   }
+
+  /**
+   * Regression test: when transaction commit fails at the storage level,
+   * rollbackInternalAndGetCloseFailure() cleans up and marks the transaction.
+   * A subsequent commit catch in DatabaseSessionEmbedded must not trigger
+   * a secondary IllegalStateException by attempting to roll back an already-
+   * rolled-back or inactive transaction.
+   */
+  @Test
+  public void commitFailureCleansUpWithoutSecondaryRollback() {
+    var tx = (FrontendTransactionImpl) session.begin();
+    var v = tx.newVertex("V");
+    v.setProperty("name", "test");
+
+    // Rollback the transaction to put it into ROLLED_BACK / closed state
+    tx.rollbackInternal();
+    Assert.assertEquals(TXSTATUS.ROLLED_BACK, tx.getStatus());
+
+    // Calling commitInternal() on a transaction that is already rolling back / rolled back
+    // must fail with RollbackException cleanly without throwing an unhandled IllegalStateException
+    Assert.assertThrows(
+        com.jetbrains.youtrackdb.internal.core.tx.RollbackException.class,
+        tx::commitInternal);
+  }
 }
