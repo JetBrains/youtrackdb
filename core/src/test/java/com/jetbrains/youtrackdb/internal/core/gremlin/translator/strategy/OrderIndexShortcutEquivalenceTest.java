@@ -158,8 +158,12 @@ public class OrderIndexShortcutEquivalenceTest extends GraphBaseTest {
       assertThat(steps.subList(steps.indexOf(ordered) + 1, steps.size()))
           .anyMatch(MatchStep.class::isInstance);
       assertThat(admin.toList()).isEqualTo(expected);
-      assertThat(ordered.getChosenRuntimePath())
+      var executed = boundary.getPlan().getSteps().stream()
+          .filter(IndexOrderedEdgeStep.class::isInstance).map(IndexOrderedEdgeStep.class::cast)
+          .findFirst().orElseThrow();
+      assertThat(executed.getChosenRuntimePath())
           .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
+      assertThat(ordered.getChosenRuntimePath()).as("the shared template never executes").isNull();
     });
   }
 

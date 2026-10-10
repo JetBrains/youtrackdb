@@ -87,7 +87,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  *
  * <h2>Clone</h2>
  * {@link #clone()} gives the clone its own deep copy of <em>each</em> child plan against its own
- * isolated child context, mirroring {@link YTDBMatchPlanStep#clone()} per child. Union's multi-alias
+ * clean root context, mirroring {@link YTDBMatchPlanStep#clone()} per child. Union's multi-alias
  * children make cross-execution context bleed a real hazard (each child owns unsynchronised {@code
  * $current} / {@code $matched} / statistics maps), so every child is isolated independently. The
  * clone also gets a fresh coordinator context so two concurrent clones never race on the coordinator.
@@ -167,46 +167,13 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   @Override
   public MultiPlanMatchStep<S, E> clone() {
     var cloned = (MultiPlanMatchStep<S, E>) super.clone();
-    // Give the clone its own deep copy of EVERY child plan, each against its OWN isolated child
-    // context — a fresh BasicCommandContext parented to that child's original context — mirroring
-    // YTDBMatchPlanStep.clone() per child. Union's multi-alias children make cross-execution context
-    // bleed a real hazard: each child's SelectExecutionPlan carries mutable per-run state ($current /
-    // $matched / statistics, all plain HashMaps), so the original's and the clone's executions must
-    // not share it. Copying a child against its shared original context would leave both plans on the
-    // same context, defeating the isolation this clone exists to provide.
-    //
-    // INVARIANT the isolation depends on (see YTDBMatchPlanStep.clone()): each child's parent
-    // (template) context must stay free of per-run variables, because a child write propagates UP to
-    // the parent only for a key the parent already holds. A union child pattern that seeded alias /
-    // LET bindings onto its plan's context at BUILD time would break it; the recognised union shapes
-    // seed none.
+    // Copy every child into a private root. A live child can already hold aliases and sorted
+    // signals, so parenting a clone to it would forward writes into the original execution.
     var copies = new ArrayList<InternalExecutionPlan>(plans.size());
     for (var childPlan : plans) {
-      var templateContext = childPlan.getContext();
-      // Fail fast if the INVARIANT above is ever violated. The isolation only holds while the shared
-      // template (parent) context carries no per-run state: a child write propagates UP to a key the
-      // parent already holds (BasicCommandContext.setVariable / setSystemVariable), so a seeded
-      // parent would be written concurrently through its unsynchronised maps by two clones. This
-      // assert turns that silent, load-dependent corruption into an immediate failure the moment a
-      // future recogniser change starts seeding an alias / LET / $current / $current_match /
-      // $matched / $depth binding onto a child's context at build time, rather than a rare fault
-      // that appears only under production concurrency. It covers EVERY system-variable slot rather
-      // than the two the element path happens to use: the MATCH edge-traversal path writes
-      // $current_match per candidate and restores it with a null value afterwards, and fastutil's
-      // key-presence tracking is value-independent, so a child that matched zero rows seeds that
-      // slot without ever touching $matched. Zero cost in production (assertions disabled).
-      // getVariables() is null only for a test mock context, which carries no per-run state and is
-      // treated here as empty.
-      var templateVariables = templateContext.getVariables();
-      assert (templateVariables == null || templateVariables.isEmpty())
-          && seededSystemVariable(templateContext) < 0
-          : "union child template context carries per-run state (system variable slot "
-              + seededSystemVariable(templateContext)
-              + ", or a normal variable); clone isolation cannot keep concurrent clones from racing"
-              + " on the shared parent context — the recogniser must seed no per-run binding onto a"
-              + " child plan context at build time";
-      var isolatedCtx = new BasicCommandContext();
-      isolatedCtx.setParentWithoutOverridingChild(templateContext);
+      var isolatedCtx = YTDBMatchPlanStep.cleanCopyContext(childPlan.getContext());
+      assert isolatedCtx.getVariables().isEmpty() && seededSystemVariable(isolatedCtx) < 0
+          : "union child clone context carries per-run state";
       copies.add(childPlan.copy(isolatedCtx));
     }
     // Plain field writes: both fields are non-final (see their declarations), the copies are
@@ -223,22 +190,22 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   }
 
   /**
-   * Every system-variable slot {@link CommandContext} declares, so the clone-isolation assert
-   * rejects a seeded template context whatever wrote it rather than only the slots the element path
-   * happens to use. A fifth slot added to {@code CommandContext} must be added here too.
+   * Every execution-variable slot. Copy-context assertions diagnose leaked state. Isolation itself
+   * comes from creating a clean root context, not from these assertion-only checks.
    */
   private static final int[] SYSTEM_VARIABLE_SLOTS = {
       CommandContext.VAR_CURRENT,
       CommandContext.VAR_CURRENT_MATCH,
       CommandContext.VAR_MATCHED,
-      CommandContext.VAR_DEPTH
+      CommandContext.VAR_DEPTH,
+      CommandContext.VAR_INDEX_ORDERED_PRE_SORTED
   };
 
   /**
    * Returns the first system-variable slot {@code context} holds, or {@code -1} when it holds none.
    * Used only by the clone-isolation assert, which reports the offending slot id in its message.
    */
-  private static int seededSystemVariable(CommandContext context) {
+  static int seededSystemVariable(CommandContext context) {
     for (int slot : SYSTEM_VARIABLE_SLOTS) {
       if (context.hasSystemVariable(slot)) {
         return slot;
@@ -269,11 +236,8 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   protected void replaceClosedPlanWithCopy() {
     // Copy EVERY child, so a re-armed union re-runs all of them from the first — the same breadth
     // as rewindPlan above, which resets every child rather than only those the producer opened.
-    // Each child is copied against its OWN context, NOT against a fresh child context parented to
-    // it the way clone() does; the base's hook Javadoc gives the full reasoning, and here the
-    // difference is sharpest, because reusing clone()'s recipe would trip clone()'s own isolation
-    // assert on any child that ran (that assert is what documents the seeded per-run state a
-    // completed pass leaves behind).
+    // Each child retains its own private context for sequential re-arming. No other execution
+    // inherits that context. Clones instead use clean roots.
     var copies = new ArrayList<InternalExecutionPlan>(plans.size());
     try {
       for (var childPlan : plans) {
