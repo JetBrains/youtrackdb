@@ -103,8 +103,12 @@ public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest 
 
     // Start a monitored transaction and modify an existing vertex.
     var tx = ytdbTx()
+        .withTrackingId("failed-commit")
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(new RememberingQueryListener())
         .withTransactionListener(listener);
     tx.open();
+    var attemptedSession = tx.getDatabaseSession();
     var marko = g().V().has("name", "marko").next();
     g().V(marko.id()).property("age", 99).iterate();
 
@@ -127,6 +131,18 @@ public class YTDBTransactionMetricsListenerTest extends YTDBAbstractGremlinTest 
     assertThat(listener.failCause).isInstanceOf(ConcurrentModificationException.class);
     assertThat(listener.failCommitAtMillis).isGreaterThan(0);
     assertThat(listener.failCommitTimeNanos).isGreaterThanOrEqualTo(0);
+
+    // Conflict cleanup returns the completed session and clears only this activation's metrics.
+    assertThat(attemptedSession.isClosed()).isTrue();
+    assertThat(tx.isOpen()).isFalse();
+    assertThat(tx.isQueryMetricsEnabled()).isFalse();
+    assertThat(tx.isTransactionMetricsEnabled()).isFalse();
+    assertThat(tx.getQueryMonitoringMode()).isEqualTo(QueryMonitoringMode.LIGHTWEIGHT);
+    tx.open();
+    assertThat(tx.getTrackingId()).isNotEqualTo("failed-commit");
+    assertThat(g().V(marko.id()).values("age").next()).isEqualTo(100);
+    tx.commit();
+    assertThat(listener.failCount).isEqualTo(1);
   }
 
   // 3.6. Listener exception safety — buggy listener does not break the commit.
