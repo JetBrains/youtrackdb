@@ -20,11 +20,15 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -37,6 +41,9 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
           + ".out('CopyLink'){class: CopyTgt, as: m, where:"
           + " ((score >= :floor OR score IS NULL) AND name.toLowerCase() <> :excluded)}"
           + " RETURN m.name AS name ORDER BY m.score ASC, m.name ASC";
+
+  // Ordinary scalar methods keep their existing statement-level cache refusal.
+  private static final String CACHE_BASE = BASE.replace("name.toLowerCase()", "name");
 
   private void seed() {
     session.execute("CREATE CLASS CopySrc EXTENDS V").close();
@@ -120,7 +127,7 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
     var query = BASE + " SKIP :skip LIMIT :limit";
     var first = bindings(1, 0, "none", 0, 1);
     var template = plan(query, context(session, first));
-    assertThat(template.canBeCached()).isFalse();
+    assertThat(template.canBeCached()).isTrue();
     var inputs = List.of(first, bindings(2, 1, "b", 0, 2),
         bindings(1, 0, "none", 1, -1), bindings(3, 0, "none", 0, 2),
         bindings(1, 0, "none", 0, 4),
@@ -180,6 +187,280 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
     session.rollback();
   }
 
+  /** Cold publication and alternating warm bindings agree with fresh plans, including unbounded. */
+  @Test
+  public void warmStatementsRebindFiltersSourcesAndSlices() {
+    seed();
+    session.begin();
+    var cache = YqlExecutionPlanCache.instance(session);
+    var query = CACHE_BASE + " SKIP :skip LIMIT :limit";
+    var inputs = List.of(bindings(1, 0, "none", 0, 1), bindings(2, 1, "b", 0, 2),
+        bindings(1, 0, "none", 1, -1), bindings(3, 0, "none", 0, 2),
+        bindings(1, 0, "none", 0, 0), bindings(1, 0, "none", 0, 4),
+        bindings(1, 0, "none", Integer.MAX_VALUE, Integer.MAX_VALUE), inputsFirst());
+    var expected = List.of(List.of("null"), List.of("c"), List.of("a", "b", "c"),
+        List.<String>of(), List.<String>of(), List.of("null", "a", "b", "c"),
+        List.<String>of(), List.of("null"));
+    cache.invalidate();
+    for (var i = 0; i < inputs.size(); i++) {
+      var hits = cache.getHits();
+      var execution = cachedPlan(query, context(session, inputs.get(i)));
+      assertThat(ordered(execution).getChosenRuntimePath()).isNull();
+      assertThat(cache.contains(query)).isTrue();
+      assertThat(cache.getHits()).isEqualTo(hits + (i == 0 ? 0 : 1));
+      assertThat(run(execution)).isEqualTo(expected.get(i))
+          .isEqualTo(run(plan(query, context(session, inputs.get(i)))));
+    }
+    session.rollback();
+  }
+
+  /** Step permission must not override the existing scalar-method statement refusal. */
+  @Test
+  public void orderedStepKeepsMethodStatementRefusal() {
+    seed();
+    session.begin();
+    var query = BASE + " SKIP :skip LIMIT :limit";
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    for (var i = 0; i < 2; i++) {
+      var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+      assertThat(statement.executinPlanCanBeCached(session)).isFalse();
+      var execution = statement.createExecutionPlan(context(session, inputsFirst()), false);
+      assertThat(ordered(execution).canBeCached()).isTrue();
+      assertThat(run(execution)).containsExactly("null");
+      assertThat(cache.contains(query)).isFalse();
+    }
+    session.rollback();
+  }
+
+  /** Explicit no-cache and profiling builds do not publish an eligible ordered statement. */
+  @Test
+  public void orderedStatementsKeepNoCacheAndProfilingRefusals() {
+    seed();
+    session.begin();
+    var query = CACHE_BASE + " LIMIT :limit";
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+    var noCache = statement.createExecutionPlanNoCache(context(session, inputsFirst()), false);
+    assertThat(ordered(noCache).canBeCached()).isTrue();
+    assertThat(run(noCache)).containsExactly("null");
+    assertThat(cache.contains(query)).isFalse();
+    var profiled = statement.createExecutionPlan(context(session, inputsFirst()), true);
+    assertThat(ordered(profiled).canBeCached()).isTrue();
+    assertThat(run(profiled)).containsExactly("null");
+    assertThat(cache.contains(query)).isFalse();
+    session.rollback();
+  }
+
+  private static Map<Object, Object> inputsFirst() {
+    return bindings(1, 0, "none", 0, 1);
+  }
+
+  private InternalExecutionPlan cachedPlan(String query, CommandContext ctx) {
+    return ((SQLMatchStatement) SQLEngine.parse(query, ctx.getDatabaseSession()))
+        .createExecutionPlan(ctx, false);
+  }
+
+  /** Built-in and projected rows keep present clauses on hits and omit absent clauses. */
+  @Test
+  public void warmSlicesKeepClausePresenceAndColdNegativeAdmission() {
+    seed();
+    session.begin();
+    var cache = YqlExecutionPlanCache.instance(session);
+    for (var projection : List.of("m.name AS name", "$paths", "$patterns")) {
+      for (var suffix : List.of("", " SKIP :skip", " LIMIT :limit", " SKIP :skip LIMIT :limit")) {
+        var query = CACHE_BASE.replace("m.name AS name", projection) + suffix;
+        for (var initialLimit : List.of(-2, 0, 2)) {
+          cache.invalidate();
+          var first = cachedPlan(query, context(session, bindings(1, 0, "none", 0,
+              initialLimit)));
+          // A cold unbounded candidate may use ordinary MATCH. Warm copies retain that shape.
+          assertThat(first.getSteps()).filteredOn(IndexOrderedEdgeStep.class::isInstance)
+              .as("cold admission for %s with limit %s", query, initialLimit)
+              .hasSize(suffix.contains("LIMIT") && initialLimit >= 0 ? 1 : 0);
+          run(first);
+          assertThat(cache.contains(query)).isTrue();
+          for (var limit : List.of(2, -1, 0, -2, 2)) {
+            var params = bindings(1, 0, "none", limit == 2 ? 1 : 0, limit);
+            var hits = cache.getHits();
+            var warm = cachedPlan(query, context(session, params));
+            assertThat(cache.getHits()).isEqualTo(hits + 1);
+            assertThat(warm.getSteps().stream().anyMatch(SkipExecutionStep.class::isInstance))
+                .isEqualTo(suffix.contains("SKIP"));
+            assertThat(warm.getSteps().stream().anyMatch(LimitExecutionStep.class::isInstance))
+                .isEqualTo(suffix.contains("LIMIT"));
+            assertThat(run(warm)).isEqualTo(run(plan(query, context(session, params))));
+          }
+        }
+      }
+    }
+    session.rollback();
+  }
+
+  /** Two threads open distinct ordered cursors from the same SQL cache entry before either closes. */
+  @Test
+  public void concurrentWarmCopiesKeepStreamingStateAndClosePrivate() throws Exception {
+    seed();
+    session.begin();
+    for (var i = 0; i < 20; i++) {
+      session.execute("CREATE VERTEX CopyTgt SET score = " + (100 + i)
+          + ", name = 's" + String.format("%02d", i) + "'").close();
+      session.execute("CREATE EDGE CopyLink FROM (SELECT FROM CopySrc WHERE id IN [1, 2])"
+          + " TO (SELECT FROM CopyTgt WHERE score = " + (100 + i) + ")").close();
+    }
+    session.commit();
+    session.begin();
+    var query = CACHE_BASE.replace(", m.name ASC", "") + " SKIP :skip LIMIT :limit";
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    cachedPlan(query, context(session, bindings(1, 100, "null", 0, 2))).close();
+    var firstBindings = bindings(1, 100, "null", 0, -1);
+    var secondBindings = bindings(2, 105, "s07", 1, -1);
+    var firstExpected = run(plan(query, context(session, firstBindings)));
+    var secondExpected = run(plan(query, context(session, secondBindings)));
+    var started = new CountDownLatch(2);
+    var firstClosed = new CountDownLatch(1);
+    var firstPlan = new java.util.concurrent.atomic.AtomicReference<InternalExecutionPlan>();
+    var secondPlan = new java.util.concurrent.atomic.AtomicReference<InternalExecutionPlan>();
+    // Session opening can itself hit SQL caches. Finish it before measuring the two ordered hits.
+    var firstDb = openDatabase();
+    var secondDb = openDatabase();
+    session.activateOnCurrentThread();
+    var hits = cache.getHits();
+    var workers = Executors.newFixedThreadPool(2);
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0);
+        var heap = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP, 1)) {
+      var first = workers.submit(() -> {
+        try (var db = firstDb) {
+          db.activateOnCurrentThread();
+          db.begin();
+          var ctx = context(db, firstBindings);
+          var copy = (InternalExecutionPlan) cache.getInternal(query, ctx, db);
+          firstPlan.set(copy);
+          try {
+            var stream = copy.start();
+            try {
+              assertStreamingScan(copy, ctx);
+              var rows = new ArrayList<String>();
+              rows.add(stream.next(ctx).getProperty("name"));
+              started.countDown();
+              assertThat(started.await(30, TimeUnit.SECONDS)).isTrue();
+              rows.addAll(drain(stream, ctx));
+              assertThat(rows).isEqualTo(firstExpected);
+            } finally {
+              stream.close(ctx);
+            }
+          } finally {
+            copy.close();
+            firstClosed.countDown();
+            db.rollback();
+          }
+          return true;
+        }
+      });
+      var second = workers.submit(() -> {
+        try (var db = secondDb) {
+          db.activateOnCurrentThread();
+          db.begin();
+          var ctx = context(db, secondBindings);
+          var copy = (InternalExecutionPlan) cache.getInternal(query, ctx, db);
+          secondPlan.set(copy);
+          try {
+            var stream = copy.start();
+            try {
+              assertStreamingScan(copy, ctx);
+              var rows = new ArrayList<String>();
+              rows.add(stream.next(ctx).getProperty("name"));
+              started.countDown();
+              assertThat(started.await(30, TimeUnit.SECONDS)).isTrue();
+              assertThat(firstClosed.await(30, TimeUnit.SECONDS)).isTrue();
+              rows.addAll(drain(stream, ctx));
+              assertThat(rows).isEqualTo(secondExpected);
+            } finally {
+              stream.close(ctx);
+            }
+          } finally {
+            copy.close();
+            db.rollback();
+          }
+          return true;
+        }
+      });
+      assertThat(first.get(60, TimeUnit.SECONDS)).isTrue();
+      assertThat(second.get(60, TimeUnit.SECONDS)).isTrue();
+      assertThat(cache.getHits()).isEqualTo(hits + 2);
+      assertThat(firstPlan.get().getContext()).isNotSameAs(secondPlan.get().getContext());
+      for (var name : List.of("targetFilter", "comparisonItem", "skipClause", "limitClause")) {
+        assertThat(field(ordered(firstPlan.get()), name))
+            .isNotSameAs(field(ordered(secondPlan.get()), name));
+      }
+      session.activateOnCurrentThread();
+      var untouched = (InternalExecutionPlan) cache.getInternal(query,
+          context(session, firstBindings), session);
+      assertThat(ordered(untouched).getChosenRuntimePath()).isNull();
+      assertThat(ordered(untouched).lastScanConsumedEntries()).isEqualTo(-1);
+      untouched.close();
+    } finally {
+      workers.shutdownNow();
+      assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+      session.activateOnCurrentThread();
+      session.rollback();
+    }
+  }
+
+  /** Measure the executable AST and full cache-copy costs against fresh planning without a gate. */
+  @Test
+  public void measureOrderedCacheCopyCost() throws Exception {
+    seed();
+    session.begin();
+    var query = CACHE_BASE + " SKIP :skip LIMIT :limit";
+    var ctx = context(session, inputsFirst());
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    var template = cachedPlan(query, ctx);
+    var step = ordered(template);
+    var filter = (SQLWhereClause) field(step, "targetFilter");
+    var comparison = (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem) field(step,
+        "comparisonItem");
+    var skip =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip) field(step, "skipClause");
+    var limit =
+        (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit) field(step, "limitClause");
+    var copies = 10_000;
+    for (var i = 0; i < 1000; i++) {
+      filter.copy();
+      comparison.copy();
+      skip.copy();
+      limit.copy();
+    }
+    var start = System.nanoTime();
+    long checksum = 0;
+    for (var i = 0; i < copies; i++) {
+      checksum += System.identityHashCode(filter.copy());
+      checksum += System.identityHashCode(comparison.copy());
+      checksum += System.identityHashCode(skip.copy());
+      checksum += System.identityHashCode(limit.copy());
+    }
+    var astNanos = (System.nanoTime() - start) / copies;
+    start = System.nanoTime();
+    for (var i = 0; i < 1000; i++) {
+      ((InternalExecutionPlan) cache.getInternal(query, ctx, session)).close();
+    }
+    var hitNanos = (System.nanoTime() - start) / 1000;
+    start = System.nanoTime();
+    for (var i = 0; i < 100; i++) {
+      plan(query, ctx).close();
+    }
+    var freshNanos = (System.nanoTime() - start) / 100;
+    System.out.printf("Ordered copy timing: AST=%d ns, hit=%d ns, fresh=%d ns, checksum=%d%n",
+        astNanos, hitNanos, freshNanos, checksum);
+    template.close();
+    session.rollback();
+  }
+
   /** Only plain literal labels admit the ordered step. Bound/computed labels track current values. */
   @Test
   public void nonLiteralLabelsUseNormalMatchAndFollowAlternatingLabels() {
@@ -187,14 +468,25 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
     session.begin();
     for (var label : List.of("'CopyLink'", ":label", "ifnull(:label, 'CopyLink')",
         "'CopyLink'.asString()")) {
-      var query = BASE.replace("'CopyLink'", label) + " LIMIT :limit";
+      var query = CACHE_BASE.replace("'CopyLink'", label) + " LIMIT :limit";
+      assertThat(((SQLMatchStatement) SQLEngine.parse(query, session))
+          .executinPlanCanBeCached(session)).isTrue();
+      var cache = YqlExecutionPlanCache.instance(session);
+      cache.invalidate();
+      var cold = true;
       for (var edge : List.of("CopyLink", "OtherLink", "CopyLink")) {
         var params = new java.util.HashMap<>(bindings(1, 0, "none", 0, 4));
         params.put("label", edge);
-        var execution = plan(query, context(session, params));
+        var hits = cache.getHits();
+        var execution = cachedPlan(query, context(session, params));
+        assertThat(cache.getHits()).isEqualTo(hits + (cold ? 0 : 1));
+        cold = false;
+        assertThat(cache.contains(query)).isTrue();
         assertThat(execution.getSteps().stream().anyMatch(IndexOrderedEdgeStep.class::isInstance))
             .as(label).isEqualTo(label.equals("'CopyLink'"));
-        assertThat(run(execution)).isEqualTo(label.equals(":label") || label.startsWith("ifnull")
+        var actual = run(execution);
+        assertThat(actual).isEqualTo(run(plan(query, context(session, params))));
+        assertThat(actual).isEqualTo(label.equals(":label") || label.startsWith("ifnull")
             ? edge.equals("OtherLink") ? List.of("c") : List.of("null", "a", "b", "c")
             : List.of("null", "a", "b", "c"));
       }
@@ -227,14 +519,17 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
     }
     session.commit();
     session.begin();
-    var query = BASE.replace(", m.name ASC", "") + " SKIP :skip LIMIT :limit";
+    var query = CACHE_BASE.replace(", m.name ASC", "") + " SKIP :skip LIMIT :limit";
     var firstBindings = bindings(1, 100, "null", 0, -1);
     var secondBindings = bindings(2, 105, "s07", 1, -1);
     var firstExpected = List.of("s00", "s01", "s02", "s03", "s04", "s05", "s06", "s07",
         "s08", "s09", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s17", "s18", "s19");
     var secondExpected = List.of("s06", "s08", "s09", "s10", "s11", "s12", "s13", "s14",
         "s15", "s16", "s17", "s18", "s19");
-    var template = plan(query, context(session, bindings(1, 100, "null", 0, 2)));
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    var template = cachedPlan(query, context(session, bindings(1, 100, "null", 0, 2)));
+    assertThat(cache.contains(query)).isTrue();
     // Unbounded scans do not prefill, so unread rows remain in the live index cursor.
     try (var ignored = GlobalConfigurationScope.set(
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0);
@@ -246,8 +541,10 @@ public class IndexOrderedPrivateCopyTest extends DbTestBase {
       other.begin();
       var firstCtx = context(session, firstBindings);
       var secondCtx = context(other, secondBindings);
-      var first = template.copy(firstCtx);
-      var second = template.copy(secondCtx);
+      var hits = cache.getHits();
+      var first = (InternalExecutionPlan) cache.getInternal(query, firstCtx, session);
+      var second = (InternalExecutionPlan) cache.getInternal(query, secondCtx, other);
+      assertThat(cache.getHits()).isEqualTo(hits + 2);
       ExecutionStream firstStream = null;
       ExecutionStream secondStream = null;
       try {

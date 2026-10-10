@@ -5,10 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -439,6 +446,147 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
             + " ORDER BY m.score ASC, m.@rid ASC"))
         .as("a bound second alias must keep the refusal")
         .doesNotContain(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+  }
+
+  /** A committed ordered template serves another session's pending creates, deletes, and RID ties. */
+  @Test
+  public void committedTemplateReusesAcrossPendingWritesAndRidTies() {
+    crossSessionPendingWrites(false);
+  }
+
+  /** A template built with pending writes serves a clean session without leaking provisional rows. */
+  @Test
+  public void pendingWriteTemplateReusesInCleanSessionWithRidTies() {
+    crossSessionPendingWrites(true);
+  }
+
+  private void crossSessionPendingWrites(boolean buildWithPending) {
+    seedTargets(3);
+    session.activateOnCurrentThread();
+    var cache = YqlExecutionPlanCache.instance(session);
+    var query = ascendingByScore();
+    cache.invalidate();
+    session.begin();
+    try (var other = openDatabase()) {
+      other.begin();
+      var builder = buildWithPending ? session : other;
+      var consumer = buildWithPending ? other : session;
+      if (buildWithPending) {
+        addSqlPendingWrites(session);
+      }
+      builder.activateOnCurrentThread();
+      var cold = sqlPlan(builder, query, true);
+      assertThat(cold.prettyPrint(0, 2)).contains(INDEX_ORDERED_STEP)
+          .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
+      assertThat(runRids(cold)).isEqualTo(runRids(sqlPlan(builder, query, false)));
+      assertThat(cache.contains(query)).isTrue();
+      if (!buildWithPending) {
+        addSqlPendingWrites(session);
+      }
+      consumer.activateOnCurrentThread();
+      var hits = cache.getHits();
+      var warm = sqlPlan(consumer, query, true);
+      assertThat(cache.getHits()).isEqualTo(hits + 1);
+      var ordered = warm.getSteps().stream().filter(IndexOrderedEdgeStep.class::isInstance)
+          .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
+      var actual = runRids(warm);
+      assertThat(actual).isEqualTo(runRids(sqlPlan(consumer, query, false)));
+      assertThat(actual)
+          .hasSize(buildWithPending ? SCORED_TARGETS + 3 : SCORED_TARGETS + 3 - 8 + 1);
+      assertThat(consumer.getTransactionInternal().isActive()).isTrue();
+      assertThat(warm.getContext().<Boolean>getSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)).isEqualTo(buildWithPending);
+      // Runtime observations are per copy even when build statistics included pending index entries.
+      assertThat(ordered.getChosenRuntimePath()).isNotNull();
+      session.activateOnCurrentThread();
+      session.rollback();
+      other.activateOnCurrentThread();
+      other.rollback();
+    } finally {
+      session.activateOnCurrentThread();
+      if (session.getTransactionInternal().isActive()) {
+        session.rollback();
+      }
+    }
+  }
+
+  private static void addSqlPendingWrites(DatabaseSessionEmbedded db) {
+    db.activateOnCurrentThread();
+    db.execute("CREATE VERTEX Tgt SET score = 3, name = 'pending'").close();
+    db.execute("CREATE EDGE LINK FROM (SELECT FROM Src)"
+        + " TO (SELECT FROM Tgt WHERE name = 'pending')").close();
+    db.execute("DELETE VERTEX FROM Tgt WHERE name = 'n0'").close();
+  }
+
+  /** Committed creates and deletes between cold and warm calls affect current rows, not cacheability. */
+  @Test
+  public void warmStatementSeesAnotherSessionsCommittedCreatesAndDeletes() {
+    seedTargets(3);
+    session.activateOnCurrentThread();
+    var cache = YqlExecutionPlanCache.instance(session);
+    var query = ascendingByScore();
+    cache.invalidate();
+    session.begin();
+    assertThat(runRids(sqlPlan(session, query, true))).hasSize(SCORED_TARGETS + 3);
+    session.commit();
+    try (var writer = openDatabase()) {
+      writer.begin();
+      addSqlPendingWrites(writer);
+      writer.commit();
+    }
+    session.activateOnCurrentThread();
+    session.begin();
+    var hits = cache.getHits();
+    var actual = runRids(sqlPlan(session, query, true));
+    assertThat(cache.getHits()).isEqualTo(hits + 1);
+    assertThat(actual).hasSize(SCORED_TARGETS + 3 - 8 + 1)
+        .isEqualTo(runRids(sqlPlan(session, query, false)));
+    session.rollback();
+  }
+
+  /** Schema transactions retain their bypass even for otherwise cacheable ordered steps. */
+  @Test
+  public void orderedStatementBypassesSharedCacheDuringSchemaTransaction() {
+    seedTargets(0);
+    session.activateOnCurrentThread();
+    var query = ascendingByScore();
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    session.begin();
+    sqlPlan(session, query, true).close();
+    assertThat(cache.contains(query)).isTrue();
+    var hits = cache.getHits();
+    var misses = cache.getMisses();
+    session.getMetadata().getSchema().createClass("TxOrderedOnly");
+    var fresh = sqlPlan(session, query, true);
+    assertThat(fresh.prettyPrint(0, 2)).contains(INDEX_ORDERED_STEP);
+    assertThat(runRids(fresh)).isEqualTo(runRids(sqlPlan(session, query, false)));
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getMisses()).isEqualTo(misses);
+    session.rollback();
+  }
+
+  private static InternalExecutionPlan sqlPlan(DatabaseSessionEmbedded db, String query,
+      boolean cached) {
+    var ctx = new BasicCommandContext(db);
+    var statement = (SQLMatchStatement) SQLEngine.parse(query, db);
+    return cached ? statement.createExecutionPlan(ctx, false)
+        : statement.createExecutionPlanNoCache(ctx, false);
+  }
+
+  private static List<String> runRids(InternalExecutionPlan plan) {
+    var ctx = plan.getContext();
+    try {
+      var stream = plan.start();
+      try {
+        return stream.stream(ctx)
+            .map(row -> ((Identifiable) row.getProperty("m")).getIdentity().toString()).toList();
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      plan.close();
+    }
   }
 
   private static String ascendingByScore() {

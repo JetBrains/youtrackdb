@@ -14,7 +14,13 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SubQueryStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
+import java.util.List;
 import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -135,7 +141,8 @@ public final class GremlinPlanCache
     // varies per execution and whose fast path is gated by a per-session security-policy check — must
     // never be cached and replayed on another session, or the build-time security decision leaks
     // across users and across a later policy change. See CountFromClassStep.canBeCached().
-    if (!internal.canBeCached()) {
+    // Plans with IndexOrderedEdgeStep use YqlExecutionPlanCache, not shared Gremlin templates.
+    if (!internal.canBeCached() || containsIndexOrderedStep(internal)) {
       return;
     }
     var copyCtx = new BasicCommandContext();
@@ -143,6 +150,42 @@ public final class GremlinPlanCache
     internal = internal.copy(copyCtx);
     internal.close();
     putCached(fingerprint, internal);
+  }
+
+  /**
+   * Detects plans containing an {@link IndexOrderedEdgeStep}, including nested steps and plans.
+   * Gremlin builds these plans per call and does not serve them from a shared template.
+   */
+  static boolean containsIndexOrderedStep(ExecutionPlan plan) {
+    return containsIndexOrderedStep(plan.getSteps());
+  }
+
+  private static boolean containsIndexOrderedStep(List<ExecutionStep> steps) {
+    for (var step : steps) {
+      if (step instanceof IndexOrderedEdgeStep || containsIndexOrderedStep(step.getSubSteps())) {
+        return true;
+      }
+      // These source steps keep their children out of EXPLAIN and general introspection.
+      if (step instanceof SubQueryStep subquery
+          && containsIndexOrderedStep(subquery.getSubPlanForGremlinCacheInspection())) {
+        return true;
+      }
+      if (step instanceof CartesianProductStep product) {
+        for (var nested : product.getSubPlansForGremlinCacheInspection()) {
+          if (containsIndexOrderedStep(nested)) {
+            return true;
+          }
+        }
+      }
+      if (step instanceof ExecutionStepInternal internal) {
+        for (var nested : internal.getSubExecutionPlans()) {
+          if (containsIndexOrderedStep(nested)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   @Nullable InternalExecutionPlan getInternal(

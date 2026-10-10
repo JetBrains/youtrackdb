@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -15,9 +16,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ScanFactorFunctionScope;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -373,10 +378,63 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
             + ".out('wrote'){class: Message, as: m}"
             + ".out('hasReply'){class: Reply, as: r}"
             + " RETURN m.mid AS mid ORDER BY m.creationDate DESC LIMIT 1";
-    try (var result = session.query(query)) {
-      var rows = drain(result, "mid");
-      var step = stepOf(result);
+    // Count actual index stream advances. The step's observation is only a prefill snapshot.
+    session.begin();
+    var cache = YqlExecutionPlanCache.instance(session);
+    cache.invalidate();
+    var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+    var cold = statement.createExecutionPlan(new BasicCommandContext(session), false);
+    assertThat(findStep(cold.getSteps())).isNotNull();
+    cold.close();
+    assertThat(cache.contains(query)).isTrue();
+    var hits = cache.getHits();
+    var warm = statement.createExecutionPlan(new BasicCommandContext(session), false);
+    assertThat(cache.getHits()).isEqualTo(hits + 1);
+    var fresh = statement.createExecutionPlanNoCache(new BasicCommandContext(session), false);
+    var warmReads = characterizeContinuation(warm, gapSize);
+    var freshReads = characterizeContinuation(fresh, gapSize);
+    assertThat(warmReads).isEqualTo(freshReads);
+    System.out.printf("Post-prefill index reads: warm=%d, fresh=%d, gap=%d%n",
+        warmReads, freshReads, gapSize);
+    session.rollback();
+  }
 
+  private static long characterizeContinuation(InternalExecutionPlan plan, int gapSize) {
+    var step = findStep(plan.getSteps());
+    var reads = new AtomicLong();
+    var closed = new AtomicLong();
+    try {
+      var indexField = IndexOrderedEdgeStep.class.getDeclaredField("index");
+      indexField.setAccessible(true);
+      var index = (Index) indexField.get(step);
+      // Delegate every operation. Instrument only index entry streams, not SQL output rows.
+      var counting = (Index) Proxy.newProxyInstance(Index.class.getClassLoader(),
+          new Class<?>[] {Index.class}, (proxy, method, args) -> {
+            Object value;
+            try {
+              value = method.invoke(index, args);
+            } catch (java.lang.reflect.InvocationTargetException e) {
+              throw e.getCause();
+            }
+            if (value instanceof Stream<?> stream && (method.getName().equals("stream")
+                || method.getName().equals("descStream")
+                || method.getName().equals("getRids"))) {
+              return stream.peek(entry -> reads.incrementAndGet())
+                  .onClose(closed::incrementAndGet);
+            }
+            return value;
+          });
+      indexField.set(step, counting);
+      var ctx = plan.getContext();
+      var stream = plan.start();
+      var rows = new ArrayList<String>();
+      try {
+        while (stream.hasNext(ctx)) {
+          rows.add(stream.next(ctx).getProperty("mid"));
+        }
+      } finally {
+        stream.close(ctx);
+      }
       assertThat(step.getChosenRuntimePath())
           .as("the native filtered index scan must exercise its continuation")
           .isEqualTo(IndexOrderedEdgeStep.RuntimePath.UNION_SCAN);
@@ -387,6 +445,18 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
       assertThat(rows)
           .as("the scan must continue after the prefetched target fails hasReply")
           .containsExactly("low18");
+      assertThat(reads.get()).as("total index advances include post-prefill rejected entries")
+          .isGreaterThan(step.lastScanBudget() * 2).isGreaterThanOrEqualTo(gapSize + 2L);
+      assertThat(step.lastScanConsumedEntries()).as("prefill is not a bound on total scan cost")
+          .isLessThan(reads.get());
+      System.out.printf("Continuation budget=%d, prefill=%d, total=%d%n",
+          step.lastScanBudget(), step.lastScanConsumedEntries(), reads.get());
+      return reads.get();
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError(e);
+    } finally {
+      plan.close();
+      assertThat(closed.get()).isPositive();
     }
   }
 

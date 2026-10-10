@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -164,7 +165,7 @@ public class IndexOrderedSingleSourceCheckTest extends DbTestBase {
     try {
       assertThat(root(template)).isEqualTo("f");
       assertThat(ordered(template).prettyPrint(0, 2)).doesNotContain("(FILTERED");
-      assertThat(template.canBeCached()).isFalse();
+      assertThat(template.canBeCached()).isTrue();
       var forumClass = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal("Forum");
       var personClass = session.getMetadata().getImmutableSchemaSnapshot()
           .getClassInternal("Person");
@@ -203,6 +204,62 @@ public class IndexOrderedSingleSourceCheckTest extends DbTestBase {
       template.close();
       session.rollback();
     }
+  }
+
+  /** Warm rare-root plans preserve common-input multiplicity and agree with fresh root schedules. */
+  @Test
+  public void warmUniqueSourcePreservesMultiplicityAcrossRootSchedules() {
+    seed(true);
+    var cache = YqlExecutionPlanCache.instance(session);
+    var rare = Map.<Object, Object>of("t", "rare", "pid", 0);
+    var common = Map.<Object, Object>of("t", "common", "pid", 0);
+    cache.invalidate();
+    var cold = ((SQLMatchStatement) SQLEngine.parse(UNIQUE_QUERY, session))
+        .createExecutionPlan(context(rare), false);
+    assertThat(root(cold)).isEqualTo("f");
+    ordered(cold);
+    cold.close();
+    assertThat(cache.contains(UNIQUE_QUERY)).isTrue();
+    for (var binding : List.of(rare, common, rare)) {
+      var hits = cache.getHits();
+      var warm = ((SQLMatchStatement) SQLEngine.parse(UNIQUE_QUERY, session))
+          .createExecutionPlan(context(binding), false);
+      assertThat(cache.getHits()).isEqualTo(hits + 1);
+      assertThat(root(warm)).isEqualTo("f");
+      var fresh = plan(UNIQUE_QUERY, context(binding));
+      assertThat(root(fresh)).isEqualTo(binding == common ? "p" : "f");
+      var expected = new ArrayList<String>();
+      for (var fid : binding == common ? List.of(1, 2, 3) : List.of(0)) {
+        for (var date = 0; date < 12; date += 2) {
+          expected.add(date + ":0:" + fid);
+        }
+      }
+      assertSliceBindings(forumBindings(warm), expected, 0, 10);
+      assertSliceBindings(forumBindings(fresh), expected, 0, 10);
+      if (binding == common) {
+        assertThat(ordered(warm).getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+        assertThat(warm.getContext().<Boolean>getSystemVariable(
+            CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)).isFalse();
+      }
+    }
+    // A cold rejected candidate remains cacheable when a later estimate admits ordering.
+    cache.invalidate();
+    var query = UNIQUE_QUERY.replace("LIMIT 10", "LIMIT :limit");
+    var rejected = ((SQLMatchStatement) SQLEngine.parse(query, session))
+        .createExecutionPlan(context(Map.of("t", "rare", "pid", 0, "limit", -1)), false);
+    assertThat(rejected.getSteps()).noneMatch(IndexOrderedEdgeStep.class::isInstance);
+    rejected.close();
+    var hits = cache.getHits();
+    var params = Map.<Object, Object>of("t", "rare", "pid", 0, "limit", 10);
+    var warm = ((SQLMatchStatement) SQLEngine.parse(query, session))
+        .createExecutionPlan(context(params), false);
+    assertThat(cache.getHits()).isEqualTo(hits + 1);
+    assertThat(warm.getSteps()).noneMatch(IndexOrderedEdgeStep.class::isInstance);
+    var fresh = plan(query, context(params));
+    ordered(fresh);
+    assertThat(forumBindings(warm)).isEqualTo(forumBindings(fresh));
+    session.rollback();
   }
 
   /** Field-to-field equality can match two UNIQUE ids. Both sources must contribute in date order. */
@@ -278,7 +335,7 @@ public class IndexOrderedSingleSourceCheckTest extends DbTestBase {
         + " RETURN $patterns ORDER BY m.creationDate, r.id LIMIT :n";
     var template = plan(query, context(Map.of("n", 2)));
     try {
-      assertThat(template.canBeCached()).isFalse();
+      assertThat(template.canBeCached()).isTrue();
       var bounded = template.copy(context(Map.of("n", 2)));
       assertThat(pairs(bounded)).containsExactly("0:0", "1:1");
       assertThat(ordered(bounded).getChosenRuntimePath())

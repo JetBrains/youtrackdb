@@ -298,8 +298,12 @@ timeout makes every cached plan incorrect.
 The first execution of a new MATCH query template pays the full eight-phase planning cost.
 Every subsequent execution with the same raw SQL text retrieves a template from the plan
 cache and calls `copy()` on it — the overhead is one deep-copy rather than a full
-replanning cycle. The copy cost grows with plan complexity (number of steps, number of
-prefetch sub-plans) but is bounded and deterministic.
+replanning cycle. Ordered MATCH plans participate too. Their copies own the target filter,
+comparison item, and slice clauses. Each execution resolves its current bindings and runtime
+costs. Pending record and index writes do not bypass this cache. Schema transactions do.
+Ordered plans remain eager and outside the shared Gremlin plan cache.
+
+The copy cost grows with plan complexity, including the number of steps and prefetch sub-plans.
 
 A schema migration clears the cache completely. The first query of each template after a
 migration pays the full planning cost again, and only after that first execution does the
