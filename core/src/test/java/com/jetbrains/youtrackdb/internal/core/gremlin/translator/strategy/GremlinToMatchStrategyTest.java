@@ -1030,14 +1030,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * The concurrent-DDL guard covers every child, not just the first. {@code buildChildPlans} takes
-   * one {@code planningStart} snapshot before the walk and reuses it for all N children, so each
-   * child's publish decision is made at a different instant against the same time-of-check value.
-   * This drives the harmful interleaving directly: child 0 is built and published, a second thread
-   * invalidates the cache the way a concurrent DDL would, and child 1 is then built against the new
-   * schema. Child 1 must not be published — with both children sharing a fingerprint, a missing
-   * guard would leave the post-invalidation plan in the cache and serve it to every later query of
-   * this shape.
+   * All children keep the generation captured before the walk. Child 0 publishes, another thread
+   * invalidates, then child 1 publishes late with the same old stamp. Neither lookup may hit. A
+   * stale entry can remain stored until replacement, but cannot serve another call.
    */
   @Test
   public void multiPlanBuild_invalidationBetweenChildren_publishesNeitherChild() throws Exception {
@@ -1088,9 +1083,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     }
 
     assertThat(ddl.isAlive()).as("the invalidating thread must not hang").isFalse();
-    assertThat(cache.contains(fingerprint))
-        .as("neither the invalidated child 0 nor the post-invalidation child 1 may be in the cache")
-        .isFalse();
+    assertThat(cache.peekStored(fingerprint)).as("late child publication must be a stale miss")
+        .isNull();
+    assertThat(GremlinPlanCache.template(fingerprint, session())).isNull();
   }
 
   /** Awaits {@code latch}, converting an interrupt into a test failure rather than a silent skip. */

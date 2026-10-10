@@ -132,11 +132,6 @@ public class SubQueryStep extends AbstractExecutionStep {
     return sameContextAsParent && subExecutionPlan.canBeCached();
   }
 
-  /** Returns the child plan for Gremlin cache inspection without changing EXPLAIN output. */
-  public InternalExecutionPlan getSubPlanForGremlinCacheInspection() {
-    return subExecutionPlan;
-  }
-
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new SubQueryStep(subExecutionPlan.copy(ctx), ctx, ctx, profilingEnabled);

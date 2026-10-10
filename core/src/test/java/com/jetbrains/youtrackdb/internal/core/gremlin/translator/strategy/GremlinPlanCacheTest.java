@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -12,8 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanM
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -454,7 +450,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(GremlinPlanCache.template(fp, session)).isNull();
     var ctx = new BasicCommandContext(session);
     assertThat(GremlinPlanCache.get(fp, ctx, session)).isNull();
-    GremlinPlanCache.put(newFp, stored, session);
+    GremlinPlanCache.put(newFp, stored, session, cache.getGeneration());
     assertThat(cache.contains(newFp)).as("direct tx publication must be refused").isFalse();
     assertThat(cache.getHits()).isEqualTo(hits);
     assertThat(cache.getMisses()).isEqualTo(misses);
@@ -488,7 +484,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     session.getMetadata().getSchema().createClass("TxDirectTranslationOnly");
     assertThat(session.getTxSchemaState()).isNotNull();
     assertThat(GremlinPlanCache.getTranslation(shape, session)).isNull();
-    GremlinPlanCache.putTranslation(newShape, GremlinTranslationTemplate.DECLINE, session);
+    GremlinPlanCache.putTranslation(newShape, new GremlinTranslationTemplate.Decline(), session,
+        cache.getGeneration());
     assertThat(cache.containsTranslation(newShape))
         .as("direct tx publication must not write a decline template")
         .isFalse();
@@ -519,7 +516,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var misses = cache.getMisses();
 
     session.getMetadata().getSchema().createClass("TxPeekOnly");
-    var txPlan = GremlinToMatchStrategy.buildPlan(session, translation, System.nanoTime());
+    var txPlan = GremlinToMatchStrategy.buildPlan(session, translation,
+        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false));
     assertThat(txPlan).as("the tx builder must not return the uncounted stored plan")
         .isNotSameAs(stored);
     assertThat(cache.getHits()).isEqualTo(hits);
@@ -780,9 +778,9 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(cache.getMisses()).isGreaterThanOrEqualTo(0);
   }
 
-  /** Ordered MATCH translations stay eager and out of both Gremlin maps across repeated calls. */
+  /** Ordered MATCH translations reuse closed templates and open private copies on both calls. */
   @Test
-  public void indexOrderedPlansStayEagerAndUncached() {
+  public void indexOrderedPlansReuseClosedTemplatesAndPrivateCopies() {
     seedOrderedGraph();
     var supplier = orderedTraversal();
     var translation = walk(supplier);
@@ -805,24 +803,25 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
       var eager = boundary.getPlan();
       assertThat(eager.canBeCached()).isTrue();
-      assertThat(GremlinPlanCache.containsIndexOrderedStep(eager)).isTrue();
+      assertThat(eager.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
+      assertThat(cache.peekStored(fp)).isSameAs(eager);
       assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
           .isEqualTo(expected);
-      assertThat(boundary.getPlan()).isSameAs(eager);
-      assertThat(cache.contains(fp)).isFalse();
-      assertThat(cache.containsTranslation(shape)).isFalse();
+      assertThat(boundary.getPlan()).isNotSameAs(eager);
+      assertThat(cache.contains(fp)).isTrue();
+      assertThat(cache.containsTranslation(shape)).isTrue();
     }
     assertThat(cache.getHits()).isEqualTo(hits);
-    assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
-    // Ordinary ORDER BY is not refused merely because the plan sorts.
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHits + 1);
+    // Ordinary ORDER BY uses the same cache permission.
     var plain = walk(() -> graph.traversal().V().hasLabel("Tgt").order().by("name"));
     apply(() -> graph.traversal().V().hasLabel("Tgt").order().by("name"));
     assertThat(cache.contains(fingerprint(plain))).isTrue();
   }
 
-  /** Multi-plan children keep the eager plans the builder returned, without hidden private copies. */
+  /** Ordered union children copy shared builder templates and preserve both result sequences. */
   @Test
-  public void multiPlanOrderedChildrenStayEagerAndMatchSinglePlanResults() {
+  public void multiPlanOrderedChildrenCopySharedTemplatesAndMatchSinglePlanResults() {
     seedOrderedGraph();
     var single = walk(orderedTraversal());
     var child = new GremlinToMatchTranslator.TranslationResult.ChildPlan(single.inputs(),
@@ -842,14 +841,15 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var plans = ((MultiPlanMatchStep<?, ?>) traversal.getStartStep()).getPlans();
     assertThat(plans).hasSize(2);
     for (var i = 0; i < plans.size(); i++) {
-      assertThat(plans.get(i)).isSameAs(built.get(i));
-      assertThat(GremlinPlanCache.containsIndexOrderedStep(plans.get(i))).isTrue();
+      assertThat(plans.get(i)).isNotSameAs(built.get(i));
+      assertThat(plans.get(i).getContext().getParent()).isNull();
+      assertThat(plans.get(i).getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
     }
     var expected = new ArrayList<>(sortedNames(apply(orderedTraversal())));
     expected.addAll(new ArrayList<>(expected));
     expected.sort(String::compareTo);
     assertThat(sortedNames(traversal.toList())).isEqualTo(expected);
-    assertThat(GremlinPlanCache.instance(graphSession()).contains(fingerprint(single))).isFalse();
+    assertThat(GremlinPlanCache.instance(graphSession()).contains(fingerprint(single))).isTrue();
   }
 
   /** Cacheable subquery children reach the multi-plan boundary without replacing builder instances. */
@@ -888,7 +888,6 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       outer.chain(wrap.apply(ordered, ctx));
       assertThat(outer.canBeCached()).isTrue();
       assertThat(outer.getSteps()).noneMatch(IndexOrderedEdgeStep.class::isInstance);
-      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isTrue();
       built.add(outer);
       return outer;
     });
@@ -908,49 +907,32 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(sortedNames(traversal.toList())).isEqualTo(expected);
   }
 
-  /** Recursive refusal sees real subquery/product children, subplan-only steps, and nested steps. */
+  /** Real nested ordered subquery and product plans publish closed copies without EXPLAIN changes. */
   @Test
-  public void nestedIndexOrderedPlansRefuseGremlinPublication() {
+  public void nestedIndexOrderedPlansPublishPrivateCopies() {
     seedOrderedGraph();
     var db = graphSession();
+    var cache = GremlinPlanCache.instance(db);
     var ctx = new BasicCommandContext(db);
-    var ordered = GremlinToMatchStrategy.buildPlan(db, walk(orderedTraversal()), System.nanoTime());
+    var ordered = GremlinToMatchStrategy.buildPlan(db, walk(orderedTraversal()),
+        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false));
     var product = new CartesianProductStep(ctx, false);
-    product.addSubPlan(new SelectExecutionPlan(ctx));
     product.addSubPlan(ordered);
     var subquery = new SubQueryStep(ordered, ctx, ctx, false);
-    var subplans = mock(ExecutionStepInternal.class);
-    when(subplans.canBeCached()).thenReturn(true);
-    when(subplans.getSubSteps()).thenReturn(List.of());
-    when(subplans.getSubExecutionPlans())
-        .thenReturn(List.of(new SelectExecutionPlan(ctx), ordered));
-    for (var step : List.of(product, subquery, subplans)) {
+    for (var step : List.of(product, subquery)) {
       var outer = new SelectExecutionPlan(ctx);
       outer.chain(step);
       assertThat(outer.canBeCached()).isTrue();
-      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isTrue();
-      GremlinPlanCache.put("nested-" + step.getClass().getSimpleName(), outer, db);
-      assertThat(GremlinPlanCache.instance(db)
-          .contains("nested-" + step.getClass().getSimpleName())).isFalse();
+      var explain = outer.prettyPrint(0, 2);
+      var key = "nested-" + step.getClass().getSimpleName();
+      var stored = GremlinPlanCache.put(key, outer, db, cache.getGeneration());
+      assertThat(stored).isNotNull().isNotSameAs(outer);
+      assertThat(cache.peekStored(key)).isSameAs(stored);
+      assertThat(stored.prettyPrint(0, 2)).isEqualTo(explain);
+      var copy = GremlinPlanCache.get(key, new BasicCommandContext(db), db);
+      assertThat(copy).isNotSameAs(stored);
+      copy.close();
     }
-    // Empty composite children do not trigger the ordered-plan refusal.
-    for (var step : List.of(new CartesianProductStep(ctx, false),
-        new SubQueryStep(new SelectExecutionPlan(ctx), ctx, ctx, false))) {
-      var outer = new SelectExecutionPlan(ctx);
-      outer.chain(step);
-      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isFalse();
-    }
-    // Public introspection steps need no internal-plan cast. Empty trees are not ordered trees.
-    var publicStep = mock(ExecutionStep.class);
-    when(publicStep.getSubSteps()).thenReturn(List.of());
-    var publicPlan = mock(ExecutionPlan.class);
-    when(publicPlan.getSteps()).thenReturn(List.of(publicStep));
-    assertThat(GremlinPlanCache.containsIndexOrderedStep(publicPlan)).isFalse();
-    var internalEmpty = mock(ExecutionStepInternal.class);
-    when(internalEmpty.getSubSteps()).thenReturn(List.of());
-    when(internalEmpty.getSubExecutionPlans()).thenReturn(List.of(new SelectExecutionPlan(ctx)));
-    when(publicPlan.getSteps()).thenReturn(List.of(internalEmpty));
-    assertThat(GremlinPlanCache.containsIndexOrderedStep(publicPlan)).isFalse();
     ordered.close();
   }
 
