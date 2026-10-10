@@ -240,6 +240,11 @@ public class CartesianProductStep extends AbstractExecutionStep {
     return true;
   }
 
+  /** Returns child plans for Gremlin cache inspection without changing EXPLAIN output. */
+  public List<InternalExecutionPlan> getSubPlansForGremlinCacheInspection() {
+    return List.copyOf(subPlans);
+  }
+
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     var copy = new CartesianProductStep(ctx, profilingEnabled);

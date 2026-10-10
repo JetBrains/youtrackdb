@@ -1558,7 +1558,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   @Override
   public boolean canBeCached() {
-    return false;
+    return true;
   }
 
   /** Plan-text marker for an accepted trailing record identifier sort item. */

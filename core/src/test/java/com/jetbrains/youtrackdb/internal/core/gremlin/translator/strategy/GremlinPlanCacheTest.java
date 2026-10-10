@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -8,6 +10,17 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SubQueryStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -767,13 +780,209 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(cache.getMisses()).isGreaterThanOrEqualTo(0);
   }
 
+  /** Ordered MATCH translations stay eager and out of both Gremlin maps across repeated calls. */
+  @Test
+  public void indexOrderedPlansStayEagerAndUncached() {
+    seedOrderedGraph();
+    var supplier = orderedTraversal();
+    var translation = walk(supplier);
+    var fp = fingerprint(translation);
+    var cache = GremlinPlanCache.instance(graphSession());
+    var shape = GremlinStepWalker.extractShape(supplier.get().asAdmin(), graphSession()).key();
+    var hits = cache.getHits();
+    var translationHits = cache.getTranslationHits();
+    List<?> expected;
+    support.setTranslatorEnabled(false);
+    try {
+      expected = supplier.get().toList().stream().map(v -> v.id().toString()).toList();
+    } finally {
+      support.setTranslatorEnabled(true);
+    }
+    for (var i = 0; i < 2; i++) {
+      var traversal = supplier.get().asAdmin();
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+      var eager = boundary.getPlan();
+      assertThat(eager.canBeCached()).isTrue();
+      assertThat(GremlinPlanCache.containsIndexOrderedStep(eager)).isTrue();
+      assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
+          .isEqualTo(expected);
+      assertThat(boundary.getPlan()).isSameAs(eager);
+      assertThat(cache.contains(fp)).isFalse();
+      assertThat(cache.containsTranslation(shape)).isFalse();
+    }
+    assertThat(cache.getHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+    // Ordinary ORDER BY is not refused merely because the plan sorts.
+    var plain = walk(() -> graph.traversal().V().hasLabel("Tgt").order().by("name"));
+    apply(() -> graph.traversal().V().hasLabel("Tgt").order().by("name"));
+    assertThat(cache.contains(fingerprint(plain))).isTrue();
+  }
+
+  /** Multi-plan children keep the eager plans the builder returned, without hidden private copies. */
+  @Test
+  public void multiPlanOrderedChildrenStayEagerAndMatchSinglePlanResults() {
+    seedOrderedGraph();
+    var single = walk(orderedTraversal());
+    var child = new GremlinToMatchTranslator.TranslationResult.ChildPlan(single.inputs(),
+        single.inputParameters(), true);
+    var multi = GremlinToMatchTranslator.TranslationResult.multiPlan(List.of(child, child),
+        List.of(), single.boundaryAlias(), single.outputType(), single.returnClass(),
+        single.shaping());
+    var built = new ArrayList<InternalExecutionPlan>();
+    var strategy = new GremlinToMatchStrategy(t -> multi, (db, translation, start) -> {
+      var plan = GremlinToMatchStrategy.buildPlan(db, translation, start);
+      built.add(plan);
+      return plan;
+    });
+    var traversal = graph.traversal().V().hasLabel("Src").asAdmin();
+    strategy.apply(traversal);
+    assertThat(traversal.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    var plans = ((MultiPlanMatchStep<?, ?>) traversal.getStartStep()).getPlans();
+    assertThat(plans).hasSize(2);
+    for (var i = 0; i < plans.size(); i++) {
+      assertThat(plans.get(i)).isSameAs(built.get(i));
+      assertThat(GremlinPlanCache.containsIndexOrderedStep(plans.get(i))).isTrue();
+    }
+    var expected = new ArrayList<>(sortedNames(apply(orderedTraversal())));
+    expected.addAll(new ArrayList<>(expected));
+    expected.sort(String::compareTo);
+    assertThat(sortedNames(traversal.toList())).isEqualTo(expected);
+    assertThat(GremlinPlanCache.instance(graphSession()).contains(fingerprint(single))).isFalse();
+  }
+
+  /** Cacheable subquery children reach the multi-plan boundary without replacing builder instances. */
+  @Test
+  public void multiPlanSubqueryOrderedChildrenKeepBuilderInstances() {
+    assertNestedOrderedChildrenKeepBuilderInstances(
+        (ordered, ctx) -> new SubQueryStep(ordered, ctx, ctx, false));
+  }
+
+  /** Cacheable Cartesian product children keep their nested ordered plans without private copies. */
+  @Test
+  public void multiPlanCartesianOrderedChildrenKeepBuilderInstances() {
+    assertNestedOrderedChildrenKeepBuilderInstances((ordered, ctx) -> {
+      var product = new CartesianProductStep(ctx, false);
+      product.addSubPlan(ordered);
+      return product;
+    });
+  }
+
+  private void assertNestedOrderedChildrenKeepBuilderInstances(
+      java.util.function.BiFunction<InternalExecutionPlan, BasicCommandContext,
+          ExecutionStepInternal> wrap) {
+    seedOrderedGraph();
+    var single = walk(orderedTraversal());
+    var child = new GremlinToMatchTranslator.TranslationResult.ChildPlan(single.inputs(),
+        single.inputParameters(), true);
+    var multi = GremlinToMatchTranslator.TranslationResult.multiPlan(List.of(child, child),
+        List.of(), single.boundaryAlias(), single.outputType(), single.returnClass(),
+        single.shaping());
+    var built = new ArrayList<InternalExecutionPlan>();
+    var strategy = new GremlinToMatchStrategy(t -> multi, (db, translation, start) -> {
+      var ordered = GremlinToMatchStrategy.buildPlan(db, translation, start);
+      assertThat(ordered.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
+      var ctx = new BasicCommandContext(db);
+      var outer = new SelectExecutionPlan(ctx);
+      outer.chain(wrap.apply(ordered, ctx));
+      assertThat(outer.canBeCached()).isTrue();
+      assertThat(outer.getSteps()).noneMatch(IndexOrderedEdgeStep.class::isInstance);
+      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isTrue();
+      built.add(outer);
+      return outer;
+    });
+    var traversal = graph.traversal().V().hasLabel("Src").asAdmin();
+    strategy.apply(traversal);
+    assertThat(traversal.getStartStep()).isInstanceOf(MultiPlanMatchStep.class);
+    var plans = ((MultiPlanMatchStep<?, ?>) traversal.getStartStep()).getPlans();
+    assertThat(built).hasSize(2);
+    assertThat(plans).hasSize(2);
+    for (var i = 0; i < plans.size(); i++) {
+      assertThat(plans.get(i)).as("nested ordered child %s keeps builder identity", i)
+          .isSameAs(built.get(i));
+    }
+    var expected = new ArrayList<>(sortedNames(apply(orderedTraversal())));
+    expected.addAll(new ArrayList<>(expected));
+    expected.sort(String::compareTo);
+    assertThat(sortedNames(traversal.toList())).isEqualTo(expected);
+  }
+
+  /** Recursive refusal sees real subquery/product children, subplan-only steps, and nested steps. */
+  @Test
+  public void nestedIndexOrderedPlansRefuseGremlinPublication() {
+    seedOrderedGraph();
+    var db = graphSession();
+    var ctx = new BasicCommandContext(db);
+    var ordered = GremlinToMatchStrategy.buildPlan(db, walk(orderedTraversal()), System.nanoTime());
+    var product = new CartesianProductStep(ctx, false);
+    product.addSubPlan(new SelectExecutionPlan(ctx));
+    product.addSubPlan(ordered);
+    var subquery = new SubQueryStep(ordered, ctx, ctx, false);
+    var subplans = mock(ExecutionStepInternal.class);
+    when(subplans.canBeCached()).thenReturn(true);
+    when(subplans.getSubSteps()).thenReturn(List.of());
+    when(subplans.getSubExecutionPlans())
+        .thenReturn(List.of(new SelectExecutionPlan(ctx), ordered));
+    for (var step : List.of(product, subquery, subplans)) {
+      var outer = new SelectExecutionPlan(ctx);
+      outer.chain(step);
+      assertThat(outer.canBeCached()).isTrue();
+      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isTrue();
+      GremlinPlanCache.put("nested-" + step.getClass().getSimpleName(), outer, db);
+      assertThat(GremlinPlanCache.instance(db)
+          .contains("nested-" + step.getClass().getSimpleName())).isFalse();
+    }
+    // Empty composite children do not trigger the ordered-plan refusal.
+    for (var step : List.of(new CartesianProductStep(ctx, false),
+        new SubQueryStep(new SelectExecutionPlan(ctx), ctx, ctx, false))) {
+      var outer = new SelectExecutionPlan(ctx);
+      outer.chain(step);
+      assertThat(GremlinPlanCache.containsIndexOrderedStep(outer)).isFalse();
+    }
+    // Public introspection steps need no internal-plan cast. Empty trees are not ordered trees.
+    var publicStep = mock(ExecutionStep.class);
+    when(publicStep.getSubSteps()).thenReturn(List.of());
+    var publicPlan = mock(ExecutionPlan.class);
+    when(publicPlan.getSteps()).thenReturn(List.of(publicStep));
+    assertThat(GremlinPlanCache.containsIndexOrderedStep(publicPlan)).isFalse();
+    var internalEmpty = mock(ExecutionStepInternal.class);
+    when(internalEmpty.getSubSteps()).thenReturn(List.of());
+    when(internalEmpty.getSubExecutionPlans()).thenReturn(List.of(new SelectExecutionPlan(ctx)));
+    when(publicPlan.getSteps()).thenReturn(List.of(internalEmpty));
+    assertThat(GremlinPlanCache.containsIndexOrderedStep(publicPlan)).isFalse();
+    ordered.close();
+  }
+
+  private void seedOrderedGraph() {
+    session.activateOnCurrentThread();
+    var target = session.createVertexClass("Tgt");
+    target.createProperty("score", PropertyType.INTEGER)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    session.createVertexClass("Src");
+    session.createEdgeClass("LINK");
+    var source = graph.addVertex(T.label, "Src", "name", "source");
+    for (var i = 0; i < 40; i++) {
+      source.addEdge("LINK", graph.addVertex(T.label, "Tgt", "score", i % 7, "name", "n" + i));
+    }
+    graph.tx().commit();
+  }
+
+  private java.util.function.Supplier<
+      org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<Vertex, Vertex>>
+      orderedTraversal() {
+    return () -> graph.traversal().V().hasLabel("Src").out("LINK").hasLabel("Tgt")
+        .order().by("score");
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
   private GremlinToMatchTranslator.TranslationResult walk(
       java.util.function.Supplier<
-          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
+          ? extends org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?,
+              ?>> supplier) {
     var admin = supplier.get().asAdmin();
     var result = GremlinStepWalker.production().walk(admin);
     assertThat(result).isNotNull();
@@ -782,7 +991,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
   private List<?> apply(
       java.util.function.Supplier<
-          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
+          ? extends org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?,
+              ?>> supplier) {
     var admin = supplier.get().asAdmin();
     GremlinToMatchStrategy.instance().apply(admin);
     assertThat(admin.getSteps()).hasSize(1);

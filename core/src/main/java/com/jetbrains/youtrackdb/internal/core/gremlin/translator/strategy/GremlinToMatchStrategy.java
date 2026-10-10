@@ -562,7 +562,7 @@ public final class GremlinToMatchStrategy
       InternalExecutionPlan plan) {
     // A fresh tx-local plan belongs to the boundary, even if the shared cache has the same key.
     if (session.getTxSchemaState() != null || !translation.cacheEligible()
-        || !plan.canBeCached()) {
+        || !plan.canBeCached() || GremlinPlanCache.containsIndexOrderedStep(plan)) {
       return false;
     }
     var inputs = translation.inputs();
@@ -655,7 +655,9 @@ public final class GremlinToMatchStrategy
         var childPlan = planBuilder.buildPlan(session, childTranslation, planningStart);
         // Outside schema transactions buildPlan can return a shared closed template. Copying also
         // isolates freshly built tx-local children for MultiPlanMatchStep to own and close.
-        if (child.cacheEligible() && childPlan.canBeCached()) {
+        // Ordered children stay eager and belong directly to the boundary.
+        if (child.cacheEligible() && childPlan.canBeCached()
+            && !GremlinPlanCache.containsIndexOrderedStep(childPlan)) {
           var isolatedCtx = new BasicCommandContext();
           isolatedCtx.setParentWithoutOverridingChild(childPlan.getContext());
           childPlan = childPlan.copy(isolatedCtx);
