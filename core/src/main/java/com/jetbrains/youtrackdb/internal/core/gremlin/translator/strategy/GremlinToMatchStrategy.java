@@ -348,7 +348,6 @@ public final class GremlinToMatchStrategy
     var cache = GremlinPlanCache.instance(session);
     var generation = cache.getGeneration();
     var eligible = session.getTxSchemaState() == null && cache.isEnabled();
-    var cacheScope = new CacheScope(generation, eligible);
     // Resolve all order settings once for this compilation. The shape key below and the walk
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is
@@ -362,7 +361,7 @@ public final class GremlinToMatchStrategy
         GremlinStepWalker.extractShape(
             traversal, session, orderIncludesMissingKey, orderByNullsPlacements);
     var metrics = GremlinTranslationMetrics.of(session);
-    if (populateTranslationCache && cacheScope.eligible && extraction.complete()) {
+    if (populateTranslationCache && eligible && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
       if (cached instanceof GremlinTranslationTemplate.Decline) {
         metrics.recordDecline(stepShape(traversal));
@@ -378,14 +377,14 @@ public final class GremlinToMatchStrategy
     var translation =
         translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
     if (translation == null) {
-      if (populateTranslationCache && cacheScope.eligible && extraction.complete()) {
+      if (populateTranslationCache && eligible && extraction.complete()) {
         GremlinPlanCache.putTranslation(
-            extraction.key(), new GremlinTranslationTemplate.Decline(), session,
-            cacheScope.generation);
+            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation);
       }
       metrics.recordDecline(stepShape(traversal));
       return;
     }
+    var cacheScope = new CacheScope(generation, eligible);
     applyTranslation(traversal, session, translation, cacheScope, extraction);
     metrics.recordSuccess();
   }
@@ -559,15 +558,14 @@ public final class GremlinToMatchStrategy
   }
 
   /**
-   * One call's permission and unchanged walk-start generation. Shared ownership is recorded by
-   * identity only when the builder obtains or publishes a closed template under this permission.
-   * Fixture builders that return private plans do not gain shared status from key equality.
+   * A successful translation's permission and unchanged pre-extraction generation. The identity
+   * set is allocated only when the builder records a shared template. Ownership checks never
+   * allocate it. Fixture builders returning private plans do not gain shared status from key equality.
    */
   static final class CacheScope {
     final long generation;
     final boolean eligible;
-    private final Set<InternalExecutionPlan> sharedPlans =
-        Collections.newSetFromMap(new IdentityHashMap<>());
+    @Nullable private Set<InternalExecutionPlan> sharedPlans;
 
     CacheScope(long generation, boolean eligible) {
       this.generation = generation;
@@ -575,12 +573,19 @@ public final class GremlinToMatchStrategy
     }
 
     InternalExecutionPlan shared(InternalExecutionPlan plan) {
+      if (sharedPlans == null) {
+        sharedPlans = Collections.newSetFromMap(new IdentityHashMap<>());
+      }
       sharedPlans.add(plan);
       return plan;
     }
 
     boolean isShared(InternalExecutionPlan plan) {
-      return eligible && sharedPlans.contains(plan);
+      return eligible && sharedPlans != null && sharedPlans.contains(plan);
+    }
+
+    boolean hasSharedPlanSet() {
+      return sharedPlans != null;
     }
   }
 
