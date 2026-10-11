@@ -142,25 +142,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
       cloned.resetLifecycleForClone();
       return cloned;
     }
-    // Give the clone its own deep plan copy against an ISOLATED CHILD context — a fresh
-    // BasicCommandContext parented to the original plan's context — mirroring HashJoinMatchStep's
-    // build-side isolation. The child owns its own unsynchronised $current / $matched / statistics
-    // maps, so the original's and the clone's executions cannot race on or leak that per-run state,
-    // while database session, input parameters, and timeout still resolve through the parent.
-    // Copying against plan.getContext() directly would leave both plans on the same context,
-    // defeating the isolation this clone exists to provide.
-    //
-    // INVARIANT the isolation depends on: the parent (template) context must stay free of per-run
-    // variables. A child write propagates UP to the parent only for a key the parent already holds
-    // (BasicCommandContext.setVariable / setSystemVariable), so as long as the template context
-    // carries no $current / $matched / alias / LET bindings, each clone writes those to its own
-    // child map and concurrent clones never touch the shared parent. The single-node g.V() pattern
-    // seeds no such variables, so the invariant holds. A pattern that seeds alias or LET variables
-    // onto the plan's context at BUILD time would break it — the shared parent would then
-    // be written concurrently through its unsynchronised maps. See the clone-isolation note in the
-    // design doc.
-    var isolatedCtx = new BasicCommandContext();
-    isolatedCtx.setParentWithoutOverridingChild(plan.getContext());
+    // Clone-after-run must not inherit seeded variables or propagate writes into the live plan.
+    // Retain only planning bindings and the session, with no context parent.
+    var isolatedCtx = cleanCopyContext(plan.getContext());
+    assert isolatedCtx.getVariables().isEmpty()
+        && MultiPlanMatchStep.seededSystemVariable(isolatedCtx) < 0
+        : "single-plan clone context carries per-run state";
     // Plain field write: the field is non-final (see its declaration), the copy is independent, and
     // the write happens before the clone is published to any other thread.
     cloned.plan = plan.copy(isolatedCtx);
@@ -173,13 +160,23 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
   }
 
   private InternalExecutionPlan copyTemplate() {
-    var isolatedCtx = new BasicCommandContext();
-    isolatedCtx.setParentWithoutOverridingChild(template.getContext());
-    var copy = template.copy(isolatedCtx);
+    var copy = template.copy(cleanCopyContext(template.getContext()));
     assert copy != null && copy != template
         : "InternalExecutionPlan.copy returned " + (copy == null ? "null" : "the same instance")
             + "; the copy-on-open boundary step would start the shared cache template";
     return copy;
+  }
+
+  /**
+   * A private root context for a copied Gremlin plan. No variables, statistics, or sorted signal
+   * can resolve through a shared or already-executed parent. Timeout steps arm their copied state
+   * when the plan starts. Boundaries rebind the session and current parameters before starting.
+   */
+  public static BasicCommandContext cleanCopyContext(CommandContext source) {
+    var context = new BasicCommandContext(source.getDatabaseSession());
+    context.setInputParameters(source.getInputParameters());
+    context.setRecordingMetrics(source.isRecordingMetrics());
+    return context;
   }
 
   // ---- Plan-seam hooks: the single plan supplies the stream, context, rewind, and close. ----
@@ -197,10 +194,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractMatch
   @Override
   protected void replaceClosedPlanWithCopy() {
     var closedPlan = plan;
-    // Copy against the closed plan's OWN context, NOT against a fresh child context parented to it
-    // the way clone() does — the base's hook Javadoc gives the full reasoning. Short version: a
-    // re-arm has a single live plan, so it needs no isolation, and the completed pass has already
-    // seeded this context with the per-run state clone()'s isolation assert forbids.
+    // Sequential re-arming retains the private context. No clone or shared template inherits it.
     plan = closedPlan.copy(closedPlan.getContext());
     // A copy() that handed back the same instance would put us right back on the closed chain: the
     // re-run would silently produce nothing and leak the cursors it claimed. Costs nothing in

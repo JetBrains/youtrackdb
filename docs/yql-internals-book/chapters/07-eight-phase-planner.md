@@ -271,20 +271,19 @@ Several conditions can prevent cache reuse or storage:
   non-cacheability. A plan containing a step that embeds session-specific or
   non-reproducible state cannot safely be stored as a shared template and is therefore
   discarded rather than put into the cache (`MatchExecutionPlanner.java:635–639`).
-- **Schema changed during planning.** After assembling the plan, the planner compares
-  `YqlExecutionPlanCache.getLastInvalidation(session)` against the timestamp taken before
-  Phase 1 began
-  (`MatchExecutionPlanner.java:635–639`).
-  If the schema was modified concurrently — another session created a class, updated an
-  index, or changed a function — `lastInvalidation` will be greater than `planningStart`
-  and the plan is discarded rather than stored, preventing a stale plan from being served
-  to future callers.
+- **Metadata invalidated during planning.** Each SQL planner captures the statement cache's
+  generation before its first metadata read. A separately published nested child captures its
+  own generation. Publication keeps that stamp unchanged and cannot replace a newer-stamped
+  entry. Lookup accepts only an entry whose stamp equals the current generation. An old build
+  that inserts after invalidation therefore remains a miss until a fresh build replaces it.
 
-The four conditions above operate per query, at assembly time. There is also a
+The first three conditions above govern planner eligibility. The generation check governs
+lookup. There is also a
 cache-wide invalidation mechanism. `YqlExecutionPlanCache` implements
 `MetadataUpdateListener` and receives schema, index, function-library, sequence-library,
 and storage-configuration update notifications. The whole cache is cleared on any such
-event — there is no per-class or per-index granularity. A schema migration that touches
+event, after its generation advances. There is no per-class or per-index granularity.
+A schema migration that touches
 one class invalidates plans for every query against that database.
 
 One additional trigger: if `GlobalConfiguration.COMMAND_TIMEOUT` changes at runtime,
@@ -299,8 +298,12 @@ timeout makes every cached plan incorrect.
 The first execution of a new MATCH query template pays the full eight-phase planning cost.
 Every subsequent execution with the same raw SQL text retrieves a template from the plan
 cache and calls `copy()` on it — the overhead is one deep-copy rather than a full
-replanning cycle. The copy cost grows with plan complexity (number of steps, number of
-prefetch sub-plans) but is bounded and deterministic.
+replanning cycle. Ordered MATCH plans participate too. Their copies own the target filter,
+comparison item, and slice clauses. Each execution resolves its current bindings and runtime
+costs. Pending record and index writes do not bypass this cache. Schema transactions do.
+Ordered plans remain eager and outside the shared Gremlin plan cache.
+
+The copy cost grows with plan complexity, including the number of steps and prefetch sub-plans.
 
 A schema migration clears the cache completely. The first query of each template after a
 migration pays the full planning cost again, and only after that first execution does the

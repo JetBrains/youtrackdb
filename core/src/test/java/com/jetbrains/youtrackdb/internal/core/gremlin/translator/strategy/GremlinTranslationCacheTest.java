@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.tinkerpop.gremlin.process.traversal.NotP;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
@@ -1042,6 +1043,93 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
         TranslatorEquivalenceSupport::sortedIds,
         () -> graph.traversal().V().hasId(P.eq(id)));
+  }
+
+  /** Successful RID routes rewalk with private physical plans and never publish translation templates. */
+  @Test
+  public void ridRoutesKeepPhysicalPlansAndTranslationTemplatesPrivate() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+    var db = graphSession();
+    var cache = GremlinPlanCache.instance(db);
+    for (var call = 0; call < 2; call++) {
+      var routes = List.of(
+          graph.traversal().V(alice.id()).out("knows").asAdmin(),
+          graph.traversal().V().hasId(alice.id()).out("knows").asAdmin(),
+          graph.traversal().V().where(__.hasId(alice.id())).out("knows").asAdmin());
+      for (var traversal : routes) {
+        var extraction = GremlinStepWalker.extractShape(traversal, db);
+        assertThat(extraction.complete()).isTrue();
+        var translation = GremlinToMatchTranslator.translate(traversal);
+        assertThat(translation).isNotNull();
+        assertThat(translation.cacheEligible()).isFalse();
+        var fingerprint =
+            GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping());
+        var hits = cache.getTranslationHits();
+        var misses = cache.getTranslationMisses();
+        var physicalHits = cache.getHits();
+        var physicalMisses = cache.getMisses();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        var step = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+        var privatePlan = step.getPlan();
+        assertThat(sortedNames(traversal.toList())).containsExactly("Bob");
+        assertThat(step.getPlan()).isSameAs(privatePlan);
+        assertThat(cache.contains(fingerprint)).isFalse();
+        assertThat(cache.containsTranslation(extraction.key())).isFalse();
+        assertThat(cache.getTranslationHits()).isEqualTo(hits);
+        assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+        assertThat(cache.getHits()).isEqualTo(physicalHits);
+        assertThat(cache.getMisses()).isEqualTo(physicalMisses);
+      }
+    }
+  }
+
+  /** Complete duplicate-RID declines hit until invalidation, then rewalk using the new walk stamp. */
+  @Test
+  public void ridDeclinesUseStampedCacheAndSkipWarmWalker() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+    var db = graphSession();
+    var cache = GremlinPlanCache.instance(db);
+    var walks = new AtomicInteger();
+    var strategy = new GremlinToMatchStrategy(t -> {
+      walks.incrementAndGet();
+      return GremlinToMatchTranslator.translate(t);
+    }, GremlinToMatchStrategy::buildPlan, true);
+    var extraction = GremlinStepWalker.extractShape(
+        graph.traversal().V(alice.id(), alice.id()).out("knows").asAdmin(), db);
+    assertThat(extraction.complete()).isTrue();
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    var physicalHits = cache.getHits();
+    var physicalMisses = cache.getMisses();
+    var generation = cache.getGeneration();
+    for (var call = 0; call < 3; call++) {
+      if (call == 2) {
+        cache.invalidate();
+        // A late decline with the old walk stamp cannot suppress the next real walk.
+        GremlinPlanCache.putTranslation(extraction.key(), new GremlinTranslationTemplate.Decline(),
+            db, generation);
+        assertThat(cache.containsTranslation(extraction.key())).isFalse();
+      }
+      var traversal = graph.traversal().V(alice.id(), alice.id()).out("knows").asAdmin();
+      var nativeSteps = List.copyOf(traversal.getSteps());
+      strategy.apply(traversal);
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(nativeSteps);
+      assertThat(cache.containsTranslation(extraction.key())).isTrue();
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + (call == 0 ? 0 : 1));
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses + (call == 2 ? 2 : 1));
+      assertThat(walks.get()).isEqualTo(call == 2 ? 2 : 1);
+    }
+    assertThat(cache.getHits()).isEqualTo(physicalHits);
+    assertThat(cache.getMisses()).isEqualTo(physicalMisses);
+    assertThat(cache.getTranslationInternal(extraction.key(), db))
+        .isInstanceOf(GremlinTranslationTemplate.Decline.class);
   }
 
   /** Label and id keys include predicate trees, operators, typed values and collection structure. */

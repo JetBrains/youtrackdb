@@ -75,6 +75,24 @@ public class LimitExecutionStepTest extends TestUtilsFixture {
     assertThat(out).hasSize(3);
   }
 
+  /** Built-in MATCH copies preserve negative-unbounded policy without changing default LIMIT. */
+  @Test
+  public void builtinNegativePolicySurvivesCopyAndDefaultPolicyStaysDistinct() {
+    var limit = parseLimit("SELECT FROM OUser LIMIT :n");
+    var ctx = newContext();
+    var template = new LimitExecutionStep(limit, ctx, false, true);
+    for (var value : List.of(-2, -1, 0, 2)) {
+      ctx.setInputParameters(java.util.Map.of("n", value));
+      var copy = (LimitExecutionStep) template.copy(ctx);
+      copy.setPrevious(sourceStep(ctx, results(3)));
+      assertThat(drain(copy.start(ctx), ctx)).hasSize(value < 0 ? 3 : value);
+    }
+    ctx.setInputParameters(java.util.Map.of("n", -2));
+    var defaultStep = new LimitExecutionStep(limit, ctx, false);
+    defaultStep.setPrevious(sourceStep(ctx, results(3)));
+    assertThat(drain(defaultStep.start(ctx), ctx)).isEmpty();
+  }
+
   // =========================================================================
   // Positive limits
   // =========================================================================

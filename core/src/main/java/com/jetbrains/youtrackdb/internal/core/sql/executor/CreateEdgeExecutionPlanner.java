@@ -60,14 +60,13 @@ public class CreateEdgeExecutionPlanner {
   private InsertExecutionPlan buildExecutionPlan(
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var session = ctx.getDatabaseSession();
+    var buildGeneration = session == null ? 0 : YqlExecutionPlanCache.getGeneration(session);
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
       var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, session);
       if (plan != null) {
         return (InsertExecutionPlan) plan;
       }
     }
-
-    var planningStart = System.nanoTime();
 
     if (targetClass == null) {
       targetClass = new SQLIdentifier("E");
@@ -140,10 +139,9 @@ public class CreateEdgeExecutionPlanner {
     if (useCache
         && !enableProfiling
         && statement.executinPlanCanBeCached(session)
-        && result.canBeCached()
-        && YqlExecutionPlanCache.getLastInvalidation(session) < planningStart) {
+        && result.canBeCached()) {
       YqlExecutionPlanCache.put(
-          statement.getOriginalStatement(), result, session,
+          statement.getOriginalStatement(), result, session, buildGeneration,
           session.getPlanNullPlacements().recorded());
     }
 

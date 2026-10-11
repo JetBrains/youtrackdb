@@ -13,69 +13,88 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * LRU cache for compiled Gremlin-to-MATCH execution plans, keyed by the post-walk {@link
- * GremlinPlanFingerprint}, plus a second map of {@link GremlinTranslationTemplate}s keyed by
- * {@link GremlinStepWalker#extractShape}. The plan map stores a deep-copied closed plan per
- * entry; {@link #template(String, DatabaseSessionEmbedded)} returns that stored instance without
- * copying so the boundary step can copy on first open. The translation map skips the walker on a
- * hit. An open schema transaction bypasses both shared maps without recording hits or misses.
- * Schema changes invalidate both maps through the same {@link MetadataUpdateListener} hook as
- * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache}.
+ * Bounded physical-plan and translation caches for Gremlin-to-MATCH compilation. Both maps share
+ * one metadata generation because every metadata event invalidates both. Each publication keeps
+ * its own build or walk-start generation. Lookups accept only the current generation, without a
+ * cache-wide lock. Invalidation advances first, then clears both maps.
  *
- * <p>Hit/miss counters ({@link #getHits()} / {@link #getMisses()}) are lifetime totals on the
- * shared-context instance for the plan map. {@link #getTranslationHits()} / {@link
- * #getTranslationMisses()} are the same for the translation map. Each plan-map lookup also feeds
- * the global profiler rates {@link CoreMetrics#GREMLIN_PLAN_CACHE_HIT_RATE} / {@link
- * CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}.
+ * <p>Physical entries own closed templates. Boundaries copy before execution and never run or close
+ * a shared template. Complete single-plan translation hits skip walking and physical planning.
+ * Multi-plan traversals walk again and cache eligible children independently. Schema transactions
+ * bypass both maps without recording hits or misses.
+ *
+ * <p>Hit and miss counters are lifetime totals. Physical lookups also feed the global profiler rates
+ * {@link CoreMetrics#GREMLIN_PLAN_CACHE_HIT_RATE} and
+ * {@link CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}.
  */
 public final class GremlinPlanCache
-    extends AbstractMetadataUpdateCache<String, InternalExecutionPlan> {
+    extends AbstractMetadataUpdateCache<String, GremlinPlanCache.StampedPlan> {
 
-  private volatile long lastGlobalTimeout =
-      GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
+  private final AtomicLong generation = new AtomicLong();
 
-  @Nullable private final Cache<String, GremlinTranslationTemplate> translationCache;
+  private volatile long lastGlobalTimeout = GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
+
+  @Nullable private final Cache<String, StampedTranslation> translationCache;
 
   private final LongAdder translationHits = new LongAdder();
-
   private final LongAdder translationMisses = new LongAdder();
 
-  /**
-   * @param size the size of the cache; 0 means cache disabled
-   */
+  // Package-private constructor seam for deterministic advance-before-clear race tests.
+  @Nullable private final Runnable beforeClear;
+
+  record StampedPlan(InternalExecutionPlan plan, long generation) {
+  }
+
+  // The envelope identifies each publication, including declines with no plan payload.
+  private record StampedTranslation(GremlinTranslationTemplate template, long generation) {
+  }
+
+  /** @param size maximum entries per map, or zero to disable caching */
   public GremlinPlanCache(int size) {
+    this(size, null);
+  }
+
+  GremlinPlanCache(int size, @Nullable Runnable beforeClear) {
     super(size);
-    this.translationCache =
-        size > 0 ? CacheBuilder.newBuilder().maximumSize(size).build() : null;
+    this.translationCache = size > 0 ? CacheBuilder.newBuilder().maximumSize(size).build() : null;
+    this.beforeClear = beforeClear;
   }
 
   public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
     return instance(db).getLastInvalidation();
   }
 
-  /** Returns {@code true} when an entry exists for {@code fingerprint}. */
+  boolean isEnabled() {
+    return cacheEnabled();
+  }
+
+  /** Capture before settings, shape extraction, or walking can read metadata. */
+  public long getGeneration() {
+    return generation.get();
+  }
+
+  /** Returns true only for a currently valid physical entry. */
   public boolean contains(String fingerprint) {
-    return containsKey(fingerprint);
+    return peekStored(fingerprint) != null;
   }
 
-  /** Returns {@code true} when a translation-cache entry exists for {@code shapeKey}. */
+  /** Returns true only for a currently valid translation or decline entry. */
   public boolean containsTranslation(String shapeKey) {
-    return translationCache != null && translationCache.asMap().containsKey(shapeKey);
+    var entry = translationCache == null ? null : translationCache.getIfPresent(shapeKey);
+    return entry != null && entry.generation() == generation.get();
   }
 
-  /** Lifetime translation-cache hits on this shared-context instance. */
   public long getTranslationHits() {
     return translationHits.sum();
   }
 
-  /** Lifetime translation-cache misses on this shared-context instance. */
   public long getTranslationMisses() {
     return translationMisses.sum();
   }
@@ -88,10 +107,7 @@ public final class GremlinPlanCache
     return instance(db).getInternal(fingerprint, ctx, db);
   }
 
-  /**
-   * Returns the stored closed plan template without copying it. The caller must not execute or
-   * close the returned instance; {@code YTDBMatchPlanStep} copies on first open.
-   */
+  /** Returns a closed template. The caller must copy it before executing or closing. */
   @Nullable public static InternalExecutionPlan template(
       String fingerprint, DatabaseSessionEmbedded db) {
     if (db == null || fingerprint == null) {
@@ -100,12 +116,14 @@ public final class GremlinPlanCache
     return instance(db).templateInternal(fingerprint, db);
   }
 
-  public static void put(
-      String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
+  /** Publishes with the unchanged generation captured before the build's first metadata read. */
+  @Nullable public static InternalExecutionPlan put(
+      String fingerprint, InternalExecutionPlan plan, DatabaseSessionEmbedded db,
+      long buildGeneration) {
     if (db == null || fingerprint == null) {
-      return;
+      return null;
     }
-    instance(db).putInternal(fingerprint, plan, db);
+    return instance(db).putInternal(fingerprint, plan, db, buildGeneration);
   }
 
   @Nullable public static GremlinTranslationTemplate getTranslation(
@@ -117,32 +135,31 @@ public final class GremlinPlanCache
   }
 
   public static void putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long walkGeneration) {
     if (db == null || shapeKey == null || template == null) {
       return;
     }
-    instance(db).putTranslationInternal(shapeKey, template, db);
+    instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration);
   }
 
-  void putInternal(String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db) {
-    // A tx-local schema must never publish a plan into the storage-wide cache.
-    if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()) {
-      return;
+  @Nullable InternalExecutionPlan putInternal(String fingerprint, InternalExecutionPlan plan,
+      DatabaseSessionEmbedded db, long buildGeneration) {
+    if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()
+        || !plan.canBeCached()) {
+      return null;
     }
-    var internal = (InternalExecutionPlan) plan;
-    // Honor the step-level cacheability contract, exactly as the YQL / GQL-SQL plan cache does with
-    // result.canBeCached(). A plan containing a non-cacheable step — CountFromClassStep, whose count
-    // varies per execution and whose fast path is gated by a per-session security-policy check — must
-    // never be cached and replayed on another session, or the build-time security decision leaks
-    // across users and across a later policy change. See CountFromClassStep.canBeCached().
-    if (!internal.canBeCached()) {
-      return;
-    }
-    var copyCtx = new BasicCommandContext();
-    copyCtx.setDatabaseSession(db);
-    internal = internal.copy(copyCtx);
-    internal.close();
-    putCached(fingerprint, internal);
+    var copyCtx = new BasicCommandContext(db);
+    var copy = plan.copy(copyCtx);
+    copy.close();
+    var entry = new StampedPlan(copy, buildGeneration);
+    // Compare inside compute so an older publisher never overwrites a newer entry. Late stale
+    // entries stay stored until replacement or eviction, but every lookup rejects their stamp.
+    var published = cache.asMap().compute(fingerprint,
+        (key, previous) -> previous == null || previous.generation() <= buildGeneration ? entry
+            : previous);
+    // Return provenance for this exact publication, not another plan with an equal key.
+    return published == entry && entry.generation() == generation.get() ? copy : null;
   }
 
   @Nullable InternalExecutionPlan getInternal(
@@ -159,7 +176,7 @@ public final class GremlinPlanCache
     if (fingerprint == null || !cacheEnabled()) {
       return null;
     }
-    var result = getCached(fingerprint);
+    var result = peekStored(fingerprint);
     if (result != null) {
       recordHit();
       recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
@@ -170,12 +187,10 @@ public final class GremlinPlanCache
     return null;
   }
 
-  /**
-   * Stored plan for {@code fingerprint} without recording a hit or miss. Used after {@link #put}
-   * to retrieve the just-stored closed template.
-   */
+  /** Returns only a current closed template, without recording a hit or miss. */
   @Nullable InternalExecutionPlan peekStored(String fingerprint) {
-    return getCached(fingerprint);
+    var entry = getCached(fingerprint);
+    return entry != null && entry.generation() == generation.get() ? entry.plan() : null;
   }
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
@@ -187,25 +202,32 @@ public final class GremlinPlanCache
     if (shapeKey == null || translationCache == null) {
       return null;
     }
-    var result = translationCache.getIfPresent(shapeKey);
-    if (result != null) {
+    var entry = translationCache.getIfPresent(shapeKey);
+    if (entry != null && entry.generation() == generation.get()) {
       translationHits.increment();
-      return result;
+      return entry.template();
     }
     translationMisses.increment();
     return null;
   }
 
-  void putTranslationInternal(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db) {
+  void putTranslationInternal(String shapeKey, GremlinTranslationTemplate template,
+      DatabaseSessionEmbedded db, long walkGeneration) {
     if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
       return;
     }
-    translationCache.put(shapeKey, template);
+    var entry = new StampedTranslation(template, walkGeneration);
+    translationCache.asMap().compute(shapeKey,
+        (key, previous) -> previous == null || previous.generation() <= walkGeneration ? entry
+            : previous);
   }
 
   @Override
   public void invalidate() {
+    generation.incrementAndGet();
+    if (beforeClear != null) {
+      beforeClear.run();
+    }
     super.invalidate();
     if (translationCache != null) {
       translationCache.invalidateAll();
