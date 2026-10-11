@@ -139,9 +139,9 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var reads = new AtomicInteger();
     doAnswer(call -> {
       var containers = call.callRealMethod();
-      // The first read decides route eligibility. The second runs inside shape extraction,
-      // after the extractor has obtained the schema used to encode its binding layout.
-      if (reads.incrementAndGet() == 2) {
+      // The first intercepted read is contributeShape inside shape extraction. Invalidate
+      // after the extractor obtains schema but before the walker reads the same containers.
+      if (reads.incrementAndGet() == 1) {
         cache.invalidate();
       }
       return containers;
