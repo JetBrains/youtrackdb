@@ -45,58 +45,27 @@ the track's closing event whenever anything but prose landed in between.
 
 ### Mid-track commit gate
 
-A commit inside a track must pass its compile gate. The default command is:
+A commit inside a track that changes Java or module content must pass the full-reactor
+compile gate:
 
 ```bash
-./mvnw -pl <modules with changed files> -am -amd test-compile
-```
-
-Replace `test-compile` with `package -DskipTests` whenever the resolved set contains
-`gremlin-shaded`. The resolved set includes changed modules, `-am` upstream dependencies,
-and `-amd` downstream consumers. This applies to almost every check today.
-The shading rule below also covers the `embedded` shaded artifact.
-
-No unit tests, no integration tests, no coverage. Both phases compile test sources and trigger
-Spotless and all source generation. Bare `compile` does not compile test sources.
-
-**`-am` is mandatory.** Without it a `-pl` build resolves siblings from the local repository
-instead of the working tree, so a stale installed snapshot can report green over code that does
-not compile against the tree.
-
-**`-amd` is mandatory too, and is not interchangeable with `-am`.** `-am` (`--also-make`) adds
-upstream dependencies; `-amd` (`--also-make-dependents`) adds the downstream modules that
-depend on the named ones, which are otherwise never compiled against the change. On a widely
-consumed module such as `core`, this expands to a near-reactor-wide build.
-The shading rule below selects its phase.
-
-**Shading exception.** Use `package -DskipTests` whenever the resolved compile-gate set
-contains `gremlin-shaded`. This set includes changed modules, `-am` upstream dependencies,
-and `-amd` downstream consumers. It does not depend on whether `gremlin-shaded` changed.
-Every module that depends on `gremlin-core` pulls in `gremlin-shaded` through `-am`.
-This covers almost every module, including `core`, `server`, `tests`, and `gremlin-annotations`.
-Consumers need the relocated classes that shading creates at `package`.
-Also use this phase for a change affecting the `embedded` module's shaded artifact.
-
-```bash
-./mvnw -pl core -am -amd package -DskipTests
-./mvnw -pl gremlin-core -am -amd package -DskipTests
-./mvnw -pl embedded -am -amd package -DskipTests
-```
-
-Use `test-compile` only when the resolved set does not need either shaded artifact.
-
-`-DskipTests` is required: a bare `package` runs surefire, including `embedded`'s Cucumber
-suites, turning the compile gate into a full test run. Not `-Dmaven.test.skip=true`, which also
-skips test compilation.
-
-**Build files that belong to no module.** The root `pom.xml`, `.mvn/jvm.config` and
-`project-config/eclipse-formatter.xml` affect every module and live in none, so `-pl` has
-nothing to name. Their compile gate is reactor-wide:
-
-```bash
-# The whole reactor includes gremlin-shaded.
 ./mvnw package -DskipTests
 ```
+
+The full reactor builds every upstream dependency and downstream consumer from the working
+tree. No module compiles against an installed sibling snapshot. Do not narrow this gate with
+`-pl`, `-am`, or `-amd`.
+
+The `package` phase creates the shaded artifacts in `gremlin-shaded` and `embedded` that
+consumers need. It also compiles test sources and runs Spotless and source generation.
+Bare `compile` does not compile test sources.
+
+Use `-DskipTests`, not `-Dmaven.test.skip=true`, which also skips test compilation.
+A bare `package` runs unit tests, including `embedded`'s Cucumber suites.
+The compile gate runs no unit tests, integration tests, or coverage checks.
+
+**Build files that belong to no module.** The root `pom.xml`, `.mvn/jvm.config` and
+`project-config/eclipse-formatter.xml` use the same full-reactor compile gate.
 
 **No-Maven changes.** A change with no Java files and no module content — documentation, `.pi/`
 configuration, prompts — carries no Maven gate at all.
@@ -107,10 +76,8 @@ Verification scope is not one set. Carrying the compile-gate definition into a t
 silently converts that gate into a reactor-wide test run. The three names below distinguish
 each scope.
 
-**Compile-gate set** — the resolved reactor selection: modules containing changed files,
-upstream dependencies added by `-am`, and downstream consumers added by `-amd`.
-Keep both flags. A green `-pl core -am package -DskipTests` says nothing about whether
-`server` still compiles. Select the phase from this resolved set using the shading rule above.
+**Compile-gate set** — the full reactor. Build it with `./mvnw package -DskipTests`
+so every dependency and consumer compiles against the working tree.
 
 **Test-gate set** — the modules containing changed files, plus any downstream module whose own
 tests exercise the changed behavior. No automatic `-amd` fan-out here: a dependent that merely
@@ -150,6 +117,11 @@ Derive the integration-gate set with two searches for each applicable file. Use 
 for storage, write-ahead log (WAL), index, Gremlin integration, transaction handling, and any
 other subsystem.
 
+Every module, including the copied TinkerPop modules, uses the same four integration source
+patterns: `IT*.java`, `*IT.java`, `*ITCase.java`, and `*IntegrateTest.java`.
+The copied unit runner excludes these names, and its integration runner includes them.
+Both searches, CI selection, and failure-gate inference use this set.
+
 First, search by package proximity. These commands search the same package in the same module:
 
 ```bash
@@ -159,7 +131,8 @@ package_path=${changed#*/src/main/java/}
 package_path=${package_path%/*}
 test_root="$module/src/test/java"
 [ ! -d "$test_root/$package_path" ] ||
-  find "$test_root/$package_path" -type f -name '*IT.java' -print | sort
+  find "$test_root/$package_path" -type f \( -name 'IT*.java' -o -name '*IT.java' \
+    -o -name '*ITCase.java' -o -name '*IntegrateTest.java' \) -print | sort
 ```
 
 If this returns nothing, remove one trailing segment with
@@ -170,7 +143,8 @@ Second, search integration test sources for references to the changed class's si
 ```bash
 simple_name=$(basename "$changed" .java)
 [ ! -d "$test_root" ] ||
-  grep -Rlw --include='*IT.java' -- "$simple_name" "$test_root" | sort
+  grep -Rlw --include='IT*.java' --include='*IT.java' --include='*ITCase.java' \
+    --include='*IntegrateTest.java' -- "$simple_name" "$test_root" | sort
 ```
 
 Combine and deduplicate both result sets. Review each candidate and include every class that
@@ -203,8 +177,9 @@ test-gate set is the modules whose behavior the change can actually alter — a 
 bump in the root `pom.xml` means that dependency's consumers — falling back to the whole reactor
 when it cannot be bounded that way.
 
-The reactor order determines the two module sets. Maven resolves this order from the dependency
-graph, not from the module order listed in the root `pom.xml`:
+The reactor order helps identify dependencies and consumers for the test-gate set.
+Maven resolves this order from the dependency graph, not from the module order in the root
+`pom.xml`:
 
 > youtrackdb-parent → tinkerpop-parent → gremlin-shaded → gremlin-language → gremlin-core
 > → gremlin-test → tinkergraph-gremlin → gremlin-util → test-commons → gremlin-annotations
@@ -213,10 +188,10 @@ graph, not from the module order listed in the root `pom.xml`:
 
 The copied modules add upstream dependencies to the graph. Maven places `gremlin-core`
 before `gremlin-annotations`, which supplies the processor for `gremlin-groovy`.
-Read the current Reactor Build Order from Maven when deriving the gate sets.
+Read the current Reactor Build Order from Maven when deriving the test-gate set.
 
-Everything to the right of a changed module is a candidate consumer; `-amd` computes the actual
-ones at the compile gate, and the order is what lets you bound a test-gate set by hand.
+Everything to the right of a changed module is a candidate consumer. The compile gate builds
+all modules. Use the dependency graph to bound the test-gate set by hand.
 
 ### End-of-track gate
 
@@ -227,6 +202,8 @@ full verification runs:
 2. **Integration tests** run in the pull request pipeline for reactor modules with a changed
    `.java` file and integration test sources when the changed-file list is known. The skip rules
    above still apply. The pipeline can miss integration-gate classes in dependent modules.
+   The Failsafe report gate requires each expected module to execute at least one non-skipped
+   test. Individual skipped tests are allowed when that module also executes tests.
 
    Develop runs the full suite after merge. A developer machine never runs an integration test.
    If the integration-gate set remains uncertain, record the searches and results in the thread report. The

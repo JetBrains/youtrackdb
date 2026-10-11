@@ -21,14 +21,11 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
 
-# Mid-track gate: use the resolved set, including -am upstream and -amd downstream modules.
-# Almost every module depends on gremlin-core and pulls in gremlin-shaded through -am.
-# These checks require package -DskipTests, even when gremlin-shaded did not change.
-./mvnw -pl core -am -amd package -DskipTests
-./mvnw -pl gremlin-core -am -amd package -DskipTests
-./mvnw -pl embedded -am -amd package -DskipTests
-# Use test-compile only when the resolved set needs neither shaded artifact.
-./mvnw -pl <modules without shaded dependencies> -am -amd test-compile
+# Mid-track compile gate: build the full reactor from the working tree.
+# package creates shaded artifacts and compiles test sources.
+# -DskipTests skips execution, not compilation. Do not use -Dmaven.test.skip=true.
+# This gate runs no unit tests or integration tests.
+./mvnw package -DskipTests
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images

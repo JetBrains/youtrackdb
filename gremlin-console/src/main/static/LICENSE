@@ -1,3 +1,4 @@
+Modified by YouTrackDB.
 
                                  Apache License
                            Version 2.0, January 2004
@@ -200,6 +201,18 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+========================================================================
+Apache License 2.0
+========================================================================
+
+The Apache TinkerPop project bundles the following components under the Apache License 2.0:
+
+     Apache Groovy (org.apache.groovy:groovy and companion modules:4.0.32)
+     JavaParser (com.github.javaparser:javaparser-core:3.28.0)
+       - used under its Apache License 2.0 option
+     picocli (info.picocli:picocli:4.7.7)
+       - also included in Groovy as groovyjarjarpicocli
 
 ========================================================================
 BSD-style Licenses

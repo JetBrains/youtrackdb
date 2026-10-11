@@ -11,12 +11,13 @@ REPORT_PATTERNS = {
     "surefire": "**/target/surefire-reports/TEST-*.xml",
 }
 COUNT_ATTRIBUTES = ("tests", "failures", "errors", "skipped")
-# These names come from the default configuration of maven-failsafe-plugin.
+# Every module, including copied TinkerPop modules, uses these four IT source patterns.
 EXPECTED_TEST_PATTERNS = {
     "failsafe": (
         "**/src/test/java/**/IT*.java",
         "**/src/test/java/**/*IT.java",
         "**/src/test/java/**/*ITCase.java",
+        "**/src/test/java/**/*IntegrateTest.java",
     ),
 }
 
@@ -176,6 +177,7 @@ def main(argv=None):
     failing_suites = []
     tests_by_kind = {kind: 0 for kind in REPORT_PATTERNS}
     parse_failed_by_kind = {kind: False for kind in REPORT_PATTERNS}
+    executed_by_module = {}
 
     root = args.root.resolve()
     reports_by_kind = {
@@ -204,6 +206,13 @@ def main(argv=None):
             suite_total += len(suites)
             for suite_name, counts in suites:
                 tests_by_kind[kind] += counts["tests"]
+                if kind == "failsafe":
+                    module = report_module(path, root)
+                    # Count executions across all suites in one module, not across peers.
+                    # Failures and errors are executions. Only skipped tests are excluded.
+                    executed_by_module[module] = executed_by_module.get(module, 0) + max(
+                        0, counts["tests"] - counts["skipped"]
+                    )
                 for attribute, value in counts.items():
                     totals[attribute] += value
                 if counts["failures"] > 0 or counts["errors"] > 0:
@@ -238,6 +247,18 @@ def main(argv=None):
                 f"{', '.join(missing_modules)}."
             )
             failed = True
+
+        if kind == "failsafe":
+            idle_modules = sorted(
+                module for module in expected & reporting_modules
+                if executed_by_module.get(module, 0) == 0
+            )
+            if idle_modules:
+                workflow_error(
+                    "Required failsafe reports contained no non-skipped tests for "
+                    f"expected module(s): {', '.join(idle_modules)}."
+                )
+                failed = True
 
     if failing_suites:
         failed = True

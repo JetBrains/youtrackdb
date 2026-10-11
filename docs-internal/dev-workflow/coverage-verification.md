@@ -16,7 +16,8 @@ Their shared parent disables JaCoCo. `coverage-gate.py` excludes their paths bef
 matches reports and prints the excluded file count. PR 2 removes this temporary exception.
 
 These modules still run unit tests in every pull request build.
-Surefire excludes `*IntegrateTest` classes. Failsafe includes them in the integration job.
+Surefire excludes `IT*`, `*IT`, `*ITCase`, and `*IntegrateTest` classes.
+Failsafe includes the same four patterns in the integration job.
 A developer machine never runs those integration tests.
 
 ## The run

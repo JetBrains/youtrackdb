@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+// Modified by YouTrackDB.
 package org.apache.tinkerpop.gremlin.driver;
 
 import nl.altindag.log.LogCaptor;
@@ -70,7 +71,7 @@ public class WebSocketClientBehaviorIntegrateTest {
     private SimpleSocketServer server;
 
     public WebSocketClientBehaviorIntegrateTest() throws IOException {
-        settings = SocketServerSettings.read(FileSystems.getDefault().getPath("..","gremlin-tools", "gremlin-socket-server", "conf", "test-ws-gremlin.yaml"));
+        settings = SocketServerSettings.read(FileSystems.getDefault().getPath("..", "gremlin-socket-server", "conf", "test-ws-gremlin.yaml"));
         settings.SERIALIZER = "GraphSONV2";
     }
 

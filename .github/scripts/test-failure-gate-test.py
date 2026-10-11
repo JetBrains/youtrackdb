@@ -276,9 +276,10 @@ def test_required_kind_absent():
 
 
 def test_required_kind_skipped_tests_only():
-    """A required kind passes when every declared test is skipped."""
+    """An expected Failsafe module fails when every declared test is skipped."""
     with tempfile.TemporaryDirectory() as directory:
         root = pathlib.Path(directory)
+        write_it_source(root, "module")
         write_report(
             root,
             "failsafe",
@@ -287,7 +288,9 @@ def test_required_kind_skipped_tests_only():
             skipped=3,
         )
         result = run_gate(root, "--require", "failsafe")
-        check("required skipped-only suite exits zero", result.returncode == 0)
+        check("required skipped-only suite fails", result.returncode == 1)
+        check("required skipped-only module is named",
+              "no non-skipped tests for expected module(s): module" in result.stdout)
         check("required skipped-only suite prints counts", "3 skipped" in result.stdout)
 
 
@@ -341,20 +344,45 @@ def test_truncated_xml_file():
         check("truncated XML emits annotation", "::error::Unable to parse" in result.stdout)
 
 
-def test_failsafe_default_source_names_create_expectations():
-    """Every default Failsafe source name requires a report from a built module."""
+def test_failsafe_recognised_source_names_create_expectations():
+    """Each recognised IT name alone requires a report from its built module."""
     with tempfile.TemporaryDirectory() as directory:
         root = pathlib.Path(directory)
-        names = ("ITStartsWith.java", "EndsWithIT.java", "EndsWithITCase.java")
+        names = ("ITStartsWith.java", "EndsWithIT.java", "EndsWithITCase.java",
+                 "ExampleIntegrateTest.java")
         for index, name in enumerate(names):
             module = f"missing-{index}"
             write_it_source(root, module, name=name)
             mark_module_built(root, module)
         write_report(root, "failsafe", module_path="reporting")
         result = run_gate(root, "--require", "failsafe")
-        check("default Failsafe names exit non-zero", result.returncode != 0)
+        check("recognised Failsafe names exit non-zero", result.returncode != 0)
         for index, name in enumerate(names):
             check(f"{name} creates an expectation", f"missing-{index}" in result.stdout)
+
+
+def test_integrate_test_only_module_reports():
+    """An IntegrateTest-only module needs its own report and cannot hide a failure."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        module = "copied/module"
+        write_it_source(root, module, name="WebSocketClientBehaviorIntegrateTest.java")
+        mark_module_built(root, module)
+        write_report(root, "failsafe", module_path="reporting")
+        result = run_gate(root, "--require", "failsafe")
+        check("missing IntegrateTest module exits non-zero", result.returncode == 1)
+        check("missing IntegrateTest module is named",
+              "expected module(s): copied/module" in result.stdout)
+        write_report(root, "failsafe", module_path=module)
+        result = run_gate(root, "--require", "failsafe")
+        check("reporting IntegrateTest module exits zero", result.returncode == 0)
+        check("both modules contribute tests", "2 test(s)" in result.stdout)
+        write_report(root, "failsafe", module_path=module,
+                     name="FailingIntegrateTest", failures=1)
+        result = run_gate(root, "--require", "failsafe")
+        check("failing IntegrateTest module exits non-zero", result.returncode == 1)
+        check("failing IntegrateTest suite is named",
+              "::error::Suite FailingIntegrateTest" in result.stdout)
 
 
 def test_integration_source_directory_creates_no_expectation():
@@ -494,6 +522,82 @@ def test_selected_modules_preserve_failure_checks():
         write_report(root, "failsafe", module_path="selected")
         result = run_gate(root, *args)
         check("optional report failure still fails", result.returncode != 0)
+
+
+def test_expected_failsafe_module_requires_executions_with_passing_peer():
+    """Selected and inferred modules must execute tests even when a peer passes."""
+    for mode in ("selected", "inferred"):
+        for scenario, tests, skipped, expected_code in (
+            ("zero", 0, 0, 1),
+            ("all-skipped", 25, 25, 1),
+            ("some-skipped", 3, 2, 0),
+        ):
+            with tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                for module in ("gremlin-driver", "gremlin-server"):
+                    write_it_source(root, module, name="ExampleIntegrateTest.java")
+                write_report(root, "failsafe", module_path="gremlin-server")
+                write_report(root, "failsafe", module_path="gremlin-driver",
+                             tests=tests, skipped=skipped)
+                args = ("--expected-modules", "gremlin-driver,gremlin-server")
+                result = run_gate(root, "--require", "failsafe",
+                                  *(args if mode == "selected" else ()))
+                label = f"{mode} {scenario} module with passing peer"
+                check(f"{label} exit code", result.returncode == expected_code)
+                if expected_code:
+                    check(f"{label} is named",
+                          "no non-skipped tests for expected module(s): gremlin-driver."
+                          in result.stdout)
+                else:
+                    check(f"{label} emits no error", "::error::" not in result.stdout)
+
+
+def test_expected_failsafe_module_aggregates_executions_across_suites():
+    """One executing suite satisfies a module even when another suite is all skipped."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "module")
+        write_report(root, "failsafe", name="SkippedSuite", tests=2, skipped=2)
+        write_report(root, "failsafe", name="ExecutingSuite")
+        result = run_gate(root, "--require", "failsafe")
+        check("partially skipped module passes across suites", result.returncode == 0)
+
+
+def test_expected_failsafe_failure_and_error_count_as_executions():
+    """Failed and errored tests fail through suite errors, not a missing execution error."""
+    for outcome in ("failures", "errors"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            write_it_source(root, "module")
+            write_report(root, "failsafe", **{outcome: 1})
+            result = run_gate(root, "--require", "failsafe")
+            check(f"executed {outcome} still fails", result.returncode == 1)
+            check(f"executed {outcome} names suite", "::error::Suite" in result.stdout)
+            check(f"executed {outcome} is not idle",
+                  "no non-skipped tests" not in result.stdout)
+
+
+def test_allow_missing_module_does_not_allow_skipped_only_reports():
+    """A missing-report allowance does not excuse an expected module that skips all tests."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_it_source(root, "module")
+        write_report(root, "failsafe", tests=1, skipped=1)
+        result = run_gate(root, "--require", "failsafe",
+                          "--allow-missing-module", "module")
+        check("allowed missing module with idle reports fails", result.returncode == 1)
+        check("allowed missing idle module is named",
+              "no non-skipped tests for expected module(s): module" in result.stdout)
+
+
+def test_surefire_zero_test_module_with_passing_peer_stays_allowed():
+    """Surefire keeps its report-kind total rule without per-module execution checks."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        write_report(root, "surefire", module_path="empty", tests=0)
+        write_report(root, "surefire", module_path="passing")
+        result = run_gate(root, "--require", "surefire")
+        check("Surefire zero-test module with passing peer passes", result.returncode == 0)
 
 
 def test_selected_modules_invalid_arguments():

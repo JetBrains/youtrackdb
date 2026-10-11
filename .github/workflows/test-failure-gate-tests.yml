@@ -1,7 +1,7 @@
 name: Test failure gate unit tests
 
-# Run when the gate or its tests change.
-# This workflow catches report parsing regressions before integration jobs use the gate.
+# Run when the gate, selector, tests, or copied runner patterns change.
+# Check report parsing and runner pattern agreement before integration jobs use the gate.
 
 on:
   push:
@@ -12,6 +12,7 @@ on:
       - '.github/scripts/select-it-modules.py'
       - '.github/scripts/select-it-modules-test.py'
       - '.github/workflows/test-failure-gate-tests.yml'
+      - 'tinkerpop-parent/pom.xml'
   pull_request:
     paths:
       - '.github/scripts/test-failure-gate.py'
@@ -19,6 +20,7 @@ on:
       - '.github/scripts/select-it-modules.py'
       - '.github/scripts/select-it-modules-test.py'
       - '.github/workflows/test-failure-gate-tests.yml'
+      - 'tinkerpop-parent/pom.xml'
   # Allow manual runs after a transient GitHub Actions outage.
   workflow_dispatch: {}
 
