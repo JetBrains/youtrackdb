@@ -86,6 +86,55 @@ public class CombinatorFoldedHopRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.DECLINE);
   }
 
+  /**
+   * When statement {@code LIMIT}/{@code SKIP} already sits on an ordered boundary, {@link
+   * GremlinPatternAssembler#claimFoldedHop} declines rather than deferring or joining — the
+   * expand-after-source-slice path is {@link VertexHopRecogniser}'s job.
+   */
+  @Test
+  public void claimFoldedHop_withOrderAndLimitAlreadyCaptured_declines() {
+    var admin = graph.traversal().V().out("knows").asAdmin();
+    var hop = (org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract<?>) admin
+        .getSteps().get(1);
+    var ctx = contextWithStartBoundary();
+    ctx.setOrderBy(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder
+            .orderBy(
+                java.util.List.of(
+                    com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories
+                        .orderByProperty(BOUNDARY_ALIAS, "name", true))));
+    ctx.recordOrderByCapture(BOUNDARY_ALIAS, false);
+    ctx.setLimit(
+        com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories.limit(1));
+
+    assertThat(GremlinPatternAssembler.claimFoldedHop(hop, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.pendingOrderedHop()).isNull();
+  }
+
+  /**
+   * Deferred ordered hop refuses a colliding {@code as(...)} on the hop itself — bind fails before
+   * the pending hop is parked.
+   */
+  @Test
+  public void claimFoldedHop_afterOrder_withCollidingLabel_declines() {
+    var priorlyLabelled = graph.traversal().V().as("n").asAdmin().getStartStep();
+    var admin = graph.traversal().V().out("knows").as("n").asAdmin();
+    var hop = (org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract<?>) admin
+        .getSteps().get(1);
+    var ctx = contextWithStartBoundary();
+    ctx.setOrderBy(
+        com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder
+            .orderBy(
+                java.util.List.of(
+                    com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories
+                        .orderByProperty(BOUNDARY_ALIAS, "name", true))));
+    ctx.recordOrderByCapture(BOUNDARY_ALIAS, false);
+    assertThat(ctx.bindStepLabels(priorlyLabelled, BOUNDARY_ALIAS)).isTrue();
+
+    assertThat(GremlinPatternAssembler.claimFoldedHop(hop, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.pendingOrderedHop()).isNull();
+  }
+
   private static SubTraversalPredicateAdapter subWalkAdapterWithBoundary() {
     var parent = contextWithStartBoundary();
     return new SubTraversalPredicateAdapter(parent, Map.of());

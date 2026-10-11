@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -27,6 +28,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -35,6 +38,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -962,26 +966,1148 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A real slice declines once an {@code ORDER BY} has been captured, and this is the shape where
-   * the divergence reaches the row set rather than only its order. Two hubs of two targets each,
-   * seeded so insertion order and sorted order disagree, give {@code order().by(name).out(knows)}
-   * four rows in two tie groups of two — the sort key is the hub, so a hub's two targets tie.
-   * {@code limit(3)} cuts inside the second tie group, and before the decline the translated arm
-   * kept {@code ZedTarget1} where native kept {@code ZedTarget2}: a different row, silently,
-   * under a switch that defaults on.
-   *
-   * <p>The comparison is ordered because {@code order()} makes the sequence the answer. The control
-   * the helper takes is the same traversal without the {@code order()} prefix, which still
-   * translates — so the decline is attributable to the captured {@code ORDER BY} and not to some
-   * other gate this path crosses.
+   * Ordered sources expand in VertexStep neighbour order, then {@code limit} cuts the flat stream —
+   * including mid-hub. Two hubs of two targets each, seeded so insertion order and sorted order
+   * disagree: {@code limit(3)} cuts inside Zed's tie group. Before ordered-expand, statement LIMIT
+   * after a MATCH hop kept the wrong neighbour; now ON==OFF on membership and sequence.
    */
   @Test
-  public void orderThenHopThenLimit_declinesAndReturnsNativeRows() {
+  public void orderThenHopThenLimit_translatesAndMatchesNative() {
     seedTwoHubsWithTiedSortKey();
-    assertOrderedSliceDeclines(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().order().by(name).out(knows).limit(3).values(name)",
-        () -> graph.traversal().V().order().by("name").out("knows").limit(3).values("name"),
-        () -> graph.traversal().V().out("knows").limit(3).values("name"));
+        () -> graph.traversal().V().order().by("name").out("knows").limit(3).values("name"));
+  }
+
+  /**
+   * Same composition with {@code range}: skip+limit on the expanded neighbour stream, not statement
+   * SKIP/LIMIT after a join.
+   */
+  @Test
+  public void orderThenHopThenRange_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).range(1, 3).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").range(1, 3).values("name"));
+  }
+
+  /**
+   * Early-stop cut: {@code limit(1)} is smaller than the first hub's out-degree, so expand must not
+   * need the second hub's neighbours for membership.
+   */
+  @Test
+  public void orderThenHopThenLimit_earlyStopInsideFirstHub_translates() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").limit(1).values("name"));
+  }
+
+  /** {@code in} direction uses the same ordered-expand path as {@code out}. */
+  @Test
+  public void orderThenInThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).in(knows).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").in("knows").limit(2).values("name"));
+  }
+
+  /** {@code both} direction uses the same ordered-expand path as {@code out}. */
+  @Test
+  public void orderThenBothThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).both(knows).limit(3).values(name)",
+        () -> graph.traversal().V().order().by("name").both("knows").limit(3).values("name"));
+  }
+
+  /**
+   * Neighbour {@code has(key, value)} before the cut filters during ordered-expand, so membership
+   * matches native {@code order().hop().has().limit}.
+   */
+  @Test
+  public void orderThenHopThenHasThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget1).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").has("name", "AbeTarget1")
+            .limit(1).values("name"));
+  }
+
+  /**
+   * {@code has} that keeps only the second neighbour of the first sorted hub: limit(1) must see the
+   * filtered stream, not the raw expand order.
+   */
+  @Test
+  public void orderThenHopThenHasThenLimit_filtersBeforeCut_translates() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget2).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").has("name", "AbeTarget2")
+            .limit(1).values("name"));
+  }
+
+  /**
+   * Reverse composition: statement {@code LIMIT} cuts ordered sources, then expand-only
+   * list-shaping. On {@link #seedTwoHubsWithTiedSortKey()}, {@code limit(1)} keeps Abe only, so
+   * both neighbours are Abe's — not the mid-hub cut of {@code order().out().limit(3)}. Bare
+   * {@code limit().out()} without {@code order()} still declines ({@link #limitThenHop_declinesAndReturnsNativeRows}).
+   */
+  @Test
+  public void orderThenLimitThenHop_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).values(name)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows").values("name"));
+  }
+
+  /**
+   * Source slice then hop then neighbour {@code has}: filters apply on the expand stage after the
+   * statement top-N, matching native {@code order().limit().out().has()}.
+   */
+  @Test
+  public void orderThenLimitThenHopThenHas_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).has(name, AbeTarget2).values(name)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows")
+            .has("name", "AbeTarget2").values("name"));
+  }
+
+  /** Both parents feed one sorted hub. The post-hop cut counts merged bulk, not edge rows. */
+  @Test
+  public void repeatedSortedHub_postHopLimitSelectsBulkCopies() {
+    seedTwoParentsWithSharedHub();
+    assertTranslatesAndMatchesNative("bulk copies at post-hop limit",
+        () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+            .order().by("name").out("toChild").limit(2));
+  }
+
+  /** The op-side source limit counts merged copies before the shared hub expands. */
+  @Test
+  public void repeatedSortedHub_sourceLimitKeepsNativeExpansionOrder() {
+    seedTwoParentsWithSharedHub();
+    assertTranslatesAndMatchesNative("source limit before expansion",
+        () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+            .order().by("name").limit(2).out("toChild"));
+  }
+
+  /** Parallel edges repeat a neighbour; both cut positions retain its native multiplicity. */
+  @Test
+  public void repeatedSourceAndNeighbour_bothSlicePlacementsKeepMultiplicity() {
+    seedTwoParentsWithSharedHub();
+    var hub = graph.traversal().V().hasLabel("BulkHub").next();
+    var a = graph.traversal().V().has("name", "A").next();
+    hub.addEdge("toChild", a);
+    graph.tx().commit();
+
+    support.assertEquivalent("repeated sources and parallel edges, hop then cut",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+            .order().by("name").out("toChild").limit(3));
+    support.assertEquivalent("repeated sources and parallel edges, cut then hop",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+            .order().by("name").limit(2).out("toChild"));
+  }
+
+  /** An unmergeable sack keeps the [A,B,A] sequence instead of bulk-merging to [A,A,B]. */
+  @Test
+  public void repeatedSortedHub_unmergeableSackMatchesNative() {
+    seedTwoParentsWithSharedHub();
+    support.assertEquivalent("unmergeable sack retains unmerged sequence",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack(1).V().hasLabel("BulkParent")
+            .out("toHub").order().by("name").out("toChild").limit(3));
+    var unmerged = orderedNames(graph.traversal().withSack(1).V().hasLabel("BulkParent")
+        .out("toHub").order().by("name").out("toChild").limit(3).toList());
+    assertThat(unmerged).hasSize(3);
+    assertThat(unmerged.get(0)).isEqualTo(unmerged.get(2)).isNotEqualTo(unmerged.get(1));
+  }
+
+  /** A null-valued sack merges, while a live sack keeps repeated sources separate. */
+  @Test
+  public void runtimeSackValue_controlsBothOrderedSlicePlacements() {
+    seedTwoParentsWithSharedHub();
+    support.assertEquivalent("null sack merges before hop cut", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack(() -> (Integer) null).V().hasLabel("BulkParent")
+            .out("toHub").order().by("name").out("toChild").limit(3));
+    support.assertEquivalent("null sack merges before source cut", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack(() -> (Integer) null).V().hasLabel("BulkParent")
+            .out("toHub").order().by("name").limit(2).out("toChild"));
+    support.assertEquivalent("live sack does not merge source copies", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack(() -> 1).V().hasLabel("BulkParent")
+            .out("toHub").order().by("name").limit(2).out("toChild"));
+    support.assertEquivalent("splitter clears sack before source merge", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack((java.util.function.Supplier<Integer>) () -> 1,
+            (java.util.function.UnaryOperator<Integer>) x -> null).V()
+            .hasLabel("BulkParent").out("toHub").order().by("name")
+            .out("toChild").limit(3));
+    support.assertEquivalent("splitter clears sack before neighbour barrier",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().withSack((java.util.function.Supplier<Integer>) () -> 1,
+            (java.util.function.UnaryOperator<Integer>) x -> null).V()
+            .hasLabel("BulkParent").out("toHub").order().by("name")
+            .out("toChild").barrier(3).limit(3));
+  }
+
+  /** Native [a,b,a] has different sliced rows when a size-three merge precedes the cut. */
+  @Test
+  public void orderedHopBarrier_beforeVersusAfterLimit_matchesNativeInBothPositions() {
+    var first = graph.addVertex(T.label, "BarrierSource", "name", "1");
+    var second = graph.addVertex(T.label, "BarrierSource", "name", "2");
+    var third = graph.addVertex(T.label, "BarrierSource", "name", "3");
+    var a = graph.addVertex(T.label, "BarrierChild", "name", "A");
+    var b = graph.addVertex(T.label, "BarrierChild", "name", "B");
+    first.addEdge("barrierEdge", a);
+    second.addEdge("barrierEdge", b);
+    third.addEdge("barrierEdge", a);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNative("barrier after limit",
+        () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+            .out("barrierEdge").limit(2).barrier(3));
+    assertTranslatesAndMatchesNative("barrier before limit",
+        () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+            .out("barrierEdge").barrier(3).limit(2));
+  }
+
+  /** A two-entry window ends before the last a; a three-entry window merges it before limit. */
+  @Test
+  public void orderedHopBarrier_windowBoundaryChangesTheNativeCut() {
+    var first = graph.addVertex(T.label, "WindowSource", "name", "1");
+    var second = graph.addVertex(T.label, "WindowSource", "name", "2");
+    var third = graph.addVertex(T.label, "WindowSource", "name", "3");
+    var a = graph.addVertex(T.label, "WindowChild", "name", "A");
+    var b = graph.addVertex(T.label, "WindowChild", "name", "B");
+    first.addEdge("windowEdge", a);
+    second.addEdge("windowEdge", b);
+    third.addEdge("windowEdge", a);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNative("two distinct entries per window",
+        () -> graph.traversal().V().hasLabel("WindowSource").order().by("name")
+            .out("windowEdge").barrier(2).limit(2));
+    assertTranslatesAndMatchesNative("three distinct entries per window",
+        () -> graph.traversal().V().hasLabel("WindowSource").order().by("name")
+            .out("windowEdge").barrier(3).limit(2));
+  }
+
+  /** Filtering X from [A,X,B,A] before the size-three window selects [A,A], not [A,B]. */
+  @Test
+  public void orderedHopBarrier_afterFilter_matchesNative() {
+    var a = graph.addVertex(T.label, "FilteredChild", "name", "A");
+    var x = graph.addVertex(T.label, "FilteredChild", "name", "X");
+    var b = graph.addVertex(T.label, "FilteredChild", "name", "B");
+    for (int i = 0; i < 4; i++) {
+      var source = graph.addVertex(T.label, "FilteredSource", "name", Integer.toString(i));
+      source.addEdge("filteredEdge", switch (i) {
+        case 0, 3 -> a;
+        case 1 -> x;
+        default -> b;
+      });
+    }
+    graph.tx().commit();
+    support.assertEquivalent("filter before barrier window", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().V().hasLabel("FilteredSource").order().by("name")
+            .out("filteredEdge").has("name", P.neq("X")).barrier(3).limit(2));
+    assertThat(orderedNames(graph.traversal().V().hasLabel("FilteredSource").order().by("name")
+        .out("filteredEdge").has("name", P.neq("X")).barrier(3).limit(2).toList()))
+        .containsExactly("A", "A");
+  }
+
+  /** The op-side source cut runs before the hop and its following filter and barrier. */
+  @Test
+  public void orderedSourceSlice_followedByFilterAndBarrier_matchesNative() {
+    seedTwoParentsWithSharedHub();
+    assertTranslatesAndMatchesNative("source cut then filtered hop and barrier",
+        () -> graph.traversal().V().hasLabel("BulkParent").out("toHub")
+            .order().by("name").limit(2).out("toChild")
+            .has("name", "A").barrier(2));
+  }
+
+  /** A source-side barrier after select runs before expansion and keeps the sorted source alias. */
+  @Test
+  public void orderedSourceSlice_selectThenHopWithBarrier_matchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNative("source select barrier then expanded neighbours",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").barrier(2));
+  }
+
+  /** A labelled ancestor survives through an unlabelled source and permits neighbour merging. */
+  @Test
+  public void orderedHopBarrier_unlabelledSourceUsesOnlyLabelledPath() {
+    var root = graph.addVertex(T.label, "MergeRoot", "name", "root");
+    var a = graph.addVertex(T.label, "MergeChild", "name", "A");
+    var b = graph.addVertex(T.label, "MergeChild", "name", "B");
+    for (int i = 0; i < 3; i++) {
+      var source = graph.addVertex(T.label, "MergeSource", "name", Integer.toString(i));
+      root.addEdge("mergeSource", source);
+      source.addEdge("mergeChild", i == 1 ? b : a);
+    }
+    graph.tx().commit();
+    support.assertEquivalent("unlabelled source cannot split a labelled path",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().V().hasLabel("MergeRoot").as("r")
+            .out("mergeSource").order().by("name").out("mergeChild")
+            .barrier(3).limit(2));
+    assertThat(orderedNames(graph.traversal().V().hasLabel("MergeRoot").as("r")
+        .out("mergeSource").order().by("name").out("mergeChild")
+        .barrier(3).limit(2).toList())).containsExactly("A", "A");
+  }
+
+  /** A label attached directly to order distinguishes paths even with a shared neighbour. */
+  @Test
+  public void orderedHopBarrier_orderStepLabelPreventsNeighbourMerge() {
+    seedThreeNamedBarrierSources();
+    support.assertEquivalent("order-step label survives the hop", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+            .as("s").out("barrierEdge").barrier(3).limit(2));
+    assertThat(orderedNames(graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+        .as("s").out("barrierEdge").barrier(3).limit(2).toList()))
+        .containsExactly("A", "B");
+  }
+
+  /** A later select retracts the earlier parent path before the barrier merges its hub. */
+  @Test
+  public void orderedHopBarrier_selectRetractionDropsParentIdentity() {
+    seedTwoParentsWithSharedHub();
+    support.assertEquivalent("select path retraction at the barrier", Recognition.RECOGNIZED,
+        Cardinality.NON_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().V().hasLabel("BulkParent").as("a")
+            .out("toHub").as("s").order().by("name").select("s")
+            .out("toChild").limit(2));
+  }
+
+  /** Labels attached to a source-side barrier survive into a later neighbour merge. */
+  @Test
+  public void labelledBarrierAfterOrder_preservesDistinctSourcePaths() {
+    seedThreeNamedBarrierSources();
+    support.assertEquivalent("source-side barrier label remains live after expansion",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        OrderRangeStepRecogniserTest::orderedNames,
+        () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+            .barrier(3).as("s").out("barrierEdge").barrier(3).limit(2));
+    assertThat(orderedNames(graph.traversal().V().hasLabel("BarrierSource")
+        .order().by("name").barrier(3).as("s").out("barrierEdge")
+        .barrier(3).limit(2).toList())).containsExactly("A", "B");
+  }
+
+  /** Nonpositive barrier sizes use native execution at every admitted position. */
+  @Test
+  public void nonpositiveBarriers_declineAndKeepNativeResults() {
+    seedThreeNamedBarrierSources();
+    for (int size : new int[] {0, -1}) {
+      support.assertEquivalent("after order with hop, size " + size, Recognition.DECLINED,
+          Cardinality.MAY_BE_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+          () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+              .out("barrierEdge").barrier(size).limit(2));
+      support.assertEquivalent("after order without hop, size " + size, Recognition.DECLINED,
+          Cardinality.MAY_BE_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+          () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+              .barrier(size).limit(2));
+      support.assertEquivalent("before count, size " + size, Recognition.DECLINED,
+          Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIdsOrValues,
+          () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+              .barrier(size).count());
+      support.assertEquivalent("before groupCount, size " + size, Recognition.DECLINED,
+          Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIdsOrValues,
+          () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+              .barrier(size).groupCount());
+      support.assertEquivalent("unsliced hop then barrier, size " + size, Recognition.DECLINED,
+          Cardinality.MAY_BE_EMPTY, OrderRangeStepRecogniserTest::orderedNames,
+          () -> graph.traversal().V().hasLabel("BarrierSource").order().by("name")
+              .out("barrierEdge").barrier(size));
+    }
+    assertThat(graph.traversal().V().hasLabel("BarrierSource").toList()).hasSize(3);
+  }
+
+  /** Same ordered [A,B,A] fixture used by the labelled-path and zero-window regressions. */
+  private void seedThreeNamedBarrierSources() {
+    var a = graph.addVertex(T.label, "BarrierChild", "name", "A");
+    var b = graph.addVertex(T.label, "BarrierChild", "name", "B");
+    for (int i = 0; i < 3; i++) {
+      var source = graph.addVertex(T.label, "BarrierSource", "name", Integer.toString(i));
+      source.addEdge("barrierEdge", i == 1 ? b : a);
+    }
+    graph.tx().commit();
+  }
+
+  private static List<String> orderedNames(List<?> rows) {
+    return rows.stream().map(row -> (Object) ((Vertex) row).value("name"))
+        .map(String::valueOf).toList();
+  }
+
+  /** Parent matching includes a Child only in polymorphic mode on both ordered-expand routes. */
+  @Test
+  public void orderedHopParentLabel_usesExplicitAndSessionPolymorphism() {
+    seedNativeNeighbourFilters();
+    for (boolean mode : new boolean[] {true, false}) {
+      var expected = mode ? List.of("Child", "Parent") : List.of("Parent");
+      assertNeighbourFilterResult("explicit parent, hop cut, " + mode, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, mode)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").limit(4).values("name"));
+      assertNeighbourFilterResult("explicit parent, source cut, " + mode, expected,
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, mode)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("FilterParent").values("name"));
+      withPolymorphicDefault(mode, () -> assertNeighbourFilterResult(
+          "session parent, hop cut, " + mode, expected,
+          () -> graph.traversal().V().has("name", "Source").order().by("name")
+              .out("knows").hasLabel("FilterParent").limit(4).values("name")));
+      withPolymorphicDefault(mode, () -> assertNeighbourFilterResult(
+          "session parent, source cut, " + mode, expected,
+          () -> graph.traversal().V().has("name", "Source").order().by("name")
+              .limit(1).out("knows").hasLabel("FilterParent").values("name")));
+    }
+  }
+
+  /** A polymorphic multi-label predicate stays admitted on both the op and MATCH flush routes. */
+  @Test
+  public void orderedHopMultiLabel_matchesChildAndOtherOnBothDeferredRoutes() {
+    seedNativeNeighbourFilters();
+    var expected = List.of("Child", "Other", "Parent");
+    assertNeighbourFilterResult("multi-label hop cut", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").limit(4).values("name"));
+    assertNeighbourFilterResult("multi-label source cut", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").limit(1).out("knows")
+            .hasLabel("FilterParent", "FilterOther").values("name"));
+    assertNeighbourFilterResult("multi-label MATCH flush", expected,
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").values("name"));
+  }
+
+  /** Label filters from barrier-separated HasSteps AND on both ordered-expand placements and flush. */
+  @Test
+  public void orderedHopSeparateHasLabelSteps_andRatherThanOr() {
+    seedNativeNeighbourFilters();
+    for (boolean sourceCut : new boolean[] {false, true}) {
+      assertNeighbourFilterResult("separate labels, source cut " + sourceCut, List.of(),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "Source").order().by("name")
+                  .limit(1).out("knows").hasLabel("FilterParent").barrier()
+                  .hasLabel("FilterOther").values("name")
+              : graph.traversal().V().has("name", "Source").order().by("name")
+                  .out("knows").hasLabel("FilterParent").barrier()
+                  .hasLabel("FilterOther").limit(4).values("name"));
+    }
+    assertNeighbourFilterResult("separate labels, MATCH flush", List.of(),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").hasLabel("FilterParent").barrier()
+            .hasLabel("FilterOther").values("name"));
+  }
+
+  /**
+   * Chained hasLabel calls fold into one conflicting HasStep after a hop. Every ordered route
+   * must decline this shape and return the empty native multiset.
+   */
+  @Test
+  public void orderedHopMixedSingleAndMultiLabels_orWithinHasStep() {
+    seedNativeNeighbourFilters();
+    for (boolean poly : new boolean[] {true, false}) {
+      assertNeighbourFilterDeclines("mixed labels, hop cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .limit(4).values("name"));
+      assertNeighbourFilterDeclines("mixed labels, source cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .values("name"));
+      assertNeighbourFilterDeclines("mixed labels, MATCH flush " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("FilterParent").hasLabel("FilterOther", "MissingFilter")
+              .values("name"));
+    }
+  }
+
+  /** An absent label contributes no rows, while a present alternative still matches. */
+  @Test
+  public void orderedHopAbsentLabelAlternatives_matchNativeOnBothRoutes() {
+    seedNativeNeighbourFilters();
+    for (boolean poly : new boolean[] {true, false}) {
+      for (boolean sourceCut : new boolean[] {false, true}) {
+        assertNeighbourFilterResult("absent plus present " + poly + "/" + sourceCut,
+            List.of("Other"),
+            () -> sourceCut
+                ? graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+                    .V().has("name", "Source").order().by("name").limit(1)
+                    .out("knows").hasLabel("MissingFilter", "FilterOther").values("name")
+                : graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+                    .V().has("name", "Source").order().by("name")
+                    .out("knows").hasLabel("MissingFilter", "FilterOther")
+                    .limit(4).values("name"));
+      }
+      assertNeighbourFilterResult("absent plus present flush " + poly, List.of("Other"),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "FilterOther").values("name"));
+      assertNeighbourFilterResult("all absent hop cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "MissingOther").limit(4).values("name"));
+      assertNeighbourFilterResult("all absent source cut " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").limit(1).out("knows")
+              .hasLabel("MissingFilter", "MissingOther").values("name"));
+      assertNeighbourFilterResult("all absent flush " + poly, List.of(),
+          () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, poly)
+              .V().has("name", "Source").order().by("name").out("knows")
+              .hasLabel("MissingFilter", "MissingOther").values("name"));
+    }
+  }
+
+  /** A ci property must match different letter cases before the hop's positional cut. */
+  @Test
+  public void orderedHopCollatedProperty_matchesDifferentCaseOnBothExpandRoutes() {
+    seedNativeNeighbourFilters();
+    assertNeighbourFilterResult("ci hop cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").has("nickname", "mixed").limit(1).values("name"));
+    assertNeighbourFilterResult("ci source cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .limit(1).out("knows").has("nickname", "mixed").values("name"));
+    assertNeighbourFilterResult("ci and multi-label", List.of("Child"),
+        () -> graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, true)
+            .V().has("name", "Source").order().by("name").out("knows")
+            .hasLabel("FilterParent", "FilterOther").has("nickname", "mixed")
+            .limit(1).values("name"));
+  }
+
+  /** Deferred MATCH uses the class from a previous label group to gate a singleton comparison. */
+  @Test
+  public void deferredKnownLabelThenBarrierThenSingleton_matchesNativeOnFlushAndCuts() {
+    var target = session.createVertexClass("StepOneTarget");
+    target.createProperty("name", PropertyType.STRING);
+    target.createProperty("age", PropertyType.INTEGER);
+    var source = graph.addVertex(T.label, "V", "name", "StepOneSource");
+    var alice = graph.addVertex(T.label, "StepOneTarget", "name", "Alice", "age", 31);
+    var bob = graph.addVertex(T.label, "StepOneTarget", "name", "Bob", "age", 20);
+    source.addEdge("stepOneEdge", alice);
+    source.addEdge("stepOneEdge", bob);
+    graph.tx().commit();
+
+    for (boolean sourceCut : new boolean[] {false, true}) {
+      assertNeighbourFilterResult("singleton on source/hop cut " + sourceCut, List.of(),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .limit(1).out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("name", P.eq(List.of("Alice"))).values("name")
+              : graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("name", P.eq(List.of("Alice"))).limit(2).values("name"));
+      assertNeighbourFilterResult("numeric on source/hop cut " + sourceCut, List.of("Alice"),
+          () -> sourceCut
+              ? graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .limit(1).out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("age", P.gt(25)).values("name")
+              : graph.traversal().V().has("name", "StepOneSource").order().by("name")
+                  .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+                  .has("age", P.gt(25)).limit(2).values("name"));
+    }
+    assertNeighbourFilterResult("singleton MATCH flush", List.of(),
+        () -> graph.traversal().V().has("name", "StepOneSource").order().by("name")
+            .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+            .has("name", P.eq(List.of("Alice"))).values("name"));
+    assertNeighbourFilterResult("numeric MATCH flush", List.of("Alice"),
+        () -> graph.traversal().V().has("name", "StepOneSource").order().by("name")
+            .out("stepOneEdge").hasLabel("StepOneTarget").barrier()
+            .has("age", P.gt(25)).values("name"));
+  }
+
+  /**
+   * Multi-label filters translate across MATCH flush, hop cut and source cut. A folded single-label
+   * filter conflicts and must decline. A barrier keeps the filters separate and must translate.
+   * With polymorphism off, the single-label filter removes Child from the native rows.
+   */
+  @Test
+  public void deferredMultiLabelWithOptionalNarrowing_matchesNativeOnFlushAndCuts() {
+    seedNativeNeighbourFilters();
+    for (boolean polymorphic : new boolean[] {true, false}) {
+      withPolymorphicDefault(polymorphic, () -> {
+        for (boolean narrow : new boolean[] {true, false}) {
+          List<String> expected = !narrow || polymorphic ? List.of("Child") : List.of();
+          for (boolean barrier : new boolean[] {false, true}) {
+            for (int route = 0; route < 3; route++) {
+              int selectedRoute = route;
+              Supplier<GraphTraversal<?, ?>> shape = () -> {
+                var traversal = graph.traversal().V().has("name", "Source")
+                    .order().by("name");
+                if (selectedRoute == 2) {
+                  traversal = traversal.limit(1);
+                }
+                var targets = traversal.out("knows")
+                    .hasLabel("FilterParent", "FilterChild");
+                if (barrier) {
+                  targets = targets.barrier(2);
+                }
+                if (narrow) {
+                  targets = targets.hasLabel("FilterParent");
+                }
+                targets = targets.has("name", "Child");
+                if (selectedRoute == 1) {
+                  targets = targets.limit(2);
+                }
+                return targets.values("name");
+              };
+              String tag = "deferred multi poly=" + polymorphic + " narrow=" + narrow
+                  + " barrier=" + barrier + " route=" + route;
+              if (narrow && !barrier) {
+                assertNeighbourFilterDeclines(tag, expected, shape);
+              } else {
+                assertNeighbourFilterResult(tag, expected, shape);
+              }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  /** Unsupported MATCH predicates still use native ordered-expand filtering at either cut. */
+  @Test
+  public void deferredCustomPredicate_keepsBothOrderedExpandRoutes() {
+    seedNativeNeighbourFilters();
+    PBiPredicate<Object, Object> same = Object::equals;
+    assertNeighbourFilterResult("custom hop cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .out("knows").has("name", new P<>(same, "Child"))
+            .limit(1).values("name"));
+    assertNeighbourFilterResult("custom source cut", List.of("Child"),
+        () -> graph.traversal().V().has("name", "Source").order().by("name")
+            .limit(1).out("knows").has("name", new P<>(same, "Child"))
+            .values("name"));
+  }
+
+  private void seedNativeNeighbourFilters() {
+    var parent = session.createVertexClass("FilterParent");
+    parent.createProperty("nickname", PropertyType.STRING).setCollate("ci");
+    session.getSchema().createClass("FilterChild", parent);
+    session.createVertexClass("FilterOther");
+    var source = graph.addVertex(T.label, "FilterParent", "name", "Source");
+    var child = graph.addVertex(T.label, "FilterChild", "name", "Child", "nickname", "MiXeD");
+    var direct = graph.addVertex(T.label, "FilterParent", "name", "Parent");
+    var other = graph.addVertex(T.label, "FilterOther", "name", "Other");
+    source.addEdge("knows", child);
+    source.addEdge("knows", direct);
+    source.addEdge("knows", other);
+    graph.tx().commit();
+  }
+
+  private void withPolymorphicDefault(boolean value, Runnable body) {
+    var configuration = session.getConfiguration();
+    var previous = configuration.getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, value);
+    try {
+      body.run();
+    } finally {
+      configuration.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
+  }
+
+  private void assertNeighbourFilterResult(
+      String scenario, List<String> expected, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal)).as(scenario + " native").isZero();
+      var nativeRows = nativeTraversal.toList().stream().map(String::valueOf).sorted().toList();
+      assertThat(nativeRows).as(scenario + " fixture").containsExactlyElementsOf(expected);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated)).as(scenario + " translated").isEqualTo(1);
+      assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
+          .as(scenario + " translated rows").isEqualTo(nativeRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** The translator must decline and return the native row multiset from the expected fixture. */
+  private void assertNeighbourFilterDeclines(
+      String scenario, List<String> expected, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal)).as(scenario + " native").isZero();
+      var nativeRows = nativeTraversal.toList().stream().map(String::valueOf).sorted().toList();
+      assertThat(nativeRows).as(scenario + " fixture").containsExactlyElementsOf(expected);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated)).as(scenario + " boundary").isZero();
+      assertThat(translated.toList().stream().map(String::valueOf).sorted().toList())
+          .as(scenario + " rows").isEqualTo(nativeRows);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** Distinct labelled parents of a shared source keep their path identities at order(). */
+  @Test
+  public void labelledSourceSlice_multiAliasSelectStillThrowsNativeCast() {
+    seedTwoParentsWithSharedHub();
+    assertSelectHopThrowsNativeCast("labelled source cut before map select",
+        () -> graph.traversal().V().hasLabel("BulkParent").as("a")
+            .out("toHub").as("s").order().by("name").limit(2)
+            .select("a", "s").by("name").by("name").out("toChild"));
+    assertSelectHopEmpty("labelled source cut before nonproductive map select",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().hasLabel("BulkParent").as("a").out("toHub").as("s")
+            .order().by("name").range(1, 1).select("a", "s")
+            .by("missing").by("missing").out("toChild"));
+  }
+
+  /** A foreign labelled alias is part of barrier equality after the expanded hop. */
+  @Test
+  public void labelledForeignAliasOrder_explicitBarrierKeepsNativeMultiplicity() {
+    seedTwoParentsWithSharedHub();
+    assertTranslatesAndMatchesNative("foreign alias sorted source with barrier",
+        () -> graph.traversal().V().hasLabel("BulkParent").as("a")
+            .out("toHub").as("s").order().by(__.select("a").by("name"))
+            .out("toChild").barrier(3).limit(3));
+  }
+
+  /** A bare select of the sorted source still feeds an element to the hop after a source cut. */
+  @Test
+  public void selectedSortedSource_thenSliceThenHop_matchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "select(s).limit(1).out(knows)",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").values("name"));
+  }
+
+  /** A bare select before the hop also keeps the sorted source for the post-hop cut. */
+  @Test
+  public void selectedSortedSource_thenHopThenSlice_matchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "select(s).out(knows).limit(1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").limit(1).values("name"));
+  }
+
+  /** A trailing neighbour filter preserves bare selected-source admission in both placements. */
+  @Test
+  public void selectedSortedSource_trailingHasBothPlacementsMatchNative() {
+    seedTwoHubsWithTiedSortKey();
+    support.assertEquivalent("bare select, cut before hop, trailing has",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").has("name", "AbeTarget1"));
+    support.assertEquivalent("bare select, cut after hop, trailing has",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedIds,
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").has("name", "AbeTarget1").limit(1));
+  }
+
+  /** A scalar selected before the hop raises VertexStep's ClassCastException in both placements. */
+  @Test
+  public void modulatedSelectBeforeOrderedHop_bothPlacementsThrowNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("hop then slice with scalar source",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").limit(1));
+    assertSelectHopThrowsNativeCast("source slice then hop with scalar source",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").by("name").out("knows"));
+  }
+
+  /** A trailing filter cannot prevent VertexStep casting a scalar or map selected source. */
+  @Test
+  public void selectedNonVertex_trailingHasBothPlacementsThrowNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("scalar select and trailing has, source cut",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").by("name").out("knows").has("name", "AbeTarget1"));
+    assertSelectHopThrowsNativeCast("map select and trailing has, hop cut",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").has("name", "AbeTarget1").limit(1));
+  }
+
+  /** Empty post-hop cuts still pull the String payload before native RangeGlobalStep stops. */
+  @Test
+  public void zeroWidthPostHopSlice_scalarSelectThrowsNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("scalar range(1,1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").range(1, 1));
+    assertSelectHopThrowsNativeCast("scalar limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").limit(0));
+    assertSelectHopThrowsNativeCast("scalar skip(1).limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").by("name").out("knows").skip(1).limit(0));
+  }
+
+  /** A skipped zero-width cut still pulls its next neighbour and runs its predicate. */
+  @Test
+  public void zeroWidthPostHopSlice_afterSkip_runsNativeSecondPredicate() {
+    var source = graph.addVertex(T.label, "Person", "name", "Source");
+    var first = graph.addVertex(T.label, "Person", "name", "First");
+    var second = graph.addVertex(T.label, "Person", "name", "Second");
+    source.addEdge("knows", first);
+    source.addEdge("knows", second);
+    graph.tx().commit();
+
+    for (boolean translated : new boolean[] {false, true}) {
+      var calls = new java.util.concurrent.atomic.AtomicInteger();
+      var predicate = new org.apache.tinkerpop.gremlin.process.traversal.P<>(
+          (org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate<Object, Object>) (a, b) -> {
+            if (calls.incrementAndGet() == 2) {
+              throw new IllegalStateException("second neighbour pulled");
+            }
+            return true;
+          }, "unused");
+      var original = translatorEnabled();
+      try {
+        setTranslatorEnabled(translated);
+        var traversal = graph.traversal().V().has("name", "Source")
+            .order().by("name").out("knows").has("name", predicate).range(1, 1)
+            .asAdmin();
+        traversal.applyStrategies();
+        assertThat(countBoundarySteps(traversal.getSteps()))
+            .as("translated=" + translated).isEqualTo(translated ? 1 : 0);
+        assertThatThrownBy(traversal::toList).isInstanceOf(IllegalStateException.class)
+            .hasMessage("second neighbour pulled");
+        assertThat(calls.get()).isEqualTo(2);
+      } finally {
+        setTranslatorEnabled(original);
+      }
+    }
+  }
+
+  /** A multi-label map is cast even when the following cut emits no rows. */
+  @Test
+  public void zeroWidthPostHopSlice_multiLabelSelectThrowsNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("map range(1,1)",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").range(1, 1));
+    assertSelectHopThrowsNativeCast("map limit(0)",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").limit(0));
+  }
+
+  /** Empty sources and nonproductive selects never reach VertexStep's cast. */
+  @Test
+  public void zeroWidthPostHopSlice_emptyUpstreamDoesNotCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("empty source before scalar range(1,1)",
+        () -> graph.traversal().V().has("name", "Absent").as("s").order().by("name")
+            .select("s").by("name").out("knows").range(1, 1));
+    assertSelectHopEmpty("nonproductive select before range(1,1)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").select("s").by("missing")
+            .out("knows").range(1, 1));
+    assertSelectHopEmpty("empty source slice before scalar hop",
+        () -> graph.traversal().V().as("s").order().by("name").limit(0)
+            .select("s").by("name").out("knows"));
+  }
+
+  /** A skipped, zero-width source cut stops before projecting the selected non-vertex payload. */
+  @Test
+  public void zeroWidthSourceSlice_afterSkipDoesNotCastSelectedPayload() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("scalar select after source range(1,1)",
+        () -> graph.traversal().V().as("s").order().by("name").range(1, 1)
+            .select("s").by("name").out("knows"));
+    assertSelectHopEmpty("map select after source skip(1).limit(0)",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .skip(1).limit(0).select("s", "t").out("knows"));
+    assertSelectHopEmpty("nonproductive select after source range(1,1)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").range(1, 1)
+            .select("s").by("missing").out("knows"));
+  }
+
+  /** A zero-width source cut with a skip never reaches the post-hop predicate. */
+  @Test
+  public void zeroWidthSourceSlice_afterSkipDoesNotRunNeighbourPredicate() {
+    seedTwoHubsWithTiedSortKey();
+    for (boolean translated : new boolean[] {false, true}) {
+      var calls = new java.util.concurrent.atomic.AtomicInteger();
+      var predicate = new org.apache.tinkerpop.gremlin.process.traversal.P<>(
+          (org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate<Object, Object>) (a, b) -> {
+            calls.incrementAndGet();
+            throw new IllegalStateException("neighbour predicate must not run");
+          }, "unused");
+      support.withTranslator(translated, () -> {
+        var traversal = graph.traversal().V().order().by("name").range(1, 1)
+            .out("knows").has("name", predicate).asAdmin();
+        traversal.applyStrategies();
+        assertThat(countBoundarySteps(traversal))
+            .as("translator on=" + translated).isEqualTo(translated ? 1 : 0);
+        assertThat(traversal.toList()).isEmpty();
+      });
+      assertThat(calls.get()).as("post-hop predicate calls, translator on=" + translated)
+          .isZero();
+    }
+  }
+
+  /** An actual vertex expands before the zero-width cut, but returns no rows. */
+  @Test
+  public void zeroWidthPostHopSlice_vertexPayloadReturnsEmpty() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("vertex range(1,1)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").range(1, 1));
+    assertSelectHopEmpty("vertex limit(0)",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").limit(0));
+  }
+
+  /** A multi-label selected map cannot be cast to Vertex in either ordered-hop placement. */
+  @Test
+  public void multiLabelSelectBeforeOrderedHop_bothPlacementsThrowNativeCast() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopThrowsNativeCast("hop then slice with map source",
+        () -> graph.traversal().V().as("s", "t").order().by("name")
+            .select("s", "t").out("knows").limit(1));
+    assertSelectHopThrowsNativeCast("source slice then hop with map source",
+        () -> graph.traversal().V().as("s", "t").order().by("name").limit(1)
+            .select("s", "t").out("knows"));
+  }
+
+  /** Nonproductive by(missing) drops sources before VertexStep can cast a payload. */
+  @Test
+  public void nonproductiveSelectBeforeOrderedHop_bothPlacementsAreEmpty() {
+    seedTwoHubsWithTiedSortKey();
+    assertSelectHopEmpty("hop then slice after absent by(missing)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").select("s").by("missing")
+            .out("knows").limit(1));
+    assertSelectHopEmpty("source slice then hop after absent by(missing)",
+        () -> graph.traversal().withoutStrategies(ProductiveByStrategy.class)
+            .V().as("s").order().by("name").limit(1).select("s").by("missing")
+            .out("knows"));
+  }
+
+  /** A source with no outgoing edges keeps an empty translated result after selection and cut. */
+  @Test
+  public void selectedSortedSource_withNoNeighbours_returnsEmpty() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeValuesAllowEmpty(
+        "selected source has no outgoing neighbours",
+        () -> graph.traversal().V().as("s").order().by("name").limit(1)
+            .select("s").out("knows").values("name"));
+  }
+
+  /** A second hop stays excluded even when the source carries a select label. */
+  @Test
+  public void selectedSortedSource_twoHops_declinesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    var first = graph.traversal().V().has("name", "AbeTarget1").next();
+    var second = graph.traversal().V().has("name", "ZedTarget1").next();
+    first.addEdge("knows", second);
+    graph.tx().commit();
+    assertOrderedSliceDeclinesWithRemainingSteps(
+        "selected source followed by two hops",
+        () -> graph.traversal().V().as("s").order().by("name")
+            .select("s").out("knows").out("knows").limit(1).values("name"));
+  }
+
+  /** Native select reads a side effect before a same-named path label, even with a source cut. */
+  @Test
+  public void sideEffectCollidingWithSelectedSource_declinesAndMatchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Abe", "n", 1);
+    var other = graph.addVertex(T.label, "Person", "name", "Bob", "n", 2);
+    var target = graph.addVertex(T.label, "Person", "name", "Target");
+    other.addEdge("knows", target);
+    graph.tx().commit();
+    assertOrderedSliceDeclinesWithRemainingSteps(
+        "side effect takes precedence over the selected source label",
+        () -> graph.traversal().withSideEffect("s", other).V().has("n", 1).as("s")
+            .order().by("n").limit(1).select("s").out("knows").values("name"));
+  }
+
+  /** A warm label-select template must not hide side-effect precedence in a later traversal. */
+  @Test
+  public void sideEffectCollisionAfterPlainSelectWarmup_stillDeclines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    var other = graph.addVertex(T.label, "Person", "name", "Bob");
+    var target = graph.addVertex(T.label, "Person", "name", "Target");
+    other.addEdge("knows", target);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeValues(
+        "plain select before side-effect collision",
+        () -> graph.traversal().V().has("name", "Abe").as("s").select("s").values("name"));
+    assertDeclinesOverTheSameNativeRows(
+        "same select key is also a side effect",
+        () -> graph.traversal().withSideEffect("s", other).V().has("name", "Abe")
+            .as("s").select("s").values("name"));
+  }
+
+  /** A multi-key SelectStep also reads side effects before path labels. */
+  @Test
+  public void multiKeySelectSideEffectCollision_declines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    assertDeclinesOverTheSameNativeRows("multi-key select reads a side effect",
+        () -> graph.traversal().withSideEffect("s", "value").V().as("s", "t")
+            .select("s", "t"));
+  }
+
+  /** Collision detection descends into a where child's select before a cached walk can start. */
+  @Test
+  public void childSelectSideEffectCollision_declines() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    var shape = graph.traversal().withSideEffect("s", "value").V().as("s")
+        .where(__.select("s")).values("name").asAdmin();
+    // withSideEffect installs its traversal-side key during strategy application; install it
+    // explicitly for this direct pre-application check of the recursive child inspection.
+    shape.getSideEffects().register("s", () -> "value", (a, b) -> b);
+    assertThat(GremlinStepWalker.selectCollidesWithSideEffect(shape)).isTrue();
+    assertDeclinesOverTheSameNativeRows("child select reads a side effect",
+        () -> graph.traversal().withSideEffect("s", "value").V().as("s")
+            .where(__.select("s")).values("name"));
+  }
+
+  /** A side effect with a distinct key leaves ordinary select translation eligible. */
+  @Test
+  public void nonCollidingSideEffect_keepsSelectTranslated() {
+    graph.addVertex(T.label, "Person", "name", "Abe");
+    graph.tx().commit();
+    support.assertEquivalent("non-colliding side effect",
+        Recognition.RECOGNIZED, Cardinality.NON_EMPTY,
+        TranslatorEquivalenceSupport::sortedStrings,
+        () -> graph.traversal().withSideEffect("other", "value").V().as("s")
+            .select("s").values("name"));
+  }
+
+  /** {@code skip} half of source-slice-then-hop: drop first sorted hub, expand from the rest. */
+  @Test
+  public void orderThenSkipThenHop_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).skip(1).out(knows).values(name)",
+        () -> graph.traversal().V().order().by("name").skip(1).out("knows").values("name"));
+  }
+
+  /**
+   * Non-equality {@code has} uses the same {@link org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer#test}
+   * path as native.
+   */
+  @Test
+  public void orderThenHopThenHasNeqThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, neq(AbeTarget1)).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", P.neq("AbeTarget1"))
+            .limit(2).values("name"));
+  }
+
+  /** {@code hasLabel} before the cut filters neighbours via {@code HasContainer.test}. */
+  @Test
+  public void orderThenHopThenHasLabelThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).hasLabel(Person).limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").hasLabel("Person")
+            .limit(2).values("name"));
+  }
+
+  /** {@code P.within} before the cut is deferred the same way as equality {@code has}. */
+  @Test
+  public void orderThenHopThenHasWithinThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, within(AbeTarget1, AbeTarget2)).limit(1)"
+            + ".values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", P.within("AbeTarget1", "AbeTarget2"))
+            .limit(1).values("name"));
+  }
+
+  /**
+   * No following slice: deferred hop flushes into MATCH, and neighbour {@code has} becomes a MATCH
+   * filter on the target alias — {@code order().hop().has().values} without a cut.
+   */
+  @Test
+  public void orderThenHopThenHasThenValues_flushesIntoMatchAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out(knows).has(name, AbeTarget1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows")
+            .has("name", "AbeTarget1").values("name"));
+  }
+
+  /**
+   * Label-less {@code out()} uses the null edge-label expand arm (all edge types) on the
+   * ordered-expand stage.
+   */
+  @Test
+  public void orderThenBareOutThenLimit_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).out().limit(2).values(name)",
+        () -> graph.traversal().V().order().by("name").out().limit(2).values("name"));
+  }
+
+  /**
+   * Source-slice then hop then {@code values} on a sparse key: absent properties drop after expand
+   * without filling the source top-N quota from later hubs.
+   */
+  @Test
+  public void orderThenLimitThenHopThenValuesSparse_translatesAndMatchesNative() {
+    seedTwoHubsWithTiedSortKey();
+    // Only AbeTarget1 carries age — expand from Abe (limit 1) yields one value or empty if filtered.
+    var abeTarget1 = graph.traversal().V().has("name", "AbeTarget1").next();
+    abeTarget1.property("age", 31);
+    graph.tx().commit();
+    assertTranslatesAndMatchesNativeOrderedValues(
+        "g.V().order().by(name).limit(1).out(knows).values(age)",
+        () -> graph.traversal().V().order().by("name").limit(1).out("knows").values("age"));
+  }
+
+  /**
+   * Two hops between order and slice stay declined (only a single deferred hop is in v1 scope).
+   * Fixture adds a second-hop edge so the shape is non-empty on the native arm.
+   */
+  @Test
+  public void orderThenTwoHopsThenLimit_stillDeclines() {
+    seedTwoHubsWithTiedSortKey();
+    // AbeTarget1 -> ZedTarget1 so out().out() yields at least one neighbour.
+    var abeTarget1 = graph.traversal().V().has("name", "AbeTarget1").next();
+    var zedTarget1 = graph.traversal().V().has("name", "ZedTarget1").next();
+    abeTarget1.addEdge("knows", zedTarget1);
+    graph.tx().commit();
+    assertOrderedSliceDeclines(
+        "g.V().order().by(name).out(knows).out(knows).limit(1).values(name)",
+        () -> graph.traversal().V().order().by("name").out("knows").out("knows").limit(1)
+            .values("name"),
+        () -> graph.traversal().V().out("knows").out("knows").limit(1).values("name"));
   }
 
   /**
@@ -1175,20 +2301,21 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A hop between the sort and the slice fans one sorted source into several rows — still declines.
-   * Twin: {@link #orderByUniqueIdThenLimit_translates}.
+   * Hop between sort and slice: ordered-expand list-shaping, not statement LIMIT after join. Twin:
+   * {@link #orderByUniqueIdThenLimit_translates}.
    */
   @Test
-  public void orderByUniqueIdThenHopThenLimit_declines() {
+  public void orderByUniqueIdThenHopThenLimit_translates() {
     seedPeopleWithTiedCreationDateAndUniqueId();
-    assertOrderedSliceDeclinesWithRemainingSteps(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().hasLabel(Person).order().by(id).out(knows).limit(2).values(id)",
         () -> graph.traversal().V().hasLabel("Person").order().by("id").out("knows").limit(2)
             .values("id"));
   }
 
   /**
-   * Discriminating twin of hop-then-slice decline — sort and slice on the hop target only.
+   * Discriminating twin of {@link #orderByUniqueIdThenHopThenLimit_translates} — sort and slice on
+   * the hop target only (hop, then order, then limit).
    *
    * <p>Runs under the PORTABLE OPT-OUT. Under the shipped productive-order default the order key
    * emits no {@code IS DEFINED} conjunct, the sorted alias carries no filter at all, and the
@@ -1632,6 +2759,19 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * of the hub's neighbours or none of them. Two and one are both unreachable natively, so neither
    * case can pass by accident on a lucky scan order.
    */
+  private void seedTwoParentsWithSharedHub() {
+    var first = graph.addVertex(T.label, "BulkParent", "name", "ParentA");
+    var second = graph.addVertex(T.label, "BulkParent", "name", "ParentB");
+    var hub = graph.addVertex(T.label, "BulkHub", "name", "Hub");
+    var a = graph.addVertex(T.label, "BulkChild", "name", "A");
+    var b = graph.addVertex(T.label, "BulkChild", "name", "B");
+    first.addEdge("toHub", hub);
+    second.addEdge("toHub", hub);
+    hub.addEdge("toChild", a);
+    hub.addEdge("toChild", b);
+    graph.tx().commit();
+  }
+
   private void seedSingleHub() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
     var ann = graph.addVertex(T.label, "Person", "name", "Ann");
@@ -1756,11 +2896,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The {@code ORDER BY} sibling of {@link #assertClauseThenStepDeclines}: {@code shape} carries an
-   * {@code order()} before a real slice, must decline, and must return native's rows <em>in native's
-   * order</em>. The comparison is ordered rather than a multiset one because {@code order()} makes
-   * the sequence part of the answer, and the tie-group divergence this decline closes shows up in
-   * the sequence even on the fixtures where it leaves the row set alone.
+   * The {@code ORDER BY} sibling of {@link #assertClauseThenStepDeclines} for shapes that still
+   * decline after a captured {@code order()} (for example two hops before the slice). {@code shape}
+   * must return native's rows <em>in native's order</em>. The comparison is ordered rather than a
+   * multiset one because {@code order()} makes the sequence part of the answer.
    *
    * <p>{@code sameShapeWithoutOrder} is the control, and it is what stops the case being satisfied
    * by some other gate: strip the {@code order()} prefix and the identical suffix must still
@@ -1808,7 +2947,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
       assertThat(boundaryOn)
-          .as(scenario + ": a real slice behind a captured ORDER BY must decline the whole walk")
+          .as(scenario + ": this ordered-slice shape must decline the whole walk")
           .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off rows must match in native's order")
@@ -1820,8 +2959,10 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
   /**
    * Asserts that {@code shape} declines (zero boundary steps), still has a non-empty native step
-   * list after strategy application, and returns a non-empty native sequence. The non-empty step
-   * list keeps a decline from being satisfied by a walk that produced no plan and no steps.
+   * list after strategy application, and returns a non-empty native sequence. Used for ordered-slice
+   * shapes that remain out of scope (for example a second hop between {@code order()} and the
+   * slice). The non-empty step list keeps a decline from being satisfied by a walk that produced no
+   * plan and no steps.
    */
   private void assertOrderedSliceDeclinesWithRemainingSteps(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
@@ -1850,7 +2991,7 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
           .as(scenario + " must return rows, or the comparison is vacuous")
           .isNotEmpty();
       assertThat(boundaryOn)
-          .as(scenario + ": hop/foreign-RETURN ordered slice must decline the whole walk")
+          .as(scenario + ": ordered-slice shape must decline the whole walk")
           .isEqualTo(0);
       assertThat(onRows)
           .as(scenario + ": translator-on and translator-off rows must match in native's order")
@@ -1865,6 +3006,49 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
    * because {@code order()} makes the sequence the answer. A discriminating-key top-N that agreed
    * as a multiset but disagreed on positions would fail this pin.
    */
+  /** Compare the user-visible exception and require the translator boundary in the on arm. */
+  private void assertSelectHopThrowsNativeCast(
+      String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal.getSteps())).isZero();
+      assertThatThrownBy(nativeTraversal::toList)
+          .as(scenario + " (native)").isInstanceOf(ClassCastException.class);
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated.getSteps())).as(scenario).isEqualTo(1);
+      assertThatThrownBy(translated::toList)
+          .as(scenario + " (translated)").isInstanceOf(ClassCastException.class);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /** Require exact empty results, not a decline or an exception, on both execution paths. */
+  private void assertSelectHopEmpty(String scenario, Supplier<GraphTraversal<?, ?>> shape) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      var nativeTraversal = shape.get().asAdmin();
+      nativeTraversal.applyStrategies();
+      assertThat(countBoundarySteps(nativeTraversal.getSteps())).isZero();
+      assertThat(nativeTraversal.toList()).as(scenario + " (native)").isEmpty();
+
+      setTranslatorEnabled(true);
+      var translated = shape.get().asAdmin();
+      translated.applyStrategies();
+      assertThat(countBoundarySteps(translated.getSteps())).as(scenario).isEqualTo(1);
+      assertThat(translated.toList()).as(scenario + " (translated)").isEmpty();
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
   private void assertTranslatesAndMatchesNativeOrderedValues(
       String scenario, Supplier<GraphTraversal<?, ?>> shape) {
     var original = translatorEnabled();

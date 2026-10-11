@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -69,10 +70,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <ol>
  *   <li>The boundary at slice time is still the alias the {@code ORDER BY} was captured on. A hop
- *       between {@code order()} and the slice fans one sorted row into several results whose cut is
- *       not the statement's {@code LIMIT} over the sorted source (measured:
- *       {@code order().by(name).out(knows).limit(3)} disagreed on membership, not only remis
- *       order).
+ *       between {@code order()} and the slice that was flushed into MATCH fans one sorted row into
+ *       several results whose cut is not the statement's {@code LIMIT} over the sorted source.
+ *       A <em>deferred</em> hop after {@code order()} uses
+ *       {@link OrderedExpandSliceListShapingOp}: MATCH returns sorted sources; the op merges native-
+ *       equal sources and runs expansion, filters, barrier windows and the cut in traversal order.
+ *       When the cut precedes the hop, the op applies it after source merging and before select
+ *       projection and expansion, without limiting the MATCH source rows first.
  * </ol>
  *
  * <p>Foreign-alias sort keys (e.g. {@code order().by(select("reply").by("creationDate"))}) and
@@ -182,10 +186,15 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    // A real slice behind a captured ORDER BY is accepted when the boundary at slice time is still
-    // the alias the ORDER BY was captured on — see the class Javadoc. Element-stream equal-key
-    // ties are total-ordered by the appended RID key. Hop-then-slice declines via
-    // orderAllowsSliceOnCurrentBoundary(); foreign-alias sort keys and multi-alias RETURN do not.
+    // A slice after ORDER BY stays at statement level only if no deferred hop consumes it.
+    // Element-stream equal-key ties are total-ordered by the appended RID key. With a deferred
+    // hop the op runs the slice after the ordered expansion stages, including native barriers.
+    // A later hop after a source cut moves that cut into the op before its projection and expansion.
+    // Foreign-alias sort keys and multi-alias RETURN use orderAllowsSliceOnCurrentBoundary().
+    var pendingHop = ctx.pendingOrderedHop();
+    if (pendingHop != null) {
+      return acceptOrderedExpandSlice(cursor, ctx, pendingHop, normalized);
+    }
     if (ctx.orderBy() != null && !ctx.orderAllowsSliceOnCurrentBoundary()) {
       return Outcome.DECLINE;
     }
@@ -224,12 +233,66 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
     }
+    if (ctx.orderBy() != null && ctx instanceof WalkerContext walker) {
+      walker.setOrderedSourceSlice(normalized.skip(), normalized.limit());
+    }
     if (normalized.skip() > 0) {
       ctx.setSkip(ProjectionExpressionFactories.skip(normalized.skip()));
     }
     if (normalized.limit() >= 0) {
       ctx.setLimit(ProjectionExpressionFactories.limit(normalized.limit()));
     }
+    return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Consumes a deferred hop after {@code order()} into native-order filter, barrier, slice and
+   * optional {@code values(key)} stages. MATCH RETURN stays on sorted sources without a statement
+   * {@code LIMIT}.
+   */
+  private static Outcome acceptOrderedExpandSlice(
+      StepCursor cursor,
+      RecognitionContext ctx,
+      PendingOrderedHop pendingHop,
+      NormalizedRange normalized) {
+    if (ctx.groupBy() != null) {
+      return Outcome.DECLINE;
+    }
+    if (!ctx.supportsListShaping()
+        || pendingHop.sourceProjection() == OrderedExpandAccept.SourceProjection.UNSUPPORTED) {
+      return Outcome.DECLINE;
+    }
+    // The list-shaping drain consumes the same trailing values(key) shape in both slice positions.
+    var stages = new java.util.ArrayList<
+        com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage>();
+    if (!(ctx instanceof WalkerContext walker)) {
+      return Outcome.DECLINE;
+    }
+    stages.add(walker.orderedSourceMerge(pendingHop.fromAlias()));
+    stages.addAll(pendingHop.stages());
+    stages.add(
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice(
+            normalized.skip(), normalized.limit()));
+    String propertyKey = OrderedExpandAccept.takeValuesKey(cursor);
+    stages.addAll(OrderedExpandAccept.takeBarrierStages(cursor, ctx));
+    if (propertyKey != null) {
+      stages.add(
+          new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Values(
+              propertyKey));
+    }
+    cursor.peek();
+    stages.addAll(OrderedExpandAccept.takeBarrierStages(cursor, ctx));
+    ctx.takePendingOrderedHop();
+    for (var contribution : pendingHop.contributions()) {
+      ctx.recordHasBinding(contribution.bindingContext(), contribution.slots());
+    }
+    OrderedExpandAccept.restoreSourceProjection(ctx, pendingHop.fromAlias(),
+        pendingHop.sourceProjection());
+    OrderedExpandAccept.installSourceCarrier(ctx, pendingHop.fromAlias());
+    stages.add(1,
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Project(
+            walker.orderedProjectionSplits()));
+    ctx.appendListShapingOp(new OrderedExpandSliceListShapingOp(stages));
     return Outcome.ACCEPTED;
   }
 

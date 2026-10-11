@@ -78,6 +78,12 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * whole walk — and a captured child that ends up discarded leaves behind at most an unused slot, an
  * over-conservative cache bypass, or a gap in the alias sequence, none of which changes an answer.
  *
+ * <p>Bindings, their slot layouts, cache eligibility, and alias minting write straight through to
+ * the parent. They describe the whole walk rather than a connective's filter. A failed child
+ * discards the entire walk, so its provisional layout never becomes a cached template.
+ * {@link #boundaryClassName()} uses {@link #classForAlias(String)} for the current boundary alias.
+ * That lookup reads the child's captured class first and then checks the parent.
+ *
  * <h2>Classification the combinator reads back</h2>
  *
  * After a driven walk the adapter exposes {@link #outcome()} and the captured state:
@@ -512,6 +518,14 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     parent.markRidBearing();
   }
 
+  @Override
+  public void recordHasBinding(
+      HasBindingContext bindingContext, List<HasBindingContext.Slot> slots) {
+    // Slots are allocated on the parent even inside a captured child. A successfully translated
+    // child contributes those slots to the enclosing plan, including detached NOT expressions.
+    parent.recordHasBinding(bindingContext, slots);
+  }
+
   /**
    * Swallowed: a child changes the parent's filter, never its result shape. A hop child would
    * otherwise re-pin the boundary to its own target and move the outer result column onto it.
@@ -638,6 +652,27 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     // Always false: the adapter never holds a captured ORDER BY, and forwarding the parent's
     // answer would let a slice inside a combinator child ride a sort the child did not capture.
     return false;
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop pendingOrderedHop() {
+    return null;
+  }
+
+  @Override
+  public void setPendingOrderedHop(@Nullable PendingOrderedHop hop) {
+    // Swallowed — a child's hop does not defer on the parent.
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop takePendingOrderedHop() {
+    return null;
+  }
+
+  @Override
+  public boolean flushPendingOrderedHop() {
+    // No-op success — see pendingOrderedHop().
+    return true;
   }
 
   @Override
