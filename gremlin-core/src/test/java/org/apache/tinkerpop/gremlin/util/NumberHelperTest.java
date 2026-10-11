@@ -1,0 +1,841 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+package org.apache.tinkerpop.gremlin.util;
+
+import org.apache.tinkerpop.gremlin.process.traversal.GType;
+import org.javatuples.Quartet;
+import org.javatuples.Triplet;
+import org.junit.Test;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.math.RoundingMode;
+import java.util.Arrays;
+import java.util.List;
+
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.add;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.compare;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.div;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.getHighestCommonNumberClass;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.getHighestCommonNumberInfo;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.max;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.min;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.mul;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.sub;
+import static org.apache.tinkerpop.gremlin.util.NumberHelper.NumberInfo;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+/**
+ * @author Daniel Kuppitz (http://gremlin.guru)
+ */
+public class NumberHelperTest {
+
+    private final static List<Number> EACH_NUMBER_TYPE = Arrays.asList(
+            (byte) 1, (short) 1, 1, 1L, 1F, 1D, BigInteger.ONE, BigDecimal.ONE
+    );
+
+    private final static List<Triplet<Number, Integer, Boolean>> NUMBER_INFO_CASES = Arrays.asList(
+            new Triplet<>((byte)1, 8, false),
+            new Triplet<>((short)1, 16, false),
+            new Triplet<>(1, 32, false),
+            new Triplet<>(1L, 64, false),
+            new Triplet<>(BigInteger.ONE, 128, false),
+            new Triplet<>(1F, 32, true),
+            new Triplet<>(1D, 64, true),
+            new Triplet<>(BigDecimal.ONE, 128, true)
+    );
+
+    private final static List<Quartet<Number, Number, Class<? extends Number>, Class<? extends Number>>> COMMON_NUMBER_CLASSES =
+            Arrays.asList(
+                    // BYTE
+                    new Quartet<>((byte) 1, (byte) 1, Byte.class, Float.class),
+                    new Quartet<>((byte) 1, (short) 1, Short.class, Float.class),
+                    new Quartet<>((byte) 1, 1, Integer.class, Float.class),
+                    new Quartet<>((byte) 1, 1L, Long.class, Double.class),
+                    new Quartet<>((byte) 1, 1F, Float.class, Float.class),
+                    new Quartet<>((byte) 1, 1D, Double.class, Double.class),
+                    new Quartet<>((byte) 1, BigInteger.ONE, BigInteger.class, BigDecimal.class),
+                    new Quartet<>((byte) 1, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // SHORT
+                    new Quartet<>((short) 1, (short) 1, Short.class, Float.class),
+                    new Quartet<>((short) 1, 1, Integer.class, Float.class),
+                    new Quartet<>((short) 1, 1L, Long.class, Double.class),
+                    new Quartet<>((short) 1, 1F, Float.class, Float.class),
+                    new Quartet<>((short) 1, 1D, Double.class, Double.class),
+                    new Quartet<>((short) 1, BigInteger.ONE, BigInteger.class, BigDecimal.class),
+                    new Quartet<>((short) 1, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // INTEGER
+                    new Quartet<>(1, 1, Integer.class, Float.class),
+                    new Quartet<>(1, 1L, Long.class, Double.class),
+                    new Quartet<>(1, 1F, Float.class, Float.class),
+                    new Quartet<>(1, 1D, Double.class, Double.class),
+                    new Quartet<>(1, BigInteger.ONE, BigInteger.class, BigDecimal.class),
+                    new Quartet<>(1, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // LONG
+                    new Quartet<>(1L, 1L, Long.class, Double.class),
+                    new Quartet<>(1L, 1F, Double.class, Double.class),
+                    new Quartet<>(1L, 1D, Double.class, Double.class),
+                    new Quartet<>(1L, BigInteger.ONE, BigInteger.class, BigDecimal.class),
+                    new Quartet<>(1L, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // FLOAT
+                    new Quartet<>(1F, 1F, Float.class, Float.class),
+                    new Quartet<>(1F, 1D, Double.class, Double.class),
+                    new Quartet<>(1F, BigInteger.ONE, BigDecimal.class, BigDecimal.class),
+                    new Quartet<>(1F, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // DOUBLE
+                    new Quartet<>(1D, 1D, Double.class, Double.class),
+                    new Quartet<>(1D, BigInteger.ONE, BigDecimal.class, BigDecimal.class),
+                    new Quartet<>(1D, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // BIG INTEGER
+                    new Quartet<>(BigInteger.ONE, BigInteger.ONE, BigInteger.class, BigDecimal.class),
+                    new Quartet<>(BigInteger.ONE, BigDecimal.ONE, BigDecimal.class, BigDecimal.class),
+                    // BIG DECIMAL
+                    new Quartet<>(BigDecimal.ONE, BigDecimal.ONE, BigDecimal.class, BigDecimal.class)
+            );
+
+    private final static List<Triplet<Number, Number, String>> OVERFLOW_CASES = Arrays.asList(
+            new Triplet<>(Long.MAX_VALUE, 1L, "add"),
+            new Triplet<>(Long.MIN_VALUE, 1L, "sub"),
+            new Triplet<>(Long.MIN_VALUE, -1L, "mul"),
+            new Triplet<>(Long.MIN_VALUE, -1L, "div"),
+            new Triplet<>(Long.MAX_VALUE,  Integer.MAX_VALUE, "mul")
+    );
+
+    private final static List<Quartet<Number, Number, String, String>> NO_OVERFLOW_CASES = Arrays.asList(
+            new Quartet<>(Byte.MIN_VALUE, (byte)-1, "div", "s"),
+            new Quartet<>(Byte.MAX_VALUE, (byte)100, "add", "s"),
+            new Quartet<>(Byte.MIN_VALUE, (byte)100, "sub", "s"),
+            new Quartet<>((byte)100, (byte)100, "mul", "s"),
+            new Quartet<>(Byte.MAX_VALUE, 0.5f, "div", "f"),
+            new Quartet<>(Short.MIN_VALUE, (short)-1, "div", "i"),
+            new Quartet<>(Short.MAX_VALUE, (short)100, "add", "i"),
+            new Quartet<>(Short.MIN_VALUE, (short)100, "sub", "i"),
+            new Quartet<>(Short.MAX_VALUE, (short)100, "mul", "i"),
+            new Quartet<>(Short.MAX_VALUE, 0.5f, "div", "f"),
+            new Quartet<>(Integer.MIN_VALUE, -1, "div", "l"),
+            new Quartet<>(Integer.MAX_VALUE, 1, "add", "l"),
+            new Quartet<>(Integer.MIN_VALUE, 1, "sub", "l"),
+            new Quartet<>(Integer.MAX_VALUE, Integer.MAX_VALUE, "mul", "l"),
+            new Quartet<>(Integer.MAX_VALUE, 0.5f, "div", "f"),
+            new Quartet<>(Long.MAX_VALUE, 0.5f, "div", "d")
+    );
+
+    @Test
+    public void shouldReturnHighestCommonNumberNumberInfo() {
+        for (final Triplet<Number, Integer, Boolean> q : NUMBER_INFO_CASES) {
+            NumberInfo numberInfo = getHighestCommonNumberInfo(false, q.getValue0(), q.getValue0());
+            assertEquals(numberInfo.getBits(), (int)q.getValue1());
+            assertEquals(numberInfo.getFp(), (boolean)q.getValue2());
+        }
+    }
+
+    @Test
+    public void shouldReturnHighestCommonNumberClass() {
+        for (final Quartet<Number, Number, Class<? extends Number>, Class<? extends Number>> q : COMMON_NUMBER_CLASSES) {
+            assertEquals(q.getValue2(), getHighestCommonNumberClass(q.getValue0(), q.getValue1()));
+            assertEquals(q.getValue2(), getHighestCommonNumberClass(q.getValue1(), q.getValue0()));
+            assertEquals(q.getValue3(), getHighestCommonNumberClass(true, q.getValue0(), q.getValue1()));
+            assertEquals(q.getValue3(), getHighestCommonNumberClass(true, q.getValue1(), q.getValue0()));
+        }
+        // Double.NaN and null are not numbers and thus should be ignored
+        for (final Number number : EACH_NUMBER_TYPE) {
+            assertEquals(number.getClass(), getHighestCommonNumberClass(number, Double.NaN));
+            assertEquals(number.getClass(), getHighestCommonNumberClass(Double.NaN, number));
+            assertEquals(number.getClass(), getHighestCommonNumberClass(number, null));
+            assertEquals(number.getClass(), getHighestCommonNumberClass(null, number));
+        }
+    }
+
+    @Test
+    public void shouldHandleAllNullInput() {
+        assertNull(add(null, null));
+        assertNull(sub(null, null));
+        assertNull(mul(null, null));
+        assertNull(div(null, null));
+        assertNull(max((Number) null, null));
+        assertNull(max((Comparable) null, null));
+        assertNull(min((Number) null, null));
+        assertNull(min((Comparable) null, null));
+        assertEquals(0, compare(null, null).intValue());
+    }
+
+    @Test
+    public void shouldAddAndReturnCorrectType() {
+        assertEquals((byte) 1, add((byte) 1, (Byte) null));
+        assertNull(add((Byte) null, (byte) 1));
+
+        // BYTE
+        assertEquals((byte) 2, add((byte) 1, (byte) 1));
+        assertEquals((short) 2, add((byte) 1, (short) 1));
+        assertEquals(2, add((byte) 1, 1));
+        assertEquals(2L, add((byte) 1, 1L));
+        assertEquals(2F, add((byte) 1, 1F));
+        assertEquals(2D, add((byte) 1, 1D));
+        assertEquals(BigInteger.ONE.add(BigInteger.ONE), add((byte) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add((byte) 1, BigDecimal.ONE));
+
+        // SHORT
+        assertEquals((short)2, add((short) 1, (short) 1));
+        assertEquals(2, add((short) 1, 1));
+        assertEquals(2L, add((short) 1, 1L));
+        assertEquals(2F, add((short) 1, 1F));
+        assertEquals(2D, add((short) 1, 1D));
+        assertEquals(BigInteger.ONE.add(BigInteger.ONE), add((short) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add((short) 1, BigDecimal.ONE));
+
+        // INTEGER
+        assertEquals(2, add(1, 1));
+        assertEquals(2L, add(1, 1L));
+        assertEquals(2F, add(1, 1F));
+        assertEquals(2D, add(1, 1D));
+        assertEquals(BigInteger.ONE.add(BigInteger.ONE), add(1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add(1, BigDecimal.ONE));
+
+        // LONG
+        assertEquals(2L, add(1L, 1L));
+        assertEquals(2D, add(1L, 1F));
+        assertEquals(2D, add(1L, 1D));
+        assertEquals(BigInteger.ONE.add(BigInteger.ONE), add(1L, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add(1L, BigDecimal.ONE));
+
+        // FLOAT
+        assertEquals(2F, add(1F, 1F));
+        assertEquals(2D, add(1F, 1D));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE).setScale(1, RoundingMode.HALF_UP), add(1F, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE).setScale(1, RoundingMode.HALF_UP), add(1F, BigDecimal.ONE));
+
+        // DOUBLE
+        assertEquals(2D, add(1D, 1D));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE).setScale(1, RoundingMode.HALF_UP), add(1D, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE).setScale(1, RoundingMode.HALF_UP), add(1D, BigDecimal.ONE));
+
+        // BIG INTEGER
+        assertEquals(BigInteger.ONE.add(BigInteger.ONE), add(BigInteger.ONE, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add(BigInteger.ONE, BigDecimal.ONE));
+
+        // BIG DECIMAL
+        assertEquals(BigDecimal.ONE.add(BigDecimal.ONE), add(BigDecimal.ONE, BigDecimal.ONE));
+    }
+
+    @Test
+    public void shouldSubtractAndReturnCorrectType() {
+        assertEquals((byte) 1, sub((byte) 1, (Byte) null));
+        assertNull(sub((Byte) null, (byte) 1));
+
+        // BYTE
+        assertEquals((byte) 0, sub((byte) 1, (byte) 1));
+        assertEquals((short) 0, sub((byte) 1, (short) 1));
+        assertEquals(0, sub((byte) 1, 1));
+        assertEquals(0L, sub((byte) 1, 1L));
+        assertEquals(0F, sub((byte) 1, 1F));
+        assertEquals(0D, sub((byte) 1, 1D));
+        assertEquals(BigInteger.ZERO, sub((byte) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO, sub((byte) 1, BigDecimal.ONE));
+
+        // SHORT
+        assertEquals((short) 0, sub((short) 1, (short) 1));
+        assertEquals(0, sub((short) 1, 1));
+        assertEquals(0L, sub((short) 1, 1L));
+        assertEquals(0F, sub((short) 1, 1F));
+        assertEquals(0D, sub((short) 1, 1D));
+        assertEquals(BigInteger.ZERO, sub((short) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO, sub((short) 1, BigDecimal.ONE));
+
+        // INTEGER
+        assertEquals(0, sub(1, 1));
+        assertEquals(0L, sub(1, 1L));
+        assertEquals(0F, sub(1, 1F));
+        assertEquals(0D, sub(1, 1D));
+        assertEquals(BigInteger.ZERO, sub(1, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO, sub(1, BigDecimal.ONE));
+
+        // LONG
+        assertEquals(0L, sub(1L, 1L));
+        assertEquals(0D, sub(1L, 1F));
+        assertEquals(0D, sub(1L, 1D));
+        assertEquals(BigInteger.ZERO, sub(1L, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO, sub(1L, BigDecimal.ONE));
+
+        // FLOAT
+        assertEquals(0F, sub(1F, 1F));
+        assertEquals(0D, sub(1F, 1D));
+        assertEquals(BigDecimal.ZERO.setScale(1, RoundingMode.HALF_UP), sub(1F, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO.setScale(1, RoundingMode.HALF_UP), sub(1F, BigDecimal.ONE));
+
+        // DOUBLE
+        assertEquals(0D, sub(1D, 1D));
+        assertEquals(BigDecimal.ZERO.setScale(1, RoundingMode.HALF_UP), sub(1D, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO.setScale(1, RoundingMode.HALF_UP), sub(1D, BigDecimal.ONE));
+
+        // BIG INTEGER
+        assertEquals(BigInteger.ZERO, sub(BigInteger.ONE, BigInteger.ONE));
+        assertEquals(BigDecimal.ZERO, sub(BigInteger.ONE, BigDecimal.ONE));
+
+        // BIG DECIMAL
+        assertEquals(BigDecimal.ZERO, sub(BigDecimal.ONE, BigDecimal.ONE));
+    }
+
+    @Test
+    public void shouldMultiplyAndReturnCorrectType() {
+        assertEquals((byte) 1, mul((byte) 1, (Byte) null));
+        assertNull(mul((Byte) null, (byte) 1));
+
+        // BYTE
+        assertEquals((byte) 1, mul((byte) 1, (byte) 1));
+        assertEquals((short) 1, mul((byte) 1, (short) 1));
+        assertEquals(1, mul((byte) 1, 1));
+        assertEquals(1L, mul((byte) 1, 1L));
+        assertEquals(1F, mul((byte) 1, 1F));
+        assertEquals(1D, mul((byte) 1, 1D));
+        assertEquals(BigInteger.ONE, mul((byte) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, mul((byte) 1, BigDecimal.ONE));
+
+        // SHORT
+        assertEquals((short) 1, mul((short) 1, (short) 1));
+        assertEquals(1, mul((short) 1, 1));
+        assertEquals(1L, mul((short) 1, 1L));
+        assertEquals(1F, mul((short) 1, 1F));
+        assertEquals(1D, mul((short) 1, 1D));
+        assertEquals(BigInteger.ONE, mul((short) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, mul((short) 1, BigDecimal.ONE));
+
+        // INTEGER
+        assertEquals(1, mul(1, 1));
+        assertEquals(1L, mul(1, 1L));
+        assertEquals(1F, mul(1, 1F));
+        assertEquals(1D, mul(1, 1D));
+        assertEquals(BigInteger.ONE, mul(1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, mul(1, BigDecimal.ONE));
+
+        // LONG
+        assertEquals(1L, mul(1L, 1L));
+        assertEquals(1D, mul(1L, 1F));
+        assertEquals(1D, mul(1L, 1D));
+        assertEquals(BigInteger.ONE, mul(1L, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, mul(1L, BigDecimal.ONE));
+
+        // FLOAT
+        assertEquals(1F, mul(1F, 1F));
+        assertEquals(1D, mul(1F, 1D));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), mul(1F, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), mul(1F, BigDecimal.ONE));
+
+        // DOUBLE
+        assertEquals(1D, mul(1D, 1D));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), mul(1D, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), mul(1D, BigDecimal.ONE));
+
+        // BIG INTEGER
+        assertEquals(BigInteger.ONE, mul(BigInteger.ONE, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, mul(BigInteger.ONE, BigDecimal.ONE));
+
+        // BIG DECIMAL
+        assertEquals(BigDecimal.ONE, mul(BigDecimal.ONE, BigDecimal.ONE));
+    }
+
+    @Test
+    public void shouldDivideAndReturnCorrectType() {
+        assertEquals((byte) 1, div((byte) 1, (Byte) null));
+        assertNull(div((Byte) null, (byte) 1));
+
+        // BYTE
+        assertEquals((byte) 1, div((byte) 1, (byte) 1));
+        assertEquals((short) 1, div((byte) 1, (short) 1));
+        assertEquals(1, div((byte) 1, 1));
+        assertEquals(1L, div((byte) 1, 1L));
+        assertEquals(1F, div((byte) 1, 1F));
+        assertEquals(1D, div((byte) 1, 1D));
+        assertEquals(BigInteger.ONE, div((byte) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, div((byte) 1, BigDecimal.ONE));
+
+        // SHORT
+        assertEquals((short) 1, div((short) 1, (short) 1));
+        assertEquals(1, div((short) 1, 1));
+        assertEquals(1L, div((short) 1, 1L));
+        assertEquals(1F, div((short) 1, 1F));
+        assertEquals(1D, div((short) 1, 1D));
+        assertEquals(BigInteger.ONE, div((short) 1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, div((short) 1, BigDecimal.ONE));
+
+        // INTEGER
+        assertEquals(1, div(1, 1));
+        assertEquals(1L, div(1, 1L));
+        assertEquals(1F, div(1, 1F));
+        assertEquals(1D, div(1, 1D));
+        assertEquals(BigInteger.ONE, div(1, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, div(1, BigDecimal.ONE));
+
+        // LONG
+        assertEquals(1L, div(1L, 1L));
+        assertEquals(1D, div(1L, 1F));
+        assertEquals(1D, div(1L, 1D));
+        assertEquals(BigInteger.ONE, div(1L, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, div(1L, BigDecimal.ONE));
+
+        // FLOAT
+        assertEquals(1F, div(1F, 1F));
+        assertEquals(1D, div(1F, 1D));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1F, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1F, BigDecimal.ONE));
+
+        // DOUBLE
+        assertEquals(1D, div(1D, 1D));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1D, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1D, BigDecimal.ONE));
+
+        // BIG INTEGER
+        assertEquals(BigInteger.ONE, div(BigInteger.ONE, BigInteger.ONE));
+        assertEquals(BigDecimal.ONE, div(BigInteger.ONE, BigDecimal.ONE));
+
+        // BIG DECIMAL
+        assertEquals(BigDecimal.ONE, div(BigDecimal.ONE, BigDecimal.ONE));
+    }
+
+    @Test
+    public void shouldDivideForceFloatingPointAndReturnCorrectType() {
+        // BYTE
+        assertEquals(1F, div((byte) 1, (byte) 1, true));
+        assertEquals(1F, div((byte) 1, (short) 1, true));
+        assertEquals(1F, div((byte) 1, 1, true));
+        assertEquals(1D, div((byte) 1, 1L, true));
+        assertEquals(1F, div((byte) 1, 1F, true));
+        assertEquals(1D, div((byte) 1, 1D, true));
+        assertEquals(BigDecimal.ONE, div((byte) 1, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE, div((byte) 1, BigDecimal.ONE, true));
+
+        // SHORT
+        assertEquals(1F, div((short) 1, (short) 1, true));
+        assertEquals(1F, div((short) 1, 1, true));
+        assertEquals(1D, div((short) 1, 1L, true));
+        assertEquals(1F, div((short) 1, 1F, true));
+        assertEquals(1D, div((short) 1, 1D, true));
+        assertEquals(BigDecimal.ONE, div((short) 1, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE, div((short) 1, BigDecimal.ONE, true));
+
+        // INTEGER
+        assertEquals(1F, div(1, 1, true));
+        assertEquals(1D, div(1, 1L, true));
+        assertEquals(1F, div(1, 1F, true));
+        assertEquals(1D, div(1, 1D, true));
+        assertEquals(BigDecimal.ONE, div(1, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE, div(1, BigDecimal.ONE, true));
+
+        // LONG
+        assertEquals(1D, div(1L, 1L, true));
+        assertEquals(1D, div(1L, 1F, true));
+        assertEquals(1D, div(1L, 1D, true));
+        assertEquals(BigDecimal.ONE, div(1L, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE, div(1L, BigDecimal.ONE, true));
+
+        // FLOAT
+        assertEquals(1F, div(1F, 1F, true));
+        assertEquals(1D, div(1F, 1D, true));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1F, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1F, BigDecimal.ONE, true));
+
+        // DOUBLE
+        assertEquals(1D, div(1D, 1D, true));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1D, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE.setScale(1, RoundingMode.HALF_UP), div(1D, BigDecimal.ONE, true));
+
+        // BIG INTEGER
+        assertEquals(BigDecimal.ONE, div(BigInteger.ONE, BigInteger.ONE, true));
+        assertEquals(BigDecimal.ONE, div(BigInteger.ONE, BigDecimal.ONE, true));
+
+        // BIG DECIMAL
+        assertEquals(BigDecimal.ONE, div(BigDecimal.ONE, BigDecimal.ONE, true));
+    }
+
+    @Test
+    public void testMinMaxCompare() {
+
+        final List<Number> zeros = Arrays.asList((byte) 0, (short) 0, 0, 0L, 0F, 0D, BigInteger.ZERO, BigDecimal.ZERO);
+        final List<Number> ones = Arrays.asList((byte) 1, (short) 1, 1, 1L, 1F, 1D, BigInteger.ONE, BigDecimal.ONE);
+
+        for (Number zero : zeros) {
+            for (Number one : ones) {
+                assertEquals(0, min(zero, one).intValue());
+                assertEquals(0, min(one, zero).intValue());
+                assertEquals(1, max(zero, one).intValue());
+                assertEquals(1, max(one, zero).intValue());
+                assertTrue(compare(zero, one) < 0);
+                assertTrue(compare(one, zero) > 0);
+                assertTrue(compare(zero, zero) == 0);
+                assertTrue(compare(one, one) == 0);
+            }
+        }
+
+        for (Number one : ones) {
+            assertEquals(1, min(null, one).intValue());
+            assertEquals(1, min(one, null).intValue());
+            assertEquals(1, max(null, one).intValue());
+            assertEquals(1, max(one, null).intValue());
+
+            assertEquals(-1, compare(null, one).intValue());
+            assertEquals(1, compare(one, null).intValue());
+        }
+    }
+
+    @Test
+    public void shouldPromoteFloatToDoubleForAdd() {
+        Number value = add(Float.MAX_VALUE, Float.MAX_VALUE);
+        assertTrue(value instanceof Double);
+        assertFalse(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldPromoteDoubleToInfiniteForAdd() {
+        Number value = add(Double.MAX_VALUE, Double.MAX_VALUE);
+        assertTrue(value instanceof Double);
+        assertTrue(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldPromoteFloatToDoubleForMul() {
+        Number value = mul(Float.MAX_VALUE, 2F);
+        assertTrue(value instanceof Double);
+        assertFalse(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldPromoteDoubleToInfiniteForMul() {
+        Number value = mul(Double.MAX_VALUE, 2F);
+        assertTrue(value instanceof Double);
+        assertTrue(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldPromoteFloatToDoubleForDiv() {
+        Number value = div(Float.MAX_VALUE, 0.5F);
+        assertTrue(value instanceof Double);
+        assertFalse(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldPromoteDoubleToInfiniteForDiv() {
+        Number value = div(Double.MAX_VALUE, 0.5F);
+        assertTrue(value instanceof Double);
+        assertTrue(Double.isInfinite(value.doubleValue()));
+    }
+
+    @Test
+    public void shouldThrowArithmeticExceptionOnOverflow() {
+        for (final Triplet<Number, Number, String> q : OVERFLOW_CASES) {
+            try {
+                switch (q.getValue2()) {
+                    case "add":
+                        add(q.getValue0(), q.getValue1());
+                        break;
+                    case "sub":
+                        sub(q.getValue0(), q.getValue1());
+                        break;
+                    case "mul":
+                        mul(q.getValue0(), q.getValue1());
+                        break;
+                    case "div":
+                        div(q.getValue0(), q.getValue1());
+                        break;
+                    default:
+                        fail("Unexpected math operation " + q.getValue2() + "'");
+                }
+                fail("ArithmeticException expected");
+            }
+            catch (ArithmeticException ex) {
+                // expected
+            }
+        }
+    }
+
+    @Test
+    public void shouldNotThrowArithmeticExceptionOnOverflow() {
+        for (final Quartet<Number, Number, String, String> q : NO_OVERFLOW_CASES) {
+            try {
+                Number result = 0;
+                switch (q.getValue2()) {
+                    case "add":
+                        result = add(q.getValue0(), q.getValue1());
+                        break;
+                    case "sub":
+                        result = sub(q.getValue0(), q.getValue1());
+                        break;
+                    case "mul":
+                        result = mul(q.getValue0(), q.getValue1());
+                        break;
+                    case "div":
+                        result = div(q.getValue0(), q.getValue1());
+                        break;
+                    default:
+                        fail("Unexpected math operation '" + q.getValue2() + "'");
+                }
+                String classValue = result.getClass().toString();
+                switch (q.getValue3()) {
+                    case "s":
+                        assertEquals("class java.lang.Short", classValue);
+                        break;
+                    case "i":
+                        assertEquals("class java.lang.Integer", classValue);
+                        break;
+                    case "l":
+                        assertEquals("class java.lang.Long", classValue);
+                        break;
+                    case "f":
+                        assertEquals("class java.lang.Float", classValue);
+                        break;
+                    case "d":
+                        assertEquals("class java.lang.Double", classValue);
+                        break;
+                    default:
+                        fail("Unexpected class type '" + q.getValue3() + "'");
+                }
+            }
+            catch (ArithmeticException ex) {
+                fail("ArithmeticException bot expected");
+            }
+        }
+    }
+
+    @Test
+    public void shouldCoerceToReturnSameInstanceForSameClass() {
+        final Integer value = 42;
+        assertEquals(value, NumberHelper.coerceTo(value, Integer.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToByte() {
+        final Integer value = 42;
+        assertEquals(Byte.valueOf((byte) 42), NumberHelper.coerceTo(value, Byte.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToShort() {
+        final Integer value = 42;
+        assertEquals(Short.valueOf((short) 42), NumberHelper.coerceTo(value, Short.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToLong() {
+        final Integer value = 42;
+        assertEquals(Long.valueOf(42L), NumberHelper.coerceTo(value, Long.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToFloat() {
+        final Integer value = 42;
+        assertEquals(Float.valueOf(42.0f), NumberHelper.coerceTo(value, Float.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToDouble() {
+        final Integer value = 42;
+        assertEquals(Double.valueOf(42.0), NumberHelper.coerceTo(value, Double.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToBigInteger() {
+        final Integer value = 42;
+        assertEquals(BigInteger.valueOf(42), NumberHelper.coerceTo(value, BigInteger.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToBigDecimal() {
+        final Integer value = 42;
+        assertEquals(BigDecimal.valueOf(42), NumberHelper.coerceTo(value, BigDecimal.class));
+    }
+
+    @Test
+    public void shouldCoerceToRetainOriginalTypeIfCannotFitInByte() {
+        final Integer value = 128;
+        assertEquals(value, NumberHelper.coerceTo(value, Byte.class));
+    }
+
+    @Test
+    public void shouldCoerceToRetainOriginalTypeIfCannotFitInShort() {
+        final Integer value = 32768;
+        assertEquals(value, NumberHelper.coerceTo(value, Short.class));
+    }
+
+    @Test
+    public void shouldCoerceToRetainOriginalTypeIfCannotFitInInteger() {
+        final Long value = 2147483648L;
+        assertEquals(value, NumberHelper.coerceTo(value, Integer.class));
+    }
+
+    @Test
+    public void shouldCoerceToRetainOriginalTypeIfCannotFitInFloat() {
+        final Double value = Double.MAX_VALUE;
+        assertEquals(value, NumberHelper.coerceTo(value, Float.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToByteIfCanFit() {
+        final Integer value = 42;
+        assertEquals(Byte.valueOf((byte) 42), NumberHelper.coerceTo(value, Byte.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToShortIfCanFit() {
+        final Integer value = 42;
+        assertEquals(Short.valueOf((short) 42), NumberHelper.coerceTo(value, Short.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToIntegerIfCanFit() {
+        final Long value = 42L;
+        assertEquals(Integer.valueOf(42), NumberHelper.coerceTo(value, Integer.class));
+    }
+
+    @Test
+    public void shouldCoerceToConvertToFloatIfCanFit() {
+        final Double value = 42.0;
+        assertEquals(Float.valueOf(42.0f), NumberHelper.coerceTo(value, Float.class));
+    }
+
+
+    @Test
+    public void shouldCastToReturnSameInstanceForSameClass() {
+        final Integer value = 42;
+        assertEquals(value, NumberHelper.castTo(value, GType.INT));
+    }
+
+    @Test
+    public void shouldCastToConvertToByte() {
+        final Integer value = 42;
+        assertEquals(Byte.valueOf((byte) 42), NumberHelper.castTo(value, GType.BYTE));
+    }
+
+    @Test
+    public void shouldCastToConvertToShort() {
+        final Integer value = 42;
+        assertEquals(Short.valueOf((short) 42), NumberHelper.castTo(value, GType.SHORT));
+    }
+
+    @Test
+    public void shouldCastToConvertToLong() {
+        final Integer value = 42;
+        assertEquals(Long.valueOf(42L), NumberHelper.castTo(value, GType.LONG));
+    }
+
+    @Test
+    public void shouldCastToConvertToFloat() {
+        final Integer value = 42;
+        assertEquals(Float.valueOf(42.0f), NumberHelper.castTo(value, GType.FLOAT));
+    }
+
+    @Test
+    public void shouldCastToConvertToDouble() {
+        final Integer value = 42;
+        assertEquals(Double.valueOf(42.0), NumberHelper.castTo(value, GType.DOUBLE));
+    }
+
+    @Test
+    public void shouldCastToConvertToBigInteger() {
+        final Integer value = 42;
+        assertEquals(BigInteger.valueOf(42), NumberHelper.castTo(value, GType.BIGINT));
+    }
+
+    @Test
+    public void shouldCastToConvertDoubleToBigInteger() {
+        final Double value = new Double("1000000000000000000000");
+        assertEquals(new BigInteger("1000000000000000000000"), NumberHelper.castTo(value, GType.BIGINT));
+    }
+
+    @Test
+    public void shouldCastToConvertToBigDecimal() {
+        final Integer value = 42;
+        assertEquals(BigDecimal.valueOf(42), NumberHelper.castTo(value, GType.BIGDECIMAL));
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfCannotFitInByte() {
+        final Integer value = 128;
+        NumberHelper.castTo(value, GType.BYTE);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfCannotFitInShort() {
+        final Integer value = 32768;
+        NumberHelper.castTo(value, GType.SHORT);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfCannotFitInInteger() {
+        final Long value = 2147483648L;
+        NumberHelper.castTo(value, GType.INT);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfCannotFitInFloat() {
+        final Double value = Double.MAX_VALUE;
+        NumberHelper.castTo(value, GType.FLOAT);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfBigDecimalCannotFitInFloat() {
+        NumberHelper.castTo(new BigDecimal("1E400"), GType.FLOAT);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfBigIntegerCannotFitInFloat() {
+        NumberHelper.castTo(new BigInteger("1").shiftLeft(2000), GType.FLOAT);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfBigDecimalCannotFitInDouble() {
+        NumberHelper.castTo(new BigDecimal("1E400"), GType.DOUBLE);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldOverflowIfBigIntegerCannotFitInDouble() {
+        NumberHelper.castTo(new BigInteger("1").shiftLeft(2000), GType.DOUBLE);
+    }
+
+    @Test(expected = ArithmeticException.class)
+    public void shouldUnderflowIfDoubleCannotFitInInteger() {
+        final Double value = -Double.MAX_VALUE;
+        NumberHelper.castTo(value, GType.INT);
+    }
+
+    @Test
+    public void shouldCastDoubleInfinityToFloatInfinity() {
+        assertEquals(Float.POSITIVE_INFINITY, NumberHelper.castTo(Double.POSITIVE_INFINITY, GType.FLOAT));
+        assertEquals(Float.NEGATIVE_INFINITY, NumberHelper.castTo(Double.NEGATIVE_INFINITY, GType.FLOAT));
+    }
+
+    @Test
+    public void shouldCastFloatInfinityToDoubleInfinity() {
+        assertEquals(Double.POSITIVE_INFINITY, NumberHelper.castTo(Float.POSITIVE_INFINITY, GType.DOUBLE));
+        assertEquals(Double.NEGATIVE_INFINITY, NumberHelper.castTo(Float.NEGATIVE_INFINITY, GType.DOUBLE));
+    }
+
+    @Test
+    public void shouldCastFloatNaNToDoubleNaN() {
+        assertEquals(Double.NaN, NumberHelper.castTo(Float.NaN, GType.DOUBLE));
+    }
+
+    @Test
+    public void shouldCastDoubleNaNToFloatNaN() {
+        assertEquals(Float.NaN, NumberHelper.castTo(Double.NaN, GType.FLOAT));
+    }
+
+}

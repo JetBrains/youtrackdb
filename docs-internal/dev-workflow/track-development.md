@@ -45,15 +45,19 @@ the track's closing event whenever anything but prose landed in between.
 
 ### Mid-track commit gate
 
-A commit inside a track requires exactly this to pass:
+A commit inside a track must pass its compile gate. The default command is:
 
 ```bash
 ./mvnw -pl <modules with changed files> -am -amd test-compile
 ```
 
-No unit tests, no integration tests, no coverage. `test-compile` rather than `compile` because
-it compiles test sources — under bare `compile` test code rots silently for the length of a
-track — and because it still triggers Spotless and all source generation.
+Replace `test-compile` with `package -DskipTests` whenever the resolved set contains
+`gremlin-shaded`. The resolved set includes changed modules, `-am` upstream dependencies,
+and `-amd` downstream consumers. This applies to almost every check today.
+The shading rule below also covers the `embedded` shaded artifact.
+
+No unit tests, no integration tests, no coverage. Both phases compile test sources and trigger
+Spotless and all source generation. Bare `compile` does not compile test sources.
 
 **`-am` is mandatory.** Without it a `-pl` build resolves siblings from the local repository
 instead of the working tree, so a stale installed snapshot can report green over code that does
@@ -62,15 +66,24 @@ not compile against the tree.
 **`-amd` is mandatory too, and is not interchangeable with `-am`.** `-am` (`--also-make`) adds
 upstream dependencies; `-amd` (`--also-make-dependents`) adds the downstream modules that
 depend on the named ones, which are otherwise never compiled against the change. On a widely
-consumed module such as `core` this expands to a near-reactor-wide `test-compile`; that is the
-intended price of the gate.
+consumed module such as `core`, this expands to a near-reactor-wide build.
+The shading rule below selects its phase.
 
-**Shading exception.** A change affecting the `embedded` module's shaded artifact replaces the
-phase, because shading binds to `package` and `test-compile` never exercises it:
+**Shading exception.** Use `package -DskipTests` whenever the resolved compile-gate set
+contains `gremlin-shaded`. This set includes changed modules, `-am` upstream dependencies,
+and `-amd` downstream consumers. It does not depend on whether `gremlin-shaded` changed.
+Every module that depends on `gremlin-core` pulls in `gremlin-shaded` through `-am`.
+This covers almost every module, including `core`, `server`, `tests`, and `gremlin-annotations`.
+Consumers need the relocated classes that shading creates at `package`.
+Also use this phase for a change affecting the `embedded` module's shaded artifact.
 
 ```bash
+./mvnw -pl core -am -amd package -DskipTests
+./mvnw -pl gremlin-core -am -amd package -DskipTests
 ./mvnw -pl embedded -am -amd package -DskipTests
 ```
+
+Use `test-compile` only when the resolved set does not need either shaded artifact.
 
 `-DskipTests` is required: a bare `package` runs surefire, including `embedded`'s Cucumber
 suites, turning the compile gate into a full test run. Not `-Dmaven.test.skip=true`, which also
@@ -81,7 +94,8 @@ skips test compilation.
 nothing to name. Their compile gate is reactor-wide:
 
 ```bash
-./mvnw test-compile
+# The whole reactor includes gremlin-shaded.
+./mvnw package -DskipTests
 ```
 
 **No-Maven changes.** A change with no Java files and no module content — documentation, `.pi/`
@@ -93,10 +107,10 @@ Verification scope is not one set. Carrying the compile-gate definition into a t
 silently converts that gate into a reactor-wide test run. The three names below distinguish
 each scope.
 
-**Compile-gate set** — the modules containing changed files **plus their downstream consumers
-in the reactor**, which is what `-am -amd` expresses. Deliberately wide, and not to be
-narrowed: a green `-pl core -am test-compile` says nothing about whether `server` still
-compiles.
+**Compile-gate set** — the resolved reactor selection: modules containing changed files,
+upstream dependencies added by `-am`, and downstream consumers added by `-amd`.
+Keep both flags. A green `-pl core -am package -DskipTests` says nothing about whether
+`server` still compiles. Select the phase from this resolved set using the shading rule above.
 
 **Test-gate set** — the modules containing changed files, plus any downstream module whose own
 tests exercise the changed behavior. No automatic `-amd` fan-out here: a dependent that merely
@@ -192,8 +206,14 @@ when it cannot be bounded that way.
 The reactor order determines the two module sets. Maven resolves this order from the dependency
 graph, not from the module order listed in the root `pom.xml`:
 
-> youtrackdb-parent → test-commons → gremlin-annotations → core → driver → server → tests
-> → embedded → examples → console → docker-tests → jmh-ldbc
+> youtrackdb-parent → tinkerpop-parent → gremlin-shaded → gremlin-language → gremlin-core
+> → gremlin-test → tinkergraph-gremlin → gremlin-util → test-commons → gremlin-annotations
+> → gremlin-groovy → gremlin-socket-server → gremlin-driver → gremlin-server → gremlin-console
+> → core → driver → server → tests → embedded → examples → console → docker-tests → jmh-ldbc
+
+The copied modules add upstream dependencies to the graph. Maven places `gremlin-core`
+before `gremlin-annotations`, which supplies the processor for `gremlin-groovy`.
+Read the current Reactor Build Order from Maven when deriving the gate sets.
 
 Everything to the right of a changed module is a candidate consumer; `-amd` computes the actual
 ones at the compile gate, and the order is what lets you bound a test-gate set by hand.

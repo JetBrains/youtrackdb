@@ -18,6 +18,13 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js</artifactId>
+      <version>${graalvm.version}</version>
+      <type>${graalvm.js.type}</type>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-core</artifactId>
     </dependency>

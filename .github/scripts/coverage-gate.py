@@ -22,6 +22,13 @@ import xml.etree.ElementTree as ET
 
 MAX_COMMENT_CHARS = 60000
 
+# PR 2 removes this temporary exception for the copied TinkerPop modules.
+TINKERPOP_COVERAGE_EXCLUSIONS = frozenset({
+    "gremlin-shaded", "gremlin-language", "gremlin-core", "gremlin-util",
+    "gremlin-driver", "gremlin-groovy", "gremlin-server", "gremlin-console",
+    "gremlin-test", "tinkergraph-gremlin", "gremlin-socket-server",
+})
+
 
 def get_changed_lines(compare_branch):
     """Parse git diff to get changed line numbers per file.
@@ -397,12 +404,40 @@ def main():
     )
     args = parser.parse_args()
 
+    # Every report path supports a parent directory that does not exist yet.
+    if args.output_md:
+        os.makedirs(os.path.dirname(args.output_md) or ".", exist_ok=True)
+
     threshold_label = (
         f"{args.line_threshold:.0f}% line, "
         f"{args.branch_threshold:.0f}% branch"
     )
 
     changed_lines = get_changed_lines(args.compare_branch)
+    excluded_files = [
+        path for path in changed_lines
+        if path.split("/", 1)[0] in TINKERPOP_COVERAGE_EXCLUSIONS
+    ]
+    if excluded_files:
+        print(
+            f"Explicitly excluded {len(excluded_files)} changed Java file(s) "
+            "in copied TinkerPop modules. PR 2 removes this exception."
+        )
+        for path in excluded_files:
+            del changed_lines[path]
+        if not changed_lines:
+            print("No changed Java files outside the explicit TinkerPop coverage exception.")
+            if args.output_md:
+                with open(args.output_md, "w") as f:
+                    f.write(
+                        "<!-- coverage-gate-comment -->\n"
+                        "# Coverage Gate Results\n"
+                        f"**Thresholds**: {threshold_label}\n\n"
+                        f"Explicitly excluded {len(excluded_files)} changed Java files in "
+                        "copied TinkerPop modules. PR 2 removes this exception.\n\n"
+                        "No changed Java files outside this exception.\n"
+                    )
+            return
     if not changed_lines:
         print("No changed Java files found. Skipping coverage gate.")
         if args.output_md:
@@ -446,7 +481,6 @@ def main():
     )
 
     if args.output_md:
-        os.makedirs(os.path.dirname(args.output_md) or ".", exist_ok=True)
         with open(args.output_md, "w") as f:
             f.write(md)
         print(f"Markdown report written to {args.output_md}")

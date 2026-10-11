@@ -298,7 +298,7 @@ Present to the user:
 
 ### CI Gates
 - **Test Count Gate**: Compares per-module test counts against baseline in git notes (`refs/notes/test-counts`). Fails if any module drops >5%. PR comment contains the per-module comparison table. Bypass with `[no-test-number-check]` in PR title (only for intentional restructuring).
-- **Coverage Gate**: 85% line / 70% branch on changed code. Uses `coverage-gate.py`. PR comment has per-file tables.
+- **Coverage Gate**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy, including the temporary exception for the 11 copied TinkerPop modules. Uses `coverage-gate.py`. PR comment has per-file tables.
 
 ### Common Patterns
 - **Profile-gated tests**: Some modules exclude heavyweight tests by default and use `ci-integration-tests` profile with `<excludes combine.self="override"/>` to include them. If CI stops activating that profile, those tests silently disappear.

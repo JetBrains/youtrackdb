@@ -21,9 +21,14 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # If the test-gate set spans multiple modules, test them all
 ./mvnw -pl core,server clean test
 
-# Mid-track compile gate (read Verification integration to select the compile-gate set)
-./mvnw -pl <modules with changed files> -am -amd test-compile
+# Mid-track gate: use the resolved set, including -am upstream and -amd downstream modules.
+# Almost every module depends on gremlin-core and pulls in gremlin-shaded through -am.
+# These checks require package -DskipTests, even when gremlin-shaded did not change.
+./mvnw -pl core -am -amd package -DskipTests
+./mvnw -pl gremlin-core -am -amd package -DskipTests
 ./mvnw -pl embedded -am -amd package -DskipTests
+# Use test-compile only when the resolved set needs neither shaded artifact.
+./mvnw -pl <modules without shaded dependencies> -am -amd test-compile
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images
@@ -90,6 +95,9 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - A bug fix carries a regression test unless one already exists.
 - Prefer existing test classes when they fit the change. Create a new class only when none fits.
 - New or changed code targets 85 percent line coverage and 70 percent branch coverage.
+- The 11 copied TinkerPop modules have a temporary coverage exception until PR 2.
+  Their unit tests still run in every pull request build. Read the exact module list in
+  `docs-internal/dev-workflow/coverage-verification.md`.
 
 Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 

@@ -140,3 +140,42 @@ License: Apache-2.0
 
 Files: studio/CHANGELOG.md
 License: Apache-2.0
+
+Files: gremlin-shaded/* gremlin-language/* gremlin-core/* gremlin-util/*
+ gremlin-driver/* gremlin-groovy/* gremlin-server/* gremlin-console/*
+ gremlin-test/* tinkergraph-gremlin/* gremlin-socket-server/*
+Copyright: The Apache Software Foundation
+License: Apache-2.0
+Comment: Copied from JetBrains/ytdb-tinkerpop commit e3acec558c.
+ Bundled third-party license texts remain in each module's src/main/static/licenses.
+
+Files: data/tinkerpop-modern.json data/tinkerpop-modern.kryo data/tinkerpop-modern.xml
+Copyright: The Apache Software Foundation
+License: Apache-2.0
+Comment: TinkerPop IO test fixtures from JetBrains/ytdb-tinkerpop commit e3acec558c.
+
+Files: NOTICE tinkerpop-parent/pom.xml
+Copyright: JetBrains s.r.o.
+License: Apache-2.0
+
+Files: gremlin-shaded/src/main/static/licenses/fastdoubleparser
+ gremlin-driver/src/main/static/licenses/fastdoubleparser
+ gremlin-console/src/main/static/licenses/fastdoubleparser
+Copyright: 2021, 2023 Werner Randelshofer, Switzerland
+License: MIT
+Comment: Permission text from FastDoubleParser v0.8.0 LICENSE.
+ https://raw.githubusercontent.com/wrandelshofer/FastDoubleParser/v0.8.0/LICENSE
+ The 2023 attribution also appears in Jackson Core 2.15.2 META-INF/NOTICE.
+
+Files: gremlin-driver/src/main/static/licenses/netty-utf8
+ gremlin-console/src/main/static/licenses/netty-utf8
+Copyright: 2008-2009 Bjoern Hoehrmann
+License: MIT
+Comment: Complete notice from Netty 4.1.125.Final Utf8Validator.java.
+
+Files: gremlin-driver/src/main/static/licenses/epl-1.0
+ gremlin-console/src/main/static/licenses/epl-1.0
+Copyright: Eclipse Foundation
+License: EPL-1.0
+Comment: Complete EPL 1.0 text for bundled Logback sources.
+ https://www.eclipse.org/legal/epl/epl-v10.html

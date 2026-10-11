@@ -17,7 +17,7 @@
 | §Return contract | implementer | 3B,3C | The single structured RESULT block the implementer must emit on every exit; silent exit is forbidden. |
 | §Field rules | implementer | 3B,3C | Per-field rules for the RESULT block (COMMIT, FILES_TOUCHED, TEST_SUMMARY, EPISODE_DRAFT vs FIX_NOTES, failure_class). |
 | §Tooling discipline | implementer | 3B,3C | Pointers to the project PSI/Maven/refactoring rules, the ephemeral-identifier rule, and house-style tiers. |
-| §Coverage gate command | implementer | 3B,3C | The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build. |
+| §Coverage gate command | implementer | 3B,3C | The canonical coverage-gate command follows orchestrator-guidelines § Test Policy and its temporary coverage exception. |
 
 <!--Document index end-->
 
@@ -322,8 +322,9 @@ rules:
 
 **Sub-step 2 — Add or update tests.** Run module tests, verify
 Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
-verify coverage thresholds (85% line / 70% branch on changed code
-via the coverage gate command in §"Coverage gate command" below).
+verify coverage under `docs-internal/agents/orchestrator-guidelines.md`
+§ Test Policy. It defines the 85/70 thresholds and the temporary exception
+for the 11 copied TinkerPop modules. Use the command in §"Coverage gate command" below.
 Wait for test results before proceeding — never start the commit
 while a Maven run is still in flight. **Run every Maven invocation
 in foreground** (no `run_in_background: true`) per
@@ -1120,8 +1121,10 @@ duplicate the routing tables here. Pointers:
 ---
 
 ## Coverage gate command
-<!-- roles=implementer phases=3B,3C summary="The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build." -->
+<!-- roles=implementer phases=3B,3C summary="The canonical coverage-gate command follows orchestrator-guidelines § Test Policy and its temporary coverage exception." -->
 
+Thresholds and the temporary exception for the 11 copied TinkerPop modules follow
+`docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
 The canonical coverage check after running tests with the `coverage`
 profile is:
 
@@ -1135,5 +1138,5 @@ python3 .github/scripts/coverage-gate.py \
 
 Use this script — never compute coverage by hand — because it
 contains special-case logic (e.g., excluding Java `assert` lines
-from line and branch coverage). The thresholds and rationale come
-from the project `CLAUDE.md` §Testing → Coverage verification.
+from line and branch coverage). The script applies the temporary
+copied-module exception automatically.

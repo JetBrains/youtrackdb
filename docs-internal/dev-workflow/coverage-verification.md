@@ -4,17 +4,33 @@ Read this when you are about to produce a coverage number, or when a coverage re
 diagnosing. Which gate runs when, the module sets, and the re-run rule are in
 `docs-internal/dev-workflow/track-development.md` § Verification integration.
 
+## Temporary TinkerPop exception
+
+The coverage gate explicitly excludes these copied modules:
+
+- `gremlin-shaded`, `gremlin-language`, `gremlin-core`, `gremlin-util`
+- `gremlin-driver`, `gremlin-groovy`, `gremlin-server`, `gremlin-console`
+- `gremlin-test`, `tinkergraph-gremlin`, `gremlin-socket-server`
+
+Their shared parent disables JaCoCo. `coverage-gate.py` excludes their paths before it
+matches reports and prints the excluded file count. PR 2 removes this temporary exception.
+
+These modules still run unit tests in every pull request build.
+Surefire excludes `*IntegrateTest` classes. Failsafe includes them in the integration job.
+A developer machine never runs those integration tests.
+
 ## The run
 
-The **coverage set** is the modules containing changed Java files — neither the compile-gate
-set nor the test-gate set. Run these steps in order:
+The **coverage set** is the modules containing changed Java files outside the explicit
+TinkerPop exception. It is neither the compile-gate set nor the test-gate set.
+Run these steps in order:
 
 ```bash
 # 1. Mandatory: mvn clean does NOT remove this directory.
 rm -rf .coverage/reports
 
-# 2. Build the coverage set - modules with changed Java files - with -am.
-./mvnw -pl <modules with changed Java files> -am clean package -P coverage
+# 2. Build the coverage set with -am. Omit the explicitly exempt copied modules.
+./mvnw -pl <coverage-set modules> -am clean package -P coverage
 
 # 3. Gate the changed lines against the thresholds.
 python3 .github/scripts/coverage-gate.py \
@@ -33,8 +49,9 @@ on a max-covered-wins basis — an invisible upward bias.
 
 ## Is the number real?
 
-A skip counts as a pass **only** when the change genuinely has no changed Java files. Check
-that with the same diff the script uses — `--diff-filter=ACM` is part of the check:
+A skip counts as a pass only when the change has no changed Java files outside the
+explicit TinkerPop exception. Check the full diff first. Every excluded path must belong
+to a module listed above. Use the same diff as the script, including `--diff-filter=ACM`:
 
 ```bash
 git diff origin/develop...HEAD --name-only --diff-filter=ACM -- '*.java'
@@ -44,13 +61,18 @@ Without the filter the check also lists deleted files, so a deletion-only change
 coverage applies while the script, which filters ACM, has nothing to measure — a loop with no
 exit.
 
-Empty output — a real pass. Non-empty output together with any of the five outputs below — the
-*measurement* failed; investigate it, do not record a green gate. Paths 1 and 2 are skip lines
-and print no PASSED line at all; paths 3–5 look like passes. These are the script's exact
-stdout strings, to be matched against real output:
+Empty output is a real pass. Output confined to the explicit exception is an exempt pass
+only when the script reports that exception and no remaining Java files. No coverage build
+or module report is required for an empty coverage set. Report the exemption, not a percentage.
+Other non-empty output together with any of the five outputs below means the measurement
+failed. Investigate it and do not record a green gate.
 
-1. `No changed Java files found. Skipping coverage gate.` — the only legitimate skip, and only
-   if the diff above is empty too. Otherwise the compare branch or the filter is wrong.
+Paths 1 and 2 are skip lines and print no PASSED line. Paths 3–5 look like passes.
+Match these exact stdout strings against the script output:
+
+1. `No changed Java files found. Skipping coverage gate.` is legitimate only if the full
+   diff above is empty. The explicit TinkerPop exemption has its own output message.
+   Otherwise the compare branch or the filter is wrong.
 2. `No JaCoCo XML files found. Skipping coverage gate.` — the *entire* coverage directory has
    no `**/jacoco.xml`; nothing was measured (markdown report: the one `:warning:` case).
 3. `Line coverage: PASSED — no coverable lines in diff` — line total was zero (markdown:
@@ -73,8 +95,9 @@ guard.
 Report directories are named by **artifactId**, not by module directory: the root `pom.xml`'s
 `coverage` profile writes `.coverage/reports/${project.artifactId}` (unit tests) and
 `.coverage/reports/${project.artifactId}-it` (integration tests, so only when the run reaches
-those phases). Every artifactId is `youtrackdb-<directory name>`, so `core` reports under
-`.coverage/reports/youtrackdb-core`. Derive it rather than guess:
+those phases). Every module in the coverage set uses `youtrackdb-<directory name>`.
+For example, `core` reports under `.coverage/reports/youtrackdb-core`.
+Derive it rather than guess:
 
 ```bash
 ./mvnw -q -pl <module dir> help:evaluate -Dexpression=project.artifactId -DforceStdout

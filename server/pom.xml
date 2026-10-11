@@ -37,6 +37,13 @@ nse, Version 2.0 (the "License");
 
   <dependencies>
     <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js</artifactId>
+      <version>${graalvm.version}</version>
+      <type>${graalvm.js.type}</type>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-test-commons</artifactId>
       <version>${project.version}</version>

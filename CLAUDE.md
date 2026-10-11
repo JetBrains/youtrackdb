@@ -106,7 +106,7 @@ Two layers, two files. The chat/terminal register is set by default through the 
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
-- **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code (enforced by CI coverage gate).
+- **Coverage target**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy. It defines the 85/70 thresholds and the temporary exception for the 11 copied TinkerPop modules.
 - **Coverage verification**: Always use the `coverage-gate.py` script (see [Pre-Commit Verification](#pre-commit-verification)) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
 
 ### Test Modules at a Glance
@@ -172,11 +172,13 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 2. **Integration-test verification**: Follow `docs-internal/dev-workflow/track-development.md`.
 
 3. **Check coverage of changed code** by running tests with the `coverage` profile and verifying coverage locally:
+   Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy for thresholds and the
+   temporary exception for the 11 copied TinkerPop modules.
    ```bash
    # Run unit tests with coverage collection
    ./mvnw clean package -P coverage
 
-   # Check coverage of changed lines against thresholds (85% line, 70% branch)
+   # Check eligible changed lines (85% line, 70% branch)
    python3 .github/scripts/coverage-gate.py \
      --line-threshold 85 \
      --branch-threshold 70 \

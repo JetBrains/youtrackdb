@@ -127,6 +127,11 @@ buildNumber.properties
 
 .metadata
 bin/
+# Copied TinkerPop launch scripts belong to the source tree.
+!/gremlin-console/bin/
+!/gremlin-console/src/main/bin/
+!/gremlin-server/src/main/bin/
+!/gremlin-driver/src/main/bin/
 tmp/
 .tmp/
 *.tmp
