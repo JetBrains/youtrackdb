@@ -33,21 +33,25 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -1052,6 +1056,190 @@ public class ChangedPageTrackerStartupTest {
   @Test
   public void verifyDiskWalDeletePreservesPagesAndDistrustsIdentity() throws Exception {
     assertDiskFileEventPreservesMarks(() -> new FileDeletedWALRecord(7, EXTERNAL_ID));
+  }
+
+  // A damaged final pre-open page has no readable suffix, even though reopen creates a segment.
+  // CLEAN distrusts and UNCLEAN keeps saved trust. Both retain complete terminal-batch page marks.
+  @Test
+  public void verifyDiskWalBrokenTailKeepsMarksAndProvesOnlyAfterUncleanShutdown()
+      throws Exception {
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    LogSequenceNumber prefix;
+    LogSequenceNumber metadata;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.begin();
+      wal.log(update(500, EXTERNAL_ID, 7));
+      prefix = wal.log(update(501, EXTERNAL_ID, 7));
+      wal.flush();
+      var payload = new byte[4500];
+      new Random(18).nextBytes(payload);
+      metadata = wal.log(new MetaDataRecord(payload));
+    }
+    var size = Files.size(segmentPath(directory, metadata.getSegment()));
+    assertEquals(0, size % CASWALPage.DEFAULT_PAGE_SIZE);
+    var brokenPage = size / CASWALPage.DEFAULT_PAGE_SIZE - 1;
+    assertTrue(brokenPage > prefix.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+    assertTrue(brokenPage > metadata.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+    breakPage(directory, metadata.getSegment(), brokenPage);
+    try (var wal = diskWal(directory)) {
+      assertEquals(List.of(coverage.getSegment()),
+          wal.preOpenExtent().segments().stream().map(s -> s.segment()).toList());
+      assertTrue(wal.end().getSegment() > metadata.getSegment());
+      assertBrokenPageVerification(wal, coverage, metadata.getSegment(), brokenPage, false);
+    }
+  }
+
+  // An intact continuation page after interior damage is readable same-segment suffix evidence.
+  // Even UNCLEAN cannot prove coverage. Prefix marks survive and the later page stays excluded.
+  @Test
+  public void verifyDiskWalBrokenInteriorPageDistrustsWithReadableSameSegmentSuffix()
+      throws Exception {
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    LogSequenceNumber prefix;
+    LogSequenceNumber metadata;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.begin();
+      wal.log(update(500, EXTERNAL_ID, 7));
+      prefix = wal.log(update(501, EXTERNAL_ID, 7));
+      wal.flush();
+      var payload = new byte[10000];
+      new Random(18).nextBytes(payload);
+      var record = new MetaDataRecord(payload);
+      metadata = wal.log(record);
+      assertTrue(record.getBinaryContentLen() > 2 * CASWALPage.DEFAULT_PAGE_SIZE);
+      wal.log(update(599, EXTERNAL_ID, 7));
+    }
+    var size = Files.size(segmentPath(directory, metadata.getSegment()));
+    assertEquals(0, size % CASWALPage.DEFAULT_PAGE_SIZE);
+    var brokenPage = metadata.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE + 1L;
+    assertTrue(brokenPage > prefix.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+    assertTrue((brokenPage + 2) * CASWALPage.DEFAULT_PAGE_SIZE <= size);
+    breakPage(directory, metadata.getSegment(), brokenPage);
+    try (var wal = diskWal(directory)) {
+      assertEquals(List.of(coverage.getSegment()),
+          wal.preOpenExtent().segments().stream().map(s -> s.segment()).toList());
+      assertBrokenPageVerification(wal, coverage, metadata.getSegment(), brokenPage, true);
+    }
+  }
+
+  // Damage ends the first segment, but a readable later segment existed before reopen.
+  // Both shutdown states distrust, preserve the prefix and exclude the later segment's mark.
+  @Test
+  public void verifyDiskWalBrokenEarlierSegmentTailDistrustsWithReadableLaterSegment()
+      throws Exception {
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    LogSequenceNumber prefix;
+    LogSequenceNumber metadata;
+    LogSequenceNumber suffix;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.begin();
+      wal.log(update(500, EXTERNAL_ID, 7));
+      prefix = wal.log(update(501, EXTERNAL_ID, 7));
+      wal.flush();
+      var payload = new byte[4500];
+      new Random(18).nextBytes(payload);
+      metadata = wal.log(new MetaDataRecord(payload));
+      assertTrue(wal.appendNewSegment());
+      suffix = wal.log(update(599, EXTERNAL_ID, 7));
+    }
+    assertEquals(metadata.getSegment() + 1, suffix.getSegment());
+    assertTrue(Files.size(segmentPath(directory, suffix.getSegment())) > 0);
+    var size = Files.size(segmentPath(directory, metadata.getSegment()));
+    assertEquals(0, size % CASWALPage.DEFAULT_PAGE_SIZE);
+    var brokenPage = size / CASWALPage.DEFAULT_PAGE_SIZE - 1;
+    assertTrue(brokenPage > prefix.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+    assertTrue(brokenPage > metadata.getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+    breakPage(directory, metadata.getSegment(), brokenPage);
+    try (var wal = diskWal(directory)) {
+      assertEquals(List.of(metadata.getSegment(), suffix.getSegment()),
+          wal.preOpenExtent().segments().stream().map(s -> s.segment()).toList());
+      assertBrokenPageVerification(wal, coverage, metadata.getSegment(), brokenPage, true);
+    }
+  }
+
+  // Ordinary WAL logging compresses this zero-filled payload below the bound, but its expanded
+  // content exceeds startup's 16 MiB limit. Both shutdown states distrust and keep earlier marks.
+  @Test
+  public void verifyDiskWalRejectsOversizedExpandedMetadataAndPreservesEarlierMarks()
+      throws Exception {
+    var directory = folder.newFolder().toPath();
+    int bound = 16 * 1024 * 1024;
+    LogSequenceNumber coverage;
+    LogSequenceNumber oversized;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.begin();
+      wal.log(update(500, EXTERNAL_ID, 7));
+      wal.log(update(501, EXTERNAL_ID, 7));
+      var record = new MetaDataRecord(new byte[bound + 1]);
+      oversized = wal.log(record);
+      assertTrue(record.serializedSize() + 6 > bound);
+      assertTrue(record.getBinaryContentLen() < bound);
+      wal.log(update(599, EXTERNAL_ID, 7));
+    }
+    try (var wal = diskWal(directory)) {
+      var batch = wal.openProofReader(coverage, bound).next(16);
+      assertEquals(ProofStatus.RECORD_TOO_LARGE, batch.status());
+      assertEquals(oversized, batch.position());
+      assertEquals(List.of(500L, 501L), batch.records().stream()
+          .filter(UpdatePageRecord.class::isInstance).map(UpdatePageRecord.class::cast)
+          .map(UpdatePageRecord::getPageIndex).toList());
+      assertNull(batch.error());
+      for (var shutdown : ChangedPageTrackerStartup.ShutdownState.values()) {
+        var pending = savedHistory(true, coverage);
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            shutdown, new TestFileIds()), ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+            ProofStatus.RECORD_TOO_LARGE, null, withPages(7, 500, 501));
+        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(coverage, pending.coverageLsn());
+        assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      }
+    }
+  }
+
+  private void assertBrokenPageVerification(CASDiskWriteAheadLog wal, LogSequenceNumber coverage,
+      long segment, long brokenPage, boolean readablePageFollows) throws Exception {
+    // An independent probe pins the physical failure and keeps both prefix records in its terminal
+    // batch. Each consumer call starts with fresh pending history on the same single reopen.
+    var batch = wal.openProofReader(coverage, 16 * 1024 * 1024).next(16);
+    assertEquals(ProofStatus.BROKEN_PAGE, batch.status());
+    assertEquals(new LogSequenceNumber(segment, Math.toIntExact(
+        brokenPage * CASWALPage.DEFAULT_PAGE_SIZE)), batch.position());
+    assertEquals(readablePageFollows, batch.readablePageFollows());
+    assertNull(batch.error());
+    assertEquals(List.of(500L, 501L), batch.records().stream()
+        .filter(UpdatePageRecord.class::isInstance).map(UpdatePageRecord.class::cast)
+        .map(UpdatePageRecord::getPageIndex).toList());
+    for (var shutdown : ChangedPageTrackerStartup.ShutdownState.values()) {
+      boolean proved = shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+          && !readablePageFollows;
+      var pending = savedHistory(true, coverage);
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          shutdown, new TestFileIds()),
+          proved
+              ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+              : ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+          ProofStatus.BROKEN_PAGE, null, withPages(7, 500, 501));
+      assertEquals(proved ? ChangedPageTrackerStartup.Resolution.KEPT
+          : ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+      assertEquals(coverage, pending.coverageLsn());
+      assertEquals(coverage, pending.tracker().durableCoverageLsn());
+    }
+  }
+
+  private static void breakPage(Path directory, long segment, long page) throws IOException {
+    try (var file = FileChannel.open(segmentPath(directory, segment), StandardOpenOption.WRITE)) {
+      var damage = ByteBuffer.wrap(new byte[Long.BYTES]);
+      long offset = page * CASWALPage.DEFAULT_PAGE_SIZE;
+      while (damage.hasRemaining()) {
+        int written = file.write(damage, offset + damage.position());
+        if (written <= 0) {
+          throw new IOException("Could not overwrite WAL page at " + offset);
+        }
+      }
+    }
   }
 
   private void assertDiskFileEventPreservesMarks(Supplier<WriteableWALRecord> event)
