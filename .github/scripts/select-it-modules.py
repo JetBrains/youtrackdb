@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 
 MODULE_NAME = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*\Z")
-IT_NAMES = ("IT*.java", "*IT.java", "*ITCase.java")
+IT_NAMES = ("IT*.java", "*IT.java", "*ITCase.java", "*IntegrateTest.java")
 NAMESPACE = {"pom": "http://maven.apache.org/POM/4.0.0"}
 
 
@@ -33,7 +33,7 @@ def changed_paths(data):
 
 
 def has_it_source(root, module):
-    """Use Failsafe's default Java source names in the checked-out tree."""
+    """Use the same four IT source patterns for every module, including TinkerPop."""
     source_root = root / module / "src/test/java"
     return any(
         path.is_file()

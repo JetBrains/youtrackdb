@@ -41,6 +41,18 @@
   </developers>
 
   <modules>
+    <module>tinkerpop-parent</module>
+    <module>gremlin-shaded</module>
+    <module>gremlin-language</module>
+    <module>gremlin-core</module>
+    <module>gremlin-test</module>
+    <module>tinkergraph-gremlin</module>
+    <module>gremlin-util</module>
+    <module>gremlin-groovy</module>
+    <module>gremlin-socket-server</module>
+    <module>gremlin-driver</module>
+    <module>gremlin-server</module>
+    <module>gremlin-console</module>
     <module>test-commons</module>
     <module>gremlin-annotations</module>
     <module>core</module>
@@ -64,20 +76,6 @@
     <system>YouTrack</system>
     <url>https://youtrack.jetbrains.com/issues/YTDB</url>
   </issueManagement>
-
-  <repositories>
-    <repository>
-      <name>Central Portal Snapshots</name>
-      <id>central-portal-snapshots</id>
-      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
-      <releases>
-        <enabled>false</enabled>
-      </releases>
-      <snapshots>
-        <enabled>true</enabled>
-      </snapshots>
-    </repository>
-  </repositories>
 
   <properties>
     <revision>0.5.0</revision>
@@ -112,7 +110,6 @@
     <log4j.version>2.26.1</log4j.version>
     <jackson.verson>2.22.3</jackson.verson>
     <toolchain.jdk.version>[21,)</toolchain.jdk.version>
-    <gremlin.version>3.8.1-e3acec5-SNAPSHOT</gremlin.version>
     <hamcrest.version>3.0</hamcrest.version>
     <cucumber.version>7.34.8</cucumber.version>
     <docker.platforms>linux/amd64,linux/arm64/v8</docker.platforms>
@@ -207,42 +204,42 @@
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-core</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-groovy</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>tinkergraph-gremlin</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-test</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-driver</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-server</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-util</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-console</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>com.palantir.javapoet</groupId>
@@ -347,7 +344,7 @@
       <dependency>
         <groupId>io.youtrackdb</groupId>
         <artifactId>gremlin-language</artifactId>
-        <version>${gremlin.version}</version>
+        <version>${project.version}</version>
       </dependency>
       <dependency>
         <groupId>org.jspecify</groupId>
@@ -824,15 +821,8 @@
       </activation>
       <properties>
         <graalvm.version>22.0.0.2</graalvm.version>
+        <graalvm.js.type>jar</graalvm.js.type>
       </properties>
-      <dependencies>
-        <dependency>
-          <groupId>org.graalvm.js</groupId>
-          <artifactId>js</artifactId>
-          <version>${graalvm.version}</version>
-          <scope>runtime</scope>
-        </dependency>
-      </dependencies>
     </profile>
 
     <profile>
@@ -842,16 +832,8 @@
       </activation>
       <properties>
         <graalvm.version>25.0.0</graalvm.version>
+        <graalvm.js.type>pom</graalvm.js.type>
       </properties>
-      <dependencies>
-        <dependency>
-          <groupId>org.graalvm.js</groupId>
-          <artifactId>js</artifactId>
-          <version>${graalvm.version}</version>
-          <type>pom</type>
-          <scope>runtime</scope>
-        </dependency>
-      </dependencies>
     </profile>
 
     <profile>

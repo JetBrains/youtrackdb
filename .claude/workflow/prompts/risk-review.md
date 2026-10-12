@@ -161,7 +161,8 @@ PERFORMANCE IMPLICATIONS
 - Are there new allocations, locks, or I/O in performance-sensitive code?
 
 TESTABILITY & COVERAGE
-- Can each step realistically achieve 85% line / 70% branch coverage?
+- Can each step meet `docs-internal/agents/orchestrator-guidelines.md` § Test Policy?
+  Apply its temporary coverage exception for the 11 copied TinkerPop modules.
 - Are there steps hard to test in isolation?
 
 ROLLBACK & RECOVERY
@@ -215,7 +216,8 @@ where existing safeguards already mitigate the perceived risk.
 
 ```markdown
 #### Testability: <step description>
-- **Coverage target**: 85% line / 70% branch
+- **Coverage target**: `docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
+  It defines the 85/70 thresholds and the temporary exception for the 11 copied TinkerPop modules.
 - **Difficulty assessment**: <what makes this step hard to test>
 - **Existing test infrastructure**: <relevant test base classes, fixtures,
   helpers at file:line>

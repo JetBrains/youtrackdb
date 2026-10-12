@@ -144,11 +144,11 @@ Replace `<module>` with the benchmark module (e.g. `jmh-ldbc`), `<CSV_PRESIGNED_
 
 **Do not use** the SURF repository at `repository.surfsara.nl` — it provides CsvComposite format (v0.3.5), which is incompatible with the benchmark loaders.
 
-### Step 4: Compile
+### Step 4: Package
 
 ```bash
 ssh root@<IP> 'cd /root/ytdb && chmod +x mvnw && \
-  ./mvnw -pl <module> -am compile -DskipTests -Dspotless.check.skip=true -q'
+  ./mvnw -pl <module> -am package -DskipTests -Dspotless.check.skip=true -q'
 ```
 
 Replace `<module>` with the target benchmark module (e.g. `jmh-ldbc`).

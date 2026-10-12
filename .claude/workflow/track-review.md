@@ -898,8 +898,9 @@ below.
 #### Decomposition rules
 
 - Each step = one commit.
-- Each step = fully tested, self-contained change with 85% line / 70%
-  branch coverage.
+- Each step = fully tested, self-contained change. Coverage follows
+  `docs-internal/agents/orchestrator-guidelines.md` § Test Policy, including
+  the temporary exception for the 11 copied TinkerPop modules.
 - **Coherence (mandatory for `high`, preferred for `low`/`medium`).**
   For `high` steps coherence is mandatory: a `high` step is one
   coherent, logically continuous change, and if it does unrelated

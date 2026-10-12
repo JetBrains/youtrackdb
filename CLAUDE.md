@@ -18,13 +18,13 @@ YouTrackDB is a general-purpose object-oriented graph database developed by JetB
 # Full build (skip tests for speed)
 ./mvnw clean package -DskipTests
 
-# Full build with unit tests (in-memory storage, default)
-./mvnw clean package
+# The pull request build runs the whole unit suite.
+# A developer machine runs only the test-gate set: modules containing changed files.
 
 # Verification scope follows docs-internal/dev-workflow/track-development.md.
 
 # Build with Docker images (requires Docker)
-./mvnw clean package -P docker-images
+./mvnw clean package -P docker-images -DskipTests
 
 # Run a single test class
 ./mvnw -pl core clean test -Dtest=SomeTestClass
@@ -106,7 +106,7 @@ Two layers, two files. The chat/terminal register is set by default through the 
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
-- **Coverage target**: 85% line coverage and 70% branch coverage for new/changed code (enforced by CI coverage gate).
+- **Coverage target**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy. It defines the 85/70 thresholds and the temporary exception for the 11 copied TinkerPop modules.
 - **Coverage verification**: Always use the `coverage-gate.py` script (see [Pre-Commit Verification](#pre-commit-verification)) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
 
 ### Test Modules at a Glance
@@ -155,46 +155,35 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 
 ## Pre-Commit Verification
 
-**Every task MUST be verified before committing.** Follow this workflow:
+Follow `docs-internal/dev-workflow/track-development.md` for gate timing and scope.
+The compile-gate set is the full reactor. Build it with `./mvnw package -DskipTests`.
+Documentation-only changes outside modules carry no Maven gate.
 
-1. **Run unit tests** for the affected module(s) before committing:
-   ```bash
-   # If changes are in core module
-   ./mvnw -pl core clean test
+A developer machine runs unit tests only in the test-gate set.
+This set contains only the reactor modules with changed files.
+Do not add dependencies or downstream modules, even when their tests cover the changed behavior.
+A module build file selects its module. A root build file selects no module test run.
+The pull request build runs the whole unit suite.
+Draft pull requests run no CI.
+For build-relevant changes, the whole unit suite runs at the ready-for-review flip.
+A manual workflow run also runs the whole unit suite. Markdown-only changes skip the build.
 
-   # If changes span multiple modules, test all affected ones
-   ./mvnw -pl core,server clean test
+For example, when both `core` and `server` contain changed files:
 
-   # If unsure which modules are affected, run the full unit test suite
-   ./mvnw clean package
-   ```
+```bash
+./mvnw -pl core,server clean test
+```
 
-2. **Integration-test verification**: Follow `docs-internal/dev-workflow/track-development.md`.
+A developer machine never runs integration tests.
+The pull request build runs them under the rules in `track-development.md`.
 
-3. **Check coverage of changed code** by running tests with the `coverage` profile and verifying coverage locally:
-   ```bash
-   # Run unit tests with coverage collection
-   ./mvnw clean package -P coverage
+For coverage, follow `docs-internal/dev-workflow/coverage-verification.md`.
+It defines the measured modules, filtered Maven command, and report-set assertion.
+The thresholds and temporary TinkerPop exception stay in
+`docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
 
-   # Check coverage of changed lines against thresholds (85% line, 70% branch)
-   python3 .github/scripts/coverage-gate.py \
-     --line-threshold 85 \
-     --branch-threshold 70 \
-     --compare-branch origin/develop \
-     --coverage-dir .coverage/reports
-   ```
-   If coverage is below the threshold, add or improve tests for uncovered lines before committing.
-
-4. **Do not commit if tests fail.** Fix the failures first, then re-run the tests.
-
-5. **Determining which tests to run:**
-   - Changes to `core` module: always run `./mvnw -pl core clean test`
-   - Changes to `server` module: run `./mvnw -pl server clean test`
-   - Changes to storage, WAL, or index code: rely on the pull request pipeline for integration tests
-   - Changes to Gremlin integration or transaction handling: rely on the pull request pipeline
-   - Changes to `embedded` module: run `./mvnw -pl embedded clean test` (includes Cucumber feature tests)
-   - Changes to `tests` module: run `./mvnw -pl tests clean test`
-   - If in doubt, run the full test suite: `./mvnw clean package`
+Do not commit over a failing result. Follow the explicit landing-red approval rule in
+`track-development.md`.
 
 ## Tips for Working with This Codebase
 
@@ -302,7 +291,7 @@ For the full table, common grep traps PSI avoids (Javadoc/comment matches, polym
 
 ### Maven — when to route through mcp-steroid
 
-**Default:** keep `./mvnw` invocations on Bash. They're durable across IDE restarts, support `run_in_background`, and integrate with project scripts (`coverage-gate.py`, CI flags, JMH profiles). **Switch to `steroid_execute_code`** only for single-test reruns and compile-fix loops where the structured pass/fail tree and noise reduction are worth the IDE coupling. Anything >5 min, full-suite runs, integration/Docker tests, JMH benchmarks, coverage runs, and `dependency:tree` stay on Bash.
+**Default:** keep `./mvnw` invocations on Bash. They're durable across IDE restarts, support `run_in_background`, and integrate with project scripts (`coverage-gate.py`, CI flags, JMH profiles). **Switch to `steroid_execute_code`** only for single-test reruns and compile-fix loops where the structured pass/fail tree and noise reduction are worth the IDE coupling. Anything >5 min, test-gate set runs, Docker tests, JMH benchmarks, coverage runs, and `dependency:tree` stay on Bash. A developer machine never runs integration tests.
 
 For the full routing table, the **mandatory two-call launch+poll pattern** (single-call gets cancelled by the ~60 s MCP HTTP timeout), the hard rules (`-am` is BANNED in IDE-routed Maven, surefire-summary-only reads, one test class per `-Dtest=…`, post-POM-edit re-import via `MavenProjectsManager.scheduleUpdateAllMavenProjects`), and JDK-selection notes for fresh containers: see `.claude/docs/mcp-steroid/maven.md`.
 

@@ -116,15 +116,28 @@ CI gates enforce policies on PRs. When a gate fails:
 
 ### Step 6: Verify locally
 
-1. Run the failing test to confirm the fix:
+1. Run the failing ordinary unit test only when its module contains changed files.
+   For a core Gremlin compliance wrapper, use the profile route in item 3 instead:
    ```bash
    ./mvnw -pl {module} clean test -Dtest={TestClass}
    ```
-2. For gate failures, run the full module test suite to verify counts:
+2. For gate failures, run each test-gate set module to verify its counts.
+   The test-gate set contains only modules with changed files.
+   For a changed module:
    ```bash
    ./mvnw -pl {module} clean test
    ```
-3. If the test requires a suite runner (e.g., GremlinProcessRunner, graph provider), note that it cannot be run standalone — verify the code change is correct by inspection and rely on CI.
+3. The pull request build runs the whole unit suite.
+   Rely on it for tests outside the test-gate set.
+   A developer machine never runs integration tests.
+   Follow `docs-internal/dev-workflow/track-development.md` for scope and timing.
+   If a unit test needs a suite runner, select that runner within the test-gate set.
+   Core Gremlin compliance wrappers cannot use the plain `-Dtest` command in step 1.
+   Follow `docs-internal/dev-workflow/coverage-verification.md` § Core Gremlin compliance
+   runners for the explicit `gremlin-compliance-suites` profile route.
+   For a test-only run, omit `coverage` from the profile list.
+   Measure coverage only when `core` also belongs to the coverage set.
+   Check wrapped-test reports, not only the wrapper entry, for actual test execution.
 4. Run `./mvnw -pl {module} spotless:check` to ensure formatting compliance.
 
 ### Step 7: Dimensional code review + test quality review (MANDATORY GATE)
@@ -298,7 +311,7 @@ Present to the user:
 
 ### CI Gates
 - **Test Count Gate**: Compares per-module test counts against baseline in git notes (`refs/notes/test-counts`). Fails if any module drops >5%. PR comment contains the per-module comparison table. Bypass with `[no-test-number-check]` in PR title (only for intentional restructuring).
-- **Coverage Gate**: 85% line / 70% branch on changed code. Uses `coverage-gate.py`. PR comment has per-file tables.
+- **Coverage Gate**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy, including the temporary exception for the 11 copied TinkerPop modules. Uses `coverage-gate.py`. PR comment has per-file tables.
 
 ### Common Patterns
 - **Profile-gated tests**: Some modules exclude heavyweight tests by default and use `ci-integration-tests` profile with `<excludes combine.self="override"/>` to include them. If CI stops activating that profile, those tests silently disappear.

@@ -122,11 +122,13 @@ Automatic core Java enforcement and `[no-benchmarks]` support require a later ch
 
 ## Quick Start (Maven)
 
-The simplest way to run benchmarks — builds everything from source and launches JMH in a single command. There are two approaches:
+Build everything from source, then launch JMH. Choose the single-command Maven profile or
+build the uber-jar and launch Java separately. Run the commands below from the repository root.
 
 ### Single command (recommended): `verify -P bench`
 
-The `bench` Maven profile binds `exec:exec` to the `verify` phase, so compile + run happens automatically:
+The `bench` Maven profile binds `exec:exec` to the `verify` phase in `jmh-ldbc`, so
+packaging and launch happen automatically:
 
 ```bash
 # Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
@@ -146,20 +148,55 @@ The `bench` Maven profile binds `exec:exec` to the `verify` phase, so compile + 
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
 ```
 
-### Two-step: `compile` + `exec:exec`
+### Two steps: `package -DskipTests`, then `java -jar`
 
-If you prefer explicit control over the build and run phases:
+The `package` phase builds the relocated dependency classes and the benchmark uber-jar.
+Build without tests, then launch JMH separately:
 
 ```bash
-# Run all benchmarks
-./mvnw -pl jmh-ldbc -am compile exec:exec
+# Build the benchmark jar and its dependencies
+./mvnw -pl jmh-ldbc -am package -DskipTests
 
-# Pass full JMH options (regex, forks, warmup, iterations)
-./mvnw -pl jmh-ldbc -am compile exec:exec \
-    -Djmh.args="LdbcSingleThread.* -f 1 -wi 2 -i 3"
+# Match the Maven launcher: 4 GB heap and all required module access flags.
+# Explicit paths keep the same module-local data directories when Java runs from the repo root.
+LDBC_JAVA_OPTS=(
+    -Xms4g -Xmx4g
+    --add-opens=java.base/java.lang=ALL-UNNAMED
+    --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+    --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+    --add-opens=java.base/java.io=ALL-UNNAMED
+    --add-opens=java.base/java.nio=ALL-UNNAMED
+    --add-opens=java.base/java.util=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+    --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED
+    --add-opens=java.base/java.net=ALL-UNNAMED
+    --add-opens=java.base/sun.nio.cs=ALL-UNNAMED
+    --add-opens=java.base/sun.security.x509=ALL-UNNAMED
+    --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED
+    -Dldbc.dataset.path=jmh-ldbc/target/ldbc-dataset/sf1
+    -Dldbc.db.path=jmh-ldbc/target/ldbc-bench-db
+)
+
+# Select the main jar without release source or Javadoc classifiers.
+LDBC_JAR=$(find jmh-ldbc/target -maxdepth 1 -type f \
+    -name 'youtrackdb-jmh-ldbc-*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar')
+
+# Run all benchmarks
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR"
+
+# Pass JMH options as separate arguments after the jar path
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" "LdbcSingleThread.*" -f 1 -wi 2 -i 3
+
+# List benchmarks without running them or loading a dataset
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" -l
 ```
 
-Both approaches fork a new JVM with all required `--add-opens` flags and 4 GB heap preconfigured.
+The array syntax requires Bash. Keep both variable definitions and Java commands in the same shell.
+`LDBC_JAR` must identify one main jar. If `target` contains multiple artifact versions, set
+`LDBC_JAR` to the specific main jar path you want to run.
+The Maven profile configures heap and module access flags automatically. The two-step route
+passes the equivalent settings through `LDBC_JAVA_OPTS`. Override dataset or database paths
+with additional `-D` options before `-jar`.
 
 ### First Run
 
@@ -173,23 +210,23 @@ Subsequent runs reuse the existing database and cached factor tables (~2s startu
 
 ## Running via Uber-Jar
 
-For CI or standalone use, the shade plugin produces a self-contained jar:
+The shade plugin produces a self-contained jar for CI or standalone use.
+Build it and define `LDBC_JAVA_OPTS` and `LDBC_JAR` as shown in
+[Two steps](#two-steps-package--dskiptests-then-java--jar).
+From the repository root, use the same shell for these commands:
 
 ```bash
-# Build the uber-jar
-./mvnw -pl jmh-ldbc -am clean package -DskipTests
-
 # Run all benchmarks
-java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR"
 
 # Run a subset
-java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThread.*"
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" "LdbcSingleThread.*"
 
 # Override thread count
-java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThread.*"
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" -t 16 "LdbcMultiThread.*"
 
 # JSON result file for post-processing
-java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -rf json -rff results.json
+java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" -rf json -rff results.json
 ```
 
 ## Database Tool
@@ -298,7 +335,8 @@ state.ic1FirstName(i)  // name paired with that person
 
 ## Configuration
 
-All settings are passed as JVM system properties. When using Maven, add `-D` flags before `exec:exec`; when using the uber-jar, add them before `-jar`:
+All settings are JVM system properties. For the uber-jar, add `-D` options before `-jar`.
+Use the heap and module access settings from [Two steps](#two-steps-package--dskiptests-then-java--jar).
 
 | Property | Default | Description |
 |----------|---------|-------------|
@@ -320,8 +358,7 @@ Example with a custom dataset path or smaller scale factor:
     -Dldbc.db.path=/data/ldbc-bench-db
 
 # Uber-jar with custom dataset
-java -Dldbc.dataset.path=/data/ldbc/sf1 \
-     -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar
+java "${LDBC_JAVA_OPTS[@]}" -Dldbc.dataset.path=/data/ldbc/sf1 -jar "$LDBC_JAR"
 ```
 
 ## Dataset

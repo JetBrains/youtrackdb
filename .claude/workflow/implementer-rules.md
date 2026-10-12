@@ -17,7 +17,7 @@
 | §Return contract | implementer | 3B,3C | The single structured RESULT block the implementer must emit on every exit; silent exit is forbidden. |
 | §Field rules | implementer | 3B,3C | Per-field rules for the RESULT block (COMMIT, FILES_TOUCHED, TEST_SUMMARY, EPISODE_DRAFT vs FIX_NOTES, failure_class). |
 | §Tooling discipline | implementer | 3B,3C | Pointers to the project PSI/Maven/refactoring rules, the ephemeral-identifier rule, and house-style tiers. |
-| §Coverage gate command | implementer | 3B,3C | The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build. |
+| §Coverage gate command | implementer | 3B,3C | The canonical coverage-gate command follows orchestrator-guidelines § Test Policy and its temporary coverage exception. |
 
 <!--Document index end-->
 
@@ -238,7 +238,7 @@ rules:
   for the rule.
 - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
   route through `steroid_execute_code` when mcp-steroid is
-  reachable; full-suite runs and coverage profiles stay on Bash
+  reachable. Test-gate set runs and coverage profiles stay on Bash
   `./mvnw` per the project's `CLAUDE.md` § MCP Steroid → "Maven —
   when to route through mcp-steroid". When an IDE-routed test run
   fails, the `test/failure-details` and `test/statistics` recipes
@@ -322,8 +322,9 @@ rules:
 
 **Sub-step 2 — Add or update tests.** Run module tests, verify
 Spotless on affected modules (`./mvnw -pl <module> spotless:apply`),
-verify coverage thresholds (85% line / 70% branch on changed code
-via the coverage gate command in §"Coverage gate command" below).
+verify coverage under `docs-internal/agents/orchestrator-guidelines.md`
+§ Test Policy. It defines the 85/70 thresholds and the temporary exception
+for the 11 copied TinkerPop modules. Use the command in §"Coverage gate command" below.
 Wait for test results before proceeding — never start the commit
 while a Maven run is still in flight. **Run every Maven invocation
 in foreground** (no `run_in_background: true`) per
@@ -515,8 +516,13 @@ Pacing is the orchestrator's job, not the implementer's. The
 implementer runs straight through sub-steps 1–3 and emits exactly
 one return block.
 
-**For long-running Maven runs** — full `core` test suite and coverage
-profile build. Integration tests run only in the pull request pipeline.
+**For long-running Maven runs** — test-gate set suites and coverage builds.
+The test-gate set contains only the reactor modules with changed files.
+A developer machine runs tests only in this set. The pull request build runs the whole unit
+suite. Follow `docs-internal/dev-workflow/track-development.md` for gate timing.
+A developer machine never runs integration tests.
+The pull request build runs them under the rules in `track-development.md`.
+Coverage runs follow `docs-internal/dev-workflow/coverage-verification.md`.
 
 - Use **foreground** Bash with the Bash tool's `timeout` parameter
   set to the realistic upper bound (the parameter is in
@@ -539,13 +545,13 @@ profile build. Integration tests run only in the pull request pipeline.
   production lines. Run the targeted tests in foreground, confirm
   Spotless, and commit — record the gate as `n/a (test-additive)`
   in the `TEST_SUMMARY` and let the track's final-verification step
-  pick up per-package totals from a single full coverage run. Note
+  collect reports for the coverage set. Note
   that the check is against `origin/develop`, i.e. the **cumulative**
   branch diff. At `level=track` this shortcut therefore only fires
   for test-only tracks (where Phase B itself touched no production
   source); for any track whose Phase B steps added production code,
   the cumulative diff is non-empty and the implementer must run the
-  full coverage profile build even when the iteration's own diff is
+  coverage-set build even when the iteration's own diff is
   test-only.
 - **Prefer targeted `-Dtest=…` re-runs during fix iteration.** When
   applying review findings (`mode=FIX_REVIEW_FINDINGS` at either
@@ -557,9 +563,9 @@ profile build. Integration tests run only in the pull request pipeline.
   failing assertion can dump tens of thousands of tokens of stack
   traces into the conversation, and the Track-18 implementer
   exhausted its message budget on exactly this pattern
-  (2026-05-07). Reserve the full module suite for one final
-  pre-commit verification, and only when the cumulative diff
-  genuinely justifies it; routine fix iterations do not.
+  (2026-05-07). Run the test-gate set suites at the gate times in
+  `docs-internal/dev-workflow/track-development.md`.
+  Routine fix iterations use targeted reruns within that set.
 - **Route targeted re-runs through `steroid_execute_code` when
   mcp-steroid is reachable.** Per the project's `CLAUDE.md` § MCP
   Steroid → "Maven — when to route through mcp-steroid",
@@ -1120,8 +1126,10 @@ duplicate the routing tables here. Pointers:
 ---
 
 ## Coverage gate command
-<!-- roles=implementer phases=3B,3C summary="The canonical coverage-gate command (85% line / 70% branch) run after a coverage-profile build." -->
+<!-- roles=implementer phases=3B,3C summary="The canonical coverage-gate command follows orchestrator-guidelines § Test Policy and its temporary coverage exception." -->
 
+Thresholds and the temporary exception for the 11 copied TinkerPop modules follow
+`docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
 The canonical coverage check after running tests with the `coverage`
 profile is:
 
@@ -1135,5 +1143,5 @@ python3 .github/scripts/coverage-gate.py \
 
 Use this script — never compute coverage by hand — because it
 contains special-case logic (e.g., excluding Java `assert` lines
-from line and branch coverage). The thresholds and rationale come
-from the project `CLAUDE.md` §Testing → Coverage verification.
+from line and branch coverage). The script applies the temporary
+copied-module exception automatically.

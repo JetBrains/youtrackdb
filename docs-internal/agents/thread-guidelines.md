@@ -10,23 +10,26 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Full build (skip tests for speed)
 ./mvnw clean package -DskipTests
 
-# Full build with unit tests (in-memory storage, default)
-./mvnw clean package
+# The pull request build runs the whole unit suite.
+# A developer machine runs only the test-gate set: modules containing changed files.
 
 # Disk-mode test scope follows `docs-internal/dev-workflow/track-development.md`.
 
 # A developer machine never runs integration tests. The pull request pipeline runs them.
 # Integration-test scope follows `docs-internal/dev-workflow/track-development.md`.
 
-# If the test-gate set spans multiple modules, test them all
+# Test every module containing changed files, and no other module.
+# This example assumes changed files in both core and server.
 ./mvnw -pl core,server clean test
 
-# Mid-track compile gate (read Verification integration to select the compile-gate set)
-./mvnw -pl <modules with changed files> -am -amd test-compile
-./mvnw -pl embedded -am -amd package -DskipTests
+# Mid-track compile gate: build the full reactor from the working tree.
+# package creates shaded artifacts and compiles test sources.
+# -DskipTests skips execution, not compilation. Do not use -Dmaven.test.skip=true.
+# This gate runs no unit tests or integration tests.
+./mvnw package -DskipTests
 
 # Build with Docker images (requires Docker)
-./mvnw clean package -P docker-images
+./mvnw clean package -P docker-images -DskipTests
 
 # Run targeted disk-mode tests for changed production code and changed tests
 ./mvnw -pl core clean test \
@@ -90,6 +93,9 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - A bug fix carries a regression test unless one already exists.
 - Prefer existing test classes when they fit the change. Create a new class only when none fits.
 - New or changed code targets 85 percent line coverage and 70 percent branch coverage.
+- The 11 copied TinkerPop modules have a temporary coverage exception until PR 2.
+  Their unit tests still run in every pull request build. Read the exact module list in
+  `docs-internal/dev-workflow/coverage-verification.md`.
 
 Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 

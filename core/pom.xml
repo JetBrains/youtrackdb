@@ -657,6 +657,14 @@
   </build>
 
   <dependencies>
+    <!-- GraalJS is a YouTrackDB runtime dependency, not a copied TinkerPop dependency. -->
+    <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js</artifactId>
+      <version>${graalvm.version}</version>
+      <type>${graalvm.js.type}</type>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>com.palantir.javapoet</groupId>
       <artifactId>javapoet</artifactId>
@@ -734,7 +742,6 @@
     <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>gremlin-util</artifactId>
-      <version>${gremlin.version}</version>
     </dependency>
     <dependency>
       <groupId>io.youtrackdb</groupId>

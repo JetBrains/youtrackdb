@@ -351,7 +351,7 @@ jobs:
             local sha=$2
             git checkout --detach "$sha"
             chmod +x mvnw
-            ./mvnw -pl jmh-ldbc -am clean compile -DskipTests \
+            ./mvnw -pl jmh-ldbc -am clean package -DskipTests \
               -Dspotless.check.skip=true -q
             local db=jmh-ldbc/target/ldbc-bench-db
             local csv=jmh-ldbc/target/ldbc-dataset/sf1

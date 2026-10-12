@@ -26,11 +26,9 @@ remove a record when its sort-key traversal produces no value.
 
 ## Constraints
 
-- YouTrackDB depends on its Apache TinkerPop fork.
-- The fork version is `3.8.1-e3acec5-SNAPSHOT`.
-- The fork group identifier is `io.youtrackdb`.
-- The `central-portal-snapshots` repository publishes the fork snapshot.
-- `pom.xml` line 114 selects the fork version.
+- YouTrackDB builds its customized Apache TinkerPop code from repository modules.
+- The modules use the `io.youtrackdb` group identifier and the YouTrackDB version.
+- The root `pom.xml` includes the modules in the reactor and manages their dependencies.
 - Local-scope ordering keeps its filtering behavior permanently.
 - The translator must preserve its existing all-or-nothing fallback.
 
@@ -179,7 +177,8 @@ ordinary execution engine.
 
 ## Integration Points
 
-- `pom.xml` selects the fork snapshot and the snapshot repository.
+- `pom.xml` includes the customized TinkerPop modules under `io.youtrackdb` at the YouTrackDB
+  version.
 - `YTDBStrategyUtil` resolves mode inputs and validates contradictions.
 - `YTDBStandardOrderSemanticsStrategy` configures native execution.
 - `OrderKeyPresencePolicy` controls translated `IS DEFINED` emission.

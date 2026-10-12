@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 
 SCRIPT = pathlib.Path(__file__).with_name("select-it-modules.py")
 spec = importlib.util.spec_from_file_location("select_it_modules", SCRIPT)
@@ -38,6 +39,31 @@ def fixture(root):
         source.touch()
 
 
+def test_runner_and_ci_source_patterns_agree():
+    """Both copied runners and both CI scripts must use exactly the four IT patterns."""
+    expected_names = {"IT*.java", "*IT.java", "*ITCase.java", "*IntegrateTest.java"}
+    check(set(selector.IT_NAMES), expected_names)
+    gate_spec = importlib.util.spec_from_file_location(
+        "test_failure_gate", SCRIPT.with_name("test-failure-gate.py")
+    )
+    gate = importlib.util.module_from_spec(gate_spec)
+    gate_spec.loader.exec_module(gate)
+    check(set(gate.EXPECTED_TEST_PATTERNS["failsafe"]),
+          {f"**/src/test/java/**/{name}" for name in expected_names})
+    namespace = {"pom": "http://maven.apache.org/POM/4.0.0"}
+    parent = SCRIPT.resolve().parents[2] / "tinkerpop-parent/pom.xml"
+    tree = ET.parse(parent)
+    for plugin_name, path in (
+        ("maven-surefire-plugin", "pom:excludes/pom:exclude"),
+        ("maven-failsafe-plugin", "pom:includes/pom:include"),
+    ):
+        plugins = tree.findall("./pom:build/pom:plugins/pom:plugin", namespace)
+        plugin = next(p for p in plugins
+                      if p.findtext("pom:artifactId", namespaces=namespace) == plugin_name)
+        check({p.text for p in plugin.findall(f"pom:configuration/{path}", namespace)},
+              {f"**/{name}" for name in expected_names})
+
+
 def test_selection():
     """Java changes select owning IT modules, not dependents or a non-reactor POM."""
     with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +79,44 @@ def test_selection():
               (True, ["nested", "nested/inner"]))
         check(selector.select(root, ["nested/inner/src/test/java/A.java"]),
               (True, ["nested/inner"]))
+
+
+def test_recognised_source_names_select_modules():
+    """Each supported name alone selects its module for main or test Java edits."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        fixture(root)
+        source = root / "other/src/test/java/p/ExampleIntegrateTest.java"
+        source.parent.mkdir(parents=True)
+        source.touch()
+        modules = ("core", "nested/inner", "nested", "other")
+        for module in modules:
+            for source_set in ("main", "test"):
+                check(selector.select(root, [f"{module}/src/{source_set}/java/A.java"]),
+                      (True, [module]))
+        check(selector.select(root, [f"{module}/A.java" for module in modules]),
+              (True, sorted(modules)))
+
+
+def test_integrate_test_only_module_cli():
+    """The CI CLI selects a copied module whose only IT is an IntegrateTest source."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        fixture(root)
+        source = root / "other/src/test/java/p/WebSocketClientBehaviorIntegrateTest.java"
+        source.parent.mkdir(parents=True)
+        source.touch()
+        changes = root / "changes"
+        output = root / "output"
+        changes.write_bytes(b"other/src/main/java/A.java\0")
+        output.touch()
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--root", str(root),
+             "--changes", str(changes), "--output", str(output)],
+            capture_output=True, text=True, check=False,
+        )
+        check(result.returncode, 0)
+        check(output.read_text(), "has_java_changes=true\nintegration_modules=other\n")
 
 
 def test_mixed_java_and_non_java():

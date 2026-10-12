@@ -16,6 +16,13 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js</artifactId>
+      <version>${graalvm.version}</version>
+      <type>${graalvm.js.type}</type>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
       <groupId>io.youtrackdb</groupId>
       <artifactId>youtrackdb-core</artifactId>
       <version>${project.version}</version>
@@ -129,7 +136,9 @@
 
       <!-- exec:exec — run benchmarks from Maven with a forked JVM.
            Uses /bin/sh -c so that ${jmh.args} is word-split correctly.
-           Usage (two-step): ./mvnw -pl jmh-ldbc -am compile exec:exec
+           Usage (two steps): ./mvnw -pl jmh-ldbc -am package -DskipTests
+                              java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR"
+           Define the Bash variables from README.md for JVM options, paths and main-jar selection.
            Usage (single command via profile): ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
            Override args: -Djmh.args="LdbcSingleThread.*"
                           -Djmh.args=".*ic1_.* -f 1 -wi 2 -i 3" -->

@@ -140,3 +140,69 @@ License: Apache-2.0
 
 Files: studio/CHANGELOG.md
 License: Apache-2.0
+
+Files: gremlin-shaded/* gremlin-language/* gremlin-core/* gremlin-util/*
+ gremlin-driver/* gremlin-groovy/* gremlin-server/* gremlin-console/*
+ gremlin-test/* tinkergraph-gremlin/* gremlin-socket-server/*
+Copyright: The Apache Software Foundation
+License: Apache-2.0
+Comment: Copied from JetBrains/ytdb-tinkerpop commit e3acec558c.
+ Bundled third-party license texts remain in each module's src/main/static/licenses.
+
+Files: gremlin-groovy/src/main/static/licenses/jsr223-license.txt
+Copyright: 2006 Sun Microsystems, Inc.
+License: BSD-3-Clause
+Comment: Complete Sun BSD text for Groovy JSR-223.
+
+Files: data/tinkerpop-modern.json data/tinkerpop-modern.kryo data/tinkerpop-modern.xml
+Copyright: The Apache Software Foundation
+License: Apache-2.0
+Comment: TinkerPop IO test fixtures from JetBrains/ytdb-tinkerpop commit e3acec558c.
+
+Files: NOTICE tinkerpop-parent/pom.xml
+Copyright: JetBrains s.r.o.
+License: Apache-2.0
+
+Files: gremlin-shaded/src/main/static/licenses/fastdoubleparser
+ gremlin-driver/src/main/static/licenses/fastdoubleparser
+ gremlin-console/src/main/static/licenses/fastdoubleparser
+Copyright: 2021, 2023 Werner Randelshofer, Switzerland
+License: MIT
+Comment: Permission text from FastDoubleParser v0.8.0 LICENSE.
+ https://raw.githubusercontent.com/wrandelshofer/FastDoubleParser/v0.8.0/LICENSE
+ The 2023 attribution also appears in Jackson Core 2.15.2 META-INF/NOTICE.
+
+Files: gremlin-driver/src/main/static/licenses/netty-utf8
+ gremlin-console/src/main/static/licenses/netty-utf8
+Copyright: 2008-2009 Bjoern Hoehrmann
+License: MIT
+Comment: Complete notice from Netty 4.1.125.Final Utf8Validator.java.
+
+Files: gremlin-driver/src/main/static/licenses/epl-1.0
+ gremlin-console/src/main/static/licenses/epl-1.0
+Copyright: Eclipse Foundation
+License: EPL-1.0
+Comment: Complete EPL 1.0 text for bundled Logback sources.
+ https://www.eclipse.org/legal/epl/epl-v10.html
+
+Files: embedded/src/main/static/licenses/jnr-posix
+Copyright: JNR POSIX contributors
+ Eclipse Foundation
+ 1989, 1991, 1999 Free Software Foundation, Inc.
+License: EPL-2.0 OR GPL-2.0-or-later OR LGPL-2.1-or-later
+Comment: Complete upstream tri-license file for JNR POSIX 3.1.22.
+ https://raw.githubusercontent.com/jnr/jnr-posix/3.1.22/LICENSE.txt
+ The source headers permit GPL 2.0 or later and LGPL 2.1 or later.
+
+Files: embedded/src/main/static/licenses/jnr-x86asm
+Copyright: 2010 Wayne Meissner
+ 2008-2009 Petr Kobalicek
+License: MIT
+Comment: Complete upstream license file for JNR x86asm 1.0.2.
+ https://raw.githubusercontent.com/jnr/jnr-x86asm/1.0.2/LICENSE
+
+Files: embedded/src/main/static/licenses/libffi
+Copyright: 1996-2025 Anthony Green, Red Hat, Inc and others.
+License: MIT
+Comment: Complete libffi license file from the bundled JFFI 1.3.15 release.
+ https://raw.githubusercontent.com/jnr/jffi/jffi-1.3.15/jni/libffi/LICENSE

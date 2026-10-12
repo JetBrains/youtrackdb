@@ -4,6 +4,10 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## Unit Tests
 
+A developer machine runs only the test-gate set, the reactor modules containing changed files.
+The pull request build runs the whole unit suite. Follow
+`docs-internal/dev-workflow/track-development.md` for gate timing and disk-mode scope.
+
 - **Core and server**: JUnit 4 with `surefire-junit47` runner
 - **Tests module**: JUnit 5 with JUnit Platform Suite (`EmbeddedTestSuite`). Tests share a single database instance and execute in a fixed class/method order via `@SelectClasses` and `@Order` annotations
 - **Test utilities**: `test-commons` module provides shared base classes (`TestBuilder`, `TestFactory`, `ConcurrentTestHelper`)
@@ -23,7 +27,8 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## TinkerPop Cucumber Feature Tests
 
-- Validate full Gremlin compliance by running the TinkerPop Cucumber scenario suite (~1900 scenarios)
+- The TinkerPop Cucumber scenario suite covers Gremlin compliance (~1900 scenarios).
+- On a developer machine, run it only in modules in the test-gate set.
 - Present in both `core` (`YTDBGraphFeatureTest`) and `embedded` (`EmbeddedGraphFeatureTest`) modules
 - **`core`**: runs by default with `mvn test` (always included)
 - **`embedded`**: runs by default with `mvn test` (always included)
@@ -38,7 +43,7 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## Benchmarks
 
-- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command) or `./mvnw -pl jmh-ldbc -am compile exec:exec` (two-step). See `jmh-ldbc/README.md` for full documentation.
+- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command). For two steps, run `./mvnw -pl jmh-ldbc -am package -DskipTests`, then `java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" <jmh args>` from the repository root. Define the Bash variables `LDBC_JAVA_OPTS` and `LDBC_JAR` from `jmh-ldbc/README.md` first. They preserve the 4 GB heap, module access flags and module-local dataset paths, and select the main jar without release classifiers.
 - Legacy JMH benchmarks in `tests/src/test/java/.../benchmarks/`
 
 ## Common Test JVM Properties

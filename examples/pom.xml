@@ -25,6 +25,13 @@
   </properties>
 
   <dependencies>
+    <dependency>
+      <groupId>org.graalvm.js</groupId>
+      <artifactId>js</artifactId>
+      <version>${graalvm.version}</version>
+      <type>${graalvm.js.type}</type>
+      <scope>runtime</scope>
+    </dependency>
     <!-- Shaded uber-jar for embedded usage (relocates third-party deps to avoid conflicts) -->
     <dependency>
       <groupId>io.youtrackdb</groupId>

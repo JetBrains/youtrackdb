@@ -19,6 +19,9 @@ prompt, config, or doc is a repository change and takes the same gates.
 - A code change carries tests for its new or changed behavior.
 - A bug fix carries a regression test unless one already exists.
 - New or changed code targets 85 percent line coverage and 70 percent branch coverage.
+- The 11 copied TinkerPop modules have a temporary coverage exception. They still run unit
+  tests in every pull request build. PR 2 removes the exception. The exact module list and
+  the coverage procedure are in `docs-internal/dev-workflow/coverage-verification.md`.
 
 Test authorship details live in `docs-internal/agents/thread-guidelines.md`.
 Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
@@ -26,10 +29,11 @@ Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 ## Verification Gates
 
 Verification rules live in `docs-internal/dev-workflow/track-development.md`.
+A developer machine runs tests only in the test-gate set, the modules containing changed files.
+The pull request build runs the whole unit suite.
 A developer machine never runs an integration test. The pull request pipeline runs integration
 tests for changed IT modules. Develop runs the full suite after merge. Follow
 `docs-internal/dev-workflow/track-development.md` for scope and exceptions.
-If in doubt, run the full unit test suite.
 
 ### Serial Maven execution
 
