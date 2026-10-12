@@ -7,24 +7,49 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
 
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartMetadataRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileTruncatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.stream.LongStream;
 import java.util.zip.CRC32C;
 import org.junit.Rule;
 import org.junit.Test;
@@ -32,6 +57,7 @@ import org.junit.rules.TemporaryFolder;
 
 public class ChangedPageTrackerStartupTest {
 
+  private static final long EXTERNAL_ID = (31L << 32) | 42;
   private static final UUID TRACKER = new UUID(1, 2);
   private static final UUID COMPLETED = new UUID(3, 4);
   private static final UUID SEALED = new UUID(5, 6);
@@ -521,6 +547,493 @@ public class ChangedPageTrackerStartupTest {
     assertDistrusted(pending);
   }
 
+  // Missing inputs stop at their own boundary, warn once and retain all saved candidates.
+  @Test
+  public void verifyMissingInputsNeverCallDownstreamAndPreserveHistory() throws Exception {
+    var outcomes = List.of(ChangedPageTrackerStartup.Outcome.MISSING_COVERAGE,
+        ChangedPageTrackerStartup.Outcome.MISSING_EXTENT,
+        ChangedPageTrackerStartup.Outcome.MISSING_READER,
+        ChangedPageTrackerStartup.Outcome.MISSING_BATCH);
+    for (int missing = 0; missing < outcomes.size(); missing++) {
+      var pending = spy(savedHistory(true));
+      if (missing == 0) {
+        // The side-file codec requires coverage. Inject its absence at the pending-input seam.
+        doReturn(null).when(pending).coverageLsn();
+      }
+      assertTrue(pending.savedTrusted());
+      try (var wal = new ScriptedWal();
+          var logs = LogRecordCollector.attachTo(ChangedPageTrackerStartup.class)) {
+        wal.missing = missing;
+        var result = ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds());
+        assertVerification(pending, result, outcomes.get(missing), null, null, MERGED);
+        assertEquals(missing > 0 ? 1 : 0, wal.extentCalls);
+        assertEquals(missing > 1 ? 1 : 0, wal.openCalls);
+        assertEquals(missing > 2 ? 1 : 0, wal.nextCalls);
+        assertEquals(1, logs.messages().stream().filter(s -> s.startsWith("WARNING ")).count());
+        assertEquals(missing == 0 ? null : COVERAGE, pending.coverageLsn());
+        assertEquals(COVERAGE, pending.tracker().durableCoverageLsn());
+        assertEquals(0, wal.closeCalls);
+      }
+    }
+  }
+
+  // A non-null empty extent must open a reader. Empty MORE and full MORE are not end signals.
+  // A full bounded batch followed by an empty terminal batch proves and retains every mark.
+  @Test
+  public void verifyConsumesEmptyMoreAndFullMoreBeforeEmptyEnd() throws Exception {
+    var records = LongStream.range(100, 116)
+        .mapToObj(page -> (WriteableWALRecord) update(page, EXTERNAL_ID, 7)).toList();
+    var pending = savedHistory(true);
+    try (var wal = new ScriptedWal(batch(ProofStatus.MORE),
+        batch(ProofStatus.MORE, records.toArray(WriteableWALRecord[]::new)),
+        batch(ProofStatus.REACHED_END))) {
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+          ProofStatus.REACHED_END, null,
+          withPages(7, LongStream.range(100, 116).toArray()));
+      assertEquals(3, wal.nextCalls);
+      assertEquals(1, wal.extentCalls);
+      assertEquals(1, wal.openCalls);
+      assertEquals(0, wal.closeCalls);
+    }
+  }
+
+  // Legacy updates and concrete logical operations in an incomplete and a rolled-back unit all
+  // mark before terminal resolution. Duplicate records are idempotent. No redo or page access is
+  // possible through these fixtures, and an adapter maps a storage-tagged ID to a different ID.
+  @Test
+  public void verifyMarksTerminalRecordsWithoutUnitOrLsnFiltersAndNeverUpgradesSavedTrust()
+      throws Exception {
+    for (boolean trusted : new boolean[] {false, true}) {
+      var pending = savedHistory(trusted);
+      var op = new RidbagEntryPointSetTreeSizeOp(120, EXTERNAL_ID, 8, COVERAGE, 3);
+      var records = batch(ProofStatus.REACHED_END, new AtomicUnitStartRecord(true, 7),
+          update(119, EXTERNAL_ID, 7), update(119, EXTERNAL_ID, 7),
+          new AtomicUnitStartRecord(true, 8), op, new AtomicUnitEndRecord(8, true, Map.of()));
+      try (var wal = new ScriptedWal(records)) {
+        var files = new TestFileIds();
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+            trusted
+                ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+                : ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED,
+            ProofStatus.REACHED_END, null, withPages(7, 119, 120));
+        assertEquals(List.of(EXTERNAL_ID, EXTERNAL_ID, EXTERNAL_ID), files.converted);
+        assertEquals(1, wal.nextCalls);
+        assertEquals(COVERAGE, pending.coverageLsn());
+        assertEquals(COVERAGE, pending.tracker().durableCoverageLsn());
+        assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
+        assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+      }
+    }
+  }
+
+  // Page-before-create and delete transitions never clear saved or scanned marks. Uncertainty is
+  // sticky across batches and terminal records, regardless of current name equality or absence.
+  @Test
+  public void verifyFileEventsPreserveAllMarksAndLeaveIdentityUnresolved() throws Exception {
+    for (String name : new String[] {"created", "renamed", null}) {
+      var pending = savedHistory(true);
+      var files = new TestFileIds();
+      files.name = name;
+      try (var wal = new ScriptedWal(batch(ProofStatus.MORE, update(121, EXTERNAL_ID, 7),
+          new FileCreatedWALRecord(7, "created", EXTERNAL_ID)),
+          batch(ProofStatus.REACHED_END, update(122, EXTERNAL_ID, 7),
+              new FileDeletedWALRecord(7, EXTERNAL_ID), update(123, EXTERNAL_ID, 7)))) {
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ProofStatus.REACHED_END, null, withPages(7, 121, 122, 123));
+        assertEquals(5, files.converted.size());
+        assertEquals(0, files.nameCalls);
+        assertEquals(2, wal.nextCalls);
+        assertEquals(COVERAGE, pending.coverageLsn());
+      }
+    }
+    // Either event alone in a terminal batch also invalidates identity proof.
+    for (var event : List.of(new FileCreatedWALRecord(7, "created", EXTERNAL_ID),
+        new FileDeletedWALRecord(7, EXTERNAL_ID))) {
+      var pending = savedHistory(true);
+      try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END,
+          update(121, EXTERNAL_ID, 7), event, update(122, EXTERNAL_ID, 7)))) {
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ProofStatus.REACHED_END, null, withPages(7, 121, 122));
+      }
+    }
+  }
+
+  // A non-transactional change has no WAL page marks of its own. Clean end proves coverage,
+  // but distrusts saved-trusted history while retaining both saved and scanned candidates.
+  @Test
+  public void verifyNonTxMarkerProvesCoverageButDistrustsHistoryAndPreservesPageMarks()
+      throws Exception {
+    var pending = savedHistory(true);
+    assertTrue(pending.savedTrusted());
+    try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END,
+        update(121, EXTERNAL_ID, 7), new NonTxOperationPerformedWALRecord()))) {
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+          ProofStatus.REACHED_END, null, withPages(7, 121));
+      assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+      assertEquals(1, wal.nextCalls);
+    }
+  }
+
+  // Creation in an earlier batch keeps history unresolved even when the terminal batch contains
+  // only a page record. Both page records and all saved candidates survive distrust.
+  @Test
+  public void verifyCreateInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
+    assertEarlierEventDistrustsHistory(new FileCreatedWALRecord(7, "created", EXTERNAL_ID));
+  }
+
+  // Deletion in an earlier batch keeps history unresolved even when the terminal batch contains
+  // only a page record. Both page records and all saved candidates survive distrust.
+  @Test
+  public void verifyDeleteInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
+    assertEarlierEventDistrustsHistory(new FileDeletedWALRecord(7, EXTERNAL_ID));
+  }
+
+  // A non-transactional marker in an earlier batch keeps history untrusted even when the terminal
+  // batch contains only a page record. Clean end still proves coverage and retains exact marks.
+  @Test
+  public void verifyNonTxMarkerInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
+    assertEarlierEventDistrustsHistory(new NonTxOperationPerformedWALRecord());
+  }
+
+  private void assertEarlierEventDistrustsHistory(WriteableWALRecord event) throws Exception {
+    var pending = savedHistory(true);
+    assertTrue(pending.savedTrusted());
+    try (var wal = new ScriptedWal(batch(ProofStatus.MORE,
+        update(121, EXTERNAL_ID, 7), event),
+        batch(ProofStatus.REACHED_END, update(122, EXTERNAL_ID, 7)))) {
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+          ProofStatus.REACHED_END, null, withPages(7, 121, 122));
+      assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+      assertEquals(2, wal.nextCalls);
+      assertEquals(COVERAGE, pending.coverageLsn());
+      assertEquals(COVERAGE, pending.tracker().durableCoverageLsn());
+    }
+  }
+
+  // Invalid page/create/delete IDs fail closed with external and converted IDs in the diagnostic.
+  // Positive adapter rejection and permissive validation of nonpositive IDs both remain unsafe.
+  @Test
+  public void verifyRejectsInvalidIdsAndNegativePagesWithoutRetry() throws Exception {
+    for (int internal : new int[] {0, -1, Integer.MIN_VALUE, 7}) {
+      for (var record : List.of(update(124, EXTERNAL_ID, 7),
+          new FileCreatedWALRecord(7, "created", EXTERNAL_ID),
+          new FileDeletedWALRecord(7, EXTERNAL_ID))) {
+        var pending = savedHistory(true);
+        var files = new TestFileIds();
+        files.internal = internal;
+        files.valid = internal <= 0;
+        try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END, record))) {
+          var failure = assertThrows(IllegalArgumentException.class,
+              () -> ChangedPageTrackerStartup.verify(pending, wal,
+                  ChangedPageTrackerStartup.ShutdownState.CLEAN, files));
+          assertTrue(failure.getMessage().contains("external=" + EXTERNAL_ID));
+          assertTrue(failure.getMessage().contains("internal=" + internal));
+          assertDistrusted(pending);
+          assertEquals(1, wal.nextCalls);
+        }
+      }
+    }
+    var pending = savedHistory(true);
+    try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END, update(-1, EXTERNAL_ID, 7)))) {
+      assertThrows(IllegalArgumentException.class, () -> ChangedPageTrackerStartup.verify(
+          pending, wal, ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()));
+      assertDistrusted(pending);
+      assertEquals(1, wal.nextCalls);
+    }
+  }
+
+  // Every status passes through the actual consumer with a record, both lookaheads and all
+  // shutdown states. MORE with known shutdown continues to an exact terminal batch and cause.
+  @Test
+  public void verifyProcessesRecordsBeforeEveryTerminalPolicyDecision() throws Exception {
+    for (var status : ProofStatus.values()) {
+      for (var shutdown : new ChangedPageTrackerStartup.ShutdownState[] {
+          ChangedPageTrackerStartup.ShutdownState.CLEAN,
+          ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
+        for (boolean follows : new boolean[] {false, true}) {
+          var pending = savedHistory(true);
+          var cause = new IOException("terminal diagnostic");
+          var first = new ProofBatch(List.of(update(125, EXTERNAL_ID, 7)), status, COVERAGE,
+              follows, cause);
+          boolean continues = status == ProofStatus.MORE && shutdown != null;
+          var terminal = continues
+              ? new ProofBatch(List.of(update(126, EXTERNAL_ID, 7)), ProofStatus.REACHED_END,
+                  COVERAGE, false, cause)
+              : first;
+          boolean proved = shutdown != null && (terminal.status() == ProofStatus.REACHED_END
+              || terminal.status() == ProofStatus.BROKEN_PAGE
+                  && shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN && !follows);
+          try (var wal = new ScriptedWal(continues ? new ProofBatch[] {first, terminal}
+              : new ProofBatch[] {first})) {
+            assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+                shutdown, new TestFileIds()),
+                proved
+                    ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+                    : ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+                terminal.status(), cause, continues ? withPages(7, 125, 126) : withPages(7, 125));
+            assertEquals(continues ? 2 : 1, wal.nextCalls);
+          }
+        }
+      }
+    }
+    var pending = savedHistory(true);
+    try (var wal = new ScriptedWal(batch(null, update(125, EXTERNAL_ID, 7)))) {
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, null, null, withPages(7, 125));
+    }
+  }
+
+  // Extent, open, next, conversion and validation failures revoke trust and rethrow the same
+  // RuntimeException or Error. A failing next is called once, never retried or treated as EOF.
+  @Test
+  public void verifyFailuresPropagateSameInstanceAndStopAtTheFailingBoundary() throws Exception {
+    for (int stage = 1; stage <= 5; stage++) {
+      for (var failure : List.<Throwable>of(new IllegalStateException("injected failure"),
+          new OutOfMemoryError("injected allocation failure"))) {
+        var pending = savedHistory(true);
+        try (var wal = new ScriptedWal(batch(ProofStatus.MORE, update(127, EXTERNAL_ID, 7)),
+            batch(ProofStatus.REACHED_END))) {
+          wal.failAt = stage;
+          wal.failure = failure;
+          var files = new TestFileIds();
+          files.failure = failure;
+          files.failAt = stage;
+          assertSame(failure, assertThrows(failure.getClass(),
+              () -> ChangedPageTrackerStartup.verify(pending, wal,
+                  ChangedPageTrackerStartup.ShutdownState.CLEAN, files)));
+          assertDistrusted(pending);
+          assertEquals(1, wal.extentCalls);
+          assertEquals(stage >= 2 ? 1 : 0, wal.openCalls);
+          assertEquals(stage >= 3 ? 1 : 0, wal.nextCalls);
+          assertEquals(0, wal.closeCalls);
+        }
+      }
+    }
+  }
+
+  // All admitted harmless markers and metadata, including a decoded truncate object, preserve
+  // exact marks and allow proof. An unclassified decoded record fails closed instead.
+  @Test
+  public void verifySkipsOnlyKnownHarmlessRecordsAndPreservesTruncatedMarks() throws Exception {
+    var pending = savedHistory(true);
+    try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END,
+        new AtomicUnitStartRecord(true, 7), new AtomicUnitEndRecord(7, false, Map.of()),
+        new AtomicUnitStartMetadataRecord(true, 8, new byte[0]),
+        new MetaDataRecord(new byte[0]), new HighLevelTransactionChangeRecord(8, new byte[0]),
+        new EmptyWALRecord(),
+        new FileTruncatedWALRecord(8, EXTERNAL_ID)))) {
+      var files = new TestFileIds();
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+          ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+          ProofStatus.REACHED_END, null, MERGED);
+      assertTrue(files.converted.isEmpty());
+    }
+    pending = savedHistory(true);
+    var unknownHistory = pending;
+    try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END,
+        mock(WriteableWALRecord.class)))) {
+      assertThrows(IllegalStateException.class, () -> ChangedPageTrackerStartup.verify(
+          unknownHistory, wal, ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()));
+      assertDistrusted(pending);
+      assertEquals(1, wal.nextCalls);
+    }
+  }
+
+  // Memory WAL cannot prove persistent coverage even after successful logging. Missing coverage
+  // stops before legacy memory reads, which throw rather than providing an end signal.
+  @Test
+  public void verifyRealMemoryWalNeverProvesPersistentHistory() throws Exception {
+    try (var wal = new MemoryWriteAheadLog()) {
+      wal.log(update(128, EXTERNAL_ID, 7));
+      var pending = savedHistory(true);
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+          ProofStatus.UNAVAILABLE, null, MERGED);
+      assertMarksAndCoverage(pending);
+      pending = ChangedPageTrackerStartup.load(sideFile());
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.MISSING_COVERAGE, null, null, Map.of());
+    }
+  }
+
+  // A real closed and reopened disk WAL includes uncommitted logical and legacy page records.
+  // Inclusive saved coverage and old active/sealed candidates survive exact proof consumption.
+  @Test
+  public void verifyReopenedDiskWalMarksUncommittedRecordsAndPreservesSavedHistory()
+      throws Exception {
+    PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.log(new AtomicUnitStartRecord(true, 7));
+      wal.log(new RidbagEntryPointSetTreeSizeOp(129, EXTERNAL_ID, 7, COVERAGE, 3));
+      wal.log(update(130, EXTERNAL_ID, 7));
+      wal.log(new MetaDataRecord(new byte[] {1}));
+      wal.log(new AtomicUnitStartRecord(true, 8));
+      wal.log(new RidbagEntryPointSetTreeSizeOp(131, EXTERNAL_ID, 8, COVERAGE, 4));
+      wal.log(new AtomicUnitEndRecord(8, false, Map.of()));
+    }
+    var path = sideFile();
+    Files.write(path, encode(true, true, coverage));
+    var pending = ChangedPageTrackerStartup.load(path);
+    try (var wal = diskWal(directory)) {
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+          ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+          ProofStatus.REACHED_END, null, withPages(7, 129, 130, 131));
+      assertEquals(coverage, pending.coverageLsn());
+      assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+      assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
+    }
+  }
+
+  private static CASDiskWriteAheadLog diskWal(Path directory) throws IOException {
+    return new CASDiskWriteAheadLog("startup", directory, directory,
+        ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null, Integer.MAX_VALUE,
+        Integer.MAX_VALUE, 20, true, Locale.US, -1, 1000, false, true, false, 10);
+  }
+
+  private static UpdatePageRecord update(long page, long file, long unit) {
+    return new UpdatePageRecord(page, file, unit, new WALPageChangesPortion(), COVERAGE);
+  }
+
+  private static ProofBatch batch(ProofStatus status, WriteableWALRecord... records) {
+    return new ProofBatch(List.of(records), status, COVERAGE, false, null);
+  }
+
+  private static Map<Integer, TreeSet<Long>> withPages(int file, long... added) {
+    var result = new TreeMap<Integer, TreeSet<Long>>();
+    MERGED.forEach((id, marks) -> result.put(id, new TreeSet<>(marks)));
+    for (long page : added) {
+      result.computeIfAbsent(file, ignored -> new TreeSet<>()).add(page);
+    }
+    return result;
+  }
+
+  private static void assertVerification(ChangedPageTrackerStartup.PendingHistory pending,
+      ChangedPageTrackerStartup.StartupResult result, ChangedPageTrackerStartup.Outcome outcome,
+      ProofStatus status, Throwable cause, Map<Integer, TreeSet<Long>> candidates) {
+    boolean proved = outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+        || outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED
+        || outcome == ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED;
+    boolean trusted = outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED;
+    assertEquals(
+        new ChangedPageTrackerStartup.StartupResult(proved, trusted, outcome, status, cause),
+        result);
+    assertSame(cause, result.cause());
+    assertEquals(trusted, pending.tracker().isTrusted());
+    assertEquals(candidates, pages(capture(pending.tracker()).active()));
+  }
+
+  // Finite scripts make an unexpected read fail loudly. No implicit null or empty EOF exists.
+  private static final class ScriptedWal extends MemoryWriteAheadLog {
+    private final ProofBatch[] batches;
+    private int missing = -1;
+    private int failAt;
+    private Throwable failure;
+    private int extentCalls;
+    private int openCalls;
+    private int nextCalls;
+    private int closeCalls;
+
+    private ScriptedWal(ProofBatch... batches) {
+      this.batches = batches;
+    }
+
+    @Override
+    public PreOpenExtent preOpenExtent() {
+      extentCalls++;
+      if (failAt == 1) {
+        throwUnchecked(failure);
+      }
+      return missing == 1 ? null : new PreOpenExtent(List.of());
+    }
+
+    @Override
+    public ProofReader openProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+      openCalls++;
+      assertEquals(COVERAGE, coverage);
+      assertEquals(16 * 1024 * 1024, maxRecordBytes);
+      if (failAt == 2) {
+        throwUnchecked(failure);
+      }
+      return missing == 2 ? null : maxRecords -> {
+        assertEquals(16, maxRecords);
+        nextCalls++;
+        if (failAt == 3) {
+          throwUnchecked(failure);
+        }
+        if (missing == 3) {
+          return null;
+        }
+        assertTrue("Unexpected read past finite script", nextCalls <= batches.length);
+        return batches[nextCalls - 1];
+      };
+    }
+
+    @Override
+    public void close() {
+      closeCalls++;
+    }
+  }
+
+  private static final class TestFileIds implements ChangedPageTrackerStartup.FileIds {
+    private int internal = 7;
+    private boolean valid = true;
+    private int failAt;
+    private Throwable failure;
+    private String name;
+    private int nameCalls;
+    private final ArrayList<Long> converted = new ArrayList<>();
+
+    @Override
+    public int internalFileId(long externalId) {
+      converted.add(externalId);
+      if (failAt == 4) {
+        throwUnchecked(failure);
+      }
+      return internal;
+    }
+
+    @Override
+    public boolean isValidInternalFileId(int internalId) {
+      if (failAt == 5) {
+        throwUnchecked(failure);
+      }
+      return valid;
+    }
+
+    @Override
+    public String currentName(int internalId) {
+      nameCalls++;
+      return name;
+    }
+  }
+
+  private static void throwUnchecked(Throwable failure) {
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw (RuntimeException) failure;
+  }
+
   private ChangedPageTrackerStartup.PendingHistory savedHistory(boolean trusted) throws Exception {
     var path = sideFile();
     Files.write(path, encode(trusted, true));
@@ -566,6 +1079,11 @@ public class ChangedPageTrackerStartupTest {
   }
 
   private static byte[] encode(boolean trusted, boolean sealed) throws Exception {
+    return encode(trusted, sealed, COVERAGE);
+  }
+
+  private static byte[] encode(boolean trusted, boolean sealed, LogSequenceNumber coverage)
+      throws Exception {
     var builder =
         ChangedPageTracker.restoration(TRACKER, COMPLETED, trusted, sealed ? SEALED : null);
     builder.activeWord(1, 0, Long.MIN_VALUE | 1);
@@ -575,7 +1093,7 @@ public class ChangedPageTrackerStartupTest {
       builder.sealedWord(9, 1, 2);
     }
     var out = new ByteArrayOutputStream();
-    ChangedPageTrackerFile.write(out, capture(builder.build()), COVERAGE);
+    ChangedPageTrackerFile.write(out, capture(builder.build()), coverage);
     return out.toByteArray();
   }
 

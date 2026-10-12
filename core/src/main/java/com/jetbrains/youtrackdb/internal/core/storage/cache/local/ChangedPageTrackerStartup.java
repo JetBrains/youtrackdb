@@ -1,9 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AbstractPageWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartMetadataRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileTruncatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import java.io.IOException;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
@@ -13,6 +25,9 @@ import javax.annotation.Nullable;
  * prove WAL coverage or database-image ownership. No storage initialization path calls this helper.
  */
 final class ChangedPageTrackerStartup {
+
+  private static final int MAX_RECORD_BYTES = 16 * 1024 * 1024;
+  private static final int MAX_BATCH_RECORDS = 16;
 
   private ChangedPageTrackerStartup() {
   }
@@ -38,6 +53,82 @@ final class ChangedPageTrackerStartup {
     tracker.startupVerificationPending(true);
     tracker.mergeLoadedSealed();
     return new PendingHistory(tracker, loaded.coverageLsn(), savedTrusted);
+  }
+
+  /**
+   * Verifies retained WAL coverage and conservatively marks every page before resolving trust.
+   * The lifecycle owner excludes writers, backup and cuts. The WAL remains owned by that caller.
+   * Only one bounded batch is retained, and incomplete or rolled-back units still contribute marks.
+   */
+  static StartupResult verify(PendingHistory history, WriteAheadLog wal,
+      @Nullable ShutdownState shutdown, FileIds files) {
+    var coverage = history.coverageLsn();
+    if (coverage == null) {
+      return notProved(history, Outcome.MISSING_COVERAGE, null, null);
+    }
+    try {
+      if (wal.preOpenExtent() == null) {
+        return notProved(history, Outcome.MISSING_EXTENT, null, null);
+      }
+      var reader = wal.openProofReader(coverage, MAX_RECORD_BYTES);
+      if (reader == null) {
+        return notProved(history, Outcome.MISSING_READER, null, null);
+      }
+      boolean historyUnresolved = false;
+      while (true) {
+        var batch = reader.next(MAX_BATCH_RECORDS);
+        if (batch == null) {
+          return notProved(history, Outcome.MISSING_BATCH, null, null);
+        }
+        // Terminal batches can contain records. Their marks precede every terminal decision.
+        for (var record : batch.records()) {
+          if (record instanceof AbstractPageWALRecord page) {
+            history.tracker().mark(validInternalFileId(files, page.getFileId()),
+                page.getPageIndex());
+          } else if (record instanceof FileCreatedWALRecord created) {
+            // Pages can precede creation in the same unit. Never clear historical marks here.
+            validInternalFileId(files, created.getFileId());
+            historyUnresolved = true;
+          } else if (record instanceof FileDeletedWALRecord deleted) {
+            validInternalFileId(files, deleted.getFileId());
+            historyUnresolved = true;
+          } else if (record instanceof NonTxOperationPerformedWALRecord) {
+            // Non-transactional changes lack WAL page records, so page history cannot be trusted.
+            historyUnresolved = true;
+          } else if (record instanceof FileTruncatedWALRecord
+              || record instanceof AtomicUnitStartRecord
+              || record instanceof AtomicUnitEndRecord
+              || record instanceof AtomicUnitStartMetadataRecord
+              || record instanceof MetaDataRecord
+              || record instanceof HighLevelTransactionChangeRecord
+              || record instanceof EmptyWALRecord) {
+            // Truncation preserves identity and marks. The listed markers need no tracker action.
+          } else {
+            throw new IllegalStateException("Unclassified WAL proof record: "
+                + record.getClass().getName());
+          }
+        }
+        // An empty MORE batch is not an end signal. History uncertainty remains sticky.
+        if (terminalDecision(batch, shutdown) != ProofDecision.CONTINUE) {
+          return resolve(history, batch, shutdown, historyUnresolved);
+        }
+      }
+    } catch (RuntimeException failure) {
+      readerFailed(history, failure);
+      throw failure;
+    } catch (Error failure) {
+      readerFailed(history, failure);
+      throw failure;
+    }
+  }
+
+  private static int validInternalFileId(FileIds files, long externalId) {
+    int internalId = files.internalFileId(externalId);
+    if (!files.isValidInternalFileId(internalId) || internalId <= 0) {
+      throw new IllegalArgumentException("Invalid WAL file ID: external=" + externalId
+          + ", internal=" + internalId);
+    }
+    return internalId;
   }
 
   /** The caller captures this state before recovery clears the storage dirty flag. */
