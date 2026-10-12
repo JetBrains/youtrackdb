@@ -69,6 +69,39 @@ final class GremlinPatternAssembler {
       return Outcome.DECLINE;
     }
     var fromAlias = ctx.boundaryAlias();
+    // After order(), defer a single bare hop so a following slice can expand in VertexStep order
+    // (OrderedExpandSliceListShapingOp) instead of MATCH join + LIMIT. Non-slice followers flush via
+    // the walker (reusing targetAlias). A second hop after flush is a normal append.
+    //
+    // When SKIP/LIMIT is already on the statement (order().limit().out), do not defer and do not
+    // append a MATCH edge: join+LIMIT would cut after expand. VertexHopRecogniser takes the
+    // expand-after-source-slice path instead; CombinatorFoldedHop declines here.
+    if (ctx.orderBy() != null
+        && ctx.pendingOrderedHop() == null
+        && fromAlias != null
+        && ctx.orderAllowsSliceOnCurrentBoundary()) {
+      if (ctx.limit() != null || ctx.skip() != null) {
+        return Outcome.DECLINE;
+      }
+      // Logical boundary moves to a synthetic target so a following has()/hop sees the neighbour
+      // stream; RETURN stays on fromAlias (sources) until flush or ordered-expand consume — pinBoundary
+      // alone does not rewrite RETURN.
+      var targetAlias = ctx.nextAnonVertexAlias();
+      if (!ctx.bindStepLabels(hop, targetAlias)) {
+        return Outcome.DECLINE;
+      }
+      // Snapshot the source projection before pinning the synthetic neighbour. The pin describes
+      // the logical has()/hop() target, not the payload consumed by the deferred VertexStep.
+      var sourceProjection = OrderedExpandAccept.sourceProjection(ctx, fromAlias);
+      var pending = PendingOrderedHop.start(
+          hop.getDirection(), arity.labels(), fromAlias, targetAlias, sourceProjection);
+      if (ctx instanceof WalkerContext walker) {
+        pending = pending.prependBarriers(walker.takeOrderedSourceBarriers());
+      }
+      ctx.setPendingOrderedHop(pending);
+      ctx.pinBoundary(targetAlias, BoundaryOutputType.ELEMENT, Vertex.class);
+      return Outcome.ACCEPTED;
+    }
     var targetAlias = ctx.nextAnonVertexAlias();
     appendFoldedHop(
         ctx, fromAlias, targetAlias, toBuilderDirection(hop.getDirection()), arity.labels());

@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import java.util.Iterator;
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalSideEffects;
 
 /**
  * One stage of the ordered list-shaping post-process a boundary step applies after row projection.
@@ -63,4 +64,9 @@ public interface ListShapingOp {
    * @return the payloads this stage emits
    */
   Iterator<Object> apply(Iterator<Object> upstream);
+
+  /** Supplies current traversal effects without retaining them in a cached shaping template. */
+  default Iterator<Object> apply(Iterator<Object> upstream, TraversalSideEffects effects) {
+    return apply(upstream);
+  }
 }

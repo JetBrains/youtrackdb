@@ -228,6 +228,16 @@ public final class GremlinToMatchStrategy
       return GremlinToMatchTranslator.translate(
           traversal, orderIncludesMissingKey, orderByNullsPlacements);
     }
+
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic) {
+      return GremlinToMatchTranslator.translate(
+          traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+    }
   };
 
   private static final GremlinToMatchStrategy INSTANCE =
@@ -244,6 +254,8 @@ public final class GremlinToMatchStrategy
    * a fixture translator is never skipped by a cached production walk.
    */
   private final boolean populateTranslationCache;
+
+  private final java.util.function.Consumer<String> agreementFailure;
 
   /**
    * Package-private — tests construct a strategy with a fixture translator (and the production
@@ -263,13 +275,26 @@ public final class GremlinToMatchStrategy
     this(translator, planBuilder, false);
   }
 
-  private GremlinToMatchStrategy(
+  // Package-private for tests that count real walks rather than shape-key lookup hits.
+  GremlinToMatchStrategy(
       TraversalTranslator translator,
       MatchPlanBuilder planBuilder,
       boolean populateTranslationCache) {
+    this(translator, planBuilder, populateTranslationCache,
+        GremlinToMatchStrategy::assertAgreement);
+  }
+
+  // Fault-injection tests observe refusal and exercise the production fallback in the same call.
+  GremlinToMatchStrategy(TraversalTranslator translator, MatchPlanBuilder planBuilder,
+      boolean populateTranslationCache, java.util.function.Consumer<String> agreementFailure) {
     this.translator = translator;
     this.planBuilder = planBuilder;
     this.populateTranslationCache = populateTranslationCache;
+    this.agreementFailure = agreementFailure;
+  }
+
+  static void assertAgreement(String reason) {
+    assert false : reason;
   }
 
   /** Singleton accessor — the strategy is stateless and cheap to share. */
@@ -340,18 +365,25 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
+    // Check before a template lookup: a cached path-label projection cannot stand in for a
+    // side-effect value that belongs to this invocation.
+    if (GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      return;
+    }
     // Resolve all order settings once for this compilation. The shape key below and the walk
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is
     // storage-wide and outlives the session.
     var orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
     var orderByNullsPlacements = YTDBStrategyUtil.orderByNullsPlacements(traversal);
-    if (orderByNullsPlacements == null) {
+    var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
+    if (orderByNullsPlacements == null || polymorphic == null) {
       return;
     }
     var extraction =
         GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements);
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && extraction.complete()) {
       var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
@@ -359,11 +391,16 @@ public final class GremlinToMatchStrategy
         metrics.recordDecline(stepShape(traversal));
         return;
       }
-      if (cached instanceof GremlinTranslationTemplate.Translate translate
-          && extraction.bindings().size() == translate.bindingCount()) {
-        spliceFromTranslationCache(traversal, translate, extraction.bindings());
-        metrics.recordSuccess();
-        return;
+      if (cached instanceof GremlinTranslationTemplate.Translate translate) {
+        var boundShaping = extraction.bindings().size() == translate.bindingCount()
+            && matchingLayout(extraction.hasContributions(), translate.hasContributions())
+                ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
+        if (boundShaping != null) {
+          spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
+          metrics.recordSuccess();
+          return;
+        }
+        agreementFailure.accept("Translation cache binding agreement failed");
       }
     }
     // Capture the planning start before the walk: the schema read that shapes the plan happens
@@ -371,7 +408,8 @@ public final class GremlinToMatchStrategy
     // catch a DDL that races the walk (see the class Javadoc "Plan caching").
     var planningStart = System.nanoTime();
     var translation =
-        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
+        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
+            polymorphic);
     if (translation == null) {
       if (populateTranslationCache && extraction.complete()) {
         GremlinPlanCache.putTranslation(
@@ -382,6 +420,12 @@ public final class GremlinToMatchStrategy
     }
     applyTranslation(traversal, session, translation, planningStart, extraction);
     metrics.recordSuccess();
+  }
+
+  /** The complete contribution boundary, gate, fold mode and every slot role must agree. */
+  static boolean matchingLayout(List<HasBindingContext.Contribution> extracted,
+      List<HasBindingContext.Contribution> walked) {
+    return extracted.equals(walked);
   }
 
   /**
@@ -536,8 +580,23 @@ public final class GremlinToMatchStrategy
     }
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, planningStart);
     var copyOnOpen = isSharedPlanTemplate(session, translation, plan);
-    replaceAllStepsWithBoundary(traversal, plan, translation, copyOnOpen);
-    if (populateTranslationCache && copyOnOpen && extraction.complete()) {
+    var shaping = OrderedFilterBinding.fresh(translation.shaping());
+    var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
+    // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
+    boolean absenceAgrees = !extraction.orderedExpandAbsent()
+        || !OrderedFilterBinding.hasOrderedExpand(translation.shaping());
+    if (!absenceAgrees) {
+      agreementFailure.accept("Ordered expand contradicts extraction absence");
+    }
+    replaceAllStepsWithBoundary(traversal, plan, bound, copyOnOpen);
+    if (populateTranslationCache && copyOnOpen && extraction.complete() && absenceAgrees) {
+      boolean bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
+          && matchingLayout(extraction.hasContributions(), translation.hasContributions())
+          && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null;
+      if (!bindingsAgree) {
+        agreementFailure.accept("Cold translation binding agreement failed");
+        return;
+      }
       GremlinPlanCache.putTranslation(
           extraction.key(),
           new GremlinTranslationTemplate.Translate(
@@ -545,8 +604,9 @@ public final class GremlinToMatchStrategy
               translation.boundaryAlias(),
               translation.outputType(),
               translation.returnClass(),
-              translation.shaping(),
-              translation.inputParameters().size()),
+              OrderedFilterBinding.unbound(translation.shaping()),
+              translation.inputParameters().size(),
+              translation.hasContributions()),
           session);
     }
   }
@@ -726,7 +786,8 @@ public final class GremlinToMatchStrategy
   private static void spliceFromTranslationCache(
       Traversal.Admin<?, ?> traversalRaw,
       GremlinTranslationTemplate.Translate cached,
-      Map<Object, Object> bindings) {
+      Map<Object, Object> bindings,
+      com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping shaping) {
     var boundary =
         new YTDBMatchPlanStep(
             traversalRaw,
@@ -735,7 +796,7 @@ public final class GremlinToMatchStrategy
             cached.boundaryAlias(),
             cached.outputType(),
             bindings,
-            cached.shaping(),
+            shaping,
             true);
     TraversalHelper.removeAllSteps(traversalRaw);
     traversalRaw.addStep(boundary);
@@ -834,6 +895,15 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean orderIncludesMissingKey,
         ResolvedOrderByNullsPlacement orderByNullsPlacements) {
       return translate(traversal, orderIncludesMissingKey);
+    }
+
+    /** Translates with the strategy's resolved polymorphic setting. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic) {
+      return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
     }
   }
 

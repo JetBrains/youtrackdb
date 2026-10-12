@@ -42,9 +42,9 @@ import org.junit.Test;
  * <ul>
  *   <li><b>Slice before hop</b> — {@code limit}/{@code skip}/{@code range} then {@code out} declines;
  *       hop then slice translates.
- *   <li><b>Order then hop then slice</b> — {@code order().by(...).out(...).limit(n)} declines (tie cut
- *       after fan-out). Terminal {@code order().by(...).limit(n)} translates on this branch (ordered
- *       MATCH / index-ordered path).
+ *   <li><b>Order then hop then slice</b> — {@code order().by(...).out(...).limit(n)} translates via
+ *       ordered-expand list-shaping (VertexStep neighbour order + positional cut). Terminal
+ *       {@code order().by(...).limit(n)} translates on the statement-{@code LIMIT} path.
  *   <li><b>Pre-aggregate cardinality</b> — {@code limit}/{@code skip}/{@code dedup} then
  *       {@code count}/{@code sum}/… declines.
  *   <li><b>{@code bothE(L).has(...).otherV()}</b> — declines (self-loop RID rewrite is wrong); directed
@@ -582,13 +582,13 @@ public class CompositionEquivalenceTest extends GraphBaseTest {
             .limit(2));
   }
 
-  /** Order, hop, then limit — tie cut after fan-out still declines. */
+  /** Order, hop, then limit — ordered-expand list-shaping translates and matches native. */
   @Test
-  public void order_then_out_then_limit_declines() {
+  public void order_then_out_then_limit_matchesNativeOrdered() {
     ModernGraphFixture.seed(graph, session);
-    assertEquivalent(
+    assertEquivalentOrdered(
         "g.V().order().by(name).out(created).limit(1)",
-        Recognition.DECLINED,
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .order().by("name", Order.asc)
             .out("created")

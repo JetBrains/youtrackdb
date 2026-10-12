@@ -9,8 +9,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  * The narrow view a {@link StepRecogniser} has of the traversal's step stream: a forward cursor that
  * reads and consumes steps without exposing an index, a consumed count, or the traversal. A
  * recogniser reads its head with {@link #take()}, then consumes any trailing steps of its shape with
- * the conditional matchers. It never sees a transparent step (a barrier): every operation skips those
- * and counts each skipped one as consumed, so a recogniser writes no barrier-handling of its own.
+ * the conditional matchers. Matching skips transparent barriers and counts them as consumed. Ordered
+ * hop recognisers drain the skipped barriers separately to preserve their native positions.
  *
  * <h2>Matching is by exact class</h2>
  *
@@ -39,6 +39,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  * and the traversal translates only if that step finds its own recogniser.
  */
 interface StepCursor {
+
+  /** Returns every transparent barrier skipped since the last drain in traversal order. */
+  default List<Step<?, ?>> drainSkippedTransparent() {
+    return List.of();
+  }
 
   /**
    * Returns the next significant step without consuming it, or {@code null} once the stream is

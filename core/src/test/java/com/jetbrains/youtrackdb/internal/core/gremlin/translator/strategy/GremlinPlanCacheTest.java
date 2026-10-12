@@ -295,6 +295,69 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(fingerprint(crafted)).isNotEqualTo(fingerprint(plain));
   }
 
+  /**
+   * Committed create/drop invalidates both a missing-label decline and an equality-label template.
+   * A provisional extraction boundary never certifies that the class exists.
+   */
+  @Test
+  public void ordinaryEqualityLabel_committedCreateAndDropInvalidateTranslation() {
+    var missing = graph.traversal().V().hasLabel("LifecyclePerson").has("age", 30).asAdmin();
+    var key = GremlinStepWalker.extractShape(missing, graphSession()).key();
+    GremlinToMatchStrategy.instance().apply(missing);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(missing)).isZero();
+    assertThat(missing.toList()).isEmpty();
+    var cache = GremlinPlanCache.instance(graphSession());
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession()))
+        .isSameAs(GremlinTranslationTemplate.DECLINE);
+    graph.tx().commit();
+
+    var txSession = graphSession();
+    var hitsBeforeTx = cache.getTranslationHits();
+    var missesBeforeTx = cache.getTranslationMisses();
+    txSession.getSchema().createClass("LifecyclePerson", txSession.getSchema().getClass("V"));
+    assertThat(txSession.getTxSchemaState()).isNotNull();
+    assertThat(apply(() -> graph.traversal().V().hasLabel("LifecyclePerson").has("age", 30)))
+        .as("tx-local creation must bypass the committed missing-label decline").isEmpty();
+    assertThat(cache.getTranslationHits()).isEqualTo(hitsBeforeTx);
+    assertThat(cache.getTranslationMisses()).isEqualTo(missesBeforeTx);
+    graph.tx().rollback();
+
+    graphSession().createVertexClass("LifecyclePerson");
+    graph.tx().commit();
+    assertThat(cache.containsTranslation(key)).isFalse();
+    graph.addVertex(T.label, "LifecyclePerson", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("LifecyclePerson")
+        .has("age", 30)))).containsExactly("Alice");
+    var fp = fingerprint(walk(() -> graph.traversal().V().hasLabel("LifecyclePerson")
+        .has("age", 30)));
+    assertThat(cache.contains(fp)).isTrue();
+    assertThat(cache.containsTranslation(key)).isTrue();
+    var hits = cache.getTranslationHits();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("LifecyclePerson")
+        .has("age", 30)))).containsExactly("Alice");
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    graph.traversal().V().hasLabel("LifecyclePerson").drop().iterate();
+    graph.tx().commit();
+    hitsBeforeTx = cache.getTranslationHits();
+    missesBeforeTx = cache.getTranslationMisses();
+    graphSession().getSchema().dropClass("LifecyclePerson");
+    assertThat(graphSession().getTxSchemaState()).isNotNull();
+    var txDropped = graph.traversal().V().hasLabel("LifecyclePerson").has("age", 30).asAdmin();
+    GremlinToMatchStrategy.instance().apply(txDropped);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(txDropped)).isZero();
+    assertThat(txDropped.toList()).isEmpty();
+    assertThat(cache.getTranslationHits()).isEqualTo(hitsBeforeTx);
+    assertThat(cache.getTranslationMisses()).isEqualTo(missesBeforeTx);
+    graph.tx().commit();
+    assertThat(cache.contains(fp)).isFalse();
+    assertThat(cache.containsTranslation(key)).isFalse();
+    var dropped = graph.traversal().V().hasLabel("LifecyclePerson").has("age", 30).asAdmin();
+    GremlinToMatchStrategy.instance().apply(dropped);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(dropped)).isZero();
+    assertThat(dropped.toList()).isEmpty();
+  }
+
   /** Schema listener invalidates the cache; no live schema mutation required. */
   @Test
   public void schemaChange_invalidatesCache() {
@@ -362,14 +425,15 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
     var session = graphSession();
     var cache = GremlinPlanCache.instance(session);
-    var oldFp = fingerprint(walk(() -> graph.traversal().V().has("age", 30)));
-    var newFp = fingerprint(walk(() -> graph.traversal().V().has("name", "Alice")
+    var oldFp = fingerprint(walk(() -> graph.traversal().V().hasLabel("Person").has("age", 30)));
+    var newFp = fingerprint(walk(() -> graph.traversal().V().hasLabel("Person").has("name", "Alice")
         .has("age", 30)));
     var oldShape = GremlinStepWalker.extractShape(
-        graph.traversal().V().has("age", 30).asAdmin(), session).key();
+        graph.traversal().V().hasLabel("Person").has("age", 30).asAdmin(), session).key();
     var newShape = GremlinStepWalker.extractShape(
-        graph.traversal().V().has("name", "Alice").has("age", 30).asAdmin(), session).key();
-    assertThat(sortedNames(apply(() -> graph.traversal().V().has("age", 30))))
+        graph.traversal().V().hasLabel("Person").has("name", "Alice").has("age", 30).asAdmin(),
+        session).key();
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person").has("age", 30))))
         .containsExactly("Alice");
     assertThat(cache.contains(oldFp)).as("the committed traversal must cache its plan").isTrue();
     assertThat(cache.containsTranslation(oldShape))
@@ -384,7 +448,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
     session.getMetadata().getSchema().createClass("TxGremlinOnly");
     assertThat(session.getTxSchemaState()).isNotNull();
-    var inTx = graph.traversal().V().has("age", 30).asAdmin();
+    var inTx = graph.traversal().V().hasLabel("Person").has("age", 30).asAdmin();
     GremlinToMatchStrategy.instance().apply(inTx);
     assertThat(inTx.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
     var txStep = (YTDBMatchPlanStep<?, ?>) inTx.getStartStep();
@@ -396,7 +460,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(txStep.getPlan())
         .as("a fresh tx plan must be owned by the step, not copied as a shared template on open")
         .isSameAs(txPlan);
-    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Alice")
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person").has("name", "Alice")
         .has("age", 30)))).containsExactly("Alice");
     assertThat(cache.getHits()).isEqualTo(hits);
     assertThat(cache.getMisses()).isEqualTo(misses);
@@ -409,7 +473,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     graph.tx().rollback();
     assertThat(cache.contains(newFp)).isFalse();
     assertThat(cache.containsTranslation(newShape)).isFalse();
-    assertThat(sortedNames(apply(() -> graph.traversal().V().has("name", "Alice")
+    assertThat(sortedNames(apply(() -> graph.traversal().V().hasLabel("Person").has("name", "Alice")
         .has("age", 30)))).containsExactly("Alice");
     assertThat(cache.contains(newFp)).as("outside the schema tx the plan caches again").isTrue();
     assertThat(cache.containsTranslation(newShape))

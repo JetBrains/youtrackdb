@@ -1154,7 +1154,8 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
    * Ties survive is the RID-ordered prefix — not implementation-defined. Sibling with a hop before
    * the bound:
    * {@link OrderRidTieBreakEquivalenceTest#duplicateIdPropertyAfterAHopWithALimit_keepsTheOrderedPrefix}.
-   * A hop between {@code order()} and the slice still declines ({@code OrderRangeStepRecogniserTest}).
+   * A hop between {@code order()} and the slice translates via ordered-expand list-shaping
+   * ({@code OrderRangeStepRecogniserTest}), not the statement-{@code LIMIT} path exercised here.
    */
   @Test
   public void orderThenLimit_translatesAndKeepsRidOrderedPrefixOfTiedGroup() {

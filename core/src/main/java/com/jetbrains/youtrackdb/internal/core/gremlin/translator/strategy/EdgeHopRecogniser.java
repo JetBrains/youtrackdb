@@ -148,22 +148,30 @@ final class EdgeHopRecogniser implements StepRecogniser {
     // uses the index-aware prefix range and every other case the strict full-scan form. A label-less
     // edge (null labels) has no known class, so all its keys route to strict. Multi-label: true when
     // every named edge class declares the key as String (a schemaless sibling keeps the type guard).
-    GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        GremlinPredicateAdapter.schemaGate(ctx, edgeLabels);
+    var bindingContext = HasBindingContext.forEdge(edgeLabels);
+    GremlinPredicateAdapter.PropertyTypeGate typeGate = bindingContext.gate(ctx);
     ParamSink paramSink = ctx::bindParam;
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
+    var layouts = new ArrayList<java.util.List<HasBindingContext.Slot>>();
     for (HasStep<?> has : hasSteps) {
-      for (HasContainer container : has.getHasContainers()) {
+      var slots = new ArrayList<HasBindingContext.Slot>();
+      var containers = has.getHasContainers();
+      for (int index = 0; index < containers.size(); index++) {
+        HasContainer container = containers.get(index);
+        int containerIndex = index;
+        ParamSink recorded = GremlinPredicateAdapter.withRoles(paramSink,
+            role -> slots.add(new HasBindingContext.Slot(containerIndex, role)));
         // An edge property filter is never folded into YTDBGraphStep — the fold only reaches the
         // HasSteps that directly follow the traversal's own GraphStep, and an edge hop's outE()
         // always sits between. So the range comparisons here always take the per-record type guard.
         var filter = GremlinPredicateAdapter.INSTANCE.toFilter(
-            container, typeGate, paramSink, /* rangeTypeGuard= */ true);
+            container, typeGate, recorded, /* rangeTypeGuard= */ true);
         if (filter == null) {
           return Outcome.DECLINE;
         }
         edgeFilters.add(filter);
       }
+      layouts.add(slots);
     }
 
     // Contribute: all has(...) predicates validated and translated, so now it is safe to mint
@@ -184,6 +192,9 @@ final class EdgeHopRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     ctx.markEdgeAlias(edgeAlias);
+    for (var slots : layouts) {
+      ctx.recordHasBinding(bindingContext, slots);
+    }
 
     // AND-merge the accumulated edge predicates into one WHERE (null when the edge is unfiltered,
     // e.g. an outE(L).inV() chain with no has). Record it under the edge alias so the accumulation

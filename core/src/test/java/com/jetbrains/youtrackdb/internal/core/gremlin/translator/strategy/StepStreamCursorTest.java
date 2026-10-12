@@ -195,6 +195,47 @@ public class StepStreamCursorTest extends GraphBaseTest {
         .isEqualTo(3);
   }
 
+  /** Every skipped barrier drains in position order, independently of its labels. */
+  @Test
+  public void drainSkippedTransparent_preservesInterleavedOrderAndDoesNotConsumeLabels() {
+    var admin = graph.traversal().V().asAdmin();
+    var first = new NoOpBarrierStep<>(admin, 2);
+    var second = new NoOpBarrierStep<>(admin, 3);
+    second.addLabel("source");
+    var has = new HasStep<>(admin, new HasContainer("k", P.eq(1)));
+    var cursor = new StepStreamCursor(List.of(first, has, second), TRANSPARENT);
+
+    assertThat(cursor.peek()).isSameAs(has);
+    assertThat(cursor.drainSkippedTransparent()).containsExactly(first);
+    assertThat(cursor.drainSkippedTransparent()).isEmpty();
+    assertThat(cursor.take()).isSameAs(has);
+    assertThat(cursor.peek()).isNull();
+    assertThat(cursor.drainSkippedTransparent()).containsExactly(second);
+    assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(second);
+  }
+
+  /** Disabling ordered windows preserves independent label drains and consumed fold boundaries. */
+  @Test
+  public void optionalBarrierTracking_preservesLabelsAndPositionsInBothModes() {
+    var admin = graph.traversal().V().asAdmin();
+    var barrier = new NoOpBarrierStep<>(admin, 3);
+    barrier.addLabel("source");
+    var has = new HasStep<>(admin, new HasContainer("k", P.eq(1)));
+    for (boolean track : List.of(false, true)) {
+      var cursor = new StepStreamCursor(List.of(barrier, has, barrier), TRANSPARENT, track);
+      assertThat(cursor.tracksBarriers()).isEqualTo(track);
+      assertThat(cursor.peek()).isSameAs(has);
+      assertThat(cursor.position()).isEqualTo(1);
+      assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(barrier);
+      assertThat(cursor.drainSkippedTransparent()).hasSize(track ? 1 : 0);
+      assertThat(cursor.take()).isSameAs(has);
+      assertThat(cursor.peek()).isNull();
+      assertThat(cursor.position()).isEqualTo(3);
+      assertThat(cursor.drainSkippedTransparent()).hasSize(track ? 1 : 0);
+      assertThat(cursor.drainSkippedTransparentLabeled()).containsExactly(barrier);
+    }
+  }
+
   /** {@code take} past the end is a recogniser bug, so it throws rather than returning null. */
   @Test
   public void takePastEnd_throws() {

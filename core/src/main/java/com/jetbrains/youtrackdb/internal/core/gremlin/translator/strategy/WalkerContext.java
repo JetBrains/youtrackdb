@@ -79,12 +79,21 @@ final class WalkerContext implements RecognitionContext {
    *  Insertion order matches slot allocation order for deterministic rebinding on cache hit. */
   final LinkedHashMap<Integer, Object> inputParameters = new LinkedHashMap<>();
 
+  /** Walk-order layouts, including zero-slot predicates and ordered-filter contributions. */
+  final List<HasBindingContext.Contribution> hasBindings = new ArrayList<>();
+
+  @Override
+  public void recordHasBinding(
+      HasBindingContext bindingContext, List<HasBindingContext.Slot> slots) {
+    hasBindings.add(new HasBindingContext.Contribution(bindingContext, slots));
+  }
+
   /** Next positional-parameter slot to allocate. Shape-pure: incremented once per {@link #bindParam}
    *  call regardless of value. */
   private int nextParamSlot;
 
-  /** When {@code true}, this walk carries inline RIDs ({@code g.V(ids)} or {@code hasId(...)}) and
-   *  must bypass the plan cache. */
+  /** When {@code true}, this walk carries inline RIDs or unbound deferred has literals and must
+   *  bypass the plan cache. */
   private boolean ridBearing;
 
   /** RETURN-clause projection items. One entry per output column. */
@@ -151,6 +160,28 @@ final class WalkerContext implements RecognitionContext {
    */
   @Nullable private String orderByAlias;
 
+  /**
+   * Folded hop deferred after {@code order()} for an ordered-expand slice, or {@code null}. See
+   * {@link PendingOrderedHop}.
+   */
+  @Nullable private PendingOrderedHop pendingOrderedHop;
+  private final List<
+      com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier> orderedSourceBarriers =
+          new ArrayList<>();
+
+  void stashOrderedSourceBarriers(
+      List<
+          com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier> barriers) {
+    orderedSourceBarriers.addAll(barriers);
+  }
+
+  List<com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier>
+      takeOrderedSourceBarriers() {
+    var out = List.copyOf(orderedSourceBarriers);
+    orderedSourceBarriers.clear();
+    return out;
+  }
+
   /** {@code LIMIT} for {@code limit()} / {@code range()} terminators. */
   @Nullable SQLLimit limit;
 
@@ -212,6 +243,67 @@ final class WalkerContext implements RecognitionContext {
    *  resolution also carries a decline side effect: a {@code null} result declines the whole walk in
    *  the walker. */
   private final boolean polymorphic;
+
+  @Nullable private TraverserMergeFacts mergeFacts;
+  @Nullable private Traversal.Admin<?, ?> walkedTraversal;
+
+  void setWalkedTraversal(Traversal.Admin<?, ?> traversal) {
+    walkedTraversal = traversal;
+  }
+
+  TraverserMergeFacts traverserMergeFacts() {
+    if (mergeFacts == null) {
+      // Production demands derive from the walked traversal, never an extraction verdict.
+      mergeFacts = walkedTraversal == null
+          ? new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(), Map.of())
+          : TraverserMergeFacts.from(walkedTraversal);
+    }
+    return mergeFacts;
+  }
+
+  boolean hasComputedMergeFacts() {
+    return mergeFacts != null;
+  }
+
+  @Nullable private com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice orderedSourceSlice;
+
+  void setOrderedSourceSlice(long skip, long limit) {
+    orderedSourceSlice =
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice(
+            skip, limit);
+  }
+
+  @Nullable com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Slice
+      takeOrderedSourceSlice() {
+    var result = orderedSourceSlice;
+    orderedSourceSlice = null;
+    return result;
+  }
+
+  List<String> orderedSourceAliases(String alias) {
+    return traverserMergeFacts().liveAliasColumns(this, alias);
+  }
+
+  com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.SourceMerge
+      orderedSourceMerge(String alias) {
+    return traverserMergeFacts().sourceMergeFor(this, alias);
+  }
+
+  boolean orderedProjectionSplits() {
+    return traverserMergeFacts().postOrderProjectionSplit();
+  }
+
+  com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.Barrier
+      orderedBarrierStage(
+          org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<?> step) {
+    return traverserMergeFacts().barrierFor(this, step, orderByAlias);
+  }
+
+  @Override
+  public com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage.MergeKey
+      orderedSourceMergeKey(String sourceAlias) {
+    return traverserMergeFacts().keyFor(this, sourceAlias);
+  }
 
   /** Whether the traversal opts into {@code EdgeLabelVerificationStrategy}, resolved once by
    *  {@link GremlinStepWalker} so {@link GremlinPatternAssembler#resolveEdgeLabel} reads a boolean
@@ -587,15 +679,20 @@ final class WalkerContext implements RecognitionContext {
 
   @Override
   public String leastCommonVertexAncestor(List<String> classNames) {
-    if (schema == null || classNames == null || classNames.isEmpty()) {
+    return schema == null ? null : leastCommonVertexAncestor(classNames, schema::getClass);
+  }
+
+  static String leastCommonVertexAncestor(List<String> classNames,
+      java.util.function.Function<String, SchemaClass> resolve) {
+    if (classNames == null || classNames.isEmpty()) {
       return null;
     }
-    var current = schema.getClass(classNames.getFirst());
+    var current = resolve.apply(classNames.getFirst());
     if (current == null || !current.isVertexType()) {
       return null;
     }
     for (int i = 1; i < classNames.size(); i++) {
-      var other = schema.getClass(classNames.get(i));
+      var other = resolve.apply(classNames.get(i));
       if (other == null || !other.isVertexType()) {
         return null;
       }
@@ -756,7 +853,7 @@ final class WalkerContext implements RecognitionContext {
     ridBearing = true;
   }
 
-  /** Whether this walk is RID-bearing and must bypass the plan cache. */
+  /** Whether this walk has invocation-specific values that must bypass the plan cache. */
   boolean ridBearing() {
     return ridBearing;
   }
@@ -900,11 +997,50 @@ final class WalkerContext implements RecognitionContext {
       return false;
     }
     var boundary = boundaryAlias;
-    // A hop between order() and the slice re-pins the boundary — LIMIT would cut the sorted
-    // source, not the post-hop traverser stream Gremlin applies. Foreign-alias ORDER BY items and
-    // multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy already
-    // total-orders equal primary keys via RID on both arms.
+    // Statement LIMIT behind ORDER BY requires the boundary to still be the sort alias. A hop that
+    // flushed into MATCH re-pins the boundary, so this gate refuses statement LIMIT (the cut would
+    // apply to sorted sources, not the post-hop stream). A deferred hop after order() is handled
+    // separately via PendingOrderedHop + ordered-expand, before this gate runs. Foreign-alias ORDER
+    // BY items and multi-alias RETURN are allowed: on element streams YTDBOrderRidTieBreakStrategy
+    // already total-orders equal primary keys via RID on both arms.
     return boundary != null && orderByAlias != null && boundary.equals(orderByAlias);
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop pendingOrderedHop() {
+    return pendingOrderedHop;
+  }
+
+  @Override
+  public void setPendingOrderedHop(@Nullable PendingOrderedHop hop) {
+    this.pendingOrderedHop = hop;
+  }
+
+  @Override
+  public @Nullable PendingOrderedHop takePendingOrderedHop() {
+    var hop = pendingOrderedHop;
+    pendingOrderedHop = null;
+    return hop;
+  }
+
+  @Override
+  public boolean flushPendingOrderedHop() {
+    var pending = takePendingOrderedHop();
+    if (pending == null) {
+      return true;
+    }
+    // Reuse the targetAlias allocated at defer time so as(...)/has filters already bound to it land
+    // on the pattern node flush creates.
+    GremlinPatternAssembler.appendFoldedHop(
+        this,
+        pending.fromAlias(),
+        pending.targetAlias(),
+        GremlinPatternAssembler.toBuilderDirection(pending.direction()),
+        pending.edgeLabels());
+    // Deferred has(...) becomes MATCH filters on the neighbour alias (order().hop().has() without
+    // a following slice).
+    return HasStepRecogniser.contributeToAlias(
+        this, pending.targetAlias(), pending.contributions());
   }
 
   @Override

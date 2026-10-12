@@ -94,7 +94,8 @@ final class UnionForkHostImpl implements UnionForkHost {
     // traversal, rebuildTraversal never descends into it, and its HasStep survives unfolded for
     // TinkerPop's comparator to answer. See GremlinStepWalker.walk(Traversal.Admin, int).
     return GremlinStepWalker.production()
-        .walk(forked, prefix.size(), ctx.orderIncludesMissingKey(), orderByNullsPlacements);
+        .walk(forked, prefix.size(), ctx.orderIncludesMissingKey(), orderByNullsPlacements,
+            ctx.polymorphic());
   }
 
   @Override

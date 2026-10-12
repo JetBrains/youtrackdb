@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import java.util.List;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -24,9 +25,9 @@ sealed interface GremlinTranslationTemplate {
   }
 
   /**
-   * A recognised single-plan translation. {@code bindingCount} is the number of positional slots
-   * the walker allocated; a harvested map of a different size falls through to a full walk rather
-   * than splicing the wrong plan.
+   * A recognised single-plan translation. The shaping contains no deferred property operands.
+   * The slot count and each contribution's gate, fold mode and ordered roles must agree before
+   * rebinding the template with this invocation's MATCH and native-filter operands.
    */
   record Translate(
       @Nonnull InternalExecutionPlan planTemplate,
@@ -34,7 +35,8 @@ sealed interface GremlinTranslationTemplate {
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass,
       @Nonnull ResultShaping shaping,
-      int bindingCount)
+      int bindingCount,
+      @Nonnull List<HasBindingContext.Contribution> hasContributions)
       implements GremlinTranslationTemplate {
   }
 }

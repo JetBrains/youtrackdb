@@ -56,6 +56,8 @@ import javax.annotation.Nullable;
  *     {@code reverse} / {@code tail}) applied to the projected payload stream in declared order;
  *     empty when the traversal has no list-shaping terminator, in which case the boundary base
  *     bypasses the stage entirely (see {@link ListShapingOp} and {@link AbstractMatchPlanStep})
+ * @param orderedSourceKeyColumns hidden RETURN columns for the sorted element and live aliases;
+ *     non-empty only when an ordered-hop op projects rows after the source merge or source slice
  */
 public record ResultShaping(
     boolean dropNullRows,
@@ -72,7 +74,29 @@ public record ResultShaping(
     boolean emitGroupEntries,
     boolean emptyBarrier,
     @Nullable String rowDedupAlias,
-    @Nonnull List<ListShapingOp> listShapingOps) {
+    @Nonnull List<ListShapingOp> listShapingOps,
+    @Nonnull List<String> orderedSourceKeyColumns) {
+
+  /** Existing projections do not carry ordered-source identities. */
+  public ResultShaping(boolean dropNullRows, boolean dropOnAbsent,
+      List<String> presencePropertyKeys, List<AliasPropertyPresence> aliasPropertyPresences,
+      List<String> mapEmitColumnOrder, List<String> recordIdMapKeys, List<String> edgeMapKeys,
+      boolean wrapMapValuesInLists, boolean accumulateMap, boolean unwrapSingletonMap,
+      boolean elementMapTokens, boolean emitGroupEntries, boolean emptyBarrier,
+      String rowDedupAlias, List<ListShapingOp> listShapingOps) {
+    this(dropNullRows, dropOnAbsent, presencePropertyKeys, aliasPropertyPresences,
+        mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys, wrapMapValuesInLists, accumulateMap,
+        unwrapSingletonMap, elementMapTokens, emitGroupEntries, emptyBarrier, rowDedupAlias,
+        listShapingOps, List.of());
+  }
+
+  /** Adds source and live labelled-alias RETURN columns, in path order. */
+  public ResultShaping withOrderedSourceKeyColumns(List<String> columns) {
+    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys,
+        aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
+        wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
+        emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, columns);
+  }
 
   /**
    * The element-path default: every flag false, no presence keys, and no list-shaping op.
@@ -112,6 +136,7 @@ public record ResultShaping(
     recordIdMapKeys = List.copyOf(recordIdMapKeys);
     edgeMapKeys = List.copyOf(edgeMapKeys);
     listShapingOps = List.copyOf(listShapingOps);
+    orderedSourceKeyColumns = List.copyOf(orderedSourceKeyColumns);
   }
 
   /** This shaping with {@code dropNullRows} set to {@code value}. */
@@ -430,6 +455,7 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        ops);
+        ops,
+        orderedSourceKeyColumns);
   }
 }
