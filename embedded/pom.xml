@@ -389,6 +389,12 @@
                   <resource>META-INF/licenses/jnr-x86asm</resource>
                   <file>${project.basedir}/src/main/static/licenses/jnr-x86asm</file>
                 </transformer>
+                <!-- JFFI native libraries bundle libffi code under the MIT license. -->
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                  <resource>META-INF/licenses/libffi</resource>
+                  <file>${project.basedir}/src/main/static/licenses/libffi</file>
+                </transformer>
               </transformers>
 
               <filters>

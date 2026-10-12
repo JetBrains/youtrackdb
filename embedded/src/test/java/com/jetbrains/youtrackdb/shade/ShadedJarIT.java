@@ -270,6 +270,27 @@ public class ShadedJarIT {
     }
   }
 
+  /**
+   * The jar bundles a JFFI native library and the exact upstream MIT license for its libffi code.
+   * Byte equality rejects missing, truncated, replaced or reformatted license text.
+   */
+  @Test
+  public void bundledLibffiLicenseIsByteIdenticalToSource() throws IOException {
+    Path repositoryRoot = Paths.get(System.getProperty("repository.root", ".."));
+    try (JarFile jar = new JarFile(findShadedJar().toFile())) {
+      assertNotNull("JFFI native library must be bundled",
+          jar.getEntry("jni/x86_64-Linux/libjffi-1.2.so"));
+      String resource = "META-INF/licenses/libffi";
+      var entry = jar.getJarEntry(resource);
+      assertNotNull("libffi MIT license must be bundled", entry);
+      try (var input = jar.getInputStream(entry)) {
+        assertArrayEquals("Exact upstream libffi license must be bundled",
+            Files.readAllBytes(repositoryRoot.resolve("embedded/src/main/static/licenses/libffi")),
+            input.readAllBytes());
+      }
+    }
+  }
+
   private static void assertBundledLicense(JarFile jar, String resource, String source)
       throws IOException {
     Path repositoryRoot = Paths.get(System.getProperty("repository.root", ".."));
