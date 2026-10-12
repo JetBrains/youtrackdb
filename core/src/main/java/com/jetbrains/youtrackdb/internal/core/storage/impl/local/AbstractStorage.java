@@ -2464,6 +2464,17 @@ public abstract class AbstractStorage
   @Override
   public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds,
       final boolean countTombstones) {
+    return count(session, iCollectionIds, countTombstones, null);
+  }
+
+  /**
+   * Counts collections under the ordinary count state lock, with optional per-position work
+   * accounting. The hook runs while page handles are pinned and can run again on an optimistic
+   * retry. It must be side-effect-free except for sticky accounting. A throwing hook must keep
+   * throwing on retry. Work-accounted counts require the v2 position map.
+   */
+  public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds,
+      final boolean countTombstones, @Nullable Runnable beforePosition) {
     try {
       long tot = 0;
 
@@ -2484,8 +2495,15 @@ public abstract class AbstractStorage
           if (iCollectionId > -1) {
             final var c = collections.get(iCollectionId);
             if (c != null) {
-              tot +=
-                  c.getEntries(atomicOperation) - (countTombstones ? 0L : c.getTombstonesCount());
+              long entries;
+              if (beforePosition == null) {
+                entries = c.getEntries(atomicOperation);
+              } else if (c instanceof PaginatedCollectionV2 collection) {
+                entries = collection.getEntries(atomicOperation, beforePosition);
+              } else {
+                throw new UnsupportedOperationException("Position-accounted count requires v2");
+              }
+              tot += entries - (countTombstones ? 0L : c.getTombstonesCount());
             }
           }
         }

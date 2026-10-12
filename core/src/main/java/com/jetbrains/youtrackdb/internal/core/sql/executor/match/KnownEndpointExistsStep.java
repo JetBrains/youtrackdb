@@ -239,11 +239,7 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     var sourceClass = schema.getClassInternal(access.sourceClass);
     double count = sourceClass == null ? 0 : sourceClass.approximateCount(session);
     double filterShare = filterShare(ctx);
-    long demand = limit == null || fullInput ? -1 : limit.getValue(ctx);
-    if (demand >= 0 && skip != null) {
-      long skipped = skip.getValue(ctx);
-      demand = skipped < 0 || Long.MAX_VALUE - demand < skipped ? -1 : demand + skipped;
-    }
+    long demand = KnownEndpointExistsCost.requiredRows(limit, skip, fullInput, ctx);
     // Until visible degree is known, estimate a complete source scan. A sparse LIMIT can still
     // need that whole scan. Use the same model as the later degree-based refinement.
     var initialCosts = KnownEndpointExistsCost.estimate(count, 0, 0, 1, filterShare,

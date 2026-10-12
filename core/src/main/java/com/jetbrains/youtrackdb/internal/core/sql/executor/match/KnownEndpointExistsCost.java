@@ -1,5 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
+import javax.annotation.Nullable;
+
 /** Compares record reads, edge reads and CPU work in one record-read cost unit. */
 final class KnownEndpointExistsCost {
 
@@ -62,6 +67,17 @@ final class KnownEndpointExistsCost {
     BudgetExceeded() {
       super(null, null, false, false);
     }
+  }
+
+  /** Resolves the rows read before paging on every execution, including parameter bindings. */
+  static long requiredRows(@Nullable SQLLimit limit, @Nullable SQLSkip skip, boolean fullInput,
+      CommandContext ctx) {
+    long demand = limit == null || fullInput ? -1 : limit.getValue(ctx);
+    if (demand >= 0 && skip != null) {
+      long skipped = skip.getValue(ctx);
+      demand = skipped < 0 || Long.MAX_VALUE - demand < skipped ? -1 : demand + skipped;
+    }
+    return demand;
   }
 
   static double sortWork(double candidates) {

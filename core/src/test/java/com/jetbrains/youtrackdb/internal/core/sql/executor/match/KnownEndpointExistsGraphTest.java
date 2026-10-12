@@ -103,6 +103,64 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
     }
   }
 
+  /** Detached AUTO changes path with degree and publishes only its classified counters. */
+  @Test
+  public void detachedAcceptanceUsesRealAutoPathsAndHonestProfileOutput() throws Exception {
+    for (boolean hub : List.of(false, true)) {
+      if (hub) {
+        graph.tx().rollback();
+        session.activateOnCurrentThread();
+        session.begin();
+        var endpoint = session.loadVertex(target);
+        try (var records = session.browseClass("GraphSource")) {
+          while (records.hasNext()) {
+            records.next().asVertex().addEdge(endpoint, "GraphLink");
+          }
+        }
+        session.commit();
+      }
+      var off = run(false, KnownEndpointExistsStep.Path.SOURCE, target, "all-profile");
+      var source = run(true, KnownEndpointExistsStep.Path.SOURCE, target, "all-profile");
+      var reverse = run(true, KnownEndpointExistsStep.Path.TARGET, target, "all-profile");
+      var auto = run(true, KnownEndpointExistsStep.Path.AUTO, target, "all-profile");
+      assertThat(off.error).isNull();
+      assertThat(auto.error).as(auto.plan).isNull();
+      assertThat(auto.rows).isEqualTo(off.rows).isEqualTo(source.rows).isEqualTo(reverse.rows);
+      assertThat(off.boundaries).isZero();
+      assertThat(auto.path).as(auto.plan).isEqualTo(hub ? "source" : "target");
+      assertThat(auto.reason).isEqualTo(hub ? "cost or first-row margin"
+          : "cost and first-row margin");
+      assertThat(auto.published).containsOnlyKeys("path", "reason", "candidates", "edgeReads",
+          "targetLoads", "sourceRecordsRead", "budgetSwitch");
+      assertThat(auto.plan).contains("CURRENT:", "TARGET:", "FETCH FROM CLASS")
+          .doesNotContain("scan eliminated", "scan elimination", "workBudget", "discoveryWork");
+      assertThat(auto.published.get("sourceRecordsRead")).isEqualTo(hub ? 512L : 2L);
+    }
+  }
+
+  /** Selective indexed detached sources retain their built starts in both translation modes. */
+  @Test
+  public void detachedSelectiveIndexRetainsItsStartInBothModes() throws Exception {
+    session.execute("CREATE INDEX GraphSource.n ON GraphSource (n) NOTUNIQUE").close();
+    for (boolean translated : List.of(false, true)) {
+      var oracle = run(translated, KnownEndpointExistsStep.Path.SOURCE, target, "selective");
+      assertThat(oracle.error).isNull();
+      assertThat(oracle.rows).containsExactly(first.toString());
+      for (var path : KnownEndpointExistsStep.Path.values()) {
+        var actual = run(translated, path, target, "selective");
+        assertThat(actual.error).isEqualTo(oracle.error);
+        assertThat(actual.rows).isEqualTo(oracle.rows);
+        assertThat(actual.path).as(actual.plan).isEqualTo("none");
+        if (translated) {
+          assertThat(actual.plan).contains("INDEX");
+          assertThat(actual.boundaries).isEqualTo(1);
+        } else {
+          assertThat(actual.boundaries).isZero();
+        }
+      }
+    }
+  }
+
   /** A hidden target keeps each mode's own current result, including the known on/off difference. */
   @Test
   public void hiddenTargetFallsBackToTheModeLocalOracle() throws Exception {
@@ -1050,6 +1108,8 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
       var traversal = graph.traversal().V().hasLabel("GraphSource");
       if (shape.equals("negative")) {
         traversal.has("n", P.lt(0));
+      } else if (shape.equals("selective")) {
+        traversal.has("n", 7);
       }
       traversal.where(shape.startsWith("long") ? hop.hasId(P.within(longTargets))
           : hop.hasId(endpoint));

@@ -34,7 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import javax.annotation.Nullable;
 
-/** Owns built-source eligibility and fixed endpoints for a detached candidate alternative. */
+/** Owns built-source eligibility and fixed endpoints for known-endpoint alternatives. */
 final class KnownEndpointExistsAccess {
 
   static final int UNBUDGETED_TARGETS = 8;
@@ -71,6 +71,21 @@ final class KnownEndpointExistsAccess {
   @Nullable static KnownEndpointExistsAccess find(SelectExecutionPlan built, Pattern pattern,
       List<SQLMatchExpression> checks, Map<String, String> classes,
       Map<String, SQLWhereClause> filters, CommandContext ctx) {
+    return find(built, pattern, checks, classes, filters, ctx, true);
+  }
+
+  @Nullable static KnownEndpointExistsAccess findNative(SelectExecutionPlan built, Pattern pattern,
+      SQLMatchExpression expression, Map<String, String> classes,
+      Map<String, SQLWhereClause> filters, CommandContext ctx) {
+    var access = find(built, pattern, List.of(expression), classes, filters, ctx, false);
+    // Longer native paths need a bound for repeated middle visits, not just an edge count.
+    return access != null && access.hops.size() == 1
+        && access.forward != Direction.BOTH ? access : null;
+  }
+
+  @Nullable private static KnownEndpointExistsAccess find(SelectExecutionPlan built, Pattern pattern,
+      List<SQLMatchExpression> checks, Map<String, String> classes,
+      Map<String, SQLWhereClause> filters, CommandContext ctx, boolean detached) {
     if (built.getSteps().isEmpty() || !(built.getSteps().getFirst() instanceof MatchFirstStep root)
         || !(root.getSourcePlan() instanceof SelectExecutionPlan scan)
         || scan.getSteps().isEmpty()
@@ -98,7 +113,7 @@ final class KnownEndpointExistsAccess {
     for (var check : checks) {
       if (!alias.equals(check.getOrigin().getAlias()) || check.getOrigin().isOptional()
           || check.getItems().isEmpty() || MatchExecutionPlanner.notPatternDependsOnMatched(check)
-          || MatchExecutionPlanner.findSharedAliases(check, pattern).size() != 1) {
+          || (detached && MatchExecutionPlanner.findSharedAliases(check, pattern).size() != 1)) {
         continue;
       }
       var hops = hops(check, ctx);

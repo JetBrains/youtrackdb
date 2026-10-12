@@ -1687,11 +1687,20 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public long getEntries(@Nonnull AtomicOperation atomicOperation) {
+    return getEntries(atomicOperation, () -> {
+    });
+  }
+
+  /**
+   * Counts visible records exactly, charging every map position before inspecting its visibility.
+   * The hook may throw to stop a bounded decision. Retries charge their repeated work as well.
+   */
+  public long getEntries(@Nonnull AtomicOperation atomicOperation, Runnable beforePosition) {
     try {
       return executeOptimisticStorageRead(
           atomicOperation,
-          () -> doGetEntries(atomicOperation),
-          () -> doGetEntries(atomicOperation));
+          () -> doGetEntries(atomicOperation, beforePosition),
+          () -> doGetEntries(atomicOperation, beforePosition));
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
           new PaginatedCollectionException(storageName,
@@ -1702,7 +1711,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
   }
 
-  private long doGetEntries(@Nonnull AtomicOperation atomicOperation) throws IOException {
+  private long doGetEntries(@Nonnull AtomicOperation atomicOperation, Runnable beforePosition)
+      throws IOException {
     var snapshot = atomicOperation.getAtomicOperationsSnapshot();
     var commitTs = atomicOperation.getCommitTsUnsafe();
 
@@ -1746,7 +1756,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               count[0]++;
             }
           }
-        });
+        }, beforePosition);
 
     return count[0];
   }

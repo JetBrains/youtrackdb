@@ -2,10 +2,35 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import org.junit.Test;
 
 public class KnownEndpointExistsCostTest {
+
+  /** LIMIT demand includes SKIP, while SKIP alone and full-input returns require all rows. */
+  @Test
+  public void requiredRowsUsesCurrentBoundsAndFullInputContract() {
+    var ctx = new BasicCommandContext();
+    var limit = mock(SQLLimit.class);
+    var skip = mock(SQLSkip.class);
+    when(limit.getValue(ctx)).thenReturn(4);
+    when(skip.getValue(ctx)).thenReturn(3);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, skip, false, ctx)).isEqualTo(7);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, null, false, ctx)).isEqualTo(4);
+    assertThat(KnownEndpointExistsCost.requiredRows(null, skip, false, ctx)).isEqualTo(-1);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, skip, true, ctx)).isEqualTo(-1);
+    when(limit.getValue(ctx)).thenReturn(1);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, skip, false, ctx)).isEqualTo(4);
+    when(skip.getValue(ctx)).thenReturn(-1);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, skip, false, ctx)).isEqualTo(-1);
+    when(limit.getValue(ctx)).thenReturn(-1);
+    assertThat(KnownEndpointExistsCost.requiredRows(limit, skip, false, ctx)).isEqualTo(-1);
+  }
 
   /** All reverse edges cost work even when almost none belong to the source class. */
   @Test

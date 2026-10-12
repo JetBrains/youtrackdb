@@ -797,6 +797,14 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   /// {@link CollectionPositionMapBucket#ALLOCATED} entries are skipped.
   void forEachEntry(AtomicOperation atomicOperation, EntryVisitor visitor)
       throws IOException {
+    forEachEntry(atomicOperation, visitor, () -> {
+    });
+  }
+
+  /// Visits the same entries, with a work hook before every position, including allocated slots.
+  /// The hook may abort a bounded count by throwing before the next visibility lookup.
+  void forEachEntry(AtomicOperation atomicOperation, EntryVisitor visitor, Runnable beforePosition)
+      throws IOException {
     final var lastPage = getLastPage(atomicOperation);
     for (long pageIndex = 1; pageIndex <= lastPage; pageIndex++) {
       try (final var cacheEntry =
@@ -807,6 +815,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
             (pageIndex - 1) * CollectionPositionMapBucket.MAX_ENTRIES;
 
         for (var i = 0; i < bucketSize; i++) {
+          beforePosition.run();
           final var status = bucket.getStatus(i);
           if (status == CollectionPositionMapBucket.FILLED
               || status == CollectionPositionMapBucket.REMOVED) {
