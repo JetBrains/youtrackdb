@@ -2,15 +2,20 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.KnownEndpointBenchmarkProbe.Work;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -30,6 +35,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -73,6 +81,13 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   @Param({"AUTO", "CURRENT", "ALTERNATIVE"})
   public String selector;
 
+  /** MATCH retains the direct planner experiment. ON and OFF execute real Gremlin traversals. */
+  @Param({"MATCH", "ON", "OFF"})
+  public String translation;
+
+  private YTDBGraphInternal graph;
+  private Traversal.Admin<?, ?> gremlinTemplate;
+  private Traversal.Admin<?, ?> gremlinInvocation;
   private Spec spec;
   private final List<RecordIdInternal> sources = new ArrayList<>();
   private final List<RecordIdInternal> targets = new ArrayList<>();
@@ -347,11 +362,22 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       preparation.setAccessible(true);
     }
     validate();
+    if (!translation.equals("MATCH")) {
+      setupGremlin();
+    }
   }
 
-  /** Parser plus uncached planner, with no execution or plan-copy work in the timed operation. */
+  /** Build an uncached MATCH plan or construct and compile Gremlin, without query execution. */
   @Benchmark
   public Object planning() {
+    if (gremlinTemplate != null) {
+      try (var traversal = gremlin()) {
+        traversal.applyStrategies();
+        return traversal.getSteps().getFirst().getClass();
+      } catch (Exception failure) {
+        throw new IllegalStateException(failure);
+      }
+    }
     var plan = build(session);
     try {
       return plan.getSteps().getFirst().getClass();
@@ -360,10 +386,14 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     }
   }
 
-  /** Invocation setup copies the template outside execution and first-row measurements. */
+  /** Copy the MATCH plan or clone compiled Gremlin outside execution and first-row timing. */
   @Setup(Level.Invocation)
   public void copyForInvocation() {
-    invocation = (SelectExecutionPlan) template.copy(context(executionSession()));
+    if (gremlinTemplate != null) {
+      gremlinInvocation = gremlinTemplate.clone();
+    } else {
+      invocation = (SelectExecutionPlan) template.copy(context(executionSession()));
+    }
   }
 
   private SelectExecutionPlan invocation;
@@ -372,7 +402,9 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   @Benchmark
   public Object execution() throws Exception {
     try (var scoped = probe(null)) {
-      return consume(invocation, selector, false).rows;
+      return gremlinTemplate != null
+          ? consumeGremlin(gremlinInvocation, selector, false, new Work()).rows
+          : consume(invocation, selector, false).rows;
     }
   }
 
@@ -380,19 +412,26 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   @Benchmark
   public Object firstRow() throws Exception {
     try (var scoped = probe(null)) {
-      return consume(invocation, selector, true).rows;
+      return gremlinTemplate != null
+          ? consumeGremlin(gremlinInvocation, selector, true, new Work()).rows
+          : consume(invocation, selector, true).rows;
     }
   }
 
-  /** Preparation only. CURRENT has no alternative decision phase and returns immediately. */
+  /** Guarded MATCH preparation only. CURRENT and translator OFF return without preparation. */
   @Benchmark
   public Object decision() throws Exception {
-    if (preparation == null || selector.equals("CURRENT")) {
+    if (preparation == null || selector.equals("CURRENT") || translation.equals("OFF")) {
+      return false;
+    }
+    var plan = gremlinTemplate != null ? gremlinPlan(gremlinInvocation) : invocation;
+    var choice = choice(plan);
+    if (choice == null) {
       return false;
     }
     try (var scoped = probe(null)) {
-      var branch = (SelectExecutionPlan) preparation.invoke(invocation.getSteps().getFirst(),
-          invocation.getContext(), selected(selector));
+      var branch = (SelectExecutionPlan) preparation.invoke(choice,
+          plan.getContext(), selected(selector));
       if (branch != null) {
         branch.close();
       }
@@ -401,7 +440,11 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   }
 
   @TearDown(Level.Invocation)
-  public void closeInvocation() {
+  public void closeInvocation() throws Exception {
+    if (gremlinInvocation != null) {
+      gremlinInvocation.close();
+      gremlinInvocation = null;
+    }
     if (invocation != null) {
       invocation.close();
       invocation = null;
@@ -409,7 +452,16 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   }
 
   @TearDown(Level.Trial)
-  public void teardown() {
+  public void teardown() throws Exception {
+    if (gremlinTemplate != null) {
+      gremlinTemplate.close();
+      gremlinTemplate = null;
+    }
+    if (graph != null) {
+      graph.tx().rollback();
+      graph.close();
+      graph = null;
+    }
     if (template != null) {
       template.close();
       template = null;
@@ -817,6 +869,251 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     }
   }
 
+  /** Move pending fixture writes to the graph session, then prove both translation modes. */
+  private void setupGremlin() throws Exception {
+    session.rollback();
+    session.close();
+    graph = (YTDBGraphInternal) pool.asGraph();
+    graph.tx().open();
+    session = graph.tx().getDatabaseSession();
+    if (spec.skew > 0) {
+      var bag = (LinkBag) ((EntityImpl) session.loadVertex(middle))
+          .getPropertyInternal("in_BenchLink");
+      var edge = session.loadVertex(sources.getFirst()).getEdges(Direction.OUT, "BenchLink")
+          .iterator().next();
+      for (int i = 0; i < spec.skew; i++) {
+        bag.add(edge.getIdentity(), sources.getFirst());
+      }
+    }
+    for (int i = 0; i < spec.transactionSize; i++) {
+      session.newVertex("BenchNoise").setProperty("pending", i);
+    }
+    assertThat(session.getTransactionInternal().getEntryCount()).isEqualTo(transactionEntries);
+    var saved = translation;
+    var onRows = new HashMap<String, List<Integer>>();
+    var offRuns = new ArrayList<Run>();
+    try {
+      for (var mode : List.of("ON", "OFF")) {
+        translation = mode;
+        setTranslation();
+        for (var selection : List.of("CURRENT", "ALTERNATIVE", "AUTO")) {
+          var work = new Work();
+          Run run;
+          try (var traversal = gremlin()) {
+            traversal.applyStrategies();
+            assertThat(gremlinPlan(traversal) != null).as(mode + " boundary")
+                .isEqualTo(mode.equals("ON"));
+            try (var scoped = probe(work)) {
+              run = consumeGremlin(traversal, selection, false, work);
+            }
+          }
+          var wanted = spec.limit ? expected.subList(0, 1) : expected;
+          assertThat(run.rows).containsExactlyInAnyOrderElementsOf(wanted);
+          if (mode.equals("ON")) {
+            onRows.put(selection, run.rows);
+            if (spec.indexShare == 0) {
+              assertThat(run.path).isEqualTo(spec.nativePattern
+                  ? selection.equals("CURRENT") || spec.transactionSize > 0
+                      || (selection.equals("AUTO") && (spec.degree == 2 || spec.tombstones > 0))
+                          ? "rid" : "source"
+                  : selection.equals("CURRENT") || scenario.startsWith("budget-")
+                      || (selection.equals("AUTO") && Set.of("degree-high", "middle-high",
+                          "type-all", "type-rare", "rids-long").contains(scenario))
+                              ? "source" : "target");
+            }
+            if (scenario.startsWith("budget-") && !selection.equals("CURRENT")) {
+              assertThat(run.switched).isTrue();
+              assertThat(run.discovery).isPositive().isLessThanOrEqualTo(run.budget);
+            }
+          } else {
+            assertThat(run.rows).containsExactlyInAnyOrderElementsOf(onRows.get(selection));
+            assertThat(run.path).isEqualTo("gremlin");
+            if (!spec.limit) {
+              // Edge materialization can reload the source endpoint as well as scan it.
+              assertThat(run.sourceLoads).isGreaterThanOrEqualTo(spec.indexShare > 0
+                  ? spec.indexShare : spec.nativePattern ? 4 : spec.count);
+            }
+            assertThat(run.discovery).isZero();
+            assertThat(run.countPositions).isZero();
+            assertThat(run.transactionVisits).isZero();
+            assertThat(run.switched).isFalse();
+            offRuns.add(run);
+          }
+          if (spec.transactionSize > 0) {
+            assertThat(run.transactionVisits).isZero();
+            assertThat(run.countPositions).isZero();
+            assertThat(run.preflight).isZero();
+          }
+        }
+      }
+      // The MATCH-only selectors must not alter native Gremlin work.
+      var baseline = offRuns.getFirst();
+      for (var run : offRuns) {
+        assertThat(run.recordLoads).isEqualTo(baseline.recordLoads);
+        assertThat(run.sourceLoads).isEqualTo(baseline.sourceLoads);
+        assertThat(run.adjacencyEntries).isEqualTo(baseline.adjacencyEntries);
+        assertThat(run.edgeLoads).isEqualTo(baseline.edgeLoads);
+      }
+    } finally {
+      translation = saved;
+      setTranslation();
+    }
+    gremlinTemplate = gremlin();
+    gremlinTemplate.applyStrategies();
+    try (var traversal = gremlinTemplate.clone(); var scoped = probe(new Work())) {
+      var first = consumeGremlin(traversal, "AUTO", true, new Work());
+      assertThat(first.rows).hasSize(1);
+      assertThat(expected).contains(first.rows.getFirst());
+      if (!spec.nativePattern) {
+        assertThat(first.rows).containsExactly(expected.getFirst());
+      }
+    }
+  }
+
+  private void setTranslation() {
+    session.getConfiguration().setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, translation.equals("ON"));
+  }
+
+  /** Match the direct fixture, including EXISTS multiplicity and positive-hop source selection. */
+  private Traversal.Admin<?, ?> gremlin() {
+    var traversal = graph.traversal().V().hasLabel("BenchSource");
+    if (spec.indexShare > 0) {
+      traversal.has("bucket", 1);
+    }
+    if (spec.nativePattern) {
+      return traversal.as("s").out("BenchNative").hasLabel("BenchTarget")
+          .hasId(targets.getFirst()).select("s")
+          .values("n").asAdmin();
+    }
+    GraphTraversal<?, ?> check = spec.edgeFilter
+        ? __.outE("BenchLink").has("weight", 1).inV()
+        : __.out("BenchLink");
+    if (spec.middleDegree > 0) {
+      check.hasLabel("BenchMiddle");
+      if (spec.edgeFilter) {
+        check.has("ok", true);
+      }
+      check.out("BenchTail");
+    }
+    var ids = ((List<?>) parameters.get("targets")).toArray();
+    check.hasId(ids);
+    traversal.filter(check);
+    for (int i = 0; i < spec.extraChecks; i++) {
+      traversal.filter(__.out("BenchExtra").hasId(targets.getFirst()));
+    }
+    if (spec.limit) {
+      traversal.limit(1);
+    }
+    return traversal.values("n").asAdmin();
+  }
+
+  private static SelectExecutionPlan gremlinPlan(Traversal.Admin<?, ?> traversal) {
+    return traversal.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance)
+        .map(step -> (SelectExecutionPlan) ((YTDBMatchPlanStep<?, ?>) step).getPlan())
+        .findFirst().orElse(null);
+  }
+
+  private static Object choice(InternalExecutionPlan plan) {
+    if (plan == null) {
+      return null;
+    }
+    for (var step : plan.getSteps()) {
+      if (step instanceof KnownEndpointExistsStep || step instanceof NativeKnownEndpointStep) {
+        return step;
+      }
+      for (var child : ((ExecutionStepInternal) step).getSubExecutionPlans()) {
+        var found = choice((InternalExecutionPlan) child);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  private Run consumeGremlin(Traversal.Admin<?, ?> traversal, String selection, boolean one,
+      Work work) throws Exception {
+    var rows = new ArrayList<Integer>();
+    long elapsed;
+    long first = -1;
+    try (var forced = force(selection)) {
+      long start = System.nanoTime();
+      while (traversal.hasNext()) {
+        rows.add(((Number) traversal.next()).intValue());
+        if (first < 0) {
+          first = System.nanoTime() - start;
+        }
+        if (one) {
+          break;
+        }
+      }
+      elapsed = System.nanoTime() - start;
+    }
+    var selected = choice(gremlinPlan(traversal));
+    Run run;
+    if (selected instanceof KnownEndpointExistsStep step) {
+      var c = step.counters();
+      run = new Run(rows, c.path, c.reason, c.sourceRecordsRead, c.candidates, c.edgeReads,
+          c.targetLoads, c.discoveryWork, c.workBudget, c.budgetSwitch, work.loads,
+          work.sourceLoads, work.positions, work.preflight, work.edgeEntries,
+          work.rejectedPositions, work.edgeLoads, work.transactionVisits, elapsed, first);
+    } else {
+      run = new Run(rows, selected instanceof NativeKnownEndpointStep step ? step.path()
+          : translation.equals("OFF") ? "gremlin" : "index",
+          selected instanceof NativeKnownEndpointStep step ? step.reason() : "no choice",
+          work.sourceLoads, 0, 0, 0, 0, 0, false, work.loads, work.sourceLoads, work.positions,
+          work.preflight, work.edgeEntries, work.rejectedPositions, work.edgeLoads,
+          work.transactionVisits, elapsed, first);
+    }
+    traversal.close();
+    return run;
+  }
+
+  /** Gremlin counters come from an untimed pass, independent of JMH latency samples. */
+  private void reportGremlin(int repetitions) throws Exception {
+    System.out.printf("GSHAPE,%s,%s,%s%n", scenario, translation,
+        gremlinTemplate.getSteps().stream().map(step -> step.getClass().getSimpleName()).toList());
+    for (var selection : List.of("CURRENT", "ALTERNATIVE", "AUTO")) {
+      selector = selection;
+      var work = new Work();
+      Run run;
+      try (var traversal = gremlinTemplate.clone(); var scoped = probe(work)) {
+        run = consumeGremlin(traversal, selection, spec.one, work);
+      }
+      long[] planning = new long[repetitions];
+      long[] execution = new long[repetitions];
+      long[] first = new long[repetitions];
+      long[] decision = new long[repetitions];
+      for (int i = 0; i < repetitions; i++) {
+        long start = System.nanoTime();
+        planning();
+        planning[i] = System.nanoTime() - start;
+        copyForInvocation();
+        start = System.nanoTime();
+        execution();
+        execution[i] = System.nanoTime() - start;
+        closeInvocation();
+        copyForInvocation();
+        start = System.nanoTime();
+        firstRow();
+        first[i] = System.nanoTime() - start;
+        closeInvocation();
+        copyForInvocation();
+        start = System.nanoTime();
+        decision();
+        decision[i] = System.nanoTime() - start;
+        closeInvocation();
+      }
+      System.out.printf(java.util.Locale.ROOT,
+          "GKE,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%s,%d,%d,%d,%d%n",
+          scenario, translation, selection, run.path, median(planning), median(execution),
+          median(first), median(decision), run.rows.size(), run.sources, run.sourceLoads,
+          run.recordLoads, run.adjacencyEntries, run.edgeLoads, run.discovery, run.budget,
+          run.switched, run.edges, run.countPositions, run.preflight, run.transactionVisits);
+    }
+  }
+
   private static long median(long[] values) {
     java.util.Arrays.sort(values);
     return values[values.length / 2];
@@ -833,24 +1130,38 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
           + "discovery_work,budget,budget_switch,count_positions,preflight,degree,tx_entries,"
           + "extra_vs_best_work,decision_over_current_execution,adjacency_entries,rejected_positions,"
           + "edge_record_loads,decision_tx_visits");
+      System.out.println("GKE,scenario,translation,selector,path,planning_ns,execution_ns,"
+          + "first_row_ns,decision_ns,rows,source_records,source_loads,record_loads,"
+          + "adjacency_entries,edge_record_loads,discovery_work,budget,budget_switch,"
+          + "reverse_edges,count_positions,preflight,decision_tx_visits");
       for (var name : cases) {
         if (args.length > 2 && !List.of(args[2].split(",")).contains(name)) {
           continue;
         }
-        var benchmark = new KnownEndpointAccessBenchmark();
-        benchmark.scenario = name;
-        benchmark.selector = "AUTO";
-        try {
-          benchmark.setup();
-          benchmark.report(repetitions);
-        } finally {
-          benchmark.teardown();
+        for (var mode : List.of("MATCH", "ON", "OFF")) {
+          var benchmark = new KnownEndpointAccessBenchmark();
+          benchmark.scenario = name;
+          benchmark.selector = "AUTO";
+          benchmark.translation = mode;
+          try {
+            benchmark.setup();
+            if (mode.equals("MATCH")) {
+              benchmark.report(repetitions);
+            } else {
+              benchmark.reportGremlin(repetitions);
+            }
+          } finally {
+            benchmark.teardown();
+          }
         }
       }
     } else {
-      new Runner(new OptionsBuilder()
-          .parent(new org.openjdk.jmh.runner.options.CommandLineOptions(args))
-          .include(KnownEndpointAccessBenchmark.class.getSimpleName()).build()).run();
+      var commandLine = new org.openjdk.jmh.runner.options.CommandLineOptions(args);
+      var options = new OptionsBuilder().parent(commandLine);
+      if (commandLine.getIncludes().isEmpty()) {
+        options.include(KnownEndpointAccessBenchmark.class.getSimpleName());
+      }
+      new Runner(options.build()).run();
     }
   }
 }

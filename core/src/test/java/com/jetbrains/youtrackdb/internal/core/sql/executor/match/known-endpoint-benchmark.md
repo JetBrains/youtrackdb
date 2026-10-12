@@ -32,8 +32,34 @@ For JMH, omit `--smoke`. The main method accepts standard JMH runner options:
 
 ```bash
 bash core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/run-known-endpoint-benchmark.sh \
-  -p scenario=source-small -p selector=AUTO -wi 3 -i 5 -f 1
+  -p scenario=source-small -p selector=AUTO -p translation=ON,OFF -wi 3 -i 5 -f 1
 ```
+
+## Translation modes
+
+The `translation` parameter accepts `MATCH`, `ON` and `OFF`.
+`MATCH` runs the direct SQL planner experiment and its original assertions.
+`ON` constructs a Gremlin traversal and enables the session setting
+`QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED`.
+`OFF` disables that setting and executes native Gremlin steps with no MATCH boundary.
+Smoke mode runs all three modes. Each Gremlin trial proves ON and OFF row parity on the same data.
+It also checks that OFF has no known-endpoint choice and identical work for all selectors.
+
+AUTO, CURRENT and ALTERNATIVE select MATCH access paths only.
+In OFF mode all three selectors are identical controls, not different Gremlin access paths.
+CURRENT selects the retained MATCH path. It does not remove the wrapper or its planning cost.
+For positive-hop fixtures, OFF starts from the source class through the native graph step.
+The `native-` scenario prefix identifies a positive MATCH pattern, not translator OFF mode.
+
+Gremlin planning constructs a traversal and applies strategies without execution.
+RID-bearing shapes bypass the translation and plan caches.
+Execution and first-row measurements clone an already compiled traversal outside the timer.
+Both include Gremlin row projection and stream cleanup.
+Gremlin decision isolates the same private guarded MATCH preparation method in ON mode.
+OFF has no such decision. Its decision method returns immediately and is not a latency comparison.
+`GKE` smoke rows report full-consumption work, except for the `caller-one` fixture.
+The rows include translation mode, path, returned rows, source reads, record loads,
+adjacency entries, edge loads, discovery budget and native decision counters.
 
 ## Experiment matrix
 
