@@ -10,8 +10,12 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -226,6 +230,335 @@ public class ChangedPageTrackerStartupTest {
       assertSame(failure, assertThrows(OutOfMemoryError.class,
           () -> ChangedPageTrackerStartup.load(path)));
     }
+  }
+
+  // Every status is tested under both shutdown states, a null shutdown and both lookahead results.
+  // Null inputs and unknown statuses fail closed, including MORE with a null shutdown. With a known
+  // shutdown, an empty MORE batch continues and only an unclean broken tail may prove.
+  @Test
+  public void terminalPolicyExhaustivelyChecksStatusShutdownAndLookahead() {
+    for (var status : ProofStatus.values()) {
+      for (var shutdown : new ChangedPageTrackerStartup.ShutdownState[] {
+          ChangedPageTrackerStartup.ShutdownState.CLEAN,
+          ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
+        for (boolean follows : new boolean[] {false, true}) {
+          var expected = shutdown == null ? ChangedPageTrackerStartup.ProofDecision.NOT_PROVED
+              : switch (status) {
+                case MORE -> ChangedPageTrackerStartup.ProofDecision.CONTINUE;
+                case REACHED_END -> ChangedPageTrackerStartup.ProofDecision.PROVED;
+                case BROKEN_PAGE -> shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+                    && !follows ? ChangedPageTrackerStartup.ProofDecision.PROVED
+                        : ChangedPageTrackerStartup.ProofDecision.NOT_PROVED;
+                default -> ChangedPageTrackerStartup.ProofDecision.NOT_PROVED;
+              };
+          assertEquals(status + " / " + shutdown + " / " + follows, expected,
+              ChangedPageTrackerStartup.terminalDecision(
+                  new ProofBatch(List.of(), status, COVERAGE, follows, null), shutdown));
+        }
+        assertEquals(ChangedPageTrackerStartup.ProofDecision.NOT_PROVED,
+            ChangedPageTrackerStartup.terminalDecision(null, shutdown));
+        assertEquals(ChangedPageTrackerStartup.ProofDecision.NOT_PROVED,
+            ChangedPageTrackerStartup.terminalDecision(
+                new ProofBatch(List.of(), null, COVERAGE, false, null), shutdown));
+      }
+    }
+  }
+
+  // A missing shutdown state cannot establish the unclean-shutdown exception for a broken page.
+  // Both lookahead values fail closed rather than admitting a broken tail.
+  @Test
+  public void brokenPageWithNullShutdownStateNeverProvesCoverage() {
+    for (boolean follows : new boolean[] {false, true}) {
+      assertEquals(ChangedPageTrackerStartup.ProofDecision.NOT_PROVED,
+          ChangedPageTrackerStartup.terminalDecision(
+              new ProofBatch(List.of(), ProofStatus.BROKEN_PAGE, COVERAGE, follows, null), null));
+    }
+  }
+
+  // Every outcome is checked against all four coverage/trust combinations. Only consistent
+  // combinations are accepted, and accepted results preserve the exact diagnostic fields.
+  @Test
+  public void startupResultRequiresFlagsToAgreeWithEveryOutcome() {
+    var cause = new IOException("diagnostic cause");
+    for (var outcome : ChangedPageTrackerStartup.Outcome.values()) {
+      for (boolean proved : new boolean[] {false, true}) {
+        for (boolean trusted : new boolean[] {false, true}) {
+          boolean valid = switch (outcome) {
+            case PROVED_HISTORY_TRUSTED -> proved && trusted;
+            case PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED -> proved && !trusted;
+            default -> !proved && !trusted;
+          };
+          if (!valid) {
+            assertThrows(outcome + " / " + proved + " / " + trusted,
+                IllegalArgumentException.class,
+                () -> new ChangedPageTrackerStartup.StartupResult(proved, trusted, outcome,
+                    ProofStatus.IO_ERROR, cause));
+          } else {
+            var result = new ChangedPageTrackerStartup.StartupResult(proved, trusted, outcome,
+                ProofStatus.IO_ERROR, cause);
+            assertEquals(proved, result.coverageProved());
+            assertEquals(trusted, result.historyTrusted());
+            assertEquals(outcome, result.outcome());
+            assertEquals(ProofStatus.IO_ERROR, result.terminalStatus());
+            assertSame(cause, result.cause());
+          }
+        }
+      }
+    }
+    var missing = new ChangedPageTrackerStartup.StartupResult(false, false,
+        ChangedPageTrackerStartup.Outcome.MISSING_EXTENT, null, null);
+    assertNull(missing.terminalStatus());
+    assertNull(missing.cause());
+  }
+
+  // Resolution derives proof for every status, known or null shutdown and lookahead result.
+  // MORE and null shutdowns never resolve as proved. Identity uncertainty revokes proved history.
+  // Saved-untrusted history is never upgraded. All paths retain marks, coverage, status and cause.
+  @Test
+  public void proofResolutionExhaustivelyDerivesPolicyAndKeepsOnlySavedTrust() throws Exception {
+    for (var status : ProofStatus.values()) {
+      for (var shutdown : new ChangedPageTrackerStartup.ShutdownState[] {
+          ChangedPageTrackerStartup.ShutdownState.CLEAN,
+          ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
+        for (boolean follows : new boolean[] {false, true}) {
+          for (boolean savedTrusted : new boolean[] {false, true}) {
+            for (boolean identityUnresolved : new boolean[] {false, true}) {
+              var pending = savedHistory(savedTrusted);
+              var cause = new IOException("diagnostic for " + status);
+              var batch = new ProofBatch(List.of(), status, COVERAGE, follows, cause);
+              boolean proved = shutdown != null && (status == ProofStatus.REACHED_END
+                  || status == ProofStatus.BROKEN_PAGE
+                      && shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN && !follows);
+              boolean kept = proved && !identityUnresolved;
+              var outcome = !proved ? ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED
+                  : identityUnresolved
+                      ? ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED
+                      : savedTrusted ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+                          : ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED;
+              assertEquals(status + " / " + shutdown + " / " + follows + " / " + savedTrusted
+                  + " / " + identityUnresolved,
+                  new ChangedPageTrackerStartup.StartupResult(proved, kept && savedTrusted,
+                      outcome, status, cause),
+                  ChangedPageTrackerStartup.resolve(pending, batch, shutdown, identityUnresolved));
+              assertEquals(kept ? ChangedPageTrackerStartup.Resolution.KEPT
+                  : ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+              assertEquals(kept && savedTrusted, pending.tracker().isTrusted());
+              assertMarksAndCoverage(pending);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Null batches and null statuses cannot prove coverage under either shutdown state or a missing
+  // shutdown state. With a null shutdown, REACHED_END and BROKEN_PAGE distrust both pending and
+  // already-kept history for either lookahead, preserving the exact diagnostic fields.
+  @Test
+  public void proofResolutionFailsClosedForNullInputs() throws Exception {
+    var cause = new IOException("missing status");
+    for (var shutdown : new ChangedPageTrackerStartup.ShutdownState[] {
+        ChangedPageTrackerStartup.ShutdownState.CLEAN,
+        ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
+      for (boolean identityUnresolved : new boolean[] {false, true}) {
+        for (var batch : new ProofBatch[] {null,
+            new ProofBatch(List.of(), null, COVERAGE, false, cause)}) {
+          var pending = savedHistory(true);
+          assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
+              ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, null,
+              batch == null ? null : cause),
+              ChangedPageTrackerStartup.resolve(pending, batch, shutdown, identityUnresolved));
+          assertDistrusted(pending);
+        }
+      }
+    }
+    for (var status : List.of(ProofStatus.REACHED_END, ProofStatus.BROKEN_PAGE)) {
+      for (boolean follows : new boolean[] {false, true}) {
+        for (boolean kept : new boolean[] {false, true}) {
+          var pending = savedHistory(true);
+          if (kept) {
+            pending.keepSavedTrust();
+            assertTrue(pending.tracker().isTrusted());
+          }
+          var batch = new ProofBatch(List.of(), status, COVERAGE, follows, cause);
+          assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
+              ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, status, cause),
+              ChangedPageTrackerStartup.resolve(pending, batch, null, false));
+          assertDistrusted(pending);
+        }
+      }
+    }
+  }
+
+  // Misusing the non-proof helper with any proof outcome throws only after trust is revoked.
+  // This also holds for already-kept history, and exact marks and coverage survive rejection.
+  @Test
+  public void notProvedRejectsProofOutcomesAfterDistrustingHistory() throws Exception {
+    for (var outcome : List.of(ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED,
+        ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED)) {
+      for (boolean kept : new boolean[] {false, true}) {
+        var pending = savedHistory(true);
+        if (kept) {
+          pending.keepSavedTrust();
+        }
+        assertThrows(IllegalArgumentException.class,
+            () -> ChangedPageTrackerStartup.notProved(pending, outcome,
+                ProofStatus.REACHED_END, null));
+        assertDistrusted(pending);
+        assertEquals(1, capture(pending.tracker()).failureVersion());
+      }
+    }
+  }
+
+  // Each missing-input diagnostic and every non-proving status reaches the warning log with its
+  // exact status and cause. No diagnostic path clears marks or alters the saved coverage.
+  @Test
+  public void nonProofDiagnosticsAreExactAndLoggedAtWarningLevel() throws Exception {
+    try (var logs = LogRecordCollector.attachTo(ChangedPageTrackerStartup.class)) {
+      for (var outcome : List.of(ChangedPageTrackerStartup.Outcome.MISSING_COVERAGE,
+          ChangedPageTrackerStartup.Outcome.MISSING_EXTENT,
+          ChangedPageTrackerStartup.Outcome.MISSING_READER,
+          ChangedPageTrackerStartup.Outcome.MISSING_BATCH,
+          ChangedPageTrackerStartup.Outcome.READER_FAILURE)) {
+        var pending = savedHistory(true);
+        var result = ChangedPageTrackerStartup.notProved(pending, outcome, null, null);
+        assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false, outcome, null, null),
+            result);
+        assertDistrusted(pending);
+        assertTrue(logs.warnedWithAll("outcome=" + outcome, "status=null", "cause=null"));
+      }
+      for (var status : ProofStatus.values()) {
+        if (status == ProofStatus.MORE || status == ProofStatus.REACHED_END) {
+          continue;
+        }
+        var pending = savedHistory(true);
+        var cause = new IOException("failure for " + status);
+        assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
+            ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, status, cause),
+            ChangedPageTrackerStartup.resolve(pending,
+                new ProofBatch(List.of(), status, COVERAGE, false, cause),
+                ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+        assertDistrusted(pending);
+        assertTrue(logs.warnedWithAll("outcome=COVERAGE_NOT_PROVED", "status=" + status,
+            "cause=" + cause));
+      }
+      var unresolved = savedHistory(true);
+      ChangedPageTrackerStartup.resolve(unresolved,
+          new ProofBatch(List.of(), ProofStatus.REACHED_END, COVERAGE, false, null),
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, true);
+      assertTrue(logs.warnedWithAll("outcome=PROVED_IDENTITY_UNRESOLVED", "status=REACHED_END"));
+    }
+  }
+
+  // Replay revocation wins after a successful keep. Another proof cannot restore invalidated trust,
+  // and repeated replay reports leave the failure version and retained marks unchanged.
+  @Test
+  public void replayFailureWinsOverKeepAndLaterProof() throws Exception {
+    var pending = savedHistory(true);
+    var batch = new ProofBatch(List.of(), ProofStatus.REACHED_END, COVERAGE, false, null);
+    assertEquals(new ChangedPageTrackerStartup.StartupResult(true, true,
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED, ProofStatus.REACHED_END, null),
+        ChangedPageTrackerStartup.resolve(pending, batch,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+    assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, pending.resolution());
+    assertTrue(pending.tracker().isTrusted());
+    ChangedPageTrackerStartup.replayFailed(pending);
+    ChangedPageTrackerStartup.replayFailed(pending);
+    assertEquals(new ChangedPageTrackerStartup.StartupResult(true, false,
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED, ProofStatus.REACHED_END, null),
+        ChangedPageTrackerStartup.resolve(pending, batch,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+    assertDistrusted(pending);
+    assertEquals(1, capture(pending.tracker()).failureVersion());
+
+    // Tracker-level invalidation can precede resolution. A KEPT resolution still cannot report
+    // trusted history when the tracker has already lost continuity.
+    var invalidated = savedHistory(true);
+    invalidated.tracker().invalidate();
+    assertEquals(new ChangedPageTrackerStartup.StartupResult(true, false,
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED, ProofStatus.REACHED_END, null),
+        ChangedPageTrackerStartup.resolve(invalidated, batch,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+    assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, invalidated.resolution());
+    assertFalse(invalidated.tracker().isTrusted());
+    assertMarksAndCoverage(invalidated);
+  }
+
+  // RuntimeException and Error propagate as the exact same instances after trust revocation.
+  // Neither pending nor already-kept history can remain trusted after a reader failure.
+  @Test
+  public void readerFailuresDistrustAndRethrowTheSameInstance() throws Exception {
+    for (boolean kept : new boolean[] {false, true}) {
+      for (var failure : List.<Throwable>of(new IllegalStateException("reader failure"),
+          new OutOfMemoryError("reader allocation failure"))) {
+        var pending = savedHistory(true);
+        if (kept) {
+          pending.keepSavedTrust();
+        }
+        try (var logs = LogRecordCollector.attachTo(ChangedPageTrackerStartup.class)) {
+          assertSame(failure, assertThrows(failure.getClass(),
+              () -> ChangedPageTrackerStartup.readerFailed(pending, failure)));
+          assertTrue(
+              logs.warnedWithAll("outcome=READER_FAILURE", "status=null", "cause=" + failure));
+        }
+        assertDistrusted(pending);
+      }
+    }
+  }
+
+  // Logging itself can fail when memory is exhausted. Trust is still revoked and the original
+  // reader Error must reach the caller instead of the secondary logging Error.
+  @Test
+  public void loggingFailureCannotReplaceTheReaderFailure() throws Exception {
+    var pending = savedHistory(true);
+    var failure = new OutOfMemoryError("reader failure");
+    try (var logger = mockStatic(LogManager.class)) {
+      logger.when(LogManager::instance).thenThrow(new OutOfMemoryError("logging failure"));
+      assertSame(failure, assertThrows(OutOfMemoryError.class,
+          () -> ChangedPageTrackerStartup.readerFailed(pending, failure)));
+    }
+    assertDistrusted(pending);
+  }
+
+  private ChangedPageTrackerStartup.PendingHistory savedHistory(boolean trusted) throws Exception {
+    var path = sideFile();
+    Files.write(path, encode(trusted, true));
+    return ChangedPageTrackerStartup.load(path);
+  }
+
+  private static void assertMarksAndCoverage(ChangedPageTrackerStartup.PendingHistory pending) {
+    assertEquals(MERGED, pages(capture(pending.tracker()).active()));
+    assertEquals(COVERAGE, pending.coverageLsn());
+    assertEquals(COVERAGE, pending.tracker().durableCoverageLsn());
+  }
+
+  private static void assertDistrusted(ChangedPageTrackerStartup.PendingHistory pending) {
+    assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+    assertFalse(pending.tracker().isTrusted());
+    assertMarksAndCoverage(pending);
+  }
+
+  // The default validation admits exactly positive IDs independently of conversion or inventory.
+  @Test
+  public void fileIdsValidationRequiresPositiveInternalIds() {
+    ChangedPageTrackerStartup.FileIds files = new ChangedPageTrackerStartup.FileIds() {
+      @Override
+      public int internalFileId(long externalId) {
+        return (int) externalId;
+      }
+
+      @Override
+      public String currentName(int internalId) {
+        return null;
+      }
+    };
+    assertEquals(7, files.internalFileId((12L << 32) | 7));
+    assertNull(files.currentName(7));
+    assertFalse(files.isValidInternalFileId(Integer.MIN_VALUE));
+    assertFalse(files.isValidInternalFileId(0));
+    assertTrue(files.isValidInternalFileId(1));
+    assertTrue(files.isValidInternalFileId(Integer.MAX_VALUE));
   }
 
   private Path sideFile() throws Exception {
