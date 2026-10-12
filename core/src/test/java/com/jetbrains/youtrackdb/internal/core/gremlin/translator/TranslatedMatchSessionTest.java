@@ -5,11 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache;
@@ -19,8 +24,15 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -28,6 +40,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies;
+import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -280,6 +293,212 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     }
   }
 
+  /** Vertex projection consumes the checked record in a MATCH row without another READ hook. */
+  @Test
+  public void vertexBoundaryReusesCheckedRowAndMatchesNativeResults() throws Exception {
+    seed();
+    var db = graphSession();
+    var reads = new ArrayList<DBRecord>();
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(TYPE type, DBRecord record) {
+        if (type == TYPE.READ) {
+          reads.add(record);
+        }
+      }
+    };
+    db.registerHook(hook);
+    try (var traversal = graph.traversal().V().hasLabel("Person").asAdmin()) {
+      var step = boundary(traversal);
+      var probe = armWithProbe(step);
+      var first = traversal.next();
+      var matched = probe.lastRow;
+      var alias = matched.getPropertyNames().getFirst();
+      int before = reads.size();
+      assertThat(matched.getVertex(alias)).isSameAs(((YTDBElementImpl) first).getRawEntity());
+      assertThat(reads).hasSize(before).contains(((YTDBElementImpl) first).getRawEntity());
+      assertThat((Object) matched.getProperty(alias)).isInstanceOf(
+          com.jetbrains.youtrackdb.internal.core.db.record.record.RID.class);
+      var translated = new ArrayList<>(traversal.toList());
+      translated.add(first);
+      assertThat(translated).hasSize(4);
+      // MATCH prefetch may read all candidates before the first row. Each is read only once.
+      assertThat(reads).hasSize(4);
+      for (var element : translated) {
+        assertThat(reads).anySatisfy(
+            record -> assertThat(((YTDBElementImpl) element).getRawEntity()).isSameAs(record));
+      }
+      db.getConfiguration().setValue(
+          GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+      try (var nativeTraversal = graph.traversal().V().hasLabel("Person").asAdmin()) {
+        nativeTraversal.applyStrategies();
+        assertThat(nativeTraversal.getSteps()).noneMatch(AbstractMatchPlanStep.class::isInstance);
+        assertThat(nativeTraversal.toList()).hasSize(4).containsAll(translated);
+      } finally {
+        db.getConfiguration().setValue(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+      }
+    } finally {
+      db.unregisterHook(hook);
+      graph.tx().rollback();
+    }
+  }
+
+  /** A filtered hop retains the checked start alias when the filter rewrites the same RID. */
+  @Test
+  public void filteredHopBoundaryReusesStartAlias() throws Exception {
+    var from = graph.addVertex(T.label, "Person", "x", 1);
+    var to = graph.addVertex(T.label, "Person", "x", 2);
+    from.addEdge("Knows", to);
+    graph.tx().commit();
+    var db = graphSession();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(db, reads);
+    try (var traversal = graph.traversal().V().hasLabel("Person").as("a")
+        .out("Knows").hasLabel("Person").select("a").asAdmin()) {
+      var step = boundary(traversal);
+      var probe = armWithProbe(step);
+      probe.recordReads = reads;
+      var first = (YTDBElementImpl) traversal.next();
+      var row = (ResultInternal) probe.lastRow;
+      var alias = row.getPropertyNames().getFirst();
+      assertThat(row.getMatchedRecord(alias)).isNotNull();
+      var retained = row.getMatchedRecord(alias).reusableIn(db);
+      int before = reads.size();
+      assertThat(first.getRawEntity()).isSameAs(retained);
+      assertThat(row.getVertex(alias)).isSameAs(retained);
+      assertThat(reads).hasSize(before);
+      // Graph-hop execution can read the start record again. Projection must add no read.
+      assertThat(reads).hasSize(probe.readsBeforeProjection).contains(retained);
+      assertThat(traversal.hasNext()).isFalse();
+    } finally {
+      db.unregisterHook(hook);
+      graph.tx().rollback();
+    }
+  }
+
+  /** A real RID-valued edge row crosses the boundary without losing its checked record. */
+  @Test
+  public void edgeBoundaryReusesCheckedRow() throws Exception {
+    var from = graph.addVertex(T.label, "Person");
+    var to = graph.addVertex(T.label, "Person");
+    from.addEdge("Knows", to, "x", 7);
+    graph.tx().commit();
+    var db = graphSession();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(db, reads);
+    // A root edge scan provides checked evidence. Identifier-only hop edges stay lazy.
+    try (var traversal = new DefaultTraversal<Object, Edge>(graph)) {
+      traversal.setStrategies(new DefaultTraversalStrategies());
+      var ctx = new BasicCommandContext();
+      ctx.setDatabaseSession(db);
+      var sql = "MATCH {class:Knows, as:e} RETURN e";
+      var statement = (SQLMatchStatement) new YouTrackDBSql(
+          new ByteArrayInputStream(sql.getBytes(StandardCharsets.UTF_8))).parse();
+      var step = new YTDBMatchPlanStep<>(traversal, Edge.class,
+          statement.createExecutionPlan(ctx), "e", BoundaryOutputType.ELEMENT);
+      traversal.addStep(step);
+      assertThat(boundary(traversal)).isSameAs(step);
+      var probe = armWithProbe(step);
+      probe.recordReads = reads;
+      var first = (YTDBElementImpl) traversal.next();
+      var row = (ResultInternal) probe.lastRow;
+      var alias = row.getPropertyNames().getFirst();
+      assertThat((Object) row.getProperty(alias)).isInstanceOf(
+          com.jetbrains.youtrackdb.internal.core.db.record.record.RID.class);
+      assertThat(row.getMatchedRecord(alias)).isNotNull();
+      var retained = row.getMatchedRecord(alias).reusableIn(db);
+      int before = reads.size();
+      assertThat(first.getRawEntity()).isSameAs(retained);
+      assertThat(row.getEdge(alias)).isSameAs(retained);
+      assertThat(reads).hasSize(before);
+      assertThat(reads).hasSize(probe.readsBeforeProjection).contains(retained);
+      assertThat(traversal.hasNext()).isFalse();
+    } finally {
+      db.unregisterHook(hook);
+      graph.tx().rollback();
+    }
+  }
+
+  /** Concurrent open rows prove reuse and ownership in each session from one shared template. */
+  @Test
+  public void concurrentCachedMatchExecutionsDoNotShareRecords() throws Exception {
+    seed();
+    try (var warm = graph.traversal().V().hasLabel("Person").asAdmin()) {
+      boundary(warm);
+    }
+    graph.tx().commit();
+    var executor = Executors.newFixedThreadPool(2);
+    var barrier = new CyclicBarrier(2);
+    try {
+      var task = (java.util.concurrent.Callable<Object[]>) () -> {
+        var db = graphSession();
+        var reads = new ArrayList<DBRecord>();
+        var hook = observeReads(db, reads);
+        try (var traversal = graph.traversal().V().hasLabel("Person").asAdmin()) {
+          var step = (YTDBMatchPlanStep<?, ?>) boundary(traversal);
+          var template = step.getPlan();
+          var probe = armWithProbe(step);
+          var first = (YTDBElementImpl) traversal.next();
+          var row = (ResultInternal) probe.lastRow;
+          var alias = row.getPropertyNames().getFirst();
+          var evidence = row.getMatchedRecord(alias);
+          assertThat(evidence).isNotNull();
+          assertThat(evidence.session()).isSameAs(db);
+          assertThat(evidence.transaction()).isSameAs(db.getActiveTransaction());
+          // Both rows and their executions remain live before either thread consumes more rows.
+          barrier.await(30, TimeUnit.SECONDS);
+          int before = reads.size();
+          var record = evidence.reusableIn(db);
+          assertThat(record).isNotNull();
+          assertThat(record.isNotBound(db)).isFalse();
+          assertThat(first.getRawEntity()).isSameAs(record);
+          assertThat(row.getVertex(alias)).isSameAs(record);
+          assertThat(reads).hasSize(before);
+          assertThat(reads.stream().filter(r -> r == record).count()).isEqualTo(1);
+          assertThat(traversal.toList()).hasSize(3);
+          assertThat(reads).hasSize(4);
+          return new Object[] {template, record, db, row};
+        } finally {
+          db.unregisterHook(hook);
+          graph.tx().rollback();
+        }
+      };
+      var first = executor.submit(task);
+      var second = executor.submit(task);
+      var a = first.get(30, TimeUnit.SECONDS);
+      var b = second.get(30, TimeUnit.SECONDS);
+      assertThat(a[0]).isSameAs(b[0]);
+      assertThat(a[1]).isNotSameAs(b[1]);
+      assertThat(a[2]).isNotSameAs(b[2]);
+      assertThat(a[3]).isNotSameAs(b[3]);
+    } finally {
+      executor.shutdownNow();
+      assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
+  private static RecordHook observeReads(DatabaseSessionEmbedded db, List<DBRecord> reads) {
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(TYPE type, DBRecord record) {
+        if (type == TYPE.READ) {
+          reads.add(record);
+        }
+      }
+    };
+    db.registerHook(hook);
+    return hook;
+  }
+
   private void seed() {
     for (var i = 0; i < 4; i++) {
       graph.addVertex(T.label, "Person", "x", i);
@@ -361,6 +580,9 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     private final ExecutionStream delegate;
     private int reads;
     private int closes;
+    private Result lastRow;
+    private List<DBRecord> recordReads;
+    private int readsBeforeProjection;
 
     private StreamProbe(ExecutionStream delegate) {
       this.delegate = delegate;
@@ -376,7 +598,11 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     @Override
     public Result next(CommandContext ctx) {
       reads++;
-      return delegate.next(ctx);
+      lastRow = delegate.next(ctx);
+      if (recordReads != null) {
+        readsBeforeProjection = recordReads.size();
+      }
+      return lastRow;
     }
 
     @Override

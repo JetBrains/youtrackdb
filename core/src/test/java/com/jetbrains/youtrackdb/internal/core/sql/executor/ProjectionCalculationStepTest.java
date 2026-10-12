@@ -84,6 +84,50 @@ public class ProjectionCalculationStepTest extends DbTestBase {
     }
   }
 
+  /** Only plain alias projections retain records. Scalar and nested projections keep their values. */
+  @Test
+  public void matchRecordProjectionRetainsOnlyCompatibleAliasBindings() throws ParseException {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var row = new ResultInternal(session);
+    row.setMatchProperty("a", ResultInternal.fromCheckedRecord(session,
+        session.executeReadRecord(
+            (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+            true)));
+    try {
+      for (var sql : List.of("select a as renamed", "select 1 as renamed",
+          "select a:{@rid} as renamed")) {
+        var ctx = newContext();
+        var step = new ProjectionCalculationStep(parseExpandProjection(sql), ctx, false);
+        step.setPrevious(new AbstractExecutionStep(ctx, false) {
+          @Override
+          public ExecutionStep copy(CommandContext context) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public ExecutionStream internalStart(CommandContext context) {
+            return ExecutionStream.singleton(row);
+          }
+        });
+        var stream = step.start(ctx);
+        try {
+          var projected = (ResultInternal) stream.next(ctx);
+          if (sql.equals("select a as renamed")) {
+            assertThat(projected.getVertex("renamed")).isSameAs(vertex);
+            assertThat(projected.getMatchedRecord("renamed")).isNotNull();
+          } else {
+            assertThat(projected.getMatchedRecord("renamed")).isNull();
+          }
+        } finally {
+          stream.close(ctx);
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
   private BasicCommandContext newContext() {
     var ctx = new BasicCommandContext();
     ctx.setDatabaseSession(session);

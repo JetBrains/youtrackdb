@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.StreamQueryHandle;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.AbstractMap;
@@ -1301,6 +1302,14 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   private Edge projectEdge(Result row, YTDBGraphInternal graph) {
+    // Keep identifier-only edges lazy. Only eligible MATCH evidence takes typed access here.
+    if (row instanceof ResultInternal result) {
+      var retained = result.getMatchedRecord(boundaryAlias);
+      if (retained != null && retained.reusableIn(row
+          .getBoundedToSession()) instanceof com.jetbrains.youtrackdb.internal.core.db.record.record.Edge) {
+        return new YTDBEdgeImpl(graph, row.getEdge(boundaryAlias));
+      }
+    }
     var raw = row.getProperty(boundaryAlias);
     if (raw instanceof Entity entity && entity.isEdge()) {
       return new YTDBEdgeImpl(graph, entity.asEdge());

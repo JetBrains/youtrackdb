@@ -5,6 +5,8 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollections;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Iterator;
@@ -68,12 +70,15 @@ public final class LoaderExecutionStream implements ExecutionStream {
 
       if (nextRid != null) {
         if (nextRid instanceof DBRecord record) {
-          nextResult = new ResultInternal(db, record);
+          // Collection iterators perform executeReadRecord. Other record inputs are unchecked.
+          nextResult = iterator instanceof RecordIteratorCollection<?>
+              || iterator instanceof RecordIteratorCollections<?>
+                  ? ResultInternal.fromCheckedRecord(db, record) : new ResultInternal(db, record);
           return;
         } else {
           try {
             var nextDoc = db.load(nextRid.getIdentity());
-            var res = new ResultInternal(db, nextDoc);
+            var res = ResultInternal.fromLoadedRecord(db, nextDoc);
             if (nextRid instanceof ContextualRecordId ctxRid) {
               res.addMetadata(ctxRid.getContext());
             }

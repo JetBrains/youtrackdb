@@ -331,6 +331,21 @@ public class YTDBMatchPlanStepTest {
     verify(row).getVertex("b");
   }
 
+  /** Identifier-only edge projection stays lazy and does not invoke typed record resolution. */
+  @Test
+  public void projectElement_identifierOnlyEdgeDoesNotLoad() {
+    var row = mock(Result.class);
+    var rid = new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 1);
+    when(row.getProperty("e")).thenReturn(rid);
+    var step = new YTDBMatchPlanStep(traversal, Edge.class, plan, "e",
+        BoundaryOutputType.ELEMENT);
+    var result = step.projectElement(row, graph);
+    assertThat(result)
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl.class);
+    assertThat(((Edge) result).id()).isEqualTo(rid);
+    verify(row, never()).getEdge("e");
+  }
+
   /** Edge-boundary projection wraps the matched edge as {@link YTDBEdgeImpl}. */
   @Test
   public void projectElement_edgeReturnClass_wrapsEdge() {
