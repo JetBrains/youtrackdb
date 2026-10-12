@@ -5,18 +5,34 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.withSettings;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.engine.memory.EngineMemory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -85,6 +101,60 @@ public class DirectMemoryStorageTest {
         } catch (Exception ignored) {
           // Drop failure during cleanup must not mask the original action exception.
         }
+      }
+    }
+  }
+
+  /** Memory creation skips open dispatch. Physical reopen delegates to its existing initializer. */
+  @Test
+  public void creationAndPhysicalOpenKeepMemoryOnlyInitialization() throws Exception {
+    var root = DbTestBase.getBaseDirectoryPathStr(DirectMemoryStorageTest.class);
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      var name = "memoryStartup_" + System.nanoTime();
+      var engineField = manager.internal.getClass().getDeclaredField("memory");
+      engineField.setAccessible(true);
+      var realEngine = (Engine) engineField.get(manager.internal);
+      var engine = spy(realEngine);
+      // Constructor-owned components must capture the observed instance itself.
+      doAnswer(call -> mock(DirectMemoryStorage.class, withSettings().useConstructor(
+          call.getArgument(0), call.getArgument(0), call.getArgument(3), call.getArgument(4))
+          .defaultAnswer(CALLS_REAL_METHODS))).when(engine)
+          .createStorage(anyString(), anyLong(), anyLong(), anyInt(), any());
+      engineField.set(manager.internal, engine);
+      try {
+        manager.create(name, DatabaseType.MEMORY, "admin", "admin", "admin");
+        DirectMemoryStorage storage;
+        try (var opened = manager.open(name, "admin", "admin")) {
+          storage = (DirectMemoryStorage) opened.getStorage();
+          verify(storage).initWalAndDiskCache(any(ContextConfiguration.class));
+          // The inherited protected hook is inspected without adding a production accessor.
+          var openInit = AbstractStorage.class.getDeclaredMethod("initWalAndDiskCacheOnOpen",
+              ContextConfiguration.class);
+          openInit.setAccessible(true);
+          openInit.invoke(verify(storage, never()), any(ContextConfiguration.class));
+        }
+        var wal = storage.getWALInstance();
+        var cache = storage.getWriteCache();
+        assertTrue(wal instanceof MemoryWriteAheadLog);
+        assertTrue(cache instanceof DirectMemoryOnlyDiskCache);
+        storage.close(null, true);
+        storage.open(new ContextConfiguration());
+        verify(storage, times(2)).initWalAndDiskCache(any(ContextConfiguration.class));
+        var openInit = AbstractStorage.class.getDeclaredMethod("initWalAndDiskCacheOnOpen",
+            ContextConfiguration.class);
+        openInit.setAccessible(true);
+        openInit.invoke(verify(storage), any(ContextConfiguration.class));
+        assertSame(wal, storage.getWALInstance());
+        assertSame(cache, storage.getWriteCache());
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(operation -> {
+          // Reopened memory storage must complete an operation without unsupported WAL reads.
+        });
+        var path = Paths.get(storage.getURL().substring("memory:".length()));
+        assertFalse(Files.exists(path.resolve(ChangedPageTrackerFile.FILE_NAME)));
+        assertFalse(Files.exists(path.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)));
+      } finally {
+        engineField.set(manager.internal, realEngine);
+        // Manager shutdown deletes the memory cache without reopening a shared session context.
       }
     }
   }
