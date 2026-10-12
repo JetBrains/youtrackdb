@@ -916,7 +916,7 @@ public abstract class AbstractStorage
           readStorageIdentity();
           readIv();
 
-          initWalAndDiskCache(contextConfiguration);
+          initWalAndDiskCacheOnOpen(contextConfiguration);
 
           // Register all PageOperation types so recovery can deserialize logical WAL records.
           // Must happen after WAL initialization (above) and before recoverIfNeeded() (below).
@@ -7902,6 +7902,13 @@ public abstract class AbstractStorage
    */
   protected abstract CheckpointResult checkpointChangedPages(long fixedBoundary) throws IOException;
 
+  /** Initializes an existing image. Storage without disk history uses its normal initializer. */
+  protected void initWalAndDiskCacheOnOpen(ContextConfiguration contextConfiguration)
+      throws IOException, java.lang.InterruptedException {
+    initWalAndDiskCache(contextConfiguration);
+  }
+
+  /** Initializes WAL and caches for a new image. */
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException;
 

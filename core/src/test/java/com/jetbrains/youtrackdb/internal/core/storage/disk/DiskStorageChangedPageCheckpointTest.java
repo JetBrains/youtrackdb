@@ -6,25 +6,36 @@ import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.Changed
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome.SAVED;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.engine.Engine;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
@@ -104,6 +115,80 @@ public class DiskStorageChangedPageCheckpointTest {
         manager.close();
       }
     }
+  }
+
+  /** Real disk creation uses only the create initializer and shares one untrusted tracker. */
+  @Test
+  public void creationSelectsCreateInitializerAndSharesTracker() throws Exception {
+    var created = createObservedStorage();
+    verify(created).initWalAndDiskCache(any(ContextConfiguration.class));
+    verify(created, never()).initWalAndDiskCacheOnOpen(any(ContextConfiguration.class));
+    assertSharedUntrustedTracker(created);
+  }
+
+  /** An existing image uses only the open initializer and shares a fresh untrusted tracker. */
+  @Test
+  public void existingImageSelectsOpenInitializerAndSharesTracker() throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    clearInvocations(created);
+    created.open(new ContextConfiguration());
+    verify(created).initWalAndDiskCacheOnOpen(any(ContextConfiguration.class));
+    verify(created, never()).initWalAndDiskCache(any(ContextConfiguration.class));
+    assertSharedUntrustedTracker(created);
+  }
+
+  /** Every physical reopen replaces both tracker references together, without trusting history. */
+  @Test
+  public void repeatedPhysicalOpenReplacesSharedTracker() throws Exception {
+    var created = createObservedStorage();
+    var previous = assertSharedUntrustedTracker(created);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      created.close(null, true);
+      clearInvocations(created);
+      created.open(new ContextConfiguration());
+      verify(created).initWalAndDiskCacheOnOpen(any(ContextConfiguration.class));
+      verify(created, never()).initWalAndDiskCache(any(ContextConfiguration.class));
+      var current = assertSharedUntrustedTracker(created);
+      assertNotSame(previous, current);
+      previous = current;
+    }
+  }
+
+  private DiskStorage createObservedStorage() throws Exception {
+    // Replace only this manager's factory. The shared engine and other managers stay untouched.
+    var engineField = manager.internal.getClass().getDeclaredField("disk");
+    engineField.setAccessible(true);
+    var realEngine = (Engine) engineField.get(manager.internal);
+    var engine = spy(realEngine);
+    doAnswer(call -> {
+      var real = (DiskStorage) call.callRealMethod();
+      // Construct the mock itself so storage components capture it, not a copied spy source.
+      return mock(DiskStorage.class, withSettings().useConstructor(real.getName(),
+          field(DiskStorage.class, real, "storagePath").toString(), call.getArgument(3),
+          real.getReadCache(), field(DiskStorage.class, real, "files"), call.getArgument(1),
+          call.getArgument(2), call.getArgument(4)).defaultAnswer(CALLS_REAL_METHODS));
+    }).when(engine).createStorage(anyString(), anyLong(), anyLong(), anyInt(), any());
+    engineField.set(manager.internal, engine);
+    try {
+      manager.create("startup", DatabaseType.DISK, "admin", "admin", "admin");
+      try (var opened = manager.open("startup", "admin", "admin")) {
+        return (DiskStorage) opened.getStorage();
+      }
+    } finally {
+      engineField.set(manager.internal, realEngine);
+    }
+  }
+
+  private static ChangedPageTracker assertSharedUntrustedTracker(DiskStorage target)
+      throws Exception {
+    var selected = (ChangedPageTracker) field(DiskStorage.class, target, "changedPageTracker");
+    assertNotNull(selected);
+    assertSame(selected, field(WOWCache.class, target.getWriteCache(), "changedPageTracker"));
+    var trusted = ChangedPageTracker.class.getDeclaredMethod("isTrusted");
+    trusted.setAccessible(true);
+    assertFalse((boolean) trusted.invoke(selected));
+    return selected;
   }
 
   /** The real publisher completes before cutting, and cache file events invalidate the same state. */
