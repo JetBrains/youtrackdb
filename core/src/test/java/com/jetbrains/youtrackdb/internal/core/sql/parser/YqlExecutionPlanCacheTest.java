@@ -5,6 +5,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.BaseMemoryInternalDatabase;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
@@ -409,14 +410,15 @@ public class YqlExecutionPlanCacheTest extends BaseMemoryInternalDatabase {
     }
   }
 
+  /** A cache configured with two entries starts empty and leaves the global setting unchanged. */
   @Test
   public void testGlobalConfigurationCacheSize() {
-    GlobalConfiguration.STATEMENT_CACHE_SIZE.setValue(2);
+    try (var ignored = GlobalConfigurationScope.set(GlobalConfiguration.STATEMENT_CACHE_SIZE, 2)) {
+      var cache = new YqlExecutionPlanCache(
+          GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());
 
-    var cache = new YqlExecutionPlanCache(
-        GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());
-
-    Assert.assertFalse(cache.contains("SELECT FROM V"));
-    Assert.assertFalse(cache.contains("SELECT FROM E"));
+      Assert.assertFalse(cache.contains("SELECT FROM V"));
+      Assert.assertFalse(cache.contains("SELECT FROM E"));
+    }
   }
 }
