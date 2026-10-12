@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
 import java.io.IOException;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
@@ -36,6 +38,135 @@ final class ChangedPageTrackerStartup {
     tracker.startupVerificationPending(true);
     tracker.mergeLoadedSealed();
     return new PendingHistory(tracker, loaded.coverageLsn(), savedTrusted);
+  }
+
+  /** The caller captures this state before recovery clears the storage dirty flag. */
+  enum ShutdownState {
+    CLEAN, UNCLEAN
+  }
+
+  /** Startup file inventory. Names identify current files, not their historical incarnations. */
+  interface FileIds {
+
+    /** Converts an external WAL file ID even when that file is absent from the current inventory. */
+    int internalFileId(long externalId);
+
+    /** Tracker marks require positive internal IDs. */
+    default boolean isValidInternalFileId(int internalId) {
+      return internalId > 0;
+    }
+
+    /** Returns the current name, or null when the internal ID has no current file. */
+    @Nullable String currentName(int internalId);
+  }
+
+  enum Outcome {
+    PROVED_HISTORY_TRUSTED, PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED, COVERAGE_NOT_PROVED, MISSING_COVERAGE, MISSING_EXTENT, MISSING_READER, MISSING_BATCH, READER_FAILURE
+  }
+
+  /**
+   * Outcome and trust flags must agree. Trust is a resolution-time snapshot that a later replay
+   * failure can revoke.
+   */
+  record StartupResult(boolean coverageProved, boolean historyTrusted, Outcome outcome,
+      @Nullable ProofStatus terminalStatus, @Nullable Throwable cause) {
+
+    StartupResult {
+      boolean consistent = switch (outcome) {
+        case PROVED_HISTORY_TRUSTED -> coverageProved && historyTrusted;
+        case PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED -> coverageProved
+            && !historyTrusted;
+        default -> !coverageProved && !historyTrusted;
+      };
+      if (!consistent) {
+        throw new IllegalArgumentException("Startup outcome must agree with coverage and trust");
+      }
+    }
+  }
+
+  enum ProofDecision {
+    CONTINUE, PROVED, NOT_PROVED
+  }
+
+  /**
+   * Interprets only terminal policy, not record coverage. The caller must process every record in
+   * the batch, including terminal batches, before resolving history. Null inputs fail closed.
+   * Empty MORE batches continue only when the shutdown state is known.
+   */
+  static ProofDecision terminalDecision(@Nullable ProofBatch batch,
+      @Nullable ShutdownState shutdown) {
+    if (batch == null || batch.status() == null || shutdown == null) {
+      return ProofDecision.NOT_PROVED;
+    }
+    return switch (batch.status()) {
+      case MORE -> ProofDecision.CONTINUE;
+      case REACHED_END -> ProofDecision.PROVED;
+      case BROKEN_PAGE -> shutdown == ShutdownState.UNCLEAN && !batch.readablePageFollows()
+          ? ProofDecision.PROVED : ProofDecision.NOT_PROVED;
+      default -> ProofDecision.NOT_PROVED;
+    };
+  }
+
+  /**
+   * Derives proof from the terminal batch and shutdown policy without changing marks or coverage.
+   * The caller must process all batch records first. Missing, non-terminal and non-proving batches
+   * distrust history. A null shutdown state distrusts history for every batch status.
+   */
+  static StartupResult resolve(PendingHistory pending, @Nullable ProofBatch batch,
+      @Nullable ShutdownState shutdown, boolean identityUnresolved) {
+    var terminalStatus = batch == null ? null : batch.status();
+    var cause = batch == null ? null : batch.error();
+    if (terminalDecision(batch, shutdown) != ProofDecision.PROVED) {
+      return notProved(pending, Outcome.COVERAGE_NOT_PROVED, terminalStatus, cause);
+    }
+    if (identityUnresolved) {
+      pending.distrust();
+      warn(Outcome.PROVED_IDENTITY_UNRESOLVED, terminalStatus, cause);
+      return new StartupResult(true, false, Outcome.PROVED_IDENTITY_UNRESOLVED,
+          terminalStatus, cause);
+    }
+    pending.keepSavedTrust();
+    boolean trusted = pending.savedTrusted() && pending.resolution() == Resolution.KEPT
+        && pending.tracker().isTrusted();
+    return new StartupResult(true, trusted,
+        trusted ? Outcome.PROVED_HISTORY_TRUSTED : Outcome.PROVED_HISTORY_UNTRUSTED,
+        terminalStatus, cause);
+  }
+
+  /**
+   * Fails closed with a missing-input or terminal-failure diagnostic. A proof outcome is rejected
+   * after distrust, so caller misuse cannot retain trust.
+   */
+  static StartupResult notProved(PendingHistory pending, Outcome outcome,
+      @Nullable ProofStatus terminalStatus, @Nullable Throwable cause) {
+    pending.distrust();
+    var result = new StartupResult(false, false, outcome, terminalStatus, cause);
+    warn(outcome, terminalStatus, cause);
+    return result;
+  }
+
+  /** Revokes trust and propagates the original reader failure. The caller must not retry. */
+  static <T extends Throwable> void readerFailed(PendingHistory pending, T failure) throws T {
+    pending.distrust();
+    try {
+      warn(Outcome.READER_FAILURE, null, failure);
+    } finally {
+      // Logging can allocate. Even a logging failure must not replace the original reader failure.
+      throw failure;
+    }
+  }
+
+  /** Replay errors revoke trust even after successful proof resolution. */
+  static void replayFailed(PendingHistory pending) {
+    pending.distrust();
+  }
+
+  private static void warn(Outcome outcome, @Nullable ProofStatus status,
+      @Nullable Throwable cause) {
+    LogManager.instance().warn(ChangedPageTrackerStartup.class,
+        "Changed-page tracker startup history is untrusted: outcome=" + outcome + ", status="
+            + status + ", cause=" + cause,
+        cause);
   }
 
   enum Resolution {
