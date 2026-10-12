@@ -1188,6 +1188,17 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void initWalAndDiskCache(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+  }
+
+  @Override
+  protected void initWalAndDiskCacheOnOpen(final ContextConfiguration contextConfiguration)
+      throws IOException, java.lang.InterruptedException {
+    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+  }
+
+  private void buildWalAndDiskCache(final ContextConfiguration contextConfiguration,
+      final ChangedPageTracker tracker) throws IOException, java.lang.InterruptedException {
     final var callFsync =
         contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
     warnIfFsyncDisabled(callFsync);
@@ -1270,9 +1281,9 @@ public class DiskStorage extends AbstractStorage {
       doubleWriteLog = new DoubleWriteLogNoOP();
     }
 
-    // Initialization holds storage lifecycle exclusion. Both creation and every open start
-    // with empty, untrusted history. Memory-only storage never constructs this tracker.
-    changedPageTracker = new ChangedPageTracker();
+    // Lifecycle exclusion keeps the storage coordinator and cache on the same selected tracker.
+    // Both disk entry points select fresh, untrusted history. Memory storage has no tracker.
+    changedPageTracker = tracker;
     final var wowCache =
         new WOWCache(
             pageSize,
@@ -1296,7 +1307,7 @@ public class DiskStorage extends AbstractStorage {
             aesKey,
             callFsync,
             context.getIoExecutor(),
-            changedPageTracker);
+            tracker);
 
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
