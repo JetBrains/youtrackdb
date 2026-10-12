@@ -367,7 +367,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         var compiled = observed(shape, observer);
         strategy.apply(compiled);
         assertThat(analyses.get()).as("cold and warm strategy paths skip merge analysis").isZero();
-        assertThat(walks.get()).as("the warm call skips the real walker").isEqualTo(1);
+        assertThat(walks.get()).as("type declines skip every walk, other shapes skip warm walks")
+            .isEqualTo(walk == null ? 0 : 1);
         assertThat(TranslatorEquivalenceSupport.countBoundarySteps(compiled))
             .isEqualTo(walk == null ? 0 : 1);
         support.withTranslator(false, () -> assertThat(compiled.toList().stream()
@@ -617,12 +618,14 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .isEqualTo(2);
   }
 
-  /** Coalesce absence remains a cached native decline with one real walk for alternating values. */
+  /** Coalesce stays native without walking, cache lookup or publication for alternating values. */
   @Test
   public void absentCoalesce_reusesDeclineWithoutOrderedOperandsOrRepeatedWalks() {
     seedColourHop();
     var walks = new AtomicInteger();
     var strategy = countingStrategy(walks);
+    var cache = GremlinPlanCache.instance(graphSession());
+    long hits = cache.getTranslationHits(), misses = cache.getTranslationMisses();
     for (String colour : List.of("red", "blue", "red", "blue")) {
       Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
@@ -637,7 +640,9 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       support.withTranslator(false, () -> assertThat(admin.toList().stream()
           .map(String::valueOf).toList()).containsExactlyElementsOf(runNativeHop(shape)));
     }
-    assertThat(walks.get()).as("all three warm calls must skip the walker").isEqualTo(1);
+    assertThat(walks.get()).as("type declines never walk").isZero();
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses);
   }
 
   /** A missed extraction route still derives sack and live-path facts once and never publishes. */
@@ -1958,12 +1963,12 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(graphSession());
     var hitsBefore = cache.getTranslationHits();
     var missesBefore = cache.getTranslationMisses();
-    var first = graph.traversal().V().is(P.eq(1)).asAdmin();
+    var first = graph.traversal().V().barrier(0).asAdmin();
     GremlinToMatchStrategy.instance().apply(first);
     assertThat(first.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
 
-    var second = graph.traversal().V().is(P.eq(1)).asAdmin();
+    var second = graph.traversal().V().barrier(0).asAdmin();
     GremlinToMatchStrategy.instance().apply(second);
     assertThat(second.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
     assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);

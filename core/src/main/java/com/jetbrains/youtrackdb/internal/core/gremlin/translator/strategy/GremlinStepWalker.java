@@ -222,7 +222,7 @@ final class GremlinStepWalker {
    *       enumerates.
    * </ul>
    */
-  private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
+  static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
       productionRecognisers();
 
   /**
@@ -1332,7 +1332,7 @@ final class GremlinStepWalker {
    * it before resolving any session-dependent state. The exception is the one failure {@link
    * GremlinToMatchStrategy}'s throw-safety net re-throws rather than degrading to a native decline.
    */
-  private static void rejectReservedPrefixLabels(List<?> steps) {
+  static void rejectReservedPrefixLabels(List<?> steps) {
     for (Object raw : steps) {
       // getSteps() is a raw List<Step>; each element is a Step whose labels are user-supplied.
       var step = (Step<?, ?>) raw;

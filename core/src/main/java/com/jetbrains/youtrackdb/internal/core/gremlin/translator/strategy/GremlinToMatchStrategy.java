@@ -28,6 +28,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -374,6 +375,19 @@ public final class GremlinToMatchStrategy
     if (GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
       GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
+    }
+    for (Step<?, ?> step : traversal.getSteps()) {
+      if (!RootStepAdmission.admits(step)) {
+        // Validate explicit instructions without resolving execution settings or inspecting values.
+        var root = YTDBStrategyUtil.rootTraversal(traversal);
+        var options = root.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+        YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, root);
+        YTDBStrategyUtil.explicitNullPlacements(options);
+        YTDBStrategyUtil.explicitPolymorphic(options);
+        GremlinStepWalker.rejectReservedPrefixLabels(traversal.getSteps());
+        GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+        return;
+      }
     }
     // Capture before any setting or metadata read can shape this call's keys or plans.
     var cache = GremlinPlanCache.instance(session);

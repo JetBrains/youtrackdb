@@ -22,6 +22,14 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  */
 final class OrderedExpandAccept {
 
+  /** Assignable families consumed after instanceof checks, including range's values consumer. */
+  static final java.util.Set<Class<?>> CONSUMED_FAMILIES =
+      java.util.Set.of(HasStep.class, PropertiesStep.class);
+
+  static boolean consumesFamily(org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?> step) {
+    return step instanceof HasStep<?> || step instanceof PropertiesStep<?>;
+  }
+
   private OrderedExpandAccept() {
     // Static helper — no instances.
   }

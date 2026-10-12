@@ -76,6 +76,9 @@ final class EdgeHopRecogniser implements StepRecogniser {
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
   static final EdgeHopRecogniser INSTANCE = new EdgeHopRecogniser();
 
+  /** Exact closing step consumed by takeIf rather than dispatched by the walker. */
+  static final Class<?> CONSUMED_CLOSING_STEP = EdgeOtherVertexStep.class;
+
   /** Stateless builder for the AND-merge and where-clause wrap; construction is trivial. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 

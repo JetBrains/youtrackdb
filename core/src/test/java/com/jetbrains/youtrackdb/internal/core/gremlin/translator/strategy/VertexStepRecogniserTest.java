@@ -277,12 +277,10 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
     return ctx;
   }
 
-  /** A cursor over the raw step list positioned at the hop / edge step — the start GraphStep is
-   *  consumed. */
+  /** A cursor over the hop suffix. The fixture source may already be provider-optimized. */
   private static StepStreamCursor cursorAfterStart(Traversal.Admin<?, ?> admin) {
-    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
-    cursor.take(); // consume the start GraphStep, leaving the head at the hop / edge step
-    return cursor;
+    var steps = admin.getSteps();
+    return new StepStreamCursor(steps.subList(1, steps.size()), TRANSPARENT);
   }
 
   /**
