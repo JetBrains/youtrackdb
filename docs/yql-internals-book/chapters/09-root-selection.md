@@ -54,7 +54,7 @@ it applies four rules in priority order:
 
 **Rule 1: pinned RID, estimate = number of pinned RIDs.** When an alias carries a literal
 `@rid` constraint, the engine looks those records up directly at execution time. There is no
-scanning involved; each pinned RID either resolves to a record or it does not. The RIDs a
+scanning involved. Each pinned RID either resolves to a record or it does not. The RIDs a
 query pins for an alias are held in a list, so the estimate is that list's size — exactly 1
 for a single-RID equality such as `me = #12:0`, and a small handful for a multi-RID pin such
 as `me IN [#12:0, #12:1]`. Because that count is tiny — the list holds only the RIDs the query
@@ -387,11 +387,72 @@ and non-invertible edges combine in the same pattern.
 
 ---
 
+## 9.9 A known endpoint can change the start at execution
+
+Suppose a small `Person` class links to one account through `MemberOf` edges.
+The account also receives many edges from other declared source types.
+
+A *known-RID start* loads a target by its record identifier (RID), then walks toward sources.
+A *source-class start* scans the source class and walks forward.
+Reading the small source class can cost less than walking every incoming edge.
+Compatible edge counts can exclude declared source types that cannot match `Person`.
+The scheduler's initial root need not be the final execution start.
+
+A *native positive pattern* requires a path directly in the main MATCH pattern.
+For an eligible native pattern, the executor retains the known-RID branch and prepares a source-class alternative.
+The pattern must be one connected linear path with one known target.
+It supports one directional vertex hop, including an edge-record hop such as `.outE('MemberOf').inV()`.
+Optional nodes, repeated traversal steps, longer vertex paths and inferred source roots do not qualify.
+The inferred-root protection in §9.3 remains in place.
+
+The alternative must start with a plain class scan, not an index or a RID list.
+A native pattern rooted at a known RID keeps that start if the forward source plan uses an index.
+A plan already using a source index also remains unchanged.
+The switch never replaces a source-index path.
+
+The executor first securely loads the target and reads its actual reverse relationship count.
+Only a possible cost win proceeds to exact source and compatible edge counts from the same transaction view.
+Approximate counts can reject a switch, but cannot select the source alternative.
+Pending transaction writes keep the known-RID start through a constant-time entry-count check.
+The decision does not scan a growing transaction write set.
+
+Both starts use one record-read cost unit.
+The source cost includes a complete secured storage-form check of source records before execution.
+It also includes the later source scan and an exact-count upper bound for forward edge reads.
+An edge-record hop charges both the edge read and its endpoint hop.
+The source cost must be strictly less than half the required known-RID work.
+
+Exact counts share a position-work allowance, including removed positions and retries.
+Exhausting that allowance keeps the known-RID start.
+The allowance bounds count work, not lock-wait time.
+
+`LIMIT` caps output rows, while `SKIP` discards initial rows.
+For streaming paging, the comparison includes `SKIP + LIMIT` and the first row after `SKIP`.
+An absent limit or a consumer that needs all input uses full work.
+`ORDER BY`, the clause that defines result order, retains its normal sort.
+
+Without `ORDER BY`, switching can change which rows a slice returns.
+Equal sort values can also produce different slices under `ORDER BY`.
+Use a total order with a unique final sort key when the slice must be stable.
+The pattern retains one row per matching edge and does not deduplicate parallel-edge results.
+
+The source filter applies to every source record read by the source-class start.
+It does not apply only to sources linked to the target.
+A switch can therefore raise an error on a source that the known-RID branch never reads.
+Security and storage-form safeguards can keep the known-RID branch before any row appears.
+[Chapter 13](13-hash-joins.md#security-and-errors-before-the-first-row) explains those safeguards.
+[Chapter 16](16-reading-explain.md#169-observing-known-endpoint-choices) explains the two-branch plan output.
+
+Detached existence checks use a different choice.
+Their target alternative replaces only an eligible source-class start and supplies candidates for normal forward checks.
+[Chapter 13](13-hash-joins.md#finding-sources-from-a-known-endpoint) covers that path.
+
+---
+
 ## Looking ahead
 
-Root selection closes once the planner has committed to a starting alias. But committing to a
-root only names the first node; it does not order the remaining edges, and it does not say
-which end of each edge to start from. Those questions belong to phase 5. The root choice
+The initial root names the first node in the scheduled pattern.
+It does not order the remaining edges or choose each edge's traversal direction. Those questions belong to phase 5. The root choice
 matters there too: whichever alias the planner just pinned is the only "already known" node at
 the start of the depth-first search, and that determines which direction each adjacent edge
 can legally be walked. Chapter 10 opens phase 5 and traces that reasoning step by step —
@@ -402,10 +463,15 @@ assembler consumes.
 
 *Further reading*
 
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/NativeKnownEndpointStep.java:112`
+  — guarded native decision, paging costs, exact counts and secured source preflight.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java:6353`
+  — `prepareNativeEndpointChoice()` builds eligible alternatives without replacing source indexes.
+
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `estimateRootEntries()` (line 5192); inflation loop (lines 511–515);
-  `getTopologicalSortedSchedule()` (line 1976); zero-cardinality short-circuit (lines 527–531);
-  `inferClassFromEdgeSchema()` (line 4974); `collectAliasesFromWhilePatterns()` (line 4854).
+  — `estimateRootEntries()` (line 5192), inflation loop (lines 511–515),
+  `getTopologicalSortedSchedule()` (line 1976), zero-cardinality short-circuit (lines 527–531),
+  `inferClassFromEdgeSchema()` (line 4974) and `collectAliasesFromWhilePatterns()` (line 4854).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLWhereClause.java`
   — `estimate()` (line 86): the three-tier index-aware estimator.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchPathItem.java`

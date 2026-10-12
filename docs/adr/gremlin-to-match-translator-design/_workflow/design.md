@@ -7,15 +7,15 @@ The translator turns the pattern-matching subset of a TinkerPop traversal
 into the same in-memory IR that the YouTrackDB SQL parser produces for `MATCH`
 statements (`Pattern` + `aliasClasses` + `aliasFilters` + projection
 metadata, packaged into a new `MatchPlanInputs` record) and feeds it
-directly to the existing `MatchExecutionPlanner` via a new **additive**
-constructor `MatchExecutionPlanner(MatchPlanInputs)`. No SQL text is
-generated, and the planner's existing `createExecutionPlan` pipeline runs
-unmodified — it internally appends the projection / order / limit chain via
+directly to `MatchExecutionPlanner` through its additive
+constructor `MatchExecutionPlanner(MatchPlanInputs)`. The translator generates no SQL text.
+The shared `createExecutionPlan` pipeline chooses MATCH access paths.
+It appends the projection, order and limit chain through
 `SelectExecutionPlanner.handleProjectionsBlock`. The translator is wired in
 as a TinkerPop `ProviderOptimizationStrategy` that walks the entire step
 list of a traversal. If every step is in the recognized set the strategy
 replaces the whole step list with a single terminating boundary step
-(`YTDBMatchPlanStep`); if **any** step is unrecognized the strategy
+(`YTDBMatchPlanStep`). If **any** step is unrecognized the strategy
 declines the whole traversal and the native TinkerPop pipeline keeps
 handling it unmodified (D3 all-or-nothing).
 
@@ -29,13 +29,13 @@ a downstream `select("a")`), and special-case handling for `path()` —
 each surface introducing its own bag of edge cases without proportional
 benefit at Phase 1's small recognized set. The all-or-nothing rule
 forecloses every one of those problems by removing the boundary as a
-splice point; broader Gremlin coverage instead lands incrementally as
+splice point. Broader Gremlin coverage instead lands incrementally as
 later phases extend the recognized set track by track.
 
 The IR construction is factored into a new shared package
 (`internal/core/sql/executor/match/builder/`) consumed by both the new translator and
 the existing GQL front-end. GQL is migrated onto the shared builders in the
-same Phase 1; its observable behavior is unchanged.
+same Phase 1. Its observable behavior is unchanged.
 
 The design has four moving parts:
 
@@ -56,7 +56,7 @@ The design has four moving parts:
    `YTDBGraphStepStrategy` / `YTDBGraphCountStrategy` /
    `YTDBGraphMatchStepStrategy` see it next — they keep delivering
    today's behavior for queries the new translator does not yet cover. The new strategy is therefore additive: every recognized
-   shape gains MATCH's planner; every unrecognized shape is at least as
+   shape gains MATCH's planner. Every unrecognized shape is at least as
    well-served as before. Class-count is no longer a decline-on-purpose
    case: `count()` is translated like any other aggregate, and the
    single-class fast path is served by a shared engine-level count
@@ -85,7 +85,7 @@ The design has four moving parts:
    `GqlMatchStatement.buildWhereClause` (the static helper called by
    `GqlMatchVisitor`), and `GqlMatchStatement.toLiteral`. Gremlin predicate
    values reach `MatchWhereBuilder` already wrapped as parameter slots by
-   `WalkerContext.bindParam` (see "Parameter binding"); `toLiteral` embeds
+   `WalkerContext.bindParam` (see "Parameter binding"). `toLiteral` embeds
    a literal only for GQL match-filter values and for structural constants.
 4. **Boundary step** — `YTDBMatchPlanStep`, plus the `MultiPlanMatchStep`
    subclass for `union(...)` concatenation (Track 6). Each holds one or
@@ -101,7 +101,7 @@ in the table below. Any step not in the recognized set causes the
 strategy to decline the entire traversal under D3 all-or-nothing —
 the native TinkerPop pipeline keeps handling it unmodified. The
 "Implemented in" column points at the implementation track that adds
-each row's recognizer; until that track lands, the corresponding
+each row's recognizer. Until that track lands, the corresponding
 shape declines along with anything else unrecognized.
 
 | Category | Gremlin step | MATCH IR target | Implemented in |
@@ -360,17 +360,17 @@ The diagram shows three layers:
   **one** new public constructor `MatchExecutionPlanner(MatchPlanInputs)`
   (additive — does not alter the two existing constructors). The
   `handleProjectionsBlock` static helper is invoked by the planner
-  internally; the translator does not call it directly.
+  internally. The translator does not call it directly.
 
 `PatternIR` is a small value class returned by `MatchPatternBuilder.build()`
-encapsulating the three IR pieces the planner expects, so callers don't have
+encapsulating the three IR pieces the planner expects, so callers do not have
 to assemble them from separate getters.
 
 ### Recogniser dispatch: `Map<Class<? extends Step>, StepRecogniser>` from day one
 
 The walker stores recognizers in a
 `Map<Class<? extends Step>, StepRecogniser>` keyed on the step's runtime
-class. For each step the walker calls `map.get(step.getClass())`; if
+class. For each step the walker calls `map.get(step.getClass())`. If
 the result is non-null, the recognizer owns the step. If the lookup
 returns `null` — i.e. TinkerPop handed us a `Step` subclass nobody
 registered for — the walker treats it as unrecognized and declines the
@@ -382,7 +382,7 @@ release introducing `BespokeHasStep extends HasStep` would yield
 `map.get(BespokeHasStep.class) → null` and decline cleanly, instead of
 silently routing through the generic `HasStep` recognizer via an
 `instanceof` near-miss. The decline is the **safe** outcome — the
-native TinkerPop pipeline takes over and behavior is preserved; a
+native TinkerPop pipeline takes over and behavior is preserved. A
 quiet acceptance via the parent recognizer would risk wrong IR for a
 step shape we never validated. The same property covers YTDB-specific
 subclasses we maintain in-tree, e.g. `YTDBHasLabelStep extends HasStep`:
@@ -392,7 +392,7 @@ recognizers.
 
 **One map entry per Step class — variants handled inside the
 recognizer.** Each recognizer is responsible for every variant of its
-step class internally. `VertexStepRecogniser` covers OUT / IN / BOTH;
+step class internally. `VertexStepRecogniser` covers OUT / IN / BOTH.
 `HasStepRecogniser` unpacks `HasContainer`s for property and predicate
 shapes. `NotStepRecogniser` first handles the `hasNot(key)` presence form.
 For a logical NOT, it walks the child through `GremlinStepWalker.subWalk`.
@@ -497,19 +497,19 @@ The `applyStrategies` phase happens once per traversal lifecycle (defensive
 re-entry handled via idempotency). Translation is a pure function from a
 TinkerPop step list to a `MatchPlanInputs` record, which feeds the new
 additive `MatchExecutionPlanner(MatchPlanInputs)` constructor (D2). The
-planner's existing `createExecutionPlan` then runs unchanged — it
-internally invokes `SelectExecutionPlanner.handleProjectionsBlock` (the
+planner's shared `createExecutionPlan` chooses MATCH access paths.
+It internally invokes `SelectExecutionPlanner.handleProjectionsBlock` (the
 call site is inside `MatchExecutionPlanner.createExecutionPlan`, right
 after the pattern is finalized) with the fully populated info,
 producing the projection / order / limit / skip / group-by / distinct
-chain. The strategy does **not** call `handleProjectionsBlock` separately;
-doing so would double-append projection steps (the consistency review
+chain. The strategy does **not** call `handleProjectionsBlock` separately.
+Doing so would double-append projection steps (the consistency review
 caught this). Under D3 all-or-nothing the translated traversal contains
 exactly one step — `YTDBMatchPlanStep` — that terminates the chain. If
 any step in the original traversal is unrecognized, the strategy declines
 and the original step list is preserved verbatim for the native pipeline.
 
-The execution phase is straightforward: TinkerPop iterates as usual; the
+The execution phase is straightforward: TinkerPop iterates as usual. The
 boundary step pulls one row at a time from `ExecutionStream`, projects
 into the configured TinkerPop payload type (Vertex, Edge, Map, value, scalar),
 and emits a `Traverser` to whichever caller drives `.toList()` /
@@ -537,8 +537,8 @@ input list). The translator pins this on construction via a
 `unfold`, `reverse`, and `tail` (Track 6) do **not** introduce new
 `BoundaryOutputType` values — they post-process whatever upstream
 output type the boundary already carries. `unfold` flat-maps each
-emitted traverser's projected value; `reverse` per-traverser-transforms
-the projected value; `tail` ring-buffers the upstream stream and
+emitted traverser's projected value. `reverse` per-traverser-transforms
+the projected value. `tail` ring-buffers the upstream stream and
 re-emits the last `n` rows. Each post-processor is recogniser-pinned
 at translation time and the boundary step selects it via a small set
 of post-process flags (`unfoldOutput`, `reverseOutput`,
@@ -552,7 +552,7 @@ plus `MAP` from Track 5 (aggregations), and `LIST` from Track 6
 type
 for the terminal step it adds to the recognized set. Track 3 is the
 first track that wires a boundary step at all — so the temporal
-sequencing is "Track 3 lands `ELEMENT`; subsequent tracks add their
+sequencing is "Track 3 supplies `ELEMENT`, and subsequent tracks supply their
 variants" — but every output type is part of Phase 1. The boundary
 step's `processNextStart` switches on the `BoundaryOutputType` and
 projects each `Result` row accordingly.
@@ -570,7 +570,7 @@ native step exists past the boundary.
 per-step traverser history — every traverser carries a `Path` accumulating
 bindings at each visited step. MATCH produces final result rows, not path
 histories. Reconstructing a `Path` in the boundary step would materialize
-records the user did not ask for; under D3 all-or-nothing any traversal
+records the user did not ask for. Under D3 all-or-nothing any traversal
 containing `path()` is unrecognized and runs natively unmodified. Precise
 translation of `path()` is Phase 2 territory.
 
@@ -592,51 +592,51 @@ the post-process flags introduced by the list-shaping step.
 (`FoldStep`): drain the upstream stream, collect every traverser's
 value into a `List<E>`, emit a single traverser carrying that list.
 Translation: the recogniser sets `outputType = LIST` on the boundary
-step; `processNextStart` pulls all upstream `Result` rows, projects
+step. `processNextStart` pulls all upstream `Result` rows, projects
 each one through the existing per-output-type logic (vertex /
 property / map), appends to an internal `ArrayList`, and on stream
 exhaustion emits one traverser carrying the list. Empty input yields
 a single traverser carrying an empty list — matching `FoldStep`'s
 empty-input behavior (NOT TP's modern `sum`/`min`/`mean` "no
-traverser" rule; `fold` always emits exactly one traverser, even on
+traverser" rule, because `fold` always emits exactly one traverser, even on
 empty input). The `dropNullRows` flag composes naturally: a `fold`
 applied after an aggregate with `dropNullRows = true` first drops
 null cells (per Track 5 aggregate semantics), then folds the
-remaining values; if all aggregates drop the row, the fold emits an
+remaining values. If all aggregates drop the row, the fold emits an
 empty list. Streaming → batch is intentional: TinkerPop's `fold` has
 the same characteristic, so this matches semantics, not just shape.
 
 **`unfold()` — flat-map post-processor.** TinkerPop semantics
 (`UnfoldStep.flatMap`): for each input traverser, if the carried
-value is `Iterator` → return it; `Iterable` → return `.iterator()`;
-`Map` → return `entrySet().iterator()`; array → return its element
-iterator; otherwise return `IteratorUtils.of(value)` (single-element
-iterator — semantically a no-op). Translation: the recogniser sets
-`unfoldOutput = true` on the boundary step; `processNextStart`
+value is `Iterator`, return it. For `Iterable`, return `.iterator()`.
+For `Map`, return `entrySet().iterator()`. For an array, return its element
+iterator. Otherwise return `IteratorUtils.of(value)`, a single-element
+iterator that preserves the value. Translation: the recogniser sets
+`unfoldOutput = true` on the boundary step. `processNextStart`
 intercepts each upstream emission, calls a small `unfold(value)`
 helper that mirrors `UnfoldStep.flatMap`, and emits one traverser per
 returned element. The upstream output type is preserved (the boundary
-still carries `ELEMENT` / `MAP` / `SINGLE_VALUE` / `LIST`); `unfold`
+still carries `ELEMENT` / `MAP` / `SINGLE_VALUE` / `LIST`). `unfold`
 only expands per-emission cardinality. Common Phase 1 use case:
 `g.V().values("phones").unfold()` against a multi-valued `phones`
 property — the `SINGLE_VALUE` projection emits a `List<String>` per
-vertex; `unfold` expands each list into one traverser per phone
+vertex. `unfold` expands each list into one traverser per phone
 number.
 
 **`reverse()` — per-traverser value transform.** TinkerPop semantics
 (`ReverseStep.map` in TP 3.7+): operates on the value inside the
 **current traverser**, NOT on stream order. `String` → reversed
-string via `new StringBuilder(s).reverse().toString()`;
-`Iterable` / `Iterator` / array → `IteratorUtils.asList(o)` then
-`Collections.reverse(list)`, return list; otherwise unchanged.
+string via `new StringBuilder(s).reverse().toString()`.
+For `Iterable`, `Iterator` or an array, use `IteratorUtils.asList(o)` then
+`Collections.reverse(list)` and return the list. Other values remain unchanged.
 Translation: the recogniser sets `reverseOutput = true` on the
-boundary step; `processNextStart` applies a `reverse(value)` helper
+boundary step. `processNextStart` applies a `reverse(value)` helper
 mirroring `ReverseStep.map` to the projected value before emitting
 the traverser. Stream order is untouched. Common Phase 1 use:
 `g.V().values("name").reverse()` (reverse each name string).
 `reverse` composes with `unfold`: applying `reverse` after `unfold`
-reverses each unfolded value (probably a no-op for scalar values);
-applying `unfold` after `reverse` unfolds the reversed list. The
+reverses each unfolded value (probably a no-op for scalar values).
+Applying `unfold` after `reverse` unfolds the reversed list. The
 recogniser preserves the declared order — there is no automatic
 re-ordering.
 
@@ -647,12 +647,12 @@ order, not value order, so a `tail(3)` on a stream where the last
 three rows arrived "X", "Y", "Z" emits exactly those three in that
 order — independent of how X/Y/Z compare under any sort key.
 Translation: the recogniser sets `tailLimit = n` on the boundary
-step; `processNextStart` drains the entire upstream stream into a
+step. `processNextStart` drains the entire upstream stream into a
 bounded `ArrayDeque<E>` of capacity `n` (`pollFirst` on overflow),
 then emits the deque's contents in `pollFirst` order on stream
 exhaustion. Streaming → batch is unavoidable: `tail` cannot know the
 last `n` rows without seeing all of them. `n = 0` emits nothing
-(matches TP); `n < 0` declines (matches TP's
+(matches TP). `n < 0` declines (matches TP's
 `IllegalArgumentException` contract — under D3 we decline rather
 than throw to preserve the native fallback). `tail` composes with
 `fold` only if `tail` is upstream of `fold` (semantic order: keep
@@ -670,12 +670,12 @@ terminator's output without producing a separate result stream. Two
 list-shaping steps in sequence are accepted only when the composition
 preserves single-terminator-with-post-processing semantics:
 `fold().unfold()` is a no-op (collect then expand) but is rejected
-because two terminators violate the single-boundary rule;
+because two terminators violate the single-boundary rule.
 `reverse().unfold()` and `unfold().reverse()` are accepted as
 post-processor chains and the recogniser sets both flags. The
 boundary step applies post-processors in **declared order**: tail →
 fold/unfold/reverse in their original order. There is no automatic
-re-ordering; the recogniser fails the composition if the declared
+re-ordering. The recogniser fails the composition if the declared
 order cannot be reproduced (e.g. `fold().tail(3)` would require a
 two-phase boundary which Phase 1 does not implement — Phase 1
 declines this shape).
@@ -683,14 +683,14 @@ declines this shape).
 **Track 5 commitment: absent vs null-valued properties in `MAP` /
 `SINGLE_VALUE` output.** YTDB's record layer distinguishes *absent*
 (property does not exist on the entity) from *null-valued* (property
-exists with literal `null` value); andrii0lomakin confirmed in PR
+exists with literal `null` value). andrii0lomakin confirmed in PR
 #1038 review that the team intentionally keeps this distinction (does
 **not** unify the two states at the storage layer). The YTDB TP
 wrapper preserves the distinction too: `YTDBElementImpl.readFromEntity`
 (`core/.../gremlin/YTDBElementImpl.java:128-139`) calls
 `EntityImpl.getPropertyAndType(key)`, which returns `null` only when
 the property is absent (`EntityImpl.java:488-491` —
-`entry == null || !entry.exists()`); a null-valued property returns
+`entry == null || !entry.exists()`). A null-valued property returns
 a non-null `ValueAndType` wrapper carrying `value=null` and the
 declared `type`. The wrapper then either returns `propFactory.empty()`
 (absent → TP `Property.isPresent() == false`) or constructs a real
@@ -721,17 +721,17 @@ to preserve TP-equivalent output:
   `Result.getProperty`) so the projection knows whether the property
   is absent or present-with-null. Use `EntityImpl.hasProperty(key)`
   (already exposed via the `Entity` view of the matched alias) to
-  classify: absent → omit the key from the projected map; present
+  classify: absent → omit the key from the projected map. Present
   (including value=null) → include the key with its value. Regression
   tests MUST pin: (a) vertex with `foo` set to null surfaces as a map
-  with `foo` entry carrying `null` (matching native); (b) vertex with
+  with `foo` entry carrying `null` (matching native), (b) vertex with
   `foo` absent surfaces as a map without the `foo` key.
 - `values(key)` (single-key): native emits one traverser per **present**
   property occurrence, including those with value=null. Track 5 sets
   the boundary post-processor to drop only the **absent** rows (via
   `hasProperty(key)` check), letting null-valued rows through with
   the null traverser-value. This is **not** the existing `dropNullRows`
-  flag (which checks the projected value for null); it is a new
+  flag (which checks the projected value for null). It is a new
   `dropOnAbsent` flag that queries the entity layer for presence.
 - `select(label)` / `select(labels…).by("key")` /
   `project(keys…).by("key")`: an absent property makes the modulator's
@@ -745,7 +745,7 @@ to preserve TP-equivalent output:
 This commitment is **load-bearing**: without the entity-layer presence
 check, MATCH projections silently merge two states that TP keeps
 separate, producing a different multiset on data with literal-null
-properties. Track 5 owns the implementation; the `IS DEFINED` /
+properties. Track 5 owns the implementation. The `IS DEFINED` /
 `IS NOT DEFINED` operators added in Track 1 (see "Phase 1
 dependency") share the same underlying entity-presence check, so the
 two tracks coordinate on the helper.
@@ -762,8 +762,8 @@ vertices that have `foo` set to `null` (which TP `hasNot` would not
 match, because TP `Property.isPresent()` returns `true` for null-
 valued YTDB properties — see "Track 5 commitment" above for the
 wrapper-level evidence). lpld raised this on the PR #1038 review at
-line 95 ("`prop IS NULL` and `hasNot(prop)` are not equivalent");
-andrii0lomakin confirmed the team's "do not unify" position; lpld
+line 95 ("`prop IS NULL` and `hasNot(prop)` are not equivalent").
+andrii0lomakin confirmed the team's "do not unify" position. lpld
 followed up with the suggestion to introduce `IS DEFINED` /
 `IS NOT DEFINED` operators.
 
@@ -777,14 +777,13 @@ and `SQLIsNotDefinedCondition.java`. Their `evaluate(Identifiable, ctx)`
 and `evaluate(Result, ctx)` routes call `expression.isDefinedFor(...)` —
 the entity-presence primitive that distinguishes absent from
 null-valued at the record layer, exactly what Track 4 / Track 5 need.
-`isIndexAware` returns `false` (presence predicates can't use
-value-keyed indexes — already documented in the AST classes).
+`isIndexAware` returns `false` because presence predicates cannot use value-keyed indexes.
 
 **Phase 1 adopts these existing operators.** No grammar edit, no new
 AST classes, no new evaluator — only `MatchWhereBuilder` factory
 methods wrapping the existing AST nodes for the Gremlin translator
 to call. The earlier design draft prescribed adding the operators
-from scratch; the audit shortcut shrinks Track 1's scope substantially.
+from scratch. The audit shortcut shrinks Track 1's scope substantially.
 
 **Scope of the integration** (owned by Track 1, the shared MATCH IR
 builder track):
@@ -818,7 +817,7 @@ evaluator — only the builder package gains two new factory methods.
 algebra and `SQLBooleanExpression`. The mapping is mostly mechanical, but
 several edge cases require care.
 
-**`has` step variants.** Gremlin has multiple `has*` step shapes; the
+**`has` step variants.** Gremlin has multiple `has*` step shapes. The
 recognizer unpacks each `HasContainer` (the per-key predicate carrier
 inside a `HasStep`) and routes:
 
@@ -831,7 +830,7 @@ inside a `HasStep`) and routes:
   on `aliasFilters[a]`.
 - `hasLabel(label)` → `HasContainer{T.label, label}`. In practice
   `YTDBGraphStepStrategy` folds adjacent `hasLabel(...)` into the start
-  step's `hasContainers` before our strategy fires; the start-step
+  step's `hasContainers` before our strategy fires. The start-step
   recognizer sees it there and pins `aliasClasses[a] = label`. A
   non-folded `hasLabel` step elsewhere routes through the same
   `aliasClasses[a]` slot.
@@ -871,7 +870,7 @@ table below was verified against `gremlin-core-3.8.1` (which routes
 classifies operands by `Type` priority enum so `Number` and `List` are
 incomparable) and against
 `core/.../sql/operator/QueryOperatorEquals.java` (lines 63-69 auto-unbox
-a singleton collection against a scalar; lines 71-73 short-circuit
+a singleton collection against a scalar, while lines 71-73 short-circuit
 `null` operands to `false`). `SQLNeOperator` is defined as
 `!QueryOperatorEquals.equals(...)`, which inverts the null result and
 keeps the singleton-unbox path.
@@ -966,7 +965,7 @@ configurations once the schema-aware rewrite path lands.
 
 **Contains predicates**: `Contains.within` → `SQLInCondition` with the
 `SQLCollection` populated from the predicate's value (which is always a
-`Collection`); `Contains.without` → `SQLNotInCondition`.
+`Collection`). `Contains.without` → `SQLNotInCondition`.
 
 **Composite `P` instances** (`P.and(p1, p2)`, `P.or(p1, p2)`, `P.not(p)`)
 recurse: each child predicate is translated independently, then composed
@@ -986,7 +985,7 @@ to `AND(>=lo, <hi)` — two `SQLBinaryCondition`s composed by
 `MatchWhereBuilder.and(...)` — and **never** emits a
 `SQLBetweenCondition`. The `MatchWhereBuilder.between(...)` factory
 is reserved for callers (GQL) that already enforce the closed-interval
-semantics; the Gremlin path does not call it.
+semantics. The Gremlin path does not call it.
 
 **`TextP` predicates** (the modern TinkerPop entry point for string
 predicates: `TextP.containing`, `TextP.startingWith`, `TextP.endingWith`,
@@ -1008,7 +1007,7 @@ TinkerPop). All translate in Phase 1:
 applying the field collate to both operands, so the substring search
 matches TinkerPop's `TextP.containing` on the `default` collation and
 follows the property collation otherwise (see the collation note below).
-All of these targets are String-only; applied to a non-String
+All of these targets are String-only. For a non-String
 field the recognizer declines and under D3 all-or-nothing the whole
 traversal declines. The legacy `Text` algebra (pre-TextP) routes through
 the same translation by sharing the same `BiPredicate` instances inside
@@ -1049,7 +1048,7 @@ is the intended behavior when a property declares it. This is consistent
 with `between` / `inside` / `outside`, which decompose into the same
 collation-aware range conditions, and with `eq` / `gt` / …, which native
 Gremlin already routes through collation-aware SQL. The translator does
-**not** need to read the collation to choose a comparison mode; the engine
+**not** need to read the collation to choose a comparison mode. The engine
 applies it at evaluation and index-lookup time. Respecting the collation
 rather than declining on it also keeps the index optimization on `ci`
 properties: a `ci`-ordered index runs a `ci` prefix range scan, so
@@ -1059,20 +1058,20 @@ forfeited the index there, exactly the case the review flagged as a
 critical optimization.
 
 The recognizer still reads the schema only to confirm a declared String
-property; it **declines** when the class is schema-less or the property is
+property. It **declines** when the class is schema-less or the property is
 undeclared (type unknown), or when `p` is empty (the upper bound `p⁺` is
 undefined for an empty prefix), falling back to the native pipeline as
 today.
 
-**`endingWith` / `containing` → collation-aware full-scan filters;
+**`endingWith` / `containing` → collation-aware full-scan filters.
 `regex` → case-sensitive full-scan filter.** A suffix, substring, or regex
-is not a contiguous range, so none can use an index; all three evaluate as
+is not a contiguous range, so none can use an index. All three evaluate as
 filters during the scan, the same cost the native pipeline pays. They
 translate in Phase 1 to avoid the D3 trigger: declining one string
 predicate would decline the **whole** traversal to the native
 left-to-right pipeline, forfeiting MATCH's cost-based scheduling, prefetch,
 and hash anti-joins on every other hop. `endingWith` needs a new AST node
-`SQLEndsWithCondition`; `regex` needs a find-mode flag on
+`SQLEndsWithCondition`. `regex` needs a find-mode flag on
 `SQLMatchesCondition` (`Matcher.find()`, TinkerPop's partial-match
 semantic, instead of `matches()` whole-string). Neither exists in YTDB
 today (see decision D-TEXT-OPS in the plan). Both report
@@ -1084,7 +1083,7 @@ range predicates: `SQLEndsWithCondition` and the existing
 `String.endsWith` / `String.indexOf`, so they match case-sensitively on
 the `default` collation (TinkerPop's default) and case-insensitively on a
 property declared `ci`. The collate runs at evaluation time on each
-scanned record rather than through an index; the resulting case rule is
+scanned record rather than through an index. The resulting case rule is
 the one `eq` / `gt` / `startingWith` already apply. Because
 `SQLContainsTextCondition` is the existing `CONTAINSTEXT` operator, adding
 the collate transform also makes SQL `CONTAINSTEXT` collation-aware: a
@@ -1122,7 +1121,7 @@ absent properties, not on the null-valued case.
 `by(...)` is TinkerPop's uniform modulator — the same modulator attaches
 to `order()`, `select(...)`, `dedup(...)`, `group()`, and `project(...)`.
 Each modulator slot independently accepts one of several argument
-shapes; the translator recognizes a fixed set of those shapes
+shapes. The translator recognizes a fixed set of those shapes
 (call them **recognized by-shapes**) and reuses the same unwrap logic
 across every modulator-bearing step. Shapes the translator cannot map
 to a field / identity / accumulator reference decline under D3.
@@ -1169,14 +1168,14 @@ recognized shape lands in one file, not five.
 **Edge cases.**
 
 - *No-by form*. `order()` without `by` sorts by element identity
-  (`@rid`); `group()` without `by` groups by element identity and
-  accumulates with `__.fold()`; `dedup()` without `by` and without
+  (`@rid`). `group()` without `by` groups by element identity and
+  accumulates with `__.fold()`. `dedup()` without `by` and without
   labels dedups full rows. These match the existing per-step
   default-handling rules and need no by-modulator support.
 - *Per-label by-count mismatch*. TinkerPop allows fewer `by(...)`
   modulators than labels — extras cycle. The translator declines on
   cycle: each label must have its own explicit `by(...)` slot. This is
-  a deliberate Phase 1 restriction; equivalence is tested per-label.
+  a deliberate Phase 1 restriction. Equivalence is tested per-label.
 - *Group-entry `Column` modulators*. After `groupCount().unfold()`,
   direct `by(Column.values)` / `by(Column.keys)` sort entry rows.
   Nested shapes such as `by(__.order().by(Column.values))` decline —
@@ -1195,7 +1194,7 @@ recognized shape lands in one file, not five.
 TinkerPop's `IncidentToAdjacentStrategy` only folds the adjacent
 `outE(L).inV()` (and analogue) shape. Insert anything between the edge
 step and its paired vertex hop — most commonly a `has(...)` filtering
-the edge itself — and the fold does not fire; the traversal arrives at
+the edge itself — and the fold does not fire. The traversal arrives at
 our strategy as three or more separate steps:
 
 ```
@@ -1241,7 +1240,7 @@ The peek terminates and the recognizer declines if it encounters:
   (e.g. `outE(L).order().by(...)` — an order modulator on edges).
 - No closing `EdgeVertexStep` / `otherV`-form `VertexStep` at all
   (the edge step is a terminal — that case falls under
-  "Edge-returning terminals" in Out-of-scope; D3 declines the whole
+  "Edge-returning terminals" in Out-of-scope. D3 declines the whole
   traversal).
 - An `as(label)` on the edge step (the user-facing edge alias case —
   Out-of-scope until Track 5 grows an edge-side label propagation).
@@ -1255,7 +1254,7 @@ makes: pre-`inV` `has` → edge filter, post-`inV` `has` → target-vertex
 filter.
 
 Walker mechanics: peek-ahead is the first multi-step claim in the
-recogniser registry; the walker loop is index-driven so a recognizer
+recogniser registry. The walker loop is index-driven so a recognizer
 can consume N steps in one call (`ctx.stepIndex += N` instead of the
 single-step default `++`). See D10 in the implementation plan for the
 mechanic.
@@ -1287,7 +1286,7 @@ allocates the next positional slot (`SQLPositionalParameter`), records
 slot-bearing `SQLExpression`. The built `Pattern` carries `?`
 placeholders where the values were. The shared
 `MatchLiteralBuilder.toLiteral` stays the literal converter for GQL and
-for genuinely structural constants; Gremlin predicate values no longer
+for genuinely structural constants. Gremlin predicate values no longer
 flow through it.
 
 **What binds, what stays in the key.** The split mirrors YQL:
@@ -1362,7 +1361,7 @@ We translate union by treating each child as a standalone translation
 target: build an independent `SelectExecutionPlan` per child, place all
 plans into a `MultiPlanMatchStep` (a variant of `YTDBMatchPlanStep` that
 holds N plans and iterates them in order), and emit the concatenation. All
-children must agree on output type; if any child fails to translate or
+children must agree on output type. If any child fails to translate or
 disagrees on type, the union step is unrecognized and under D3
 all-or-nothing the entire enclosing traversal declines.
 
@@ -1429,9 +1428,9 @@ adds one `SQLMatchExpression` to `MatchPlanInputs.existsMatchExpressions`.
 `TraversalFilterStep` uses the same rule for `where(traversal)` and
 `filter(traversal)`.
 
-A detached positive exists check tests each outer
-row and keeps it once if the child has any match. The planner chooses between
-`FilterExistsMatchPatternStep` and `HashJoinMatchStep` in `SEMI_JOIN` mode.
+A detached positive exists check keeps each outer row once if the child has any match.
+The retained branch chooses between `FilterExistsMatchPatternStep` and `HashJoinMatchStep` in `SEMI_JOIN` mode.
+An eligible known-endpoint target branch instead supplies candidate sources and retains per-row checks.
 The per-row probe stops at the first match. Neither path adds hop targets
 to the positive pattern or multiplies the outer row.
 
@@ -1447,6 +1446,87 @@ the linear detached expression. After an exists check, a later positive
 hop declines in `GremlinStepWalker.dispatchAll`. A later `union` declines
 in `UnionStepRecogniser`. Neither shape can move the check to a different
 point in the positive pattern.
+
+### Known-endpoint starts in the MATCH executor
+
+Consider `g.V().hasLabel("Person").where(out("MemberOf").hasId(target))`.
+The translator emits a detached positive check, not a join that multiplies rows.
+The MATCH executor can use the known target record identifier (RID) to discover candidate source RIDs.
+This is execution behavior, not a proposed translator rewrite.
+The translator's pattern shape and detached checks remain unchanged.
+
+Eligibility requires the source alias at the first step of one connected positive pattern.
+Its built start must be a plain class scan that has not been loaded in advance.
+Source indexes, RID-list starts, source prefetch, optional parts, negations and alternative checks exclude this target start.
+`ORDER BY` does not widen eligibility.
+Multi-hop vertex paths, middle filters, canonical edge-filter pairs and finite `IN` target collections can qualify.
+
+RID resolution retains the forward comparison's meaning.
+A longer equality collection does not become several targets.
+
+A *candidate superset* contains every possible matching source, but can contain extras.
+Reverse discovery supplies this superset, not proof of the check.
+Candidates still receive normal class checks and source filters.
+A *per-row probe* checks one incoming row and stops on the first matching path.
+Every detached EXISTS and NOT on the target branch uses a per-row probe at its retained position.
+The eligible check also runs its normal forward recheck.
+
+This branch builds no detached hash.
+Candidate RIDs are deduplicated and sorted by storage collection identifier, then signed record position.
+Lazy secured loads skip unreadable candidates and continue.
+Transaction-local records receive class-scan read checks.
+The normal explicit-order sort, projection and paging remain after the choice.
+The optional transaction result cache is an exception to detached scan-order parity.
+Each translation mode retains its own secured behavior for hidden targets and edge-list policies.
+
+The target estimate must win on full work and first-row work by the fixed margin of two.
+A caller reading one row without `LIMIT` still has unknown demand.
+Multiple path items or more than eight input targets use the source-path estimate as a discovery budget.
+An edge-record pair also uses that budget.
+Exhaustion discards the attempt before any row and runs the retained branch.
+The bound is not an unconditional comparison with actual source work under wrong estimates.
+
+Security gates require visible targets and readable source and subclass storage collections.
+Relevant edge-list read policies require fallback.
+Discovery checks the actual adjacency storage form of each target and middle record it reads.
+A stored list cannot qualify merely because its schema declares a link bag.
+All required storage checks complete before any row.
+
+Recoverable failures in guarded target-only preparation run the retained query.
+Interrupts, executor timeouts, inactive or closed sessions and transaction loss remain errors.
+Branch startup and consumption remain outside this guard.
+
+Checks run only on source records the chosen path reads.
+A skipped source record can therefore have an error that never appears on the target path.
+Read-policy side effects and cache fills from a failed attempt are not undone.
+
+A positive traversal without a detached check uses a separate native switch.
+An eligible one-hop pattern can compare its known-RID start with a plain forward source-class start.
+Exact source and compatible edge counts establish the cost advantage after visible target degree is read.
+Approximate counts only reject a switch.
+Pending transaction writes keep the known-RID start without scanning the write set.
+
+The source cost includes secured storage checks, its later scan and a forward edge-read upper bound.
+Native rows retain matching-edge multiplicity.
+`LIMIT` and `SKIP` contribute required-row and first-row work.
+Unordered paging slices can differ between starts, as can slices among equal sort values.
+The source filter applies to every record read by the source-class start, including unconnected sources.
+A switch can raise a source-filter error that the known-RID branch never reaches.
+
+Source-index paths are never replaced.
+A known-RID root remains when its forward source plan would use an index.
+An existing source-index root remains unchanged too.
+
+EXPLAIN shows retained alternatives, while PROFILE shows the selected path and reason.
+Detached counters include secured candidates and source records read.
+After a budget switch, output omits reverse edge reads and target loads rather than publishing allowance-dependent values.
+Native choice output publishes only path and reason beyond framework metadata and subplans.
+Class statistics and exact counts can include hidden records and affect path choice.
+Neither wrapper publishes its work allowance.
+
+See [Chapter 13](../../../yql-internals-book/chapters/13-hash-joins.md#finding-sources-from-a-known-endpoint) for eligibility, budgets and security.
+See [Chapter 9 §9.9](../../../yql-internals-book/chapters/09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution) for native counts and paging.
+See [Chapter 16 §16.9](../../../yql-internals-book/chapters/16-reading-explain.md#169-observing-known-endpoint-choices) for exact plan fields.
 
 ### `OrStep` — boundary filters only
 
@@ -1567,7 +1647,7 @@ polymorphic-by-default behavior on the chain target while honouring
 non-polymorphic on the start node — a result-set discrepancy versus the
 native pipeline. The shared
 {@link com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.MatchClassFilters}
-helper produces the AST shape; every chain-introducing recognizer uses
+helper produces the AST shape. Every chain-introducing recognizer uses
 it.
 
 **Schema-less graphs.** The translator must support the same surface
@@ -1664,18 +1744,18 @@ an `IS DEFINED` predicate from serving the default mode, or the reverse.
 **Pagination** — `RangeGlobalStep(low, high)` is the modern TinkerPop
 representation of both `limit(n)` and `skip(n)`. Translation is a
 single rule: `SQLSkip(low) + SQLLimit(high - low)` when `low ≥ 0` and
-`high > 0`. `limit(n)` arrives as `RangeGlobalStep(0, n)`; `skip(n)` as
+`high > 0`. `limit(n)` arrives as `RangeGlobalStep(0, n)`. `skip(n)` arrives as
 `RangeGlobalStep(n, Long.MAX_VALUE)` and the recognizer drops the
 `SQLLimit` part for the unbounded high.
 
 **Dedup** — `DedupGlobalStep` has two recognized forms:
 - `dedup()` (no labels) → `info.distinct = true` on the
-  `QueryPlanningInfo`; the planner materializes this as a
+  `QueryPlanningInfo`. The planner materializes this as a
   `DistinctExecutionStep` after projection.
 - `dedup(labels...)` → projection over the named labels followed by
   `DISTINCT`. If any of the named labels is not surfaced by the
   traversal's projection (`select`), the recognizer declines because
-  the result wouldn't be addressable — under D3 the entire traversal
+  the result would not be addressable — under D3 the entire traversal
   declines.
 
 The planner can use a literal LIMIT plus SKIP in detached path choice.
@@ -1716,8 +1796,8 @@ Its tests must pass with the same assertions.
 The shared builders are designed for both today's GQL needs (single-node
 patterns, equality-only filters) and the translator's full needs (chains,
 edges, full predicate algebra, optional, NOT). The API contracts are
-captured in the builder Javadoc; implementations are pure functions over
-the IR classes; new operations can be added without breaking existing
+captured in the builder Javadoc. Implementations are pure functions over
+the IR classes. New operations can be added without breaking existing
 callers.
 
 When GQL eventually adds edges, predicates, or projections, the shared
@@ -1751,8 +1831,8 @@ engine. The single-class recognition that SELECT already runs
 and invoked by `MatchExecutionPlanner` as well, after `buildPatterns` and
 before the scan-building phases. A single-node `count(*)` with no edges,
 no extra filter, and no security policy on the class becomes
-`CountFromClassStep`; a single indexed-equality filter becomes
-`CountFromIndexWithKeyStep`. SQL has this today; GQL `MATCH … RETURN
+`CountFromClassStep`. A single indexed-equality filter becomes
+`CountFromIndexWithKeyStep`. SQL has this today. GQL `MATCH … RETURN
 count(*)` and the translated Gremlin count get it in Phase 1 from the
 same helper. This is the realization of the review point that class-count
 belongs in the MATCH engine, not in a front-end strategy.
@@ -1784,7 +1864,7 @@ catches three residual cases. First, multi-label counts
 which `countClass(name, false)` serves directly but the single-class
 short-circuit does not. Third, any count-bearing traversal the translator
 declined for an unrecognized step elsewhere. Removing the strategy could
-only regress these native paths; keeping it costs nothing, because it
+only regress these native paths. Keeping it costs nothing, because it
 fires only on the two-step counts the translator leaves behind. As
 translator coverage grows (multi-label, the polymorphism flag), its live
 cases shrink, but it remains the native-path backstop.
@@ -1798,20 +1878,20 @@ plan-cache concern for this shape.
 does exist: `approximateCountClass` reads a volatile per-cluster counter
 (`getApproximateRecordsCount`), O(1) but not snapshot-isolated, since it
 reflects the latest committed state plus the current transaction rather
-than the reader's MVCC snapshot. No query path uses it today; only
-`GraphRepair` does. Exposing it is an explicit, opt-in accuracy-versus-cost
+than the reader's MVCC snapshot. Known-endpoint decisions use approximate class counts only as cost signals.
+Native approximate counts can reject a switch, but exact counts must establish its cost advantage. Exposing it is an explicit, opt-in accuracy-versus-cost
 decision that belongs in the engine and applies uniformly to SQL, GQL, and
 Gremlin: a mode on the count short-circuit, not a property of one
-front-end's step. Phase 1 leaves it detached exactly as it is now; Phase 2
+front-end's step. Phase 1 leaves it detached exactly as it is now. Phase 2
 wires it in with the non-SI tradeoff stated at the call surface.
 
 **Non-fast-path counts** (a property-filtered count without a usable
 index, a multi-hop count, or a grouped count) translate to `count(*)` and
-run the generic aggregate; the cost is O(N)-heavy there regardless, as
+run the generic aggregate. The cost is O(N)-heavy there regardless, as
 today.
 
 **Empty input.** TinkerPop's `count` of an empty stream emits `0L` (a
-single traverser); `sum`/`min`/`max`/`mean` of an empty stream emit
+single traverser). `sum`/`min`/`max`/`mean` of an empty stream emit
 **nothing** in modern TinkerPop. MATCH's behavior is the same for
 `count` (returns one row with `0`) but emits a row with a **null** cell
 for the other aggregates. The two are observably different on the empty
@@ -1839,14 +1919,14 @@ verbatim — `dropNullRows` is a *row-level* drop (skip the entire
 entries from a projected map) happens inside Track 5's `MAP` /
 `SINGLE_VALUE` projection logic per the "Track 5 commitment" section
 above. The two layers compose: Track 5 aggregates emit one
-`Result` per row and use `dropNullRows` to drop empty-input rows;
+`Result` per row and use `dropNullRows` to drop empty-input rows.
 Track 5 projections emit one `Result` per matched row and use the
 value-level omission rule to make their `Map<String, Object>` payload
 match native `valueMap` / `elementMap` set membership. We verify in
 tests that both layers behave per-aggregate / per-projection.
 
-A single boolean is enough for Phase 1's four drop-on-null aggregates;
-if Phase 2 introduces custom aggregates with finer-grained empty-input
+A single boolean is enough for Phase 1's four drop-on-null aggregates.
+If Phase 2 introduces custom aggregates with finer-grained empty-input
 policies (e.g. an aggregate that returns a sentinel value), the flag
 evolves into a small enum or a `Predicate<Result> skipRow` without
 touching the boundary's iteration logic — only the recognizer-side
@@ -1887,19 +1967,19 @@ contract — `g.V().out("knows")` does not query the database until
 
 **Stream close.** The boundary step is `AutoCloseable` and closes its
 stream when:
-1. **The stream is exhausted** — `stream.hasNext(ctx)` returns false;
+1. **The stream is exhausted** — `stream.hasNext(ctx)` returns false.
    the boundary calls `stream.close()` immediately.
 2. **The traversal is closed** — TinkerPop calls `Traversal.close()`,
-   which propagates `close()` to every step including the boundary;
+   which propagates `close()` to every step including the boundary.
    the boundary closes the stream and the plan.
 3. **A `RuntimeException` propagates from the stream** — the boundary
-   wraps the iteration in try-with-resources semantics; any exception
+   wraps the iteration in try-with-resources semantics. Any exception
    triggers stream close before re-throwing.
 
 A traversal abandoned mid-iteration (the client never calls `.next()`
 again, never calls `.close()`) is the only path that leaks the stream.
 TinkerPop's standard usage drives `close()` via `try-with-resources`
-around `Traversal`, so this is rare; the boundary step's resource hold
+around `Traversal`, so this is rare. The boundary step's resource hold
 matches `MatchExecutionPlanStep`'s today (the SQL `MATCH` runtime has
 the same risk class).
 
@@ -1936,15 +2016,15 @@ It holds a `List<SelectExecutionPlan>` instead of one plan, plus an
 index into the list:
 
 - **Plan iteration.** The first `processNextStart` opens
-  `plans[0].start()`; subsequent calls drive that stream until exhausted,
+  `plans[0].start()`. Subsequent calls drive that stream until exhausted,
   then advance to `plans[1].start()`, and so on. Plan N+1 is only
   started after plan N is fully drained — never both alive simultaneously.
 - **Post-concatenation reductions.** Optional `PostConcatOp` stages
   (`count`, `limit`/`range`/`skip`, `dedup`, `order`) run once over the
   concatenated stream after the child plans combine. `order` sorts the
-  drained multiset in memory; a positional slice still requires an
+  drained multiset in memory. A positional slice still requires an
   immediate following `count()` (see `RangeGlobalStepRecogniser`).
-- **Memory.** Only the *currently-iterating* `ExecutionStream` is alive;
+- **Memory.** Only the *currently-iterating* `ExecutionStream` is alive.
   the list of compiled plans (one per child traversal) is alive for the
   boundary step's lifetime. Memory cost = number of compiled plans, not
   number of in-flight streams. Post-concat `order` additionally buffers
@@ -1955,15 +2035,17 @@ index into the list:
   time (translation succeeded for every child or the union step was
   declined whole), so the caller sees the runtime error directly.
 - **Output type.** All children must agree on output type at translation
-  time; `MultiPlanMatchStep` carries one shared `BoundaryOutputType`.
+  time. `MultiPlanMatchStep` carries one shared `BoundaryOutputType`.
   Mismatched types make the union unrecognized → traversal declines
   under D3 all-or-nothing.
 
 ## Observable behavior changes
 
-The translator preserves Gremlin's **multiset-equality** semantics —
-the same elements appear the same number of times in the result — but
-the user can observe two changes that don't break the contract:
+A *multiset* records each result element and its number of occurrences.
+Positive traversal tests compare result multisets without requiring the same natural order.
+Detached known-endpoint checks retain their scan-order contract unless the optional transaction result cache applies.
+The native switch can change unordered paging slices and slices among equal sort values.
+Its source-class start can also raise source-filter errors on records the known-RID start never reads.
 
 **Result ordering may change.** Native Gremlin executes left-to-right:
 the first `g.V()` step iterates the cluster scan in storage order, then
@@ -1971,24 +2053,22 @@ each subsequent step processes traversers in the order they arrive.
 MATCH's cost-based planner picks the most selective alias as the
 starting node and topologically sorts the rest. For a chain like
 `g.V().has("name", "Alice").out("knows")`, native Gremlin scans every
-vertex then filters; MATCH (with an index on `name`) starts from the
+vertex then filters. MATCH (with an index on `name`) starts from the
 single Alice node and walks her edges. Same result set, completely
 different traversal order.
 
 If a user relied on the natively-determined order, the translated
 result will differ. The fix is to add an explicit `order().by(...)` —
 which was always the right approach if order mattered. We pin
-multiset equivalence with `EdgeTraversalEquivalenceTest`, but we do
-not pin element order; pinning order would force MATCH's planner into
-the native walking strategy and erase the optimization we are trying
-to win.
+multiset equivalence with `EdgeTraversalEquivalenceTest` for positive paths.
+Detached known-endpoint checks additionally retain source scan order before explicit sorting and paging.
 
 **`.explain()` surfaces the translation.** `YTDBMatchPlanStep` overrides
 `toString()` to render a one-line marker —
 `YTDBMatchPlanStep(<alias>,<outputType>)`. So `traversal.explain()` on a
 translated traversal shows the native step chain collapsed to that single
 boundary step, while a declined traversal shows its native step boxes
-unchanged. The query runs identically; only the EXPLAIN rendering changes.
+unchanged. The query runs identically. Only the EXPLAIN rendering changes.
 The marker lets an operator see at a glance that a query was translated, and
 it is the assertion vehicle the per-track end-to-end tests use to pin which
 shapes translate and which decline
@@ -2018,17 +2098,17 @@ or `DECLINED` marker. Two assertions per case:
 
 1. **Result-multiset equality** — the two runs return the same elements
    the same number of times, regardless of order. Translation is
-   semantics-preserving by construction; this is the load-bearing
+   semantics-preserving by construction. This is the load-bearing
    correctness check.
 2. **Boundary-step engagement** — `RECOGNIZED` cases must contain a
-   `YTDBMatchPlanStep` after `applyStrategies()`; `DECLINED` cases must
+   `YTDBMatchPlanStep` after `applyStrategies()`. `DECLINED` cases must
    not. Without this assertion, a regression that silently declined
    every shape would still pass the equality check (via native fallback
    on both sides) — the engagement assertion is what surfaces "we
    stopped translating but tests pretend we still are".
 
 The fixture is parameterised so each track adds rows for its shapes
-without rewriting the harness; the fixture seeds a small graph
+without rewriting the harness. The fixture seeds a small graph
 (Person/Place vertices, Knows/Likes/Follows edges) that exercises
 multi-hop chains, multi-edge cardinality, and multi-label `hasLabel`.
 
@@ -2048,7 +2128,8 @@ catch regressions before the slower equivalence tests.
 
 The translator produces input that the existing `MatchExecutionPlanner`
 turns into a `SelectExecutionPlan` over shared MATCH execution steps.
-Detached positive checks can use either a per-row filter or a hash semi-join:
+Detached positive checks use per-row filters or a retained hash semi-join.
+Known-endpoint target branches use only per-row checks:
 
 | Class | Role |
 |---|---|
@@ -2059,6 +2140,9 @@ Detached positive checks can use either a per-row filter or a hash semi-join:
 | `FilterExistsMatchPatternStep` | Per-row detached exists filter |
 | `HashJoinMatchStep` | Hash path for detached NOT, exists, and eligible positive-pattern branches |
 | `DetachedMatchPatternProbe` | Shared early-stop probe for per-row checks and detached hash overflow |
+| `KnownEndpointExistsStep` | Runtime choice between retained source-class and target-candidate branches |
+| `KnownEndpointSourceStep` | Secured candidate loads in scan order and source-read counting |
+| `NativeKnownEndpointStep` | Exact-count choice between known-RID and forward source-class branches |
 | `CartesianProductStep` | Joins disjoint patterns |
 | `ReturnMatchElementsStep` | Returns matched elements (`returnElements`) |
 | `ReturnMatchPathsStep` | Returns paths (`returnPaths`) |
@@ -2070,10 +2154,10 @@ Detached positive checks can use either a per-row filter or a hash semi-join:
 | `SkipExecutionStep` | SKIP |
 | `LimitExecutionStep` | LIMIT |
 
-The single addition to the MATCH surface is one new public constructor
-`MatchExecutionPlanner(MatchPlanInputs)` (D2) that takes a record of
-post-parse fields the translator builds, and routes them through the
-existing `createExecutionPlan` pipeline. The three pre-existing
+The translator enters the MATCH planner through the public constructor
+`MatchExecutionPlanner(MatchPlanInputs)` (D2).
+It accepts a record of post-parse fields and uses the shared `createExecutionPlan` pipeline.
+Known-endpoint choices belong to that shared executor, not to the translator. The three pre-existing
 constructors stay unchanged. The `Pattern` / `PatternNode` /
 `PatternEdge` classes plus the parser-level AST classes
 (`SQLMatchExpression`, `SQLMatchPathItem`, `SQLMatchFilter`,
@@ -2109,18 +2193,18 @@ dispatch" in Class Design). No follow-up migration is queued for
 Phase 2.
 
 **Cross-query plan caching is Phase 1**, not Phase 2. The cache keys
-on the value-independent traversal shape; predicate values are bound as
+on the value-independent traversal shape. Predicate values are bound as
 parameter slots rather than folded into the key (see "Parameter
 binding"), so one plan serves every parameter value without thrashing
 the cache. Track 6 measures end-to-end perf with cache enabled.
 
-**The unified exact `count(*)` path is Phase 1; approximate count is
+**The unified exact `count(*)` path is Phase 1. Approximate count is
 Phase 2.** Phase 1 ships the shared engine count short-circuit on the
 MATCH planner, so SQL, GQL, and translated Gremlin class-count all run the
 same exact, snapshot-isolated `CountFromClassStep` (see "Aggregation
 barrier semantics"). The genuinely O(1), non-snapshot-isolated
 `approximateCountClass` primitive stays detached from query execution as
-it is today; wiring it in as an opt-in count mode is Phase 2.
+it is today. Wiring it in as an opt-in count mode is Phase 2.
 
 **Phase 2 step-list audit.** Phase 2 opens with a sweep of the full
 TinkerPop step reference (https://tinkerpop.apache.org/docs/current/reference/),
@@ -2128,5 +2212,5 @@ classifying every step into one of: *(a)* candidate for translation
 (produce a recognizer), *(b)* permanent decline (stays native — lambda
 steps, sack(), store(), subgraph(), …), *(c)* needs design effort
 (optional, path manipulation, repeat(), choose()). The table above
-captures the Phase 1 decisions; the audit fills in the long tail
+captures the Phase 1 decisions. The audit fills in the long tail
 before any Phase 2 implementation track lands.
