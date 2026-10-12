@@ -40,15 +40,18 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import java.util.zip.CRC32C;
 import org.junit.Rule;
@@ -904,7 +907,211 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
+  // Three pre-open segments need three bounded batches. The terminal batch still contributes
+  // marks, while a flushed page appended after reopen stays outside the immutable proof extent.
+  @Test
+  public void verifyDiskWalConsumesEveryPreOpenBatchAndExcludesPostOpenPage() throws Exception {
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    LogSequenceNumber lastPage = null;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.begin();
+      for (int segment = 0; segment < 3; segment++) {
+        if (segment > 0) {
+          assertTrue(wal.appendNewSegment());
+        }
+        for (int page = 0; page < 11; page++) {
+          lastPage = wal.log(update(200 + segment * 11 + page, EXTERNAL_ID, 7));
+        }
+      }
+    }
+    var pending = savedHistory(true, coverage);
+    try (var wal = diskWal(directory)) {
+      var extent = wal.preOpenExtent();
+      assertEquals(List.of(coverage.getSegment(), coverage.getSegment() + 1,
+          coverage.getSegment() + 2), extent.segments().stream().map(s -> s.segment()).toList());
+      for (var segment : extent.segments()) {
+        assertEquals(Files.size(segmentPath(directory, segment.segment())), segment.bytes());
+      }
+      var appended = wal.log(update(999, EXTERNAL_ID, 7));
+      wal.flush();
+      assertEquals(appended, wal.end());
+      assertTrue(appended.getSegment() > extent.segments().getLast().segment());
+      assertEquals(extent, wal.preOpenExtent());
+      var files = new TestFileIds();
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+          ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+          ProofStatus.REACHED_END, null, withPages(7, LongStream.range(200, 233).toArray()));
+      assertEquals(Collections.nCopies(33, EXTERNAL_ID), files.converted);
+      assertEquals(coverage, pending.coverageLsn());
+      assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+      assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
+
+      // StartupResult has no endpoint field. An independent reader shows the same physical
+      // endpoint and proves that the last page belongs to a nonempty terminal batch.
+      var reader = wal.openProofReader(coverage, 16 * 1024 * 1024);
+      for (int batchIndex = 0; batchIndex < 3; batchIndex++) {
+        var batch = reader.next(16);
+        assertNull(batch.error());
+        assertEquals(batchIndex < 2 ? 16 : 4, batch.records().size());
+        assertEquals(batchIndex < 2 ? ProofStatus.MORE : ProofStatus.REACHED_END, batch.status());
+        if (batchIndex == 2) {
+          var last = extent.segments().getLast();
+          assertEquals(lastPage, batch.records().getLast().getLsn());
+          assertEquals(new LogSequenceNumber(last.segment(), (int) last.bytes()), batch.position());
+          assertNotEquals(wal.end(), batch.position());
+        }
+      }
+    }
+  }
+
+  // Removing the saved coverage segment before reopen must not substitute the new begin LSN.
+  // Both shutdown states fail with COVERAGE_NOT_RETAINED and retain only the saved candidates.
+  @Test
+  public void verifyDiskWalRejectsDeletedCoverageSegment() throws Exception {
+    var directory = folder.newFolder().toPath();
+    var coverage = threeSegmentPageWal(directory);
+    Files.delete(segmentPath(directory, coverage.getSegment()));
+    try (var wal = diskWal(directory)) {
+      assertNotEquals(coverage, wal.begin());
+      assertEquals(List.of(coverage.getSegment() + 1, coverage.getSegment() + 2),
+          wal.preOpenExtent().segments().stream().map(s -> s.segment()).toList());
+      for (var shutdown : ChangedPageTrackerStartup.ShutdownState.values()) {
+        var pending = savedHistory(true, coverage);
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            shutdown, new TestFileIds()),
+            ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+            ProofStatus.COVERAGE_NOT_RETAINED, null, MERGED);
+        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(coverage, pending.coverageLsn());
+        assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      }
+    }
+  }
+
+  // A later retained segment makes an interior deletion observable. The reader rejects the gap
+  // before emitting any pages, regardless of shutdown state, without clearing saved candidates.
+  @Test
+  public void verifyDiskWalRejectsDeletedInteriorSegment() throws Exception {
+    var directory = folder.newFolder().toPath();
+    var coverage = threeSegmentPageWal(directory);
+    Files.delete(segmentPath(directory, coverage.getSegment() + 1));
+    try (var wal = diskWal(directory)) {
+      assertEquals(List.of(coverage.getSegment(), coverage.getSegment() + 2),
+          wal.preOpenExtent().segments().stream().map(s -> s.segment()).toList());
+      for (var shutdown : ChangedPageTrackerStartup.ShutdownState.values()) {
+        var pending = savedHistory(true, coverage);
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            shutdown, new TestFileIds()),
+            ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+            ProofStatus.MISSING_SEGMENT, null, MERGED);
+        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(coverage, pending.coverageLsn());
+        assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      }
+    }
+  }
+
+  // Deleting an unread segment after reopen preserves the captured inventory but cannot prove
+  // coverage. The real filesystem cause and the readable first-segment page survive resolution.
+  @Test
+  public void verifyDiskWalReportsSegmentVanishedAfterExtentCapture() throws Exception {
+    var directory = folder.newFolder().toPath();
+    var coverage = threeSegmentPageWal(directory);
+    try (var wal = diskWal(directory)) {
+      var extent = wal.preOpenExtent();
+      assertEquals(3, extent.segments().size());
+      var vanished = segmentPath(directory, coverage.getSegment() + 1);
+      Files.delete(vanished);
+      assertEquals(extent, wal.preOpenExtent());
+      for (var shutdown : ChangedPageTrackerStartup.ShutdownState.values()) {
+        var pending = savedHistory(true, coverage);
+        var result = ChangedPageTrackerStartup.verify(pending, wal, shutdown, new TestFileIds());
+        assertTrue(result.cause() instanceof NoSuchFileException);
+        assertEquals(vanished.toString(), ((NoSuchFileException) result.cause()).getFile());
+        assertVerification(pending, result, ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED,
+            ProofStatus.SEGMENT_VANISHED, result.cause(), withPages(7, 300));
+        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(coverage, pending.coverageLsn());
+        assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      }
+    }
+  }
+
+  // A real create record follows pages for the same file. Neither saved nor scanned pages may be
+  // cleared. A terminal event and an earlier-batch event both leave proved coverage untrusted.
+  @Test
+  public void verifyDiskWalCreatePreservesPageBeforeCreateAndDistrustsIdentity() throws Exception {
+    assertDiskFileEventPreservesMarks(() -> new FileCreatedWALRecord(7, "created", EXTERNAL_ID));
+  }
+
+  // A real delete record independently leaves identity unresolved. Marks remain even when the
+  // current inventory has no name, including when the event precedes an event-free final batch.
+  @Test
+  public void verifyDiskWalDeletePreservesPagesAndDistrustsIdentity() throws Exception {
+    assertDiskFileEventPreservesMarks(() -> new FileDeletedWALRecord(7, EXTERNAL_ID));
+  }
+
+  private void assertDiskFileEventPreservesMarks(Supplier<WriteableWALRecord> event)
+      throws Exception {
+    for (boolean earlierBatch : new boolean[] {false, true}) {
+      var directory = folder.newFolder().toPath();
+      LogSequenceNumber coverage;
+      try (var wal = diskWal(directory)) {
+        coverage = wal.begin();
+        wal.log(new AtomicUnitStartRecord(true, 7));
+        wal.log(update(400, EXTERNAL_ID, 7));
+        wal.log(update(401, EXTERNAL_ID, 7));
+        // Logged records retain writer placement state, so each WAL fixture owns a fresh event.
+        wal.log(event.get());
+        if (earlierBatch) {
+          for (long page = 402; page < 422; page++) {
+            wal.log(update(page, EXTERNAL_ID, 7));
+          }
+          wal.log(new AtomicUnitEndRecord(7, false, Map.of()));
+        }
+      }
+      var pending = savedHistory(true, coverage);
+      try (var wal = diskWal(directory)) {
+        var files = new TestFileIds();
+        files.name = earlierBatch ? null : "created";
+        assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ProofStatus.REACHED_END, null,
+            withPages(7, LongStream.range(400, earlierBatch ? 422 : 402).toArray()));
+        assertEquals(Collections.nCopies(earlierBatch ? 23 : 3, EXTERNAL_ID),
+            files.converted);
+        assertEquals(0, files.nameCalls);
+        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(coverage, pending.coverageLsn());
+        assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      }
+    }
+  }
+
+  private static LogSequenceNumber threeSegmentPageWal(Path directory) throws IOException {
+    try (var wal = diskWal(directory)) {
+      var coverage = wal.begin();
+      for (int segment = 0; segment < 3; segment++) {
+        if (segment > 0) {
+          assertTrue(wal.appendNewSegment());
+        }
+        wal.log(update(300 + segment, EXTERNAL_ID, 7));
+      }
+      return coverage;
+    }
+  }
+
+  private static Path segmentPath(Path directory, long segment) {
+    return directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "." + segment + ".wal");
+  }
+
   private static CASDiskWriteAheadLog diskWal(Path directory) throws IOException {
+    // Register production logical operations before both fixture writes and proof reopens.
+    PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
     return new CASDiskWriteAheadLog("startup", directory, directory,
         ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null, Integer.MAX_VALUE,
         Integer.MAX_VALUE, 20, true, Locale.US, -1, 1000, false, true, false, 10);
@@ -1035,8 +1242,13 @@ public class ChangedPageTrackerStartupTest {
   }
 
   private ChangedPageTrackerStartup.PendingHistory savedHistory(boolean trusted) throws Exception {
+    return savedHistory(trusted, COVERAGE);
+  }
+
+  private ChangedPageTrackerStartup.PendingHistory savedHistory(boolean trusted,
+      LogSequenceNumber coverage) throws Exception {
     var path = sideFile();
-    Files.write(path, encode(trusted, true));
+    Files.write(path, encode(trusted, true, coverage));
     return ChangedPageTrackerStartup.load(path);
   }
 
