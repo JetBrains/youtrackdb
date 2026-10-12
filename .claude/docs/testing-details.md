@@ -4,6 +4,10 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## Unit Tests
 
+A developer machine runs only the test-gate set, the reactor modules containing changed files.
+The pull request build runs the whole unit suite. Follow
+`docs-internal/dev-workflow/track-development.md` for gate timing and disk-mode scope.
+
 - **Core and server**: JUnit 4 with `surefire-junit47` runner
 - **Tests module**: JUnit 5 with JUnit Platform Suite (`EmbeddedTestSuite`). Tests share a single database instance and execute in a fixed class/method order via `@SelectClasses` and `@Order` annotations
 - **Test utilities**: `test-commons` module provides shared base classes (`TestBuilder`, `TestFactory`, `ConcurrentTestHelper`)
@@ -23,7 +27,8 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## TinkerPop Cucumber Feature Tests
 
-- Validate full Gremlin compliance by running the TinkerPop Cucumber scenario suite (~1900 scenarios)
+- The TinkerPop Cucumber scenario suite covers Gremlin compliance (~1900 scenarios).
+- On a developer machine, run it only in modules in the test-gate set.
 - Present in both `core` (`YTDBGraphFeatureTest`) and `embedded` (`EmbeddedGraphFeatureTest`) modules
 - **`core`**: runs by default with `mvn test` (always included)
 - **`embedded`**: runs by default with `mvn test` (always included)

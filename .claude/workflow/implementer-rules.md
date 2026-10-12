@@ -238,7 +238,7 @@ rules:
   for the rule.
 - **Single-test reruns** (`-Dtest=Foo#bar`) and **compile-fix loops**
   route through `steroid_execute_code` when mcp-steroid is
-  reachable; full-suite runs and coverage profiles stay on Bash
+  reachable. Test-gate set runs and coverage profiles stay on Bash
   `./mvnw` per the project's `CLAUDE.md` § MCP Steroid → "Maven —
   when to route through mcp-steroid". When an IDE-routed test run
   fails, the `test/failure-details` and `test/statistics` recipes
@@ -516,8 +516,13 @@ Pacing is the orchestrator's job, not the implementer's. The
 implementer runs straight through sub-steps 1–3 and emits exactly
 one return block.
 
-**For long-running Maven runs** — full `core` test suite and coverage
-profile build. Integration tests run only in the pull request pipeline.
+**For long-running Maven runs** — test-gate set suites and coverage builds.
+The test-gate set contains only the reactor modules with changed files.
+A developer machine runs tests only in this set. The pull request build runs the whole unit
+suite. Follow `docs-internal/dev-workflow/track-development.md` for gate timing.
+A developer machine never runs integration tests.
+The pull request build runs them under the rules in `track-development.md`.
+Coverage runs follow `docs-internal/dev-workflow/coverage-verification.md`.
 
 - Use **foreground** Bash with the Bash tool's `timeout` parameter
   set to the realistic upper bound (the parameter is in
@@ -540,13 +545,13 @@ profile build. Integration tests run only in the pull request pipeline.
   production lines. Run the targeted tests in foreground, confirm
   Spotless, and commit — record the gate as `n/a (test-additive)`
   in the `TEST_SUMMARY` and let the track's final-verification step
-  pick up per-package totals from a single full coverage run. Note
+  collect reports for the coverage set. Note
   that the check is against `origin/develop`, i.e. the **cumulative**
   branch diff. At `level=track` this shortcut therefore only fires
   for test-only tracks (where Phase B itself touched no production
   source); for any track whose Phase B steps added production code,
   the cumulative diff is non-empty and the implementer must run the
-  full coverage profile build even when the iteration's own diff is
+  coverage-set build even when the iteration's own diff is
   test-only.
 - **Prefer targeted `-Dtest=…` re-runs during fix iteration.** When
   applying review findings (`mode=FIX_REVIEW_FINDINGS` at either
@@ -558,9 +563,9 @@ profile build. Integration tests run only in the pull request pipeline.
   failing assertion can dump tens of thousands of tokens of stack
   traces into the conversation, and the Track-18 implementer
   exhausted its message budget on exactly this pattern
-  (2026-05-07). Reserve the full module suite for one final
-  pre-commit verification, and only when the cumulative diff
-  genuinely justifies it; routine fix iterations do not.
+  (2026-05-07). Run the test-gate set suites at the gate times in
+  `docs-internal/dev-workflow/track-development.md`.
+  Routine fix iterations use targeted reruns within that set.
 - **Route targeted re-runs through `steroid_execute_code` when
   mcp-steroid is reachable.** Per the project's `CLAUDE.md` § MCP
   Steroid → "Maven — when to route through mcp-steroid",

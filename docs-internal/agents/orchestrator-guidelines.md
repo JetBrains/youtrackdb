@@ -29,10 +29,11 @@ Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 ## Verification Gates
 
 Verification rules live in `docs-internal/dev-workflow/track-development.md`.
+A developer machine runs tests only in the test-gate set, the modules containing changed files.
+The pull request build runs the whole unit suite.
 A developer machine never runs an integration test. The pull request pipeline runs integration
 tests for changed IT modules. Develop runs the full suite after merge. Follow
 `docs-internal/dev-workflow/track-development.md` for scope and exceptions.
-If in doubt, run the full unit test suite.
 
 ### Serial Maven execution
 

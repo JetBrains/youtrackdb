@@ -79,16 +79,22 @@ each scope.
 **Compile-gate set** — the full reactor. Build it with `./mvnw package -DskipTests`
 so every dependency and consumer compiles against the working tree.
 
-**Test-gate set** — the modules containing changed files, plus any downstream module whose own
-tests exercise the changed behavior. No automatic `-amd` fan-out here: a dependent that merely
-compiles against a changed API is already covered by the compile gate, and re-running its
-suites costs tens of minutes for no new signal. When the changed behavior does reach a
-dependent's tests, name that dependent in `-pl` explicitly.
+**Test-gate set** — only the reactor modules containing changed files. A developer machine
+runs tests only in this set. Do not add upstream or downstream modules to it.
+This rule also excludes a downstream module whose tests exercise the changed behavior.
+The pull request build owns those tests. This keeps a local change from requiring almost
+all module suites.
+
+The pull request build runs the whole unit suite, including the full disk-mode suite.
+A draft pull request runs no continuous integration (CI).
+For build-relevant changes, the whole unit suite runs at the ready-for-review flip.
+A manual workflow run also runs the whole unit suite. Markdown-only changes skip the build.
+Integration tests follow the rules below.
 
 A developer machine never runs the full unit suite in disk mode. Disk mode means starting the
-run with `-Dyoutrackdb.test.env=ci`. The targeted subset includes tests covering changed
-production code and tests changed by the same work. The pull request pipeline runs the full disk-mode suite.
-Local verification relies on the pipeline for wider disk-mode coverage.
+run with `-Dyoutrackdb.test.env=ci`. The targeted subset stays inside the test-gate set.
+It includes tests covering changed production code and tests changed by the same work.
+Local verification relies on the pull request build for wider disk-mode coverage.
 
 A developer machine never runs an integration test. The pull request pipeline skips integration
 tests for drafts or Markdown-only changes. When the changed-file list is known, it also skips
@@ -172,12 +178,13 @@ core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/collection/v2/
 When both searches return nothing, report the commands and empty results. Do not run the full
 suite. Do not silently assume that integration coverage is absent.
 
-For build files belonging to no module, the compile-gate set is the whole reactor and the
-test-gate set is the modules whose behavior the change can actually alter — a dependency-version
-bump in the root `pom.xml` means that dependency's consumers — falling back to the whole reactor
-when it cannot be bounded that way.
+A build file inside a reactor module puts that module in the test-gate set.
+A build file belonging to no module adds no module to the test-gate set.
+For example, a root `pom.xml` change requires no module test run on a developer machine.
+It relies on the pull request build for tests. Its compile-gate set stays the whole reactor.
+Other changed files inside modules still select those modules for the test-gate set.
 
-The reactor order helps identify dependencies and consumers for the test-gate set.
+The reactor order describes the full-reactor compile-gate set.
 Maven resolves this order from the dependency graph, not from the module order in the root
 `pom.xml`:
 
@@ -188,10 +195,9 @@ Maven resolves this order from the dependency graph, not from the module order i
 
 The copied modules add upstream dependencies to the graph. Maven places `gremlin-core`
 before `gremlin-annotations`, which supplies the processor for `gremlin-groovy`.
-Read the current Reactor Build Order from Maven when deriving the test-gate set.
-
-Everything to the right of a changed module is a candidate consumer. The compile gate builds
-all modules. Use the dependency graph to bound the test-gate set by hand.
+Read the current Reactor Build Order from Maven when checking build dependencies.
+The compile gate builds all modules in that order. Reactor order does not select test-gate
+modules. Select them from the changed-file paths.
 
 ### End-of-track gate
 

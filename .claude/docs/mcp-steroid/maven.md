@@ -8,10 +8,13 @@ Full rules for routing Maven invocations through mcp-steroid vs Bash `./mvnw`. T
 
 | Use mcp-steroid execute-code when… | Stay on Bash `./mvnw` when… |
 |---|---|
-| Running a single test class or method (`-Dtest=Foo#bar`) — IDE returns a parsed test tree with per-method status and split stack traces | Full-suite runs (`./mvnw clean package`, `verify`) — same Maven, same noise, but Bash survives IDE crashes |
+| Running a single test class or method (`-Dtest=Foo#bar`) — IDE returns a parsed test tree with per-method status and split stack traces | Test-gate set runs — only modules containing changed files, as defined in `docs-internal/dev-workflow/track-development.md` |
 | Compile-fix loops where you want just the compiler errors, not the surrounding Maven INFO/download chatter | Coverage runs (`-P coverage`) — must pair with `coverage-gate.py` driven by Bash |
 | Quick post-edit "did this still compile?" check on a single module | Pipeline-owned integration tests stay in the pull request pipeline. Docker tests and JMH benchmarks stay on Bash `./mvnw` |
 | Re-running the failing test after a fix, where seeing structured pass/fail matters | Anything that runs >5 min — IDE liveness becomes a risk, and Bash + `run_in_background` is more robust |
+
+The pull request build runs the whole unit suite. A developer machine runs tests only in
+the test-gate set. Routing does not widen that set.
 
 ## Preflight before routing Maven through mcp-steroid
 
