@@ -38,7 +38,7 @@ Reference material for testing infrastructure beyond the core rules in `CLAUDE.m
 
 ## Benchmarks
 
-- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command) or `./mvnw -pl jmh-ldbc -am compile exec:exec` (two-step). See `jmh-ldbc/README.md` for full documentation.
+- **LDBC SNB benchmarks** in `jmh-ldbc/` — 20 read queries (IS1-IS7, IC1-IC13) using YouTrackDB SQL, with single-threaded and multi-threaded (one thread per available processor) suites. Run via `./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests` (single command). For two steps, run `./mvnw -pl jmh-ldbc -am package -DskipTests`, then `java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" <jmh args>` from the repository root. Define the Bash variables `LDBC_JAVA_OPTS` and `LDBC_JAR` from `jmh-ldbc/README.md` first. They preserve the 4 GB heap, module access flags and module-local dataset paths, and select the main jar without release classifiers.
 - Legacy JMH benchmarks in `tests/src/test/java/.../benchmarks/`
 
 ## Common Test JVM Properties

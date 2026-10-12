@@ -361,9 +361,11 @@
           <doclint>none</doclint>
           <failOnError>false</failOnError>
           <failOnWarnings>false</failOnWarnings>
+          <!-- The release profile stages module legal resources in this report's apidocs directory. -->
+          <outputDirectory>${project.build.directory}/reports</outputDirectory>
         </configuration>
       </plugin>
-      <!-- Generate legal resources for both binary and source jars. -->
+      <!-- Generate legal resources for binary, source and javadoc jars. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
@@ -410,6 +412,15 @@
             </goals>
             <configuration>
               <target>
+                <!-- Preserve component-specific licenses, with the Apache text as the fallback. -->
+                <condition property="tinkerpop.license.source"
+                  value="${project.basedir}/src/main/static/LICENSE"
+                  else="${maven.multiModuleProjectDirectory}/license.txt">
+                  <available file="${project.basedir}/src/main/static/LICENSE"/>
+                </condition>
+                <copy file="${tinkerpop.license.source}"
+                  tofile="${project.build.directory}/tinkerpop-legal/META-INF/LICENSE"
+                  overwrite="true"/>
                 <concat destfile="${project.build.directory}/tinkerpop-legal/META-INF/NOTICE"
                   encoding="UTF-8" fixlastline="true">
                   <filelist dir="${maven.multiModuleProjectDirectory}" files="NOTICE"/>
@@ -447,4 +458,39 @@
       </plugins>
     </pluginManagement>
   </build>
+
+  <profiles>
+    <profile>
+      <id>sonatype-oss-release</id>
+      <build>
+        <plugins>
+          <!-- Stage legal files before package-time javadoc generation and classifier attachment. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-resources-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>tinkerpop-javadoc-legal-resources</id>
+                <phase>prepare-package</phase>
+                <goals>
+                  <goal>copy-resources</goal>
+                </goals>
+                <configuration>
+                  <outputDirectory>${project.build.directory}/reports/apidocs</outputDirectory>
+                  <resources>
+                    <resource>
+                      <directory>${project.build.directory}/tinkerpop-legal</directory>
+                      <includes>
+                        <include>META-INF/**</include>
+                      </includes>
+                    </resource>
+                  </resources>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

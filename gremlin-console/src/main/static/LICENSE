@@ -229,6 +229,8 @@ The Apache TinkerPop project bundles the following components under the BSD Lice
        - shaded in gremlin-shaded to org.apache.tinkerpop.shaded.minlog
        - for details, see licenses/minlog
      treelayout (org.abego.treelayout:org.abego.treelayout.core:1.0.3 - http://treelayout.sourceforge.net/) - for details, see licenses/treelayout
+     Groovy JSR-223 classes (org.apache.groovy:groovy-jsr223:4.0.32)
+       - Sun Microsystems BSD license, for details, see licenses/jsr223-license.txt
 
 ========================================================================
 MIT Licenses

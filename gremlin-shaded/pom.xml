@@ -192,4 +192,76 @@ limitations under the License.
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>sonatype-oss-release</id>
+            <build>
+                <plugins>
+                    <!-- Implementation comes from shaded dependencies, not module Java sources. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <!-- Stage the stub with the same legal resources as the module's main jar. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>release-stub-javadoc-resources</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/release-javadoc</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.basedir}/release-stub</directory>
+                                            <includes>
+                                                <include>README.md</include>
+                                            </includes>
+                                        </resource>
+                                        <resource>
+                                            <directory>${project.build.directory}/tinkerpop-legal</directory>
+                                            <includes>
+                                                <include>META-INF/LICENSE</include>
+                                                <include>META-INF/NOTICE</include>
+                                            </includes>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!-- Maven Central requires a javadoc classifier even for this source-free jar. -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>release-stub-javadoc-jar</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                                <configuration>
+                                    <classifier>javadoc</classifier>
+                                    <classesDirectory>${project.build.directory}/release-javadoc</classesDirectory>
+                                    <includes>
+                                        <include>README.md</include>
+                                        <include>META-INF/LICENSE</include>
+                                        <include>META-INF/NOTICE</include>
+                                    </includes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

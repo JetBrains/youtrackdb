@@ -14,11 +14,10 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * # Via Maven — single command (recommended)
  * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcSingleThreadIC.*"
  *
- * # Via Maven — two-step
- * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcSingleThreadIC.*"
- *
- * # Via uber-jar
- * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar "LdbcSingleThreadIC.*"
+ * # Two steps from the repository root
+ * ./mvnw -pl jmh-ldbc -am package -DskipTests
+ * # Define LDBC_JAVA_OPTS and LDBC_JAR from README.md in this Bash shell.
+ * java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" "LdbcSingleThreadIC.*"
  *
  * # A specific query
  * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args=".*SingleThreadIC.*ic1_transitiveFriends"

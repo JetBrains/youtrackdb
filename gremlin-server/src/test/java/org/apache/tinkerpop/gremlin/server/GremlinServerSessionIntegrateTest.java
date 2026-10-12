@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+// Modified by YouTrackDB.
 package org.apache.tinkerpop.gremlin.server;
 
 import ch.qos.logback.classic.Level;
@@ -51,6 +52,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
 import static org.apache.tinkerpop.gremlin.process.traversal.AnonymousTraversalSource.traversal;
@@ -69,6 +71,25 @@ import static org.junit.Assume.assumeThat;
 public class GremlinServerSessionIntegrateTest extends AbstractGremlinServerIntegrationTest {
     private static LogCaptor logCaptor;
     private Level originalLevel;
+
+    /**
+     * Session shutdown logs arrive asynchronously on a Netty thread. Retry the exact assertions
+     * against a fresh snapshot until they pass, or report the last failure after ten seconds.
+     */
+    private static void awaitSessionLogs(final Consumer<List<String>> assertions) throws InterruptedException {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            try {
+                assertions.accept(new ArrayList<>(logCaptor.getLogs()));
+                return;
+            } catch (AssertionError failure) {
+                if (System.nanoTime() - deadline >= 0) {
+                    throw failure;
+                }
+            }
+            Thread.sleep(50);
+        }
+    }
 
     @BeforeClass
     public static void setupLogCaptor() {
@@ -269,8 +290,10 @@ public class GremlinServerSessionIntegrateTest extends AbstractGremlinServerInte
         if (isUsingUnifiedChannelizer()) {
             assertThat(((UnifiedChannelizer) server.getChannelizer()).getUnifiedHandler().isActiveSession(name.getMethodName()), is(false));
         } else {
-            assertThat(logCaptor.getLogs(), hasItem("Skipped attempt to close open graph transactions on shouldCloseSessionOnClientClose - close was forced"));
-            assertThat(logCaptor.getLogs(), hasItem("Session shouldCloseSessionOnClientClose closed"));
+            awaitSessionLogs(logs -> {
+                assertThat(logs, hasItem("Skipped attempt to close open graph transactions on shouldCloseSessionOnClientClose - close was forced"));
+                assertThat(logs, hasItem("Session shouldCloseSessionOnClientClose closed"));
+            });
         }
 
         // try to reconnect to that session and make sure no state is there
@@ -474,8 +497,8 @@ public class GremlinServerSessionIntegrateTest extends AbstractGremlinServerInte
         if (isUsingUnifiedChannelizer()) {
             assertThat(((UnifiedChannelizer) server.getChannelizer()).getUnifiedHandler().isActiveSession(name.getMethodName()), is(false));
         } else {
-            assertEquals(1, logCaptor.getLogs().stream()
-                    .filter(msg -> msg.equals("Session shouldCloseSessionOnceOnRequest closed")).count());
+            awaitSessionLogs(logs -> assertEquals(1, logs.stream()
+                    .filter(msg -> msg.equals("Session shouldCloseSessionOnceOnRequest closed")).count()));
         }
     }
 
@@ -528,8 +551,8 @@ public class GremlinServerSessionIntegrateTest extends AbstractGremlinServerInte
             assertThat(((UnifiedChannelizer) server.getChannelizer()).getUnifiedHandler().isActiveSession(name.getMethodName()), is(false));
         } else {
             // there will be one for the timeout and a second for closing the cluster
-            assertEquals(2, logCaptor.getLogs().stream()
-                    .filter(msg -> msg.equals("Session shouldHaveTheSessionTimeout closed")).count());
+            awaitSessionLogs(logs -> assertEquals(2, logs.stream()
+                    .filter(msg -> msg.equals("Session shouldHaveTheSessionTimeout closed")).count()));
         }
     }
 

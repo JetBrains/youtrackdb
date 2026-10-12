@@ -160,10 +160,10 @@ jobs:
           fi
           echo "CSV dataset verified: static/ and dynamic/ present"
 
-      - name: Compile
+      - name: Package
         run: |
           chmod +x mvnw
-          ./mvnw -pl jmh-ldbc -am compile -DskipTests -Dspotless.check.skip=true -q
+          ./mvnw -pl jmh-ldbc -am package -DskipTests -Dspotless.check.skip=true -q
 
       - name: Install canonical curated parameters
         run: |

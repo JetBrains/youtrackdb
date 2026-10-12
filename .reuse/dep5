@@ -149,6 +149,11 @@ License: Apache-2.0
 Comment: Copied from JetBrains/ytdb-tinkerpop commit e3acec558c.
  Bundled third-party license texts remain in each module's src/main/static/licenses.
 
+Files: gremlin-groovy/src/main/static/licenses/jsr223-license.txt
+Copyright: 2006 Sun Microsystems, Inc.
+License: BSD-3-Clause
+Comment: Complete Sun BSD text for Groovy JSR-223.
+
 Files: data/tinkerpop-modern.json data/tinkerpop-modern.kryo data/tinkerpop-modern.xml
 Copyright: The Apache Software Foundation
 License: Apache-2.0
@@ -179,3 +184,19 @@ Copyright: Eclipse Foundation
 License: EPL-1.0
 Comment: Complete EPL 1.0 text for bundled Logback sources.
  https://www.eclipse.org/legal/epl/epl-v10.html
+
+Files: embedded/src/main/static/licenses/jnr-posix
+Copyright: JNR POSIX contributors
+ Eclipse Foundation
+ 1989, 1991, 1999 Free Software Foundation, Inc.
+License: EPL-2.0 OR GPL-2.0-or-later OR LGPL-2.1-or-later
+Comment: Complete upstream tri-license file for JNR POSIX 3.1.22.
+ https://raw.githubusercontent.com/jnr/jnr-posix/3.1.22/LICENSE.txt
+ The source headers permit GPL 2.0 or later and LGPL 2.1 or later.
+
+Files: embedded/src/main/static/licenses/jnr-x86asm
+Copyright: 2010 Wayne Meissner
+ 2008-2009 Petr Kobalicek
+License: MIT
+Comment: Complete upstream license file for JNR x86asm 1.0.2.
+ https://raw.githubusercontent.com/jnr/jnr-x86asm/1.0.2/LICENSE

@@ -19,11 +19,13 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * # Override thread count to 16
  * ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="LdbcMultiThreadIC.* -t 16"
  *
- * # Via Maven — two-step
- * ./mvnw -pl jmh-ldbc -am compile exec:exec -Djmh.args="LdbcMultiThreadIC.*"
+ * # Two steps from the repository root
+ * ./mvnw -pl jmh-ldbc -am package -DskipTests
+ * # Define LDBC_JAVA_OPTS and LDBC_JAR from README.md in this Bash shell.
+ * java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" "LdbcMultiThreadIC.*"
  *
- * # Via uber-jar
- * java -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-*.jar -t 16 "LdbcMultiThreadIC.*"
+ * # Override thread count when using the uber-jar
+ * java "${LDBC_JAVA_OPTS[@]}" -jar "$LDBC_JAR" -t 16 "LdbcMultiThreadIC.*"
  * </pre>
  */
 @Threads(Threads.MAX)
