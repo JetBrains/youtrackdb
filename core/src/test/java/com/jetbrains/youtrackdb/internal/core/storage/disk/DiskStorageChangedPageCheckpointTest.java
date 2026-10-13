@@ -8,6 +8,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -22,9 +23,11 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -41,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
@@ -152,6 +156,62 @@ public class DiskStorageChangedPageCheckpointTest {
       var current = assertSharedUntrustedTracker(created);
       assertNotSame(previous, current);
       previous = current;
+    }
+  }
+
+  /** A real create failure at the cleanup barrier cannot write dirty.fl/configuration or OPEN. */
+  @Test
+  public void creationFailurePreventsDirtyFlagConfigurationAndOpenPublication() throws Exception {
+    var directory = folder.getRoot().toPath().resolve("failedCreation");
+    var created = mock(DiskStorage.class, withSettings().useConstructor("failedCreation",
+        directory.toString(), 4321, storage.getReadCache(),
+        field(DiskStorage.class, storage, "files"),
+        field(DiskStorage.class, storage, "walMaxSegSize"),
+        field(DiskStorage.class, storage, "doubleWriteLogMaxSegSize"), manager.internal)
+        .defaultAnswer(CALLS_REAL_METHODS));
+    var metadata = mock(StorageStartupMetadata.class);
+    var metadataField = DiskStorage.class.getDeclaredField("startupMetadata");
+    metadataField.setAccessible(true);
+    metadataField.set(created, metadata);
+    var failure = new IOException("injected cleanup folder force failure");
+    try (var cleanup = mockStatic(ChangedPageTrackerFile.class,
+        call -> call.getMethod().getName().equals("cleanupForCreation")
+            && call.getArguments().length == 1
+                ? null : call.callRealMethod())) {
+      cleanup.when(() -> ChangedPageTrackerFile.cleanupForCreation(directory)).thenAnswer(call -> {
+        // Observe before any factory deletion can hide ordering. Birth, IV, WAL and cache already
+        // exist, but startup metadata and storage configuration must still be untouched.
+        assertNotNull(created.getWALInstance());
+        assertNotNull(created.getWriteCache());
+        assertTrue(Files.exists(directory.resolve("data.iv")));
+        assertTrue(DiskStorage.exists(directory));
+        verifyNoInteractions(metadata);
+        assertNull(field(AbstractStorage.class, created, "configuration"));
+        throw failure;
+      });
+      assertThrows(RuntimeException.class, () -> created.create(new ContextConfiguration()));
+      cleanup.verify(() -> ChangedPageTrackerFile.cleanupForCreation(directory));
+      verifyNoInteractions(metadata);
+      verify(created, never()).makeStorageDirty();
+      assertTrue(created.isClosed(null));
+      assertNull(field(AbstractStorage.class, created, "configuration"));
+      assertFalse(Files.exists(directory.resolve("dirty.fl")));
+      assertFalse(Files.exists(directory.resolve("database.ocf")));
+      try (var paths = Files.list(directory)) {
+        assertFalse(paths.anyMatch(path -> path.getFileName().toString().startsWith("config")));
+      }
+    } finally {
+      // CLOSED lifecycle shutdown returns early. Release the initialized resources explicitly.
+      created.preCloseSteps();
+      try {
+        if (created.getWriteCache() != null) {
+          created.getReadCache().closeStorage(created.getWriteCache());
+        }
+      } finally {
+        if (created.getWALInstance() != null) {
+          created.getWALInstance().close();
+        }
+      }
     }
   }
 
