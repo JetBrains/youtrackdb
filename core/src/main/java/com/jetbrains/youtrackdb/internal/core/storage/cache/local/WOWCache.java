@@ -490,6 +490,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ReadersWriterSpinLock filesLock = new ReadersWriterSpinLock();
 
+  // Read and written only under filesLock. Independent of trust and generic restore mode.
+  private boolean startupReplayPreservation;
+
   /**
    * Mapping between case sensitive file names are used in write cache and file's internal id. Name
    * of file in write cache is case sensitive and can be different from file name which is used to
@@ -912,7 +915,11 @@ public final class WOWCache extends AbstractWriteCache
                 logger);
 
         openFile(storageName, fileClassic);
-        changedPageTracker.resetFile(fileId);
+        if (startupReplayPreservation) {
+          changedPageTracker.invalidate();
+        } else {
+          changedPageTracker.resetFile(fileId);
+        }
 
         final var externalId = composeFileId(id, fileId);
         files.add(externalId, fileClassic);
@@ -961,7 +968,11 @@ public final class WOWCache extends AbstractWriteCache
 
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
-      changedPageTracker.resetFile(fileId);
+      if (startupReplayPreservation) {
+        changedPageTracker.invalidate();
+      } else {
+        changedPageTracker.resetFile(fileId);
+      }
 
       final var externalId = composeFileId(id, fileId);
       files.add(externalId, fileClassic);
@@ -1115,7 +1126,11 @@ public final class WOWCache extends AbstractWriteCache
 
       // File events run under the caller's component writer exclusion, or storage lifecycle
       // exclusion during recovery/restore. filesLock orders inventory, not lock-free marks.
-      changedPageTracker.resetFile(intId);
+      if (startupReplayPreservation) {
+        changedPageTracker.invalidate();
+      } else {
+        changedPageTracker.resetFile(intId);
+      }
       idNameMap.remove(-intId);
 
       nameIdMap.put(fileName, intId);
@@ -1314,6 +1329,35 @@ public final class WOWCache extends AbstractWriteCache
       return file.exists();
     } finally {
       filesLock.releaseReadLock();
+    }
+  }
+
+  /**
+   * Begins startup-replay preservation of active and sealed marks across uncertain file events.
+   * One lifecycle owner must exclude writers, backup and cuts, and pair a successful begin with
+   * {@link #endStartupReplayPreservation()} in finally. Nested or repeated begin throws without
+   * changing the active interval. File events revoke trust in memory only. The owner performs any
+   * durable distrust outside filesLock before a cut or admission.
+   */
+  public void beginStartupReplayPreservation() {
+    filesLock.acquireWriteLock();
+    try {
+      if (startupReplayPreservation) {
+        throw new IllegalStateException("Startup-replay preservation is already active");
+      }
+      startupReplayPreservation = true;
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  /** Ends startup-replay preservation. Repeated end is harmless under the single-owner contract. */
+  public void endStartupReplayPreservation() {
+    filesLock.acquireWriteLock();
+    try {
+      startupReplayPreservation = false;
+    } finally {
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -2116,8 +2160,13 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       // The caller excludes writers for this file through its component or lifecycle lock.
-      // Clear even an absent file so repeated deletion cannot retain an old identity.
-      changedPageTracker.deleteFile(intId);
+      // Startup replay cannot prove incarnation identity, even for an absent file. Preserve
+      // both generations and revoke memory trust only. Ordinary deletion clears even absent IDs.
+      if (startupReplayPreservation) {
+        changedPageTracker.invalidate();
+      } else {
+        changedPageTracker.deleteFile(intId);
+      }
       if (file != null) {
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {

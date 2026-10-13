@@ -101,6 +101,87 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
+  // The public internal lifecycle retains the same gated tracker, merges sealed candidates and
+  // delegates proof inputs. Result trust is a snapshot. Live trust reflects later replay failure.
+  @Test
+  public void startupLifecyclePreservesPendingInputsAndReportsLiveReplayTrust() throws Exception {
+    for (boolean trusted : new boolean[] {false, true}) {
+      var path = sideFile();
+      Files.write(path, encode(trusted, true));
+      var pending = ChangedPageTrackerStartup.load(path);
+      var selected = pending.tracker();
+      assertSame(selected, pending.tracker());
+      assertEquals(COVERAGE, pending.coverageLsn());
+      assertEquals(trusted, pending.savedTrusted());
+      assertFalse(selected.isTrusted());
+      assertLoaded(selected, true, false);
+      var page = new UpdatePageRecord(12, EXTERNAL_ID, 1, new WALPageChangesPortion(),
+          COVERAGE);
+      var files = new TestFileIds();
+      try (var wal = new ScriptedWal(new ProofBatch(List.of(page), ProofStatus.REACHED_END,
+          COVERAGE, false, null))) {
+        var result = ChangedPageTrackerStartup.verify(pending, wal,
+            ChangedPageTrackerStartup.ShutdownState.CLEAN, files);
+        assertTrue(result.coverageProved());
+        assertEquals(trusted, result.historyTrusted());
+        assertEquals(trusted, selected.isTrusted());
+        assertEquals(List.of(EXTERNAL_ID), files.converted);
+        assertEquals(new TreeSet<>(List.of(12L, 32768L)), pages(capture(selected).active()).get(7));
+        assertEquals(COMPLETED, capture(selected).lastCompletedIdentifier());
+        assertEquals(1, wal.openCalls);
+        ChangedPageTrackerStartup.replayFailed(pending);
+        assertFalse(selected.isTrusted());
+        assertEquals(trusted, result.historyTrusted());
+        assertSame(selected, pending.tracker());
+      }
+    }
+  }
+
+  // The throwing barrier removes authority and revokes live trust. Failed I/O must throw instead
+  // of returning successful fallback. An invalidation Error must reach the owner by identity.
+  @Test
+  public void durableStartupDistrustThrowsOnFailedBarrierAndPreservesErrorIdentity()
+      throws Exception {
+    var path = sideFile();
+    Files.write(path, encode(true, true));
+    var pending = ChangedPageTrackerStartup.load(path);
+    pending.keepSavedTrust();
+    ChangedPageTrackerStartup.durableDistrust(path, pending);
+    assertFalse(pending.tracker().isTrusted());
+    assertTrue(!Files.exists(path) || Files.size(path) == 0);
+    for (Throwable failure : List.of(new IOException("injected invalidation failure"),
+        new OutOfMemoryError("injected invalidation error"))) {
+      Files.write(path, encode(true, true));
+      var history = ChangedPageTrackerStartup.load(path);
+      history.keepSavedTrust();
+      var files = new ChangedPageTrackerFile.FileOperations() {
+        @Override
+        boolean windows() {
+          return false;
+        }
+
+        @Override
+        void delete(Path target) throws IOException {
+          assertEquals(path.toAbsolutePath(), target);
+          if (failure instanceof Error error) {
+            throw error;
+          }
+          throw (IOException) failure;
+        }
+      };
+      var thrown = assertThrows(failure.getClass(),
+          () -> ChangedPageTrackerStartup.durableDistrust(path, history, files));
+      if (failure instanceof Error) {
+        assertSame(failure, thrown);
+      } else {
+        assertTrue(thrown.getMessage().contains(path.toString()));
+      }
+      assertFalse(history.tracker().isTrusted());
+      assertEquals(MERGED, pages(capture(history.tracker()).active()));
+      assertTrue(Files.size(path) > 0);
+    }
+  }
+
   // Failed verification retains conservative marks and durable coverage, but schedules an identity
   // reset and removes completed continuity from capture. A later keep cannot undo invalidation.
   @Test
