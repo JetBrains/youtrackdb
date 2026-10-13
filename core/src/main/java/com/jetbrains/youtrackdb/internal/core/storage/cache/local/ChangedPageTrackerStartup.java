@@ -24,7 +24,7 @@ import javax.annotation.Nullable;
  * Explicit side-file loading for a single-threaded startup lifecycle. Content validation does not
  * prove WAL coverage or database-image ownership. No storage initialization path calls this helper.
  */
-final class ChangedPageTrackerStartup {
+public final class ChangedPageTrackerStartup {
 
   private static final int MAX_RECORD_BYTES = 16 * 1024 * 1024;
   private static final int MAX_BATCH_RECORDS = 16;
@@ -33,7 +33,7 @@ final class ChangedPageTrackerStartup {
   }
 
   /** Loads and merges saved marks, but withholds current trust until explicit verification. */
-  static PendingHistory load(Path sideFile) {
+  public static PendingHistory load(Path sideFile) {
     ChangedPageTrackerFile.Loaded loaded;
     if (sideFile.getFileName().toString().endsWith(ChangedPageTrackerFile.TEMPORARY_SUFFIX)) {
       LogManager.instance().warn(ChangedPageTrackerStartup.class,
@@ -60,7 +60,7 @@ final class ChangedPageTrackerStartup {
    * The lifecycle owner excludes writers, backup and cuts. The WAL remains owned by that caller.
    * Only one bounded batch is retained, and incomplete or rolled-back units still contribute marks.
    */
-  static StartupResult verify(PendingHistory history, WriteAheadLog wal,
+  public static StartupResult verify(PendingHistory history, WriteAheadLog wal,
       @Nullable ShutdownState shutdown, FileIds files) {
     var coverage = history.coverageLsn();
     if (coverage == null) {
@@ -132,12 +132,12 @@ final class ChangedPageTrackerStartup {
   }
 
   /** The caller captures this state before recovery clears the storage dirty flag. */
-  enum ShutdownState {
+  public enum ShutdownState {
     CLEAN, UNCLEAN
   }
 
   /** Startup file inventory. Names identify current files, not their historical incarnations. */
-  interface FileIds {
+  public interface FileIds {
 
     /** Converts an external WAL file ID even when that file is absent from the current inventory. */
     int internalFileId(long externalId);
@@ -151,7 +151,7 @@ final class ChangedPageTrackerStartup {
     @Nullable String currentName(int internalId);
   }
 
-  enum Outcome {
+  public enum Outcome {
     PROVED_HISTORY_TRUSTED, PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED, COVERAGE_NOT_PROVED, MISSING_COVERAGE, MISSING_EXTENT, MISSING_READER, MISSING_BATCH, READER_FAILURE
   }
 
@@ -159,10 +159,10 @@ final class ChangedPageTrackerStartup {
    * Outcome and trust flags must agree. Trust is a resolution-time snapshot that a later replay
    * failure can revoke.
    */
-  record StartupResult(boolean coverageProved, boolean historyTrusted, Outcome outcome,
+  public record StartupResult(boolean coverageProved, boolean historyTrusted, Outcome outcome,
       @Nullable ProofStatus terminalStatus, @Nullable Throwable cause) {
 
-    StartupResult {
+    public StartupResult {
       boolean consistent = switch (outcome) {
         case PROVED_HISTORY_TRUSTED -> coverageProved && historyTrusted;
         case PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED -> coverageProved
@@ -248,8 +248,25 @@ final class ChangedPageTrackerStartup {
   }
 
   /** Replay errors revoke trust even after successful proof resolution. */
-  static void replayFailed(PendingHistory pending) {
+  public static void replayFailed(PendingHistory pending) {
     pending.distrust();
+  }
+
+  /**
+   * Removes durable authority before a startup cut or admission. The lifecycle owner excludes
+   * writers, backup and cuts, and holds no cache inventory lock. FAILED is never a safe fallback.
+   * An Error from invalidation propagates unchanged.
+   */
+  public static void durableDistrust(Path sideFile, PendingHistory pending) throws IOException {
+    durableDistrust(sideFile, pending, new ChangedPageTrackerFile.FileOperations());
+  }
+
+  static void durableDistrust(Path sideFile, PendingHistory pending,
+      ChangedPageTrackerFile.FileOperations files) throws IOException {
+    if (ChangedPageTrackerFile.invalidate(sideFile, pending.tracker(), files)
+        == ChangedPageTrackerFile.InvalidationResult.FAILED) {
+      throw new IOException("Failed to durably distrust changed-page tracker: " + sideFile);
+    }
   }
 
   private static void warn(Outcome outcome, @Nullable ProofStatus status,
@@ -268,7 +285,7 @@ final class ChangedPageTrackerStartup {
    * Verification inputs and the gated tracker. Follow {@link ChangedPageTracker}'s startup threading
    * contract. Saved trust is metadata, not current backup eligibility. Distrust always wins.
    */
-  static final class PendingHistory {
+  public static final class PendingHistory {
 
     private final ChangedPageTracker tracker;
     @Nullable private final LogSequenceNumber coverageLsn;
@@ -282,15 +299,15 @@ final class ChangedPageTrackerStartup {
       this.savedTrusted = savedTrusted;
     }
 
-    ChangedPageTracker tracker() {
+    public ChangedPageTracker tracker() {
       return tracker;
     }
 
-    @Nullable LogSequenceNumber coverageLsn() {
+    public @Nullable LogSequenceNumber coverageLsn() {
       return coverageLsn;
     }
 
-    boolean savedTrusted() {
+    public boolean savedTrusted() {
       return savedTrusted;
     }
 
