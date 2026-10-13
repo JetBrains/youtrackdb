@@ -8,12 +8,19 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -22,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -29,6 +37,7 @@ import java.nio.file.CopyOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -939,6 +948,335 @@ public class ChangedPageTrackerFileTest {
         ChangedPageTrackerFile.invalidate(path, tracker));
     assertEquals(0, Files.size(path));
     assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+  }
+
+  // Both checksum-valid stale generations lose authority after the pair barrier, before the real
+  // hook calls startup metadata. Exact-name ownership preserves every unrelated suffix.
+  @Test
+  public void creationHookDurablyClearsTrustedTrackerFilesBeforeStartupMetadata() throws Exception {
+    var directory = seedCreationFiles();
+    var operations = new CreationOperations(directory, false, false);
+    var metadata = mock(StorageStartupMetadata.class);
+    doAnswer(call -> {
+      assertEquals(List.of("delete side", "delete temporary", "folder open", "folder force"),
+          operations.events);
+      assertCreationAuthorityGone(directory);
+      return null;
+    }).when(metadata).create(YouTrackDBConstants.getRawVersion());
+    creationHook(directory, operations, metadata);
+    verify(metadata).create(YouTrackDBConstants.getRawVersion());
+    assertCreationUnrelatedFiles(directory);
+  }
+
+  // Even absent names need one force of their own folder, on every retry, never the parent folder.
+  @Test
+  public void creationCleanupForcesFolderWhenOwnedNamesAreAlreadyAbsent() throws Exception {
+    var directory = folder.newFolder().toPath();
+    var operations = new CreationOperations(directory, false, false);
+    for (int attempt = 0; attempt < 2; attempt++) {
+      operations.events.clear();
+      ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+      assertEquals(List.of("delete side", "delete temporary", "folder open", "folder force"),
+          operations.events);
+      assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+      assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)));
+    }
+  }
+
+  // Failure of either deletion, opening the folder, or forcing its channel stops the real hook.
+  @Test
+  public void creationCleanupDeletionAndFolderForceFailuresStopMetadata() throws Exception {
+    assertCreationFailures(false, false, 4);
+  }
+
+  // Windows must force and close each empty owned scratch before strict replacement. The temporary
+  // target is invalidated first. A third derived scratch would destroy unrelated user content.
+  @Test
+  public void windowsCreationInvalidatesBothOwnedTargetsUsingOnlyOwnedScratchPaths()
+      throws Exception {
+    var directory = seedCreationFiles();
+    var operations = new CreationOperations(directory, true, true);
+    ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+    assertEquals(List.of("delete side", "file force", "move temporary", "delete temporary",
+        "file force", "move side"), operations.events);
+    assertCreationAuthorityGone(directory);
+    assertEquals(0, Files.size(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+    assertCreationUnrelatedFiles(directory);
+  }
+
+  // Without the native helper, every present owned file is forced empty in place. Each combination
+  // of absent names stays absent, with no deletion, move, portable fallback, or directory force.
+  @Test
+  public void windowsCreationWithoutHelperForcesEachExistingOwnedFileInPlace() throws Exception {
+    for (int present = 0; present < 4; present++) {
+      var directory = seedCreationFiles();
+      var expected = new ArrayList<String>();
+      for (int index = 0; index < 2; index++) {
+        var name = index == 0 ? ChangedPageTrackerFile.FILE_NAME
+            : ChangedPageTrackerFile.TEMPORARY_FILE_NAME;
+        if ((present & (1 << index)) == 0) {
+          Files.delete(directory.resolve(name));
+        }
+        expected.add(index == 0 ? "truncate side" : "truncate temporary");
+        if ((present & (1 << index)) != 0) {
+          expected.add("file force");
+        }
+      }
+      var operations = new CreationOperations(directory, true, false);
+      ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+      assertEquals(expected, operations.events);
+      for (int index = 0; index < 2; index++) {
+        var path = directory.resolve(index == 0 ? ChangedPageTrackerFile.FILE_NAME
+            : ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
+        assertEquals((present & (1 << index)) == 0, Files.notExists(path));
+      }
+      assertCreationAuthorityGone(directory);
+      assertCreationUnrelatedFiles(directory);
+    }
+  }
+
+  // Every first and second target stage must propagate failure. Available-helper failure cannot
+  // fall back, and even failure of the last force must prevent metadata creation.
+  @Test
+  public void windowsCreationStageFailuresNeverReportSuccessfulCleanup() throws Exception {
+    assertCreationFailures(true, true, 6);
+    assertCreationFailures(true, false, 4);
+  }
+
+  private void assertCreationFailures(boolean windows, boolean helper, int stages)
+      throws Exception {
+    for (int stage = 1; stage <= stages; stage++) {
+      var directory = seedCreationFiles();
+      var operations = new CreationOperations(directory, windows, helper);
+      operations.failAt = stage;
+      var metadata = mock(StorageStartupMetadata.class);
+      var failure = assertThrows(IOException.class,
+          () -> creationHook(directory, operations, metadata));
+      assertSame(operations.failure, failure);
+      assertEquals(stage, operations.events.size());
+      verifyNoInteractions(metadata);
+      assertCreationUnrelatedFiles(directory);
+    }
+  }
+
+  // Required barriers temporarily clear cancellation and restore it on success, checked failure,
+  // and Error. Creation has no diagnostic wrapper that can replace the original Error.
+  @Test
+  public void creationCleanupPreservesInterruptionAndOriginalError() throws Exception {
+    for (int outcome = 0; outcome < 3; outcome++) {
+      var directory = seedCreationFiles();
+      var operations = new CreationOperations(directory, true, true);
+      var original = new AssertionError("creation barrier failed");
+      if (outcome != 0) {
+        operations.failAt = 2;
+      }
+      if (outcome == 2) {
+        operations.failure = original;
+      }
+      var metadata = mock(StorageStartupMetadata.class);
+      Thread.currentThread().interrupt();
+      try {
+        if (outcome == 0) {
+          ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+        } else {
+          assertSame(operations.failure, assertThrows(Throwable.class,
+              () -> creationHook(directory, operations, metadata)));
+          verifyNoInteractions(metadata);
+        }
+        assertTrue(Thread.currentThread().isInterrupted());
+      } finally {
+        Thread.interrupted();
+      }
+    }
+  }
+
+  // Real host primitives remove old trusted authority from both names. Windows CI also checks
+  // native-helper availability. This is functional evidence, not a hardware power-loss test.
+  @Test
+  public void realPlatformCreationCleanupRemovesTrustedAuthorityFromBothNames() throws Exception {
+    var directory = seedCreationFiles();
+    if (IOUtils.isOsWindows()) {
+      assertTrue(FileUtils.windowsWriteThroughMoveAvailable());
+    } else {
+      // Observe the public entry point below its policy dispatch, then retry with real host I/O.
+      var channel = mock(FileChannel.class);
+      try (var opened = mockStatic(FileChannel.class, call -> {
+        assertEquals(directory.toAbsolutePath(), call.getArgument(0));
+        return channel;
+      })) {
+        ChangedPageTrackerFile.cleanupForCreation(directory);
+        opened.verify(() -> FileChannel.open(directory.toAbsolutePath(), StandardOpenOption.READ));
+        verify(channel).force(true);
+        verify(channel).close();
+      }
+    }
+    ChangedPageTrackerFile.cleanupForCreation(directory);
+    assertCreationAuthorityGone(directory);
+    if (!IOUtils.isOsWindows()) {
+      assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+      assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)));
+    }
+    assertCreationUnrelatedFiles(directory);
+  }
+
+  private Path seedCreationFiles() throws Exception {
+    var directory = folder.newFolder().toPath();
+    var bytes = encode(capture(trustedTracker()));
+    for (var name : List.of(ChangedPageTrackerFile.FILE_NAME,
+        ChangedPageTrackerFile.TEMPORARY_FILE_NAME)) {
+      var path = directory.resolve(name);
+      Files.write(path, bytes);
+      var loaded = ChangedPageTrackerFile.load(path);
+      assertTrue(loaded.tracker().isTrusted());
+      assertEquals(COVERAGE, loaded.coverageLsn());
+      assertPages(capture(loaded.tracker()).active(), 1, 0, 1);
+      assertNotNull(capture(loaded.tracker()).lastCompletedIdentifier());
+    }
+    for (var name : List.of("notes.tmp", "notes.cpt", "changed-pages.cpt.bak",
+        "changed-pages.cpt.tmp.tmp")) {
+      Files.writeString(directory.resolve(name), "keep " + name);
+    }
+    return directory;
+  }
+
+  private static void assertCreationAuthorityGone(Path directory) throws Exception {
+    for (var name : List.of(ChangedPageTrackerFile.FILE_NAME,
+        ChangedPageTrackerFile.TEMPORARY_FILE_NAME)) {
+      var path = directory.resolve(name);
+      assertTrue(Files.notExists(path) || Files.size(path) == 0);
+      assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());
+    }
+  }
+
+  private static void assertCreationUnrelatedFiles(Path directory) throws Exception {
+    for (var name : List.of("notes.tmp", "notes.cpt", "changed-pages.cpt.bak",
+        "changed-pages.cpt.tmp.tmp")) {
+      assertEquals("keep " + name, Files.readString(directory.resolve(name)));
+    }
+  }
+
+  private static void creationHook(Path directory, CreationOperations operations,
+      StorageStartupMetadata metadata) throws Exception {
+    var storage = mock(DiskStorage.class, CALLS_REAL_METHODS);
+    for (var name : List.of("storagePath", "startupMetadata")) {
+      var field = DiskStorage.class.getDeclaredField(name);
+      field.setAccessible(true);
+      field.set(storage, name.equals("storagePath") ? directory : metadata);
+    }
+    // Thread-scoped bridge exercises the real hook without a global filesystem/platform override.
+    try (var bridge = mockStatic(ChangedPageTrackerFile.class,
+        call -> call.getMethod().getName().equals("cleanupForCreation")
+            && call.getArguments().length == 1
+                ? null : call.callRealMethod())) {
+      bridge.when(() -> ChangedPageTrackerFile.cleanupForCreation(directory))
+          .thenAnswer(call -> {
+            ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+            return null;
+          });
+      var hook = DiskStorage.class.getDeclaredMethod("preCreateSteps");
+      hook.setAccessible(true);
+      try {
+        hook.invoke(storage);
+      } catch (InvocationTargetException failure) {
+        if (failure.getCause() instanceof Error error) {
+          throw error;
+        }
+        throw (Exception) failure.getCause();
+      }
+    }
+  }
+
+  private static final class CreationOperations extends ChangedPageTrackerFile.FileOperations {
+    final Path directory;
+    final boolean windows;
+    final boolean helper;
+    final List<String> events = new ArrayList<>();
+    int failAt;
+    Throwable failure = new IOException("injected creation barrier failure");
+    FileChannel forced;
+
+    CreationOperations(Path directory, boolean windows, boolean helper) {
+      this.directory = directory.toAbsolutePath();
+      this.windows = windows;
+      this.helper = helper;
+    }
+
+    private void event(String stage) throws IOException {
+      assertFalse(Thread.currentThread().isInterrupted());
+      events.add(stage);
+      if (events.size() == failAt) {
+        if (failure instanceof Error error) {
+          throw error;
+        }
+        throw (IOException) failure;
+      }
+    }
+
+    private String owned(Path path) {
+      assertEquals(directory, path.getParent());
+      assertTrue(ChangedPageTrackerFile.isTrackerFile(path.getFileName().toString()));
+      return path.getFileName().toString().equals(ChangedPageTrackerFile.FILE_NAME)
+          ? "side" : "temporary";
+    }
+
+    @Override
+    boolean windows() {
+      return windows;
+    }
+
+    @Override
+    boolean windowsMoveAvailable() {
+      return helper;
+    }
+
+    @Override
+    void delete(Path path) throws IOException {
+      event("delete " + owned(path));
+      super.delete(path);
+    }
+
+    @Override
+    FileChannel openFolder(Path folder) throws IOException {
+      assertEquals(directory, folder);
+      event("folder open");
+      var channel = mock(FileChannel.class);
+      doAnswer(call -> {
+        assertTrue(call.getArgument(0));
+        assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+        assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)));
+        event("folder force");
+        return null;
+      }).when(channel).force(true);
+      return channel;
+    }
+
+    @Override
+    void forceFile(FileChannel channel) throws IOException {
+      event("file force");
+      assertEquals(0, channel.size());
+      forced = channel;
+      super.forceFile(channel);
+    }
+
+    @Override
+    void windowsMove(Path scratch, Path target) throws IOException {
+      assertNotNull("Empty scratch must be forced before replacement", forced);
+      assertFalse(forced.isOpen());
+      assertFalse(owned(scratch).equals(owned(target)));
+      event("move " + owned(target));
+      Files.move(scratch, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    @Override
+    void truncateAndForce(Path target) throws IOException {
+      event("truncate " + owned(target));
+      super.truncateAndForce(target);
+    }
+
+    @Override
+    void move(Path from, Path to) {
+      throw new AssertionError("Portable movement is forbidden during creation cleanup");
+    }
   }
 
   private record Warning(String message, Throwable cause) {

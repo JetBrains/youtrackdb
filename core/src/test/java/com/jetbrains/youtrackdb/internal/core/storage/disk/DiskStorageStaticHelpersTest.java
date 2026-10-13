@@ -10,6 +10,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -247,8 +248,8 @@ public class DiskStorageStaticHelpersTest {
     assertEquals("keep", Files.readString(suffix));
   }
 
-  // The real creation hook removes crash-left authority before creating startup metadata.
-  // An empty folder retry is also safe and does not remove unrelated contents.
+  // The real creation hook clears crash-left authority before creating startup metadata.
+  // Windows may retain empty owned names. A retry preserves unrelated contents.
   @Test
   public void creationHookRemovesStaleTrackerFilesBeforeStartupMetadata() throws Exception {
     var storage = mock(DiskStorage.class, CALLS_REAL_METHODS);
@@ -262,8 +263,9 @@ public class DiskStorageStaticHelpersTest {
     Files.writeString(temporary, "stale temporary");
     Files.writeString(unrelated, "keep");
     storage.preCreateSteps();
-    assertFalse(Files.exists(side));
-    assertFalse(Files.exists(temporary));
+    for (var owned : new Path[] {side, temporary}) {
+      assertTrue(Files.notExists(owned) || IOUtils.isOsWindows() && Files.size(owned) == 0);
+    }
     assertEquals("keep", Files.readString(unrelated));
     verify(metadata).create(YouTrackDBConstants.getRawVersion());
     DiskStorage.removeStaleChangedPageFiles(testDir);

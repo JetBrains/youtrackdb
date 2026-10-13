@@ -159,6 +159,50 @@ public final class ChangedPageTrackerFile {
     }
   }
 
+  /**
+   * Creation holds lifecycle exclusion and never loads old history. Complete this barrier before
+   * creating startup metadata. Only the two owned names may be used, including Windows scratch.
+   */
+  public static void cleanupForCreation(Path directory) throws IOException {
+    cleanupForCreation(directory, new FileOperations());
+  }
+
+  static void cleanupForCreation(Path directory, FileOperations files) throws IOException {
+    var folder = directory.toAbsolutePath();
+    var side = folder.resolve(FILE_NAME);
+    var temporary = folder.resolve(TEMPORARY_FILE_NAME);
+    boolean interrupted = Thread.interrupted();
+    try {
+      if (!files.windows()) {
+        files.delete(side);
+        files.delete(temporary);
+        // Absent names may reflect unforced earlier deletions. Always complete the pair barrier.
+        files.forceFolder(folder);
+      } else if (files.windowsMoveAvailable()) {
+        // Invalidate temporary first so reusing it as scratch cannot resurrect old authority.
+        replaceWithEmpty(temporary, side, files);
+        replaceWithEmpty(side, temporary, files);
+      } else {
+        files.truncateAndForce(side);
+        files.truncateAndForce(temporary);
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  private static void replaceWithEmpty(Path target, Path scratch, FileOperations files)
+      throws IOException {
+    files.delete(scratch);
+    try (var channel = FileChannel.open(scratch, StandardOpenOption.CREATE_NEW,
+        StandardOpenOption.WRITE)) {
+      files.forceFile(channel);
+    }
+    files.windowsMove(scratch, target);
+  }
+
   private static void invalidateFile(Path target, FileOperations files) throws IOException {
     // Cancellation must not prevent the cleanup durability barrier. Preserve the caller's flag.
     boolean interrupted = Thread.interrupted();
@@ -167,13 +211,7 @@ public final class ChangedPageTrackerFile {
         files.delete(target);
         files.forceFolder(target.getParent());
       } else if (files.windowsMoveAvailable()) {
-        var temporary = temporaryFile(target);
-        files.delete(temporary);
-        try (var channel = FileChannel.open(temporary, StandardOpenOption.CREATE_NEW,
-            StandardOpenOption.WRITE)) {
-          files.forceFile(channel);
-        }
-        files.windowsMove(temporary, target);
+        replaceWithEmpty(target, temporaryFile(target), files);
       } else {
         // No publication can occur without the helper. Force the existing name empty instead.
         files.truncateAndForce(target);
@@ -265,7 +303,7 @@ public final class ChangedPageTrackerFile {
     void truncateAndForce(Path target) throws IOException {
       try (var channel = FileChannel.open(target, StandardOpenOption.WRITE)) {
         channel.truncate(0);
-        channel.force(true);
+        forceFile(channel);
       } catch (NoSuchFileException absent) {
         // An absent name has no authority. Do not create one in the helper-unavailable path.
       }
