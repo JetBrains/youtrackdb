@@ -126,22 +126,26 @@ Feature: Step - sample()
     When iterated to list
     Then the result should have a count of 2
 
+  # This fork keeps traversers with a missing order key.
+  # Standard order semantics keep the sample(2) result count deterministic.
   Scenario: g_V3_repeatXout_order_byXperformancesX_sampleX2X_aggregateXxXX_untilXloops_isX2XX_capXxX_unfold
     Given the grateful graph
     And using the parameter vid3 defined as "v[NOT FADE AWAY].id"
     And the traversal of
       """
-      g.V(vid3).repeat(__.out().order().by("performances").sample(2).aggregate('x')).until(__.loops().is(2)).cap('x').unfold()
+      g.withStrategies(StandardOrderSemanticsStrategy).V(vid3).repeat(__.out().order().by("performances").sample(2).aggregate('x')).until(__.loops().is(2)).cap('x').unfold()
       """
     When iterated to list
     Then the result should have a count of 4
 
+  # This fork keeps traversers with a missing order key.
+  # Standard order semantics keep the sample(2) result count deterministic.
   Scenario: g_V3_out_order_byXperformancesX_sampleX2X_aggregateXxX_out_order_byXperformancesX_sampleX2X_aggregateXxX_capXxX_unfold
     Given the grateful graph
     And using the parameter vid3 defined as "v[NOT FADE AWAY].id"
     And the traversal of
       """
-      g.V(vid3).out().order().by("performances").sample(2).aggregate('x').out().order().by("performances").sample(2).aggregate('x').cap('x').unfold()
+      g.withStrategies(StandardOrderSemanticsStrategy).V(vid3).out().order().by("performances").sample(2).aggregate('x').out().order().by("performances").sample(2).aggregate('x').cap('x').unfold()
       """
     When iterated to list
     Then the result should have a count of 4
