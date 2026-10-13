@@ -939,16 +939,12 @@ public class DiskStorage extends AbstractStorage {
 
   /** A newly created database image must not keep side-file authority from another image. */
   static void removeStaleChangedPageFiles(Path directory) throws IOException {
-    for (var name : new String[] {ChangedPageTrackerFile.FILE_NAME,
-        ChangedPageTrackerFile.TEMPORARY_FILE_NAME}) {
-      var path = directory.resolve(name);
-      try {
-        Files.deleteIfExists(path);
-      } catch (IOException | SecurityException failure) {
-        LogManager.instance().error(DiskStorage.class,
-            "Cannot remove stale changed-page tracker file " + path, failure);
-        throw failure;
-      }
+    try {
+      ChangedPageTrackerFile.cleanupForCreation(directory);
+    } catch (IOException | SecurityException failure) {
+      LogManager.instance().error(DiskStorage.class,
+          "Cannot durably clear stale changed-page tracker files in " + directory, failure);
+      throw failure;
     }
   }
 
