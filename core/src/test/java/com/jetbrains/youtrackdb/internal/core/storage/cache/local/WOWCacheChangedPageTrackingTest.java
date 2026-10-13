@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
@@ -38,6 +39,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -190,6 +192,117 @@ public class WOWCacheChangedPageTrackingTest {
     assertEquals(file, cache.addFile("loaded.tst", file));
     assertPages(file);
     assertEquals(0, cache.physicalSizeForBackupSnapshot(file));
+  }
+
+  // Each destructive hook is exercised with trusted active and sealed candidates. This includes
+  // explicit-ID shrink/recreation and absent deletion. End restores normal clearing for each hook.
+  @Test
+  public void startupReplayPreservesBothGenerationsAtEveryClearingSiteThenResumesClearing()
+      throws Exception {
+    for (int event = 0; event < 6; event++) {
+      String name = "replay" + event + ".tst";
+      long file = cache.bookFileId(name);
+      prepareFileEvent(event, file, name);
+      var seal = seedTrustedGenerations(file);
+      cache.beginStartupReplayPreservation();
+      try {
+        assertTrue(tracker.isTrusted());
+        applyFileEvent(event, file, name);
+        assertPages(file, 8L);
+        assertSealedPages(seal, file, 7L);
+        assertFalse("uncertain incarnation must revoke trust for event " + event,
+            tracker.isTrusted());
+      } finally {
+        cache.endStartupReplayPreservation();
+      }
+      readCache.deleteFile(file, cache);
+      prepareFileEvent(event, file, name);
+      seal = seedTrustedGenerations(file);
+      applyFileEvent(event, file, name);
+      assertPages(file);
+      assertSealedPages(seal, file);
+      assertTrue("ordinary identity clearing must not revoke trust", tracker.isTrusted());
+    }
+  }
+
+  // A rejected nested begin keeps the outer interval active. A missing physical file fails inside
+  // that interval. Finally cleanup permits a new begin and restores ordinary creation clearing.
+  @Test
+  public void startupReplayRejectsNestedBeginAndFinallyCleanupSurvivesFileFailure()
+      throws Exception {
+    long file = cache.bookFileId("missing.tst");
+    var seal = seedTrustedGenerations(file);
+    cache.beginStartupReplayPreservation();
+    try {
+      assertThrows(IllegalStateException.class, cache::beginStartupReplayPreservation);
+      cache.deleteFile(file);
+      assertPages(file, 8L);
+      assertSealedPages(seal, file, 7L);
+      assertThrows(StorageException.class,
+          () -> cache.loadFile("missing.tst"));
+    } finally {
+      cache.endStartupReplayPreservation();
+    }
+    cache.endStartupReplayPreservation();
+    cache.beginStartupReplayPreservation();
+    try {
+      assertPages(file, 8L);
+    } finally {
+      cache.endStartupReplayPreservation();
+    }
+    assertEquals(file, cache.addFile("missing.tst", file));
+    assertPages(file);
+    assertSealedPages(seal, file);
+  }
+
+  private ChangedPageTracker.SealedGeneration seedTrustedGenerations(long file) throws Exception {
+    tracker = ChangedPageTracker.restoration(UUID.randomUUID(), UUID.randomUUID(), true, null)
+        .build();
+    setField(cache, "changedPageTracker", tracker);
+    tracker.mark(cache.internalFileId(file), 7);
+    var seal = tracker.beginBackup();
+    tracker.mark(cache.internalFileId(file), 8);
+    assertTrue(tracker.isTrusted());
+    return seal;
+  }
+
+  private void prepareFileEvent(int event, long file, String name) throws Exception {
+    if (event == 0) {
+      int dot = name.lastIndexOf('.');
+      Files.createFile(cache.getRootDirectory().resolve(name.substring(0, dot) + "_"
+          + cache.internalFileId(file) + name.substring(dot)));
+    } else if (event == 3 || event == 4) {
+      cache.addFile(name, file);
+      if (event == 3) {
+        write(file, 0);
+        readCache.clear();
+        var names = (java.util.Map<String, Integer>) field(cache, "nameIdMap");
+        names.put(name, -cache.internalFileId(file));
+      }
+    }
+  }
+
+  private void applyFileEvent(int event, long file, String name) throws Exception {
+    switch (event) {
+      case 0 -> assertEquals(file, cache.loadFile(name));
+      case 1 -> assertEquals(file, cache.addFile(name));
+      case 2, 3 -> {
+        assertEquals(file, cache.addFile(name, file));
+        assertEquals(0, cache.physicalSizeForBackupSnapshot(file));
+      }
+      case 4, 5 -> {
+        readCache.deleteFile(file, cache);
+        assertEquals(-1, cache.fileIdByName(name));
+      }
+      default -> throw new AssertionError("Unexpected event " + event);
+    }
+  }
+
+  private void assertSealedPages(ChangedPageTracker.SealedGeneration seal, long file,
+      Long... expected) {
+    var pages = new ArrayList<Long>();
+    seal.pages().forEachCandidate(cache.internalFileId(file), pages::add);
+    assertEquals(List.of(expected), pages);
   }
 
   // A real mark allocation failure revokes established trust and reaches the write caller

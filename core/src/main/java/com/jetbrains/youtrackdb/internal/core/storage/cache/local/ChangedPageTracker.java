@@ -102,7 +102,8 @@ public final class ChangedPageTracker {
     failures.incrementAndGet();
   }
 
-  boolean isTrusted() {
+  /** Live trust, including startup gating and any trust loss after verification. */
+  public boolean isTrusted() {
     generationState.lock();
     try {
       return !startupVerificationPending && historyTrusted && savedFailureVersion == failures.get();
