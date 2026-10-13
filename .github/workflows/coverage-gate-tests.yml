@@ -1,0 +1,40 @@
+name: Coverage gate unit tests
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/coverage-gate-tests.yml'
+  pull_request:
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/coverage-gate-tests.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest-8-cores-x64-public
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Run unit tests
+        run: |
+          python3 - <<'PY'
+          import sys
+          import unittest
+
+          suite = unittest.defaultTestLoader.discover('.github/scripts/tests')
+          if suite.countTestCases() == 0:
+              sys.exit('No unit tests discovered.')
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() else 1)
+          PY

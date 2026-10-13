@@ -93,9 +93,8 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - A bug fix carries a regression test unless one already exists.
 - Prefer existing test classes when they fit the change. Create a new class only when none fits.
 - New or changed code targets 85 percent line coverage and 70 percent branch coverage.
-- The 11 copied TinkerPop modules have a temporary coverage exception until PR 2.
-  Their unit tests still run in every pull request build. Read the exact module list in
-  `docs-internal/dev-workflow/coverage-verification.md`.
+- Every reactor module follows the same coverage rule, including the copied TinkerPop modules.
+  Their unit tests run in every pull request build.
 
 Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
 

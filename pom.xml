@@ -104,6 +104,8 @@
          The coverage profile references ${argLine} in surefire config,
          so a fallback is needed for modules that don't define it. -->
     <argLine/>
+    <!-- Surefire needs an empty late-bound agent property when coverage is inactive. -->
+    <jacocoArgLine/>
     <javaassist.version>3.30.2-GA</javaassist.version>
     <project.rootdir>${project.basedir}/</project.rootdir>
     <slf4j.version>2.0.20</slf4j.version>
@@ -1098,10 +1100,8 @@
               </execution>
             </executions>
           </plugin>
-          <!-- Inject JaCoCo agent into surefire via late-binding reference.
-               @{jacocoArgLine} is resolved by surefire at runtime; undefined
-               properties are treated as empty, so non-coverage builds are
-               unaffected. -->
+          <!-- Surefire resolves @{jacocoArgLine} after prepare-agent sets it.
+               The empty default keeps non-coverage JVM arguments valid. -->
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>

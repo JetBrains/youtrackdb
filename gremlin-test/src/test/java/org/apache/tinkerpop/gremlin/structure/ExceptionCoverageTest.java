@@ -100,7 +100,10 @@ public class ExceptionCoverageTest {
 
         // evaluate each of the exceptions and find the list of exception methods...assert them against
         // the list of implementedExceptions to make sure they are covered.
-        Stream.of(exceptionDefinitionClasses).flatMap(c -> Stream.of(c.getDeclaredMethods()).map((Method m) -> String.format("%s#%s", c.getName(), m.getName())))
+        // Coverage tools add synthetic methods that are not exception definitions.
+        Stream.of(exceptionDefinitionClasses).flatMap(c -> Stream.of(c.getDeclaredMethods())
+                .filter(m -> !m.isSynthetic())
+                .map((Method m) -> String.format("%s#%s", c.getName(), m.getName())))
                 .filter(s -> !ignore.contains(s))
                 .forEach(s -> {
                     logger.info(s);
