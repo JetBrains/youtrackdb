@@ -397,7 +397,16 @@ jobs:
           RELEASE_TAG: ${{ needs.classify.outputs.release_tag }}
         run: |
           set -euo pipefail
-          mvn -s .github/workflows/settings.xml clean deploy \
+          # Maven 3.9.16 keeps local bookkeeping files out of Central bundles.
+          # YTDB-1420 tracks the return to Maven 3.10 for releases.
+          # The wrapper uses the last distributionUrl. Restore the default on exit.
+          WRAPPER_PROPERTIES=$(< .mvn/wrapper/maven-wrapper.properties)
+          trap 'printf "%s\n" "$WRAPPER_PROPERTIES" > .mvn/wrapper/maven-wrapper.properties' EXIT
+          printf '%s%s\n' \
+            'distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/' \
+            'apache-maven/3.9.16/apache-maven-3.9.16-bin.zip' \
+            >> .mvn/wrapper/maven-wrapper.properties
+          ./mvnw -s .github/workflows/settings.xml clean deploy \
             -P sonatype-oss-release \
             -Dchangelist="$CHANGELIST" \
             -Dspotless.check.skip=true -B
