@@ -718,10 +718,10 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
-  // Page-before-create and delete transitions never clear saved or scanned marks. Uncertainty is
-  // sticky across batches and terminal records, regardless of current name equality or absence.
+  // Page-before-create and delete transitions keep saved trust and every saved or scanned mark.
+  // Earlier and terminal events have the same policy, regardless of current names or absence.
   @Test
-  public void verifyFileEventsPreserveAllMarksAndLeaveIdentityUnresolved() throws Exception {
+  public void verifyFileEventsPreserveAllMarksAndSavedTrust() throws Exception {
     for (String name : new String[] {"created", "renamed", null}) {
       var pending = savedHistory(true);
       var files = new TestFileIds();
@@ -732,15 +732,17 @@ public class ChangedPageTrackerStartupTest {
               new FileDeletedWALRecord(7, EXTERNAL_ID), update(123, EXTERNAL_ID, 7)))) {
         assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
             ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
-            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
             ProofStatus.REACHED_END, null, withPages(7, 121, 122, 123));
+        assertEquals(0, capture(pending.tracker()).failureVersion());
+        assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, pending.resolution());
         assertEquals(5, files.converted.size());
         assertEquals(0, files.nameCalls);
         assertEquals(2, wal.nextCalls);
         assertEquals(COVERAGE, pending.coverageLsn());
       }
     }
-    // Either event alone in a terminal batch also invalidates identity proof.
+    // Either event alone in a terminal batch also keeps saved trust.
     for (var event : List.of(new FileCreatedWALRecord(7, "created", EXTERNAL_ID),
         new FileDeletedWALRecord(7, EXTERNAL_ID))) {
       var pending = savedHistory(true);
@@ -748,8 +750,9 @@ public class ChangedPageTrackerStartupTest {
           update(121, EXTERNAL_ID, 7), event, update(122, EXTERNAL_ID, 7)))) {
         assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
             ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
-            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
             ProofStatus.REACHED_END, null, withPages(7, 121, 122));
+        assertEquals(0, capture(pending.tracker()).failureVersion());
       }
     }
   }
@@ -772,28 +775,36 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
-  // Creation in an earlier batch keeps history unresolved even when the terminal batch contains
-  // only a page record. Both page records and all saved candidates survive distrust.
+  // Creation in an earlier batch keeps saved trust after an event-free terminal batch.
+  // Both page records and all saved candidates remain available.
   @Test
-  public void verifyCreateInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
-    assertEarlierEventDistrustsHistory(new FileCreatedWALRecord(7, "created", EXTERNAL_ID));
+  public void verifyCreateInMoreBatchKeepsTrustAfterEventFreeEnd() throws Exception {
+    assertEarlierEventHistory(new FileCreatedWALRecord(7, "created", EXTERNAL_ID),
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+        ChangedPageTrackerStartup.Resolution.KEPT);
   }
 
-  // Deletion in an earlier batch keeps history unresolved even when the terminal batch contains
-  // only a page record. Both page records and all saved candidates survive distrust.
+  // Deletion in an earlier batch keeps saved trust after an event-free terminal batch.
+  // Both page records and all saved candidates remain available.
   @Test
-  public void verifyDeleteInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
-    assertEarlierEventDistrustsHistory(new FileDeletedWALRecord(7, EXTERNAL_ID));
+  public void verifyDeleteInMoreBatchKeepsTrustAfterEventFreeEnd() throws Exception {
+    assertEarlierEventHistory(new FileDeletedWALRecord(7, EXTERNAL_ID),
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+        ChangedPageTrackerStartup.Resolution.KEPT);
   }
 
   // A non-transactional marker in an earlier batch keeps history untrusted even when the terminal
   // batch contains only a page record. Clean end still proves coverage and retains exact marks.
   @Test
   public void verifyNonTxMarkerInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
-    assertEarlierEventDistrustsHistory(new NonTxOperationPerformedWALRecord());
+    assertEarlierEventHistory(new NonTxOperationPerformedWALRecord(),
+        ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+        ChangedPageTrackerStartup.Resolution.DISTRUSTED);
   }
 
-  private void assertEarlierEventDistrustsHistory(WriteableWALRecord event) throws Exception {
+  private void assertEarlierEventHistory(WriteableWALRecord event,
+      ChangedPageTrackerStartup.Outcome outcome, ChangedPageTrackerStartup.Resolution resolution)
+      throws Exception {
     var pending = savedHistory(true);
     assertTrue(pending.savedTrusted());
     try (var wal = new ScriptedWal(batch(ProofStatus.MORE,
@@ -801,12 +812,38 @@ public class ChangedPageTrackerStartupTest {
         batch(ProofStatus.REACHED_END, update(122, EXTERNAL_ID, 7)))) {
       assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
           ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
-          ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
-          ProofStatus.REACHED_END, null, withPages(7, 121, 122));
-      assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+          outcome, ProofStatus.REACHED_END, null, withPages(7, 121, 122));
+      assertEquals(resolution, pending.resolution());
       assertEquals(2, wal.nextCalls);
       assertEquals(COVERAGE, pending.coverageLsn());
       assertEquals(COVERAGE, pending.tracker().durableCoverageLsn());
+    }
+  }
+
+  // File events retain untrusted saved history without another failure or a continuity reset.
+  // Each event runs alone at the terminal batch and before an event-free terminal batch.
+  @Test
+  public void verifyFileEventsNeverUpgradeSavedUntrustedHistory() throws Exception {
+    for (var event : List.of(new FileCreatedWALRecord(7, "created", EXTERNAL_ID),
+        new FileDeletedWALRecord(7, EXTERNAL_ID))) {
+      for (boolean earlierBatch : new boolean[] {false, true}) {
+        var pending = savedHistory(false);
+        var before = capture(pending.tracker());
+        var records = batch(earlierBatch ? ProofStatus.MORE : ProofStatus.REACHED_END,
+            update(121, EXTERNAL_ID, 7), event);
+        try (var wal = new ScriptedWal(earlierBatch
+            ? new ProofBatch[] {records, batch(ProofStatus.REACHED_END)}
+            : new ProofBatch[] {records})) {
+          assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+              ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
+              ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED,
+              ProofStatus.REACHED_END, null, withPages(7, 121));
+          assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, pending.resolution());
+          assertEquals(before.failureVersion(), capture(pending.tracker()).failureVersion());
+          assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+          assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
+        }
+      }
     }
   }
 
@@ -1126,16 +1163,16 @@ public class ChangedPageTrackerStartupTest {
   }
 
   // A real create record follows pages for the same file. Neither saved nor scanned pages may be
-  // cleared. A terminal event and an earlier-batch event both leave proved coverage untrusted.
+  // cleared. A terminal event and an earlier-batch event both retain saved trust.
   @Test
-  public void verifyDiskWalCreatePreservesPageBeforeCreateAndDistrustsIdentity() throws Exception {
+  public void verifyDiskWalCreatePreservesPageBeforeCreateAndSavedTrust() throws Exception {
     assertDiskFileEventPreservesMarks(() -> new FileCreatedWALRecord(7, "created", EXTERNAL_ID));
   }
 
-  // A real delete record independently leaves identity unresolved. Marks remain even when the
-  // current inventory has no name, including when the event precedes an event-free final batch.
+  // A real delete record independently keeps marks and saved trust even without a current name.
+  // This also holds when the event precedes an event-free final batch.
   @Test
-  public void verifyDiskWalDeletePreservesPagesAndDistrustsIdentity() throws Exception {
+  public void verifyDiskWalDeletePreservesPagesAndSavedTrust() throws Exception {
     assertDiskFileEventPreservesMarks(() -> new FileDeletedWALRecord(7, EXTERNAL_ID));
   }
 
@@ -1348,13 +1385,16 @@ public class ChangedPageTrackerStartupTest {
         files.name = earlierBatch ? null : "created";
         assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
             ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
-            ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
+            ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
             ProofStatus.REACHED_END, null,
             withPages(7, LongStream.range(400, earlierBatch ? 422 : 402).toArray()));
         assertEquals(Collections.nCopies(earlierBatch ? 23 : 3, EXTERNAL_ID),
             files.converted);
         assertEquals(0, files.nameCalls);
-        assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+        assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, pending.resolution());
+        assertEquals(0, capture(pending.tracker()).failureVersion());
+        assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+        assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
         assertEquals(coverage, pending.coverageLsn());
         assertEquals(coverage, pending.tracker().durableCoverageLsn());
       }

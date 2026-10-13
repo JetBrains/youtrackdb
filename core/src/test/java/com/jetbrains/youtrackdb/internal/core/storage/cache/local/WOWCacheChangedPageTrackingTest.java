@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
@@ -39,6 +40,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -154,10 +156,15 @@ public class WOWCacheChangedPageTrackingTest {
     tracker.mark(cache.internalFileId(file), 7);
     assertEquals(file, cache.addFile("identity.tst"));
     assertPages(file);
+    var initialSeal = seedTrustedGenerations(file);
     write(file, 0);
     cache.renameFile(file, "renamed.tst");
+    assertTrue(tracker.isTrusted());
     assertEquals(file, cache.loadFile("renamed.tst"));
-    assertPages(file, 0L);
+    assertTrue(tracker.isTrusted());
+    assertPages(file, 0L, 8L);
+    assertSealedPages(initialSeal, file, 7L);
+    tracker.mergeBack(initialSeal);
     var seal = tracker.beginBackup();
     write(file, 1);
     readCache.deleteFile(file, cache);
@@ -174,16 +181,17 @@ public class WOWCacheChangedPageTrackingTest {
     assertPages(file);
   }
 
-  // A booked ID can load an existing physical file. An explicit add can also reuse a registered
-  // handle after shrink. Both paths discard old identity marks before publishing the new name.
+  // Loading unknown existing content keeps marks but distrusts history. An ordinary explicit add
+  // reuses the registered handle after shrink and clears old identity marks.
   @Test
-  public void loadAndShrinkReuseClearMarks() throws Exception {
+  public void loadKeepsMarksAndDistrustsWhileShrinkReuseClearsMarks() throws Exception {
     long file = cache.bookFileId("loaded.tst");
     Path path = cache.getRootDirectory().resolve("loaded_" + cache.internalFileId(file) + ".tst");
     Files.createFile(path);
     tracker.mark(cache.internalFileId(file), 11);
     assertEquals(file, cache.loadFile("loaded.tst"));
-    assertPages(file);
+    assertPages(file, 11L);
+    assertFalse(tracker.isTrusted());
     write(file, 0);
     // Model the negative name registration with a still-owned handle used by explicit add.
     var names = (java.util.Map<String, Integer>) field(cache, "nameIdMap");
@@ -194,24 +202,28 @@ public class WOWCacheChangedPageTrackingTest {
     assertEquals(0, cache.physicalSizeForBackupSnapshot(file));
   }
 
-  // Each destructive hook is exercised with trusted active and sealed candidates. This includes
-  // explicit-ID shrink/recreation and absent deletion. End restores normal clearing for each hook.
+  // Startup creation and removal keep both generations and trust. Unknown registration keeps
+  // marks but distrusts inside and outside startup. End restores ordinary create/delete clearing.
   @Test
-  public void startupReplayPreservesBothGenerationsAtEveryClearingSiteThenResumesClearing()
+  public void startupReplayPreservesMarksAndTrustExceptUnknownRegistration()
       throws Exception {
     for (int event = 0; event < 6; event++) {
       String name = "replay" + event + ".tst";
       long file = cache.bookFileId(name);
       prepareFileEvent(event, file, name);
       var seal = seedTrustedGenerations(file);
+      var before = capture();
       cache.beginStartupReplayPreservation();
       try {
         assertTrue(tracker.isTrusted());
         applyFileEvent(event, file, name);
         assertPages(file, 8L);
         assertSealedPages(seal, file, 7L);
-        assertFalse("uncertain incarnation must revoke trust for event " + event,
-            tracker.isTrusted());
+        assertEquals("only unknown registration distrusts for event " + event,
+            event != 0, tracker.isTrusted());
+        if (event != 0) {
+          assertEquals(before, capture());
+        }
       } finally {
         cache.endStartupReplayPreservation();
       }
@@ -219,9 +231,10 @@ public class WOWCacheChangedPageTrackingTest {
       prepareFileEvent(event, file, name);
       seal = seedTrustedGenerations(file);
       applyFileEvent(event, file, name);
-      assertPages(file);
-      assertSealedPages(seal, file);
-      assertTrue("ordinary identity clearing must not revoke trust", tracker.isTrusted());
+      assertPages(file, event == 0 ? new Long[] {8L} : new Long[0]);
+      assertSealedPages(seal, file, event == 0 ? new Long[] {7L} : new Long[0]);
+      assertEquals("only unknown registration distrusts outside startup", event != 0,
+          tracker.isTrusted());
     }
   }
 
@@ -240,6 +253,7 @@ public class WOWCacheChangedPageTrackingTest {
       assertSealedPages(seal, file, 7L);
       assertThrows(StorageException.class,
           () -> cache.loadFile("missing.tst"));
+      assertTrue(tracker.isTrusted());
     } finally {
       cache.endStartupReplayPreservation();
     }
@@ -253,6 +267,90 @@ public class WOWCacheChangedPageTrackingTest {
     assertEquals(file, cache.addFile("missing.tst", file));
     assertPages(file);
     assertSealedPages(seal, file);
+  }
+
+  // A positive inventory entry never adopts unknown content. Both normal and startup opens keep
+  // exact active/sealed candidates and established trust.
+  @Test
+  public void knownFileLoadKeepsBothGenerationsAndTrustInsideAndOutsideStartup() throws Exception {
+    long file = cache.addFile("known.tst");
+    var seal = seedTrustedGenerations(file);
+    assertEquals(file, cache.loadFile("known.tst"));
+    assertTrue(tracker.isTrusted());
+    cache.beginStartupReplayPreservation();
+    try {
+      assertEquals(file, cache.loadFile("known.tst"));
+      assertTrue(tracker.isTrusted());
+      assertPages(file, 8L);
+      assertSealedPages(seal, file, 7L);
+    } finally {
+      cache.endStartupReplayPreservation();
+    }
+  }
+
+  // A missing name-id entry also adopts unknown content. Predict the allocated ID so both
+  // generations can be seeded before registration, without installing an inventory entry.
+  @Test
+  public void missingEntryRegistrationKeepsContentAndMarksButDistrustsInBothIntervals()
+      throws Exception {
+    for (boolean startup : new boolean[] {false, true}) {
+      long seed = startup ? 22 : 21;
+      int internal = new Random(seed).nextInt(Integer.MAX_VALUE - 1) + 1;
+      setField(cache, "fileIdGen", new Random(seed));
+      String name = "unknown" + seed + ".tst";
+      Path path = cache.getRootDirectory().resolve("unknown" + seed + "_" + internal + ".tst");
+      // A complete physical page follows the file header. Opening must not truncate this fixture.
+      byte[] content = new byte[File.HEADER_SIZE + pageSize];
+      new Random(seed).nextBytes(content);
+      Files.write(path, content);
+      long file = cache.externalFileId(internal);
+      var seal = seedTrustedGenerations(file);
+      assertEquals(-1, cache.fileIdByName(name));
+      if (startup) {
+        cache.beginStartupReplayPreservation();
+      }
+      try {
+        assertEquals(file, cache.loadFile(name));
+        assertFalse(tracker.isTrusted());
+        assertPages(file, 8L);
+        assertSealedPages(seal, file, 7L);
+        assertArrayEquals(content, Files.readAllBytes(path));
+      } finally {
+        cache.endStartupReplayPreservation();
+      }
+    }
+  }
+
+  // Startup create, shrink/reuse and deletion never upgrade untrusted history or remove marks.
+  @Test
+  public void startupFileEventsKeepUntrustedHistoryUntrusted() throws Exception {
+    for (int event = 1; event < 6; event++) {
+      String name = "untrusted" + event + ".tst";
+      long file = cache.bookFileId(name);
+      prepareFileEvent(event, file, name);
+      var seal = seedTrustedGenerations(file);
+      tracker.invalidate();
+      long failures = capture().failureVersion();
+      cache.beginStartupReplayPreservation();
+      try {
+        applyFileEvent(event, file, name);
+        assertFalse(tracker.isTrusted());
+        assertEquals(failures, capture().failureVersion());
+        assertPages(file, 8L);
+        assertSealedPages(seal, file, 7L);
+      } finally {
+        cache.endStartupReplayPreservation();
+      }
+    }
+  }
+
+  private ChangedPageTracker.SaveState capture() {
+    tracker.saveOrderLock().lock();
+    try {
+      return tracker.capture();
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
   }
 
   private ChangedPageTracker.SealedGeneration seedTrustedGenerations(long file) throws Exception {
@@ -269,8 +367,9 @@ public class WOWCacheChangedPageTrackingTest {
   private void prepareFileEvent(int event, long file, String name) throws Exception {
     if (event == 0) {
       int dot = name.lastIndexOf('.');
-      Files.createFile(cache.getRootDirectory().resolve(name.substring(0, dot) + "_"
-          + cache.internalFileId(file) + name.substring(dot)));
+      Files.write(cache.getRootDirectory().resolve(name.substring(0, dot) + "_"
+          + cache.internalFileId(file) + name.substring(dot)),
+          new byte[File.HEADER_SIZE + pageSize]);
     } else if (event == 3 || event == 4) {
       cache.addFile(name, file);
       if (event == 3) {
@@ -284,7 +383,10 @@ public class WOWCacheChangedPageTrackingTest {
 
   private void applyFileEvent(int event, long file, String name) throws Exception {
     switch (event) {
-      case 0 -> assertEquals(file, cache.loadFile(name));
+      case 0 -> {
+        assertEquals(file, cache.loadFile(name));
+        assertEquals(1, cache.physicalSizeForBackupSnapshot(file));
+      }
       case 1 -> assertEquals(file, cache.addFile(name));
       case 2, 3 -> {
         assertEquals(file, cache.addFile(name, file));

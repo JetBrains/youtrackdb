@@ -911,11 +911,8 @@ public final class WOWCache extends AbstractWriteCache
                 logger);
 
         openFile(storageName, fileClassic);
-        if (startupReplayPreservation) {
-          changedPageTracker.invalidate();
-        } else {
-          changedPageTracker.resetFile(fileId);
-        }
+        // Existing unknown content has no complete page history. Keep marks but revoke trust.
+        changedPageTracker.invalidate();
 
         final var externalId = composeFileId(id, fileId);
         files.add(externalId, fileClassic);
@@ -964,9 +961,7 @@ public final class WOWCache extends AbstractWriteCache
 
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
-      if (startupReplayPreservation) {
-        changedPageTracker.invalidate();
-      } else {
+      if (!startupReplayPreservation) {
         changedPageTracker.resetFile(fileId);
       }
 
@@ -1122,9 +1117,8 @@ public final class WOWCache extends AbstractWriteCache
 
       // File events run under the caller's component writer exclusion, or storage lifecycle
       // exclusion during recovery/restore. filesLock orders inventory, not lock-free marks.
-      if (startupReplayPreservation) {
-        changedPageTracker.invalidate();
-      } else {
+      // Empty-file creation during startup keeps both generations and their existing trust.
+      if (!startupReplayPreservation) {
         changedPageTracker.resetFile(intId);
       }
       idNameMap.remove(-intId);
@@ -1329,11 +1323,12 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   /**
-   * Begins startup-replay preservation of active and sealed marks across uncertain file events.
+   * Begins startup-replay preservation of active and sealed marks and trust for empty-file
+   * creation and file removal. Only registration of unknown existing content revokes memory trust.
    * One lifecycle owner must exclude writers, backup and cuts, and pair a successful begin with
    * {@link #endStartupReplayPreservation()} in finally. Nested or repeated begin throws without
-   * changing the active interval. File events revoke trust in memory only. The owner performs any
-   * durable distrust outside filesLock before a cut or admission.
+   * changing the active interval. The owner performs any durable distrust outside filesLock before
+   * a cut or admission.
    */
   public void beginStartupReplayPreservation() {
     filesLock.acquireWriteLock();
@@ -2144,11 +2139,9 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       // The caller excludes writers for this file through its component or lifecycle lock.
-      // Startup replay cannot prove incarnation identity, even for an absent file. Preserve
-      // both generations and revoke memory trust only. Ordinary deletion clears even absent IDs.
-      if (startupReplayPreservation) {
-        changedPageTracker.invalidate();
-      } else {
+      // Startup removal keeps both generations and their existing trust, even for an absent file.
+      // Ordinary deletion clears marks even for absent IDs.
+      if (!startupReplayPreservation) {
         changedPageTracker.deleteFile(intId);
       }
       if (file != null) {
