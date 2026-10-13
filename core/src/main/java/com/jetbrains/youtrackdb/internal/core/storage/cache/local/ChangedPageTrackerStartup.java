@@ -59,6 +59,7 @@ public final class ChangedPageTrackerStartup {
    * Verifies retained WAL coverage and conservatively marks every page before resolving trust.
    * The lifecycle owner excludes writers, backup and cuts. The WAL remains owned by that caller.
    * Only one bounded batch is retained, and incomplete or rolled-back units still contribute marks.
+   * File creation and deletion preserve all marks and saved trust. Untrusted history stays untrusted.
    */
   public static StartupResult verify(PendingHistory history, WriteAheadLog wal,
       @Nullable ShutdownState shutdown, FileIds files) {
@@ -86,12 +87,10 @@ public final class ChangedPageTrackerStartup {
             history.tracker().mark(validInternalFileId(files, page.getFileId()),
                 page.getPageIndex());
           } else if (record instanceof FileCreatedWALRecord created) {
-            // Pages can precede creation in the same unit. Never clear historical marks here.
+            // Pages can precede creation in the same unit. Keep historical marks and saved trust.
             validInternalFileId(files, created.getFileId());
-            historyUnresolved = true;
           } else if (record instanceof FileDeletedWALRecord deleted) {
             validInternalFileId(files, deleted.getFileId());
-            historyUnresolved = true;
           } else if (record instanceof NonTxOperationPerformedWALRecord) {
             // Non-transactional changes lack WAL page records, so page history cannot be trusted.
             historyUnresolved = true;
