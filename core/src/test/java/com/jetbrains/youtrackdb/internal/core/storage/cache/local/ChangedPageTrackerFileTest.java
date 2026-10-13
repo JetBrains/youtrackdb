@@ -1004,6 +1004,75 @@ public class ChangedPageTrackerFileTest {
     assertCreationUnrelatedFiles(directory);
   }
 
+  // Fake Windows policy exercises the production delegate on every host. Both owned targets must
+  // reach the strict helper in order, with no general helper or Files.move fallback. A strict-helper
+  // failure must escape unchanged before cleanup starts on the second target.
+  @Test
+  public void windowsCreationUsesProductionStrictMoveDelegateAndStopsOnItsFailure()
+      throws Exception {
+    for (boolean fail : List.of(false, true)) {
+      var directory = seedCreationFiles().toAbsolutePath();
+      var side = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+      var temporary = directory.resolve(ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
+      var oldTemporary = Files.readAllBytes(temporary);
+      var moves = new ArrayList<List<Path>>();
+      var failure = new IOException("injected strict Windows helper failure");
+      // Override policy only. Availability and movement use the production FileOperations methods.
+      var operations = new ChangedPageTrackerFile.FileOperations() {
+        @Override
+        boolean windows() {
+          return true;
+        }
+      };
+      try (var nio = mockStatic(Files.class, call -> {
+        if (call.getMethod().getName().equals("move")) {
+          throw new AssertionError("Files.move cannot provide strict Windows creation durability");
+        }
+        return call.callRealMethod();
+      }); var strict = mockStatic(FileUtils.class, call -> {
+        if (call.getMethod().getName().equals("windowsWriteThroughMoveAvailable")) {
+          return true;
+        }
+        if (!call.getMethod().getName().equals("windowsWriteThroughMove")) {
+          throw new AssertionError("Only the strict Windows helper is permitted: "
+              + call.getMethod().getName());
+        }
+        Path scratch = call.getArgument(0);
+        Path target = call.getArgument(1);
+        moves.add(List.of(scratch, target));
+        assertEquals(0, Files.size(scratch));
+        if (fail) {
+          throw failure;
+        }
+        // Simulate the native replacement without allowing any Java move primitive in this test.
+        Files.copy(scratch, target, StandardCopyOption.REPLACE_EXISTING);
+        Files.delete(scratch);
+        return null;
+      })) {
+        if (fail) {
+          assertSame(failure, assertThrows(IOException.class,
+              () -> ChangedPageTrackerFile.cleanupForCreation(directory, operations)));
+        } else {
+          ChangedPageTrackerFile.cleanupForCreation(directory, operations);
+        }
+        strict.verify(FileUtils::windowsWriteThroughMoveAvailable);
+        strict.verify(() -> FileUtils.windowsWriteThroughMove(side, temporary));
+        if (!fail) {
+          strict.verify(() -> FileUtils.windowsWriteThroughMove(temporary, side));
+        }
+        strict.verifyNoMoreInteractions();
+      }
+      assertEquals(fail ? List.of(List.of(side, temporary))
+          : List.of(List.of(side, temporary), List.of(temporary, side)), moves);
+      if (fail) {
+        assertArrayEquals(oldTemporary, Files.readAllBytes(temporary));
+      } else {
+        assertCreationAuthorityGone(directory);
+      }
+      assertCreationUnrelatedFiles(directory);
+    }
+  }
+
   // Without the native helper, every present owned file is forced empty in place. Each combination
   // of absent names stays absent, with no deletion, move, portable fallback, or directory force.
   @Test
