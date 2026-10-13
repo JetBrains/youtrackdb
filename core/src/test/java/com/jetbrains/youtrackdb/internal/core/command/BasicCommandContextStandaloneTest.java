@@ -26,6 +26,9 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
@@ -478,6 +481,59 @@ public class BasicCommandContextStandaloneTest {
         "updated-from-child", parent.getSystemVariable(CommandContext.VAR_CURRENT));
     assertEquals("child observes the update via fallback",
         "updated-from-child", child.getSystemVariable(CommandContext.VAR_CURRENT));
+  }
+
+  /** Internal reads preserve named null overrides, dynamic resolution, and nested precedence. */
+  @Test
+  public void internalReadsPreserveNamedLookupContract() {
+    for (var variable : CommandContext.InternalVariable.values()) {
+      var parent = new BasicCommandContext();
+      var ctx = new BasicCommandContext();
+      ctx.setParentWithoutOverridingChild(parent);
+      var name = variable.getVariableName();
+      assertNull(ctx.getInternalVariable(variable));
+      parent.setVariable(name, "parent-named");
+      assertEquals(ctx.getVariable(name), ctx.getInternalVariable(variable));
+      parent.setSystemVariable(variable.id, "parent-slot");
+      assertEquals("parent-slot", ctx.getInternalVariable(variable));
+      var local = new BasicCommandContext();
+      local.setVariable(name, "local-named");
+      local.setSystemVariable(variable.id, "local-slot");
+      local.setParentWithoutOverridingChild(parent);
+      assertEquals("local-named", local.getInternalVariable(variable));
+      local.setVariable(name, null);
+      assertNull(local.getInternalVariable(variable));
+      local.setDynamicVariable(name, c -> c == local ? "resolved-here" : "wrong-context");
+      assertEquals("resolved-here", local.getInternalVariable(variable));
+    }
+    var root = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    root.setChild(child);
+    child.setDynamicVariable("matched", c -> c == child ? "child-value" : "wrong-context");
+    assertEquals("child-value", root.getInternalVariable(CommandContext.InternalVariable.MATCHED));
+    root.setSystemVariable(CommandContext.VAR_MATCHED, "root-slot");
+    assertEquals("root-slot", root.getInternalVariable(CommandContext.InternalVariable.MATCHED));
+  }
+
+  /** Context implementations without a direct implementation retain their ordinary named route. */
+  @Test
+  public void internalReadDefaultDelegatesToContextImplementation() {
+    var ctx = mock(CommandContext.class, CALLS_REAL_METHODS);
+    when(ctx.getVariable("matched")).thenReturn("custom-context");
+    assertEquals("custom-context",
+        ctx.getInternalVariable(CommandContext.InternalVariable.MATCHED));
+  }
+
+  /** A restored null still owns the slot, so a later nested write forwards to that owner. */
+  @Test
+  public void savedNullRetainsSystemVariableWriteOwnership() {
+    var parent = new BasicCommandContext();
+    parent.setSystemVariable(CommandContext.VAR_CURRENT, null);
+    var child = new BasicCommandContext();
+    child.setParentWithoutOverridingChild(parent);
+    assertTrue(child.hasSystemVariable(CommandContext.VAR_CURRENT));
+    child.setSystemVariable(CommandContext.VAR_CURRENT, "nested");
+    assertEquals("nested", parent.getInternalVariable(CommandContext.InternalVariable.CURRENT));
   }
 
   // ---------------------------------------------------------------------------

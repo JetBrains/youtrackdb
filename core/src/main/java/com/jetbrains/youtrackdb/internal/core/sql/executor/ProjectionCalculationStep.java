@@ -102,10 +102,12 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
     // Temporarily set $current so projection expressions (e.g. $current.name) can reference this row.
     var oldCurrent = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
     ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
-    var newResult = calculateProjections(ctx, result);
-    // Restore the previous $current to support correct behavior in nested contexts.
-    ctx.setSystemVariable(CommandContext.VAR_CURRENT, oldCurrent);
-    return newResult;
+    try {
+      return calculateProjections(ctx, result);
+    } finally {
+      // Restore even on failure. A saved null remains present for nested write ownership.
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, oldCurrent);
+    }
   }
 
   private Result calculateProjections(CommandContext ctx, Result next) {

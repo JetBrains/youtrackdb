@@ -49,6 +49,32 @@ public interface CommandContext {
   int VAR_INDEX_ORDERED_PRE_SORTED = 4;
   // Next available ID: 5
 
+  /** Immutable roles assigned by internal expression builders, never inferred from user names. */
+  enum InternalVariable {
+    CURRENT(VAR_CURRENT, "current"), CURRENT_MATCH(VAR_CURRENT_MATCH,
+        "currentMatch"), MATCHED(VAR_MATCHED, "matched"), DEPTH(VAR_DEPTH, "depth");
+
+    final int id;
+    final String variableName;
+
+    InternalVariable(int id, String variableName) {
+      this.id = id;
+      this.variableName = variableName;
+    }
+
+    public String getVariableName() {
+      return variableName;
+    }
+  }
+
+  /**
+   * Reads a plan-time internal role with named-variable precedence and dynamic-value resolution.
+   * Context implementations without a direct route retain their ordinary lookup behavior.
+   */
+  default Object getInternalVariable(InternalVariable variable) {
+    return getVariable(variable.variableName);
+  }
+
   void registerBooleanExpression(SQLBooleanExpression expression);
 
   List<SQLBooleanExpression> getParentWhereExpressions();
