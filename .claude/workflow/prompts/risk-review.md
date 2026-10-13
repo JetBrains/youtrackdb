@@ -162,7 +162,7 @@ PERFORMANCE IMPLICATIONS
 
 TESTABILITY & COVERAGE
 - Can each step meet `docs-internal/agents/orchestrator-guidelines.md` § Test Policy?
-  Apply its temporary coverage exception for the 11 copied TinkerPop modules.
+  Apply the same coverage rule to every reactor module.
 - Are there steps hard to test in isolation?
 
 ROLLBACK & RECOVERY
@@ -217,7 +217,7 @@ where existing safeguards already mitigate the perceived risk.
 ```markdown
 #### Testability: <step description>
 - **Coverage target**: `docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
-  It defines the 85/70 thresholds and the temporary exception for the 11 copied TinkerPop modules.
+  It defines the 85/70 thresholds for every reactor module.
 - **Difficulty assessment**: <what makes this step hard to test>
 - **Existing test infrastructure**: <relevant test base classes, fixtures,
   helpers at file:line>

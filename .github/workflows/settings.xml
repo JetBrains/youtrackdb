@@ -1,7 +1,7 @@
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+<settings xmlns="http://maven.apache.org/SETTINGS/1.3.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
-                      http://maven.apache.org/xsd/settings-1.0.0.xsd">
+  xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.3.0
+                      https://maven.apache.org/xsd/settings-1.3.0.xsd">
   <servers>
     <server>
       <id>ytdb-maven-central</id>
@@ -12,6 +12,9 @@
       <id>central</id>
       <username>${env.MAVEN_USERNAME}</username>
       <password>${env.MAVEN_PASSWORD}</password>
+      <repositoryOrigins>
+        <repositoryOrigin>https://central.sonatype.com</repositoryOrigin>
+      </repositoryOrigins>
     </server>
   </servers>
 

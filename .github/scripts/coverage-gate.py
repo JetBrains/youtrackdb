@@ -15,19 +15,13 @@ Usage:
 import argparse
 import glob
 import os
+from pathlib import Path
 import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
 MAX_COMMENT_CHARS = 60000
-
-# PR 2 removes this temporary exception for the copied TinkerPop modules.
-TINKERPOP_COVERAGE_EXCLUSIONS = frozenset({
-    "gremlin-shaded", "gremlin-language", "gremlin-core", "gremlin-util",
-    "gremlin-driver", "gremlin-groovy", "gremlin-server", "gremlin-console",
-    "gremlin-test", "tinkergraph-gremlin", "gremlin-socket-server",
-})
 
 
 def get_changed_lines(compare_branch):
@@ -62,6 +56,53 @@ def get_changed_lines(compare_branch):
                     changed[current_file].add(i)
 
     return changed
+
+
+def get_reactor_artifacts():
+    """Read module directories and artifact names from the reactor POM files."""
+    root = Path.cwd()
+    pending = [root]
+    artifacts = {}
+    while pending:
+        directory = pending.pop()
+        module = directory.relative_to(root).as_posix()
+        if module in artifacts:
+            continue
+        pom = ET.parse(directory / "pom.xml").getroot()
+        artifact = pom.findtext("{*}artifactId")
+        if not artifact or "${" in artifact:
+            raise ValueError(f"Cannot resolve artifactId in {module}/pom.xml")
+        artifacts[module] = artifact.strip()
+        for child in pom.findall("{*}modules/{*}module"):
+            pending.append((directory / child.text.strip()).resolve())
+    return artifacts
+
+
+def get_required_reports(changed_lines, coverage_dir):
+    """Find unit-report paths for changed main Java sources in tested reactor modules."""
+    artifacts = get_reactor_artifacts()
+    required = {}
+    for filepath in sorted(changed_lines):
+        module, separator, source = filepath.partition("/src/main/java/")
+        if not separator or not source.endswith(".java") or module not in artifacts:
+            continue
+        if not (Path(module) / "src/test/java").is_dir():
+            continue
+        report = Path(coverage_dir) / artifacts[module] / "jacoco.xml"
+        required[filepath] = (module, report)
+    return required
+
+
+def get_missing_reports(required_reports):
+    """Name each changed file whose required unit report is missing."""
+    missing = []
+    for filepath, (module, report) in required_reports.items():
+        if not report.is_file():
+            missing.append(
+                f"Missing JaCoCo report for module `{module}`: `{report}` "
+                f"(changed file `{filepath}`)"
+            )
+    return missing
 
 
 def match_source_file(pkg_path, src_name, changed_files_by_basename):
@@ -414,30 +455,6 @@ def main():
     )
 
     changed_lines = get_changed_lines(args.compare_branch)
-    excluded_files = [
-        path for path in changed_lines
-        if path.split("/", 1)[0] in TINKERPOP_COVERAGE_EXCLUSIONS
-    ]
-    if excluded_files:
-        print(
-            f"Explicitly excluded {len(excluded_files)} changed Java file(s) "
-            "in copied TinkerPop modules. PR 2 removes this exception."
-        )
-        for path in excluded_files:
-            del changed_lines[path]
-        if not changed_lines:
-            print("No changed Java files outside the explicit TinkerPop coverage exception.")
-            if args.output_md:
-                with open(args.output_md, "w") as f:
-                    f.write(
-                        "<!-- coverage-gate-comment -->\n"
-                        "# Coverage Gate Results\n"
-                        f"**Thresholds**: {threshold_label}\n\n"
-                        f"Explicitly excluded {len(excluded_files)} changed Java files in "
-                        "copied TinkerPop modules. PR 2 removes this exception.\n\n"
-                        "No changed Java files outside this exception.\n"
-                    )
-            return
     if not changed_lines:
         print("No changed Java files found. Skipping coverage gate.")
         if args.output_md:
@@ -451,8 +468,28 @@ def main():
                 )
         return
 
-    xml_files = glob.glob(
-        f"{args.coverage_dir}/**/jacoco.xml", recursive=True
+    # Check required reports before the zero-report skip. No data must not hide a failure.
+    required_reports = get_required_reports(changed_lines, args.coverage_dir)
+    missing_reports = get_missing_reports(required_reports)
+    if missing_reports:
+        print("FAILED: Required JaCoCo reports are missing.")
+        for message in missing_reports:
+            print(message)
+        if args.output_md:
+            with open(args.output_md, "w") as f:
+                f.write(
+                    "<!-- coverage-gate-comment -->\n"
+                    "# Coverage Gate Results\n"
+                    f"**Thresholds**: {threshold_label}\n\n"
+                    ":x: Required JaCoCo reports are missing.\n\n"
+                    + "\n".join(f"- {message}" for message in missing_reports) + "\n"
+                )
+        sys.exit(1)
+
+    # glob can hide directory-read errors. Parse every required path even if discovery omits it.
+    xml_files = sorted(
+        set(glob.glob(f"{args.coverage_dir}/**/jacoco.xml", recursive=True))
+        | {str(report) for module, report in required_reports.values()}
     )
     if not xml_files:
         print("No JaCoCo XML files found. Skipping coverage gate.")

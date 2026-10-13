@@ -118,7 +118,7 @@
           <excludes>
             <exclude>${examples.surefire.excludes}</exclude>
           </excludes>
-          <argLine>
+          <argLine>@{jacocoArgLine}
             -ea
             -Xms4096m
             -Xmx4096m

@@ -317,19 +317,11 @@
           <annotationProcessorPaths combine.self="override"/>
         </configuration>
       </plugin>
-      <!-- PR 2 removes this temporary coverage exception and the gate path exclusions. -->
-      <plugin>
-        <groupId>org.jacoco</groupId>
-        <artifactId>jacoco-maven-plugin</artifactId>
-        <configuration>
-          <skip>true</skip>
-        </configuration>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
+        <!-- Use the argLine property by default and inherit the coverage profile's agent. -->
         <configuration>
-          <argLine>${argLine}</argLine>
           <trimStackTrace>false</trimStackTrace>
           <excludes>
             <exclude>**/IT*.java</exclude>
@@ -343,7 +335,11 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
-          <argLine>${argLine} -Dhost=localhost -Dport=8182</argLine>
+          <!-- Keep server options separate from the inherited test JVM arguments. -->
+          <systemPropertyVariables>
+            <host>localhost</host>
+            <port>8182</port>
+          </systemPropertyVariables>
           <includes>
             <include>**/IT*.java</include>
             <include>**/*IT.java</include>

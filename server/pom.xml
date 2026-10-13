@@ -284,7 +284,7 @@ nse, Version 2.0 (the "License");
               <value>com.jetbrains.youtrackdb.internal.JUnitTestListener</value>
             </property>
           </properties>
-          <argLine>${argLine}
+          <argLine>@{jacocoArgLine} ${argLine}
             -ea
             -XX:+IgnoreUnrecognizedVMOptions
             --add-exports=java.base/sun.nio.ch=ALL-UNNAMED

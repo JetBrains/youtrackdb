@@ -106,7 +106,7 @@ Two layers, two files. The chat/terminal register is set by default through the 
 - **All code changes must have associated tests** that cover the new or modified behavior.
 - **All bug fixes must include a regression test** reproducing the bug, unless one already exists.
 - Prefer adding tests to **existing test classes** when the change fits their scope. Only create new test classes when there is no suitable existing one.
-- **Coverage target**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy. It defines the 85/70 thresholds and the temporary exception for the 11 copied TinkerPop modules.
+- **Coverage target**: Follow `docs-internal/agents/orchestrator-guidelines.md` § Test Policy. It defines the 85/70 thresholds for every reactor module.
 - **Coverage verification**: Always use the `coverage-gate.py` script (see [Pre-Commit Verification](#pre-commit-verification)) to check coverage instead of computing it by hand. The script contains special-case logic — for example, it excludes Java `assert` statement lines (including multi-line continuations) from both line and branch coverage calculations, because JaCoCo reports phantom uncovered branches and unreachable failure-message lines for asserts. Manual arithmetic will not account for these exclusions and will give incorrect results.
 
 ### Test Modules at a Glance
@@ -179,7 +179,7 @@ The pull request build runs them under the rules in `track-development.md`.
 
 For coverage, follow `docs-internal/dev-workflow/coverage-verification.md`.
 It defines the measured modules, filtered Maven command, and report-set assertion.
-The thresholds and temporary TinkerPop exception stay in
+The shared coverage thresholds are in
 `docs-internal/agents/orchestrator-guidelines.md` § Test Policy.
 
 Do not commit over a failing result. Follow the explicit landing-red approval rule in
