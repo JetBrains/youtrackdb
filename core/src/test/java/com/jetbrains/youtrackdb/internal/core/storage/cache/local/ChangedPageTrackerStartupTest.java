@@ -136,6 +136,110 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
+  // Before verification, successful invalidation resolves the gate without losing candidates.
+  @Test
+  public void durableDistrustBeforeVerifyClearsGateOnSuccessAndAllowsFullBackupTrust()
+      throws Exception {
+    assertPendingBarrier(0);
+  }
+
+  // A failed delete still resolves pending history, and a later full backup can restore trust.
+  @Test
+  public void durableDistrustBeforeVerifyClearsGateOnDeleteFailureAndAllowsFullBackupTrust()
+      throws Exception {
+    assertPendingBarrier(1);
+  }
+
+  // A failed folder force retains coverage and candidates but must not leave verification pending.
+  @Test
+  public void durableDistrustBeforeVerifyClearsGateOnForceFailureAndAllowsFullBackupTrust()
+      throws Exception {
+    assertPendingBarrier(2);
+  }
+
+  private void assertPendingBarrier(int stage) throws Exception {
+    var path = sideFile();
+    Files.write(path, encode(true, true));
+    var pending = ChangedPageTrackerStartup.load(path);
+    assertTrue(pending.savedTrusted());
+    if (stage == 0) {
+      ChangedPageTrackerStartup.durableDistrust(path, pending);
+    } else {
+      assertThrows(IOException.class, () -> ChangedPageTrackerStartup.durableDistrust(path,
+          pending, failingInvalidation(stage, new IOException("injected barrier failure"))));
+    }
+    assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+    assertFalse(pending.tracker().isTrusted());
+    assertMarksAndCoverage(pending);
+    // The package-private setter must be a no-op when the pending gate is already clear.
+    long mutation = capture(pending.tracker()).mutationVersion();
+    pending.tracker().startupVerificationPending(false);
+    assertEquals(mutation, capture(pending.tracker()).mutationVersion());
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, pending.tracker(), COVERAGE));
+    assertFalse(pending.tracker().isTrusted());
+    pending.tracker().retire(pending.tracker().beginBackup());
+    assertTrue(pending.tracker().isTrusted());
+  }
+
+  // The checked boundary retains the exact delete IOException as its cause.
+  @Test
+  public void durableDistrustChainsExactDeleteIOException() throws Exception {
+    assertBarrierCause(1, new IOException("delete failed"));
+  }
+
+  // Losing the directory durability barrier retains the exact force IOException as its cause.
+  @Test
+  public void durableDistrustChainsExactFolderForceIOException() throws Exception {
+    assertBarrierCause(2, new IOException("folder force failed"));
+  }
+
+  // A security rejection uses the checked startup boundary without replacing the root failure.
+  @Test
+  public void durableDistrustChainsExactDeleteSecurityException() throws Exception {
+    assertBarrierCause(1, new SecurityException("delete denied"));
+  }
+
+  private void assertBarrierCause(int stage, Exception failure) throws Exception {
+    var path = sideFile();
+    Files.write(path, encode(true, true));
+    var pending = ChangedPageTrackerStartup.load(path);
+    var thrown = assertThrows(IOException.class, () -> ChangedPageTrackerStartup.durableDistrust(
+        path, pending, failingInvalidation(stage, failure)));
+    assertSame(failure, thrown.getCause());
+    assertTrue(thrown.getMessage().contains(path.toString()));
+  }
+
+  private static ChangedPageTrackerFile.FileOperations failingInvalidation(int stage,
+      Exception failure) {
+    return new ChangedPageTrackerFile.FileOperations() {
+      @Override
+      boolean windows() {
+        return false;
+      }
+
+      @Override
+      void delete(Path target) throws IOException {
+        if (stage == 1) {
+          fail();
+        }
+        super.delete(target);
+      }
+
+      @Override
+      void forceFolder(Path target) throws IOException {
+        fail();
+      }
+
+      private void fail() throws IOException {
+        if (failure instanceof IOException checked) {
+          throw checked;
+        }
+        throw (RuntimeException) failure;
+      }
+    };
+  }
+
   // The throwing barrier removes authority and revokes live trust. Failed I/O must throw instead
   // of returning successful fallback. An invalidation Error must reach the owner by identity.
   @Test
@@ -153,6 +257,7 @@ public class ChangedPageTrackerStartupTest {
       Files.write(path, encode(true, true));
       var history = ChangedPageTrackerStartup.load(path);
       history.keepSavedTrust();
+      int[] deletes = {0};
       var files = new ChangedPageTrackerFile.FileOperations() {
         @Override
         boolean windows() {
@@ -162,6 +267,7 @@ public class ChangedPageTrackerStartupTest {
         @Override
         void delete(Path target) throws IOException {
           assertEquals(path.toAbsolutePath(), target);
+          deletes[0]++;
           if (failure instanceof Error error) {
             throw error;
           }
@@ -175,6 +281,8 @@ public class ChangedPageTrackerStartupTest {
       } else {
         assertTrue(thrown.getMessage().contains(path.toString()));
       }
+      assertEquals(failure instanceof Error ? 2 : 1, deletes[0]);
+      assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, history.resolution());
       assertFalse(history.tracker().isTrusted());
       assertEquals(MERGED, pages(capture(history.tracker()).active()));
       assertTrue(Files.size(path) > 0);
