@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofBatch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.ProofStatus;
@@ -75,7 +74,6 @@ public final class ChangedPageTrackerStartup {
       if (reader == null) {
         return notProved(history, Outcome.MISSING_READER, null, null);
       }
-      boolean historyUnresolved = false;
       while (true) {
         var batch = reader.next(MAX_BATCH_RECORDS);
         if (batch == null) {
@@ -91,9 +89,6 @@ public final class ChangedPageTrackerStartup {
             validInternalFileId(files, created.getFileId());
           } else if (record instanceof FileDeletedWALRecord deleted) {
             validInternalFileId(files, deleted.getFileId());
-          } else if (record instanceof NonTxOperationPerformedWALRecord) {
-            // Non-transactional changes lack WAL page records, so page history cannot be trusted.
-            historyUnresolved = true;
           } else if (record instanceof FileTruncatedWALRecord
               || record instanceof AtomicUnitStartRecord
               || record instanceof AtomicUnitEndRecord
@@ -107,9 +102,9 @@ public final class ChangedPageTrackerStartup {
                 + record.getClass().getName());
           }
         }
-        // An empty MORE batch is not an end signal. History uncertainty remains sticky.
+        // An empty MORE batch is not an end signal.
         if (terminalDecision(batch, shutdown) != ProofDecision.CONTINUE) {
-          return resolve(history, batch, shutdown, historyUnresolved);
+          return resolve(history, batch, shutdown);
         }
       }
     } catch (RuntimeException failure) {
@@ -151,7 +146,7 @@ public final class ChangedPageTrackerStartup {
   }
 
   public enum Outcome {
-    PROVED_HISTORY_TRUSTED, PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED, COVERAGE_NOT_PROVED, MISSING_COVERAGE, MISSING_EXTENT, MISSING_READER, MISSING_BATCH, READER_FAILURE
+    PROVED_HISTORY_TRUSTED, PROVED_HISTORY_UNTRUSTED, COVERAGE_NOT_PROVED, MISSING_COVERAGE, MISSING_EXTENT, MISSING_READER, MISSING_BATCH, READER_FAILURE
   }
 
   /**
@@ -164,8 +159,7 @@ public final class ChangedPageTrackerStartup {
     public StartupResult {
       boolean consistent = switch (outcome) {
         case PROVED_HISTORY_TRUSTED -> coverageProved && historyTrusted;
-        case PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED -> coverageProved
-            && !historyTrusted;
+        case PROVED_HISTORY_UNTRUSTED -> coverageProved && !historyTrusted;
         default -> !coverageProved && !historyTrusted;
       };
       if (!consistent) {
@@ -203,17 +197,11 @@ public final class ChangedPageTrackerStartup {
    * distrust history. A null shutdown state distrusts history for every batch status.
    */
   static StartupResult resolve(PendingHistory pending, @Nullable ProofBatch batch,
-      @Nullable ShutdownState shutdown, boolean identityUnresolved) {
+      @Nullable ShutdownState shutdown) {
     var terminalStatus = batch == null ? null : batch.status();
     var cause = batch == null ? null : batch.error();
     if (terminalDecision(batch, shutdown) != ProofDecision.PROVED) {
       return notProved(pending, Outcome.COVERAGE_NOT_PROVED, terminalStatus, cause);
-    }
-    if (identityUnresolved) {
-      pending.distrust();
-      warn(Outcome.PROVED_IDENTITY_UNRESOLVED, terminalStatus, cause);
-      return new StartupResult(true, false, Outcome.PROVED_IDENTITY_UNRESOLVED,
-          terminalStatus, cause);
     }
     pending.keepSavedTrust();
     boolean trusted = pending.savedTrusted() && pending.resolution() == Resolution.KEPT
