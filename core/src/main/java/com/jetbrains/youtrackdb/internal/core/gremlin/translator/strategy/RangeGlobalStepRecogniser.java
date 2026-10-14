@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
@@ -113,7 +115,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * one map is a post-plan operation and no ordering of the statement's clauses expresses a slice over
  * its output.
  *
- * <h2>Why a post-union slice needs a following {@code count()}</h2>
+ * <h2>Why a post-union slice needs a total order or a following {@code count()}</h2>
  *
  * A slice selects rows <em>by position</em>, and the multi-plan boundary's positions are not
  * native's. {@code MultiPlanMatchStep} emits child one's rows, then child two's; TinkerPop's
@@ -125,12 +127,14 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  *
  * <p>Matching native's order is not available: each union child is its own compiled MATCH plan over
  * the whole start set, so there is no per-traverser interleaving point to reproduce, and MATCH
- * promises no arrival order of its own. The slice therefore only survives when what follows reduces
- * it to a cardinality — {@code min(n, total)} and {@code max(0, total - n)} are the same whichever
- * order the arms arrived in. {@link #recognizePostUnion} accepts a positional slice only when the
- * very next step is {@code count()}, and declines every other post-union slice to the native
- * pipeline. A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) selects
- * no position at all and is accepted unconditionally.
+ * promises no arrival order of its own. A captured sort removes that difference before the slice
+ * only when {@link #hasSliceSafeOrder} holds. The branches must agree on element output. Result
+ * shaping must be plain ELEMENT, so it cannot drop a sliced row. The sort must contain the numeric
+ * RID key. Every sort key must read only the union output column. Branch rows do not retain source
+ * columns. Without this full proof, only an immediate {@code count()} makes the slice safe:
+ * {@code min(n, total)} and {@code max(0, total - n)} are independent of arrival order.
+ * A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) selects no
+ * position at all and is accepted unconditionally.
  *
  * <h2>What the decline costs</h2>
  *
@@ -144,11 +148,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * has()} keeps index-backed access either way, since {@code YTDBGraphStepStrategy} folds it into
  * {@code YTDBGraphStep}, so the loss is confined to non-leading filters and wide unions.
  *
- * <p>Post-concat {@code order()} already sorts the concatenated multiset in memory, but a real
- * post-union slice still declines unless the next step is {@code count()}. {@code
- * union(...).order().by(k).limit(n)} stays declined until this gate accepts a slice after a total
- * sort (unique key or an explicit tie-break to pin ties). Widening the accept surface earlier would
- * re-admit shapes whose answer depends on arrival order — the defect this gate exists to close.
+ * <p>A non-total post-concat sort does not make a row-returning slice safe. The captured proof
+ * distinguishes the numeric RID modulator from plain identity and {@code T.id}, even though all
+ * three can map to the same SQL attribute.
  */
 final class RangeGlobalStepRecogniser implements StepRecogniser {
 
@@ -311,16 +313,32 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     if (normalized.noop()) {
       return Outcome.ACCEPTED;
     }
-    // Positional gate (see the class Javadoc): the concatenation's row order is not native's, so a
-    // slice may only stand when the very next step collapses it to a cardinality. An op between the
-    // slice and the count does not qualify — union(...).limit(3).dedup().count() counts the distinct
-    // rows OF THE FIRST THREE, and which three those are is exactly what the two orders disagree
-    // about.
-    if (!followedByCount(cursor)) {
+    // The walker uses this same captured proof. An immediate count retains the order-free path.
+    if (!followedByCount(cursor) && !hasSliceSafeOrder(ctx)) {
       return Outcome.DECLINE;
     }
     ctx.appendPostConcatOp(new PostConcatOp.Range(normalized.skip(), normalized.limit()));
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * A row-returning slice needs a captured numeric RID key over the branches' agreed element
+   * output. Plain ELEMENT shaping cannot return SKIP or apply a later row-dedup filter. All sort
+   * keys must read the boundary column because union branch rows do not retain source columns.
+   */
+  static boolean hasSliceSafeOrder(RecognitionContext ctx) {
+    if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT
+        || !(ctx instanceof WalkerContext walker)
+        || !ResultShaping.NONE.equals(walker.shaping())) {
+      return false;
+    }
+    PostConcatOp.Order order = null;
+    for (var op : ctx.postConcatOps()) {
+      if (op instanceof PostConcatOp.Order captured) {
+        order = captured;
+      }
+    }
+    return order != null && order.hasNumericRidKey() && order.keysOnlyBoundary();
   }
 
   /**

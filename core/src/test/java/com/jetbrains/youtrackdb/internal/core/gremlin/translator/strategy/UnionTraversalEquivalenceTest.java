@@ -5,22 +5,28 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.util.GremlinValueComparator;
 import org.junit.Test;
 
 /**
@@ -1054,6 +1060,253 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         }
       }
     }
+  }
+
+  /**
+   * Forced ties and three overlapping branches exercise every slice spelling and both dedup
+   * positions. An independent numeric RID oracle checks exact members, multiplicity and sequence.
+   * Both missing-key modes must filter before the slice, not while projecting sliced rows.
+   */
+  @Test
+  public void orderedUnionSlices_matchExactSequenceWithTiesDuplicatesAndMissingKeys() {
+    var root = graph.addVertex(T.label, "Person", "name", "root");
+    var targets = new ArrayList<Vertex>();
+    for (int i = 0; i < 6; i++) {
+      var target = graph.addVertex(T.label, "Person", "name", "tie");
+      if (i % 2 == 0) {
+        target.property("age", 30);
+      }
+      root.addEdge("knows", target);
+      targets.add(target);
+    }
+    graph.tx().commit();
+    var id = root.id();
+    for (var direction : List.of(Order.asc, Order.desc)) {
+      for (boolean includesMissing : List.of(true, false)) {
+        for (int dedupPosition = 0; dedupPosition < 3; dedupPosition++) {
+          int position = dedupPosition;
+          var comparator = Comparator.comparing((Vertex vertex) -> (RID) vertex.id());
+          if (direction == Order.desc) {
+            comparator = comparator.reversed();
+          }
+          // Missing ages sort first ascending and last descending under the shipped placements.
+          var expected = targets.stream()
+              .filter(vertex -> includesMissing || vertex.property("age").isPresent())
+              .sorted(Comparator.comparing((Vertex vertex) -> vertex.property("age").isPresent(),
+                  direction == Order.asc ? Comparator.naturalOrder() : Comparator.reverseOrder())
+                  .thenComparing(comparator))
+              .flatMap(vertex -> java.util.Collections.nCopies(position == 0 ? 3 : 1, vertex)
+                  .stream())
+              .map(vertex -> vertex.id().toString()).toList();
+          for (int kind = 0; kind < 4; kind++) {
+            int sliceKind = kind;
+            Supplier<GraphTraversal<?, ?>> shape = () -> {
+              var traversal = graph.traversal()
+                  .with(YTDBQueryConfigParam.orderIncludesMissingKey, includesMissing)
+                  .V(id).union(__.out("knows"), __.out("knows"), __.out("knows"));
+              if (position == 1) {
+                traversal = traversal.dedup();
+              }
+              traversal = traversal.order().by("age", direction).by("name", direction);
+              if (position == 2) {
+                traversal = traversal.dedup();
+              }
+              return switch (sliceKind) {
+                case 0 -> traversal.limit(2);
+                case 1 -> traversal.range(1, 3);
+                case 2 -> traversal.skip(1);
+                default -> traversal.range(1, -1);
+              };
+            };
+            var scenario = "ordered union slice " + kind + " " + direction
+                + " includesMissing=" + includesMissing + " dedup=" + position;
+            assertEquivalentOrdered(scenario, Recognition.RECOGNIZED_MULTI_PLAN, shape);
+            int low = kind == 0 ? 0 : 1;
+            int high = kind < 2 ? Math.min(kind == 0 ? 2 : 3, expected.size()) : expected.size();
+            support.withTranslator(true, () -> assertThat(shape.get().toList().stream()
+                .map(value -> ((Vertex) value).id().toString()).toList())
+                .as(scenario).isEqualTo(expected.subList(low, high)));
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Committed rows in a lower collection and pending rows in a higher collection force numeric
+   * RID order to differ from TinkerPop orderability. Both slice directions cross that difference.
+   * Property ties, explicit T.id and identity must select the independent numeric RID sequence.
+   */
+  @Test
+  public void orderedUnionSlices_pendingRecordsAndTokenIdMatchNative() {
+    var schema = session.getMetadata().getSchema();
+    var vertexClass = schema.getClass("V");
+    var classes = new ArrayList<>(List.of(
+        schema.createClass("SlicePeopleA", 1, vertexClass),
+        schema.createClass("SlicePeopleB", 1, vertexClass)));
+    classes.sort(Comparator.comparingInt(type -> type.getCollectionIds()[0]));
+    // One collection per class removes random placement. Use actual IDs, not allocation order.
+    for (int i = 0; i < 3; i++) {
+      graph.addVertex(T.label, classes.getFirst().getName(), "age", 30, "name", "tie");
+    }
+    graph.tx().commit();
+    for (int i = 0; i < 2; i++) {
+      graph.addVertex(T.label, classes.getLast().getName(), "age", 30, "name", "tie");
+    }
+    var vertices = graph.traversal().V().toList();
+    assertThat(vertices).hasSize(5);
+    for (int i = 0; i < vertices.size(); i++) {
+      vertices.get(i).addEdge("next", vertices.get((i + 1) % vertices.size()));
+    }
+    var numeric = Comparator.comparing((Vertex vertex) -> (RID) vertex.id());
+    var numericRows = vertices.stream().sorted(numeric).toList();
+    var identityRows = vertices.stream().sorted(GremlinValueComparator.ORDERABILITY).toList();
+    assertThat(numericRows)
+        .as("the actual fixture must distinguish numeric RID order from orderability")
+        .isNotEqualTo(identityRows);
+    for (var direction : List.of(Order.asc, Order.desc)) {
+      var comparator = direction == Order.asc ? numeric : numeric.reversed();
+      var expected = vertices.stream().sorted(comparator)
+          .flatMap(vertex -> java.util.stream.Stream.of(vertex, vertex))
+          .map(vertex -> vertex.id().toString()).toList().subList(1, 8);
+      var identityComparator = direction == Order.asc
+          ? GremlinValueComparator.ORDERABILITY : GremlinValueComparator.ORDERABILITY.reversed();
+      var identitySlice = vertices.stream().sorted(identityComparator)
+          .flatMap(vertex -> java.util.stream.Stream.of(vertex, vertex))
+          .map(vertex -> vertex.id().toString()).toList().subList(1, 8);
+      assertThat(expected).as("the slice must retain differing rows " + direction)
+          .isNotEqualTo(identitySlice);
+      List<Supplier<GraphTraversal<?, ?>>> shapes = List.of(
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by("age", direction).range(1, 8),
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by(T.id, direction).by("name").range(1, 8),
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by(direction).by("name").range(1, 8));
+      for (var shape : shapes) {
+        assertEquivalentOrdered("pending numeric slice " + direction,
+            Recognition.RECOGNIZED_MULTI_PLAN, shape);
+        for (boolean translated : List.of(true, false)) {
+          support.withTranslator(translated, () -> assertThat(shape.get().toList().stream()
+              .map(value -> ((Vertex) value).id().toString()).toList()).isEqualTo(expected));
+        }
+      }
+    }
+  }
+
+  /**
+   * Boundary property, T.id and identity sorts stay translated. Their ended slices must produce
+   * exactly the adjacent operations that PostConcatStreams.apply recognises as a bounded sort.
+   */
+  @Test
+  public void orderedUnionLimits_captureBoundedSortOperationShapes() {
+    seedLongKnowsChain();
+    for (int key = 0; key < 3; key++) {
+      int sortKey = key;
+      for (boolean dedup : List.of(false, true)) {
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var traversal = graph.traversal().V().union(__.out("knows"), __.out("knows"))
+              .order();
+          if (sortKey == 0) {
+            traversal = traversal.by("name");
+          } else if (sortKey == 1) {
+            traversal = traversal.by(T.id);
+          }
+          if (dedup) {
+            traversal = traversal.dedup();
+          }
+          return traversal.limit(2);
+        };
+        assertEquivalentOrdered("bounded boundary sort key=" + key + " dedup=" + dedup,
+            Recognition.RECOGNIZED_MULTI_PLAN, shape);
+        support.withTranslator(true, () -> {
+          var admin = shape.get().asAdmin();
+          admin.applyStrategies();
+          var steps = admin.getSteps().stream().filter(MultiPlanMatchStep.class::isInstance)
+              .map(MultiPlanMatchStep.class::cast).toList();
+          assertThat(steps).hasSize(1);
+          var ops = steps.getFirst().getPostConcatOps();
+          // TinkerPop hoists dedup before order. The ended range must remain adjacent to order.
+          assertThat(ops.stream().map(op -> op.getClass().getSimpleName()).toList())
+              .containsExactly(dedup ? new String[] {"Dedup", "Order", "Range"}
+                  : new String[] {"Order", "Range"});
+          assertThat(ops.getLast()).isEqualTo(new PostConcatOp.Range(0, 2));
+        });
+      }
+    }
+  }
+
+  /** No numeric RID proof means decline, including unmodified token and identity slots. */
+  @Test
+  public void orderedUnionSlices_withoutTieBreakStrategyDecline() {
+    seedLongKnowsChain();
+    assertEquivalentOrdered("non-total property order", Recognition.DECLINED,
+        () -> graph.traversal().withoutStrategies(YTDBOrderRidTieBreakStrategy.class).V()
+            .union(__.out("knows"), __.in("knows")).order().by("name").limit(3));
+    assertEquivalentOrdered("plain token is not numeric RID proof", Recognition.DECLINED,
+        () -> graph.traversal().withoutStrategies(YTDBOrderRidTieBreakStrategy.class).V()
+            .union(__.out("knows"), __.in("knows")).order().by(T.id).limit(3));
+    assertEquivalentOrdered("plain identity is not numeric RID proof", Recognition.DECLINED,
+        () -> graph.traversal().withoutStrategies(YTDBOrderRidTieBreakStrategy.class).V()
+            .union(__.out("knows"), __.in("knows")).order().limit(3));
+  }
+
+  /**
+   * Branch rows do not retain the source label column. Every row-returning slice must decline a
+   * foreign source key even without dedup, in both missing-key modes, and preserve native rows.
+   */
+  @Test
+  public void orderedUnionSlices_foreignSourceKeyWithoutDedupDecline() {
+    var targets = new ArrayList<Vertex>();
+    targets.add(graph.addVertex(T.label, "Person", "name", "one"));
+    targets.add(graph.addVertex(T.label, "Person", "name", "two"));
+    graph.tx().commit();
+    targets.sort(Comparator.comparing(vertex -> (RID) vertex.id()));
+    // Reverse the source-name and target-RID orders so a missing primary key changes the slice.
+    graph.addVertex(T.label, "Person", "name", "z", "source", true)
+        .addEdge("knows", targets.getFirst());
+    graph.addVertex(T.label, "Person", "name", "a", "source", true)
+        .addEdge("knows", targets.getLast());
+    graph.tx().commit();
+    for (boolean includesMissing : List.of(true, false)) {
+      for (int kind = 0; kind < 3; kind++) {
+        int sliceKind = kind;
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var traversal = graph.traversal()
+              .with(YTDBQueryConfigParam.orderIncludesMissingKey, includesMissing)
+              .V().has("source", true).as("s").union(__.out("knows"), __.out("knows"))
+              .order().by(__.select("s").by("name"));
+          return switch (sliceKind) {
+            case 0 -> traversal.limit(2);
+            case 1 -> traversal.range(1, 3);
+            default -> traversal.skip(1);
+          };
+        };
+        assertEquivalentOrdered("foreign source slice=" + kind + " includesMissing="
+            + includesMissing, Recognition.DECLINED, shape);
+      }
+    }
+  }
+
+  /** Dedup cannot move before a sort keyed by a pre-union source rather than the output. */
+  @Test
+  public void orderedUnionSlice_foreignSourceKeyWithDedupDeclines() {
+    seedLongKnowsChain();
+    assertEquivalentOrdered("foreign source key with post-order dedup", Recognition.DECLINED,
+        () -> graph.traversal().V().as("a").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("a").by("name")).dedup().limit(2));
+  }
+
+  /** A total order does not admit tail or value outputs through the slice-only relaxation. */
+  @Test
+  public void orderedUnionTailAndValueSlices_decline() {
+    seedLongKnowsChain();
+    assertEquivalentOrdered("total order followed by tail", Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.out("knows"), __.in("knows"))
+            .order().by("name").tail(3));
+    assertEquivalentOrdered("values have no numeric RID key", Recognition.DECLINED,
+        () -> graph.traversal().V().union(__.values("name"), __.values("name"))
+            .order().limit(3));
   }
 
   /** An ended ordered slice over empty branches still translates and emits a zero count. */

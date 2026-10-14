@@ -735,6 +735,12 @@ interface RecognitionContext extends ParamSink, HasBindingContext.VertexClassFac
     throw new UnsupportedOperationException("post-concat ops are top-level only");
   }
 
+  /** Numeric RID proof for a post-union sort, shared with the pre-fork scan. */
+  default boolean unionOrderHasNumericRidKey(
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep<?, ?> step) {
+    return OrderGlobalStepRecogniser.hasNumericRidKey(step);
+  }
+
   /** Ordered post-concat ops stashed so far (empty when none). */
   default @Nonnull List<PostConcatOp> postConcatOps() {
     return List.of();

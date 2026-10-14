@@ -39,6 +39,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStep
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.ReverseStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.UnfoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
@@ -1731,6 +1732,24 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .isEqualTo(1);
   }
 
+  /** The pre-fork scan accepts a total ordered slice and rejects a plain RID-like slot. */
+  @Test
+  public void union_orderedSlice_reachesForkOnlyWithNumericRidKey() {
+    for (boolean numeric : List.of(true, false)) {
+      var admin = graph.traversal().V().union(__.out(), __.in())
+          .order().by(org.apache.tinkerpop.gremlin.structure.T.id).limit(2).asAdmin();
+      if (numeric) {
+        com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy
+            .instance().apply(admin);
+      }
+      var cursor = cursorAtUnion(admin);
+      var host = new CountingUnionForkHost(cursor, POST_UNION_GATE_REGISTRY);
+      assertThat(UnionStepRecogniser.INSTANCE.recognize(cursor, unionSeededContext(host)))
+          .isEqualTo(Outcome.DECLINE);
+      assertThat(host.forkCalls).isEqualTo(numeric ? 1 : 0);
+    }
+  }
+
   /**
    * Every recogniser on the post-union allow-list must answer {@link
    * StepRecogniser#selectsPositionally} itself rather than inherit the interface default. The
@@ -2098,6 +2117,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
           VertexStep.class, VertexStepRecogniser.INSTANCE,
           VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
           CountGlobalStep.class, CountGlobalStepRecogniser.INSTANCE,
+          OrderGlobalStep.class, OrderGlobalStepRecogniser.INSTANCE,
           RangeGlobalStep.class, RangeGlobalStepRecogniser.INSTANCE,
           RangeGlobalStepPlaceholder.class, RangeGlobalStepRecogniser.INSTANCE);
 
@@ -2144,7 +2164,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     @Override
     public boolean postUnionSuffixTranslatable() {
-      return GremlinStepWalker.postUnionSuffixTranslatable(cursor, recognisers);
+      return GremlinStepWalker.postUnionSuffixTranslatable(
+          cursor, recognisers, new WalkerContext(true, false));
     }
 
     @Override

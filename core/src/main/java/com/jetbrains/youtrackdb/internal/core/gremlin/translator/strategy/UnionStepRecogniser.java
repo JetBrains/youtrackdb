@@ -106,8 +106,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     // Cheapest gate first. Everything below forks the prefix into each arm and runs a complete
     // sub-walk per arm, and a suffix the walker will not claim post-union declines the traversal
     // regardless — so pay the O(suffix) look-ahead rather than N discarded sub-walks per
-    // compilation. The look-ahead reads the walker's own post-union allow-list, so it declines
-    // exactly the suffixes the walker's per-step gate declines.
+    // compilation. The look-ahead reads the walker's post-union allow-list and numeric RID proof.
+    // The per-step gate can still decline after checking branch output, shaping and boundary keys.
     if (!host.postUnionSuffixTranslatable()) {
       return Outcome.DECLINE;
     }

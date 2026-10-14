@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,6 +35,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
 /**
@@ -1247,6 +1249,17 @@ final class WalkerContext implements RecognitionContext {
       }
     }
     return false;
+  }
+
+  // The pre-fork scan sees the actual Gremlin step before a post-concat Order exists. Retain its
+  // proof by step identity so capture stores the same answer instead of inferring it from SQL.
+  private final Map<OrderGlobalStep<?, ?>, Boolean> unionOrderNumericRidKeys =
+      new IdentityHashMap<>();
+
+  @Override
+  public boolean unionOrderHasNumericRidKey(OrderGlobalStep<?, ?> step) {
+    return unionOrderNumericRidKeys.computeIfAbsent(
+        step, OrderGlobalStepRecogniser::hasNumericRidKey);
   }
 
   @Override

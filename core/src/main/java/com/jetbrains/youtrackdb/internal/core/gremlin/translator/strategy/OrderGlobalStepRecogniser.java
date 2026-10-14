@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFac
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
-import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -138,7 +137,8 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       if (!ctx.emitGroupEntries()) {
         appendPostConcatPresenceDrops(ctx, boundary, orderStep);
       }
-      ctx.appendPostConcatOp(new PostConcatOp.Order(List.copyOf(items)));
+      ctx.appendPostConcatOp(new PostConcatOp.Order(items,
+          ctx.unionOrderHasNumericRidKey(orderStep), orderKeysOnlyBoundary(boundary, items)));
       return Outcome.ACCEPTED;
     }
     if (!ctx.emitGroupEntries()) {
@@ -158,6 +158,12 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     ctx.recordOrderByCapture(
         boundary, ctx.emitGroupEntries() || orderKeysOnlyBoundary(boundary, items));
     return Outcome.ACCEPTED;
+  }
+
+  /** A plain T.id or identity slot is not the numeric RID key, even if it maps to SQL @rid. */
+  static boolean hasNumericRidKey(OrderGlobalStep<?, ?> step) {
+    return step.getComparators().stream()
+        .anyMatch(pair -> pair.getValue0() instanceof RecordIdSortKeyTraversal);
   }
 
   /**

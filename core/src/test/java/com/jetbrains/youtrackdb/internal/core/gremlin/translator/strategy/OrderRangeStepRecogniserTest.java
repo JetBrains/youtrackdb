@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.List;
@@ -865,6 +866,74 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /** A captured total union order accepts row-returning ranges without touching SQL clauses. */
+  @Test
+  public void postUnionOrderedRange_acceptsOnlyCapturedNumericRidProof() {
+    for (boolean numeric : List.of(true, false)) {
+      var ctx = unionCarrierContext();
+      var admin = graph.traversal().V().order().by(T.id).range(1, 3).asAdmin();
+      if (numeric) {
+        applyOrderTieBreak(admin);
+      }
+      assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, OrderGlobalStep.class), ctx)).isEqualTo(Outcome.ACCEPTED);
+      var order = (PostConcatOp.Order) ctx.postConcatOps().getLast();
+      assertThat(order.hasNumericRidKey()).isEqualTo(numeric);
+      assertThat(order.keysOnlyBoundary()).isTrue();
+      assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, RangeGlobalStep.class), ctx))
+          .isEqualTo(numeric ? Outcome.ACCEPTED : Outcome.DECLINE);
+      assertThat(ctx.skip).isNull();
+      assertThat(ctx.limit).isNull();
+    }
+  }
+
+  /** Foreign-column keys are absent from branch rows, with or without dedup around the sort. */
+  @Test
+  public void postUnionOrderedRange_foreignKeysDeclineWithEveryDedupPosition() {
+    for (int dedupPosition = 0; dedupPosition < 3; dedupPosition++) {
+      var ctx = unionCarrierContext();
+      var order = new PostConcatOp.Order(List.of(
+          ProjectionExpressionFactories.orderByProperty("foreign", "name", true),
+          ProjectionExpressionFactories.orderByRecordAttribute(BOUNDARY_ALIAS, "@rid", true)),
+          true, false);
+      if (dedupPosition == 1) {
+        ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
+      }
+      ctx.appendPostConcatOp(order);
+      if (dedupPosition == 2) {
+        ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
+      }
+      var admin = graph.traversal().V().limit(1).asAdmin();
+      assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, RangeGlobalStep.class), ctx)).isEqualTo(Outcome.DECLINE);
+    }
+  }
+
+  /** An agreed element shaping that deduplicates rows after the slice must still decline. */
+  @Test
+  public void postUnionOrderedRange_rowDroppingElementShapingDeclines() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().order().by("name").limit(1).asAdmin();
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
+    ctx.setRowDedupAlias(BOUNDARY_ALIAS);
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, RangeGlobalStep.class), ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** The total-order proof cannot make a property projection safe after a slice. */
+  @Test
+  public void postUnionOrderedRange_nonElementShapingDeclines() {
+    var ctx = unionCarrierContext();
+    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    ctx.appendPostConcatOp(new PostConcatOp.Order(List.of(
+        ProjectionExpressionFactories.orderByRecordAttribute(BOUNDARY_ALIAS, "@rid", true)),
+        true, true));
+    var admin = graph.traversal().V().limit(1).asAdmin();
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, RangeGlobalStep.class), ctx)).isEqualTo(Outcome.DECLINE);
   }
 
   // ---------------------------------------------------------------------------
