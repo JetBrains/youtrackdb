@@ -2836,19 +2836,52 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         () -> graph.traversal().V().hasId(P.eq(id)));
   }
 
-  /** Successful RID routes rewalk with private physical plans and never publish translation templates. */
+  /** Runtime RID routes copy shared templates on open, while predicate RID routes stay private. */
   @Test
-  public void ridRoutesKeepPhysicalPlansAndTranslationTemplatesPrivate() {
+  public void ridRoutesKeepPhysicalPlansAndTranslationTemplatesPrivate() throws Exception {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     alice.addEdge("knows", bob);
     graph.tx().commit();
     var db = graphSession();
     var cache = GremlinPlanCache.instance(db);
+    for (var runtimeRoute = 0; runtimeRoute < 2; runtimeRoute++) {
+      var raw = runtimeRoute == 0
+          ? graph.traversal().V(alice.id()).out("knows").asAdmin()
+          : graph.traversal().V().hasId(alice.id()).out("knows").asAdmin();
+      var decision = RuntimeRidStartEligibility.evaluate(raw, true);
+      var translation = GremlinToMatchTranslator.translate(raw, null, null, null, decision);
+      assertThat(translation.cacheEligible()).isTrue();
+      var fingerprint =
+          GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping());
+      var entry = GremlinToMatchStrategy.buildPlanEntry(db, translation,
+          new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true));
+      var publisher = org.mockito.Mockito.spy(entry.value);
+      org.mockito.Mockito
+          .doAnswer(invocation -> org.mockito.Mockito.spy(invocation.callRealMethod()))
+          .when(publisher).copy(org.mockito.ArgumentMatchers.any());
+      cache.putInternal(fingerprint, publisher, db, cache.getGeneration());
+      var template = cache.peekStored(fingerprint);
+      org.mockito.Mockito.clearInvocations(template);
+      for (var call = 0; call < 2; call++) {
+        var traversal = runtimeRoute == 0
+            ? graph.traversal().V(alice.id()).out("knows").asAdmin()
+            : graph.traversal().V().hasId(alice.id()).out("knows").asAdmin();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        var step = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+        assertThat(step.getPlan()).isSameAs(template);
+        assertThat(sortedNames(traversal.toList())).containsExactly("Bob");
+        assertThat(step.getPlan()).isNotSameAs(template);
+        traversal.close();
+        org.mockito.Mockito.verify(template, org.mockito.Mockito.never()).start();
+        org.mockito.Mockito.verify(template, org.mockito.Mockito.never()).close();
+      }
+      // Each route starts with a fresh physical and translation publication.
+      cache.invalidate();
+    }
     for (var call = 0; call < 2; call++) {
       var routes = List.of(
-          graph.traversal().V(alice.id()).out("knows").asAdmin(),
-          graph.traversal().V().hasId(alice.id()).out("knows").asAdmin(),
           graph.traversal().V().where(__.hasId(alice.id())).out("knows").asAdmin());
       for (var traversal : routes) {
         var extraction = GremlinStepWalker.extractShape(traversal, db);

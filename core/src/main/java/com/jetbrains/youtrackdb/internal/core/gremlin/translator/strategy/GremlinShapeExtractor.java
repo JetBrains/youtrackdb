@@ -75,10 +75,12 @@ final class GremlinShapeExtractor {
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
       @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
-      @Nullable Boolean polymorphic) {
+      @Nullable Boolean polymorphic,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     var extractor =
         new GremlinShapeExtractor(
-            recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
+            recognisers, transparentSteps,
+            new GremlinShapeEncoder(session.getSchema(), runtimeRidStart));
     extractor.appendStrategyFlags(
         traversal, orderIncludesMissingKey, polymorphic);
     extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS);
