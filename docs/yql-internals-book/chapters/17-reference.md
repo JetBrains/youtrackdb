@@ -56,7 +56,6 @@ abbreviates
 | `…/internal/core/sql/executor/match/KnownEndpointExistsStep.java` | Execution-time detached source or target choice and secured work counters | Ch. 13, 16 |
 | `…/internal/core/sql/executor/match/KnownEndpointExistsWalk.java` | Reverse candidate discovery with middle-vertex and edge-filter checks | Ch. 13 |
 | `…/internal/core/sql/executor/match/KnownEndpointSourceStep.java` | Secured scan-order candidate loading or source-scan read counting | Ch. 13, 16 |
-| `…/internal/core/sql/executor/match/NativeKnownEndpointStep.java` | Native known-RID or source-class choice using exact count bounds | Ch. 9, 16 |
 | `…/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` | Shared copied-row probe with first-match stop and context restoration. (`DetachedMatchPatternProbe.java:20–63`) | Ch. 13 |
 | `…/internal/core/sql/executor/match/MatchEdgeTraverser.java` | Standard forward traverser and base class for all traverser strategies | Ch. 12 |
 | `…/internal/core/sql/executor/match/MatchReverseEdgeTraverser.java` | Reverse-direction traverser; walks an edge against its written direction | Ch. 12 |
@@ -136,17 +135,14 @@ The test-only forced-path selectors expose no production configuration key.
 |---|---|---|---|---|
 | `THRESHOLD` | `MatchExecutionPlanner.java:336` | `100` | Prefetch cap: aliases whose estimated cardinality falls below this value are materialised by `MatchPrefetchStep` before the main traversal. Also used as the fallback `source_rows` estimate when no cardinality data is available. | Ch. 7, 11 |
 | `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:414` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
-| `SAFETY_MARGIN` | `KnownEndpointExistsCost.java:11` | `2` | Required strict cost advantage for detached target choice and native source-class switching | Ch. 9, 13 |
+| `SAFETY_MARGIN` | `KnownEndpointExistsCost.java:11` | `2` | Required strict cost advantage for detached target choice | Ch. 13 |
 | `UNBUDGETED_TARGETS` | `KnownEndpointExistsAccess.java:40` | `8` | Maximum input target collection size without a discovery budget for a single ordinary path item | Ch. 13 |
 
 ---
 
-Known-endpoint eligibility excludes index and RID-list source starts.
-Detached checks also exclude source prefetch.
-A native pattern rooted at a known RID retains it when the forward source plan uses an index.
+Detached known-endpoint eligibility excludes index and RID-list source starts and source prefetch.
 A plan already using a source index remains unchanged.
 [Chapter 13](13-hash-joins.md#which-checks-qualify) gives the full detached rules.
-[Chapter 9 §9.9](09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution) gives the native switch rules.
 
 ---
 
@@ -197,9 +193,8 @@ flowchart TB
 Planning runs on a cache miss (`MatchExecutionPlanner.java:626–630`). Phase 5 generates
 steps. Phase 6 appends exists then NOT. Phases 7–8 add cleanup and projection
 (`MatchExecutionPlanner.java:760–808`). Execution pulls rows on demand.
-Eligible known-endpoint wrappers select a complete branch before that branch starts.
-Detached target discovery completes before the first source row.
-Native source switching completes its secured storage-form preflight before the first row.
+Eligible detached known-endpoint wrappers select a complete branch before that branch starts.
+Target discovery completes before the first source row.
 Normal projection, ordering and paging follow the branch choice.
 Source-index paths remain outside these substitutions.
 `HashJoinMatchStep` builds eagerly before opening the outer stream
@@ -446,7 +441,7 @@ matching build-side payloads into the upstream row). (Ch. 13)
 ---
 
 **Known-RID start** — A plan start that loads the records named by known record identifiers.
-An eligible native pattern can compare this start with a plain source-class start. (Ch. 9)
+A positive pattern keeps the known-RID root chosen by the scheduler. (Ch. 9)
 
 ---
 

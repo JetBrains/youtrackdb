@@ -6,6 +6,14 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +87,115 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     likes("carol", "c2");
     likes("erin", "c3");
     session.commit();
+  }
+
+  /** A small source class and hub target must still start at the far node's known RID. */
+  @Test
+  public void nativePositivePatternStartsAtKnownRidAndKeepsParallelRows() throws Exception {
+    var sourceClass = session.createVertexClass("RidSource");
+    var noiseClass = session.createVertexClass("RidNoise");
+    session.createVertexClass("RidTarget");
+    session.execute("CREATE CLASS RidLink EXTENDS E ABSTRACT").close();
+    session.execute("CREATE CLASS RidSourceLink EXTENDS RidLink").close();
+    session.execute("CREATE CLASS RidNoiseLink EXTENDS RidLink").close();
+    session.getMetadata().getSchema().getClass("RidSourceLink")
+        .createProperty("out", PropertyType.LINK, sourceClass);
+    session.getMetadata().getSchema().getClass("RidNoiseLink")
+        .createProperty("out", PropertyType.LINK, noiseClass);
+    session.begin();
+    var target = session.newVertex("RidTarget");
+    var first = session.newVertex("RidSource");
+    first.setProperty("n", 10);
+    first.addEdge(target, "RidSourceLink");
+    first.addEdge(target, "RidSourceLink");
+    var second = session.newVertex("RidSource");
+    second.setProperty("n", 20);
+    second.addEdge(target, "RidSourceLink");
+    session.newVertex("RidSource").setProperty("n", 30);
+    session.newVertex("RidSource").setProperty("n", 40);
+    for (int i = 0; i < 64; i++) {
+      session.newVertex("RidNoise").addEdge(target, "RidNoiseLink");
+    }
+    session.commit();
+    session.begin();
+    var query = "MATCH {class:RidSource,as:s}.out('RidLink')"
+        + "{class:RidTarget,as:t,where:(@rid=" + target.getIdentity() + ")} RETURN s.n as n";
+    var plan = nativePlan(query);
+    try {
+      // Inspect the top-level root, not text from an unused alternative or a prefetch plan.
+      var root = plan.getSteps().stream().filter(MatchFirstStep.class::isInstance)
+          .map(MatchFirstStep.class::cast).findFirst().orElseThrow();
+      assertEquals("t", root.getAlias());
+      // Small pinned aliases are prefetched. The root reads that cache instead of a sub-plan.
+      var targetFetch = prefetchBlock(plan.prettyPrint(0, 2), "t");
+      assertTrue(targetFetch.contains("FETCH FROM RIDs"));
+      assertTrue(targetFetch.contains(target.getIdentity().toString()));
+      var rows = new ArrayList<Integer>();
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(plan.getContext())) {
+          rows.add(stream.next(plan.getContext()).getProperty("n"));
+        }
+      } finally {
+        stream.close(plan.getContext());
+      }
+      rows.sort(Integer::compareTo);
+      assertEquals(List.of(10, 10, 20), rows);
+    } finally {
+      plan.close();
+    }
+    session.commit();
+  }
+
+  /** A downstream inferred class must not reverse a recursive WHILE across its explicit root. */
+  @Test
+  public void inferredLeafCannotBecomeRecursiveRoot() throws Exception {
+    session.createVertexClass("RecursiveRoot");
+    var leaf = session.createVertexClass("RecursiveLeaf");
+    session.createEdgeClass("RecursiveEdge");
+    session.createEdgeClass("RecursiveTail").getProperty("in").setLinkedClass(leaf);
+    session.begin();
+    var root = session.newVertex("RecursiveRoot");
+    root.setProperty("n", 10);
+    var child = session.newVertex("RecursiveRoot");
+    child.setProperty("n", 20);
+    root.addEdge(child, "RecursiveEdge");
+    child.addEdge(session.newVertex("RecursiveLeaf"), "RecursiveTail");
+    for (int i = 0; i < 8; i++) {
+      session.newVertex("RecursiveRoot").setProperty("n", 30 + i);
+    }
+    session.commit();
+    session.begin();
+    var plan = nativePlan("MATCH {class:RecursiveRoot,as:r}"
+        + ".out('RecursiveEdge'){as:w,while:($depth<2),where:($depth=1)}"
+        + ".out('RecursiveTail'){as:l} RETURN r.n as n");
+    try {
+      var rootStep = plan.getSteps().stream().filter(MatchFirstStep.class::isInstance)
+          .map(MatchFirstStep.class::cast).findFirst().orElseThrow();
+      assertEquals("r", rootStep.getAlias());
+      var rows = new ArrayList<Integer>();
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(plan.getContext())) {
+          rows.add(stream.next(plan.getContext()).getProperty("n"));
+        }
+      } finally {
+        stream.close(plan.getContext());
+      }
+      assertEquals(List.of(10), rows);
+    } finally {
+      plan.close();
+    }
+    session.commit();
+  }
+
+  private SelectExecutionPlan nativePlan(String query) throws Exception {
+    var statement = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
+        query.getBytes(StandardCharsets.UTF_8))).parse();
+    var context = new BasicCommandContext();
+    context.setDatabaseSession(session);
+    context.setInputParameters(Map.of());
+    return (SelectExecutionPlan) statement.createExecutionPlanNoCache(context, true);
   }
 
   private void knows(String from, String to) {

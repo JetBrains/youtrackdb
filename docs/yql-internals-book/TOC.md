@@ -16,7 +16,7 @@ If you arrived at this book to solve a specific problem, start here.
 |---|---|
 | Slow query, unsure where to start | 16 (EXPLAIN), 3 (pipeline) |
 | Wrong root alias chosen | 9 (root selection), 16 (diagnosis), 8 (cost concepts) |
-| Known target but expensive source scan | 13 (known-endpoint detached checks), 9 §9.9 (native switch), 16 §16.9 (runtime choice) |
+| Known target but expensive source scan | 13 (known-endpoint detached checks), 9 §9.9 (known endpoints), 16 §16.9 (runtime choice) |
 | PROFILE omits discovery counts after fallback | 16 §16.9 (budget-switch fields), 13 (work budget) |
 | Missing reversal on edge | 10 (scheduling + invertibility), 16 |
 | Missing pre-filter / high fan-out loads | 14 (pre-filters), 16 |
@@ -85,8 +85,7 @@ Draws from: 12-cost-model.md.
 
 **Chapter 9 — Choosing Where to Start: Root Selection**
 Opens phase 3 of the planner. Explains `estimateRootEntries()`, the MAX_VALUE trick that protects against picking an unresolvable root, and how ties are broken. Works two examples end-to-end: one where class selectivity dominates, one where an indexed WHERE predicate flips the choice.
-Section 9.9 explains the native exact-count switch from a known-RID start to a plain source-class start.
-It covers security gates, source-index retention, paging costs and source-filter error exposure.
+Section 9.9 distinguishes known-RID roots in positive patterns from detached known-endpoint checks.
 Draws from: 07-root-selection.md.
 
 **Chapter 10 — Scheduling the Walk: Order and Direction**
@@ -135,7 +134,7 @@ Draws from: 11-walkthrough.md.
 
 **Chapter 16 — Reading EXPLAIN: Diagnosing Plans in Practice**
 How to read `EXPLAIN` output and diagnose common plan problems. Includes detached hash and per-row checks (`HashJoinMatchStep.java:445–454`, `FilterExistsMatchPatternStep.java:55–59`, `FilterNotMatchPatternStep.java:99–107`). Explains why LIMIT can favour per-row checks and why cached plans keep their path (`MatchExecutionPlanner.java:1493–1582`, `626–630`). Includes a debugging checklist.
-Section 16.9 explains detached and native known-endpoint plan branches, execution-time decisions and published PROFILE fields.
+Section 16.9 explains detached known-endpoint plan branches, execution-time decisions and published PROFILE fields.
 It explains missing discovery counters after a budget switch and statistics that include hidden records.
 Draws from: 11-walkthrough.md, 12-cost-model.md, 13-hash-joins.md and 14-index-assisted-traversal.md.
 

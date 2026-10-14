@@ -1,16 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
-import static net.bytebuddy.matcher.ElementMatchers.isBridge;
 import static net.bytebuddy.matcher.ElementMatchers.named;
-import static net.bytebuddy.matcher.ElementMatchers.not;
 import static net.bytebuddy.matcher.ElementMatchers.takesArguments;
 
-import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
-import java.util.AbstractCollection;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.Set;
 import net.bytebuddy.agent.ByteBuddyAgent;
@@ -26,13 +20,8 @@ public final class KnownEndpointBenchmarkProbe {
   public static final class Work {
     long loads;
     long sourceLoads;
-    long positions;
-    long rejectedPositions;
     long edgeEntries;
-    long preflight;
     long edgeLoads;
-    long transactionVisits;
-    int nativeDecisionDepth;
   }
 
   private record State(Work work, Set<Integer> sourceCollections, Set<Integer> edgeCollections,
@@ -54,23 +43,9 @@ public final class KnownEndpointBenchmarkProbe {
                 .and(takesArguments(3))))
             .visit(Advice.to(EstimateAdvice.class).on(named("approximateCountClass")
                 .and(takesArguments(String.class, boolean.class)))))
-        .type(named("com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl"))
-        .transform((builder, type, loader, module, domain) -> builder
-            .visit(Advice.to(TransactionAdvice.class).on(named("getRecordOperationsInternal"))))
-        .type(named(
-            "com.jetbrains.youtrackdb.internal.core.sql.executor.match.NativeKnownEndpointStep"))
-        .transform((builder, type, loader, module, domain) -> builder
-            .visit(Advice.to(NativeDecisionAdvice.class).on(named("attemptSource"))))
         .type(named("com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag"))
         .transform((builder, type, loader, module, domain) -> builder
             .visit(Advice.to(EdgeAdvice.class).on(named("iterator").and(takesArguments(0)))))
-        .type(named("com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass"))
-        .transform((builder, type, loader, module, domain) -> builder
-            .visit(Advice.to(PreflightAdvice.class).on(named("next").and(not(isBridge())))))
-        .type(named("com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage"))
-        .transform((builder, type, loader, module, domain) -> builder
-            .visit(Advice.to(CountAdvice.class).on(named("count")
-                .and(takesArguments(4)))))
         .installOn(ByteBuddyAgent.install());
     installed = true;
   }
@@ -101,81 +76,10 @@ public final class KnownEndpointBenchmarkProbe {
     }
   }
 
-  public static void nativeDecision(boolean entering) {
-    var state = STATE.get();
-    if (state != null && state.work != null) {
-      state.work.nativeDecisionDepth += entering ? 1 : -1;
-    }
-  }
-
-  public static Collection<RecordOperation> operations(Collection<RecordOperation> original) {
-    var state = STATE.get();
-    if (state == null || state.work == null || state.work.nativeDecisionDepth == 0) {
-      return original;
-    }
-    // Count actual next() calls, not the write-set size or calls that only inspect size().
-    // Restrict observation to native preparation, excluding retained query consumption.
-    return new AbstractCollection<>() {
-      @Override
-      public int size() {
-        return original.size();
-      }
-
-      @Override
-      public Iterator<RecordOperation> iterator() {
-        var iterator = original.iterator();
-        return new Iterator<>() {
-          @Override
-          public boolean hasNext() {
-            return iterator.hasNext();
-          }
-
-          @Override
-          public RecordOperation next() {
-            var operation = iterator.next();
-            state.work.transactionVisits++;
-            return operation;
-          }
-
-          @Override
-          public void remove() {
-            iterator.remove();
-          }
-        };
-      }
-    };
-  }
-
   public static long estimate(String name, boolean polymorphic, long actual) {
     var state = STATE.get();
     return state != null && state.sourceEstimate >= 0 && polymorphic
         && name.equals("BenchSource") ? state.sourceEstimate : actual;
-  }
-
-  public static void preflight(EntityImpl record) {
-    var state = STATE.get();
-    if (state != null && state.work != null
-        && state.sourceCollections.contains(record.getIdentity().getCollectionId())) {
-      state.work.preflight++;
-    }
-  }
-
-  public static Runnable count(Runnable original) {
-    var state = STATE.get();
-    if (state == null || state.work == null || original == null) {
-      return original;
-    }
-    return () -> {
-      try {
-        original.run();
-        state.work.positions++;
-      } catch (RuntimeException failure) {
-        // Storage can retry an optimistic read under a lock. A repeated rejected charge does
-        // not visit another position, so count rejected attempts separately from spent work.
-        state.work.rejectedPositions++;
-        throw failure;
-      }
-    };
   }
 
   public static Iterator<RidPair> edges(Iterator<RidPair> original) {
@@ -202,26 +106,6 @@ public final class KnownEndpointBenchmarkProbe {
     };
   }
 
-  public static class NativeDecisionAdvice {
-    @Advice.OnMethodEnter
-    public static void enter() {
-      KnownEndpointBenchmarkProbe.nativeDecision(true);
-    }
-
-    @Advice.OnMethodExit(onThrowable = Throwable.class)
-    public static void exit() {
-      KnownEndpointBenchmarkProbe.nativeDecision(false);
-    }
-  }
-
-  public static class TransactionAdvice {
-    @Advice.OnMethodExit
-    public static void exit(
-        @Advice.Return(readOnly = false) Collection<RecordOperation> operations) {
-      operations = KnownEndpointBenchmarkProbe.operations(operations);
-    }
-  }
-
   public static class EdgeAdvice {
     @Advice.OnMethodExit
     public static void exit(@Advice.Return(readOnly = false) Iterator<RidPair> iterator) {
@@ -244,17 +128,4 @@ public final class KnownEndpointBenchmarkProbe {
     }
   }
 
-  public static class PreflightAdvice {
-    @Advice.OnMethodExit
-    public static void exit(@Advice.Return EntityImpl record) {
-      KnownEndpointBenchmarkProbe.preflight(record);
-    }
-  }
-
-  public static class CountAdvice {
-    @Advice.OnMethodEnter
-    public static void enter(@Advice.Argument(value = 3, readOnly = false) Runnable hook) {
-      hook = KnownEndpointBenchmarkProbe.count(hook);
-    }
-  }
 }

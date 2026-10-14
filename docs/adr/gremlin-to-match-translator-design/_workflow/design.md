@@ -1500,32 +1500,17 @@ Checks run only on source records the chosen path reads.
 A skipped source record can therefore have an error that never appears on the target path.
 Read-policy side effects and cache fills from a failed attempt are not undone.
 
-A positive traversal without a detached check uses a separate native switch.
-An eligible one-hop pattern can compare its known-RID start with a plain forward source-class start.
-Exact source and compatible edge counts establish the cost advantage after visible target degree is read.
-Approximate counts only reject a switch.
-Pending transaction writes keep the known-RID start without scanning the write set.
-
-The source cost includes secured storage checks, its later scan and a forward edge-read upper bound.
-Native rows retain matching-edge multiplicity.
-`LIMIT` and `SKIP` contribute required-row and first-row work.
-Unordered paging slices can differ between starts, as can slices among equal sort values.
-The source filter applies to every record read by the source-class start, including unconnected sources.
-A switch can raise a source-filter error that the known-RID branch never reaches.
-
-Source-index paths are never replaced.
-A known-RID root remains when its forward source plan would use an index.
-An existing source-index root remains unchanged too.
+A positive traversal without a detached check keeps the root chosen by the MATCH scheduler.
+Its rows retain matching-edge multiplicity.
+Detached target discovery never replaces a source-index path.
 
 EXPLAIN shows retained alternatives, while PROFILE shows the selected path and reason.
 Detached counters include secured candidates and source records read.
 After a budget switch, output omits reverse edge reads and target loads rather than publishing allowance-dependent values.
-Native choice output publishes only path and reason beyond framework metadata and subplans.
-Class statistics and exact counts can include hidden records and affect path choice.
-Neither wrapper publishes its work allowance.
+Class statistics can include hidden records and affect path choice.
+The wrapper does not publish its work allowance.
 
 See [Chapter 13](../../../yql-internals-book/chapters/13-hash-joins.md#finding-sources-from-a-known-endpoint) for eligibility, budgets and security.
-See [Chapter 9 §9.9](../../../yql-internals-book/chapters/09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution) for native counts and paging.
 See [Chapter 16 §16.9](../../../yql-internals-book/chapters/16-reading-explain.md#169-observing-known-endpoint-choices) for exact plan fields.
 
 ### `OrStep` — boundary filters only
@@ -1878,8 +1863,8 @@ plan-cache concern for this shape.
 does exist: `approximateCountClass` reads a volatile per-cluster counter
 (`getApproximateRecordsCount`), O(1) but not snapshot-isolated, since it
 reflects the latest committed state plus the current transaction rather
-than the reader's MVCC snapshot. Known-endpoint decisions use approximate class counts only as cost signals.
-Native approximate counts can reject a switch, but exact counts must establish its cost advantage. Exposing it is an explicit, opt-in accuracy-versus-cost
+than the reader's MVCC snapshot. Detached known-endpoint decisions use approximate class counts only as cost signals.
+Exposing the count short-circuit is an explicit, opt-in accuracy-versus-cost
 decision that belongs in the engine and applies uniformly to SQL, GQL, and
 Gremlin: a mode on the count short-circuit, not a property of one
 front-end's step. Phase 1 leaves it detached exactly as it is now. Phase 2
@@ -2044,8 +2029,6 @@ index into the list:
 A *multiset* records each result element and its number of occurrences.
 Positive traversal tests compare result multisets without requiring the same natural order.
 Detached known-endpoint checks retain their scan-order contract unless the optional transaction result cache applies.
-The native switch can change unordered paging slices and slices among equal sort values.
-Its source-class start can also raise source-filter errors on records the known-RID start never reads.
 
 **Result ordering may change.** Native Gremlin executes left-to-right:
 the first `g.V()` step iterates the cluster scan in storage order, then
@@ -2142,7 +2125,6 @@ Known-endpoint target branches use only per-row checks:
 | `DetachedMatchPatternProbe` | Shared early-stop probe for per-row checks and detached hash overflow |
 | `KnownEndpointExistsStep` | Runtime choice between retained source-class and target-candidate branches |
 | `KnownEndpointSourceStep` | Secured candidate loads in scan order and source-read counting |
-| `NativeKnownEndpointStep` | Exact-count choice between known-RID and forward source-class branches |
 | `CartesianProductStep` | Joins disjoint patterns |
 | `ReturnMatchElementsStep` | Returns matched elements (`returnElements`) |
 | `ReturnMatchPathsStep` | Returns paths (`returnPaths`) |

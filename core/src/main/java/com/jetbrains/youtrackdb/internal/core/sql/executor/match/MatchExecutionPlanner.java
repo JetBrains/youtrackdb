@@ -792,8 +792,6 @@ public class MatchExecutionPlanner {
       }
     }
 
-    result = prepareNativeEndpointChoice(result, context, enableProfiling);
-
     // Inspect the built source before detached hash builds are attached. The alternative boundary
     // surrounds both branches, so no current-path build can run ahead of the execution-time choice.
     KnownEndpointExistsAccess endpointAccess = null;
@@ -6346,119 +6344,6 @@ public class MatchExecutionPlanner {
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }
-  }
-
-  /** Builds a guarded native choice around the entire positive branch, including prefetch. */
-  private SelectExecutionPlan prepareNativeEndpointChoice(SelectExecutionPlan current,
-      CommandContext context, boolean profilingEnabled) {
-    if (subPatterns.size() != 1 || matchExpressions.size() > 1
-        || pattern.aliasToNode.values().stream().anyMatch(PatternNode::isOptionalNode)) {
-      return current;
-    }
-    var expression = nativeEndpointExpression();
-    if (expression == null) {
-      return current;
-    }
-    String sourceAlias = expression.getOrigin().getAlias();
-    String sourceClass = aliasClasses.get(sourceAlias);
-    if (sourceClass == null || inferredWhileExprAliases.contains(sourceAlias)
-        || aliasPinnedRids.containsKey(sourceAlias) || expression.getItems().isEmpty()
-        || expression.getItems().size() > 2
-        || pattern.aliasToNode.size() != expression.getItems().size() + 1
-        || expression.getItems().stream().anyMatch(item -> item.getFilter() == null)) {
-      return current;
-    }
-    boolean txWasActive = context.getDatabaseSession().isTxActive();
-    SelectExecutionPlan alternative = null;
-    try {
-      KnownEndpointExistsStep.checkpoint("native plan");
-      // Collection constraints have no equivalent in this synthetic class-scan alternative.
-      if (expression.getOrigin().getCollectionName(context) != null
-          || expression.getItems().stream()
-              .anyMatch(item -> item.getFilter().getCollectionName(context) != null)) {
-        return current;
-      }
-      String targetAlias = expression.getItems().getLast().getFilter().getAlias();
-      var pinned = aliasPinnedRids.get(targetAlias);
-      var positive = current.getSteps().stream()
-          .filter(step -> !(step instanceof MatchPrefetchStep)).toList();
-      if (pinned == null || pinned.size() != 1 || positive.isEmpty()
-          || !(positive.getFirst() instanceof MatchFirstStep root)
-          || !targetAlias.equals(root.getAlias())
-          || positive.stream().skip(1).anyMatch(step -> step.getClass() != MatchStep.class)) {
-        return current;
-      }
-      var select = createSelectStatement(sourceClass, null, aliasFilters.get(sourceAlias));
-      var subContext = new BasicCommandContext();
-      subContext.setParentWithoutOverridingChild(context);
-      var scan = select.createExecutionPlan(subContext, profilingEnabled);
-      alternative = new SelectExecutionPlan(context);
-      var node = pattern.aliasToNode.get(sourceAlias);
-      alternative.chain(new MatchFirstStep(context, node.copy(), scan, profilingEnabled));
-      // Build the syntactic forward chain without a second scheduler or any eager source load.
-      // Every node constraint remains in its original path item. No row is deduplicated.
-      for (var item : expression.getItems()) {
-        if (node.out.size() != 1) {
-          return current;
-        }
-        var edge = node.out.iterator().next();
-        if (edge.item != item) {
-          return current;
-        }
-        alternative.chain(new MatchStep(context, new EdgeTraversal(edge, true), profilingEnabled));
-        node = edge.in;
-      }
-      var access = KnownEndpointExistsAccess.findNative(alternative, pattern, expression,
-          aliasClasses, aliasFilters, context);
-      if (access == null) {
-        return current;
-      }
-      var wrapper = new SelectExecutionPlan(context);
-      wrapper.chain(new NativeKnownEndpointStep(context, access, current, alternative,
-          pattern.aliasToNode.keySet(), limit, skip, detachedReturnNeedsFullInput(context),
-          profilingEnabled));
-      return wrapper;
-    } catch (RuntimeException failure) {
-      NativeKnownEndpointStep.discardAttempt(alternative, failure, context.getDatabaseSession(),
-          txWasActive);
-      return current;
-    }
-  }
-
-  /** Uses the same bounded linear shape for SQL expressions and front-end pattern inputs. */
-  @Nullable private SQLMatchExpression nativeEndpointExpression() {
-    if (!matchExpressions.isEmpty()) {
-      return matchExpressions.getFirst();
-    }
-    // Gremlin supplies path items on the graph, not a positive expression list. Preserve those
-    // exact items so the alternative retains the front-end's edge and endpoint constraints.
-    if (pattern.aliasToNode.size() < 2 || pattern.aliasToNode.size() > 3) {
-      return null;
-    }
-    var origins = pattern.aliasToNode.values().stream().filter(node -> node.in.isEmpty()).toList();
-    if (origins.size() != 1) {
-      return null;
-    }
-    var node = origins.getFirst();
-    var origin = new SQLMatchFilter(-1);
-    origin.setAlias(node.alias);
-    if (aliasFilters.get(node.alias) != null) {
-      origin.setFilter(aliasFilters.get(node.alias));
-    }
-    var expression = new SQLMatchExpression(-1);
-    expression.setOrigin(origin);
-    while (!node.out.isEmpty()) {
-      if (node.out.size() != 1 || expression.getItems().size() >= 2) {
-        return null;
-      }
-      var edge = node.out.iterator().next();
-      if (edge.in.in.size() != 1) {
-        return null;
-      }
-      expression.addItem(edge.item);
-      node = edge.in;
-    }
-    return expression.getItems().size() + 1 == pattern.aliasToNode.size() ? expression : null;
   }
 
   /**

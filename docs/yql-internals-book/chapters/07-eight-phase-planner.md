@@ -236,13 +236,9 @@ only literal slices, never their bound parameter values (`MatchExecutionPlanner.
 Cache hits return a plan copy without repeating scheduling or the hash-versus-per-row choice
 (`MatchExecutionPlanner.java:626–630`, `YqlExecutionPlanCache.java:178–184`).
 
-A cached known-endpoint plan can still start from different sides on two executions.
-For example, a native plan can choose the source class, then retain the known RID after a pending
-transaction write. The cached plan contains both branches, and its wrapper chooses before either
-branch emits a row (`NativeKnownEndpointStep.java:78–95`). Detached known-endpoint checks also
-choose at each execution. [Chapter 9 §9.9](09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution)
-introduces this exception. [Chapter 13](13-hash-joins.md#finding-sources-from-a-known-endpoint)
-explains its costs and bounded discovery.
+A cached plan for a detached known-endpoint check can choose a different branch at each execution.
+The wrapper chooses before either branch emits a row (`KnownEndpointExistsStep.internalStart()`).
+[Chapter 13](13-hash-joins.md#finding-sources-from-a-known-endpoint) explains its costs and bounded discovery.
 
 ### Concurrent sharing and the copy-on-read contract
 

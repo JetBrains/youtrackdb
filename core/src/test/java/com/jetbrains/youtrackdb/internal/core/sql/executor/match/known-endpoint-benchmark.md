@@ -25,7 +25,7 @@ An optional third argument selects comma-separated scenarios:
 
 ```bash
 bash core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/run-known-endpoint-benchmark.sh \
-  --smoke 3 source-small,limit-late,budget-middle,native-tx-large
+  --smoke 3 source-small,limit-late,budget-middle
 ```
 
 For JMH, omit `--smoke`. The main method accepts standard JMH runner options:
@@ -48,8 +48,6 @@ It also checks that OFF has no known-endpoint choice and identical work for all 
 AUTO, CURRENT and ALTERNATIVE select MATCH access paths only.
 In OFF mode all three selectors are identical controls, not different Gremlin access paths.
 CURRENT selects the retained MATCH path. It does not remove the wrapper or its planning cost.
-For positive-hop fixtures, OFF starts from the source class through the native graph step.
-The `native-` scenario prefix identifies a positive MATCH pattern, not translator OFF mode.
 
 Gremlin planning constructs a traversal and applies strategies without execution.
 RID-bearing shapes bypass the translation and plan caches.
@@ -59,7 +57,7 @@ Gremlin decision isolates the same private guarded MATCH preparation method in O
 OFF has no such decision. Its decision method returns immediately and is not a latency comparison.
 `GKE` smoke rows report full-consumption work, except for the `caller-one` fixture.
 The rows include translation mode, path, returned rows, source reads, record loads,
-adjacency entries, edge loads, discovery budget and native decision counters.
+adjacency entries, edge loads and discovery budget.
 
 ## Experiment matrix
 
@@ -88,18 +86,12 @@ assert that the estimate differs from the database count.
 | Canonical edge filter over the real uneven-degree budget fixture | `budget-edge-filter` |
 | Source count underestimated fourfold or overestimated fourfold | `stale-low`, `stale-high` |
 | Middle-walk and RID-preparation budget exhaustion | `budget-middle`, `budget-list` |
-| Native retained RID versus exact-count source start | `native-sparse`, `native-hub` |
-| Native decision with 1 and 4096 pending writes | `native-tx-small`, `native-tx-large` |
-| Native exact-count budget over 512 source tombstones | `native-tombstones` |
 
 Each fixture compares AUTO, CURRENT and ALTERNATIVE on the same data.
-CURRENT forces SOURCE for detached checks and RID for native patterns.
-ALTERNATIVE forces TARGET or SOURCE, respectively. Both alternatives retain eligibility and
-security gates. Forced detached TARGET also retains its discovery budget.
-Forced native SOURCE uses an unlimited exact-count position allowance, unlike AUTO.
-The `native-tombstones` fixture checks this difference. Tests assert the actual path and real work counters.
-The indexed fixtures therefore run the index path for all selectors.
-The pending-write native fixtures retain RID for all selectors.
+CURRENT forces SOURCE for detached checks.
+ALTERNATIVE forces TARGET while retaining eligibility, security gates and the discovery budget.
+Tests assert the actual path and real work counters.
+The indexed fixtures run the index path for all selectors.
 
 ## Measurement boundaries and interpretation
 
@@ -115,31 +107,20 @@ The `caller-one` CSV work row counts only the first row. Its execution timing st
 full consumption, while its first-row column measures the lazy call. `WITNESS` lines record
 the changed dimensions alongside each CSV row.
 
-Work instrumentation runs separately from timing. Session read hooks count all record loads
-and source loads. Storage hooks count successfully charged exact-count positions,
-including tombstones. Rejected position attempts have a separate counter.
-Optimistic retries can repeat an abort without spending a further position.
-An iterator hook counts native secured preflight rows. Detached counters report source records, candidates, reverse edges,
-target loads, budget switches and charged discovery work. Internal budget counters are accessed
-only in these tests. They are not new PROFILE output.
+Work instrumentation runs separately from timing.
+Session read hooks count all record loads and source loads.
+Detached counters report source records, candidates, reverse edges, target loads, budget switches and charged discovery work.
+Only these tests access internal budget counters. PROFILE does not publish those counters.
 
-A LinkBag iterator hook counts all adjacency entries visited, including native reverse work
-and forward rechecks. The composite work column adds charged discovery, record loads,
-count positions, adjacency entries and native decision transaction-operation visits.
-It is an experiment metric, not the production
-cost model. It overlaps some reverse-load and adjacency work.
-Compare the individual counters as well as the composite extra work against the better forced
-path. Native `source_records` counts source-load calls, including preflight and retained probe
-reloads. Detached `source_records` is the source-start counter. These are not unique RID counts.
-The deterministic detached bound applies to charged discovery work: it is at most the
-source-path estimate. The class-scan component is exact only without LIMIT. Wrong estimates
-and LIMIT do not promise a bound relative to actual query work. Native AUTO charges at most
-its RID-comparison position allowance, with rejected attempts reported separately.
-Pending native writes must perform zero exact-count positions and zero preflight rows.
-The `decision_tx_visits` counter counts actual transaction-operation iterator visits inside native
-preparation. Both pending-write fixtures require zero visits for every selector.
-A positive witness calls the count adjustment under observation and checks the complete pending
-operation count. The counter excludes retained query consumption and fixture setup.
+A LinkBag iterator hook counts all adjacency entries visited, including reverse discovery and forward rechecks.
+The composite work column adds charged discovery, record loads and adjacency entries.
+It is an experiment metric, not the production cost model.
+It overlaps some reverse-load and adjacency work.
+Compare the individual counters as well as the composite extra work against the better forced path.
+The `source_records` field counts secured source-start records, not unique record identifiers.
+The deterministic bound applies to charged discovery work: it is at most the source-path estimate.
+The class-scan component is exact only without LIMIT.
+Wrong estimates and LIMIT do not promise a bound relative to actual query work.
 
 The `stale-middle-adjacency` and `budget-middle` fixtures insert repeated real edge/source pairs
 only into the middle's reverse bag. They leave the forward result and real edge count unchanged.
@@ -157,8 +138,7 @@ Both edge-filter fixtures assert charged discovery stays within its budget.
 A test-only Byte Buddy agent observes real sessions without replacing their identities.
 Its thread-local scope enables counters only for untimed work experiments. It injects the
 wrong source estimate for stale-statistics execution. The installed method advice has a
-thread-local check in every timing scenario, including CURRENT. Native preparation also has
-entry and exit checks that CURRENT skips. These hooks add measurement overhead.
-No production file changes.
+thread-local check in every timing scenario, including CURRENT.
+These hooks add measurement overhead.
 Timings are diagnostic. No timing threshold is asserted. Short smoke results are not stable
 performance claims. Use JMH forks and sufficient warmup for performance comparisons.

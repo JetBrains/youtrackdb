@@ -657,35 +657,11 @@ Class statistics used for the allowance can include hidden records.
 The chosen path, reason and switch flag can therefore depend on hidden class populations.
 Output does not expose the allowance or discovery counts frozen at that allowance.
 
-Native positive patterns have a different wrapper:
-
-```text
-+ NATIVE KNOWN-ENDPOINT CHOICE (exact counts, margin 2.0)
-  RID:
-    ...
-  SOURCE:
-    ...
-```
-
-`RID` is the retained known-record-identifier start.
-`SOURCE` is the forward source-class branch.
-Apart from normal framework metadata and subplans, this step publishes only `path` and `reason`.
-Its path starts as `not started`, then becomes `rid` or `source`.
-It publishes no exact counts, target degree, preflight totals or count-work allowance.
-
-Exact counts can include policy-hidden records, so native path choice can also depend on hidden populations.
-The `SOURCE` branch visibly contains a class scan.
-The wrapper does not claim to eliminate that scan.
-
-For either wrapper, first check the selected path and reason in PROFILE.
+First check the selected path and reason in PROFILE.
 Then inspect the executed subplan and any normal `ORDER BY` sort outside the choice.
-A missing wrapper can mean ineligibility, including a source-index start.
-For detached checks, source prefetch also excludes the wrapper.
-No wrapper replaces a source-index path.
-
-The detached discovery budget does not govern the native exact-count switch.
-[Chapter 13](13-hash-joins.md#cost-and-bounded-discovery) describes its estimate-based bound.
-[Chapter 9 §9.9](09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution) describes native counts and paging.
+A missing wrapper can mean ineligibility, including a source-index start or source prefetch.
+The wrapper never replaces a source-index path.
+[Chapter 13](13-hash-joins.md#cost-and-bounded-discovery) describes the estimate-based discovery bound.
 
 ---
 
@@ -700,8 +676,6 @@ is defined there, cross-referenced to the chapter where it first appears.
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsStep.java:141`
   — publication rules. Structured and text output start at lines 527 and 536.
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/NativeKnownEndpointStep.java:374`
-  — native structured properties and text branch labels.
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLExplainStatement.java`
   — parses `EXPLAIN` and invokes `createExecutionPlan` on the inner statement.

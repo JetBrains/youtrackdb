@@ -364,10 +364,10 @@ at each call, not cached at startup
 (`EdgeFanOutEstimator.java:43`, `SelectivityEstimator.java:89`). A database
 administrator can adjust them at runtime. New planning uses the current values.
 A cached plan keeps its scheduling and hash-versus-per-row choices
-(`MatchExecutionPlanner.java:626–630`). Known-endpoint wrappers are an exception: they choose
-between their retained branches at each execution.
-[Chapter 9 §9.9](09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution)
-shows how a known endpoint can change the start before the first row.
+(`MatchExecutionPlanner.java:626–630`). Detached known-endpoint wrappers are an exception.
+They choose between their retained branches at each execution.
+[Chapter 9 §9.9](09-root-selection.md#99-known-endpoints-and-detached-checks)
+distinguishes those checks from positive patterns with known-RID roots.
 
 ---
 
@@ -390,15 +390,9 @@ are actually 50, the execution engine will produce all 50 results — it just do
 in an order the planner did not anticipate as most efficient. The cost of a bad
 estimate is a slower query, not a wrong answer.
 
-Suppose a cached native plan has four source records and a known target with a large reverse
-adjacency. The wrapper can choose a source scan for one execution. Add an unrelated pending
-write, and the next execution retains the known-RID start. The planner does not rebuild the
-pipeline. The wrapper chooses between two branches already present in the cached plan
-(`NativeKnownEndpointStep.java:78–95`).
-
 Scheduling and hash-versus-per-row choices remain fixed at planning time.
-Known-endpoint wrappers choose their branch before either branch emits a row, not after output
-has started. A detached wrapper can abandon bounded discovery and use its retained source scan
+Detached known-endpoint wrappers choose their branch before either branch emits a row.
+A wrapper can abandon bounded discovery and use its retained source scan
 (`KnownEndpointExistsStep.java:203–220`). The retained forward checks still decide which rows
 pass. [Chapter 13](13-hash-joins.md#cost-and-bounded-discovery) explains this execution-time
 choice and its work budget.

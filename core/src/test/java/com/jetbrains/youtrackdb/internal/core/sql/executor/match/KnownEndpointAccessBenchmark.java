@@ -74,8 +74,7 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       "type-all", "type-rare", "rids-short", "rids-long", "checks-one", "checks-many",
       "limit-early", "limit-late", "caller-one", "stale-middle-adjacency", "uneven-middle",
       "budget-uneven-middle", "edge-filter", "budget-edge-filter", "stale-low",
-      "stale-high", "budget-middle", "budget-list", "native-sparse", "native-hub",
-      "native-tx-small", "native-tx-large", "native-tombstones"})
+      "stale-high", "budget-middle", "budget-list"})
   public String scenario;
 
   @Param({"AUTO", "CURRENT", "ALTERNATIVE"})
@@ -109,15 +108,12 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
 
   private record Spec(int count, int degree, int breadth, int indexShare, int middleDegree,
       int noise, int ridCount, int extraChecks, boolean late, boolean limit, boolean one,
-      double staleShare, int skew, boolean nativePattern, int transactionSize, int tombstones,
-      int middleCount, boolean edgeFilter) {
+      double staleShare, int skew, int middleCount, boolean edgeFilter) {
 
     static Spec of(String name) {
       return new Spec(name.equals("source-large") ? 4096 : 512,
           name.equals("degree-high") ? 64 : name.equals("edge-filter") ? 4
-              : name.equals("type-all") ? 34
-                  : name.equals("native-hub")
-                      || name.startsWith("native-tx") || name.equals("native-tombstones") ? 128 : 2,
+              : name.equals("type-all") ? 34 : 2,
           name.equals("schema-wide") ? 16 : 1,
           name.equals("index-selective") ? 1 : name.equals("index-broad") ? 128 : 0,
           name.equals("middle-high") ? 64 : name.equals("middle-low")
@@ -130,9 +126,6 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
           name.equals("stale-low") ? 0.25 : name.equals("stale-high") ? 4 : 1,
           name.equals("stale-middle-adjacency") ? 128
               : name.equals("budget-middle") ? 10000 : 0,
-          name.startsWith("native-"), name.equals("native-tx-small") ? 1
-              : name.equals("native-tx-large") ? 4096 : 0,
-          name.equals("native-tombstones") ? 512 : 0,
           name.equals("uneven-middle") ? 65 : name.equals("budget-uneven-middle")
               || name.equals("budget-edge-filter") ? 520 : 1,
           name.contains("edge-filter"));
@@ -162,25 +155,17 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     source.createProperty("bucket", PropertyType.INTEGER);
     session.createVertexClass("BenchTarget");
     session.createVertexClass("BenchMiddle");
-    var noise = session.createVertexClass("BenchNoise");
+    session.createVertexClass("BenchNoise");
     session.createEdgeClass("BenchLink");
     session.createEdgeClass("BenchTail");
     session.createEdgeClass("BenchExtra");
-    // Disjoint linked endpoints make native forward-edge bounds exclude hub noise.
-    session.execute("CREATE CLASS BenchNative EXTENDS E ABSTRACT").close();
-    session.execute("CREATE CLASS BenchNativeSource EXTENDS BenchNative").close();
-    session.execute("CREATE CLASS BenchNativeNoise EXTENDS BenchNative").close();
-    session.getMetadata().getSchema().getClass("BenchNativeSource")
-        .createProperty("out", PropertyType.LINK, source);
-    session.getMetadata().getSchema().getClass("BenchNativeNoise")
-        .createProperty("out", PropertyType.LINK, noise);
     for (int i = 1; i < spec.breadth; i++) {
       session.execute("CREATE CLASS BenchSourceSub" + i + " EXTENDS BenchSource").close();
       session.execute("CREATE CLASS BenchLinkSub" + i + " EXTENDS BenchLink").close();
     }
     session.begin();
     var created = new ArrayList<Vertex>();
-    int count = spec.nativePattern ? 4 : spec.count;
+    int count = spec.count;
     for (int i = 0; i < count; i++) {
       created.add(session.newVertex(i % spec.breadth == 0 ? "BenchSource"
           : "BenchSourceSub" + (i % spec.breadth)));
@@ -212,7 +197,7 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       vertex.setProperty("bucket", i < spec.indexShare ? 1 : 0);
     }
     var endpoint = session.loadVertex(targets.getFirst());
-    int degree = spec.nativePattern ? 2 : spec.degree;
+    int degree = spec.degree;
     int matches = spec.middleDegree > 0 ? spec.middleDegree : degree;
     for (int i = 0; i < matches; i++) {
       int position = spec.late ? count - matches + i : i;
@@ -223,7 +208,7 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       boolean accepts = !spec.edgeFilter || spec.middleDegree > 0 || i % 2 == 0;
       for (int link = 0; link < links; link++) {
         var edge = vertex.addEdge(spec.middleDegree > 0 ? session.loadVertex(middle) : endpoint,
-            spec.nativePattern ? "BenchNativeSource" : "BenchLink");
+            "BenchLink");
         if (spec.edgeFilter || spec.middleCount > 1) {
           edge.setProperty("weight", accepts ? 1 : 0);
         }
@@ -239,29 +224,15 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     for (int i = 0; i < spec.noise; i++) {
       session.newVertex("BenchNoise").addEdge(endpoint, "BenchLink");
     }
-    if (spec.nativePattern) {
-      for (int i = 2; i < spec.degree; i++) {
-        session.newVertex("BenchNoise").addEdge(endpoint, "BenchNativeNoise");
-      }
-    }
-    var removed = new ArrayList<Vertex>();
-    for (int i = 0; i < spec.tombstones; i++) {
-      removed.add(session.newVertex("BenchSource"));
-    }
-    session.commit();
-    session.begin();
-    removed.forEach(v -> session.loadVertex(v.getIdentity()).delete());
     session.commit();
     if (spec.indexShare > 0) {
       session.execute("CREATE INDEX BenchSource.bucket ON BenchSource(bucket) NOTUNIQUE").close();
     }
     session.begin();
     actualDegree = java.util.stream.StreamSupport.stream(session.loadVertex(targets.getFirst())
-        .getEdges(Direction.IN, spec.nativePattern ? "BenchNative" : spec.middleDegree > 0
-            ? "BenchTail" : "BenchLink")
+        .getEdges(Direction.IN, spec.middleDegree > 0 ? "BenchTail" : "BenchLink")
         .spliterator(), false).count();
-    assertThat(actualDegree).isEqualTo(spec.nativePattern ? spec.degree
-        : spec.middleDegree > 0 ? 1 : spec.degree + spec.noise);
+    assertThat(actualDegree).isEqualTo(spec.middleDegree > 0 ? 1 : spec.degree + spec.noise);
     // Only stale-adjacency fixtures add reverse-only duplicates of a real edge/source pair.
     // Those duplicates leave both the forward oracle and the real edge count unchanged.
     if (spec.middleDegree > 0) {
@@ -296,19 +267,14 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         assertThat(middleAverage).isEqualTo(2).isLessThan(actualMiddleDegree);
       }
     }
-    for (int i = 0; i < spec.transactionSize; i++) {
-      session.newVertex("BenchNoise").setProperty("pending", i);
-    }
     transactionEntries = session.getTransactionInternal().getEntryCount();
-    assertThat(transactionEntries).isGreaterThanOrEqualTo(spec.transactionSize);
-    if (spec.transactionSize == 0 && spec.skew == 0) {
+    if (spec.skew == 0) {
       assertThat(transactionEntries).isZero();
     }
     assertThat(session.countClass("BenchSource")).isEqualTo(count);
     assertThat(session.getMetadata().getSchema().getClass("BenchSource").getAllSubclasses())
         .hasSize(spec.breadth - 1);
-    assertThat(session.countClass("BenchNoise")).isEqualTo(spec.noise
-        + (spec.nativePattern ? Math.max(0, spec.degree - 2) : 0) + spec.transactionSize);
+    assertThat(session.countClass("BenchNoise")).isEqualTo(spec.noise);
     for (int id : source.getPolymorphicCollectionIds()) {
       sourceCollections.add(id);
     }
@@ -336,10 +302,6 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         ? Collections.nCopies(spec.ridCount, targets.getFirst()) : List.copyOf(targets));
     assertThat(((List<?>) parameters.get("targets"))).hasSize(spec.ridCount);
     assertThat(checks).hasSize(1 + spec.extraChecks);
-    if (spec.nativePattern) {
-      positive = "MATCH {class:BenchSource,as:s}.out('BenchNative')"
-          + "{class:BenchTarget,as:t,where:(@rid=" + targets.getFirst() + ")} RETURN s.n as n";
-    }
     template = build(session);
     if (spec.indexShare > 0) {
       assertThat(template.getSteps()).noneMatch(KnownEndpointExistsStep.class::isInstance);
@@ -349,14 +311,10 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       }
     } else {
       assertThat(template.getSteps().getFirst()).as(template.prettyPrint(0, 2))
-          .isInstanceOf(spec.nativePattern
-              ? NativeKnownEndpointStep.class : KnownEndpointExistsStep.class);
-      preparation = (spec.nativePattern ? NativeKnownEndpointStep.class
-          : KnownEndpointExistsStep.class).getDeclaredMethod(
-              spec.nativePattern ? "attemptSource" : "attemptTarget",
-              com.jetbrains.youtrackdb.internal.core.command.CommandContext.class,
-              spec.nativePattern ? NativeKnownEndpointStep.Path.class
-                  : KnownEndpointExistsStep.Path.class);
+          .isInstanceOf(KnownEndpointExistsStep.class);
+      preparation = KnownEndpointExistsStep.class.getDeclaredMethod("attemptTarget",
+          com.jetbrains.youtrackdb.internal.core.command.CommandContext.class,
+          KnownEndpointExistsStep.Path.class);
       // Private preparation isolates decision work from retained-branch startup. Reflection stays
       // test-only and runs outside JMH execution/first-row measurements.
       preparation.setAccessible(true);
@@ -487,9 +445,6 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
 
   private SelectExecutionPlan build(DatabaseSessionEmbedded db) {
     var statement = parse(positive);
-    if (spec.nativePattern) {
-      return (SelectExecutionPlan) statement.createExecutionPlanNoCache(context(db), false);
-    }
     var pattern = new Pattern();
     statement.getMatchExpressions().forEach(pattern::addExpression);
     var classes = new HashMap<String, String>();
@@ -526,12 +481,8 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     }
   }
 
-  private Object selected(String selection) {
-    return spec.nativePattern ? switch (selection) {
-      case "CURRENT" -> NativeKnownEndpointStep.Path.RID;
-      case "ALTERNATIVE" -> NativeKnownEndpointStep.Path.SOURCE;
-      default -> NativeKnownEndpointStep.Path.AUTO;
-    } : switch (selection) {
+  private KnownEndpointExistsStep.Path selected(String selection) {
+    return switch (selection) {
       case "CURRENT" -> KnownEndpointExistsStep.Path.SOURCE;
       case "ALTERNATIVE" -> KnownEndpointExistsStep.Path.TARGET;
       default -> KnownEndpointExistsStep.Path.AUTO;
@@ -539,22 +490,18 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
   }
 
   private AutoCloseable force(String selection) {
-    return spec.nativePattern ? NativeKnownEndpointStep.forcePath(
-        (NativeKnownEndpointStep.Path) selected(selection))
-        : KnownEndpointExistsStep.forcePath(
-            (KnownEndpointExistsStep.Path) selected(selection));
+    return KnownEndpointExistsStep.forcePath(selected(selection));
   }
 
   private record Run(List<Integer> rows, String path, String reason, long sources, long candidates,
       long edges, long targets, double discovery, double budget, boolean switched,
-      long recordLoads, long sourceLoads, long countPositions, long preflight,
-      long adjacencyEntries, long rejectedPositions, long edgeLoads, long transactionVisits,
+      long recordLoads, long sourceLoads, long adjacencyEntries, long edgeLoads,
       long executionNanos, long firstNanos) {
     double observedWork() {
       // This diagnostic sum combines discovery charges, reads and adjacency visits. Some
       // discovery actions overlap the read counters. Assert the design budget only on discovery,
       // and report each physical counter separately so the sum cannot hide that overlap.
-      return discovery + recordLoads + countPositions + adjacencyEntries + transactionVisits;
+      return discovery + recordLoads + adjacencyEntries;
     }
   }
 
@@ -592,14 +539,10 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       var c = choice.counters();
       return new Run(rows, c.path, c.reason, c.sourceRecordsRead, c.candidates, c.edgeReads,
           c.targetLoads, c.discoveryWork, c.workBudget, c.budgetSwitch, work.loads,
-          work.sourceLoads, work.positions, work.preflight, work.edgeEntries,
-          work.rejectedPositions, work.edgeLoads, work.transactionVisits, elapsed, firstRowNanos);
+          work.sourceLoads, work.edgeEntries, work.edgeLoads, elapsed, firstRowNanos);
     }
-    return new Run(rows, first instanceof NativeKnownEndpointStep choice ? choice.path() : "index",
-        first instanceof NativeKnownEndpointStep choice ? choice.reason() : "ineligible",
-        work.sourceLoads, 0, 0, 0, 0, 0, false, work.loads, work.sourceLoads, work.positions,
-        work.preflight, work.edgeEntries, work.rejectedPositions, work.edgeLoads,
-        work.transactionVisits, elapsed, firstRowNanos);
+    return new Run(rows, "index", "ineligible", work.sourceLoads, 0, 0, 0, 0, 0, false,
+        work.loads, work.sourceLoads, work.edgeEntries, work.edgeLoads, elapsed, firstRowNanos);
   }
 
   private Run measuredWork(String selection, boolean one) throws Exception {
@@ -647,11 +590,7 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     var alternative = measuredWork("ALTERNATIVE", false);
     var automatic = measuredWork("AUTO", false);
     for (var run : List.of(current, alternative, automatic)) {
-      if (spec.nativePattern) {
-        assertThat(run.rows).containsExactlyInAnyOrderElementsOf(wanted);
-      } else {
-        assertThat(run.rows).containsExactlyElementsOf(wanted);
-      }
+      assertThat(run.rows).containsExactlyElementsOf(wanted);
       assertThat(run.recordLoads).isPositive();
       assertThat(run.adjacencyEntries).isPositive();
     }
@@ -661,50 +600,6 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       assertThat(automatic.path).isEqualTo("index");
       // The load hook also counts source reloads made by the retained forward EXISTS probe.
       assertThat(current.sourceLoads).isBetween((long) spec.indexShare, 3L * spec.indexShare);
-    } else if (spec.nativePattern) {
-      assertThat(current.path).isEqualTo("rid");
-      assertThat(current.countPositions).isZero();
-      assertThat(current.preflight).isZero();
-      assertThat(current.adjacencyEntries).isEqualTo(actualDegree);
-      if (spec.transactionSize > 0) {
-        // A positive witness proves that the hook counts every operation in a class-count scan.
-        var witness = new Work();
-        try (var scoped = probe(witness)) {
-          KnownEndpointBenchmarkProbe.nativeDecision(true);
-          try {
-            session.approximateCountClass("BenchSource");
-          } finally {
-            KnownEndpointBenchmarkProbe.nativeDecision(false);
-          }
-        }
-        assertThat(witness.transactionVisits).isEqualTo(transactionEntries);
-        for (var run : List.of(current, automatic, alternative)) {
-          assertThat(run.transactionVisits).as("native decision transaction-operation visits")
-              .isZero();
-        }
-        for (var run : List.of(automatic, alternative)) {
-          assertThat(run.path).isEqualTo("rid");
-          assertThat(run.reason).isEqualTo("pending transaction writes");
-          assertThat(run.countPositions).isZero();
-          assertThat(run.preflight).isZero();
-          assertThat(run.recordLoads).isEqualTo(current.recordLoads);
-          assertThat(run.adjacencyEntries).isEqualTo(current.adjacencyEntries);
-        }
-      } else {
-        assertThat(alternative.path).isEqualTo("source");
-        assertThat(alternative.preflight).isEqualTo(4);
-        assertThat(alternative.countPositions).isGreaterThanOrEqualTo(6);
-        if (spec.tombstones > 0) {
-          assertThat(automatic.path).isEqualTo("rid");
-          assertThat(automatic.reason).isEqualTo("exact count work budget");
-          assertThat(automatic.countPositions)
-              .isLessThanOrEqualTo(
-                  (long) (actualDegree / KnownEndpointExistsCost.SAFETY_MARGIN));
-          assertThat(automatic.rejectedPositions).isPositive();
-        } else {
-          assertThat(automatic.path).isEqualTo(spec.degree > 2 ? "source" : "rid");
-        }
-      }
     } else {
       assertThat(current.path).isEqualTo("source");
       assertThat(current.sources).isEqualTo(spec.limit
@@ -785,14 +680,12 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     var firstAlternative = measuredWork("ALTERNATIVE", true);
     var firstAutomatic = measuredWork("AUTO", true);
     assertThat(firstAutomatic.path).isEqualTo(automatic.path);
-    if (!spec.nativePattern) {
-      assertThat(firstAlternative.rows).isEqualTo(firstCurrent.rows);
-      assertThat(firstAutomatic.rows).isEqualTo(firstCurrent.rows);
-      for (var run : List.of(firstAlternative, firstAutomatic)) {
-        if (run.path.equals("target")) {
-          assertThat(run.sources).isEqualTo(1);
-          assertThat(run.candidates).isEqualTo(1);
-        }
+    assertThat(firstAlternative.rows).isEqualTo(firstCurrent.rows);
+    assertThat(firstAutomatic.rows).isEqualTo(firstCurrent.rows);
+    for (var run : List.of(firstAlternative, firstAutomatic)) {
+      if (run.path.equals("target")) {
+        assertThat(run.sources).isEqualTo(1);
+        assertThat(run.candidates).isEqualTo(1);
       }
     }
   }
@@ -841,19 +734,19 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       }
       var work = runs.get(path);
       System.out.printf(java.util.Locale.ROOT,
-          "KE,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%s,%d,%d,%d,%d,%.2f,%.4f,%d,%d,%d,%d%n",
+          "KE,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%s,%d,%d,%.2f,%.4f,%d,%d%n",
           scenario, path, work.path, median(planning), median(execution), median(first),
           median(decision), work.sources, work.candidates, work.edges, work.targets,
-          work.recordLoads, work.discovery, work.budget, work.switched, work.countPositions,
-          work.preflight, actualDegree, transactionEntries, work.observedWork() - bestWork,
+          work.recordLoads, work.discovery, work.budget, work.switched,
+          actualDegree, transactionEntries, work.observedWork() - bestWork,
           (double) median(decision) / Math.max(1, currentExecution), work.adjacencyEntries,
-          work.rejectedPositions, work.edgeLoads, work.transactionVisits);
+          work.edgeLoads);
       System.out.printf(java.util.Locale.ROOT,
           "WITNESS,%s,source_count=%d,breadth=%d,index_matches=%d,middle_degree=%d,"
               + "source_type_share=%.4f,rids=%d,checks=%d,estimate_share=%.2f,"
               + "middle_count=%d,middle_edge_records=%d,middle_average=%.2f%n",
-          scenario, spec.nativePattern ? 4 : spec.count, spec.breadth, spec.indexShare,
-          actualMiddleDegree, spec.nativePattern || spec.middleDegree > 0 ? 1
+          scenario, spec.count, spec.breadth, spec.indexShare,
+          actualMiddleDegree, spec.middleDegree > 0 ? 1
               : (double) expected.size() / Math.max(1, actualDegree),
           spec.ridCount, checks.size(), spec.staleShare, middles.size(), middleEdgeRecords,
           middleAverage);
@@ -885,9 +778,6 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         bag.add(edge.getIdentity(), sources.getFirst());
       }
     }
-    for (int i = 0; i < spec.transactionSize; i++) {
-      session.newVertex("BenchNoise").setProperty("pending", i);
-    }
     assertThat(session.getTransactionInternal().getEntryCount()).isEqualTo(transactionEntries);
     var saved = translation;
     var onRows = new HashMap<String, List<Integer>>();
@@ -912,14 +802,11 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
           if (mode.equals("ON")) {
             onRows.put(selection, run.rows);
             if (spec.indexShare == 0) {
-              assertThat(run.path).isEqualTo(spec.nativePattern
-                  ? selection.equals("CURRENT") || spec.transactionSize > 0
-                      || (selection.equals("AUTO") && (spec.degree == 2 || spec.tombstones > 0))
-                          ? "rid" : "source"
-                  : selection.equals("CURRENT") || scenario.startsWith("budget-")
-                      || (selection.equals("AUTO") && Set.of("degree-high", "middle-high",
-                          "type-all", "type-rare", "rids-long").contains(scenario))
-                              ? "source" : "target");
+              assertThat(run.path).isEqualTo(selection.equals("CURRENT")
+                  || scenario.startsWith("budget-")
+                  || (selection.equals("AUTO") && Set.of("degree-high", "middle-high",
+                      "type-all", "type-rare", "rids-long").contains(scenario))
+                          ? "source" : "target");
             }
             if (scenario.startsWith("budget-") && !selection.equals("CURRENT")) {
               assertThat(run.switched).isTrue();
@@ -931,18 +818,11 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
             if (!spec.limit) {
               // Edge materialization can reload the source endpoint as well as scan it.
               assertThat(run.sourceLoads).isGreaterThanOrEqualTo(spec.indexShare > 0
-                  ? spec.indexShare : spec.nativePattern ? 4 : spec.count);
+                  ? spec.indexShare : spec.count);
             }
             assertThat(run.discovery).isZero();
-            assertThat(run.countPositions).isZero();
-            assertThat(run.transactionVisits).isZero();
             assertThat(run.switched).isFalse();
             offRuns.add(run);
-          }
-          if (spec.transactionSize > 0) {
-            assertThat(run.transactionVisits).isZero();
-            assertThat(run.countPositions).isZero();
-            assertThat(run.preflight).isZero();
           }
         }
       }
@@ -964,9 +844,7 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
       var first = consumeGremlin(traversal, "AUTO", true, new Work());
       assertThat(first.rows).hasSize(1);
       assertThat(expected).contains(first.rows.getFirst());
-      if (!spec.nativePattern) {
-        assertThat(first.rows).containsExactly(expected.getFirst());
-      }
+      assertThat(first.rows).containsExactly(expected.getFirst());
     }
   }
 
@@ -975,16 +853,11 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, translation.equals("ON"));
   }
 
-  /** Match the direct fixture, including EXISTS multiplicity and positive-hop source selection. */
+  /** Match the direct fixture, including EXISTS multiplicity and all detached checks. */
   private Traversal.Admin<?, ?> gremlin() {
     var traversal = graph.traversal().V().hasLabel("BenchSource");
     if (spec.indexShare > 0) {
       traversal.has("bucket", 1);
-    }
-    if (spec.nativePattern) {
-      return traversal.as("s").out("BenchNative").hasLabel("BenchTarget")
-          .hasId(targets.getFirst()).select("s")
-          .values("n").asAdmin();
     }
     GraphTraversal<?, ?> check = spec.edgeFilter
         ? __.outE("BenchLink").has("weight", 1).inV()
@@ -1014,13 +887,13 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         .findFirst().orElse(null);
   }
 
-  private static Object choice(InternalExecutionPlan plan) {
+  private static KnownEndpointExistsStep choice(InternalExecutionPlan plan) {
     if (plan == null) {
       return null;
     }
     for (var step : plan.getSteps()) {
-      if (step instanceof KnownEndpointExistsStep || step instanceof NativeKnownEndpointStep) {
-        return step;
+      if (step instanceof KnownEndpointExistsStep knownEndpoint) {
+        return knownEndpoint;
       }
       for (var child : ((ExecutionStepInternal) step).getSubExecutionPlans()) {
         var found = choice((InternalExecutionPlan) child);
@@ -1052,19 +925,15 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
     }
     var selected = choice(gremlinPlan(traversal));
     Run run;
-    if (selected instanceof KnownEndpointExistsStep step) {
-      var c = step.counters();
+    if (selected != null) {
+      var c = selected.counters();
       run = new Run(rows, c.path, c.reason, c.sourceRecordsRead, c.candidates, c.edgeReads,
           c.targetLoads, c.discoveryWork, c.workBudget, c.budgetSwitch, work.loads,
-          work.sourceLoads, work.positions, work.preflight, work.edgeEntries,
-          work.rejectedPositions, work.edgeLoads, work.transactionVisits, elapsed, first);
+          work.sourceLoads, work.edgeEntries, work.edgeLoads, elapsed, first);
     } else {
-      run = new Run(rows, selected instanceof NativeKnownEndpointStep step ? step.path()
-          : translation.equals("OFF") ? "gremlin" : "index",
-          selected instanceof NativeKnownEndpointStep step ? step.reason() : "no choice",
-          work.sourceLoads, 0, 0, 0, 0, 0, false, work.loads, work.sourceLoads, work.positions,
-          work.preflight, work.edgeEntries, work.rejectedPositions, work.edgeLoads,
-          work.transactionVisits, elapsed, first);
+      run = new Run(rows, translation.equals("OFF") ? "gremlin" : "index", "no choice",
+          work.sourceLoads, 0, 0, 0, 0, 0, false, work.loads, work.sourceLoads,
+          work.edgeEntries, work.edgeLoads, elapsed, first);
     }
     traversal.close();
     return run;
@@ -1106,11 +975,11 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
         closeInvocation();
       }
       System.out.printf(java.util.Locale.ROOT,
-          "GKE,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%s,%d,%d,%d,%d%n",
+          "GKE,%s,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.2f,%.2f,%s,%d%n",
           scenario, translation, selection, run.path, median(planning), median(execution),
           median(first), median(decision), run.rows.size(), run.sources, run.sourceLoads,
           run.recordLoads, run.adjacencyEntries, run.edgeLoads, run.discovery, run.budget,
-          run.switched, run.edges, run.countPositions, run.preflight, run.transactionVisits);
+          run.switched, run.edges);
     }
   }
 
@@ -1127,13 +996,12 @@ public class KnownEndpointAccessBenchmark extends DbTestBase {
           .getAnnotation(Param.class).value();
       System.out.println("KE,scenario,selector,path,planning_ns,execution_ns,first_row_ns,"
           + "decision_ns,source_records,candidates,reverse_edges,target_loads,record_loads,"
-          + "discovery_work,budget,budget_switch,count_positions,preflight,degree,tx_entries,"
-          + "extra_vs_best_work,decision_over_current_execution,adjacency_entries,rejected_positions,"
-          + "edge_record_loads,decision_tx_visits");
+          + "discovery_work,budget,budget_switch,degree,tx_entries,"
+          + "extra_vs_best_work,decision_over_current_execution,adjacency_entries,edge_record_loads");
       System.out.println("GKE,scenario,translation,selector,path,planning_ns,execution_ns,"
           + "first_row_ns,decision_ns,rows,source_records,source_loads,record_loads,"
           + "adjacency_entries,edge_record_loads,discovery_work,budget,budget_switch,"
-          + "reverse_edges,count_positions,preflight,decision_tx_visits");
+          + "reverse_edges");
       for (var name : cases) {
         if (args.length > 2 && !List.of(args[2].split(",")).contains(name)) {
           continue;

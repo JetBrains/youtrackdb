@@ -693,7 +693,6 @@ It accepts only a `LinkBag`, a relationship container that supports an unfiltere
 A stored list requires fallback even when the schema declares a link bag.
 Targets and middle vertices receive these actual-record checks during discovery.
 
-The native switch also checks actual source adjacency values before using its forward branch.
 All required storage-form checks finish before any row appears.
 Unavailable middle vertices or explicit edge records also require fallback.
 
@@ -709,9 +708,6 @@ The target branch evaluates source filters, read policies and detached checks on
 An error on a source that this branch never reads can therefore be absent.
 On records it does read, the retained checks still apply in scan order.
 This is the same visited-record rule used by index and known-RID starts.
-
-A native source-class switch can instead visit extra sources and raise their source-filter errors.
-[Chapter 9 §9.9](09-root-selection.md#99-a-known-endpoint-can-change-the-start-at-execution) describes that separate exact-count switch.
 
 [Chapter 16 §16.9](16-reading-explain.md#169-observing-known-endpoint-choices) lists the plan fields and the budget-switch publication rules.
 
