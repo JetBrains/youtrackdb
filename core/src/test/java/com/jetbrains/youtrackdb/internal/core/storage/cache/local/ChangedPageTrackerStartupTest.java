@@ -136,21 +136,23 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
-  // Before verification, successful invalidation resolves the gate without losing candidates.
+  // Successful invalidation resolves history and clears the gate before delete and folder force.
+  // It retains candidates and allows a later full backup to restore trust.
   @Test
   public void durableDistrustBeforeVerifyClearsGateOnSuccessAndAllowsFullBackupTrust()
       throws Exception {
     assertPendingBarrier(0);
   }
 
-  // A failed delete still resolves pending history, and a later full backup can restore trust.
+  // History and the gate are resolved before a failed delete. A full backup can restore trust.
   @Test
   public void durableDistrustBeforeVerifyClearsGateOnDeleteFailureAndAllowsFullBackupTrust()
       throws Exception {
     assertPendingBarrier(1);
   }
 
-  // A failed folder force retains coverage and candidates but must not leave verification pending.
+  // History and the gate are resolved before delete and a failed folder force.
+  // Coverage and candidates remain available for a later full backup.
   @Test
   public void durableDistrustBeforeVerifyClearsGateOnForceFailureAndAllowsFullBackupTrust()
       throws Exception {
@@ -162,12 +164,17 @@ public class ChangedPageTrackerStartupTest {
     Files.write(path, encode(true, true));
     var pending = ChangedPageTrackerStartup.load(path);
     assertTrue(pending.savedTrusted());
+    var resolutions = new ArrayList<ChangedPageTrackerStartup.Resolution>();
+    var clearedGates = new ArrayList<Boolean>();
+    var files = invalidationOperations(stage, new IOException("injected barrier failure"),
+        () -> observeDistrustBeforeFileWork(pending, resolutions, clearedGates));
     if (stage == 0) {
-      ChangedPageTrackerStartup.durableDistrust(path, pending);
+      ChangedPageTrackerStartup.durableDistrust(path, pending, files);
     } else {
-      assertThrows(IOException.class, () -> ChangedPageTrackerStartup.durableDistrust(path,
-          pending, failingInvalidation(stage, new IOException("injected barrier failure"))));
+      assertThrows(IOException.class,
+          () -> ChangedPageTrackerStartup.durableDistrust(path, pending, files));
     }
+    assertDistrustObservations(stage == 1 ? 1 : 2, resolutions, clearedGates);
     assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
     assertFalse(pending.tracker().isTrusted());
     assertMarksAndCoverage(pending);
@@ -210,8 +217,32 @@ public class ChangedPageTrackerStartupTest {
     assertTrue(thrown.getMessage().contains(path.toString()));
   }
 
+  private static void observeDistrustBeforeFileWork(
+      ChangedPageTrackerStartup.PendingHistory pending,
+      List<ChangedPageTrackerStartup.Resolution> resolutions, List<Boolean> clearedGates) {
+    // Record instead of asserting inside I/O, where an AssertionError can trigger a cleanup retry.
+    resolutions.add(pending.resolution());
+    long mutation = capture(pending.tracker()).mutationVersion();
+    pending.tracker().startupVerificationPending(false);
+    clearedGates.add(mutation == capture(pending.tracker()).mutationVersion());
+  }
+
+  private static void assertDistrustObservations(int callbacks,
+      List<ChangedPageTrackerStartup.Resolution> resolutions, List<Boolean> clearedGates) {
+    // Exact counts also reject a stub that never observes a reachable file callback.
+    assertEquals(Collections.nCopies(callbacks, ChangedPageTrackerStartup.Resolution.DISTRUSTED),
+        resolutions);
+    assertEquals(Collections.nCopies(callbacks, true), clearedGates);
+  }
+
   private static ChangedPageTrackerFile.FileOperations failingInvalidation(int stage,
       Exception failure) {
+    return invalidationOperations(stage, failure, () -> {
+    });
+  }
+
+  private static ChangedPageTrackerFile.FileOperations invalidationOperations(int stage,
+      Exception failure, Runnable beforeFileWork) {
     return new ChangedPageTrackerFile.FileOperations() {
       @Override
       boolean windows() {
@@ -220,6 +251,7 @@ public class ChangedPageTrackerStartupTest {
 
       @Override
       void delete(Path target) throws IOException {
+        beforeFileWork.run();
         if (stage == 1) {
           fail();
         }
@@ -228,7 +260,11 @@ public class ChangedPageTrackerStartupTest {
 
       @Override
       void forceFolder(Path target) throws IOException {
-        fail();
+        beforeFileWork.run();
+        if (stage == 2) {
+          fail();
+        }
+        super.forceFolder(target);
       }
 
       private void fail() throws IOException {
@@ -241,7 +277,8 @@ public class ChangedPageTrackerStartupTest {
   }
 
   // The throwing barrier removes authority and revokes live trust. Failed I/O must throw instead
-  // of returning successful fallback. An invalidation Error must reach the owner by identity.
+  // of returning successful fallback. Every delete observes resolved distrust and a cleared gate.
+  // An invalidation Error must reach the owner by identity.
   @Test
   public void durableStartupDistrustThrowsOnFailedBarrierAndPreservesErrorIdentity()
       throws Exception {
@@ -252,6 +289,8 @@ public class ChangedPageTrackerStartupTest {
     ChangedPageTrackerStartup.durableDistrust(path, pending);
     assertFalse(pending.tracker().isTrusted());
     assertTrue(!Files.exists(path) || Files.size(path) == 0);
+    var resolutions = new ArrayList<ChangedPageTrackerStartup.Resolution>();
+    var clearedGates = new ArrayList<Boolean>();
     for (Throwable failure : List.of(new IOException("injected invalidation failure"),
         new OutOfMemoryError("injected invalidation error"))) {
       Files.write(path, encode(true, true));
@@ -266,6 +305,7 @@ public class ChangedPageTrackerStartupTest {
 
         @Override
         void delete(Path target) throws IOException {
+          observeDistrustBeforeFileWork(history, resolutions, clearedGates);
           assertEquals(path.toAbsolutePath(), target);
           deletes[0]++;
           if (failure instanceof Error error) {
@@ -287,6 +327,8 @@ public class ChangedPageTrackerStartupTest {
       assertEquals(MERGED, pages(capture(history.tracker()).active()));
       assertTrue(Files.size(path) > 0);
     }
+    // Both failure paths and the Error retry must reach their file callbacks before this check.
+    assertDistrustObservations(3, resolutions, clearedGates);
   }
 
   // Failed verification retains conservative marks and durable coverage, but schedules an identity
