@@ -137,9 +137,9 @@ Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
   response. Implementation and fix bodies use exactly two parts: `Intent` and `Deviation delta`.
   Leave the deviation part empty when there is no approved deviation. See `blast-radius.md`
   § Commit discipline for drift and boundaries. Before user review, the orchestrator creates
-  a distinct cumulative implementation commit under `track-workflow.md` § Delivery and
-  termination. Its body carries the high-level and low-level designs when a high-level design
-  exists.
+  a distinct cumulative implementation commit for each code track under `track-workflow.md`
+  § Delivery and termination. Its body carries the high-level and low-level designs when a
+  high-level design exists.
 
 ## Web Tools
 

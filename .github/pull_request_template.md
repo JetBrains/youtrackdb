@@ -1,11 +1,3 @@
-#### PR Title:
-
-If this PR is related to an issue, prefix the title with the issue number (e.g., `YTDB-123: Imperative summary under 50 chars`).
-
-One title tag changes which checks run:
-
-- `[no-test-number-check]` skips the test count gate. Use it only for an intentional test refactoring that does not reduce coverage.
-
 Manual comparison benchmark support:
 
 A pull request head is its captured commit.
@@ -51,8 +43,8 @@ Explain WHY this change was made — the problem, context, and trade-offs.
 Not a restatement of the diff. This section is **MANDATORY**.
 
 #### Planned changes:
-<!-- Required for every change. Write it when creating the draft PR. Update it as the change
-progresses. Before the PR becomes ready for review, make it match the delivered result.
+<!-- Required for each level pull request. State this level's scope when creating the draft.
+Update it as work progresses. Before the PR becomes ready for review, match this level's result.
 Use a high design level and the main domain entities. Do not include file paths or method
 signatures. Include only subsections with content: Current state, What changes, How,
 Key decisions, Out of scope, Risks & accepted trade-offs, Ignored findings,
@@ -64,12 +56,14 @@ pr-publishing.md and docs-internal/dev-workflow/track-development.md. -->
 Remove this subsection if no finding was ignored. -->
 
 ##### Delivery accounting:
-<!-- Copy the required conclusions from the research log before each package.
-See the ytdb-slate package's delivery-packages.md. -->
+<!-- Before each package for this level, copy its required conclusions from all owning
+accounting sources: root and design-track logs and authoritative designs, code-track reports,
+review-fix evidence, and their read-only source chains.
+See the ytdb-slate package's delivery-packages.md § Durable accounting. -->
 
 #### Tracks:
-<!-- Multi-track changes only. This table is a display index, not a boundary authority.
-Umbrella mode uses marker commits. Write "N/A (single-track)" otherwise.
+<!-- Use the table for a level with several code tracks. This display index does not define
+track boundaries. Write "N/A (single-track)" for a level with one code track.
 Remove this whole section before the PR becomes ready for review. -->
 
 | # | Track | Scope | Status |

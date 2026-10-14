@@ -8,8 +8,10 @@ This document carries only YTDB-specific deltas. Draft pull request publishing i
 
 ## Base branch
 
-The repository's default development branch is `develop`, not `main`. The umbrella PR
-targets it, and track 01's base is the merge-base with it.
+The repository's default development branch is `develop`, not `main`.
+A one-level change targets it. Nested-level bases follow `recursive-workflow.md`
+§ Level publishing and retained history. Code ranges follow its
+§ Identifiers, code ranges, and design markers.
 
 ## Branch, title, and template conventions
 
@@ -32,20 +34,20 @@ Slate loads it through `reviewPerspectivesPath`.
 
 ## Verification integration
 
-This section is the gate reference for work inside a track: which command gates a commit, how
+This section is the gate reference for work inside a code track: which command gates a commit, how
 the verification sets are computed, which gate runs when, and when a gate must be re-run. The
 coverage measurement procedure — how to produce a coverage number, and how to tell a real pass
 from a vacuous one — is in `docs-internal/dev-workflow/coverage-verification.md`.
 
-Intermediate commits inside a track never reach `develop`, since one PR is one squashed commit,
-so a per-commit unit-test and coverage rule buys latency on every step and protects nothing
-that survives the merge. The cheap gate therefore runs on every commit, while the expensive
-gate runs at least once per track — before that track's agent code review — and again before
-the track's closing event whenever anything but prose landed in between.
+Intermediate code-track commits do not reach `develop` individually. Each level pull request
+merges as one squashed commit. Running unit tests and coverage checks on every commit adds
+delay without protecting a separately merged result. The compile gate runs on every applicable
+commit. The unit-test and coverage gate runs before each code track's agent code review.
+Re-run it before the closing event when anything but prose lands after it.
 
 ### Mid-track commit gate
 
-A commit inside a track that changes Java or module content must pass the full-reactor
+A commit inside a code track that changes Java or module content must pass the full-reactor
 compile gate:
 
 ```bash
@@ -201,7 +203,7 @@ modules. Select them from the changed-file paths.
 
 ### End-of-track gate
 
-At the end of each track's implementation, and **before** that track's agent code review, the
+At the end of each code track's implementation, and **before** its agent code review, the
 full verification runs:
 
 1. **Unit tests** for the test-gate modules, green.
@@ -284,11 +286,11 @@ code review.
 
 ### Re-running the gate before the track's closing event
 
-Every track has a **closing event**. Slate uses one umbrella draft pull request when draft
-publishing is enabled. A multi-track change closes each track at its marker commit, with or
+Every code track has a **closing event**. Draft publishing uses one pull request per level
+with code tracks. A multi-track change closes each code track at its marker commit, with or
 without draft publishing. A single-track change with a draft pull request closes at the
 ready-for-review flip. Without draft publishing, a single-track change closes at final
-acceptance. This boundary gives each track a verification trigger.
+acceptance. This boundary gives each code track a verification trigger.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
@@ -296,8 +298,10 @@ an allowlist of safe paths, so build-affecting non-source files (module POMs, `.
 formatter configuration) are covered by construction. If you cannot show that the only thing
 that changed was prose, re-run.
 
-**Approval reopening.** Every track package reaches the user. Blocking track acceptance applies
-only when a track proves a DESIGN-TRIGGERING focus area. Final change acceptance always blocks.
+**Approval reopening.** Every track package reaches the user. A code track requires blocking
+acceptance only when it proves a DESIGN-TRIGGERING focus area. Every design track requires
+explicit blocking whole-subtree acceptance under `recursive-workflow.md` § Whole-subtree
+acceptance. A merge supplies neither acceptance. Final change acceptance always blocks.
 User-requested fixes use separate commits and a dedicated range gate. Present commits that land
 after a required user approval before the closing event. Neither a marker commit nor a
 ready-for-review flip certifies unseen work.

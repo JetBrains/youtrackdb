@@ -64,7 +64,8 @@ failures make concurrent runs unsafe. Execution details live in
   Without an issue, CI leaves the PR title unchanged.
 - **Multiple issues**: when a PR addresses several issues, list them all in the title,
   comma-separated and wrapped in square brackets: `[YTDB-123, YTDB-456] <summary>`.
-- Target branch: `develop`
+- Default development branch: `develop`. A one-level change targets it.
+  Nested-level bases follow the package `recursive-workflow.md` § Level publishing and retained history.
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
 - Flip and merge rules live in `pr-publishing.md` from the `ytdb-slate` package.
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.

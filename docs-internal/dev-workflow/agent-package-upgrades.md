@@ -16,11 +16,12 @@ mismatch.
 
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.13.0**.
+Last reconciled against **ytdb-slate 0.14.0**.
 
 This reconciliation read these package documents:
 
 - `track-workflow.md`
+- `recursive-workflow.md`
 - `blast-radius.md`
 - `review-rules.md`
 - `delivery-packages.md`
@@ -53,7 +54,13 @@ The check covered configured `router` (the logical-model `models` object and `co
 `doctrineExtraPath`, and `reviewPerspectivesPath`. It also covered the `thread` tool contract.
 Every call starts a new thread and needs `type`, a logical `model`, and `reason`.
 The `thread` tool also accepts `reviewPerspectives` for built-in reviews. Implementer threads
-need `trackNumber` while a change is open. Project charters still use `reviewPerspectivesPath`.
+need `trackNumber` while a change is open. It accepts positive integers or canonical dotted
+track identifiers. Project charters still use `reviewPerspectivesPath`.
 The `slate_change start` and `slate_change close` commands manage records under
 `slate-changes/<change>/`. The `writing.showStatus` key controls writing status output.
-Draft publishing always uses one umbrella pull request.
+Draft publishing uses one draft pull request per level with code tracks.
+Implementer reports are append-only. Follow `recursive-workflow.md` § Manual records and
+safe writes for temporary files, `>>` appends, and whole-report checks.
+Terminal, native and bell notifications default to on. Push defaults to off.
+Home settings control channel permission and text detail. A trusted project can only
+turn channels off or lower detail. See `configuration.md` § Notifications.
