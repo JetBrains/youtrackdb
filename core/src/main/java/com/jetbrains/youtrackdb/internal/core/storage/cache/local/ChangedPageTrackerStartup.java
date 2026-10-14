@@ -240,19 +240,23 @@ public final class ChangedPageTrackerStartup {
   }
 
   /**
-   * Removes durable authority before a startup cut or admission. The lifecycle owner excludes
-   * writers, backup and cuts, and holds no cache inventory lock. FAILED is never a safe fallback.
-   * An Error from invalidation propagates unchanged.
+   * Resolves history as distrusted before invalidation allocation or I/O, retaining marks and
+   * coverage. Removes durable authority before a startup cut or admission. The lifecycle owner
+   * excludes writers, backup and cuts, and holds no cache inventory lock. Invalidation failure
+   * throws an IOException with the original cause. An Error propagates unchanged.
    */
   public static void durableDistrust(Path sideFile, PendingHistory pending) throws IOException {
+    pending.distrust();
     durableDistrust(sideFile, pending, new ChangedPageTrackerFile.FileOperations());
   }
 
   static void durableDistrust(Path sideFile, PendingHistory pending,
       ChangedPageTrackerFile.FileOperations files) throws IOException {
-    if (ChangedPageTrackerFile.invalidate(sideFile, pending.tracker(), files)
-        == ChangedPageTrackerFile.InvalidationResult.FAILED) {
-      throw new IOException("Failed to durably distrust changed-page tracker: " + sideFile);
+    pending.distrust();
+    var failure = ChangedPageTrackerFile.invalidateWithCause(sideFile, pending.tracker(), files);
+    if (failure != null) {
+      throw new IOException("Failed to durably distrust changed-page tracker: " + sideFile,
+          failure);
     }
   }
 

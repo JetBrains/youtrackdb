@@ -40,6 +40,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -341,6 +342,80 @@ public class WOWCacheChangedPageTrackingTest {
       } finally {
         cache.endStartupReplayPreservation();
       }
+    }
+  }
+
+  // Invalid explicit creation IDs must be rejected before physical or inventory changes, with
+  // unrelated external storage bits, both inside and outside the preservation interval.
+  @Test
+  public void explicitAddRejectsNonpositiveInternalIdsBeforeMutationInBothIntervals()
+      throws Exception {
+    assertInvalidFileEvents(true);
+  }
+
+  // Invalid deletion IDs must be rejected even for absent files. Both generations stay intact,
+  // and finally cleanup restores ordinary file-event clearing after each interval.
+  @Test
+  public void deleteRejectsNonpositiveInternalIdsBeforeMutationInBothIntervals()
+      throws Exception {
+    assertInvalidFileEvents(false);
+  }
+
+  private void assertInvalidFileEvents(boolean add) throws Exception {
+    long valid = cache.addFile("valid.tst");
+    for (boolean startup : new boolean[] {true, false}) {
+      var seal = seedTrustedGenerations(valid);
+      if (startup) {
+        cache.beginStartupReplayPreservation();
+      }
+      try {
+        for (int internal : new int[] {0, -1}) {
+          long external = (31L << 32) | (internal & 0xffffffffL);
+          assertEquals(internal, cache.internalFileId(external));
+          var inventory = cache.files();
+          var names = Map.copyOf((Map<?, ?>) field(cache, "nameIdMap"));
+          var ids = Map.copyOf((Map<?, ?>) field(cache, "idNameMap"));
+          var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+          var before = capture();
+          var physical = new java.util.HashMap<Path, byte[]>();
+          try (var paths = Files.list(cache.getRootDirectory())) {
+            for (var path : paths.toList()) {
+              physical.put(path, Files.readAllBytes(path));
+            }
+          }
+          var failure = assertThrows(IllegalArgumentException.class, () -> {
+            if (add) {
+              cache.addFile("invalid.tst", external);
+            } else {
+              cache.deleteFile(external);
+            }
+          });
+          assertEquals("Internal file identifier must be positive", failure.getMessage());
+          assertEquals(inventory, cache.files());
+          assertEquals(names, field(cache, "nameIdMap"));
+          assertEquals(ids, field(cache, "idNameMap"));
+          assertNull(handles.get(cache.externalFileId(internal)));
+          try (var paths = Files.list(cache.getRootDirectory())) {
+            assertEquals(physical.keySet(), new java.util.HashSet<>(paths.toList()));
+          }
+          for (var entry : physical.entrySet()) {
+            assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+          }
+          assertEquals(before, capture());
+          assertPages(valid, 8L);
+          assertSealedPages(seal, valid, 7L);
+        }
+      } finally {
+        if (startup) {
+          cache.endStartupReplayPreservation();
+        }
+      }
+      cache.beginStartupReplayPreservation();
+      cache.endStartupReplayPreservation();
+      cache.deleteFile(valid);
+      assertPages(valid);
+      assertSealedPages(seal, valid);
+      assertEquals(valid, cache.addFile("valid.tst", valid));
     }
   }
 
