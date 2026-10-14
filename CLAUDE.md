@@ -139,7 +139,8 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 - **No merge commits** (enforced by CI - `block-merge-commits.yml`)
 - PR title auto-prefixed with YTDB issue number from branch name
 - **Multiple issues**: when a PR addresses several issues, list them all in the title, comma-separated and wrapped in square brackets: `[YTDB-123, YTDB-456] <summary>`.
-- Target branch: `develop`
+- A one-level change targets `develop`. Nested-level bases follow the package
+  `recursive-workflow.md` § Level publishing and retained history.
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made.
 - **Keep the PR title and description in sync with follow-up commits.** The squashed commit message is built from the PR title and description, not from individual commit messages — update them with every push so the merge commit reflects all changes.

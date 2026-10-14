@@ -34,6 +34,13 @@ Start a new Pi session after changing the configuration. Run `/slate effective` 
 effective model pool and any router configuration errors. The local command above checks the
 repository file only. It does not validate merged home settings or model credentials.
 
+## Notifications
+
+ytdb-slate 0.14.0 enables terminal, native and bell notifications by default. Push is off by
+default. The project keeps these defaults. Turn channels off in your home Slate settings,
+normally `~/.pi/agent/slate.json`. See the installed package's `configuration.md`
+§ Notifications for channel settings and delivery limits.
+
 ## YouTrack access for worker threads
 
 Model Context Protocol (MCP) connects tools to YouTrack. Pi is the agent application.
