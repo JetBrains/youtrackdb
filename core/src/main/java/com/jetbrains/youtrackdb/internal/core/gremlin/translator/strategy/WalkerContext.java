@@ -92,9 +92,13 @@ final class WalkerContext implements RecognitionContext {
    *  call regardless of value. */
   private int nextParamSlot;
 
-  /** When {@code true}, this walk carries inline RIDs or unbound deferred has literals and must
-   *  bypass the plan cache. */
+  /** Inline RIDs or unsafe deferred has operands bypass the plan cache. Runtime starts do not
+   *  set this flag. */
   private boolean ridBearing;
+
+  @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart;
+  @Nullable String runtimeStartAlias;
+  int runtimeStartSlot = -1;
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
@@ -846,6 +850,21 @@ final class WalkerContext implements RecognitionContext {
     var slot = nextParamSlot++;
     inputParameters.put(slot, value);
     return SQLPositionalParameter.forSlot(slot);
+  }
+
+  @Nullable @Override
+  public RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return runtimeRidStart;
+  }
+
+  @Override
+  public void bindRuntimeRidStart(String alias) {
+    if (runtimeRidStart == null || runtimeStartAlias != null) {
+      throw new IllegalStateException("Runtime RID start must bind exactly once");
+    }
+    runtimeStartSlot = nextParamSlot;
+    bindParam(runtimeRidStart.rid());
+    runtimeStartAlias = alias;
   }
 
   @Override

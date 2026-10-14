@@ -21,15 +21,20 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Before;
@@ -38,7 +43,7 @@ import org.junit.Test;
 /**
  * R6 determinism and correctness tests for {@link GremlinPlanCache} and {@link
  * GremlinPlanFingerprint}: distinct shapes occupy distinct entries, same shapes fingerprint
- * identically, positional rebinding serves the second value's multiset, RID-bearing shapes bypass
+ * identically, positional rebinding serves the second value's multiset, literal RID shapes bypass
  * the cache, schema changes invalidate entries, a second apply records a hit, and a cache hit
  * returns the same multiset as a cold rebuild.
  */
@@ -51,6 +56,235 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
   public void enableTranslator() {
     support.setTranslatorEnabled(true);
     GremlinPlanCache.instance(graphSession()).invalidate();
+  }
+
+  /**
+   * Every start spelling, class mode, direction and hop-label variant must plan once, then reuse
+   * the same closed runtime template for a second RID with different nonempty native multisets.
+   * Translation-map bypass must hit the plan map instead. A silent retry or native fallback fails.
+   */
+  @Test
+  public void runtimeRidFirstFamilyWarmReuseGrid() {
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    var x = graph.addVertex(T.label, "Person", "name", "X");
+    var y = graph.addVertex(T.label, "Person", "name", "Y");
+    a.addEdge("knows", x);
+    a.addEdge("knows", x); // Preserve duplicate target rows, not just set membership.
+    x.addEdge("knows", a);
+    b.addEdge("knows", y);
+    y.addEdge("knows", b);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var runs = new AtomicInteger();
+    var inputs = new ArrayList<MatchPlanInputs>();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      runs.incrementAndGet();
+      inputs.add(input);
+      assertThat(context.getInputParameters()).isNullOrEmpty();
+    };
+    try {
+      for (boolean translationCache : List.of(true, false)) {
+        for (int spelling = 0; spelling < 3; spelling++) {
+          for (int classMode = 0; classMode < 3; classMode++) {
+            for (var direction : Direction.values()) {
+              for (boolean hopLabel : List.of(true, false)) {
+                final int startSpelling = spelling;
+                final int labelMode = classMode;
+                withPolymorphic(classMode != 2, () -> {
+                  cache.invalidate();
+                  runs.set(0);
+                  inputs.clear();
+                  var source = graph.traversal().withStrategies(
+                      GremlinToMatchStrategy.withTranslationCache(translationCache));
+                  var cold = ridHop(source, a.id(), startSpelling, labelMode, direction, hopLabel)
+                      .asAdmin();
+                  cold.applyStrategies();
+                  assertThat(cold.getSteps()).hasSize(1);
+                  assertThat(cold.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+                  var first = (YTDBMatchPlanStep<?, ?>) cold.getStartStep();
+                  var template = first.getPlan();
+                  assertThat(runs.get()).isEqualTo(1);
+                  assertThat(inputs).hasSize(1);
+                  var descriptor = inputs.getFirst().runtimeRidStarts().values();
+                  assertThat(descriptor).hasSize(1);
+                  assertThat(descriptor.iterator().next().parameterSlot()).isZero();
+                  var fp =
+                      GremlinPlanFingerprint.fingerprint(inputs.getFirst(), ResultShaping.NONE);
+                  assertThat(cache.peekStored(fp)).isSameAs(template);
+                  var text = template.prettyPrint(0, 2);
+                  assertThat(text).contains("FETCH FROM RID PARAMETER")
+                      .doesNotContain(a.id().toString(), b.id().toString());
+                  var coldRows = TranslatorEquivalenceSupport.sortedIds(cold.toList());
+                  assertThat(coldRows).isNotEmpty();
+                  assertThat(first.getPlan()).isNotSameAs(template);
+                  var planHits = cache.getHits();
+                  var planMisses = cache.getMisses();
+                  var translationHits = cache.getTranslationHits();
+                  var translationMisses = cache.getTranslationMisses();
+                  var warm = ridHop(source, b.id(), startSpelling, labelMode, direction, hopLabel)
+                      .asAdmin();
+                  warm.applyStrategies();
+                  assertThat(warm.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+                  var second = (YTDBMatchPlanStep<?, ?>) warm.getStartStep();
+                  assertThat(second.getPlan()).isSameAs(template);
+                  assertThat(runs.get()).isEqualTo(1);
+                  assertThat(cache.getHits()).isEqualTo(planHits + (translationCache ? 0 : 1));
+                  assertThat(cache.getMisses()).isEqualTo(planMisses);
+                  assertThat(cache.getTranslationHits())
+                      .isEqualTo(translationHits + (translationCache ? 1 : 0));
+                  assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses);
+                  var warmRows = TranslatorEquivalenceSupport.sortedIds(warm.toList());
+                  assertThat(warmRows).isNotEmpty().isNotEqualTo(coldRows);
+                  assertThat(second.getPlan()).isNotSameAs(template).isNotSameAs(first.getPlan());
+                  assertThat(second.getPlan().getContext().getInputParameters())
+                      .isEqualTo(Map.of(0, b.id()));
+                  var nativeSource =
+                      graph.traversal().withoutStrategies(GremlinToMatchStrategy.class);
+                  for (var id : List.of(a.id(), b.id())) {
+                    var nativeWalk = ridHop(nativeSource, id, startSpelling, labelMode,
+                        direction, hopLabel).asAdmin();
+                    nativeWalk.applyStrategies();
+                    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(nativeWalk))
+                        .isZero();
+                    assertThat(TranslatorEquivalenceSupport.sortedIds(nativeWalk.toList()))
+                        .isEqualTo(id.equals(a.id()) ? coldRows : warmRows);
+                  }
+                });
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
+  }
+
+  /** A mid-query switch flip cannot change the snapshot decision between shape and walk passes. */
+  @Test
+  public void runtimeSwitchIsResolvedOnceBeforeLookupAndBothPassesReadOneIdentity() {
+    var id = mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable.class);
+    var first = graph.addVertex(T.label, "Person");
+    var second = graph.addVertex(T.label, "Person");
+    first.addEdge("knows", second);
+    graph.tx().commit();
+    var a = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) first.id());
+    var b = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) second.id());
+    var cache = GremlinPlanCache.instance(graphSession());
+    var seen = new ArrayList<GremlinToMatchTranslator.TranslationResult>();
+    var attempts = new AtomicInteger();
+    for (boolean graphStart : List.of(true, false)) {
+      cache.setRuntimeRidStartEnabled(true);
+      org.mockito.Mockito.doAnswer(invocation -> {
+        cache.setRuntimeRidStartEnabled(false);
+        return a;
+      }).doThrow(new AssertionError("snapshot read twice")).when(id).getIdentity();
+      GremlinToMatchStrategy.TraversalTranslator translator =
+          new GremlinToMatchStrategy.TraversalTranslator() {
+            @Override
+            public GremlinToMatchTranslator.TranslationResult translate(
+                org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> traversal) {
+              throw new AssertionError("resolved decision overload required");
+            }
+
+            @Override
+            public GremlinToMatchTranslator.TranslationResult translate(
+                org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> traversal,
+                Boolean order,
+                com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement nulls,
+                Boolean polymorphic,
+                RuntimeRidStartEligibility.EligibleStart decision) {
+              assertThat(decision).isNotNull();
+              var extracted =
+                  GremlinStepWalker.extractShape(traversal, graphSession(), order, nulls,
+                      polymorphic, decision);
+              var result = GremlinToMatchTranslator.translate(traversal, order, nulls,
+                  polymorphic, decision);
+              assertThat(result.inputParameters()).isEqualTo(Map.of(0, a))
+                  .isEqualTo(extracted.bindings());
+              seen.add(result);
+              return result;
+            }
+          };
+      cache.beforeUncachedPlanning = (input, context) -> attempts.incrementAndGet();
+      try {
+        var admin = (graphStart ? graph.traversal().V(id) : graph.traversal().V().hasId(id))
+            .out("knows").asAdmin();
+        new GremlinToMatchStrategy(translator).apply(admin);
+        assertThat(admin.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        assertThat(seen).hasSize(graphStart ? 1 : 2);
+        assertThat(attempts.get()).isEqualTo(1); // The second spelling shares the plan fingerprint.
+        assertThat(cache.isRuntimeRidStartEnabled()).isFalse();
+        org.mockito.Mockito.doReturn(b).when(id).getIdentity();
+      } finally {
+        cache.setRuntimeRidStartEnabled(true);
+        cache.beforeUncachedPlanning = null;
+      }
+    }
+  }
+
+  /** A warm runtime key cannot serve switch-off literal input. Switching back on keeps reuse. */
+  @Test
+  public void runtimeRidSwitchOffBypassesWarmTemplateAndRestoresLiteralPlanning() {
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("knows", b);
+    b.addEdge("knows", a);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var attempts = new ArrayList<MatchPlanInputs>();
+    cache.beforeUncachedPlanning = (input, context) -> attempts.add(input);
+    try {
+      var cold = graph.traversal().V(a.id()).out("knows").asAdmin();
+      cold.applyStrategies();
+      var template = ((YTDBMatchPlanStep<?, ?>) cold.getStartStep()).getPlan();
+      assertThat(cold.toList()).hasSize(1);
+      assertThat(attempts).hasSize(1);
+      var runtimeFp = GremlinPlanFingerprint.fingerprint(attempts.getFirst(), ResultShaping.NONE);
+      var translationHits = cache.getTranslationHits();
+      cache.setRuntimeRidStartEnabled(false);
+      var literal = graph.traversal().V(a.id()).out("knows").asAdmin();
+      literal.applyStrategies();
+      assertThat(literal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(attempts).hasSize(2);
+      var literalInput = attempts.get(1);
+      assertThat(literalInput.runtimeRidStarts()).isEmpty();
+      assertThat(literalInput.aliasFilters().get("$g2m_v0").toString()).contains(a.id().toString());
+      assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+      assertThat(
+          cache.contains(GremlinPlanFingerprint.fingerprint(literalInput, ResultShaping.NONE)))
+          .isFalse();
+      assertThat(cache.peekStored(runtimeFp)).isSameAs(template);
+      assertThat(literal.toList()).hasSize(1);
+      cache.setRuntimeRidStartEnabled(true);
+      var warm = graph.traversal().V(b.id()).out("knows").asAdmin();
+      warm.applyStrategies();
+      assertThat(((YTDBMatchPlanStep<?, ?>) warm.getStartStep()).getPlan()).isSameAs(template);
+      assertThat(attempts).hasSize(2);
+      assertThat(TranslatorEquivalenceSupport.sortedIds(warm.toList()))
+          .containsExactly(a.id().toString());
+    } finally {
+      cache.setRuntimeRidStartEnabled(true);
+      cache.beforeUncachedPlanning = null;
+    }
+  }
+
+  private static GraphTraversal<Vertex, Vertex> ridHop(GraphTraversalSource source, Object id,
+      int spelling, int classMode, Direction direction, boolean hopLabel) {
+    var traversal = spelling == 0 ? source.V(id)
+        : spelling == 1 ? source.V().hasId(id) : source.V().hasId(P.eq(id));
+    if (classMode != 0) {
+      traversal.hasLabel("Person");
+    }
+    String[] labels = hopLabel ? new String[] {"knows"} : new String[0];
+    return switch (direction) {
+      case OUT -> traversal.out(labels);
+      case IN -> traversal.in(labels);
+      case BOTH -> traversal.both(labels);
+    };
   }
 
   /** Union copies have no template parent, bind explicit parameters and reject every local key. */
@@ -140,10 +374,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
   }
 
   /**
-   * {@code hasId(...)} marks the walk RID-bearing and bypasses the plan cache. A hop follows the
-   * RID filter so the walk still translates: a BARE RID point-lookup ({@code V().hasId(id)} with no
-   * hop) declines to native (native resolves the RID directly), so it is the RID-start-plus-hop
-   * shape that exercises the cache-bypass path here.
+   * With runtime RID starts disabled, hasId plus a hop stays literal and bypasses the plan cache.
+   * Bare RID lookups also translate literally and stay uncached.
    */
   @Test
   public void hasId_bypassesPlanCache() {
@@ -152,9 +384,14 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var result = walk(() -> graph.traversal().V().hasId(alice.id()).out("knows"));
     assertThat(result.cacheEligible()).isFalse();
 
-    apply(() -> graph.traversal().V().hasId(alice.id()).out("knows"));
-    var fp = fingerprint(result);
-    assertThat(GremlinPlanCache.instance(graphSession()).contains(fp)).isFalse();
+    var cache = GremlinPlanCache.instance(graphSession());
+    cache.setRuntimeRidStartEnabled(false);
+    try {
+      apply(() -> graph.traversal().V().hasId(alice.id()).out("knows"));
+      assertThat(cache.contains(fingerprint(result))).isFalse();
+    } finally {
+      cache.setRuntimeRidStartEnabled(true);
+    }
   }
 
   /** Two independent walks of the same shape produce identical fingerprints (R2). */

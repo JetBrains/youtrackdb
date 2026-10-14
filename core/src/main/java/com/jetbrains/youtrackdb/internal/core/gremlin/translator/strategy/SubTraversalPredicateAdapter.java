@@ -513,6 +513,12 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return parent.bindParam(value);
   }
 
+  /** Predicate walks are non-root, even when their boundary is the outer start alias. */
+  @Nullable @Override
+  public RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return null;
+  }
+
   @Override
   public void markRidBearing() {
     parent.markRidBearing();

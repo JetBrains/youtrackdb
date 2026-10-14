@@ -15,7 +15,9 @@ import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiConsumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -63,6 +65,20 @@ public final class GremlinPlanCache
   @Nullable volatile Runnable afterPlanPublication;
   @Nullable volatile Runnable afterTranslationPublication;
   @Nullable volatile Runnable afterCounterIncrement;
+
+  private volatile boolean runtimeRidStartEnabled = true;
+
+  /** Internal database-scoped benchmark control. It is resolved once per query. */
+  public boolean isRuntimeRidStartEnabled() {
+    return runtimeRidStartEnabled;
+  }
+
+  public void setRuntimeRidStartEnabled(boolean enabled) {
+    runtimeRidStartEnabled = enabled;
+  }
+
+  /** Observe-only seam at the real planner boundary. It may count or throw, not supply a plan. */
+  @Nullable volatile BiConsumer<MatchPlanInputs, BasicCommandContext> beforeUncachedPlanning;
 
   /**
    * @param size the size of the cache; 0 means cache disabled
