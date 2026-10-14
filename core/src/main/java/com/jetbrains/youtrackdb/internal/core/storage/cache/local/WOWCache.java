@@ -1079,6 +1079,10 @@ public final class WOWCache extends AbstractWriteCache
       final var existingFileId = nameIdMap.get(fileName);
 
       final var intId = extractFileId(fileId);
+      // Replay preservation suppresses tracker clearing, not file-ID validation.
+      if (intId <= 0) {
+        throw new IllegalArgumentException("Internal file identifier must be positive");
+      }
 
       if (existingFileId != null && existingFileId >= 0) {
         if (existingFileId == intId) {
@@ -2135,6 +2139,9 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public void deleteFile(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
 
     filesLock.acquireWriteLock();
     try {

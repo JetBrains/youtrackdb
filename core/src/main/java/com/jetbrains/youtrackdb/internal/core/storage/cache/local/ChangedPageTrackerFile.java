@@ -134,13 +134,20 @@ public final class ChangedPageTrackerFile {
 
   static InvalidationResult invalidate(Path sideFile, ChangedPageTracker tracker,
       FileOperations files) {
+    return invalidateWithCause(sideFile, tracker, files) == null
+        ? InvalidationResult.INVALIDATED : InvalidationResult.FAILED;
+  }
+
+  /** Returns the original ordinary failure, or null on success. Errors retry once and propagate. */
+  static @Nullable Throwable invalidateWithCause(Path sideFile, ChangedPageTracker tracker,
+      FileOperations files) {
     tracker.saveOrderLock().lock();
     try {
       tracker.invalidate();
       var target = sideFile.toAbsolutePath();
       try {
         invalidateFile(target, files);
-        return InvalidationResult.INVALIDATED;
+        return null;
       } catch (IOException | RuntimeException | Error failure) {
         if (failure instanceof Error error) {
           try {
@@ -152,7 +159,7 @@ public final class ChangedPageTrackerFile {
           throw error;
         }
         warn(files, "Failed to invalidate changed-page tracker side file: ", target, failure);
-        return InvalidationResult.FAILED;
+        return failure;
       }
     } finally {
       tracker.saveOrderLock().unlock();
