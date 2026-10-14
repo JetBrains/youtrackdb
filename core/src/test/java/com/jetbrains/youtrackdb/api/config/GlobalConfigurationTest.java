@@ -42,11 +42,10 @@ import org.junit.experimental.categories.Category;
  *
  * <p>Each test below snapshots the affected configuration's current value (via {@link
  * GlobalConfiguration#getValue()} and {@link GlobalConfiguration#isChanged()}) in {@link
- * Before} and restores it in {@link After}. The restore is a stack of deltas keyed off the
- * {@code isChanged()} flag — when the snapshot recorded "not changed from default" we restore
- * by reflecting the {@code value} back to the {@code nullValue} sentinel via setting the
- * default; when "changed" we reapply the snapshot. This mirrors the snapshot/restore
- * convention codified by {@code ByteBufferPoolTest} and required by Phase A finding T5/R8.
+ * Before} and restores it in {@link After}. Entries that were unchanged are restored with
+ * {@link GlobalConfiguration#resetToDefault()}. Entries that were changed are restored with
+ * {@link GlobalConfiguration#setValue(Object)} using the snapshot value. Both the value and
+ * the changed state are preserved.
  */
 @Category(SequentialTest.class)
 public class GlobalConfigurationTest {
@@ -90,48 +89,39 @@ public class GlobalConfigurationTest {
 
   @After
   public void restoreConfigurations() {
-    // setValue is the only public path — if the snapshot was "default" we still call setValue
-    // with the current default to clear divergence (the next read returns the same observable
-    // value). isChanged will return true after this restoration since setValue assigns the
-    // value field unconditionally — that's an acceptable cost to keep observable getters
-    // returning the same numbers as before the test ran.
+    // Restore each snapshot value and changed state. Reset unchanged entries to their defaults.
+    // resetToDefault also clears the changed state for entries with a null default.
     if (snapInitInServletContextListenerChanged) {
       GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER
           .setValue(snapInitInServletContextListener);
     } else {
-      GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.setValue(
-          GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.getDefValue());
+      GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.resetToDefault();
     }
     if (snapMemoryProfilingChanged) {
       GlobalConfiguration.MEMORY_PROFILING.setValue(snapMemoryProfiling);
     } else {
-      GlobalConfiguration.MEMORY_PROFILING
-          .setValue(GlobalConfiguration.MEMORY_PROFILING.getDefValue());
+      GlobalConfiguration.MEMORY_PROFILING.resetToDefault();
     }
     if (snapMemoryProfilingReportIntervalChanged) {
       GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL
           .setValue(snapMemoryProfilingReportInterval);
     } else {
-      GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.setValue(
-          GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.getDefValue());
+      GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.resetToDefault();
     }
     if (snapMemoryLeftToOsChanged) {
       GlobalConfiguration.MEMORY_LEFT_TO_OS.setValue(snapMemoryLeftToOs);
     } else {
-      GlobalConfiguration.MEMORY_LEFT_TO_OS
-          .setValue(GlobalConfiguration.MEMORY_LEFT_TO_OS.getDefValue());
+      GlobalConfiguration.MEMORY_LEFT_TO_OS.resetToDefault();
     }
     if (snapDbSystemDatabaseEnabledChanged) {
       GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.setValue(snapDbSystemDatabaseEnabled);
     } else {
-      GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.setValue(
-          GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.getDefValue());
+      GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.resetToDefault();
     }
     if (snapClientSslKeyStorePasswordChanged) {
       GlobalConfiguration.CLIENT_SSL_KEYSTORE_PASSWORD.setValue(snapClientSslKeyStorePassword);
     } else {
-      // The default for this entry is null; setValue ignores null inputs so the value field
-      // stays whatever the test set it to. Skip the restore in the not-changed branch.
+      GlobalConfiguration.CLIENT_SSL_KEYSTORE_PASSWORD.resetToDefault();
     }
   }
 
@@ -157,8 +147,9 @@ public class GlobalConfigurationTest {
   }
 
   /**
-   * The deprecated setting remains available by its public name and key, with its Boolean type
-   * and true default. Both Boolean assignments succeed. Teardown restores the exact prior value
+   * The deprecated setting remains available by its public name and key, with its Boolean type,
+   * true default, and exact no-effect description. Both Boolean assignments succeed.
+   * Teardown restores the exact prior value
    * and changed state because enum configuration is process-wide.
    */
   @Test
@@ -176,7 +167,8 @@ public class GlobalConfigurationTest {
       assertEquals(Boolean.TRUE, cfg.getDefValue());
       assertTrue(GlobalConfiguration.class.getField("INDEX_SYNCHRONOUS_AUTO_REBUILD")
           .isAnnotationPresent(Deprecated.class));
-      assertTrue(cfg.getDescription().contains("has no effect"));
+      assertEquals("The deprecated setting must keep its exact no-effect description",
+          "This setting has no effect.", cfg.getDescription());
 
       cfg.setValue(Boolean.FALSE);
       assertEquals(Boolean.FALSE, cfg.getValue());
