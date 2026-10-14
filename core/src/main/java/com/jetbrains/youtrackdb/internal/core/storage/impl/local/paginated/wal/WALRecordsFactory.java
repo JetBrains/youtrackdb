@@ -120,7 +120,6 @@ import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginate
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.LOCAL_HASH_TABLE_V2_NULL_BUCKET_INIT_PO;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.LOCAL_HASH_TABLE_V2_NULL_BUCKET_REMOVE_VALUE_PO;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.LOCAL_HASH_TABLE_V2_NULL_BUCKET_SET_VALUE_PO;
-import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.NON_TX_OPERATION_PERFORMED_WAL_RECORD;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_FREE_LIST_PAGE_PO;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_RECORDS_SIZE_PO;
 import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes.PAGINATED_COLLECTION_STATE_V0_SET_SIZE_PO;
@@ -296,8 +295,6 @@ public final class WALRecordsFactory {
       case ATOMIC_UNIT_START_RECORD -> walRecord = new AtomicUnitStartRecord();
       case ATOMIC_UNIT_END_RECORD -> walRecord = new AtomicUnitEndRecord();
       case FILE_CREATED_WAL_RECORD -> walRecord = new FileCreatedWALRecord();
-      case NON_TX_OPERATION_PERFORMED_WAL_RECORD ->
-          walRecord = new NonTxOperationPerformedWALRecord();
       case FILE_DELETED_WAL_RECORD -> walRecord = new FileDeletedWALRecord();
       case EMPTY_WAL_RECORD -> walRecord = new EmptyWALRecord();
       case COLLECTION_POSITION_MAP_INIT_PO, COLLECTION_POSITION_MAP_ADD_PO,

@@ -142,7 +142,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
@@ -377,8 +376,6 @@ public abstract class AbstractStorage
    * change any counter movement.
    */
   private final ConcurrentLinkedDeque<Long> operatorFreezeIds = new ConcurrentLinkedDeque<>();
-
-  private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
 
   /**
    * Internal file IDs of non-durable files deleted during crash recovery, used by WAL replay
@@ -7232,10 +7229,6 @@ public abstract class AbstractStorage
     return orphanTruncationDispatchCountForTests.get();
   }
 
-  public boolean wereNonTxOperationsPerformedInPreviousOpen() {
-    return wereNonTxOperationsPerformedInPreviousOpen;
-  }
-
   @Override
   public final void reload(DatabaseSessionEmbedded database) {
     try {
@@ -9266,16 +9259,6 @@ public abstract class AbstractStorage
                   operationUnits.computeIfAbsent(
                       operationUnitRecord.getOperationUnitId(), k -> new ArrayList<>(1024));
               operationList.add(operationUnitRecord);
-            }
-            case NonTxOperationPerformedWALRecord ignored -> {
-              if (!wereNonTxOperationsPerformedInPreviousOpen) {
-                LogManager.instance()
-                    .warn(
-                        this,
-                        "Non tx operation was used during data modification we will need index"
-                            + " rebuild.");
-                wereNonTxOperationsPerformedInPreviousOpen = true;
-              }
             }
             case null, default -> LogManager.instance()
                 .debug(this, "Record %s will be skipped during data restore",

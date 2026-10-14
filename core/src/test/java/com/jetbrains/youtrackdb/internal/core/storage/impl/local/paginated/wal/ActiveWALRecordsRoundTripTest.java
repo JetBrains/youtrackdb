@@ -247,28 +247,8 @@ public class ActiveWALRecordsRoundTripTest {
   }
 
   /**
-   * {@link NonTxOperationPerformedWALRecord} has zero serialized payload — round-trip
-   * leaves the offset unchanged. Pin the offset behaviour and the record-type id.
-   */
-  @Test
-  public void nonTxOperationPerformedWALRecordHasZeroPayloadAndConstantId() {
-    var rec = new NonTxOperationPerformedWALRecord();
-    assertEquals(0, rec.serializedSize());
-
-    var buffer = new byte[8];
-    var afterWrite = rec.toStream(buffer, 5);
-    assertEquals("zero-payload write must leave offset unchanged", 5, afterWrite);
-
-    var restored = new NonTxOperationPerformedWALRecord();
-    var afterRead = restored.fromStream(buffer, 5);
-    assertEquals(5, afterRead);
-    assertEquals(WALRecordTypes.NON_TX_OPERATION_PERFORMED_WAL_RECORD, restored.getId());
-  }
-
-  /**
-   * {@link EmptyWALRecord} (in {@code wal.common}) is the empty-payload counterpart to
-   * {@link NonTxOperationPerformedWALRecord}. Its dedicated id distinguishes it during
-   * deserialization. Pin both behaviours.
+   * {@link EmptyWALRecord} (in {@code wal.common}) has an empty payload and a dedicated id
+   * that distinguishes it during deserialization. Pin both behaviours.
    */
   @Test
   public void emptyWALRecordHasZeroPayloadAndDedicatedId() {
