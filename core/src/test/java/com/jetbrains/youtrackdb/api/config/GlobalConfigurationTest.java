@@ -157,6 +157,43 @@ public class GlobalConfigurationTest {
   }
 
   /**
+   * The deprecated setting remains available by its public name and key, with its Boolean type
+   * and true default. Both Boolean assignments succeed. Teardown restores the exact prior value
+   * and changed state because enum configuration is process-wide.
+   */
+  @Test
+  @SuppressWarnings("deprecation")
+  public void synchronousAutoRebuildSettingRetainsDeprecatedPublicContract() throws Exception {
+    var cfg = GlobalConfiguration.INDEX_SYNCHRONOUS_AUTO_REBUILD;
+    var priorValue = cfg.getValue();
+    var priorChanged = cfg.isChanged();
+    try {
+      assertSame(cfg, GlobalConfiguration.valueOf("INDEX_SYNCHRONOUS_AUTO_REBUILD"));
+      assertSame(cfg,
+          GlobalConfiguration.findByKey("youtrackdb.index.auto.synchronousAutoRebuild"));
+      assertEquals("youtrackdb.index.auto.synchronousAutoRebuild", cfg.getKey());
+      assertSame(Boolean.class, cfg.getType());
+      assertEquals(Boolean.TRUE, cfg.getDefValue());
+      assertTrue(GlobalConfiguration.class.getField("INDEX_SYNCHRONOUS_AUTO_REBUILD")
+          .isAnnotationPresent(Deprecated.class));
+      assertTrue(cfg.getDescription().contains("has no effect"));
+
+      cfg.setValue(Boolean.FALSE);
+      assertEquals(Boolean.FALSE, cfg.getValue());
+      cfg.setValue(Boolean.TRUE);
+      assertEquals(Boolean.TRUE, cfg.getValue());
+    } finally {
+      if (priorChanged) {
+        cfg.setValue(priorValue);
+      } else {
+        cfg.resetToDefault();
+      }
+      assertEquals(priorValue, cfg.getValue());
+      assertEquals(priorChanged, cfg.isChanged());
+    }
+  }
+
+  /**
    * {@link GlobalConfiguration#isHidden()} returns {@code true} for entries declared with the
    * 6-arg ctor and the {@code iHidden=true} flag. {@link GlobalConfiguration#isChangeableAtRuntime()}
    * returns the {@code iCanChange} flag passed at construction. Pin the hidden=true branch via

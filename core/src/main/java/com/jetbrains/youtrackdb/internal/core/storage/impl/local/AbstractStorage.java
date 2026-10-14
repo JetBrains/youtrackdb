@@ -990,9 +990,8 @@ public abstract class AbstractStorage
           // because recoverIfNeeded -> flushAllData -> clearStorageDirty has already
           // cleared the dirty flag by the time we reach here, so isDirty() would read
           // false even on a crash reopen; the field is the surviving "did this open
-          // replay WAL" signal. The field is shared with
-          // IndexManagerEmbedded.autoRecreateIndexesAfterCrash and is set once and never
-          // reset, so it is left alone on close.
+          // replay WAL" signal. The field is set once and never reset, so it is left
+          // alone on close.
           //
           // Trade-off: the pass is best-effort: truncateOrphansAfterRecovery wraps each
           // per-component verifyAndTruncateOrphans dispatch in a try/catch that logs a
