@@ -4,8 +4,11 @@ import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -101,6 +104,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    if (ctx.hasUnionCarrier() && hasDeclaredUnionCollation(orderStep, ctx, boundary)) {
+      return Outcome.DECLINE;
+    }
+
     var items = new ArrayList<SQLOrderByItem>(comparators.size());
     for (var pair : comparators) {
       var direction = ByModulatorTranslator.parseSortDirection(pair.getValue1());
@@ -151,6 +158,34 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     ctx.recordOrderByCapture(
         boundary, ctx.emitGroupEntries() || orderKeysOnlyBoundary(boundary, items));
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * The post-concat sort does not resolve declared collations. Leave collated union sorts to the
+   * native strategy, using its whole vertex and edge hierarchy rather than a branch's class.
+   */
+  private static boolean hasDeclaredUnionCollation(
+      OrderGlobalStep<?, ?> step, RecognitionContext ctx, String boundary) {
+    var session = YTDBStrategyUtil.resolveYtdbSession(
+        YTDBStrategyUtil.rootTraversal(step.getTraversal()));
+    if (session == null) {
+      return false;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return false;
+    }
+    var classes = YTDBOrderCollationStrategy.graphClasses(schema);
+    for (var pair : step.getComparators()) {
+      var target = ByModulatorTranslator.orderModulatorPresenceTarget(
+          boundary, pair.getValue0(), ctx::resolveUserLabel);
+      if (target.isPresent()
+          && OrderByCollationResolver.declaredCollation(classes, target.get().propertyKey())
+              != null) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
