@@ -20,10 +20,12 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcat
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.RuntimeRidStartPlanningException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.ArrayList;
@@ -33,6 +35,7 @@ import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -44,6 +47,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -83,6 +88,178 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::session);
+
+  /** A typed runtime refusal retries once with real literal MATCH, no publication or error metric. */
+  @Test
+  public void runtimeRefusalRetriesLiteralOnceWithoutPublication() {
+    setKillSwitch(true);
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("knows", b);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(session());
+    var metrics = GremlinTranslationMetrics.of(session());
+    for (boolean graphStart : List.of(true, false)) {
+      cache.invalidate();
+      var attempts = new ArrayList<MatchPlanInputs>();
+      var parameters = new ArrayList<Map<Object, Object>>();
+      cache.beforeUncachedPlanning = (input, context) -> {
+        attempts.add(input);
+        parameters.add(context.getInputParameters() == null ? Map.of()
+            : Map.copyOf(context.getInputParameters()));
+        if (!input.runtimeRidStarts().isEmpty()) {
+          throw new RuntimeRidStartPlanningException("private refusal " + a.id());
+        }
+      };
+      try {
+        var admin = (graphStart ? graph.traversal().V(a.id())
+            : graph.traversal().V().hasId(a.id())).out("knows").asAdmin();
+        var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+        var order =
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .orderIncludesMissingKey(admin);
+        var nulls =
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .orderByNullsPlacements(admin);
+        var shape = GremlinStepWalker.extractShape(admin, session(), order, nulls,
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .isPolymorphic(admin),
+            decision);
+        var errors = metrics.getErrors();
+        var successes = metrics.getSuccesses();
+        var logs = captureStrategyDebugLogs(() -> GremlinToMatchStrategy.instance().apply(admin));
+        assertThat(attempts).hasSize(2);
+        assertThat(attempts.getFirst().runtimeRidStarts()).hasSize(1);
+        assertThat(attempts.get(1).runtimeRidStarts()).isEmpty();
+        assertThat(attempts.get(1).aliasFilters().get("$g2m_v0").toString())
+            .contains("@rid IN", a.id().toString());
+        assertThat(parameters).containsExactly(Map.of(), Map.of());
+        assertThat(metrics.getErrors()).isEqualTo(errors);
+        assertThat(metrics.getSuccesses()).isEqualTo(successes + 1);
+        assertThat(logs).hasSize(1).allSatisfy(log -> {
+          assertThat(log.getMessage()).contains("Retrying once").doesNotContain(a.id().toString());
+          assertThat(log.getThrown()).isNull();
+        });
+        assertThat(cache.containsTranslation(shape.key())).isFalse();
+        for (var input : attempts) {
+          assertThat(cache.contains(GremlinPlanFingerprint.fingerprint(input, ResultShaping.NONE)))
+              .isFalse();
+        }
+        assertThat(admin.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        assertThat(TranslatorEquivalenceSupport.sortedIds(admin.toList()))
+            .containsExactly(b.id().toString());
+      } finally {
+        cache.beforeUncachedPlanning = null;
+      }
+    }
+  }
+
+  /** Retry stays inside the safety net. A second refusal never loops, and Errors propagate. */
+  @Test
+  public void runtimeRetryFailuresPreserveNativeStepsAndErrorsPropagate() {
+    setKillSwitch(true);
+    var cache = GremlinPlanCache.instance(session());
+    var metrics = GremlinTranslationMetrics.of(session());
+    for (int failureMode = 0; failureMode < 3; failureMode++) {
+      var mode = failureMode;
+      var runs = new AtomicInteger();
+      cache.invalidate();
+      cache.beforeUncachedPlanning = (input, context) -> {
+        if (runs.incrementAndGet() == 1 || mode == 0) {
+          throw new RuntimeRidStartPlanningException("refused");
+        }
+        if (mode == 1) {
+          throw new IllegalStateException("literal failure");
+        }
+        throw new AssertionError("literal invariant failure");
+      };
+      try {
+        var admin = graph.traversal().V("#25:7").out("knows").asAdmin();
+        var original = List.copyOf(admin.getSteps());
+        var errors = metrics.getErrors();
+        if (mode == 2) {
+          assertThatCode(() -> GremlinToMatchStrategy.instance().apply(admin))
+              .isInstanceOf(AssertionError.class);
+        } else {
+          GremlinToMatchStrategy.instance().apply(admin);
+        }
+        assertThat(admin.getSteps()).isEqualTo(original);
+        assertThat(runs.get()).isEqualTo(2);
+        assertThat(metrics.getErrors()).isEqualTo(errors + (mode == 2 ? 0 : 1));
+      } finally {
+        cache.beforeUncachedPlanning = null;
+      }
+    }
+  }
+
+  /** Eligibility does not replace walker checks. Blank hops decline and reserved aliases reject. */
+  @Test
+  public void runtimeEligibilityAllowsNormalWalkerDeclineAndInputRejection() {
+    setKillSwitch(true);
+    var cache = GremlinPlanCache.instance(session());
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      var blank = graph.traversal().V("#25:7").out(" ").asAdmin();
+      assertThat(RuntimeRidStartEligibility.evaluate(blank, true)).isNotNull();
+      var original = List.copyOf(blank.getSteps());
+      GremlinToMatchStrategy.instance().apply(blank);
+      assertThat(blank.getSteps()).isEqualTo(original);
+      var reserved = graph.traversal().V("#25:7").as("$private").out("knows").asAdmin();
+      assertThat(RuntimeRidStartEligibility.evaluate(reserved, true)).isNotNull();
+      assertThatCode(() -> GremlinToMatchStrategy.instance().apply(reserved))
+          .isInstanceOf(ReservedAliasException.class);
+      assertThat(runs.get()).isZero();
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
+  }
+
+  /** Fixture-only wider input proves retry rebuilds every ordinary binding, not just the RID term. */
+  @Test
+  public void runtimeRetryRegeneratesCompleteMixedBindingMap() {
+    setKillSwitch(true);
+    var admin = graph.traversal().V().hasId("#25:7").has("name", "A").out("knows").asAdmin();
+    var translations = new ArrayList<GremlinToMatchTranslator.TranslationResult>();
+    GremlinToMatchStrategy.TraversalTranslator translator = traversal -> {
+      var decision = translations.isEmpty()
+          ? new RuntimeRidStartEligibility.EligibleStart((GraphStep<?, ?>) traversal.getStartStep(),
+              ((HasStep<?>) traversal.getSteps().get(1)).getHasContainers().getFirst(),
+              new RecordId(25, 7))
+          : null;
+      var result = GremlinToMatchTranslator.translate(traversal,
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .orderIncludesMissingKey(traversal),
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .orderByNullsPlacements(traversal),
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .isPolymorphic(traversal),
+          decision);
+      translations.add(result);
+      return result;
+    };
+    var cache = GremlinPlanCache.instance(session());
+    var maps = new ArrayList<Map<Object, Object>>();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      maps.add(Map.copyOf(context.getInputParameters()));
+      if (!input.runtimeRidStarts().isEmpty()) {
+        throw new RuntimeRidStartPlanningException("refused");
+      }
+    };
+    try {
+      new GremlinToMatchStrategy(translator).apply(admin);
+      assertThat(translations).hasSize(2);
+      assertThat(translations.getFirst().inputParameters())
+          .isEqualTo(Map.of(0, new RecordId(25, 7), 1, "A"));
+      assertThat(translations.get(1).inputParameters()).isEqualTo(Map.of(0, "A"));
+      assertThat(maps).containsExactly(Map.of(1, "A"), Map.of(0, "A"));
+      assertThat(admin.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(((YTDBMatchPlanStep<?, ?>) admin.getStartStep()).getPlan().getContext()
+          .getInputParameters()).isEqualTo(Map.of(0, "A"));
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
+  }
 
   /**
    * A translation the fixture translator hands back to drive the splice path. The concrete

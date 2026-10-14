@@ -16,9 +16,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.RuntimeRidStartPlanningException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,12 +44,11 @@ import org.slf4j.LoggerFactory;
  * strategies — keeps handling it verbatim. A translated traversal therefore contains exactly
  * one step (the boundary); a declined traversal is left byte-for-byte unchanged.
  *
- * <h2>Current state — recognizes the vertex source only</h2>
+ * <h2>Whole-traversal recognition</h2>
  *
  * <p>The whole-traversal walk is delegated to {@link GremlinToMatchTranslator#translate},
- * which drives the shared {@code GremlinStepWalker} + {@code StepRecogniser} registry. Phase 1
- * recognizes only the vertex source ({@code g.V()} / {@code g.V(ids)}); any traversal carrying
- * an unrecognized step declines whole and stays on the native pipeline. On a recognized shape
+ * which drives the shared {@code GremlinStepWalker} + {@code StepRecogniser} registry. Any
+ * traversal carrying an unrecognized step declines whole and stays on the native pipeline. On a recognized shape
  * {@code apply} runs its gates, receives a non-empty translation, and splices the boundary
  * step in place of the entire step list ({@link #applyTranslation}). Landing the gating
  * cascade + throw-safety net + kill-switch before any recognizer ran under the strategy was
@@ -160,8 +161,8 @@ import org.slf4j.LoggerFactory;
  * tokens plus this invocation's {@code ?} bindings), stores {@link GremlinTranslationTemplate}:
  * a hit skips the walker entirely (splice from the stored template, or return immediately on a
  * cached decline). An extraction that cannot prove completeness never reads or writes that map.
- * Walker-marked RID-bearing shapes ({@code g.V(ids)}, {@code hasId(...)}) keep their physical plans
- * private and do not publish translation templates. Complete RID declines can be cached.
+ * Successful literal RID plans bypass both caches. Approved root walks bind a runtime RID start
+ * and may use both caches. Declined RID walks may still cache their structural decline.
  * RID-free union siblings retain independent physical reuse. Schema transactions bypass both maps.
  * Generated type guards can be shared because the keys distinguish literal comparability blocks.
  * Per-walk predicate values bind as positional parameters and are installed on the boundary step
@@ -242,6 +243,17 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean polymorphic) {
       return GremlinToMatchTranslator.translate(
           traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+    }
+
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic,
+        @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+      return GremlinToMatchTranslator.translate(traversal, orderIncludesMissingKey,
+          orderByNullsPlacements, polymorphic, runtimeRidStart);
     }
   };
 
@@ -330,6 +342,11 @@ public final class GremlinToMatchStrategy
     return INSTANCE;
   }
 
+  /** Production components with translation-map routing selected by an isolated test source. */
+  static GremlinToMatchStrategy withTranslationCache(boolean enabled) {
+    return new GremlinToMatchStrategy(PRODUCTION_TRANSLATOR, PRODUCTION_PLAN_BUILDER, enabled);
+  }
+
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
     // Throw-safety net: the whole body runs on every Gremlin compilation and the strategy is
@@ -340,7 +357,14 @@ public final class GremlinToMatchStrategy
     // Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after the walk and
     // the plan build both succeed, so a caught exception always leaves the step list unmodified.
     try {
-      applyOrDecline(traversal);
+      try {
+        applyOrDecline(traversal);
+      } catch (RuntimeRidStartPlanningException refusal) {
+        // No values or exception text: a refusal is expected, not a translator error.
+        LOGGER
+            .debug("Gremlin runtime RID start refused. Retrying once with literal uncached input.");
+        retryLiteral(traversal);
+      }
     } catch (ReservedAliasException | ContradictoryOrderSemanticsException e) {
       // Deliberate input rejections must reach the caller instead of becoming native declines.
       throw e;
@@ -428,9 +452,12 @@ public final class GremlinToMatchStrategy
     if (orderByNullsPlacements == null || polymorphic == null) {
       return;
     }
+    var runtimeStart = cache.isRuntimeRidStartEnabled()
+        ? RuntimeRidStartEligibility.evaluate(traversal, true) : null;
     var extraction =
         GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
+            runtimeStart);
     var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && eligible && extraction.complete()) {
       var cached = cache.getTranslationInternal(extraction.key(), session, generation);
@@ -452,7 +479,7 @@ public final class GremlinToMatchStrategy
     }
     var translation =
         translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
-            polymorphic);
+            polymorphic, runtimeStart);
     if (translation == null) {
       if (populateTranslationCache && eligible && extraction.complete()) {
         GremlinPlanCache.putTranslation(
@@ -470,6 +497,26 @@ public final class GremlinToMatchStrategy
   static boolean matchingLayout(List<HasBindingContext.Contribution> extracted,
       List<HasBindingContext.Contribution> walked) {
     return extracted.equals(walked);
+  }
+
+  /** Fresh literal walk, with no lookup, publication, extraction or generation capture. */
+  private void retryLiteral(Traversal.Admin<?, ?> traversal) {
+    var session = resolveSessionIfEnabled(traversal);
+    if (session == null) {
+      return;
+    }
+    var translation = translator.translate(traversal,
+        YTDBStrategyUtil.orderIncludesMissingKey(traversal),
+        YTDBStrategyUtil.orderByNullsPlacements(traversal),
+        YTDBStrategyUtil.isPolymorphic(traversal), null);
+    if (translation == null) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      return;
+    }
+    var plan =
+        buildPlanUncached(session, requireInputs(translation), translation.inputParameters());
+    replaceAllStepsWithBoundary(traversal, plan, translation, false);
+    GremlinTranslationMetrics.of(session).recordSuccess();
   }
 
   /**
@@ -699,7 +746,7 @@ public final class GremlinToMatchStrategy
    * the plan eagerly, with the walk's positional parameters installed on the planning context so
    * root selection and IndexOrdered cost estimates see bound {@code ?} values (mirrors
    * {@code SQLMatchStatement}). Cache-eligible shapes get/put through {@link GremlinPlanCache};
-   * RID-bearing shapes always build uncached.
+   * Literal RID-bearing shapes always build uncached.
    *
    * <p>Package-private rather than private so a test can wrap it in a fixture {@link
    * MatchPlanBuilder} that parks between union children: the concurrent-invalidation guard below is
@@ -814,8 +861,18 @@ public final class GremlinToMatchStrategy
       MatchPlanInputs inputs,
       Map<Object, Object> inputParameters) {
     var ctx = new BasicCommandContext(session);
-    if (!inputParameters.isEmpty()) {
-      ctx.setInputParameters(inputParameters);
+    // Runtime starts have no planner expression that reads their slot. Keep the storing RID
+    // out of the planning context while retaining ordinary parameters needed by cost estimates.
+    var planningParameters = new LinkedHashMap<>(inputParameters);
+    for (var start : inputs.runtimeRidStarts().values()) {
+      planningParameters.remove(start.parameterSlot());
+    }
+    if (!planningParameters.isEmpty()) {
+      ctx.setInputParameters(planningParameters);
+    }
+    var observer = GremlinPlanCache.instance(session).beforeUncachedPlanning;
+    if (observer != null) {
+      observer.accept(inputs, ctx);
     }
     return new MatchExecutionPlanner(inputs)
         .createExecutionPlan(ctx, /* enableProfiling */ false, /* useCache */ false);
@@ -972,6 +1029,16 @@ public final class GremlinToMatchStrategy
         ResolvedOrderByNullsPlacement orderByNullsPlacements,
         @Nullable Boolean polymorphic) {
       return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
+    }
+
+    /** Fixtures stay literal unless they explicitly implement the resolved runtime decision. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic,
+        @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+      return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     }
   }
 

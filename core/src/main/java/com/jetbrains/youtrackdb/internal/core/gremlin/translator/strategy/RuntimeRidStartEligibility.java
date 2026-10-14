@@ -31,6 +31,7 @@ final class RuntimeRidStartEligibility {
   /**
    * {@code rootWalk} must be false for synthesized union and predicate walks, even if their
    * temporary traversal has no parent. It is independent of the walker's predicate-fold latch.
+   * Eligibility is necessary, not sufficient: the walker still checks labels and hop validity.
    * This check neither applies strategies nor consults schema or cache state.
    */
   static @Nullable EligibleStart evaluate(Traversal.Admin<?, ?> traversal, boolean rootWalk) {
