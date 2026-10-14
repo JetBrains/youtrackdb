@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.H
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
@@ -399,7 +398,7 @@ public class ChangedPageTrackerStartupTest {
         for (boolean trusted : new boolean[] {false, true}) {
           boolean valid = switch (outcome) {
             case PROVED_HISTORY_TRUSTED -> proved && trusted;
-            case PROVED_HISTORY_UNTRUSTED, PROVED_IDENTITY_UNRESOLVED -> proved && !trusted;
+            case PROVED_HISTORY_UNTRUSTED -> proved && !trusted;
             default -> !proved && !trusted;
           };
           if (!valid) {
@@ -426,7 +425,7 @@ public class ChangedPageTrackerStartupTest {
   }
 
   // Resolution derives proof for every status, known or null shutdown and lookahead result.
-  // MORE and null shutdowns never resolve as proved. Identity uncertainty revokes proved history.
+  // MORE and null shutdowns never resolve as proved.
   // Saved-untrusted history is never upgraded. All paths retain marks, coverage, status and cause.
   @Test
   public void proofResolutionExhaustivelyDerivesPolicyAndKeepsOnlySavedTrust() throws Exception {
@@ -436,29 +435,23 @@ public class ChangedPageTrackerStartupTest {
           ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
         for (boolean follows : new boolean[] {false, true}) {
           for (boolean savedTrusted : new boolean[] {false, true}) {
-            for (boolean identityUnresolved : new boolean[] {false, true}) {
-              var pending = savedHistory(savedTrusted);
-              var cause = new IOException("diagnostic for " + status);
-              var batch = new ProofBatch(List.of(), status, COVERAGE, follows, cause);
-              boolean proved = shutdown != null && (status == ProofStatus.REACHED_END
-                  || status == ProofStatus.BROKEN_PAGE
-                      && shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN && !follows);
-              boolean kept = proved && !identityUnresolved;
-              var outcome = !proved ? ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED
-                  : identityUnresolved
-                      ? ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED
-                      : savedTrusted ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
-                          : ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED;
-              assertEquals(status + " / " + shutdown + " / " + follows + " / " + savedTrusted
-                  + " / " + identityUnresolved,
-                  new ChangedPageTrackerStartup.StartupResult(proved, kept && savedTrusted,
-                      outcome, status, cause),
-                  ChangedPageTrackerStartup.resolve(pending, batch, shutdown, identityUnresolved));
-              assertEquals(kept ? ChangedPageTrackerStartup.Resolution.KEPT
-                  : ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
-              assertEquals(kept && savedTrusted, pending.tracker().isTrusted());
-              assertMarksAndCoverage(pending);
-            }
+            var pending = savedHistory(savedTrusted);
+            var cause = new IOException("diagnostic for " + status);
+            var batch = new ProofBatch(List.of(), status, COVERAGE, follows, cause);
+            boolean proved = shutdown != null && (status == ProofStatus.REACHED_END
+                || status == ProofStatus.BROKEN_PAGE
+                    && shutdown == ChangedPageTrackerStartup.ShutdownState.UNCLEAN && !follows);
+            var outcome = !proved ? ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED
+                : savedTrusted ? ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
+                    : ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED;
+            assertEquals(status + " / " + shutdown + " / " + follows + " / " + savedTrusted,
+                new ChangedPageTrackerStartup.StartupResult(proved, proved && savedTrusted,
+                    outcome, status, cause),
+                ChangedPageTrackerStartup.resolve(pending, batch, shutdown));
+            assertEquals(proved ? ChangedPageTrackerStartup.Resolution.KEPT
+                : ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+            assertEquals(proved && savedTrusted, pending.tracker().isTrusted());
+            assertMarksAndCoverage(pending);
           }
         }
       }
@@ -474,16 +467,14 @@ public class ChangedPageTrackerStartupTest {
     for (var shutdown : new ChangedPageTrackerStartup.ShutdownState[] {
         ChangedPageTrackerStartup.ShutdownState.CLEAN,
         ChangedPageTrackerStartup.ShutdownState.UNCLEAN, null}) {
-      for (boolean identityUnresolved : new boolean[] {false, true}) {
-        for (var batch : new ProofBatch[] {null,
-            new ProofBatch(List.of(), null, COVERAGE, false, cause)}) {
-          var pending = savedHistory(true);
-          assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
-              ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, null,
-              batch == null ? null : cause),
-              ChangedPageTrackerStartup.resolve(pending, batch, shutdown, identityUnresolved));
-          assertDistrusted(pending);
-        }
+      for (var batch : new ProofBatch[] {null,
+          new ProofBatch(List.of(), null, COVERAGE, false, cause)}) {
+        var pending = savedHistory(true);
+        assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
+            ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, null,
+            batch == null ? null : cause),
+            ChangedPageTrackerStartup.resolve(pending, batch, shutdown));
+        assertDistrusted(pending);
       }
     }
     for (var status : List.of(ProofStatus.REACHED_END, ProofStatus.BROKEN_PAGE)) {
@@ -497,7 +488,7 @@ public class ChangedPageTrackerStartupTest {
           var batch = new ProofBatch(List.of(), status, COVERAGE, follows, cause);
           assertEquals(new ChangedPageTrackerStartup.StartupResult(false, false,
               ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, status, cause),
-              ChangedPageTrackerStartup.resolve(pending, batch, null, false));
+              ChangedPageTrackerStartup.resolve(pending, batch, null));
           assertDistrusted(pending);
         }
       }
@@ -509,8 +500,7 @@ public class ChangedPageTrackerStartupTest {
   @Test
   public void notProvedRejectsProofOutcomesAfterDistrustingHistory() throws Exception {
     for (var outcome : List.of(ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
-        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED,
-        ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED)) {
+        ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED)) {
       for (boolean kept : new boolean[] {false, true}) {
         var pending = savedHistory(true);
         if (kept) {
@@ -552,16 +542,11 @@ public class ChangedPageTrackerStartupTest {
             ChangedPageTrackerStartup.Outcome.COVERAGE_NOT_PROVED, status, cause),
             ChangedPageTrackerStartup.resolve(pending,
                 new ProofBatch(List.of(), status, COVERAGE, false, cause),
-                ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+                ChangedPageTrackerStartup.ShutdownState.CLEAN));
         assertDistrusted(pending);
         assertTrue(logs.warnedWithAll("outcome=COVERAGE_NOT_PROVED", "status=" + status,
             "cause=" + cause));
       }
-      var unresolved = savedHistory(true);
-      ChangedPageTrackerStartup.resolve(unresolved,
-          new ProofBatch(List.of(), ProofStatus.REACHED_END, COVERAGE, false, null),
-          ChangedPageTrackerStartup.ShutdownState.CLEAN, true);
-      assertTrue(logs.warnedWithAll("outcome=PROVED_IDENTITY_UNRESOLVED", "status=REACHED_END"));
     }
   }
 
@@ -574,7 +559,7 @@ public class ChangedPageTrackerStartupTest {
     assertEquals(new ChangedPageTrackerStartup.StartupResult(true, true,
         ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED, ProofStatus.REACHED_END, null),
         ChangedPageTrackerStartup.resolve(pending, batch,
-            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+            ChangedPageTrackerStartup.ShutdownState.CLEAN));
     assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, pending.resolution());
     assertTrue(pending.tracker().isTrusted());
     ChangedPageTrackerStartup.replayFailed(pending);
@@ -582,7 +567,7 @@ public class ChangedPageTrackerStartupTest {
     assertEquals(new ChangedPageTrackerStartup.StartupResult(true, false,
         ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED, ProofStatus.REACHED_END, null),
         ChangedPageTrackerStartup.resolve(pending, batch,
-            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+            ChangedPageTrackerStartup.ShutdownState.CLEAN));
     assertDistrusted(pending);
     assertEquals(1, capture(pending.tracker()).failureVersion());
 
@@ -593,7 +578,7 @@ public class ChangedPageTrackerStartupTest {
     assertEquals(new ChangedPageTrackerStartup.StartupResult(true, false,
         ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED, ProofStatus.REACHED_END, null),
         ChangedPageTrackerStartup.resolve(invalidated, batch,
-            ChangedPageTrackerStartup.ShutdownState.CLEAN, false));
+            ChangedPageTrackerStartup.ShutdownState.CLEAN));
     assertEquals(ChangedPageTrackerStartup.Resolution.KEPT, invalidated.resolution());
     assertFalse(invalidated.tracker().isTrusted());
     assertMarksAndCoverage(invalidated);
@@ -757,24 +742,6 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
-  // A non-transactional change has no WAL page marks of its own. Clean end proves coverage,
-  // but distrusts saved-trusted history while retaining both saved and scanned candidates.
-  @Test
-  public void verifyNonTxMarkerProvesCoverageButDistrustsHistoryAndPreservesPageMarks()
-      throws Exception {
-    var pending = savedHistory(true);
-    assertTrue(pending.savedTrusted());
-    try (var wal = new ScriptedWal(batch(ProofStatus.REACHED_END,
-        update(121, EXTERNAL_ID, 7), new NonTxOperationPerformedWALRecord()))) {
-      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
-          ChangedPageTrackerStartup.ShutdownState.CLEAN, new TestFileIds()),
-          ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
-          ProofStatus.REACHED_END, null, withPages(7, 121));
-      assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
-      assertEquals(1, wal.nextCalls);
-    }
-  }
-
   // Creation in an earlier batch keeps saved trust after an event-free terminal batch.
   // Both page records and all saved candidates remain available.
   @Test
@@ -791,15 +758,6 @@ public class ChangedPageTrackerStartupTest {
     assertEarlierEventHistory(new FileDeletedWALRecord(7, EXTERNAL_ID),
         ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
         ChangedPageTrackerStartup.Resolution.KEPT);
-  }
-
-  // A non-transactional marker in an earlier batch keeps history untrusted even when the terminal
-  // batch contains only a page record. Clean end still proves coverage and retains exact marks.
-  @Test
-  public void verifyNonTxMarkerInMoreBatchDistrustsHistoryAfterEventFreeEnd() throws Exception {
-    assertEarlierEventHistory(new NonTxOperationPerformedWALRecord(),
-        ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED,
-        ChangedPageTrackerStartup.Resolution.DISTRUSTED);
   }
 
   private void assertEarlierEventHistory(WriteableWALRecord event,
@@ -1447,8 +1405,7 @@ public class ChangedPageTrackerStartupTest {
       ChangedPageTrackerStartup.StartupResult result, ChangedPageTrackerStartup.Outcome outcome,
       ProofStatus status, Throwable cause, Map<Integer, TreeSet<Long>> candidates) {
     boolean proved = outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED
-        || outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED
-        || outcome == ChangedPageTrackerStartup.Outcome.PROVED_IDENTITY_UNRESOLVED;
+        || outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_UNTRUSTED;
     boolean trusted = outcome == ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED;
     assertEquals(
         new ChangedPageTrackerStartup.StartupResult(proved, trusted, outcome, status, cause),
