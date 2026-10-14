@@ -117,6 +117,13 @@ public final class TinkerWorkerPool implements AutoCloseable {
         }
     }
 
+    // Coordinator-only: executeVertexProgram must return successfully before merging this round.
+    void completeWorkerMemory() {
+        for (final TinkerWorkerMemory workerMemory : this.workerMemoryPool) {
+            workerMemory.complete();
+        }
+    }
+
     public void executeMapReduce(final Consumer<MapReduce> worker) throws InterruptedException {
         for (int i = 0; i < this.numberOfWorkers; i++) {
             this.completionService.submit(() -> {

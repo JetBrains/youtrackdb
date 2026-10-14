@@ -185,8 +185,9 @@ public final class TinkerGraphComputer implements GraphComputer {
                                         workerMemory);
                             }
                             vertexProgram.workerIterationEnd(workerMemory.asImmutable());
-                            workerMemory.complete();
                         });
+                        // Publish partial results only after every worker has stopped reading memory.
+                        workers.completeWorkerMemory();
                         this.messageBoard.completeIteration();
                         this.memory.completeSubRound();
                         if (this.vertexProgram.terminate(this.memory)) {
