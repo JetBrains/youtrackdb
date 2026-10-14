@@ -132,6 +132,15 @@ public class BasicCommandContext implements CommandContext {
   }
 
   @Override
+  public Object getVariableByReference(ContextVariableReference variable) {
+    if (!variable.simple) {
+      return getVariable(variable.name);
+    }
+    var result = lookupVariable(variable.lookupName, variable);
+    return result != null ? resolveValue(result) : null;
+  }
+
+  @Override
   public Object getVariable(String iName) {
     return getVariable(iName, null);
   }
@@ -212,6 +221,10 @@ public class BasicCommandContext implements CommandContext {
    * child context, and finally the named parent hierarchy.
    */
   private Object lookupVariable(String name) {
+    return lookupVariable(name, null);
+  }
+
+  private Object lookupVariable(String name, @Nullable ContextVariableReference reference) {
     // Special keywords take precedence over user-defined variables.
     int len = name.length();
     if (len == 7 && name.equalsIgnoreCase("CONTEXT")) {
@@ -237,7 +250,8 @@ public class BasicCommandContext implements CommandContext {
       return sysVar;
     }
     if (child != null) {
-      return child.getVariable(name);
+      return reference == null ? child.getVariable(name)
+          : child.getVariableByReference(reference.childReference);
     }
     return getVariableFromParentHierarchy(name);
   }

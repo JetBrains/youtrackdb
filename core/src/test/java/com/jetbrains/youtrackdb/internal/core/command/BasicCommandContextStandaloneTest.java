@@ -26,11 +26,18 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext.TIMEOUT_STRATEGY;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import java.util.List;
@@ -56,6 +63,52 @@ import org.junit.Test;
  * {@link BasicCommandContextTest}.
  */
 public class BasicCommandContextStandaloneTest {
+
+  /** Preprocessed reads preserve scope, repeated dollar stripping, nulls, and dynamic resolution. */
+  @Test
+  public void preprocessedReferencesMatchNamedScopeSemantics() {
+    var session = mock(DatabaseSessionEmbedded.class);
+    for (var name : List.of("plain", "$one", "$$two", "current", "CONTEXT", "map.key")) {
+      var reference = new ContextVariableReference(name);
+      var parent = new BasicCommandContext(session);
+      var ctx = new BasicCommandContext(session);
+      ctx.setParentWithoutOverridingChild(parent);
+      assertEquals(ctx.getVariable(name), ctx.getVariableByReference(reference));
+      parent.setVariable(name, "parent");
+      assertEquals(ctx.getVariable(name), ctx.getVariableByReference(reference));
+      ctx.setVariable(name, null);
+      assertEquals(ctx.getVariable(name), ctx.getVariableByReference(reference));
+      ctx.setDynamicVariable(name, c -> c == ctx ? "here" : "elsewhere");
+      assertEquals(ctx.getVariable(name), ctx.getVariableByReference(reference));
+    }
+    var fallback = mock(CommandContext.class, CALLS_REAL_METHODS);
+    when(fallback.getVariable("$name")).thenReturn("fallback");
+    assertEquals("fallback",
+        fallback.getVariableByReference(new ContextVariableReference("$name")));
+  }
+
+  /** Child reads strip one more dollar and use references without any named lookup entry point. */
+  @Test
+  public void preprocessedChildReferencesStripDollarsWithoutNamedReads() {
+    var root = new BasicCommandContext();
+    var child = spy(new BasicCommandContext());
+    root.setChild(child);
+    child.setVariable("two", "child-value");
+    child.setVariable("$$two", "dollar-child-value");
+    assertEquals("child-value", root.getVariable("$$two"));
+    assertEquals("dollar-child-value", root.getVariable("$$$two"));
+    clearInvocations(child);
+
+    assertEquals("child-value",
+        root.getVariableByReference(new ContextVariableReference("$$two")));
+    assertEquals("dollar-child-value",
+        root.getVariableByReference(new ContextVariableReference("$$$two")));
+
+    verify(child, times(2)).getVariableByReference(any());
+    verify(child, never()).getVariable(any());
+    verify(child, never()).getVariable(any(), any());
+    verify(child, never()).getVariables();
+  }
 
   // ---------------------------------------------------------------------------
   // setVariable — dot-path propagation to a nested CommandContext

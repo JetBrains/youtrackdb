@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -58,6 +59,8 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
   /** The alias whose records are being prefetched. */
   private final String alias;
 
+  private final ContextVariableReference prefetchedVariable;
+
   /** The sub-plan that scans/filters the alias's records. */
   private final InternalExecutionPlan prefetchExecutionPlan;
 
@@ -71,6 +74,7 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
     assert MatchAssertions.checkNotNull(alias, "alias");
     this.prefetchExecutionPlan = prefetchExecPlan;
     this.alias = alias;
+    this.prefetchedVariable = new ContextVariableReference(PREFETCHED_MATCH_ALIAS_PREFIX + alias);
   }
 
   @Override
@@ -98,7 +102,7 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
     prefetchExecutionPlan.close();
 
     // Store the prefetched list in the context for MatchFirstStep to consume
-    ctx.setVariable(PREFETCHED_MATCH_ALIAS_PREFIX + alias, prefetched);
+    ctx.setVariable(prefetchedVariable.getName(), prefetched);
 
     return ExecutionStream.empty();
   }

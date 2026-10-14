@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
@@ -41,6 +42,8 @@ public class MatchFirstStep extends AbstractExecutionStep {
 
   /** The pattern node whose records this step produces. */
   private final PatternNode node;
+
+  private final ContextVariableReference prefetchedVariable;
 
   /**
    * An optional sub-execution plan (typically a `SELECT` scan) used when no
@@ -92,6 +95,8 @@ public class MatchFirstStep extends AbstractExecutionStep {
     assert MatchAssertions.checkNotNull(node, "pattern node");
     assert MatchAssertions.checkNotEmpty(node.alias, "pattern node alias");
     this.node = node;
+    this.prefetchedVariable = new ContextVariableReference(
+        MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + node.alias);
     this.executionPlan = subPlan;
     this.signalRidIndexOrder = signalRidIndexOrder;
   }
@@ -122,7 +127,7 @@ public class MatchFirstStep extends AbstractExecutionStep {
     // Check whether the alias was prefetched by a MatchPrefetchStep
     @SuppressWarnings("unchecked")
     var matchedNodes =
-        (List<Result>) ctx.getVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + alias);
+        (List<Result>) ctx.getVariableByReference(prefetchedVariable);
     if (matchedNodes != null) {
       data = ExecutionStream.resultIterator(matchedNodes.iterator());
     } else {

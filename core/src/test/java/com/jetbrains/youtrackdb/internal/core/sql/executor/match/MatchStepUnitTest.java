@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
@@ -26,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
@@ -36,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -55,6 +58,10 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -963,6 +970,170 @@ public class MatchStepUnitTest extends DbTestBase {
     var field = target.getClass().getDeclaredField(fieldName);
     field.setAccessible(true);
     field.set(target, value);
+  }
+
+  /** Alias-specific prefetch producers and copied consumers avoid every named lookup entry. */
+  @Test
+  public void prefetchedAliasesUseDirectReferences() {
+    var ctx = new ObservedContext();
+    var sources = new LinkedHashMap<String, ResultInternal>();
+    for (var alias : List.of("a", "b")) {
+      var source = new ResultInternal(session);
+      source.setProperty("name", alias);
+      sources.put(alias, source);
+      var plan = createBuildPlan(ctx, source);
+      new MatchPrefetchStep(ctx, plan, alias, false).start(ctx).close(ctx);
+    }
+    for (var alias : sources.keySet()) {
+      var source = sources.get(alias);
+      var node = new PatternNode();
+      node.alias = alias;
+      var step = (MatchFirstStep) new MatchFirstStep(ctx, node, false).copy(ctx);
+      for (int i = 0; i < 3; i++) {
+        var stream = step.start(ctx);
+        assertSame(source, stream.next(ctx).getProperty(alias));
+        assertFalse(stream.hasNext(ctx));
+        stream.close(ctx);
+      }
+    }
+    assertEquals(6, ctx.directReads);
+    assertEquals(0, ctx.namedReads);
+  }
+
+  /** Concurrent copies execute private prefetch plans with separate sessions and live bindings. */
+  @Test
+  public void copiedPrefetchPlansKeepConcurrentExecutionsIsolated() throws Exception {
+    var template = new SelectExecutionPlan(createCommandContext());
+    var node = new PatternNode();
+    node.alias = "a";
+    var scan = new SelectExecutionPlan(template.getContext());
+    scan.chain(new PrefetchSource(template.getContext()));
+    template.chain(new MatchPrefetchStep(template.getContext(), scan, "a", false));
+    template.chain(new MatchFirstStep(template.getContext(), node, false));
+    var barrier = new CyclicBarrier(2);
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var futures = new ArrayList<Future<String>>();
+      for (var value : List.of("first", "second")) {
+        futures.add(pool.submit(() -> {
+          try (var db = openDatabase()) {
+            var ctx = YTDBMatchPlanStep.cleanCopyContext(template.getContext());
+            ctx.setDatabaseSession(db);
+            ctx.setInputParameters(Map.of(0, value));
+            var copy = template.copy(ctx);
+            barrier.await(5, TimeUnit.SECONDS);
+            var stream = copy.start();
+            Result row = stream.next(ctx).getProperty("a");
+            var result = row.<String>getProperty("name");
+            stream.close(ctx);
+            copy.close();
+            return result;
+          }
+        }));
+      }
+      assertEquals("first", futures.get(0).get(10, TimeUnit.SECONDS));
+      assertEquals("second", futures.get(1).get(10, TimeUnit.SECONDS));
+    } finally {
+      session.activateOnCurrentThread();
+    }
+  }
+
+  private static final class PrefetchSource extends AbstractExecutionStep {
+    PrefetchSource(CommandContext ctx) {
+      super(ctx, false);
+    }
+
+    @Override
+    protected ExecutionStream internalStart(CommandContext ctx) {
+      var result = new ResultInternal(ctx.getDatabaseSession());
+      result.setProperty("name", ctx.getInputParameters().get(0));
+      return ExecutionStream.singleton(result);
+    }
+
+    @Override
+    public ExecutionStep copy(CommandContext ctx) {
+      return new PrefetchSource(ctx);
+    }
+  }
+
+  /** Candidate substitution restores parent-owned nulls and values on pass, rejection, and error. */
+  @Test
+  public void edgeCandidatesRestoreEvenWhenFilterFails() {
+    for (int outcome = 0; outcome < 3; outcome++) {
+      for (Object saved : java.util.Arrays.asList(null, "outer")) {
+        var parent = createCommandContext();
+        parent.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, saved);
+        var ctx = new ObservedContext();
+        ctx.setParentWithoutOverridingChild(parent);
+        var candidate = new ResultInternal(session);
+        var failure = new IllegalStateException("candidate filter");
+        final int mode = outcome;
+        var where = new SQLWhereClause(-1) {
+          @Override
+          public boolean matchesFilters(Result record, CommandContext context) {
+            assertSame(candidate, context.getInternalVariable(
+                CommandContext.InternalVariable.CURRENT_MATCH));
+            if (mode == 2) {
+              throw failure;
+            }
+            return mode == 0;
+          }
+        };
+        var filter = new SQLMatchFilter(-1);
+        filter.setFilter(where);
+        var item = new SQLMatchPathItem(-1);
+        item.setFilter(filter);
+        var traverser = new MatchEdgeTraverser(new ResultInternal(session), item) {
+          @Override
+          protected ExecutionStream traversePatternEdge(Result start, CommandContext context) {
+            return ExecutionStream.singleton(candidate);
+          }
+        };
+        var stream = traverser.executeTraversal(ctx, item, candidate, 0, null,
+            new RidSet());
+        if (mode == 2) {
+          assertSame(failure, assertThrows(IllegalStateException.class, () -> stream.hasNext(ctx)));
+        } else {
+          assertEquals(mode == 0, stream.hasNext(ctx));
+        }
+        assertTrue(parent.hasSystemVariable(CommandContext.VAR_CURRENT_MATCH));
+        assertSame(saved, parent.getSystemVariable(CommandContext.VAR_CURRENT_MATCH));
+        assertEquals(0, ctx.namedReads);
+        stream.close(ctx);
+      }
+    }
+  }
+
+  private final class ObservedContext extends BasicCommandContext {
+    int namedReads;
+    int directReads;
+
+    ObservedContext() {
+      super(MatchStepUnitTest.this.session);
+    }
+
+    @Override
+    public Object getVariable(String name) {
+      namedReads++;
+      return super.getVariable(name);
+    }
+
+    @Override
+    public Object getVariable(String name, Object fallback) {
+      namedReads++;
+      return super.getVariable(name, fallback);
+    }
+
+    @Override
+    public Map<String, Object> getVariables() {
+      namedReads++;
+      return super.getVariables();
+    }
+
+    @Override
+    public Object getVariableByReference(ContextVariableReference reference) {
+      directReads++;
+      return super.getVariableByReference(reference);
+    }
   }
 
   // -- MatchFirstStep tests --

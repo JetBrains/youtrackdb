@@ -1,7 +1,21 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
@@ -42,6 +56,23 @@ import org.junit.Test;
  * the NULL comparand rewrites, and singleton-collection normalization.
  */
 public class GremlinPredicateAdapterTest {
+
+  /** Scoped label predicates and their copies read both MATCH aliases without named lookup. */
+  @Test
+  public void scopedLabelPredicateUsesDirectMatchedAccess() {
+    var ctx = spy(new BasicCommandContext(mock(DatabaseSessionEmbedded.class)));
+    var row = new ResultInternal(null);
+    row.setProperty("@rid", new RecordId(1, 1));
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, java.util.Map.of("a", row, "b", row));
+    var filter = GremlinPredicateAdapter.INSTANCE.toMatchedLabelFilter("a", P.eq("b"),
+        GremlinPredicateAdapter.NO_TYPE_INFO, label -> label);
+    assertThat(filter).isNotNull();
+    assertThat(filter.copy().evaluate((Result) null, ctx)).isTrue();
+    verify(ctx, times(8)).getInternalVariable(InternalVariable.MATCHED);
+    verify(ctx, never()).getVariable(anyString());
+    verify(ctx, never()).getVariable(anyString(), any());
+    verify(ctx, never()).getVariables();
+  }
 
   // ---------------------------------------------------------------------------
   // Accept path — the six scalar comparisons map to their SQL operators.

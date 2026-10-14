@@ -6,9 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVar
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSuffixIdentifier;
+import java.util.Map;
 
 /**
- * A builder-proven internal context reference. Only Result evaluation uses the direct route.
+ * A builder-proven internal context reference. Result, Map, and context inputs use direct reads.
  * Other input forms retain SQLSuffixIdentifier behavior. Copies carry the role, never its value.
  */
 public final class InternalContextVariableSuffix extends SQLSuffixIdentifier {
@@ -52,6 +53,22 @@ public final class InternalContextVariableSuffix extends SQLSuffixIdentifier {
       }
     }
     return null;
+  }
+
+  @Override
+  public Object execute(Map record, CommandContext ctx) {
+    var name = identifier.getStringValue();
+    // Map keys precede context values, unlike the Result overload.
+    if (record != null && record.containsKey(name)) {
+      return record.get(name);
+    }
+    return ctx != null && ctx.getInternalVariable(variable) != null
+        ? ctx.getInternalVariable(variable) : null;
+  }
+
+  @Override
+  public Object execute(CommandContext record) {
+    return record == null ? null : record.getInternalVariable(variable);
   }
 
   @Override

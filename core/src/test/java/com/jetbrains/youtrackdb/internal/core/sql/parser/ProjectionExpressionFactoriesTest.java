@@ -81,6 +81,28 @@ public class ProjectionExpressionFactoriesTest {
     assertThat(ctx.directReads).isEqualTo(2);
   }
 
+  /** Builder-proven Map and context reads keep Map precedence, saved nulls, and dynamic calls. */
+  @Test
+  public void internalSuffixUsesDirectMapAndContextRoutes() {
+    var ctx = new ObservedContext();
+    var suffix = new InternalContextVariableSuffix(InternalVariable.MATCHED).copy();
+    var calls = new AtomicInteger();
+    ctx.setDynamicVariable("matched", c -> calls.incrementAndGet());
+    assertThat(suffix.execute(Map.of(), ctx)).isEqualTo(2);
+    assertThat(suffix.execute(ctx)).isEqualTo(3);
+    var map = new HashMap<String, Object>();
+    map.put("$matched", null);
+    assertThat(suffix.execute(map, ctx)).isNull();
+    map.put("$matched", "map-value");
+    assertThat(suffix.execute(map, ctx)).isEqualTo("map-value");
+    assertThat(suffix.execute((Map) null, ctx)).isEqualTo(5);
+    ctx.setVariable("matched", null);
+    assertThat(suffix.execute(Map.of(), ctx)).isNull();
+    assertThat(suffix.execute((Map) null, null)).isNull();
+    assertThat(suffix.execute((CommandContext) null)).isNull();
+    assertThat(ctx.namedReads).isZero();
+  }
+
   /** Null context values retain Result columns, metadata, temporary properties, and misses. */
   @Test
   public void directSuffixRetainsNullAndMissingResultFallbacks() {

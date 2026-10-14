@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
@@ -1281,6 +1282,8 @@ public class YTDBMatchPlanStepTest {
     var source = new BasicCommandContext(threadSession);
     source.setInputParameters(Map.of(0, "binding"));
     source.setVariable("alias", "original");
+    var prefetch = new ContextVariableReference("$$YouTrackDB_Prefetched_Alias_Prefix__v");
+    source.setVariable(prefetch.getName(), List.of("original"));
     source.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, true);
     var realPlan = ReplayablePlanFixture.planOver(source, List.of());
     var original = new YTDBMatchPlanStep<>(traversal, Vertex.class, realPlan, "v",
@@ -1289,6 +1292,9 @@ public class YTDBMatchPlanStepTest {
     var clean = cloned.getPlan().getContext();
     assertThat(clean.getParent()).isNull();
     assertThat(clean.getVariables()).isEmpty();
+    assertThat(clean.getVariableByReference(prefetch)).isNull();
+    clean.setVariable(prefetch.getName(), List.of("clone"));
+    assertThat(source.getVariableByReference(prefetch)).isEqualTo(List.of("original"));
     assertThat(clean.getInputParameters()).containsEntry(0, "binding");
     assertThat(clean.hasSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)).isFalse();
     clean.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, false);
@@ -1300,6 +1306,7 @@ public class YTDBMatchPlanStepTest {
         BoundaryOutputType.ELEMENT, Map.of(), ResultShaping.NONE, true);
     drainPayloads(lazy);
     assertThat(lazy.getPlan().getContext().getParent()).isNull();
+    assertThat(lazy.getPlan().getContext().getVariableByReference(prefetch)).isNull();
     assertThat(source.<Boolean>getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
         .isTrue();
   }

@@ -85,6 +85,11 @@ public interface CommandContext {
 
   Object getVariable(String iName);
 
+  /** Reads an internal name preprocessed at plan construction, with ordinary scope semantics. */
+  default Object getVariableByReference(ContextVariableReference variable) {
+    return getVariable(variable.name);
+  }
+
   Object getVariable(String iName, Object iDefaultValue);
 
   CommandContext setVariable(String iName, Object iValue);
