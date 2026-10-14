@@ -1013,6 +1013,60 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
         shape);
   }
 
+  /**
+   * Existing counted slices use the bounded union sort. Duplicate branch outputs and tied names
+   * exercise dedup on both sides of order, nonzero range lows, zero ends, and ends beyond int.
+   * Explicit counts prevent native and translated paths from agreeing on the same wrong result.
+   */
+  @Test
+  public void unionOrderedCountedSlices_matchNativeWithDedupAndLongEnds() {
+    var root = graph.addVertex(T.label, "Person", "name", "root");
+    for (int i = 0; i < 4; i++) {
+      root.addEdge("knows", graph.addVertex(T.label, "Person", "name", "tie"));
+    }
+    graph.tx().commit();
+    var id = root.id();
+    for (boolean dedupFirst : List.of(false, true)) {
+      for (boolean dedupLast : List.of(false, true)) {
+        if (dedupFirst && dedupLast) {
+          continue;
+        }
+        for (long[] slice : List.of(new long[] {0, 3}, new long[] {1, 4},
+            new long[] {0, 0}, new long[] {3, 3},
+            new long[] {0, (long) Integer.MAX_VALUE + 1})) {
+          Supplier<GraphTraversal<?, ?>> shape = () -> {
+            var traversal = graph.traversal().V(id).union(__.out("knows"), __.out("knows"));
+            if (dedupFirst) {
+              traversal = traversal.dedup();
+            }
+            traversal = traversal.order().by("name");
+            if (dedupLast) {
+              traversal = traversal.dedup();
+            }
+            return traversal.range(slice[0], slice[1]).count();
+          };
+          assertEquivalent("ordered counted slice with dedup positions and long ends",
+              Recognition.RECOGNIZED_MULTI_PLAN, shape);
+          setTranslatorEnabled(true);
+          long rows = dedupFirst || dedupLast ? 4 : 8;
+          assertThat(shape.get().next())
+              .isEqualTo(Math.max(0, Math.min(rows, slice[1]) - slice[0]));
+        }
+      }
+    }
+  }
+
+  /** An ended ordered slice over empty branches still translates and emits a zero count. */
+  @Test
+  public void unionOrderedCountedSlice_emptyBranchesEmitZero() {
+    seedKnowsChain();
+    Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V()
+        .union(__.out("absent"), __.in("absent")).order().by("name").limit(3).count();
+    assertEquivalent("empty ordered counted union", Recognition.RECOGNIZED_MULTI_PLAN, shape);
+    setTranslatorEnabled(true);
+    assertThat(shape.get().next()).isEqualTo(0L);
+  }
+
   /** Seeds Alice -knows-> Bob -knows-> Carol. */
   private void seedKnowsChain() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
