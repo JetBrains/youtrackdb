@@ -355,10 +355,22 @@ interface RecognitionContext extends ParamSink, HasBindingContext.VertexClassFac
   }
 
   /**
-   * Marks this walk as non-cacheable for invocation-specific RIDs or deferred has literals.
+   * Marks this walk as non-cacheable for literal RIDs or unsafe deferred has operands.
    * Those values are not rebound into cached templates.
+   * An eligible root walk instead binds its RID as parameter slot zero. It adds no {@code @rid IN}
+   * filter and does not call this method. Its runtime-start plan may be cached.
    */
   void markRidBearing();
+
+  /** Invocation-local root decision. Predicate contexts have no runtime start. */
+  @Nullable default RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return null;
+  }
+
+  /** Binds the resolved snapshot and remembers the start alias for descriptor assembly. */
+  default void bindRuntimeRidStart(String alias) {
+    throw new IllegalStateException("Runtime RID start requires a root walk context");
+  }
 
   /**
    * Pins the boundary metadata: the alias the matched element appears under in each row, how the row

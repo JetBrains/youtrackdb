@@ -6,22 +6,33 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStartTestFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Tests for {@link MatchExecutionPlanner#estimateRootEntries} (package-private).
@@ -61,6 +72,50 @@ public class EstimateRootEntriesTest {
     when(schema.getClassInternal(name)).thenReturn(oClass);
     when(oClass.approximateCount(any(DatabaseSessionEmbedded.class))).thenReturn(count);
     return oClass;
+  }
+
+  /** A runtime source estimates one without reading its class size or evaluating its filter. */
+  @Test
+  public void runtimeStartUsesOneWithoutClassCountInBothEstimators() {
+    var clazz = mockClass("Person", 5000L);
+    var filter = mock(SQLWhereClause.class);
+    var starts = Map.of("a", RuntimeRidStartTestFactory.create("a", "Person", 0));
+    var estimates = MatchExecutionPlanner.estimateRootEntries(
+        Map.of("a", "Person"), Map.of(), Map.of("a", filter), starts, ctx);
+    assertEquals(1L, (long) estimates.get("a"));
+    assertEquals(1L, MatchExecutionPlanner.estimateAliasCardinality(
+        "a", Map.of("a", "Person"), Map.of("a", filter), Map.of(), starts, ctx));
+    verify(clazz, never()).approximateCount(any(DatabaseSessionEmbedded.class));
+    verify(filter, never()).estimate(any(), anyLong(), any());
+  }
+
+  /** A zero-hop detached check isolates origin costing from permitted fan-out class counts. */
+  @Test
+  @Category(SequentialTest.class)
+  public void detachedRuntimeOriginUsesOneWithoutClassCountInThresholdAndCostComparison() {
+    var clazz = mockClass("Person", 5000L);
+    var origin = mock(SQLMatchFilter.class);
+    when(origin.getAlias()).thenReturn("a");
+    var check = mock(SQLMatchExpression.class);
+    when(check.getOrigin()).thenReturn(origin);
+    when(check.getItems()).thenReturn(List.of());
+    var node = new PatternNode();
+    node.alias = "a";
+    var pattern = new Pattern();
+    pattern.aliasToNode.put("a", node);
+    var starts = Map.of("a", RuntimeRidStartTestFactory.create("a", "Person", 0));
+    assertEquals(1L, MatchExecutionPlanner.estimateNotPatternCardinality(
+        check, Map.of("a", "Person"), Map.of(), Map.of(), starts, ctx));
+    // Both threshold eligibility and the cost comparison run. A zero-work probe wins.
+    try (var threshold = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD, 10000L);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN, 5L)) {
+      assertFalse(MatchExecutionPlanner.canUseHashJoin(check, Map.of("a", "Person"),
+          Map.of(), Map.of(), starts, ctx, pattern, OptionalLong.of(10),
+          new MatchExecutionPlanner.DetachedSlice(OptionalLong.empty(), false)));
+    }
+    verify(clazz, never()).approximateCount(any(DatabaseSessionEmbedded.class));
   }
 
   @Test

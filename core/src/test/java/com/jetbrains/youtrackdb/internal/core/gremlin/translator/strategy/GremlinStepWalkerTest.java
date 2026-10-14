@@ -4,17 +4,30 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction;
@@ -27,12 +40,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TailGlobalStepContract;
@@ -89,6 +107,305 @@ import org.junit.Test;
 public class GremlinStepWalkerTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
+
+  /**
+   * Both passes share the same immutable snapshot and full map for GraphStep/hasId, merged and
+   * separate or absent class containers, and both label modes. Binding layout and ordered-stage
+   * absence agree with the strategy checks. No RID term survives descriptor assembly.
+   */
+  @Test
+  public void runtimeStartBindingsAgreeAndUseFinalClass() {
+    graph.addVertex(T.label, "Person");
+    graph.tx().commit();
+    var graphTx = (YTDBTransaction) graph.tx();
+    graphTx.readWrite();
+    var db = graphTx.getDatabaseSession();
+    var config = db.getConfiguration();
+    var original =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    try {
+      for (boolean poly : List.of(true, false)) {
+        config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, poly);
+        for (int spelling = 0; spelling < 3; spelling++) {
+          for (boolean withLabel : List.of(true, false)) {
+            for (boolean separate : List.of(true, false)) {
+              var a = new RecordId(25, 7);
+              var start = spelling == 0 ? graph.traversal().V(a)
+                  : graph.traversal().V().hasId(spelling == 1 ? a : P.eq(a));
+              if (withLabel) {
+                start.hasLabel("Person");
+              }
+              var admin = start.out("knows").asAdmin();
+              if (withLabel && separate && spelling != 0) {
+                var merged = (HasStep<?>) admin.getSteps().get(1);
+                var label = merged.getHasContainers().stream()
+                    .filter(c -> c.getKey().equals(T.label.getAccessor())).findFirst()
+                    .orElseThrow();
+                merged.removeHasContainer(label);
+                admin.addStep(2, new HasStep<>(admin, label));
+                assertThat(admin.getSteps()).hasSize(4);
+              }
+              var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+              assertThat(decision).isNotNull();
+              var order = YTDBStrategyUtil.orderIncludesMissingKey(admin);
+              var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+              var extracted =
+                  GremlinStepWalker.extractShape(admin, db, order, nulls, poly, decision);
+              var translated =
+                  GremlinToMatchTranslator.translate(admin, order, nulls, poly, decision);
+              assertThat(translated).isNotNull();
+              assertThat(extracted.complete()).isTrue();
+              assertThat(GremlinToMatchStrategy.matchingLayout(
+                  extracted.hasContributions(), translated.hasContributions())).isTrue();
+              assertThat(extracted.orderedExpandAbsent()).isTrue();
+              assertThat(OrderedFilterBinding.hasOrderedExpand(translated.shaping())).isFalse();
+              assertThat(OrderedFilterBinding.fromExtraction(translated.shaping(), extracted))
+                  .isNotNull();
+              assertThat(extracted.bindings()).hasSize(translated.inputParameters().size());
+              assertThat(extracted.bindings()).isEqualTo(Map.of(0, a))
+                  .isEqualTo(translated.inputParameters());
+              assertThat(extracted.bindings().get(0)).isSameAs(decision.rid())
+                  .isExactlyInstanceOf(RecordId.class);
+              assertThat(translated.inputParameters().get(0)).isSameAs(decision.rid());
+              assertThat(translated.cacheEligible()).isTrue();
+              var descriptor = translated.inputs().runtimeRidStarts().get(BOUNDARY_ALIAS);
+              assertThat(descriptor).isNotNull();
+              assertThat(descriptor.aliasClass()).isEqualTo(withLabel ? "Person" : "V");
+              assertThat(descriptor.parameterSlot()).isZero();
+              var remaining = translated.inputs().aliasFilters().get(BOUNDARY_ALIAS);
+              if (poly || !withLabel) {
+                assertThat(remaining).isNull();
+              } else {
+                assertThat(remaining).isNotNull();
+                assertThat(remaining.toString()).contains("@class", "Person")
+                    .doesNotContain("@rid");
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, original);
+    }
+  }
+
+  /** Identity changes after eligibility cannot change either pass or make them reread the input. */
+  @Test
+  public void runtimeSnapshotIsReadOnceAndNonRootWalksStayLiteral() {
+    var id = mock(Identifiable.class);
+    var mutable = new ChangeableRecordId(25, 7);
+    when(id.getIdentity()).thenReturn(mutable);
+    for (boolean graphStart : List.of(true, false)) {
+      var admin = (graphStart ? graph.traversal().V(id) : graph.traversal().V().hasId(id))
+          .out("knows").asAdmin();
+      var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+      var graphTx = (YTDBTransaction) graph.tx();
+      graphTx.readWrite();
+      var db = graphTx.getDatabaseSession();
+      var order = YTDBStrategyUtil.orderIncludesMissingKey(admin);
+      var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+      when(id.getIdentity()).thenThrow(new AssertionError("identity read twice"));
+      var polymorphic = YTDBStrategyUtil.isPolymorphic(admin);
+      var shape = GremlinStepWalker.extractShape(admin, db, order, nulls, polymorphic, decision);
+      var walk = GremlinToMatchTranslator.translate(admin, order, nulls, polymorphic, decision);
+      assertThat(walk).isNotNull();
+      assertThat(walk.inputParameters()).isEqualTo(shape.bindings())
+          .isEqualTo(Map.of(0, decision.rid()));
+      doReturn(mutable).when(id).getIdentity();
+      var child = GremlinStepWalker.production().walk(admin, GremlinStepWalker.NO_CHILD_SCOPE,
+          order, nulls, polymorphic, false, decision);
+      assertThat(child).isNotNull();
+      assertThat(child.inputs().runtimeRidStarts()).isEmpty();
+      assertThat(child.cacheEligible()).isFalse();
+    }
+    var union = GremlinToMatchTranslator.translate(graph.traversal().V("#25:7")
+        .union(__.out("knows"), __.in("knows")).asAdmin());
+    assertThat(union).isNotNull();
+    assertThat(union.childPlans()).allSatisfy(child -> {
+      assertThat(child.inputs().runtimeRidStarts()).isEmpty();
+      assertThat(child.cacheEligible()).isFalse();
+    });
+    var predicate = GremlinToMatchTranslator.translate(graph.traversal().V()
+        .where(__.hasId("#25:7")).out("knows").asAdmin());
+    assertThat(predicate).isNotNull();
+    assertThat(predicate.inputs().runtimeRidStarts()).isEmpty();
+    assertThat(predicate.cacheEligible()).isFalse();
+  }
+
+  /** A registered decision without an alias must fail before it becomes a class scan. */
+  @Test
+  public void runtimeStartRejectsUnboundAlias() {
+    assertRuntimeStartFailure(ctx -> ctx.runtimeStartAlias = null,
+        "Runtime RID start binding is incomplete");
+  }
+
+  /** A negative binding slot must fail with the walker diagnostic, not a descriptor error. */
+  @Test
+  public void runtimeStartRejectsNegativeBindingSlot() {
+    assertRuntimeStartFailure(ctx -> ctx.runtimeStartSlot = -1,
+        "Runtime RID start binding is incomplete");
+  }
+
+  /** A literal target hasId filter cannot coexist with a bound runtime RID start. */
+  @Test
+  public void runtimeStartRejectsLiteralRidFilterAlongsideBinding() {
+    assertRuntimeStartFailure(ctx -> {
+      var admin = graph.traversal().V().hasId("#25:8").asAdmin();
+      assertThat(HasStepRecogniser.INSTANCE.recognize(
+          new StepStreamCursor(List.of(admin.getSteps().get(1)), Set.of()), ctx))
+          .isEqualTo(Outcome.ACCEPTED);
+      assertThat(ctx.aliasFilters.get(ctx.boundaryAlias()).toString())
+          .contains("@rid IN", "#25:8");
+      assertThat(ctx.ridBearing()).isTrue();
+    }, "Runtime RID start binding is incomplete");
+  }
+
+  /** A binding whose decision disappears cannot be published without a runtime descriptor. */
+  @Test
+  public void runtimeStartRejectsMissingDescriptor() {
+    assertRuntimeStartFailure(ctx -> ctx.runtimeRidStart = null,
+        "Runtime RID start descriptor is missing or mismatched");
+  }
+
+  /** Descriptor assembly must preserve exactly one descriptor with the bound alias and slot. */
+  @Test
+  public void runtimeStartRejectsMismatchedDescriptors() {
+    var other = new RuntimeRidStart("other", "V", 0);
+    var start = new RuntimeRidStart(BOUNDARY_ALIAS, "V", 0);
+    for (var descriptors : List.of(
+        Map.of("other", other),
+        Map.of(BOUNDARY_ALIAS, new RuntimeRidStart(BOUNDARY_ALIAS, "V", 1)),
+        Map.of(BOUNDARY_ALIAS, start, "other", other))) {
+      // The builder mock is thread-local and closed before another case or test can run.
+      // Only descriptor assembly is changed. The real builder validates the remaining inputs.
+      try (var builders = mockStatic(MatchPlanInputs.class, CALLS_REAL_METHODS)) {
+        builders.when(() -> MatchPlanInputs.builder(any(Pattern.class))).thenAnswer(call -> {
+          var real = (MatchPlanInputs.Builder) call.callRealMethod();
+          var wrapped = spy(real);
+          doAnswer(ignored -> real.runtimeRidStarts(descriptors))
+              .when(wrapped).runtimeRidStarts(anyMap());
+          return wrapped;
+        });
+        assertRuntimeStartFailure(ctx -> {
+        },
+            "Runtime RID start descriptor is missing or mismatched");
+      }
+    }
+  }
+
+  /** Missing provenance and a second bind both fail before allocating another parameter slot. */
+  @Test
+  public void runtimeStartBindsExactlyOnce() {
+    var ctx = new WalkerContext(true, false);
+    assertThatThrownBy(() -> ctx.bindRuntimeRidStart(BOUNDARY_ALIAS))
+        .isExactlyInstanceOf(IllegalStateException.class)
+        .hasMessage("Runtime RID start must bind exactly once");
+    assertThat(ctx.inputParameters).isEmpty();
+    var admin = graph.traversal().V("#25:7").out("knows").asAdmin();
+    ctx.runtimeRidStart = RuntimeRidStartEligibility.evaluate(admin, true);
+    ctx.bindRuntimeRidStart(BOUNDARY_ALIAS);
+    assertThatThrownBy(() -> ctx.bindRuntimeRidStart("other"))
+        .isExactlyInstanceOf(IllegalStateException.class)
+        .hasMessage("Runtime RID start must bind exactly once");
+    assertThat(ctx.runtimeStartAlias).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.inputParameters).containsOnlyKeys(0);
+    assertRuntimeStartFailure(walker -> walker.bindRuntimeRidStart("other"),
+        "Runtime RID start must bind exactly once");
+    assertRuntimeStartFailure(walker -> {
+      walker.runtimeRidStart = null;
+      walker.runtimeStartAlias = null;
+      walker.bindRuntimeRidStart(BOUNDARY_ALIAS);
+    }, "Runtime RID start must bind exactly once");
+  }
+
+  /** Predicate contexts inherit the root-only default and cannot bind the parent's runtime RID. */
+  @Test
+  public void runtimeStartRequiresRootContext() {
+    var parent = new WalkerContext(true, false);
+    var child = new SubTraversalPredicateAdapter(parent, Map.of());
+    assertThat(child.runtimeRidStart()).isNull();
+    assertThatThrownBy(() -> child.bindRuntimeRidStart(BOUNDARY_ALIAS))
+        .isExactlyInstanceOf(IllegalStateException.class)
+        .hasMessage("Runtime RID start requires a root walk context");
+    assertThat(parent.inputParameters).isEmpty();
+    assertRuntimeStartFailure(
+        ctx -> new SubTraversalPredicateAdapter(ctx, Map.of()).bindRuntimeRidStart(BOUNDARY_ALIAS),
+        "Runtime RID start requires a root walk context");
+  }
+
+  /**
+   * Corrupt only invocation-local state after real start and hop recognition. Check the direct
+   * diagnostic, then drive the same failure through apply with both cache routes enabled.
+   */
+  private void assertRuntimeStartFailure(Consumer<WalkerContext> corrupt, String message) {
+    var admin = graph.traversal().V("#25:7").out("knows").asAdmin();
+    var original = List.copyOf(admin.getSteps());
+    var graphTx = (YTDBTransaction) graph.tx();
+    graphTx.readWrite();
+    var db = graphTx.getDatabaseSession();
+    var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+    assertThat(decision).isNotNull();
+    var walker = new GremlinStepWalker(Map.of(
+        GraphStep.class, StartStepRecogniser.INSTANCE,
+        VertexStep.class, (cursor, ctx) -> {
+          var outcome = VertexStepRecogniser.INSTANCE.recognize(cursor, ctx);
+          assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+          corrupt.accept((WalkerContext) ctx);
+          return outcome;
+        }));
+    var order = YTDBStrategyUtil.orderIncludesMissingKey(admin);
+    var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+    var polymorphic = YTDBStrategyUtil.isPolymorphic(admin);
+    Supplier<GremlinToMatchTranslator.TranslationResult> walk = () -> walker.walk(
+        admin, GremlinStepWalker.NO_CHILD_SCOPE, order, nulls, polymorphic, true, decision);
+    assertThatThrownBy(walk::get).isExactlyInstanceOf(IllegalStateException.class)
+        .hasMessage(message);
+
+    var config = db.getConfiguration();
+    var enabled = config.getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    var cache = GremlinPlanCache.instance(db);
+    var oldPublication = cache.afterTranslationPublication;
+    var publications = new AtomicInteger();
+    var planBuilder = mock(GremlinToMatchStrategy.MatchPlanBuilder.class);
+    var seen = new AtomicReference<RuntimeException>();
+    try {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+      cache.prepare(db);
+      cache.invalidate();
+      cache.afterTranslationPublication = publications::incrementAndGet;
+      var shape = GremlinStepWalker.extractShape(admin, db, order, nulls, polymorphic, decision);
+      assertThat(shape.complete()).isTrue();
+      var metrics = GremlinTranslationMetrics.of(db);
+      var errors = metrics.getErrors();
+      var successes = metrics.getSuccesses();
+      var declines = metrics.getDeclines();
+      var misses = cache.getTranslationMisses();
+      GremlinToMatchStrategy.TraversalTranslator translator = traversal -> {
+        assertThat(traversal).isSameAs(admin);
+        try {
+          return walk.get();
+        } catch (RuntimeException failure) {
+          seen.set(failure);
+          throw failure;
+        }
+      };
+      new GremlinToMatchStrategy(translator, planBuilder, true).apply(admin);
+      assertThat(seen.get()).isExactlyInstanceOf(IllegalStateException.class).hasMessage(message);
+      assertThat(admin.getSteps()).containsExactlyElementsOf(original);
+      assertThat(metrics.getErrors()).isEqualTo(errors + 1);
+      assertThat(metrics.getSuccesses()).isEqualTo(successes);
+      assertThat(metrics.getDeclines()).isEqualTo(declines);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+      verifyNoInteractions(planBuilder);
+      assertThat(cache.size()).isZero();
+      assertThat(cache.containsTranslation(shape.key())).isFalse();
+      assertThat(publications.get()).isZero();
+    } finally {
+      cache.afterTranslationPublication = oldPublication;
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+    }
+  }
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);

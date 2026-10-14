@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
@@ -69,13 +70,13 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * Each child plan carries its own {@link CommandContext} (with its own positional parameters,
  * installed at build time — the base's shared parameter map is deliberately empty here). The base
  * rebinds the coordinator context ({@link #planContext()}) to the iteration-thread session in {@code
- * openArming()}; the producer reads that session back and rebinds each child's own context before
+ * openArming()}, which also binds every child before monitoring becomes ready. The producer
+ * reads that session back and rebinds each child's own context before
  * opening it, then iterates and closes the child stream against that child's own context via {@link
  * ChildContextStream}. Each child therefore executes exactly as it would under the single-plan
  * {@link YTDBMatchPlanStep} — start-time context and iteration-time context are the same, so a step
  * that resolves the session or reads {@code $current} / {@code $matched} at iteration time (e.g.
- * {@code LoaderExecutionStream}) never sees its state split across two contexts. No edit to {@link
- * AbstractMatchPlanStep} is needed: pre-binding each child stream this way is sufficient.
+ * {@code LoaderExecutionStream}) never sees its state split across two contexts.
  *
  * <h2>Close-all, including un-run children</h2>
  * {@link #closePlan()} closes <em>every</em> child plan, not only those the producer opened. When an
@@ -252,6 +253,14 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
   @Override
   protected CommandContext planContext() {
     return coordinatorContext;
+  }
+
+  @Override
+  protected void bindAdditionalPlanContexts(DatabaseSessionEmbedded session) {
+    // Preserve each child's parameter map. Binding does not open any lazy child cursor.
+    for (var childPlan : plans) {
+      childPlan.getContext().setDatabaseSession(session);
+    }
   }
 
   @Override

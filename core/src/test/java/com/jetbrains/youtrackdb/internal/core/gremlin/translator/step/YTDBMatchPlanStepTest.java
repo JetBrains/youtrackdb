@@ -14,6 +14,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
+import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.YTDBQueryMetricsStep;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -109,6 +112,113 @@ public class YTDBMatchPlanStepTest {
     // them.
     lenient().when(plan.getContext()).thenReturn(ctx);
     lenient().when(plan.start()).thenReturn(stream);
+  }
+
+  /** Parentless copies cannot read later template writes and receive only the current binding. */
+  @Test
+  public void copyOnOpenHasNoTemplateParentAndBindsCurrentSessionAndParameters() {
+    var templateContext = new BasicCommandContext(mock(DatabaseSessionEmbedded.class));
+    when(plan.getContext()).thenReturn(templateContext);
+    var copy = mock(InternalExecutionPlan.class);
+    var copiedContext = new AtomicReference<CommandContext>();
+    when(plan.copy(any())).thenAnswer(invocation -> {
+      CommandContext context = invocation.getArgument(0);
+      copiedContext.set(context);
+      when(copy.getContext()).thenReturn(context);
+      when(copy.start()).thenReturn(ExecutionStream.empty());
+      return copy;
+    });
+    var step = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+        BoundaryOutputType.ELEMENT, Map.of(0, "current"), ResultShaping.NONE, true);
+    assertThat(step.getPlan()).isSameAs(plan);
+    assertThat(step.isExecutionPlanBound()).isFalse();
+    assertThat(step.hasNext()).isFalse();
+    var context = copiedContext.get();
+    assertThat(context.getParent()).isNull();
+    assertThat(context.getDatabaseSession()).isSameAs(threadSession);
+    assertThat(context.getInputParameters()).containsEntry(0, "current");
+    templateContext.setVariable("late", "template");
+    templateContext.setSystemVariable(CommandContext.VAR_MATCHED, "template");
+    assertThat(context.getVariable("late")).isNull();
+    context.setSystemVariable(CommandContext.VAR_MATCHED, "copy");
+    assertThat(templateContext.<String>getSystemVariable(CommandContext.VAR_MATCHED))
+        .isEqualTo("template");
+    step.close();
+    assertThat(step.isExecutionPlanBound()).isTrue();
+  }
+
+  /** Each local key, even a null key value, rejects opening without copying or starting a template. */
+  @Test
+  public void copyOnOpenRejectsOrdinaryAndSystemKeysIncludingNullValues() {
+    for (boolean system : new boolean[] {false, true}) {
+      for (Object value : new Object[] {"seeded", null}) {
+        var templateContext = new BasicCommandContext();
+        if (system) {
+          templateContext.setSystemVariable(12345, value);
+        } else {
+          templateContext.setVariable("seeded", value);
+        }
+        when(plan.getContext()).thenReturn(templateContext);
+        var step = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+            BoundaryOutputType.ELEMENT, Map.of(), ResultShaping.NONE, true);
+        assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::hasNext)
+            .withMessageContaining("variable keys");
+        step.close();
+        assertThat(step.getPlan()).isSameAs(plan);
+        assertThat(step.isExecutionPlanBound()).isFalse();
+      }
+    }
+    verify(plan, never()).copy(any());
+    verify(plan, never()).start();
+    verify(plan, never()).close();
+  }
+
+  /** Monitoring sees no template after guard, copy or admission failure, but sees a bound failed copy. */
+  @Test
+  public void listenerOnCloseNeverSeesTemplateOrUnboundExecutionAfterOpeningFailure()
+      throws Exception {
+    for (int failureKind = 0; failureKind < 4; failureKind++) {
+      setUp();
+      var templateContext = new BasicCommandContext();
+      when(plan.getContext()).thenReturn(templateContext);
+      var copy = mock(InternalExecutionPlan.class);
+      var executionContext = new BasicCommandContext();
+      when(copy.getContext()).thenReturn(executionContext);
+      when(plan.copy(any())).thenReturn(copy);
+      if (failureKind == 0) {
+        templateContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, null);
+      } else if (failureKind == 1) {
+        when(plan.copy(any())).thenThrow(new IllegalStateException("copy failed"));
+      } else if (failureKind == 2) {
+        var host = mock(YTDBGraphImplAbstract.class);
+        var manual = new YTDBTransaction(host);
+        manual.onReadWrite(Transaction.READ_WRITE_BEHAVIOR.MANUAL);
+        when(host.getUnderlyingDatabaseSession()).thenReturn(threadSession);
+        when(graph.tx()).thenReturn(manual);
+      } else {
+        when(copy.start()).thenThrow(new IllegalStateException("bound start failed"));
+      }
+      var step = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+          BoundaryOutputType.ELEMENT, Map.of(0, "current"), ResultShaping.NONE, true);
+      var reported = new ArrayList<com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan>();
+      when(tx.getQueryMonitoringMode()).thenReturn(QueryMonitoringMode.EXACT);
+      when(tx.getQueryMetricsListener())
+          .thenReturn((details, started, duration) -> reported.add(details.getExecutionPlan()));
+      when(traversal.getSteps()).thenReturn(List.of(step));
+      var metrics = new YTDBQueryMetricsStep<Vertex>(traversal, tx, null, mock(Ticker.class));
+      metrics.setPreviousStep(step);
+      assertThatExceptionOfType(IllegalStateException.class).isThrownBy(metrics::hasNext);
+      step.close();
+      metrics.close();
+      assertThat(reported).hasSize(1);
+      assertThat(reported.getFirst()).isSameAs(failureKind == 3 ? copy : null);
+      if (failureKind == 3) {
+        assertThat(executionContext.getDatabaseSession()).isSameAs(threadSession);
+        assertThat(executionContext.getInputParameters()).containsEntry(0, "current");
+      }
+      verify(plan, never()).start();
+      verify(plan, never()).close();
+    }
   }
 
   // ---- Iteration & projection ----
