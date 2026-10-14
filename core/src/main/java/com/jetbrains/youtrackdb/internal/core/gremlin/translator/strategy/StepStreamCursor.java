@@ -138,6 +138,7 @@ final class StepStreamCursor implements StepCursor {
     if (position >= steps.size()) {
       throw new NoSuchElementException("take() past the end of the step stream");
     }
+    assert RootStepAdmission.admits(stepAt(position)) : stepAt(position).getClass();
     return stepAt(position++);
   }
 
@@ -155,6 +156,7 @@ final class StepStreamCursor implements StepCursor {
     if (!cond.test(typed)) {
       return null;
     }
+    assert RootStepAdmission.admits(typed) : typed.getClass();
     position++;
     return typed;
   }
@@ -177,6 +179,7 @@ final class StepStreamCursor implements StepCursor {
       if (!cond.test(typed)) {
         break;
       }
+      assert RootStepAdmission.admits(typed) : typed.getClass();
       run.add(typed);
       position++;
     }
@@ -228,6 +231,7 @@ final class StepStreamCursor implements StepCursor {
   private void skipTransparent() {
     while (position < steps.size() && isTransparent(stepAt(position))) {
       var skipped = stepAt(position);
+      assert RootStepAdmission.admits(skipped) : skipped.getClass();
       if (skippedTransparent != null) {
         skippedTransparent.add(skipped);
       }

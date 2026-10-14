@@ -649,14 +649,11 @@ public class MultiPlanMatchStepTest {
   }
 
   /**
-   * Each child copy is taken against its OWN isolated child context — a fresh {@link
-   * BasicCommandContext} parented to that child's original context — not against the shared original
-   * context. Two children produce two distinct isolated contexts, each parented to its own child's
-   * context. This is what keeps concurrent executions of a clone from racing on any child's per-run
-   * variable maps.
+   * Every child copy uses its own clean root context. Neither copy can inherit execution variables
+   * or forward writes into its original child context. The two copies cannot share state.
    */
   @Test
-  public void clone_copiesEachChildAgainstItsOwnIsolatedChildContext() {
+  public void clone_copiesEachChildAgainstItsOwnCleanRootContext() {
     var c1 = child(ListStream.of());
     var c2 = child(ListStream.of());
     var captor1 = ArgumentCaptor.forClass(CommandContext.class);
@@ -671,8 +668,8 @@ public class MultiPlanMatchStepTest {
     assertThat(ctx1).isInstanceOf(BasicCommandContext.class);
     assertThat(ctx2).isInstanceOf(BasicCommandContext.class);
     assertThat(ctx1).isNotSameAs(ctx2);
-    assertThat(ctx1.getParent()).isSameAs(c1.ctx);
-    assertThat(ctx2.getParent()).isSameAs(c2.ctx);
+    assertThat(ctx1.getParent()).isNull();
+    assertThat(ctx2.getParent()).isNull();
   }
 
   /**
@@ -711,92 +708,35 @@ public class MultiPlanMatchStepTest {
         .isNotSameAs(originalCoordinator);
   }
 
-  /**
-   * Fail-fast guard on the clone-isolation invariant: a child's template (parent) context must carry
-   * no per-run variable, because a child write propagates up to any key the parent already holds, so
-   * a seeded parent shared across clones would be written concurrently through its unsynchronised
-   * maps. A normal variable (an alias / LET binding) seeded onto a child's context makes {@code
-   * clone()} fail its assertion instead of minting isolation that silently does not isolate.
-   */
+  /** A clone drops seeded aliases and every execution slot, including null-valued slot 4. */
   @Test
-  public void clone_childTemplateContextCarriesNormalVariable_assertionFailsFast() {
-    var plan = mock(InternalExecutionPlan.class);
-    var seededContext = new BasicCommandContext();
-    seededContext.setVariable("someAlias", "bound"); // a per-run alias / LET binding
-    lenient().when(plan.getContext()).thenReturn(seededContext);
-    var step =
-        new MultiPlanMatchStep<>(
-            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
-
-    assertThatExceptionOfType(AssertionError.class)
-        .isThrownBy(step::clone)
-        .withMessageContaining("per-run state");
-  }
-
-  /**
-   * The system-variable leg of the same fail-fast guard: a {@code $current} ({@link
-   * CommandContext#VAR_CURRENT}) system variable seeded onto a child's template context also trips
-   * the {@code clone()} assertion, because it too would propagate up to a shared parent under
-   * concurrent clone execution.
-   */
-  @Test
-  public void clone_childTemplateContextCarriesCurrentSystemVariable_assertionFailsFast() {
-    var plan = mock(InternalExecutionPlan.class);
-    var seededContext = new BasicCommandContext();
-    seededContext.setSystemVariable(CommandContext.VAR_CURRENT, "bound");
-    lenient().when(plan.getContext()).thenReturn(seededContext);
-    var step =
-        new MultiPlanMatchStep<>(
-            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
-
-    assertThatExceptionOfType(AssertionError.class)
-        .isThrownBy(step::clone)
-        .withMessageContaining("per-run state");
-  }
-
-  /**
-   * The guard covers every system-variable slot, not only the two the element path happens to write.
-   * {@code $current_match} ({@link CommandContext#VAR_CURRENT_MATCH}) is the reachable gap: the MATCH
-   * edge-traversal path writes it per candidate and restores it afterwards — with a null value on
-   * the first candidate — and key presence is tracked independently of the value, so a union child
-   * that matched nothing seeds this slot while leaving {@code $matched} and {@code $current} clean.
-   * A guard enumerating only those two would pass such a context and hand two concurrent clones one
-   * shared, unsynchronised parent map.
-   */
-  @Test
-  public void clone_childTemplateContextCarriesCurrentMatchSystemVariable_assertionFailsFast() {
-    var plan = mock(InternalExecutionPlan.class);
-    var seededContext = new BasicCommandContext();
-    // The value a zero-row MATCH child leaves behind when it restores the previous candidate.
-    seededContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, null);
-    lenient().when(plan.getContext()).thenReturn(seededContext);
-    var step =
-        new MultiPlanMatchStep<>(
-            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
-
-    assertThatExceptionOfType(AssertionError.class)
-        .isThrownBy(step::clone)
-        .withMessageContaining("system variable slot " + CommandContext.VAR_CURRENT_MATCH);
-  }
-
-  /**
-   * The fourth slot, {@code $depth} ({@link CommandContext#VAR_DEPTH}), is written by MATCH's
-   * recursive {@code while:} path items. No recognised union shape emits one today, so this pins the
-   * guard against a future recogniser widening rather than a live leak.
-   */
-  @Test
-  public void clone_childTemplateContextCarriesDepthSystemVariable_assertionFailsFast() {
-    var plan = mock(InternalExecutionPlan.class);
-    var seededContext = new BasicCommandContext();
-    seededContext.setSystemVariable(CommandContext.VAR_DEPTH, 2);
-    lenient().when(plan.getContext()).thenReturn(seededContext);
-    var step =
-        new MultiPlanMatchStep<>(
-            traversal, Vertex.class, List.of(plan), "v", BoundaryOutputType.ELEMENT);
-
-    assertThatExceptionOfType(AssertionError.class)
-        .isThrownBy(step::clone)
-        .withMessageContaining("system variable slot " + CommandContext.VAR_DEPTH);
+  public void clone_afterRunUsesCleanRootContextsWithoutSeededVariables() {
+    var source = new BasicCommandContext(threadSession);
+    source.setVariable("someAlias", "original");
+    source.setInputParameters(Map.of(0, "binding"));
+    var slots = List.of(CommandContext.VAR_CURRENT, CommandContext.VAR_CURRENT_MATCH,
+        CommandContext.VAR_MATCHED, CommandContext.VAR_DEPTH,
+        CommandContext.VAR_INDEX_ORDERED_PRE_SORTED);
+    for (int slot : slots) {
+      source.setSystemVariable(slot, null);
+      assertThat(MultiPlanMatchStep.seededSystemVariable(source)).isGreaterThanOrEqualTo(0);
+    }
+    var child = ReplayablePlanFixture.planOver(source, List.of());
+    var step = new MultiPlanMatchStep<>(traversal, Vertex.class, List.of(child), "v",
+        BoundaryOutputType.ELEMENT);
+    var clone = step.clone();
+    var context = clone.getPlans().getFirst().getContext();
+    assertThat(context.getParent()).isNull();
+    assertThat(context.getVariables()).isEmpty();
+    assertThat(context.getInputParameters()).containsEntry(0, "binding");
+    for (int slot : slots) {
+      assertThat(context.hasSystemVariable(slot)).isFalse();
+      context.setSystemVariable(slot, "clone");
+      assertThat(source.<Object>getSystemVariable(slot)).isNull();
+    }
+    context.setVariable("someAlias", "clone");
+    assertThat(source.getVariable("someAlias")).isEqualTo("original");
+    clone.close();
   }
 
   /**

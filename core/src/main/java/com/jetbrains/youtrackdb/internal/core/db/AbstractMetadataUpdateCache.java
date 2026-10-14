@@ -85,10 +85,15 @@ public abstract class AbstractMetadataUpdateCache<K, V> implements MetadataUpdat
   }
 
   public void invalidate() {
+    clearEntries();
+    lastInvalidation.set(System.nanoTime());
+  }
+
+  /** Clears stored entries. Subclasses can bracket this operation without changing timestamp users. */
+  protected void clearEntries() {
     if (cache != null) {
       cache.invalidateAll();
     }
-    lastInvalidation.set(System.nanoTime());
   }
 
   @Override

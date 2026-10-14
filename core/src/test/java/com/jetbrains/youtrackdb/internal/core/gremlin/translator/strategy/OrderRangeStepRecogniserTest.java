@@ -3323,12 +3323,12 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
   }
 
   private static StepStreamCursor cursorAt(Traversal.Admin<?, ?> admin, Class<?> stepType) {
-    var cursor = new StepStreamCursor(admin.getSteps(), TRANSPARENT);
-    while (cursor.peek() != null) {
-      if (stepType.isInstance(cursor.peek())) {
-        return cursor;
+    // Locate the fixture suffix without consuming its already provider-optimized source.
+    var steps = admin.getSteps();
+    for (int i = 0; i < steps.size(); i++) {
+      if (stepType.isInstance(steps.get(i))) {
+        return new StepStreamCursor(steps.subList(i, steps.size()), TRANSPARENT);
       }
-      cursor.take();
     }
     throw new AssertionError("Step not found: " + stepType.getSimpleName());
   }

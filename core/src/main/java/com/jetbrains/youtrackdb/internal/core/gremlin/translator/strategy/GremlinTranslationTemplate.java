@@ -17,9 +17,6 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  */
 sealed interface GremlinTranslationTemplate {
 
-  /** Shared decline sentinel — declining shapes have no per-entry payload. */
-  Decline DECLINE = new Decline();
-
   /** The walker declined this shape; {@code apply} returns without mutating the traversal. */
   record Decline() implements GremlinTranslationTemplate {
   }

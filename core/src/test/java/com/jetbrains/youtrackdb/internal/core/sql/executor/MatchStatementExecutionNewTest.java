@@ -7451,7 +7451,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     try {
       session.begin();
       java.util.List<Long> classicMids;
-      try (var result = session.query(query)) {
+      // The classic oracle must replan. Changing cost settings does not evict an ordered template.
+      try (var result = SQLEngine.parse(query, session)
+          .execute(session, new Object[0], null, false)) {
         var plan = getPlan(result);
         Assert.assertFalse(
             "Optimization should be off, but plan was:\n" + plan,
@@ -7535,7 +7537,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     try {
       session.begin();
       java.util.List<Long> classicMids;
-      try (var result = session.query(query)) {
+      // The classic oracle must replan rather than reuse the admitted ordered template.
+      try (var result = SQLEngine.parse(query, session)
+          .execute(session, new Object[0], null, false)) {
         Assert.assertFalse(getPlan(result).contains("INDEX ORDERED MATCH"));
         classicMids = collectMids(result);
       }

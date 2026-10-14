@@ -1,13 +1,17 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
+import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import java.util.Optional;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -83,6 +87,27 @@ public class YTDBStrategyUtilTest {
     assertThat(YTDBStrategyUtil.orderIncludesMissingKey(child))
         .as("the child resolves standard order semantics from the root strategy")
         .isFalse();
+  }
+
+  /** Explicit readers validate only their own options. Detached resolver gates stay intact. */
+  @Test
+  public void explicitReadersKeepOptionIsolationAndResolverGates() {
+    var detached = __.V().asAdmin();
+    var options = OptionsStrategy.build()
+        .with(YTDBQueryConfigParam.polymorphicQuery.name(), "invalid")
+        .with(YTDBQueryConfigParam.orderIncludesMissingKey.name(), false)
+        .with(YTDBQueryConfigParam.orderByNullsPlacementAsc.name(), "last").create();
+    detached.getStrategies().addStrategies(options);
+    assertThat(YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, detached)).isFalse();
+    assertThat(YTDBStrategyUtil.orderIncludesMissingKey(detached)).isFalse();
+    assertThat(YTDBStrategyUtil.explicitNullPlacements(options).ascending())
+        .isEqualTo(OrderByNullsPlacement.LAST);
+    assertThat(YTDBStrategyUtil.explicitNullPlacements(options).descending()).isNull();
+    assertThat(YTDBStrategyUtil.isPolymorphic(detached)).isNull();
+    assertThat(YTDBStrategyUtil.orderByNullsPlacements(detached)).isNull();
+    assertThatThrownBy(() -> YTDBStrategyUtil.explicitPolymorphic(options))
+        .isInstanceOf(ClassCastException.class);
+    assertThat(YTDBStrategyUtil.explicitPolymorphic(null)).isNull();
   }
 
   /** Builds a mock {@code Traversal.Admin} whose {@code getGraph()} returns {@code graph} (or empty

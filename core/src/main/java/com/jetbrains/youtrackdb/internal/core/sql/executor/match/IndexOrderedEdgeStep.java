@@ -19,7 +19,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilteredIndexValuesStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
@@ -79,8 +81,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private final boolean orderAsc;
   private final SQLOrderByItem comparisonItem;
   private final ResolvedOrderByNullsPlacement nullsPlacement;
-  private final EdgeTraversal edge;
-  private final long limit;
+  @Nullable private final SQLSkip skipClause;
+  @Nullable private final SQLLimit limitClause;
+
+  /** Current SKIP + LIMIT, or -1 for an unbounded execution. Never copied. */
+  private long rowTarget = -1;
 
   /** Multi-source execution mode, or null for single-source. */
   @Nullable private final IndexOrderedPlanner.MultiSourceMode multiSourceMode;
@@ -195,6 +200,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Clears observations before this step runs again. */
   @Override
   public void reset() {
+    chosenRuntimePath = null;
+    rowTarget = -1;
     lastScanBudget = -1;
     lastScanConsumedEntries = -1;
   }
@@ -209,8 +216,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       boolean orderAsc,
       SQLOrderByItem comparisonItem,
       ResolvedOrderByNullsPlacement nullsPlacement,
-      EdgeTraversal edge,
-      long limit,
+      @Nullable SQLSkip skipClause,
+      @Nullable SQLLimit limitClause,
       @Nullable IndexOrderedPlanner.MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
@@ -229,8 +236,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.orderAsc = orderAsc;
     this.comparisonItem = comparisonItem;
     this.nullsPlacement = nullsPlacement;
-    this.edge = edge;
-    this.limit = limit;
+    this.skipClause = skipClause;
+    this.limitClause = limitClause;
     this.multiSourceMode = multiSourceMode;
     this.reverseFieldName = reverseFieldName;
     this.sourceClassName = sourceClassName;
@@ -281,11 +288,30 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
+    // Prefill can build several rows before emission. Refresh $matched only at this external
+    // boundary so downstream hops never mutate a previously emitted or buffered binding.
+    return startOrdered(ctx).map((row, context) -> {
+      context.setSystemVariable(CommandContext.VAR_MATCHED, row);
+      return row;
+    });
+  }
+
+  private ExecutionStream startOrdered(CommandContext ctx) {
     assert MatchAssertions.checkNotNull(prev, "previous step");
+    reset();
+    ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+    // Resolve once before any path decision. Each execution uses its own current bindings.
+    if (limitClause != null) {
+      var limitSize = limitClause.getValue(ctx);
+      if (limitSize >= 0) {
+        var skipSize = skipClause == null ? 0 : Math.max(0, skipClause.getValue(ctx));
+        rowTarget = (long) skipSize + limitSize;
+      }
+    }
     if (multiSourceMode != null) {
       return multiSourceDispatch(ctx);
     }
-    // Guaranteed single-source: exactly 1 upstream row (source has RID constraint).
+    // Single-source is a plan-time assumption. Check it before loading targets or emitting rows.
     // Consume the upstream eagerly and compute the cost model decision NOW, so
     // that VAR_INDEX_ORDERED_PRE_SORTED is correctly set BEFORE OrderByStep
     // checks it. The pipeline starts bottom-up (LimitStep → OrderByStep →
@@ -295,14 +321,51 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     // the flag as null and always fall through to collect-all mode — defeating
     // the sort push-down that makes index scan + LIMIT worthwhile.
     var resultSet = prev.start(ctx);
-    if (!resultSet.hasNext(ctx)) {
-      resultSet.close(ctx);
-      ctx.setSystemVariable(
-          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
-      return ExecutionStream.empty();
+    Result upstreamRow;
+    Throwable readFailure = null;
+    try {
+      if (!resultSet.hasNext(ctx)) {
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        return ExecutionStream.empty();
+      }
+      upstreamRow = resultSet.next(ctx);
+      if (resultSet.hasNext(ctx)) {
+        // A frozen root schedule can repeat even a UNIQUE-matched source. Keep all bindings and
+        // duplicates, including the first row. This map belongs only to the running execution.
+        var rows = new ArrayList<Result>();
+        rows.add(upstreamRow);
+        while (resultSet.hasNext(ctx)) {
+          rows.add(resultSet.next(ctx));
+        }
+        var sourceMap = new LinkedHashMap<RID, List<Result>>();
+        for (var row : rows) {
+          var sourceRid = extractSourceRid(row);
+          if (sourceRid != null) {
+            sourceMap.computeIfAbsent(sourceRid, k -> new ArrayList<>(1)).add(row);
+          }
+        }
+        // Local per-source ordering cannot satisfy global ORDER BY. Do not use the singleton
+        // cost path, which can signal pre-sorted after sorting only one source's targets.
+        chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+        ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        return loadFromSourcesUnsorted(sourceMap, ctx);
+      }
+    } catch (RuntimeException | Error failure) {
+      readFailure = failure;
+      throw failure;
+    } finally {
+      try {
+        resultSet.close(ctx);
+      } catch (RuntimeException | Error closeFailure) {
+        if (readFailure == null) {
+          throw closeFailure;
+        }
+        // Cleanup must not replace the upstream failure, even if both operations throw.
+        if (readFailure != closeFailure) {
+          readFailure.addSuppressed(closeFailure);
+        }
+      }
     }
-    var upstreamRow = resultSet.next(ctx);
-    resultSet.close(ctx); // single-source: at most 1 row
 
     return processUpstreamRow(upstreamRow, ctx);
   }
@@ -336,7 +399,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       chosenRuntimePath = RuntimePath.INDEX_SCAN;
       signalIndexOrderedOutput(ctx);
       return indexScanFiltered(ridSetFromLinkBag(linkBag), linkBag, ctx, upstreamRow);
-    } else if (downstreamEdgeCount > 0 && limit > 0) {
+    } else if (downstreamEdgeCount > 0 && rowTarget > 0) {
       // Low density but downstream edges + LIMIT: load all, sort locally,
       // and mark PRE_SORTED=true. This enables LIMIT to short-circuit the
       // pipeline — only K records traverse expensive downstream edges
@@ -382,7 +445,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var entryBudget =
         IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBag.size());
     if (entryBudget <= 0) {
-      if (downstreamEdgeCount > 0 && limit > 0) {
+      if (downstreamEdgeCount > 0 && rowTarget > 0) {
         chosenRuntimePath = RuntimePath.LOAD_SORT;
         signalLoadSortedOutput(ctx);
         return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
@@ -415,7 +478,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         () -> {
           // Mirror the non-scan branch: with downstream edges + LIMIT, sort
           // locally and keep PRE_SORTED so only k rows cross those edges.
-          if (downstreamEdgeCount > 0 && limit > 0) {
+          if (downstreamEdgeCount > 0 && rowTarget > 0) {
             signalLoadSortedOutput(ctx);
             return loadSortFromLinkBag(linkBag, ctx, upstreamRow);
           }
@@ -1058,12 +1121,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       long entryBudget,
       BiFunction<Result, CommandContext, ExecutionStream> rowsForEntry,
       Supplier<ExecutionStream> bailOut) {
-    var rowTarget = limit;
     lastScanBudget = entryBudget;
     lastScanConsumedEntries = 0;
     if (rowTarget <= 0) {
       // No LIMIT means the scan has to reach the end of the reachable set
-      // either way — abandoning it cannot save work.
+      // either way — abandoning it cannot save work. The filtered cursor must also be
+      // unbounded, otherwise a positive-to-unbounded copy can silently stop at its budget.
+      scanStep.liftScanBudget();
       return indexStream.flatMap(rowsForEntry::apply);
     }
     if (entryBudget <= 0) {
@@ -1142,7 +1206,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return true;
     }
     var costs = IndexOrderedCostModel.computeCosts(
-        linkBagSize, indexSize, limit, histogram, orderAsc,
+        linkBagSize, indexSize, rowTarget, histogram, orderAsc,
         downstreamEdgeCount);
     if (costs == null) {
       return false;
@@ -1169,7 +1233,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       @Nullable EquiDepthHistogram histogram,
       boolean estimateCapped) {
     return IndexOrderedCostModel.pickMultiSourceStrategy(
-        totalEdges, indexSize, limit, histogram, orderAsc, estimateCapped);
+        totalEdges, indexSize, rowTarget, histogram, orderAsc, estimateCapped);
   }
 
   // Cost model logic lives in IndexOrderedCostModel.
@@ -1494,7 +1558,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   @Override
   public boolean canBeCached() {
-    return false;
+    return true;
   }
 
   /** Plan-text marker for an accepted trailing record identifier sort item. */
@@ -1521,8 +1585,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   public IndexOrderedEdgeStep copy(CommandContext ctx) {
     return new IndexOrderedEdgeStep(
         ctx, sourceAlias, targetAlias, edgeClassName, linkBagFieldName,
-        index, orderAsc, comparisonItem.copy(), nullsPlacement, edge.copy(), limit, multiSourceMode,
-        reverseFieldName, sourceClassName, targetFilter, targetClassName,
+        index, orderAsc, comparisonItem.copy(), nullsPlacement,
+        skipClause == null ? null : skipClause.copy(),
+        limitClause == null ? null : limitClause.copy(), multiSourceMode,
+        reverseFieldName, sourceClassName, targetFilter == null ? null : targetFilter.copy(),
+        targetClassName,
         edgeTraversal, downstreamEdgeCount, ridTieBreakAccepted, profilingEnabled);
   }
 }

@@ -95,7 +95,7 @@ public final class YTDBStrategyUtil {
       return null;
     }
 
-    final Boolean value = getConfigValue(YTDBQueryConfigParam.polymorphicQuery, traversal);
+    final Boolean value = explicitPolymorphic(rootOptions(traversal));
     if (value != null) {
       return value;
     }
@@ -124,24 +124,13 @@ public final class YTDBStrategyUtil {
     }
 
     final var configured = OrderByNullsUtil.resolvePlacements(session.getConfiguration());
-    final var optionsStrategy =
-        rootTraversal(traversal).getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
-    if (optionsStrategy == null) {
+    final var explicit = explicitNullPlacements(rootOptions(traversal));
+    if (explicit == NO_NULL_OVERRIDES) {
       return configured;
     }
-
-    final var options = optionsStrategy.getOptions();
-    final var ascending =
-        queryNullPlacement(
-            YTDBQueryConfigParam.orderByNullsPlacementAsc,
-            options.get(YTDBQueryConfigParam.orderByNullsPlacementAsc.name()));
-    final var descending =
-        queryNullPlacement(
-            YTDBQueryConfigParam.orderByNullsPlacementDesc,
-            options.get(YTDBQueryConfigParam.orderByNullsPlacementDesc.name()));
     return new ResolvedOrderByNullsPlacement(
-        ascending == null ? configured.ascending() : ascending,
-        descending == null ? configured.descending() : descending);
+        explicit.ascending() == null ? configured.ascending() : explicit.ascending(),
+        explicit.descending() == null ? configured.descending() : explicit.descending());
   }
 
   private static @Nullable OrderByNullsPlacement queryNullPlacement(
@@ -171,8 +160,7 @@ public final class YTDBStrategyUtil {
   /// `orderIncludesMissingKey=true` option with the standard-order strategy. An unresolved setting
   /// keeps records unless the strategy is present.
   public static boolean orderIncludesMissingKey(Admin<?, ?> traversal) {
-    final Boolean explicit =
-        getConfigValue(YTDBQueryConfigParam.orderIncludesMissingKey, traversal);
+    final Boolean explicit = explicitOrderIncludesMissingKey(rootOptions(traversal), traversal);
     if (Boolean.FALSE.equals(explicit)) {
       return false;
     }
@@ -189,13 +177,53 @@ public final class YTDBStrategyUtil {
     if (!hasStandardOrderSemanticsStrategy(traversal)) {
       return true;
     }
-    if (Boolean.TRUE.equals(explicit)) {
+    return false;
+  }
+
+  private static @Nullable OptionsStrategy rootOptions(Admin<?, ?> traversal) {
+    return rootTraversal(traversal).getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+  }
+
+  /** Reads only the explicit Boolean option and its deliberate order-mode contradiction. */
+  public static @Nullable Boolean explicitOrderIncludesMissingKey(
+      @Nullable OptionsStrategy options, Admin<?, ?> traversal) {
+    Boolean value = (Boolean) explicitValue(options, YTDBQueryConfigParam.orderIncludesMissingKey);
+    if (Boolean.TRUE.equals(value) && hasStandardOrderSemanticsStrategy(traversal)) {
       throw new ContradictoryOrderSemanticsException(
           "StandardOrderSemanticsStrategy conflicts with the explicit "
               + "orderIncludesMissingKey=true option. Remove the strategy with "
               + "withoutStrategies(StandardOrderSemanticsStrategy.class).");
     }
-    return false;
+    return value;
+  }
+
+  /** Reads only the explicit polymorphism option, without session or configuration access. */
+  public static @Nullable Boolean explicitPolymorphic(@Nullable OptionsStrategy options) {
+    return (Boolean) explicitValue(options, YTDBQueryConfigParam.polymorphicQuery);
+  }
+
+  /** Nullable overrides are not execution settings. Ascending validation precedes descending. */
+  public record ExplicitNullPlacements(
+      @Nullable OrderByNullsPlacement ascending, @Nullable OrderByNullsPlacement descending) {
+  }
+
+  private static final ExplicitNullPlacements NO_NULL_OVERRIDES =
+      new ExplicitNullPlacements(null, null);
+
+  public static ExplicitNullPlacements explicitNullPlacements(@Nullable OptionsStrategy options) {
+    if (options == null) {
+      return NO_NULL_OVERRIDES;
+    }
+    return new ExplicitNullPlacements(
+        queryNullPlacement(YTDBQueryConfigParam.orderByNullsPlacementAsc,
+            explicitValue(options, YTDBQueryConfigParam.orderByNullsPlacementAsc)),
+        queryNullPlacement(YTDBQueryConfigParam.orderByNullsPlacementDesc,
+            explicitValue(options, YTDBQueryConfigParam.orderByNullsPlacementDesc)));
+  }
+
+  private static @Nullable Object explicitValue(
+      @Nullable OptionsStrategy options, YTDBQueryConfigParam param) {
+    return options == null ? null : options.getOptions().get(param.name());
   }
 
   /// Reports whether the root traversal carries the user strategy for standard order semantics.

@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
@@ -85,7 +84,8 @@ public final class IndexOrderedPlanner {
       boolean orderAsc,
       @Nonnull SQLOrderByItem comparisonItem,
       @Nonnull ResolvedOrderByNullsPlacement nullsPlacement,
-      long limit,
+      @Nullable SQLSkip skipClause,
+      @Nullable SQLLimit limitClause,
       @Nullable MultiSourceMode multiSourceMode,
       @Nullable String reverseFieldName,
       @Nullable String sourceClassName,
@@ -263,11 +263,14 @@ public final class IndexOrderedPlanner {
     if (methodParams.size() > 1) {
       return null;
     }
-    // Extract edge class name from the method parameter (e.g., .in('TEST_HAS_CREATOR')).
-    // Use execute() to properly decode the AST string literal, avoiding fragile
-    // toString() + quote-stripping that breaks on escaped characters or backticks.
-    var edgeClassValue = methodParams.getFirst().execute((Result) null, context);
-    if (!(edgeClassValue instanceof String edgeClassName) || edgeClassName.isEmpty()) {
+    // A fixed LinkBag field is safe only for a plain literal. Parameters, functions and
+    // literal modifiers stay on normal MATCH so changing labels keep their current meaning.
+    var labelExpression = methodParams.getFirst().getMathExpression();
+    if (!(labelExpression instanceof SQLBaseExpression label) || label.getModifier() != null) {
+      return null;
+    }
+    var edgeClassName = label.getStringLiteralValue();
+    if (edgeClassName == null || edgeClassName.isEmpty()) {
       return null;
     }
 
@@ -544,7 +547,7 @@ public final class IndexOrderedPlanner {
 
     return new IndexOrderedCandidate(
         matchedEdge, sourceAlias, targetAlias, edgeClassName,
-        linkBagFieldName, matchedIndex, orderAsc, comparisonItem, nullsPlacement, queryLimit,
+        linkBagFieldName, matchedIndex, orderAsc, comparisonItem, nullsPlacement, skip, limit,
         multiSourceMode, reverseFieldName, sourceClassName,
         multiFieldOrderBy, targetFilter, targetClassName, isEdgeTraversal,
         downstreamEdgeCount, ridTieBreakAccepted);

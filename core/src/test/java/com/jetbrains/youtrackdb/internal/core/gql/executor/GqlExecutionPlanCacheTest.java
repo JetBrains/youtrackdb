@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
@@ -293,14 +294,13 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
     Assert.assertEquals("No errors should occur during concurrent access", 0, errors.get());
   }
 
+  /** A two-entry cache evicts on overfill and leaves the global setting unchanged. */
   @Test
   public void testGlobalConfigurationCacheSize() {
-    GlobalConfiguration.STATEMENT_CACHE_SIZE.setValue(2);
-
     var graphInternal = (YTDBGraphInternal) graph;
     var tx = graphInternal.tx();
     tx.readWrite();
-    try {
+    try (var ignored = GlobalConfigurationScope.set(GlobalConfiguration.STATEMENT_CACHE_SIZE, 2)) {
       // Small capacity: after overfill the first entry should be evicted (Guava eviction is best-effort)
       var cache = new GqlExecutionPlanCache(
           GlobalConfiguration.STATEMENT_CACHE_SIZE.getValueAsInteger());

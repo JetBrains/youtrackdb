@@ -646,15 +646,11 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
-   * The clone's plan copy must be taken against an ISOLATED CHILD context — a fresh {@link
-   * BasicCommandContext} parented to the original plan's context — not against the original context
-   * itself. This mirrors {@code HashJoinMatchStep}: the child owns its own unsynchronised variable
-   * maps ({@code $current}, {@code $matched}, statistics), so the original's and the clone's
-   * executions cannot race on or leak that per-run state. Copying against the shared context would
-   * leave both plans on the SAME context.
+   * The clone's plan copy uses a clean root context with no link to the original. Its variables
+   * and statistics stay private even when the original already ran and seeded its own state.
    */
   @Test
-  public void clone_copiesPlanAgainstIsolatedChildContext() {
+  public void clone_copiesPlanAgainstCleanRootContext() {
     var copiedPlan = mock(InternalExecutionPlan.class);
     var contextCaptor = ArgumentCaptor.forClass(CommandContext.class);
     when(plan.copy(contextCaptor.capture())).thenReturn(copiedPlan);
@@ -665,7 +661,7 @@ public class YTDBMatchPlanStepTest {
     var copyContext = contextCaptor.getValue();
     assertThat(copyContext).isNotSameAs(ctx);
     assertThat(copyContext).isInstanceOf(BasicCommandContext.class);
-    assertThat(copyContext.getParent()).isSameAs(ctx);
+    assertThat(copyContext.getParent()).isNull();
   }
 
   /**
@@ -1262,6 +1258,35 @@ public class YTDBMatchPlanStepTest {
     original.clone(); // AbstractStep.clone() calls reset() on the clone mid-construction
 
     verify(stream, never()).close(ctx);
+  }
+
+  /** Clone-after-run and lazy template copies must not inherit slot 4 or ordinary variables. */
+  @Test
+  public void copiesUseCleanRootsEvenWhenTheirSourceContextIsSeeded() {
+    var source = new BasicCommandContext(threadSession);
+    source.setInputParameters(Map.of(0, "binding"));
+    source.setVariable("alias", "original");
+    source.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, true);
+    var realPlan = ReplayablePlanFixture.planOver(source, List.of());
+    var original = new YTDBMatchPlanStep<>(traversal, Vertex.class, realPlan, "v",
+        BoundaryOutputType.ELEMENT);
+    var cloned = original.clone();
+    var clean = cloned.getPlan().getContext();
+    assertThat(clean.getParent()).isNull();
+    assertThat(clean.getVariables()).isEmpty();
+    assertThat(clean.getInputParameters()).containsEntry(0, "binding");
+    assertThat(clean.hasSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)).isFalse();
+    clean.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, false);
+    clean.setVariable("alias", "clone");
+    assertThat(source.<Boolean>getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
+        .isTrue();
+    assertThat(source.getVariable("alias")).isEqualTo("original");
+    var lazy = new YTDBMatchPlanStep<>(traversal, Vertex.class, realPlan, "v",
+        BoundaryOutputType.ELEMENT, Map.of(), ResultShaping.NONE, true);
+    drainPayloads(lazy);
+    assertThat(lazy.getPlan().getContext().getParent()).isNull();
+    assertThat(source.<Boolean>getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
+        .isTrue();
   }
 
   // ---- Clone field-write (no reflection) ----

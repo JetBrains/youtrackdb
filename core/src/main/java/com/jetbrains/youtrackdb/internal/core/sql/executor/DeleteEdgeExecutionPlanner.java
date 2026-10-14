@@ -95,14 +95,13 @@ public class DeleteEdgeExecutionPlanner {
   private InternalExecutionPlan buildExecutionPlan(
       CommandContext ctx, boolean enableProfiling, boolean useCache) {
     var db = ctx.getDatabaseSession();
+    var buildGeneration = db == null ? 0 : YqlExecutionPlanCache.getGeneration(db);
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(db)) {
       var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), ctx, db);
       if (plan != null) {
         return (InternalExecutionPlan) plan;
       }
     }
-    var planningStart = System.nanoTime();
-
     init();
     var result = new DeleteExecutionPlan(ctx);
 
@@ -156,10 +155,9 @@ public class DeleteEdgeExecutionPlanner {
     if (useCache
         && !enableProfiling
         && this.statement.executinPlanCanBeCached(db)
-        && result.canBeCached()
-        && YqlExecutionPlanCache.getLastInvalidation(db) < planningStart) {
+        && result.canBeCached()) {
       YqlExecutionPlanCache.put(
-          this.statement.getOriginalStatement(), result, db,
+          this.statement.getOriginalStatement(), result, db, buildGeneration,
           db.getPlanNullPlacements().recorded());
     }
 
