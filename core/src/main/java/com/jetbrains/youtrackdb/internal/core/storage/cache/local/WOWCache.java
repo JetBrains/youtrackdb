@@ -2859,6 +2859,9 @@ public final class WOWCache extends AbstractWriteCache
       final var interrupted = failure instanceof java.lang.InterruptedException
           || Thread.currentThread().isInterrupted();
       try {
+        // add can fail while logging or draining buffers after it inserts this file.
+        // Remove that entry before closing the file so the container cannot keep a closed file.
+        // A duplicate ID can instead refer to another file object. Leave that entry alone.
         if (files.get(fileId) == file) {
           files.remove(fileId);
         }
