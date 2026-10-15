@@ -223,10 +223,23 @@ public final class ChangedPageTrackerStartup {
     return result;
   }
 
-  /** Revokes trust and propagates the original reader failure. The caller must not retry. */
+  /**
+   * Attempts trust revocation and always propagates the original reader failure, even if distrust
+   * or diagnostics fail. The caller must abort this startup attempt.
+   */
   static <T extends Throwable> void readerFailed(PendingHistory pending, T failure) throws T {
-    pending.distrust();
     try {
+      try {
+        pending.distrust();
+      } catch (Throwable secondary) {
+        if (secondary != failure) {
+          try {
+            failure.addSuppressed(secondary);
+          } catch (Throwable ignored) {
+            // Suppression is best effort and must not replace the reader failure.
+          }
+        }
+      }
       warn(Outcome.READER_FAILURE, null, failure);
     } finally {
       // Logging can allocate. Even a logging failure must not replace the original reader failure.

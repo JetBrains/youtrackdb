@@ -1041,33 +1041,52 @@ public abstract class AbstractStorage
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
           }
-        } catch (final Exception ee) {
-          // ignore
+        } catch (final Throwable ee) {
+          suppressOpenFailure(e, ee);
         }
 
         try {
           if (writeAheadLog != null) {
             writeAheadLog.close();
           }
-        } catch (final Exception ee) {
-          // ignore
+        } catch (final Throwable ee) {
+          suppressOpenFailure(e, ee);
         }
 
         try {
           postCloseSteps(false, true, idGen.getLastId());
-        } catch (final Exception ee) {
-          // ignore
+        } catch (final Throwable ee) {
+          suppressOpenFailure(e, ee);
         }
 
         status = STATUS.CLOSED;
         throw e;
       }
     } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
+      RuntimeException prepared = ee;
+      try {
+        prepared = logAndPrepareForRethrow(ee);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(ee, secondary);
+      }
+      throw prepared;
     } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
+      Error prepared = ee;
+      try {
+        prepared = logAndPrepareForRethrow(ee);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(ee, secondary);
+      }
+      throw prepared;
     } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
+      RuntimeException prepared;
+      try {
+        prepared = logAndPrepareForRethrow(t);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(t, secondary);
+        prepared = new RuntimeException(t);
+      }
+      throw prepared;
     } finally {
       if (status == STATUS.OPEN) {
         sessionCount.incrementAndGet();
@@ -1077,6 +1096,16 @@ public abstract class AbstractStorage
     final var additionalArgs = new Object[] {getURL(), YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .info(this, "Storage '%s' is opened under YouTrackDB distribution : %s", additionalArgs);
+  }
+
+  private static void suppressOpenFailure(Throwable primary, Throwable secondary) {
+    if (primary != secondary) {
+      try {
+        primary.addSuppressed(secondary);
+      } catch (Throwable ignored) {
+        // Cleanup and diagnostic failures must never replace the original open failure.
+      }
+    }
   }
 
   protected abstract void readIv() throws IOException;

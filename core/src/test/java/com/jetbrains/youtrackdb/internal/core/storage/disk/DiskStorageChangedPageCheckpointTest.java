@@ -12,10 +12,12 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
@@ -35,10 +37,12 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
@@ -52,6 +56,8 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -213,6 +219,143 @@ public class DiskStorageChangedPageCheckpointTest {
         }
       }
     }
+  }
+
+  /** A read-cache close Error cannot replace the open Error or prevent WAL and metadata close. */
+  @Test
+  public void openErrorSurvivesReadCacheCloseErrorAndRunsLaterCleanup() throws Exception {
+    assertOpenFailure(new Error("open failure"), 0, new Error("read-cache close failure"), null);
+  }
+
+  /** A WAL close Error stays suppressed and cannot prevent the later metadata close. */
+  @Test
+  public void openErrorSurvivesWalCloseErrorAndRunsMetadataCleanup() throws Exception {
+    assertOpenFailure(new Error("open failure"), 1, new Error("WAL close failure"), null);
+  }
+
+  /** A post-close Error stays suppressed and storage always reaches CLOSED. */
+  @Test
+  public void openErrorSurvivesPostCloseErrorAndReachesClosed() throws Exception {
+    assertOpenFailure(new Error("open failure"), 2, new Error("post-close failure"), null);
+  }
+
+  /** Diagnostics cannot replace an Error after the real disk open cleanup completes. */
+  @Test
+  public void openErrorSurvivesDiagnosticError() throws Exception {
+    assertOpenFailure(new Error("open failure"), -1, null, new Error("diagnostic failure"));
+  }
+
+  /** Runtime open failures retain their identity when diagnostic reporting throws an Error. */
+  @Test
+  public void runtimeOpenFailureSurvivesDiagnosticError() throws Exception {
+    assertOpenFailure(new IllegalStateException("open failure"), -1, null,
+        new Error("diagnostic failure"));
+  }
+
+  /** Checked open failures remain the exact cause of a runtime wrapper if diagnostics fail. */
+  @Test
+  public void checkedOpenFailureSurvivesDiagnosticErrorAsExactCause() throws Exception {
+    assertOpenFailure(new IOException("open failure"), -1, null, new Error("diagnostic failure"));
+  }
+
+  /** Reusing the primary in cleanup and diagnostics must not attempt self-suppression. */
+  @Test
+  public void openFailureSurvivesSameFailureFromCleanupAndDiagnostics() throws Exception {
+    var failure = new Error("shared failure");
+    assertOpenFailure(failure, 0, failure, failure);
+  }
+
+  private void assertOpenFailure(Throwable primary, int failedStep, Error cleanupFailure,
+      Error diagnosticFailure) throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var steps = new ArrayList<String>();
+    var closed = new boolean[3];
+    // Capture the actual new resources at the existing metadata seam, after real WAL/cache init.
+    doAnswer(call -> {
+      call.callRealMethod();
+      var actualReadCache = created.getReadCache();
+      var actualWal = created.getWALInstance();
+      var observedReadCache = mock(ReadCache.class, delegatesTo(actualReadCache));
+      doAnswer(close -> {
+        steps.add("read-cache");
+        actualReadCache.closeStorage(created.getWriteCache());
+        closed[0] = true;
+        if (failedStep == 0) {
+          throw cleanupFailure;
+        }
+        return null;
+      }).when(observedReadCache).closeStorage(any());
+      var observedWal = mock(WriteAheadLog.class, delegatesTo(actualWal));
+      doAnswer(close -> {
+        steps.add("WAL");
+        actualWal.close();
+        closed[1] = true;
+        if (failedStep == 1) {
+          throw cleanupFailure;
+        }
+        return null;
+      }).when(observedWal).close();
+      setField(created, "readCache", observedReadCache);
+      setField(created, "writeAheadLog", observedWal);
+      throw primary;
+    }).when(created).checkIfStorageDirty();
+    doAnswer(call -> {
+      steps.add("metadata");
+      call.callRealMethod();
+      closed[2] = true;
+      if (failedStep == 2) {
+        throw cleanupFailure;
+      }
+      return null;
+    }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+    var actualLogger = LogManager.instance();
+    var observedLogger = mock(LogManager.class, call -> {
+      if (call.getMethod().getName().equals("error") && call.getArguments().length > 2
+          && call.getArgument(2) == primary) {
+        steps.add("diagnostics");
+        if (diagnosticFailure != null) {
+          throw diagnosticFailure;
+        }
+      }
+      return delegatesTo(actualLogger).answer(call);
+    });
+    try (var logging = mockStatic(LogManager.class)) {
+      logging.when(LogManager::instance).thenReturn(observedLogger);
+      var thrown = assertThrows(Throwable.class,
+          () -> created.open(new ContextConfiguration()));
+      if (primary instanceof IOException) {
+        assertEquals(RuntimeException.class, thrown.getClass());
+      }
+      assertSame(primary, primary instanceof IOException ? thrown.getCause() : thrown);
+      var suppressed = new ArrayList<Throwable>();
+      if (cleanupFailure != null && cleanupFailure != primary) {
+        suppressed.add(cleanupFailure);
+      }
+      if (diagnosticFailure != null && diagnosticFailure != primary) {
+        suppressed.add(diagnosticFailure);
+      }
+      assertEquals(suppressed, Arrays.asList(primary.getSuppressed()));
+      assertEquals(List.of("read-cache", "WAL", "metadata", "diagnostics"), steps);
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+    } finally {
+      // Red controls can stop cleanup early. Release their real resources without retrying open.
+      if (!closed[0]) {
+        created.getReadCache().closeStorage(created.getWriteCache());
+      }
+      if (!closed[1]) {
+        created.getWALInstance().close();
+      }
+      if (!closed[2]) {
+        ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      }
+    }
+  }
+
+  private static void setField(AbstractStorage target, String name, Object value) throws Exception {
+    var field = AbstractStorage.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(target, value);
   }
 
   private DiskStorage createObservedStorage() throws Exception {
