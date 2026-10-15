@@ -2,7 +2,7 @@
 
 ## Overview
 
-Eighteen chapters across eight parts. The book takes a Java developer from "I have never opened the YouTrackDB source" to "I can extend the MATCH planner, diagnose a slow query from an EXPLAIN, and recognise the three optimisation layers the engine applies". Concepts build one at a time; each chapter depends only on the ones before it; optimisations appear only after the basic nested-loop pipeline is complete in the reader's head.
+Eighteen chapters across eight parts. The book takes a Java developer from "I have never opened the YouTrackDB source" to "I can extend the MATCH planner, diagnose a slow query from an EXPLAIN, and recognise the three optimisation layers the engine applies". Concepts build one at a time. Each chapter depends only on the ones before it. Optimisations appear only after the basic nested-loop pipeline is complete in the reader's head.
 
 The source match-book contains all the facts the new book needs. The new book contains *none* of the source's section structure — it rearranges the material into a teaching narrative with on-ramps where the source makes leaps, and it introduces MATCH only after the reader has walked through a plain SELECT end-to-end.
 
@@ -16,6 +16,8 @@ If you arrived at this book to solve a specific problem, start here.
 |---|---|
 | Slow query, unsure where to start | 16 (EXPLAIN), 3 (pipeline) |
 | Wrong root alias chosen | 9 (root selection), 16 (diagnosis), 8 (cost concepts) |
+| Known target but expensive source scan | 13 (known-endpoint detached checks), 9 §9.9 (known endpoints), 16 §16.9 (runtime choice) |
+| PROFILE omits discovery counts after fallback | 16 §16.9 (budget-switch fields), 13 (work budget) |
 | Missing reversal on edge | 10 (scheduling + invertibility), 16 |
 | Missing pre-filter / high fan-out loads | 14 (pre-filters), 16 |
 | Hash-join explosion | 13 (hash joins), 16 |
@@ -40,7 +42,8 @@ Draws from: 01-primer.md §§1.1–1.3.
 
 **Chapter 3 — The Life of a Query: A Bird's-Eye Tour**
 Follows one plain `SELECT FROM Person WHERE name = 'Alice'` through the four stages — parse, plan, execute, return rows — without ever mentioning MATCH. The reader sees the AST as a diagram, the execution plan as a short list of steps, and the pull-based `next()` loop in action. This is the mental map the rest of the book fills in.
-Draws from: 01-primer.md §1.2; 03-architecture.md (reframed — the source is MATCH-first; this chapter is SELECT-first).
+Draws from: 01-primer.md §1.2 and 03-architecture.md.
+The source is MATCH-first, while this chapter is SELECT-first.
 
 ---
 
@@ -67,14 +70,14 @@ Documents `MatchExecutionPlanner`'s first planning pass: walking each match expr
 Draws from: 05-pattern-graph.md.
 
 **Chapter 7 — The Eight Phases of the Planner**
-A tour of `MatchExecutionPlanner.createExecutionPlan()` — each of the eight phases gets one paragraph. The reader leaves knowing the name of every phase, the artifact each produces, and the chapter in Part IV (or V) that opens that phase up. No deep dives here; this is the map.
+A tour of `MatchExecutionPlanner.createExecutionPlan()` — each of the eight phases gets one paragraph. The reader leaves knowing the name of every phase, the artifact each produces, and the chapter in Part IV (or V) that opens that phase up. This chapter gives the overview rather than a deep analysis.
 Draws from: 06-planner-overview.md.
 
 ---
 
 ## Part IV — Cost-Based Planning
 
-The heart of the book. Each chapter opens one of the hard planner phases. Chapter 8 introduces cost concepts in isolation; Chapters 9 and 10 apply them. By the end the reader can simulate the planner in their head for a small query.
+The heart of the book. Each chapter opens one of the hard planner phases. Chapter 8 introduces cost concepts in isolation. Chapters 9 and 10 apply them. By the end the reader can simulate the planner in their head for a small query.
 
 **Chapter 8 — Counting Without Counting: Cardinality, Selectivity, and Fan-out**
 Introduces the three numerical estimates the planner uses. Explains what `SelectivityEstimator` computes, what `EdgeFanOutEstimator` computes, and why both are allowed to be wrong. Covers the fallback constants and the "ranking signal, not truth" framing. The reader meets `CostModel` here as the shared language.
@@ -82,11 +85,12 @@ Draws from: 12-cost-model.md.
 
 **Chapter 9 — Choosing Where to Start: Root Selection**
 Opens phase 3 of the planner. Explains `estimateRootEntries()`, the MAX_VALUE trick that protects against picking an unresolvable root, and how ties are broken. Works two examples end-to-end: one where class selectivity dominates, one where an indexed WHERE predicate flips the choice.
+Section 9.9 distinguishes known-RID roots in positive patterns from detached known-endpoint checks.
 Draws from: 07-root-selection.md.
 
 **Chapter 10 — Scheduling the Walk: Order and Direction**
 Opens phase 5. Covers the cost-guided DFS over edges, the invertibility check (when `.out` can be executed as `.in`), how the scheduler respects `$matched` dependencies, how it handles disjoint components, and how WHILE patterns constrain the choice. This is the chapter that closes the loop on "why does the planner pick *that* order?"
-Draws from: 08-scheduling-edges.md; invertibility paragraphs from 02-what-is-match.md §2.3.4 and 10-runtime-traversal.md.
+Draws from: 08-scheduling-edges.md and invertibility paragraphs from 02-what-is-match.md §2.3.4 and 10-runtime-traversal.md.
 
 ---
 
@@ -96,7 +100,7 @@ With a fully scheduled plan, the reader now sees runtime. Part V is the concrete
 
 **Chapter 11 — The Step Pipeline: How the Plan Becomes Code**
 Tours the execution-step catalogue: `MatchPrefetchStep`, `MatchFirstStep`, `MatchStep`, `OptionalMatchStep`, `RemoveEmptyOptionalsStep`, and the four return-projection step variants. Detached checks use `FilterNotMatchPatternStep` or `FilterExistsMatchPatternStep` on the per-row path (`MatchExecutionPlanner.java:1149–1179`). Focuses on the pull-based model and how each step grows the `MatchResultRow`. The alias-keyed row — previewed in Chapter 5 — gets its full mechanics here.
-Draws from: 09-execution-steps.md; row-chain mechanics from 02-what-is-match.md §2.3.1.
+Draws from: 09-execution-steps.md and row-chain mechanics from 02-what-is-match.md §2.3.1.
 
 **Chapter 12 — Traversers: Six Ways to Walk an Edge**
 `MatchStep` delegates the actual edge walking to a traverser strategy. This chapter opens all six: standard forward, reverse, optional, field traversal, multi-step, and back-reference enforcement. Explains the context variables `$matched`, `$currentMatch`, `$current`, who writes them and who reads them.
@@ -108,8 +112,10 @@ Draws from: 10-runtime-traversal.md.
 
 The basic engine is a nested-loop machine. Part VI covers the two optimisation layers that replace — or accelerate — parts of it. The reader needs everything from Parts I–V in place before this makes sense.
 
-**Chapter 13 — When Nested Loops Aren't Enough: Hash Joins**
+**Chapter 13 — When Nested Loops Are Not Enough: Hash Joins**
 The four hash-join variants and their selection rules. Detached NOT and exists share eligibility and cost guards (`MatchExecutionPlanner.java:1128–1181`, `1397–1489`). Covers LIMIT-aware costs and full-input fallbacks (`MatchExecutionPlanner.java:1493–1582`). Explains the eager build in `HashJoinMatchStep`, origin-only early stop, and detached overflow fallback (`HashJoinMatchStep.java:128–195`, `362–365`).
+The known-endpoint section explains plain-class-scan eligibility, reverse candidate discovery and retained per-row checks.
+It also covers first-row costs, scan order, normal sorting, discovery budgets, actual storage forms and security fallback.
 Draws from: 13-hash-joins.md.
 
 **Chapter 14 — Index-Assisted Traversal: Pre-Filtering Adjacency Lists**
@@ -123,15 +129,18 @@ Draws from: 14-index-assisted-traversal.md.
 Three chapters of synthesis.
 
 **Chapter 15 — Nine Queries, From Trivial to Hairy**
-A walkthrough of nine queries in ascending complexity. Each query adds exactly one feature; the reader sees which planner phase and which execution step lights up for each addition. This chapter is the book's "spaced repetition" pass — the reader re-meets every concept they have learned, in the order the engine deploys them.
+A walkthrough of nine queries in ascending complexity. Each query adds exactly one feature. The reader sees which planner phase and which execution step lights up for each addition. This chapter is the book's "spaced repetition" pass — the reader re-meets every concept they have learned, in the order the engine deploys them.
 Draws from: 11-walkthrough.md.
 
 **Chapter 16 — Reading EXPLAIN: Diagnosing Plans in Practice**
-How to read `EXPLAIN` output and diagnose common plan problems. Includes detached hash and per-row checks (`HashJoinMatchStep.java:445–454`, `FilterExistsMatchPatternStep.java:55–59`, `FilterNotMatchPatternStep.java:99–107`). Explains why LIMIT can favour per-row checks and why cached plans keep their path (`MatchExecutionPlanner.java:1493–1582`, `626–630`). Ends with a debugging checklist.
-Draws from: 11-walkthrough.md; 12-cost-model.md; 13-hash-joins.md; 14-index-assisted-traversal.md.
+How to read `EXPLAIN` output and diagnose common plan problems. Includes detached hash and per-row checks (`HashJoinMatchStep.java:445–454`, `FilterExistsMatchPatternStep.java:55–59`, `FilterNotMatchPatternStep.java:99–107`). Explains why LIMIT can favour per-row checks and why cached plans keep their path (`MatchExecutionPlanner.java:1493–1582`, `626–630`). Includes a debugging checklist.
+Section 16.9 explains detached known-endpoint plan branches, execution-time decisions and published PROFILE fields.
+It explains missing discovery counters after a budget switch and statistics that include hidden records.
+Draws from: 11-walkthrough.md, 12-cost-model.md, 13-hash-joins.md and 14-index-assisted-traversal.md.
 
 **Chapter 17 — Reference: Files, Classes, Configuration, Glossary**
-The reference appendix: file-layout index, configuration-knob table, end-to-end pipeline diagram, complete glossary. Cross-referenced back to the chapter where each term is taught.
+The reference appendix: file-layout index, configuration-knob table, end-to-end pipeline diagram, complete glossary.
+The index and glossary include known-endpoint choice helpers, the fixed safety margin and the discovery budget. Cross-referenced back to the chapter where each term is taught.
 Draws from: 15-reference.md.
 
 ---

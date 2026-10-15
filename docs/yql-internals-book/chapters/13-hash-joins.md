@@ -42,7 +42,7 @@ painful to run:
 If the `Blocked` relationship exists for even one percent of those five million people,
 the engine re-runs the sub-plan five million times. Most of those runs produce no result
 — they are pure wasted traversal. The engine has no memory between rows. It cannot
-remember which people have already been seen blocking the admin; it must ask again for
+remember which people have already been seen blocking the admin. It must ask again for
 each one.
 
 The fundamental problem is that the cost scales as *outer × inner*. With five million
@@ -287,7 +287,7 @@ a `RID` (the common case), it creates a `JoinKey.SINGLE_RID` in one allocation. 
 multiple aliases are shared and all hold RIDs, it creates a `JoinKey.RID_ARRAY`. The
 `OBJECT_ARRAY` fallback handles the rare case of non-RID alias values
 (`JoinKey.java:52`, `63`, `76`). (Note: `SINGLE_RID`, `RID_ARRAY`, and `OBJECT_ARRAY`
-are values of a `private enum Kind` inside `JoinKey`; the public surface consists of
+are values of a `private enum Kind` inside `JoinKey`. The public surface consists of
 the static factory methods `ofRid()`, `ofRids()`, and `ofObjects()`.)
 
 The `JoinKey` class is deliberately not a Java record. Java records auto-generate
@@ -304,9 +304,9 @@ through that tree. `CorrelatedOptionalHashJoinStep` triggers on OPTIONAL edges w
 `WHERE` clause contains a `$matched` back-reference — a shape the context-dependency
 guard explicitly rejects for the generic step. `BackRefHashJoinStep` triggers on that
 same back-reference shape when the target is *required* rather than optional, and on the
-`NOT IN` anti-join shape; it is chosen in a separate scheduler sweep gated only by the
+`NOT IN` anti-join shape. It is chosen in a separate scheduler sweep gated only by the
 threshold. `InvertedWhileHashJoinStep` triggers on `WHILE` patterns that the scheduler
-has placed in the uninvertible direction; no threshold comparison is involved. When
+has placed in the uninvertible direction. No threshold comparison is involved. When
 reading the next three sections, do not try to map their triggers onto the guards above —
 each variant has its own separate entry path.
 
@@ -331,7 +331,7 @@ OPTIONAL {as: liker}.out('KNOWS')
 RETURN liker, likerFriend
 ```
 
-The optional edge asks: "from `liker`, follow `KNOWS` outward; does any neighbour equal
+The optional edge asks: "from `liker`, follow `KNOWS` outward. Does any neighbour equal
 the already-bound `startPerson`?" The `$matched.startPerson.@rid` reference means the
 generic `HashJoinMatchStep` cannot be used — the `$matched` guard would reject it. The
 build side depends on *which* `startPerson` the current upstream row holds.
@@ -364,7 +364,7 @@ For each upstream row, the step proceeds as follows:
    fallback that checks the edge directly. This `checkEdgeFallback` call prevents false
    negatives that would arise from an incomplete set (`CorrelatedOptionalHashJoinStep.java:123–130`).
 6. Otherwise — a definitive miss — emit the row with `targetAlias` set to null. The
-   optional semantics require that all upstream rows pass through; `RemoveEmptyOptionalsStep`,
+   optional semantics require that all upstream rows pass through. `RemoveEmptyOptionalsStep`,
    placed later in the plan, strips the placeholder rows that the query is not interested
    in.
 
@@ -428,7 +428,7 @@ threshold at runtime, the build returns null and the step falls back to per-row
 evaluation — correctness holds, only speed degrades. For the two semi-join variations
 that fallback is a nested-loop traversal through `nestedLoopFallback()`
 (`BackRefHashJoinStep.java:420`), reusing the original edge the planner kept in reserve.
-The anti-join has no reserved edge; it instead re-evaluates the stored `NOT IN` condition
+The anti-join has no reserved edge. It instead re-evaluates the stored `NOT IN` condition
 per row through `handleAntiJoinBuildFailure()` (`BackRefHashJoinStep.java:332`, `397`).
 
 ### Three variations of the back-reference
@@ -440,7 +440,7 @@ The step recognises three variations, each backed by a record in the sealed
 back-reference. The build stores source RID → edge count in an `Object2IntOpenHashMap<RID>`
 (`BackRefHashJoinStep.java:572`) rather than a plain set, so that parallel edges of the
 same class between the same pair of vertices still emit the right number of rows. A probe
-with a positive count keeps the row; a zero count drops it
+with a positive count keeps the row. A zero count drops it
 (`BackRefHashJoinStep.java:282`). This variation *replaces* the target's `MatchStep`
 outright.
 
@@ -450,7 +450,7 @@ an edge-then-vertex hop written as `.outE('E').inV()`. This variation replaces *
 (`MatchExecutionPlanner.java:4466`), then chains a single `BackRefHashJoinStep` for the
 pair (`MatchExecutionPlanner.java:4530`). The build stores source RID → list of edge rows
 in a `HashMap<RID, List<Result>>` (`BackRefHashJoinStep.java:738`), because the
-intermediate edge alias may still be projected downstream; each probe fans that list back
+intermediate edge alias may still be projected downstream. Each probe fans that list back
 out into one row per edge (`BackRefHashJoinStep.java:350`).
 
 *Anti-join* (`AntiSemiJoin`) is the one shape the correlated optional step has no answer
@@ -463,7 +463,7 @@ anti-join is not a replacement. The planner leaves the normal `MatchStep` in pla
 chains the `BackRefHashJoinStep` *after* it as a post-filter, having stripped only the
 `NOT IN` term from the MatchStep's `WHERE` clause at plan time
 (`MatchExecutionPlanner.java:4522`). Single-edge and chain semi-joins take the
-MatchStep's place; the anti-join stands behind it.
+MatchStep's place. The anti-join stands behind it.
 
 There is no inner-join mode here. Unlike the generic `HashJoinMatchStep` with its three
 `JoinMode` values, `BackRefHashJoinStep` only ever runs the two membership semantics
@@ -475,7 +475,7 @@ The last thing to know about this variant is *where* it is selected, because it 
 the eligibility tree. All three variations are detected in
 `optimizeScheduleWithIntersections()` (`MatchExecutionPlanner.java:3254`) — the same
 schedule-optimization sweep Chapter 14 describes for attaching index pre-filters to
-edges. That sweep does not consult the four guards of Figure 13.1 at all; it gates the
+edges. That sweep does not consult the four guards of Figure 13.1 at all. It gates the
 back-reference join on one thing only, the threshold (`isSemiJoinCandidate` returns false
 when the threshold is zero, `MatchExecutionPlanner.java:3474`). So do not look for
 `BackRefHashJoinStep` anywhere in that decision tree — the tree governs `HashJoinMatchStep`
@@ -575,6 +575,144 @@ an origin-only detached key performs one probe per scanned origin before opening
 
 ---
 
+## Finding sources from a known endpoint
+
+Imagine five million `Person` records, but only two people have a `MemberOf` path to one known account.
+A detached positive check asks whether that path exists without adding its internal aliases to the result.
+Scanning every person still costs work, even when the check uses a hash set.
+The executor can instead discover possible people by walking backward from the known account.
+
+This *target path* changes the source start, not the meaning of the detached check.
+The *source-class path* retains the class scan and its existing detached-check plans.
+The planner keeps both complete branches behind `KnownEndpointExistsStep`.
+Execution chooses a branch before either branch can emit a row or build a detached hash.
+
+### Which checks qualify
+
+The source alias must be the first step of one connected positive pattern.
+Its built source plan must be a plain class scan that has not been loaded in advance.
+An index start, a RID-list start or a source prefetch excludes the target alternative.
+`ORDER BY` does not relax this rule.
+Source-index paths are never replaced.
+
+The detached check must be mandatory and positive.
+It must share only the source alias with the main pattern.
+Alternatives, negations, optional nodes and repeated depth-limited steps do not qualify.
+
+The far vertex must have known record identifiers (RIDs) under the retained check's comparison rules.
+Literal RIDs, fixed parameters and finite `IN` collections can supply targets.
+Equality unwraps a singleton collection, but a longer equality collection does not become several targets.
+One-shot iterables and record-dependent target expressions keep the source-class path.
+
+The path can contain several ordinary `out`, `in` or `both` vertex hops.
+It can include middle-vertex filters and canonical edge-filter pairs such as `.outE('MemberOf'){where: (active = true)}.inV()`.
+The corresponding incoming pair is `.inE('MemberOf').outV()`.
+The reverse discovery can apply safe local conditions to reduce candidates.
+It leaves context-dependent conditions to their forward checks.
+
+### Candidates are not proof
+
+A *candidate superset* contains every possible matching source and can contain extra sources.
+The reverse walk builds this superset as RIDs without loading final source records.
+It deduplicates source RIDs across targets, edges and paths.
+Every candidate still needs its normal class check and filters.
+Proven endpoint classes may narrow safe edge-list reads, but never remove the candidate class check.
+
+The executor completes discovery before returning the first source row.
+It sorts candidate RIDs into *scan order*: ascending storage collection identifier, then ascending signed position.
+Temporary transaction records have negative positions and sort before stored records in the same collection.
+
+Candidate loading then uses the secured transaction view only as rows are needed.
+An unreadable candidate does not end the stream.
+The loader skips that candidate and continues with later candidates.
+Transaction-local records receive the same read check as class-scan records.
+
+Every detached check on this branch runs as a *per-row probe*, an existence test for one incoming row.
+This includes the forward recheck of the check that supplied the candidates.
+The target branch builds no detached hash set.
+It retains every later positive step and detached check at its original position.
+Deduplicating candidate starts does not deduplicate rows produced by later positive steps.
+
+The normal `ORDER BY` sort remains after the branch choice.
+The target start does not claim to provide the requested sort order.
+Projection, `SKIP` and `LIMIT` remain at their normal positions.
+
+Detached candidate starts retain source scan order with translation on or off, including before paging.
+Each translation mode retains its own secured query behavior.
+The executor does not reconcile existing mode differences for hidden targets or edge-list policies.
+The optional transaction result cache is an exception to the scan-order contract.
+
+### Cost and bounded discovery
+
+The comparison uses one *cost unit*, the cost assigned to one record read.
+Target cost includes target loads, reverse edge reads, candidate sorting and candidate loads.
+Both costs include source filtering, later positive work and every detached probe.
+Source-class counts and available filter statistics supply estimates.
+
+Source-type selectivity estimates how many reverse results belong to the requested source class.
+Middle-hop fan-out estimates the number of records each earlier hop can reach.
+Neither estimate proves that a candidate matches.
+
+Visible target degree refines the source estimate for `LIMIT` and `SKIP`.
+Unsupported or unmeasured source filters use a neutral passing share of one.
+The *safety margin* requires a target estimate strictly below half the source estimate.
+Both full-result cost and first-row cost must meet that margin.
+
+A caller that reads one row without `LIMIT` still has unknown demand.
+Even `LIMIT` does not promise that the caller will consume its entire allowance.
+Candidate sorting contributes to first-row cost.
+A required result sort also contributes to that cost.
+
+A single ordinary path item with at most eight input targets has no running discovery budget.
+Its reverse edge count comes from visible target degree.
+Multiple path items or longer finite target collections use a *work budget*, an allowance for target discovery work.
+A canonical edge-record pair has multiple path items and uses that budget too.
+
+Charging precedes target-list preparation, target loads, adjacency preparation, every reverse iteration and edge or middle-record loads.
+Candidate preparation and sorting also consume the allowance.
+Unsuccessful reverse iterations still count as work.
+
+The allowance is the source-path estimate, refined with visible degree for paging.
+If the next action would exceed it, the executor discards the attempt and runs the source-class branch.
+No source row has appeared at that point.
+Extra discovery work is at most the source-path estimate.
+The class-scan component of this bound is exact only without `LIMIT`.
+The bound is not an unconditional comparison with actual source work when estimates are wrong.
+
+### Security and errors before the first row
+
+A source that the forward check would accept must not disappear during reverse discovery.
+Each target must securely load as a visible vertex before the executor reads its degree.
+A missing, hidden or non-vertex target keeps the source-class branch.
+A denied storage collection of the source class or any subclass also keeps that branch.
+Edge-list read policies require fallback because reverse filtering could lose a valid source.
+The edge-list fields hold the incoming or outgoing relationships of a vertex.
+
+The executor inspects the *storage form*, the actual representation of each adjacency value it reads.
+It accepts only a `LinkBag`, a relationship container that supports an unfiltered size read.
+A stored list requires fallback even when the schema declares a link bag.
+Targets and middle vertices receive these actual-record checks during discovery.
+
+All required storage-form checks finish before any row appears.
+Unavailable middle vertices or explicit edge records also require fallback.
+
+All target-only preparation runs inside a guarded decision phase.
+The guard covers target resolution, label evaluation, estimation, secured reads, reverse discovery and branch preparation.
+A recoverable preparation failure discards the attempt and runs the retained branch.
+The retained query still raises errors from checks that it reaches.
+Interrupts, executor timeouts, closed or inactive sessions and loss of an active transaction do not become fallback results.
+The guard does not undo cache fills or side effects from read-policy expressions.
+
+Branch startup and row consumption run outside this guard.
+The target branch evaluates source filters, read policies and detached checks only on source records it reads.
+An error on a source that this branch never reads can therefore be absent.
+On records it does read, the retained checks still apply in scan order.
+This is the same visited-record rule used by index and known-RID starts.
+
+[Chapter 16 §16.9](16-reading-explain.md#169-observing-known-endpoint-choices) lists the plan fields and the budget-switch publication rules.
+
+---
+
 ## Configuration knobs
 
 **Table 13.3 — Hash-join configuration properties.**
@@ -621,25 +759,36 @@ executions.
 
 ## Further reading
 
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsAccess.java:86`
+  — built-source eligibility and fixed endpoint comparison rules.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsStep.java:203`
+  — guarded preparation, cost choice, storage checks and candidate ordering.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsCost.java:20`
+  — strict full-cost and first-row margin. The work-budget implementation starts at line 28.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsWalk.java:40`
+  — budgeted reverse discovery through secured middle vertices and edge records.
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointSourceStep.java:36`
+  — secured lazy loading, continuation after unreadable candidates and source-read counters.
+
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/HashJoinMatchStep.java` —
   generic hash-join step. Eager build at lines 128–143, detached build at 151–195,
   detached overflow fallback at 362–365, and plan copying at 475–479.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/CorrelatedOptionalHashJoinStep.java` —
-  LRU-cached correlated optional join; neighbour build at line 148; truncation fallback
-  at lines 123–130; inverse-direction SQL at lines 163–164.
+  LRU-cached correlated optional join, neighbour build at line 148, truncation fallback
+  at lines 123–130 and inverse-direction SQL at lines 163–164.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/BackRefHashJoinStep.java` —
-  required back-reference semi-join and anti-join; hard-coded `CACHE_CAPACITY` (256) at
-  line 51; link-bag read off the loaded record at line 561; single-edge build
-  (`Object2IntOpenHashMap`) at line 572 and probe at line 282; chain build
-  (`HashMap<RID, List<Result>>`) at line 738 and probe at line 350; anti-join build
-  (`RidSet`) at line 796 and probe at line 325; nested-loop fallback at line 420; EXPLAIN
-  prefixes at lines 850 and 863.
+  required back-reference semi-join and anti-join. The hard-coded `CACHE_CAPACITY` (256)
+  is at line 51. Link-bag loading is at line 561. Single-edge build is at line 572,
+  with its probe at line 282. Chain build is at line 738, with its probe at line 350.
+
+  Anti-join build is at line 796, with its probe at line 325. Nested-loop fallback is
+  at line 420. EXPLAIN prefixes are at lines 850 and 863.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/SemiJoinDescriptor.java` —
   sealed descriptor hierarchy for the three back-reference variations at line 26
   (`SingleEdgeSemiJoin`, `ChainSemiJoin`, `AntiSemiJoin`).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/InvertedWhileHashJoinStep.java` —
-  inverted-WHILE join; anchor discovery at line 185; level-by-level BFS at line 219;
-  forward-BFS fallback at line 256.
+  inverted-WHILE join, anchor discovery at line 185, level-by-level BFS at line 219
+  and forward-BFS fallback at line 256.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` —
   per-row NOT filter at lines 70–83.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java` —
@@ -647,10 +796,10 @@ executions.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` —
   copied-row probe, early stop, and context restoration at lines 20–63.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/JoinKey.java` —
-  composite hash key; `SINGLE_RID` fast path at line 52; `RID_ARRAY` at line 63;
-  `OBJECT_ARRAY` fallback at line 76; equality short-circuits at lines 113–123.
-  (`SINGLE_RID`, `RID_ARRAY`, `OBJECT_ARRAY` are values of `private enum Kind`; public
-  API uses static factory methods `ofRid()`, `ofRids()`, `ofObjects()`.)
+  composite hash key, `SINGLE_RID` fast path at line 52, `RID_ARRAY` at line 63,
+  `OBJECT_ARRAY` fallback at line 76 and equality short-circuits at lines 113–123.
+  `SINGLE_RID`, `RID_ARRAY` and `OBJECT_ARRAY` are values of `private enum Kind`.
+  The public API uses static factory methods `ofRid()`, `ofRids()` and `ofObjects()`.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/JoinMode.java` —
   `ANTI_JOIN`, `SEMI_JOIN`, `INNER_JOIN` enum at line 15.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java` —

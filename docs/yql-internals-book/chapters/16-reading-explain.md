@@ -15,7 +15,7 @@ multi-line text tree you can read as prose, and `executionPlan`, a structured
 map that a program can traverse. Both are produced from the same
 `prettyPrint` calls on the step objects the planner assembled
 (`ExplainResultSet.java:57`). The text form is the one you will use while
-debugging; the structured form is useful if you want to script plan
+debugging. The structured form is useful if you want to script plan
 comparisons. This chapter focuses on the text form.
 
 ---
@@ -35,7 +35,7 @@ RETURN me.name, friend.name, city.name
 
 The output below is illustrative — the exact text depends on database state
 at plan time and may differ from what a live run produces. The structure and
-token names are accurate; treat field contents and indentation as approximate:
+token names are accurate. Treat field contents and indentation as approximate:
 
 ```
 + PREFETCH me
@@ -51,7 +51,7 @@ token names are accurate; treat field contents and indentation as approximate:
 + ProjectionCalculationStep
 ```
 
-Walk through it top to bottom. Each `+` introduces one execution step; the
+Walk through it top to bottom. Each `+` introduces one execution step. The
 tree is the runtime order. The first two lines say that the planner decided
 `me` is small enough to prefetch — it runs `SELECT FROM Person WHERE name = 'Alice'`
 before the main loop begins and caches the results under the alias name
@@ -73,7 +73,7 @@ good.
 > running it. To see runtime counts — rows produced by each step, actual time
 > per step — use `PROFILE MATCH …` instead. `PROFILE` is covered briefly at
 > the end of this chapter (§16.8). The recommended workflow: use `EXPLAIN`
-> first to understand which plan the planner chose; switch to `PROFILE` when
+> first to understand which plan the planner chose. Switch to `PROFILE` when
 > the plan looks correct but runtime behaviour surprises you.
 
 ---
@@ -82,7 +82,7 @@ good.
 
 Before getting to pathologies, here is what each token in EXPLAIN text
 represents. Each label is produced by the `prettyPrint` method of the
-corresponding class; all are verified against the source.
+corresponding class. All are verified against the source.
 
 **`+ PREFETCH <alias>`** — `MatchPrefetchStep`. The planner decided this
 alias has cardinality below the prefetch threshold (100 records by default,
@@ -100,7 +100,7 @@ tells you what index (if any) the planner is using to enumerate the root set.
 **`+ MATCH ----> {A}method{B}`** or **`+ MATCH <---- {A}method{B}`** —
 `MatchStep`. One edge traversal. The alias on the left side of the arrow
 (`A` for forward, `B` for reverse) is the alias that was already bound when
-this step fires; the alias on the right is the one being resolved. The method
+this step fires. The alias on the right is the one being resolved. The method
 string (`out('Knows')`, `in('Knows')`, `both('Friend')`, `field.fieldName`)
 is the traversal method the query specified, as written in the SQL. If you
 see `<----` on an edge written as `.out()`, the planner inverted it — it is
@@ -204,10 +204,10 @@ alias projections (the most common case) the step is a
 
 ## 16.3 Reading cost numbers
 
-EXPLAIN does not print per-step cost estimates in the text output (`PROFILE` does; see §16.8). The cost
-numbers that drove the plan live in the planner's `estimatedRootEntries` map
-and the `estimateEdgeCost` calculation; they are consumed at plan time and
-then discarded. What EXPLAIN shows you is the *result* of those calculations,
+EXPLAIN does not print per-step cost estimates in its text output.
+PROFILE includes measured step costs, as described in §16.8.
+The planner uses its `estimatedRootEntries` map and `estimateEdgeCost` calculation to rank scheduled starts.
+Known-endpoint wrappers also compare work when execution starts. What EXPLAIN shows you is the *result* of those calculations,
 not the calculations themselves.
 
 To understand why the planner made a particular choice you have to reason
@@ -215,13 +215,13 @@ backward from the plan structure. The root alias — the one in the `+ SET`
 block — is the alias the planner estimated to have the fewest records.
 "Fewest" is relative to all the other aliases that were eligible as root
 candidates. Chapter 8 (this book's Chapter 8, *Counting Without Counting*)
-gives the full algorithm; the relevant summary for diagnostics is this:
+gives the full algorithm. The relevant summary for diagnostics is this:
 
 - An alias with an equality `WHERE` filter on an indexed property will
   typically have an estimated cardinality near 1. It almost always wins the
   root election.
 - An alias with only a class constraint (no filter) gets an estimate of
-  `classCount + 1`. It wins when the class is small; it loses when there is
+  `classCount + 1`. It wins when the class is small. It loses when there is
   any filtered alias of the same or larger class.
 - An alias with no `class:` declaration at all is absent from the cardinality
   map and is never a root candidate.
@@ -241,7 +241,7 @@ was forced late by a `$matched` dependency.
 
 Remember what Chapter 8 said: the cost model is a *ranking signal*, not a
 measurement. An estimate of 1 does not mean there is exactly one matching
-record; it means the planner found evidence strong enough to prefer this alias
+record. It means the planner found evidence strong enough to prefer this alias
 or edge over all the alternatives. A wrong estimate produces a suboptimal
 plan but never an incorrect result — the wrong plan is slower, not broken.
 
@@ -367,7 +367,7 @@ alias you wanted to start from.
 **Likely causes.**
 
 - The far alias has a `while:` clause. WHILE edges are never invertible
-  (Chapter 10 §10.2.2); the planner cannot reverse them because
+  (Chapter 10 §10.2.2). The planner cannot reverse them because
   reversal changes the depth semantics.
 - The far alias uses a field traversal (`.fieldName` syntax) rather than an
   edge class. Field traversals are also non-invertible.
@@ -567,7 +567,7 @@ EXPLAIN shows the plan the planner chose and the structural annotations the
 planner attached to each step. It does not show:
 
 - **Row counts at runtime.** You cannot see how many rows each step actually
-  produced. For that, use `PROFILE MATCH …` instead of `EXPLAIN MATCH …`;
+  produced. For that, use `PROFILE MATCH …` instead of `EXPLAIN MATCH …`.
   PROFILE instruments the step pipeline to count rows and measure elapsed
   time per step. The `executionPlanAsString` property in the PROFILE output
   includes per-step timing.
@@ -580,9 +580,9 @@ planner attached to each step. It does not show:
   can abandon an oversized build without changing EXPLAIN text. Detached
   checks then use the per-row probe, while pattern branches repeat their
   build plan (`HashJoinMatchStep.java:128–134`, `362–393`, `445–454`).
-- **Whether the path was chosen again.** A cached plan retains its path.
-  A cache hit returns before eligibility and cost checks run
-  (`MatchExecutionPlanner.java:626–630`).
+- **Whether a hash path was chosen again.** A cached hash or per-row plan retains that choice.
+  A cache hit bypasses its planning-time cost comparison.
+  Known-endpoint wrappers instead choose between their retained branches on each execution.
 - **Whether a pre-filter is admitted at runtime.** The
   `(intersection: index X selectivity=… estHits=…)` annotation names the index
   and, since both are computed at plan time, prints its class-level selectivity
@@ -592,12 +592,76 @@ planner attached to each step. It does not show:
   whether an index build amortised. Those are runtime outcomes, recorded as
   `PreFilterSkipReason` values and printed only by `PROFILE`.
 
-These gaps are not omissions in the design; they are consequences of the
-engine's architecture. The plan is built once and discarded; execution does
-not consult it. If you need deeper visibility, PROFILE is the right tool and
+Plain EXPLAIN cannot measure execution outcomes.
+Execution drives the assembled steps, including any runtime branch decision. If you need deeper visibility, PROFILE is the right tool and
 the source — particularly `MatchEdgeTraverser.applyPreFilter` and
 `HashJoinMatchStep.internalStart` — is readable enough to instrument
 temporarily.
+
+---
+
+## 16.9 Observing known-endpoint choices
+
+Suppose one target has two incoming relationships and another has thousands.
+The same eligible query can use different starts for those targets.
+An *execution-time choice* keeps both alternatives in the plan and selects one when execution starts.
+Do not read the presence of a target branch as proof that execution used it.
+
+The detached wrapper prints this header and two branch labels:
+
+```text
++ KNOWN-ENDPOINT EXISTS CHOICE (margin 2.0, full and first-row cost)
+  CURRENT:
+    ...
+  TARGET:
+    ...
+```
+
+`CURRENT` is the retained source-class branch.
+`TARGET` supplies secured candidates in scan order and runs every detached check as a per-row probe.
+A *per-row probe* tests one incoming row and stops on the first matching path.
+The target branch still contains the eligible check's forward recheck.
+Its loader prints `+ LOAD SECURED CANDIDATES IN SCAN ORDER`.
+
+Both branches remain visible after execution.
+The selected branch then shows its executed copy rather than an unused template.
+
+**Table 16.1 — Detached known-endpoint step properties.**
+
+| Property | Meaning |
+|---|---|
+| `path` | `not started` before execution, then `source` or `target` |
+| `reason` | Decision or fallback reason, such as `cost or first-row margin` or `work budget exceeded` |
+| `candidates` | Candidate source records successfully loaded through security checks |
+| `edgeReads` | Reverse-discovery entries read, including entries that produce no final candidate |
+| `targetLoads` | Known targets successfully loaded as visible vertices |
+| `sourceRecordsRead` | Secured source-start records supplied by the executed branch, before its source filters |
+| `budgetSwitch` | Whether discovery exhausted its work budget before any source row |
+| `subExecutionPlans` | Retained current and target branches, with the selected executed copy after startup |
+
+`EXPLAIN` does not execute the decision.
+Structured step output starts with `path=not started`, `reason=not started` and zero counters.
+`PROFILE` records the actual path and reason.
+Profiling also adds the published fields to the text header in brackets.
+These are work counters, not counts of final result rows.
+
+Candidate counts can include records later rejected by source filters or detached probes.
+No candidate count includes a record that failed its secured load.
+
+After a budget switch, output omits `edgeReads` and `targetLoads` entirely.
+Missing properties do not mean zero work.
+The executor still reports `path`, `reason`, `candidates`, `sourceRecordsRead` and `budgetSwitch`.
+The internal allowance and spent discovery work never appear in either output.
+
+Class statistics used for the allowance can include hidden records.
+The chosen path, reason and switch flag can therefore depend on hidden class populations.
+Output does not expose the allowance or discovery counts frozen at that allowance.
+
+First check the selected path and reason in PROFILE.
+Then inspect the executed subplan and any normal `ORDER BY` sort outside the choice.
+A missing wrapper can mean ineligibility, including a source-index start or source prefetch.
+The wrapper never replaces a source-index path.
+[Chapter 13](13-hash-joins.md#cost-and-bounded-discovery) describes the estimate-based discovery bound.
 
 ---
 
@@ -609,6 +673,9 @@ is defined there, cross-referenced to the chapter where it first appears.
 ---
 
 ## Further reading
+
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/KnownEndpointExistsStep.java:141`
+  — publication rules. Structured and text output start at lines 527 and 536.
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLExplainStatement.java`
   — parses `EXPLAIN` and invokes `createExecutionPlan` on the inner statement.
@@ -640,8 +707,8 @@ is defined there, cross-referenced to the chapter where it first appears.
   cardinality estimation that drive every planning decision visible in EXPLAIN.
 - [Chapter 9 in this book](09-root-selection.md) — root selection algorithm and the
   eligibility rules that determine which aliases can be roots.
-- [Chapter 10 in this book](10-scheduling.md) — edge scheduling and invertibility;
-  when the planner can and cannot reverse an edge.
+- [Chapter 10 in this book](10-scheduling.md) — edge scheduling and invertibility.
+  It explains when the planner can and cannot reverse an edge.
 - [Chapter 13 in this book](13-hash-joins.md) — hash-join eligibility guards and
   the three join modes.
 - [Chapter 13: Hash joins](13-hash-joins.md) — source-level detail on hash-join

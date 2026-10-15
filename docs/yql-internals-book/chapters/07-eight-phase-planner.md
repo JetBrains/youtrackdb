@@ -30,7 +30,7 @@ collection consistency, then discarded. Unnamed pattern nodes receive a syntheti
 they can participate in scheduling and traversal without appearing in the final output.
 The artifact produced is the pattern graph paired with its metadata maps — the structural
 raw material that every subsequent phase reads. Chapter 6 already covered this phase in
-detail; it is included here so the sequence is complete.
+detail. This overview includes it so the sequence is complete.
 
 ## 7.2 Phase 2 — Splitting Disjoint Patterns
 
@@ -40,7 +40,7 @@ friend-of-friend chains, say, joined only by their appearance in the same statem
 graph into its connected components. When more than one component exists, the planner
 wraps each component's independently-planned pipeline in a `CartesianProductStep`, which
 cross-joins their output streams. The artifact is either a single connected `pattern`
-object or a `subPatterns` list; all later phases branch on that distinction. Splitting
+object or a `subPatterns` list. All later phases branch on that distinction. Splitting
 first keeps every downstream decision — root selection, edge scheduling, step generation
 — scoped to a single connected component and free from "which sub-graph am I in?" state.
 
@@ -50,9 +50,9 @@ Before the planner can decide where to start a traversal, it needs a rough count
 each alias: how many records are likely to match? `estimateRootEntries()` answers this by
 inspecting each alias's constraints and returning a `Map<String, Long>` from alias name
 to estimated record count. A pinned `@rid` returns the number of pinned RIDs (`1` for a
-single-RID pin, more for a multi-RID `IN [...]` pin); a class with a WHERE clause
-returns the lesser of the filter's selectivity estimate and the class count; a bare class
-returns `classCount + 1`; an alias with no constraint at all is absent from the map. The
+single-RID pin, more for a multi-RID `IN [...]` pin). A class with a WHERE clause
+returns the lesser of the filter's selectivity estimate and the class count. A bare class
+returns `classCount + 1`. An alias with no constraint at all is absent from the map. The
 planner also inflates cardinalities for aliases in `inferredWhileExprAliases` to
 `Long.MAX_VALUE` immediately after the method returns, preventing a
 low-cardinality inferred class from being promoted to root of a WHILE sub-expression.
@@ -69,7 +69,7 @@ alias whose estimated count is strictly below `THRESHOLD = 100` and whose WHERE 
 does not reference `$matched` or `$parent`. Each `MatchPrefetchStep` executes a SELECT
 sub-plan, collects every matching record into an in-memory list, and stores it in the
 execution context under a well-known key. Downstream `MatchFirstStep`s check for that key
-before running their own sub-plan; if the list is present they iterate it rather than
+before running their own sub-plan. If the list is present they iterate it rather than
 re-scanning storage. The optimization matters because in a nested-loop traversal the inner
 alias is rescanned once per outer row — prefetching converts those repeated O(scan)
 operations into O(1) list reads while keeping the memory cost bounded. The artifact
@@ -171,8 +171,8 @@ flowchart LR
 **Figure 7.1 — The eight planning phases and the artifact each produces.**
 
 Phases 3 and 5 (blue and orange) receive full chapter treatments in Part IV. Phase 8
-(green) is opened further in Chapter 11. Phases 1 and 2 were covered in Chapter 6;
-phases 4, 6, and 7 are self-contained enough that their full mechanics can be found in
+(green) is opened further in Chapter 11. Chapter 6 covers phases 1 and 2.
+Phases 4, 6, and 7 are self-contained enough that their full mechanics can be found in
 Chapters 11 and 13.
 
 ---
@@ -182,7 +182,7 @@ Chapters 11 and 13.
 This section is a short detour from the eight-phase tour, because one question keeps
 returning whenever the planner is discussed: what happens to the plan after it leaves
 the planner? A reader who wants only the phase overview can skip ahead to the "Looking
-ahead" section and return here later; a reader who wants to understand plan lifetime,
+ahead" section and return here later. A reader who wants to understand plan lifetime,
 caching, and sharing across sessions should stay.
 
 Chapter 4 mentioned `YqlStatementCache` as the reason the planner deep-copies its input
@@ -233,8 +233,12 @@ Parameter use does not always bypass the plan cache. MATCH checks cacheability o
 and NOT expressions and RETURN items (`SQLMatchStatement.java:167–186`).
 Parameterized LIMIT or SKIP can reuse a plan. Detached path choice therefore discounts
 only literal slices, never their bound parameter values (`MatchExecutionPlanner.java:1493–1528`).
-Cache hits return a plan copy without repeating path choice
+Cache hits return a plan copy without repeating scheduling or the hash-versus-per-row choice
 (`MatchExecutionPlanner.java:626–630`, `YqlExecutionPlanCache.java:178–184`).
+
+A cached plan for a detached known-endpoint check can choose a different branch at each execution.
+The wrapper chooses before either branch emits a row (`KnownEndpointExistsStep.internalStart()`).
+[Chapter 13](13-hash-joins.md#finding-sources-from-a-known-endpoint) explains its costs and bounded discovery.
 
 ### Concurrent sharing and the copy-on-read contract
 
@@ -252,8 +256,8 @@ On the *read* path, `getInternal()` calls `result.plan().copy(ctx)` on the store
 own `CommandContext`. Concurrent sessions use separate plan copies.
 
 The deep-copy on planner entry (Chapter 4's AST copy) and the copy-on-read here serve
-complementary purposes: the AST copy protects the statement cache from planner mutation;
-the plan copy protects the execution-plan cache from runtime mutation.
+complementary purposes: the AST copy protects the statement cache from planner mutation.
+The plan copy protects the execution-plan cache from runtime mutation.
 
 ### When the plan cache is bypassed
 
@@ -290,7 +294,7 @@ One additional trigger: if `GlobalConfiguration.COMMAND_TIMEOUT` changes at runt
 `getInternal()` detects the change by comparing the stored `lastGlobalTimeout` against the
 current setting and clears the cache before returning
 (`YqlExecutionPlanCache.java:121–126`).
-Cached plans embed a timeout step whose threshold was fixed at planning time; a changed
+Cached plans embed a timeout step whose threshold was fixed at planning time. A changed
 timeout makes every cached plan incorrect.
 
 ### What this means in practice
@@ -345,8 +349,8 @@ the query up and, on a hit, returns a cached view immediately — the eight phas
 chapter, and every step they would have produced, are skipped.
 
 The feature is off by default. It is gated by `QUERY_TX_RESULT_CACHE_ENABLED`
-(`core/.../api/config/GlobalConfiguration.java:961`), a `Boolean` defaulting to `false`;
-while the flag is off, `getQueryResultCache()` returns `null` and `serveThroughCache()`
+(`core/.../api/config/GlobalConfiguration.java:961`), a `Boolean` defaulting to `false`.
+While the flag is off, `getQueryResultCache()` returns `null` and `serveThroughCache()`
 falls straight through to normal execution. Enabled, the cache is bounded by
 `QUERY_TX_RESULT_CACHE_MAX_ENTRIES` (default 200, `GlobalConfiguration.java:971`) and
 evicts least-recently-used entries when full.
@@ -358,8 +362,8 @@ stored rows verbatim would be wrong — so a *delta* mechanism (`DeltaBuilder`, 
 recorded, keeping a hit identical to what a fresh execution would return. To know what
 "the same kind of result" even means, the cache first sorts each query into a *shape* — the
 result category it knows how to store and reconcile, computed by `ShapeClassifier` into a
-`CacheableShape` (`core/.../sql/executor/cache/CacheableShape.java:30`); queries whose shape
-it does not recognise are not cached. And a query that is non-deterministic by design — one
+`CacheableShape` (`core/.../sql/executor/cache/CacheableShape.java:30`). The cache does not
+store queries whose shape it does not recognise. And a query that is non-deterministic by design — one
 calling `sysdate()` or `uuid()`, or referencing a per-row `$` variable — is refused outright
 by `NonDeterministicQueryDetector`
 (`core/.../sql/executor/cache/NonDeterministicQueryDetector.java:51`), since freezing its
@@ -374,7 +378,7 @@ Entries whose shape makes per-mutation reconciliation impractical are retired in
 strike-based scheme, gated by two threshold knobs also collected in Table 17.2.
 
 The contrast is the whole point. The compile-phase caches save the cost of *preparing* to
-run a query and are shared, long-lived, and keyed by SQL text; the query-result cache saves
+run a query and are shared, long-lived, and keyed by SQL text. The query-result cache saves
 the cost of *running* one, is private to a single transaction, and is correct only because
 it actively reconciles against that transaction's own mutations.
 

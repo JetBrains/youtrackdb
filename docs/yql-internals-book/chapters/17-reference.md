@@ -51,6 +51,11 @@ abbreviates
 | `…/internal/core/sql/executor/match/RemoveEmptyOptionalsStep.java` | Post-join cleanup step: removes rows whose OPTIONAL alias resolved to the sentinel | Ch. 11 |
 | `…/internal/core/sql/executor/match/FilterNotMatchPatternStep.java` | Per-row detached NOT filter. (`FilterNotMatchPatternStep.java:70–83`) | Ch. 11, 13 |
 | `…/internal/core/sql/executor/match/FilterExistsMatchPatternStep.java` | Per-row detached exists filter. (`FilterExistsMatchPatternStep.java:38–39`) | Ch. 13, 16 |
+| `…/internal/core/sql/executor/match/KnownEndpointExistsAccess.java` | Built plain-class-scan eligibility and fixed endpoint resolution | Ch. 9, 13 |
+| `…/internal/core/sql/executor/match/KnownEndpointExistsCost.java` | Shared cost units, safety margin, paging demand and discovery budget | Ch. 9, 13 |
+| `…/internal/core/sql/executor/match/KnownEndpointExistsStep.java` | Execution-time detached source or target choice and secured work counters | Ch. 13, 16 |
+| `…/internal/core/sql/executor/match/KnownEndpointExistsWalk.java` | Reverse candidate discovery with middle-vertex and edge-filter checks | Ch. 13 |
+| `…/internal/core/sql/executor/match/KnownEndpointSourceStep.java` | Secured scan-order candidate loading or source-scan read counting | Ch. 13, 16 |
 | `…/internal/core/sql/executor/match/DetachedMatchPatternProbe.java` | Shared copied-row probe with first-match stop and context restoration. (`DetachedMatchPatternProbe.java:20–63`) | Ch. 13 |
 | `…/internal/core/sql/executor/match/MatchEdgeTraverser.java` | Standard forward traverser and base class for all traverser strategies | Ch. 12 |
 | `…/internal/core/sql/executor/match/MatchReverseEdgeTraverser.java` | Reverse-direction traverser; walks an edge against its written direction | Ch. 12 |
@@ -95,8 +100,10 @@ The runtime properties in Table 17.2 live in `GlobalConfiguration.java` and can 
 adjusted without a server restart. Hash settings affect new path choices at planning
 time. Cached plans keep their path (`MatchExecutionPlanner.java:383–404`, `626–630`).
 The `HashJoinMatchStep` build reads the runtime threshold (`HashJoinMatchStep.java:173–186`).
-The two planner constants are `private static final` fields
-of `MatchExecutionPlanner` and are not externally configurable.
+Table 17.3 also lists internal constants for known-endpoint choices.
+These constants are not runtime configuration keys.
+Known-endpoint decisions run on each execution of an eligible plan.
+The test-only forced-path selectors expose no production configuration key.
 
 **Table 17.2 — Runtime configuration properties.**
 
@@ -128,13 +135,21 @@ of `MatchExecutionPlanner` and are not externally configurable.
 |---|---|---|---|---|
 | `THRESHOLD` | `MatchExecutionPlanner.java:336` | `100` | Prefetch cap: aliases whose estimated cardinality falls below this value are materialised by `MatchPrefetchStep` before the main traversal. Also used as the fallback `source_rows` estimate when no cardinality data is available. | Ch. 7, 11 |
 | `INNER_JOIN_MEMORY_WEIGHT` | `MatchExecutionPlanner.java:414` | `7` | Divisor applied to `QUERY_MATCH_HASH_JOIN_THRESHOLD` for the `INNER_JOIN` mode eligibility check. Reflects that an inner-join map stores full `Result` payloads rather than lightweight keys, requiring approximately seven times more memory per entry. | Ch. 13 |
+| `SAFETY_MARGIN` | `KnownEndpointExistsCost.java:11` | `2` | Required strict cost advantage for detached target choice | Ch. 13 |
+| `UNBUDGETED_TARGETS` | `KnownEndpointExistsAccess.java:40` | `8` | Maximum input target collection size without a discovery budget for a single ordinary path item | Ch. 13 |
+
+---
+
+Detached known-endpoint eligibility excludes index and RID-list source starts and source prefetch.
+A plan already using a source index remains unchanged.
+[Chapter 13](13-hash-joins.md#which-checks-qualify) gives the full detached rules.
 
 ---
 
 ## 17.3 End-to-end pipeline
 
 The diagram below traces the full journey from SQL text to result rows.
-Each box names the code entity responsible; the chapter labels show where
+Each box names the code entity responsible. The chapter labels show where
 the book teaches that phase.
 
 **Figure 17.1 — End-to-end MATCH pipeline from SQL text to result rows.**
@@ -178,6 +193,10 @@ flowchart TB
 Planning runs on a cache miss (`MatchExecutionPlanner.java:626–630`). Phase 5 generates
 steps. Phase 6 appends exists then NOT. Phases 7–8 add cleanup and projection
 (`MatchExecutionPlanner.java:760–808`). Execution pulls rows on demand.
+Eligible detached known-endpoint wrappers select a complete branch before that branch starts.
+Target discovery completes before the first source row.
+Normal projection, ordering and paging follow the branch choice.
+Source-index paths remain outside these substitutions.
 `HashJoinMatchStep` builds eagerly before opening the outer stream
 (`HashJoinMatchStep.java:109–143`).
 
@@ -191,7 +210,7 @@ Execution spine without adding a new step type.
 ## 17.4 Glossary
 
 Every term the book formally introduces appears below, in alphabetical
-order. Definitions are self-contained; a reader who has not read the book
+order. Definitions are self-contained. A reader who has not read the book
 can still understand each entry in isolation. Chapter citations point to
 where each term was first taught.
 
@@ -199,7 +218,7 @@ where each term was first taught.
 
 **Alias** — A name the query author assigns to a pattern node via the
 `as:` key inside a node filter block, for example `as: alice`. Every
-result row carries one binding per alias; the binding holds the record
+result row carries one binding per alias. The binding holds the record
 matched at that node. Aliases are the keys in `MatchResultRow` and in all
 join key computations. (Ch. 1, 5)
 
@@ -215,7 +234,7 @@ estimates, no index information, and no sense of which aliases are bound.
 ---
 
 **Back-reference** — The reuse of an alias that was already bound earlier
-in the same pattern. A back-reference is not a filter predicate; it is a
+in the same pattern. A back-reference is not a filter predicate. It is a
 join condition. At runtime the engine verifies that the record produced by
 the current traversal step has the same RID as the record already stored
 under that alias in the current row. The pattern graph encodes
@@ -238,7 +257,7 @@ the `SemiJoinDescriptor` attached to the associated `EdgeTraversal`. (Ch. 10, 13
 condition or are bound to a given alias. The planner uses cardinality
 estimates to rank root alias candidates (small cardinality = cheaper root)
 and to decide whether hash joins or prefetching are worthwhile. Estimates
-are treated as ranking signals, not accurate counts; an incorrect estimate
+are treated as ranking signals, not accurate counts. An incorrect estimate
 produces a suboptimal but still correct plan. (Ch. 1, 8, 9)
 
 ---
@@ -266,8 +285,13 @@ cannot be resolved without first binding its neighbour. (Ch. 9)
 **Cost model** — The set of helper classes (`SelectivityEstimator`,
 `EdgeFanOutEstimator`, and `CostModel`) that produce the numerical inputs
 the topological scheduler uses to rank unscheduled edges. Each estimate is
-a plan-ranking signal, not a guaranteed row count; the engine produces
+a plan-ranking signal, not a guaranteed row count. The engine produces
 correct results regardless of estimation accuracy. (Ch. 8)
+
+---
+
+**Cost unit** — Work assigned to one record read when comparing known-endpoint starts.
+Edge reads and sorting also receive charges in this shared unit. (Ch. 9, 13)
 
 ---
 
@@ -328,8 +352,7 @@ the four `ReturnMatch*` projection variants. (Ch. 3, 11)
 ---
 
 **Fan-out** — The average number of target vertices reachable by following
-a given edge label and direction from a single source vertex. Estimated by
-`EdgeFanOutEstimator` using schema statistics; falls back to
+a given edge label and direction from a single source vertex. `EdgeFanOutEstimator` estimates fan-out using schema statistics. It falls back to
 `QUERY_STATS_DEFAULT_FAN_OUT` (10.0) when statistics are absent. Used by
 the scheduler to weight the cost of adding an edge to the schedule: high
 fan-out means many intermediate rows, which increases the cost of all
@@ -343,6 +366,11 @@ reads a named field of the current record and treats each value it finds as
 the next pattern node. Field traversals are never invertible: the scheduler
 can only walk them in the written direction. The runtime delegate is
 `MatchFieldTraverser`. (Ch. 5, 12)
+
+---
+
+**First-row cost** — Work required before the caller can receive the first result row.
+Detached target choice must win on this cost and on full-result cost. (Ch. 13)
 
 ---
 
@@ -365,8 +393,8 @@ structure in O(1). Total cost is O(build + outer) rather than O(outer ×
 inner). In the MATCH engine, hash joins are used for detached NOT and exists checks
 (`MatchExecutionPlanner.java:1148–1179`), positive-pattern branches, correlated OPTIONAL patterns
 (`CorrelatedOptionalHashJoinStep`), and inverted WHILE recursions
-(`InvertedWhileHashJoinStep`). Memory cost is bounded by the build side;
-the planner enforces this through `QUERY_MATCH_HASH_JOIN_THRESHOLD`. (Ch. 13)
+(`InvertedWhileHashJoinStep`). Memory cost is bounded by the build side.
+The planner enforces this through `QUERY_MATCH_HASH_JOIN_THRESHOLD`. (Ch. 13)
 
 ---
 
@@ -381,7 +409,7 @@ row, implementing a correlated inner join. (Ch. 13)
 
 **Intersection descriptor** — See *Pre-filter* / `RidFilterDescriptor`. The
 EXPLAIN token form is `intersection: <source>` where `<source>` is an index
-name or a class-cluster intersection. Chapter 14 covers attachment;
+name or a class-cluster intersection. Chapter 14 covers attachment.
 Chapter 16 shows the EXPLAIN token.
 
 ---
@@ -412,6 +440,11 @@ matching build-side payloads into the upstream row). (Ch. 13)
 
 ---
 
+**Known-RID start** — A plan start that loads the records named by known record identifiers.
+A positive pattern keeps the known-RID root chosen by the scheduler. (Ch. 9)
+
+---
+
 **`LazyRecursiveTraversalStream`** — A pull-based `ExecutionStream`
 implementation that performs a depth-first, pre-order DFS for WHILE
 (recursive) patterns. Results are yielded on demand rather than materialised
@@ -431,10 +464,15 @@ preserving full row semantics for downstream steps. (Ch. 11)
 
 **Multi-step path item** — A `.(sub1.sub2.…)` group, parsed as
 `SQLMultiMatchPathItem` (or `SQLMultiMatchPathItemArrows` for arrow syntax).
-The sub-items form an internal sub-pipeline; their final output is treated
+The sub-items form an internal sub-pipeline. Their final output is treated
 as the matched node. Multi-step path items are never invertible: the
 scheduler can only walk them in the written direction. The runtime delegate
 is `MatchMultiEdgeTraverser`. (Ch. 5, 12)
+
+---
+
+**Native positive pattern** — A required path in the main MATCH pattern, rather than a detached existence check.
+Native rows retain their matching-edge multiplicity. (Ch. 9)
 
 ---
 
@@ -459,17 +497,27 @@ Each connected component of the pattern graph is planned independently.
 
 ---
 
+**Per-row probe** — A detached check evaluated for one incoming row.
+The probe stops at the first match.
+Every detached check uses this form on the known-endpoint target branch. (Ch. 13)
+
+---
+
+**Plain class scan** — A source start that reads a class and its subclasses without an index or fixed RID list. (Ch. 9, 13)
+
+---
+
 **Pre-filter** — A `RidFilterDescriptor` attached to an `EdgeTraversal`
 by `TraversalPreFilterHelper`. At runtime the traverser checks each
 adjacency-list RID against the descriptor's index-derived set before
 loading the target record, eliminating the record I/O for non-matching
 neighbours. Two admission paths qualify an edge: a reverse-edge
 `EdgeRidLookup`, admitted when the overlap ratio between the collected RID
-set and the link bag stays below `QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO`;
+set and the link bag stays below `QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO`,
 and an `IndexLookup` on a selective indexed predicate, admitted when its
 selectivity stays below `QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY` and
 the build cost amortises against the record loads it saves. Attachment
-appears in EXPLAIN as `intersection: …`; the reason an eligible edge was
+appears in EXPLAIN as `intersection: …`. The reason an eligible edge was
 skipped surfaces only in PROFILE, via `PreFilterSkipReason`. (Ch. 14)
 
 ---
@@ -486,7 +534,7 @@ carry no `$matched` dependency are prefetch-eligible. (Ch. 7, 11)
 **Pull-based execution** — The execution model in which no step produces
 output until the caller requests a row by invoking `next()` on the
 outermost step. Each step calls `next()` on its predecessor only when it
-needs another input row; the chain is driven entirely by downstream demand.
+needs another input row. The chain is driven entirely by downstream demand.
 LIMIT stops further pulls. `HashJoinMatchStep` builds before opening the outer stream.
 LIMIT does not reduce that build's memory or work (`HashJoinMatchStep.java:109–231`,
 `LimitedExecutionStream.java:18–23`). (Ch. 3, 13)
@@ -495,7 +543,7 @@ LIMIT does not reduce that build's memory or work (`HashJoinMatchStep.java:109�
 
 **Reverse traversal** — Walking an edge against its written direction. The
 traverser `MatchReverseEdgeTraverser` implements this. Reverse traversal
-is only legal for invertible edge patterns; WHILE patterns and field
+is only legal for invertible edge patterns. WHILE patterns and field
 traversals are never invertible. The scheduler performs an invertibility
 check (verifying that the edge's path item is not a WHILE or field item
 and that the target alias has no `$matched` dependency) before scheduling
@@ -519,6 +567,16 @@ to the constraint that the chosen alias must be *directly resolvable* —
 i.e., it must have an explicit class or filter that the engine can use to
 open a record scan without first binding a neighbour. Aliases with inferred
 classes are inflated to `Long.MAX_VALUE` to protect this constraint. (Ch. 7, 9)
+
+---
+
+**Safety margin** — The strict cost advantage required before changing a known-endpoint start.
+The selected estimate must be less than half the compared work. (Ch. 9, 13)
+
+---
+
+**Scan order** — Ascending storage collection identifier followed by ascending signed record position.
+Detached target candidates use this order before normal query sorting. (Ch. 13)
 
 ---
 
@@ -549,6 +607,21 @@ edge. (Ch. 10, 13)
 
 ---
 
+**Source-class path** — The retained class-scan branch for a detached known-endpoint check.
+It keeps its normal filters and detached-check plans. (Ch. 13)
+
+---
+
+**Storage form** — The actual representation of a field value in a record.
+Known-endpoint execution checks adjacency values rather than trusting their schema declarations. (Ch. 13)
+
+---
+
+**Target path** — A detached-check branch that discovers source candidates from known targets.
+Its candidate superset still needs every forward check. (Ch. 13)
+
+---
+
 **Traverser** — A strategy object that `MatchStep` delegates actual edge
 walking to. The traverser implements `ExecutionStream` and yields one
 result row per matching neighbour. The six strategies are
@@ -560,9 +633,15 @@ result row per matching neighbour. The six strategies are
 
 ---
 
+**Work budget** — The source-path estimate used to limit multi-item or long-target-list detached discovery work.
+Exhaustion switches to the retained branch before any row appears.
+It is not an unconditional bound on actual source work. (Ch. 13, 16)
+
+---
+
 **`$matched` / `$currentMatch` / `$current`** — Context variables set and
 read during traversal. `$matched` exposes the current row's alias bindings
-to WHERE clauses and sub-pattern filters; it is set by `MatchFirstStep` at
+to WHERE clauses and sub-pattern filters. It is set by `MatchFirstStep` at
 the start of each row and refreshed by each `MatchStep` as new bindings are
 added. `$currentMatch` and `$current` are transient bindings that the
 traverser flips during neighbour evaluation to make the candidate record
@@ -575,7 +654,7 @@ available to inline WHERE predicates without committing it to the row. (Ch. 11, 
 Five ideas carry the weight of this book.
 
 The first is **pull-based streaming**. YouTrackDB does not compute a query
-answer and then deliver it; it wires together a chain of lazy iterators and
+answer and then deliver it. It wires together a chain of lazy iterators and
 lets the caller drive the pipeline one row at a time. This model — described
 in Chapter 3 with a plain SELECT and then relied upon across every execution
 chapter — lets LIMIT stop further outer pulls. `HashJoinMatchStep` still builds its hash
@@ -601,8 +680,9 @@ The hash-join variants (Chapter 13) replace the inner re-execution with a
 O(1) hash probe when the build side is small enough to hold in memory. The
 index pre-filter (Chapter 14) replaces full adjacency-list scans with
 index-derived RID-set membership checks when the target alias has a
-selective indexed predicate. Both optimisations leave the surrounding
-pipeline unchanged; they are local substitutions, not architectural rewrites.
+selective indexed predicate. Both optimisations leave the surrounding pipeline unchanged.
+Known-endpoint choices also retain the steps after their source substitution.
+They add execution-time branch decisions, not a different query language.
 
 The fourth is **the pattern graph as the shared language**. The parser
 produces a flat list of expressions. Every subsequent phase — cardinality

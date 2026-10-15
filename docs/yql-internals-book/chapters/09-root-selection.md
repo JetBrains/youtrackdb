@@ -54,7 +54,7 @@ it applies four rules in priority order:
 
 **Rule 1: pinned RID, estimate = number of pinned RIDs.** When an alias carries a literal
 `@rid` constraint, the engine looks those records up directly at execution time. There is no
-scanning involved; each pinned RID either resolves to a record or it does not. The RIDs a
+scanning involved. Each pinned RID either resolves to a record or it does not. The RIDs a
 query pins for an alias are held in a list, so the estimate is that list's size — exactly 1
 for a single-RID equality such as `me = #12:0`, and a small handful for a multi-RID pin such
 as `me IN [#12:0, #12:1]`. Because that count is tiny — the list holds only the RIDs the query
@@ -387,11 +387,25 @@ and non-invertible edges combine in the same pattern.
 
 ---
 
+## 9.9 Known endpoints and detached checks
+
+A *known-RID start* loads a target by its record identifier (RID), then walks toward sources.
+A positive pattern requires a path directly in the main MATCH pattern.
+When the scheduler chooses a known-RID root for that pattern, execution keeps that start.
+Parallel matching edges retain their separate result rows.
+
+A detached existence check tests a path separately from the main pattern.
+Its target alternative replaces an eligible source-class scan with candidate discovery from known targets.
+The executor then runs the normal forward checks on those candidates.
+[Chapter 13](13-hash-joins.md#finding-sources-from-a-known-endpoint) covers eligibility, costs and bounded discovery.
+[Chapter 16](16-reading-explain.md#169-observing-known-endpoint-choices) explains the two-branch plan output.
+
+---
+
 ## Looking ahead
 
-Root selection closes once the planner has committed to a starting alias. But committing to a
-root only names the first node; it does not order the remaining edges, and it does not say
-which end of each edge to start from. Those questions belong to phase 5. The root choice
+The initial root names the first node in the scheduled pattern.
+It does not order the remaining edges or choose each edge's traversal direction. Those questions belong to phase 5. The root choice
 matters there too: whichever alias the planner just pinned is the only "already known" node at
 the start of the depth-first search, and that determines which direction each adjacent edge
 can legally be walked. Chapter 10 opens phase 5 and traces that reasoning step by step —
@@ -403,9 +417,9 @@ assembler consumes.
 *Further reading*
 
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/MatchExecutionPlanner.java`
-  — `estimateRootEntries()` (line 5192); inflation loop (lines 511–515);
-  `getTopologicalSortedSchedule()` (line 1976); zero-cardinality short-circuit (lines 527–531);
-  `inferClassFromEdgeSchema()` (line 4974); `collectAliasesFromWhilePatterns()` (line 4854).
+  — `estimateRootEntries()` (line 5192), inflation loop (lines 511–515),
+  `getTopologicalSortedSchedule()` (line 1976), zero-cardinality short-circuit (lines 527–531),
+  `inferClassFromEdgeSchema()` (line 4974) and `collectAliasesFromWhilePatterns()` (line 4854).
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLWhereClause.java`
   — `estimate()` (line 86): the three-tier index-aware estimator.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchPathItem.java`

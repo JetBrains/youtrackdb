@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -80,7 +82,42 @@ public class MatchReverseEdgeTraverser extends MatchEdgeTraverser {
 
     qR = applyPreFilter(qR, iCommandContext);
 
-    return toExecutionStream(qR, iCommandContext.getDatabaseSession());
+    var stream = toExecutionStream(qR, iCommandContext.getDatabaseSession());
+    String method = item.getMethod().getMethodNameString();
+    if (("outE".equalsIgnoreCase(method) || "inE".equalsIgnoreCase(method)
+        || "bothE".equalsIgnoreCase(method)) && !item.getMethod().getParams().isEmpty()) {
+      // Reversing inV/outV discovers edges without the preceding outE/inE label. The reverse
+      // endpoint method ignores labels, so enforce that constraint on the starting edge here.
+      // Evaluate labels on each original source, just as the forward edge method does.
+      return stream.filter((source, ctx) -> matchesEdgeLabel(startingPoint, source, ctx)
+          ? source : null);
+    }
+    return stream;
+  }
+
+  private boolean matchesEdgeLabel(Result startingEdge, Result source, CommandContext ctx) {
+    var previous = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
+    try {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, source);
+      // Resolve every parameter before testing any label. Forward navigation also evaluates
+      // later parameters when the first label matches or is null.
+      var values = item.getMethod().getParams().stream()
+          .map(expression -> expression.execute(source, ctx)).toArray();
+      if (values[0] == null) {
+        return true;
+      }
+      var labels = MultiValue.array(values, String.class, IOUtils::getStringContent);
+      var schema = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+      for (var label : labels) {
+        var clazz = schema.getClass(label);
+        if (clazz != null && matchesClass(ctx, clazz.getName(), startingEdge)) {
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, previous);
+    }
   }
 
   @Override

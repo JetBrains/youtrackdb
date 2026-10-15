@@ -29,7 +29,7 @@ Alices.
 
 If there are 5 people named Alice and 80,000 people living in Berlin, starting from
 `me` is obviously better — it generates a tiny initial set and a small number of
-traversals. But the planner does not know those numbers; it has never read a single
+traversals. But the planner does not know those numbers. It has never read a single
 record. It needs to *estimate* them from schema statistics, and it needs to do so at
 plan time, before execution begins.
 
@@ -69,7 +69,7 @@ The `+ 1` in the unfiltered case is a deliberate bias
 (`MatchExecutionPlanner.java:5236`). When two aliases have the same class size, the
 `+ 1` ensures the filtered alias always wins as root, even if the filter estimate
 happens to equal the class count. Filtering at the root avoids materialising records
-that the filter would immediately discard inside the nested loop; the planner encodes
+that the filter would immediately discard inside the nested loop. The planner encodes
 that preference directly into the cardinality arithmetic.
 
 An alias that has no class declaration and no RID is omitted from the map entirely —
@@ -88,16 +88,16 @@ The lower the selectivity, the more tightly the predicate filters.
 
 Selectivity is what `SelectivityEstimator` computes
 (`core/.../core/index/engine/SelectivityEstimator.java`). The class is shared between
-the `SELECT` and `MATCH` planners; the MATCH planner reaches it through the
+the `SELECT` and `MATCH` planners. The MATCH planner reaches it through the
 package-private static helper `estimateFilterSelectivity()` (`MatchExecutionPlanner.java:2795`),
 which walks the WHERE AST and assembles per-condition selectivity into a compound selectivity for
 the whole filter. (A separate `private` overload at line 2430 handles simpler single-predicate
-delegation; the AND/OR composition logic described here lives in the line-2795 overload.)
+delegation. The AND/OR composition logic described here lives in the line-2795 overload.)
 
 `SelectivityEstimator` works in three tiers, resolved in priority order. Each public
 estimation method — `estimateEquality`, `estimateGreaterThan`, `estimateLessThan`, and
 the rest — opens with the same three-way conditional before doing any predicate-specific
-arithmetic. The rules below capture that shared structure; the table that follows maps
+arithmetic. The rules below capture that shared structure. The table that follows maps
 each tier to its precise conditions and return value.
 
 **Rule 1 (Empty).** If the index holds no records at all (`stats.totalCount() == 0`),
@@ -114,8 +114,8 @@ returns one-third — the same default PostgreSQL uses for the same situation.
 **Rule 3 (Histogram).** When an `EquiDepthHistogram` is available (`histogram != null`),
 use bucket-level interpolation with three fast-path shortcuts: an out-of-range key
 returns `1 / nonNullCount` (near-zero rather than exactly zero, to prevent
-division-by-zero in cost formulas); a key that matches the most common value returns
-its exact frequency fraction; a bucket containing only one distinct value uses discrete
+division-by-zero in cost formulas). A key that matches the most common value returns
+its exact frequency fraction. A bucket containing only one distinct value uses discrete
 logic instead of continuous interpolation.
 
 In all cases the result is clamped to `[0.0, 1.0]` before returning
@@ -132,7 +132,7 @@ results from incremental statistics drift.
 
 Compound filters are assembled by `estimateFilterSelectivity()` using two composition
 rules: AND predicates multiply their individual selectivities
-(`sel(A AND B) = sel(A) × sel(B)`); OR predicates use inclusion-exclusion
+(`sel(A AND B) = sel(A) × sel(B)`). OR predicates use inclusion-exclusion
 (`sel(A OR B) = 1 − (1 − sel(A)) × (1 − sel(B))`). Both rules assume the predicates
 are statistically independent — they are not always, but the approximation keeps the
 formula O(number of predicates) and avoids the need for joint histograms.
@@ -151,7 +151,7 @@ assumptions does that arithmetic make?
 
 An equi-depth histogram is built so that each bucket holds approximately the same
 *count* of records, not the same *range* of values. A bucket whose values are densely
-packed will span a narrow value range; a sparse bucket will span a wide one. The
+packed will span a narrow value range. A sparse bucket will span a wide one. The
 boundary array stores `bucketCount + 1` sorted values (`EquiDepthHistogram.java:49–53`):
 `boundaries[0]` is the minimum key, `boundaries[bucketCount]` is the maximum, and
 each `boundaries[i]` / `boundaries[i+1]` pair encloses bucket `i`. Alongside the
@@ -228,7 +228,7 @@ of the `FractionMode` enum. The worked example below uses multi-value buckets, s
 `continuousFraction` always runs there.
 
 For equality predicates (`col = x`), `estimateEquality` consults the most-common-values
-list first and falls back to bucket lookup only when the value is outside that list; see
+list first and falls back to bucket lookup only when the value is outside that list. See
 `SelectivityEstimator.estimateEquality` and its private helper `estimateEqualityHistogram`.
 
 ### A word on the approximation
@@ -354,16 +354,20 @@ refuses to work until statistics are available would be useless on a new install
 or during a bulk data load before statistics have been gathered. The constants are
 calibrated to be *conservative rather than optimistic*: the default fan-out of 10.0
 makes unknown edges look moderately expensive, which biases the scheduler away from
-them rather than toward them; the default selectivity of 0.1 (10%) means an
+them rather than toward them. The default selectivity of 0.1 (10%) means an
 unindexed predicate is treated as moderately selective, which is a reasonable middle
-ground for most real-world distributions. Neither value is claimed to be accurate; they
-are designed to produce a reasonable plan in the absence of evidence.
+ground for most real-world distributions. Neither value is claimed to be accurate. These
+values produce a reasonable plan in the absence of evidence.
 
 All fan-out and selectivity configuration values are read from `GlobalConfiguration`
 at each call, not cached at startup
 (`EdgeFanOutEstimator.java:43`, `SelectivityEstimator.java:89`). A database
 administrator can adjust them at runtime. New planning uses the current values.
-A cached plan keeps its chosen path (`MatchExecutionPlanner.java:626–630`).
+A cached plan keeps its scheduling and hash-versus-per-row choices
+(`MatchExecutionPlanner.java:626–630`). Detached known-endpoint wrappers are an exception.
+They choose between their retained branches at each execution.
+[Chapter 9 §9.9](09-root-selection.md#99-known-endpoints-and-detached-checks)
+distinguishes those checks from positive patterns with known-RID roots.
 
 ---
 
@@ -380,15 +384,18 @@ ordering signals.
 
 What guarantees this is safe is that the estimates are *non-adversarial*: a wrong
 estimate can produce a suboptimal plan, but never an incorrect result. The execution
-engine does not consult the estimate during traversal; it reads whatever the traversers
+engine does not consult the estimate during traversal. It reads whatever the traversers
 actually find. If the planner guesses that 5 records match `name = 'Alice'` and there
 are actually 50, the execution engine will produce all 50 results — it just does so
 in an order the planner did not anticipate as most efficient. The cost of a bad
 estimate is a slower query, not a wrong answer.
 
-This is a deliberate design choice. Because estimates do not gate row production, the
-planner can skip runtime re-planning entirely. There is no adaptive execution loop,
-no plan switching mid-query. The plan chosen at plan time runs to completion.
+Scheduling and hash-versus-per-row choices remain fixed at planning time.
+Detached known-endpoint wrappers choose their branch before either branch emits a row.
+A wrapper can abandon bounded discovery and use its retained source scan
+(`KnownEndpointExistsStep.java:203–220`). The retained forward checks still decide which rows
+pass. [Chapter 13](13-hash-joins.md#cost-and-bounded-discovery) explains this execution-time
+choice and its work budget.
 
 ---
 
@@ -414,8 +421,8 @@ edgeTraversalCost = sourceRows × avgFanOut × randomPageReadCost
 The `QUERY_STATS_COST_RANDOM_PAGE_READ` configuration constant (accessed via the
 `CostModel.randomPageReadCost()` accessor) defaults to 4.0 (`GlobalConfiguration.java:1322`).
 It reflects a physical reality: neighbouring vertices in a graph are rarely stored on
-the same page; each hop typically requires a random I/O rather than a sequential one.
-A sequential read costs 1.0 in the model; a random read costs 4.0. The planner uses
+the same page. Each hop typically requires a random I/O rather than a sequential one.
+A sequential read costs 1.0 in the model. A random read costs 4.0. The planner uses
 this ratio to express that edge traversals are more expensive per row than full table
 scans.
 
@@ -427,7 +434,7 @@ selective target means fewer rows to process after the hop, so the cost is disco
 recursive edges with a `while:` clause: when no explicit `maxdepth:` is set the
 multiplier is 10 (the `DEFAULT_WHILE_DEPTH` constant, line 3074), ensuring the
 planner never treats a potentially unbounded traversal as cheap. Those adjustments
-belong to the scheduling phase; Chapter 10 works through them in detail.
+belong to the scheduling phase. Chapter 10 works through them in detail.
 
 A detached check starts at an *origin alias* in the positive pattern.
 Detached NOT and exists compare *candidate work*, the number of candidates visited
