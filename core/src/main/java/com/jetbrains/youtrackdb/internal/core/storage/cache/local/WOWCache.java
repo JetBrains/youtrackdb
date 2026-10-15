@@ -1086,7 +1086,7 @@ public final class WOWCache extends AbstractWriteCache
 
       if (nonDurable && !nonDurableFileIds.contains(intId)) {
         // Reject capacity failures before physical work or the rollback path can touch either copy.
-        nonDurableRegistrySize(nonDurableFileIds.size() + 1);
+        checkNonDurableRegistrySize(nonDurableRegistrySize(nonDurableFileIds.size() + 1));
       }
 
       fileId = composeFileId(id, intId);
@@ -3054,11 +3054,9 @@ public final class WOWCache extends AbstractWriteCache
     writeNonDurableRegistryCopy(shadowFirst ? primaryPath : shadowPath, buffer);
   }
 
-  private static int nonDurableRegistrySize(int count) throws IOException {
+  private static long nonDurableRegistrySize(int count) {
     // Use long arithmetic so an oversized set cannot wrap into an accepted allocation size.
-    final var size = 4L + 8 + 4 + (long) count * Integer.BYTES;
-    checkNonDurableRegistrySize(size);
-    return (int) size;
+    return 4L + 8 + 4 + (long) count * Integer.BYTES;
   }
 
   private static void checkNonDurableRegistrySize(long size) throws IOException {
@@ -3071,7 +3069,9 @@ public final class WOWCache extends AbstractWriteCache
   private static ByteBuffer serializeNonDurableRegistry(IntOpenHashSet currentSet)
       throws IOException {
     final var count = currentSet.size();
-    final var buffer = ByteBuffer.allocate(nonDurableRegistrySize(count));
+    final var size = nonDurableRegistrySize(count);
+    checkNonDurableRegistrySize(size);
+    final var buffer = ByteBuffer.allocate((int) size);
     buffer.order(ByteOrder.BIG_ENDIAN);
 
     // Write version first
