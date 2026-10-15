@@ -1037,11 +1037,13 @@ public abstract class AbstractStorage
         }
 
       } catch (final Throwable e) {
+        var cacheClosed = true;
         try {
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
           }
         } catch (final Throwable ee) {
+          cacheClosed = false;
           suppressOpenFailure(e, ee);
         }
 
@@ -1053,10 +1055,14 @@ public abstract class AbstractStorage
           suppressOpenFailure(e, ee);
         }
 
-        try {
-          postCloseSteps(false, true, idGen.getLastId());
-        } catch (final Throwable ee) {
-          suppressOpenFailure(e, ee);
+        // Another process may open once the metadata lock is released. Release it only after
+        // the cache writers have stopped and their files have closed.
+        if (cacheClosed) {
+          try {
+            postCloseSteps(false, true, idGen.getLastId());
+          } catch (final Throwable ee) {
+            suppressOpenFailure(e, ee);
+          }
         }
 
         status = STATUS.CLOSED;
@@ -1098,6 +1104,10 @@ public abstract class AbstractStorage
         .info(this, "Storage '%s' is opened under YouTrackDB distribution : %s", additionalArgs);
   }
 
+  /**
+   * Attaches secondary failures on a best-effort basis because suppression can be disabled.
+   * Primary failure identity is the guarantee, even when attachment fails.
+   */
   private static void suppressOpenFailure(Throwable primary, Throwable secondary) {
     if (primary != secondary) {
       try {
