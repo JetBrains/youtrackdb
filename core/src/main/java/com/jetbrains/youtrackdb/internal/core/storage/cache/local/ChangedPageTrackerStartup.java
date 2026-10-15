@@ -225,7 +225,8 @@ public final class ChangedPageTrackerStartup {
 
   /**
    * Attempts trust revocation and always propagates the original reader failure, even if distrust
-   * or diagnostics fail. The caller must abort this startup attempt.
+   * or diagnostics fail. Attaching secondary failures is best effort because suppression can be
+   * disabled. Primary failure identity is guaranteed. The caller must abort this startup attempt.
    */
   static <T extends Throwable> void readerFailed(PendingHistory pending, T failure) throws T {
     try {
@@ -240,7 +241,17 @@ public final class ChangedPageTrackerStartup {
           }
         }
       }
-      warn(Outcome.READER_FAILURE, null, failure);
+      try {
+        warn(Outcome.READER_FAILURE, null, failure);
+      } catch (Throwable secondary) {
+        if (secondary != failure) {
+          try {
+            failure.addSuppressed(secondary);
+          } catch (Throwable ignored) {
+            // Suppression is best effort and must not replace the reader failure.
+          }
+        }
+      }
     } finally {
       // Logging can allocate. Even a logging failure must not replace the original reader failure.
       throw failure;

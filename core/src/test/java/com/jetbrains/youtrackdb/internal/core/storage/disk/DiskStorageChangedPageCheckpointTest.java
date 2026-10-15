@@ -52,15 +52,20 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Stora
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.Future;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -221,7 +226,7 @@ public class DiskStorageChangedPageCheckpointTest {
     }
   }
 
-  /** A read-cache close Error cannot replace the open Error or prevent WAL and metadata close. */
+  /** A failed cache close keeps the metadata lock and primary Error, but still closes the WAL. */
   @Test
   public void openErrorSurvivesReadCacheCloseErrorAndRunsLaterCleanup() throws Exception {
     assertOpenFailure(new Error("open failure"), 0, new Error("read-cache close failure"), null);
@@ -243,6 +248,12 @@ public class DiskStorageChangedPageCheckpointTest {
   @Test
   public void openErrorSurvivesDiagnosticError() throws Exception {
     assertOpenFailure(new Error("open failure"), -1, null, new Error("diagnostic failure"));
+  }
+
+  /** An Error after MIGRATION must reset storage to CLOSED and retain the original failure. */
+  @Test
+  public void openErrorDuringMigrationResetsStatusToClosed() throws Exception {
+    assertOpenFailure(new Error("migration failure"), -1, null, null, true);
   }
 
   /** Runtime open failures retain their identity when diagnostic reporting throws an Error. */
@@ -267,29 +278,37 @@ public class DiskStorageChangedPageCheckpointTest {
 
   private void assertOpenFailure(Throwable primary, int failedStep, Error cleanupFailure,
       Error diagnosticFailure) throws Exception {
+    assertOpenFailure(primary, failedStep, cleanupFailure, diagnosticFailure, false);
+  }
+
+  private void assertOpenFailure(Throwable primary, int failedStep, Error cleanupFailure,
+      Error diagnosticFailure, boolean failDuringMigration) throws Exception {
     var created = createObservedStorage();
     created.close(null, true);
     var steps = new ArrayList<String>();
     var closed = new boolean[3];
+    var actualReadCache = created.getReadCache();
+    var actualWal = new WriteAheadLog[1];
+    var reachedMigration = new boolean[1];
     // Capture the actual new resources at the existing metadata seam, after real WAL/cache init.
     doAnswer(call -> {
-      call.callRealMethod();
-      var actualReadCache = created.getReadCache();
-      var actualWal = created.getWALInstance();
+      var metadata = call.callRealMethod();
+      actualWal[0] = created.getWALInstance();
       var observedReadCache = mock(ReadCache.class, delegatesTo(actualReadCache));
       doAnswer(close -> {
         steps.add("read-cache");
-        actualReadCache.closeStorage(created.getWriteCache());
-        closed[0] = true;
         if (failedStep == 0) {
+          // Leave the real writers alive to prove that releasing the metadata lock is unsafe.
           throw cleanupFailure;
         }
+        actualReadCache.closeStorage(created.getWriteCache());
+        closed[0] = true;
         return null;
       }).when(observedReadCache).closeStorage(any());
-      var observedWal = mock(WriteAheadLog.class, delegatesTo(actualWal));
+      var observedWal = mock(WriteAheadLog.class, delegatesTo(actualWal[0]));
       doAnswer(close -> {
         steps.add("WAL");
-        actualWal.close();
+        actualWal[0].close();
         closed[1] = true;
         if (failedStep == 1) {
           throw cleanupFailure;
@@ -298,7 +317,10 @@ public class DiskStorageChangedPageCheckpointTest {
       }).when(observedWal).close();
       setField(created, "readCache", observedReadCache);
       setField(created, "writeAheadLog", observedWal);
-      throw primary;
+      if (!failDuringMigration) {
+        throw primary;
+      }
+      return metadata;
     }).when(created).checkIfStorageDirty();
     doAnswer(call -> {
       steps.add("metadata");
@@ -320,7 +342,14 @@ public class DiskStorageChangedPageCheckpointTest {
       }
       return delegatesTo(actualLogger).answer(call);
     });
-    try (var logging = mockStatic(LogManager.class)) {
+    try (var components = mockStatic(LinkCollectionsBTreeManagerShared.class, call -> {
+      if (failDuringMigration && call.getMethod().getName().equals("isComponentPresent")
+          && created.getStatus() == AbstractStorage.STATUS.MIGRATION) {
+        reachedMigration[0] = true;
+        throw primary;
+      }
+      return call.callRealMethod();
+    }); var logging = mockStatic(LogManager.class)) {
       logging.when(LogManager::instance).thenReturn(observedLogger);
       var thrown = assertThrows(Throwable.class,
           () -> created.open(new ContextConfiguration()));
@@ -336,18 +365,44 @@ public class DiskStorageChangedPageCheckpointTest {
         suppressed.add(diagnosticFailure);
       }
       assertEquals(suppressed, Arrays.asList(primary.getSuppressed()));
-      assertEquals(List.of("read-cache", "WAL", "metadata", "diagnostics"), steps);
+      assertEquals(failDuringMigration, reachedMigration[0]);
       assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      if (failedStep == 0) {
+        var directory = (Path) field(DiskStorage.class, created, "storagePath");
+        try (var channel = FileChannel.open(directory.resolve("dirty.fl"),
+            StandardOpenOption.WRITE)) {
+          assertThrows(OverlappingFileLockException.class, channel::tryLock);
+        }
+        assertEquals(List.of("read-cache", "WAL", "diagnostics"), steps);
+      } else {
+        assertEquals(List.of("read-cache", "WAL", "metadata", "diagnostics"), steps);
+      }
     } finally {
-      // Red controls can stop cleanup early. Release their real resources without retrying open.
-      if (!closed[0]) {
-        created.getReadCache().closeStorage(created.getWriteCache());
+      // Prevent manager teardown from repeating this fixture's explicit resource cleanup.
+      setField(created, "status", AbstractStorage.STATUS.CLOSED);
+      // CLOSED shutdown skips periodic-task cancellation. Do not retain this failed storage.
+      for (var name : List.of("fuzzyCheckpointTask", "recordsGcTask")) {
+        var task = (Future<?>) field(DiskStorage.class, created, name);
+        if (task != null) {
+          task.cancel(false);
+          assertTrue(task.isCancelled());
+        }
       }
-      if (!closed[1]) {
-        created.getWALInstance().close();
-      }
-      if (!closed[2]) {
-        ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      // Bypass fault-injecting wrappers and always release real resources, including in red runs.
+      try {
+        if (!closed[0]) {
+          actualReadCache.closeStorage(created.getWriteCache());
+        }
+      } finally {
+        try {
+          if (!closed[1] && actualWal[0] != null) {
+            actualWal[0].close();
+          }
+        } finally {
+          if (!closed[2]) {
+            ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+          }
+        }
       }
     }
   }

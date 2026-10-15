@@ -815,11 +815,43 @@ public class ChangedPageTrackerStartupTest {
   public void loggingFailureCannotReplaceTheReaderFailure() throws Exception {
     var pending = savedHistory(true);
     var failure = new OutOfMemoryError("reader failure");
+    var diagnostic = new OutOfMemoryError("logging failure");
     try (var logger = mockStatic(LogManager.class)) {
-      logger.when(LogManager::instance).thenThrow(new OutOfMemoryError("logging failure"));
+      logger.when(LogManager::instance).thenThrow(diagnostic);
       assertSame(failure, assertThrows(OutOfMemoryError.class,
           () -> ChangedPageTrackerStartup.readerFailed(pending, failure)));
     }
+    assertEquals(List.of(diagnostic), Arrays.asList(failure.getSuppressed()));
+    assertDistrusted(pending);
+  }
+
+  // Distrust and logging failures are retained in order without replacing the reader Error.
+  @Test
+  public void readerFailureSuppressesDistrustAndLoggingFailuresInOrder() throws Exception {
+    var pending = spy(savedHistory(true));
+    var failure = new Error("reader failure");
+    var distrust = new Error("distrust failure");
+    var diagnostic = new Error("logging failure");
+    doThrow(distrust).when(pending).distrust();
+    try (var logger = mockStatic(LogManager.class)) {
+      logger.when(LogManager::instance).thenThrow(diagnostic);
+      assertSame(failure, assertThrows(Error.class,
+          () -> ChangedPageTrackerStartup.readerFailed(pending, failure)));
+    }
+    assertEquals(List.of(distrust, diagnostic), Arrays.asList(failure.getSuppressed()));
+  }
+
+  // A logging failure that reuses the reader Error must not trigger self-suppression.
+  @Test
+  public void readerFailureSurvivesSameFailureFromLogging() throws Exception {
+    var pending = savedHistory(true);
+    var failure = new Error("shared failure");
+    try (var logger = mockStatic(LogManager.class)) {
+      logger.when(LogManager::instance).thenThrow(failure);
+      assertSame(failure, assertThrows(Error.class,
+          () -> ChangedPageTrackerStartup.readerFailed(pending, failure)));
+    }
+    assertEquals(List.of(), Arrays.asList(failure.getSuppressed()));
     assertDistrusted(pending);
   }
 
