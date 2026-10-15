@@ -1063,6 +1063,13 @@ public abstract class AbstractStorage
 
       } catch (final Throwable e) {
         try {
+          // Open can fail after maintenance tasks start but before the storage becomes OPEN.
+          preCloseSteps();
+        } catch (final Exception ee) {
+          e.addSuppressed(ee);
+        }
+
+        try {
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
           }
