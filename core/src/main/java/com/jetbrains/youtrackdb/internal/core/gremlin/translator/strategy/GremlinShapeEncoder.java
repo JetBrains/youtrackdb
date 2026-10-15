@@ -86,7 +86,7 @@ final class GremlinShapeEncoder {
 
   /** The marker separates runtime and literal shapes without retaining the RID value. */
   void appendRuntimeRidStart() {
-    appendToken("runtime-rid-start");
+    appendToken("rrs");
     bindParam(runtimeRidStart.rid());
   }
 
