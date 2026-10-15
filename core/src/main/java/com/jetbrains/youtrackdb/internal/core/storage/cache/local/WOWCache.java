@@ -3049,11 +3049,16 @@ public final class WOWCache extends AbstractWriteCache
     final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
     final var primaryValid = readNonDurableRegistryFile(primaryPath) != null;
     final var shadowValid = readNonDurableRegistryFile(shadowPath) != null;
-    final var shadowFirst = primaryValid && !shadowValid;
+    // Write the backup copy first only if the main copy is valid and the backup copy is damaged.
+    // A crash between writes leaves the valid main copy with the old set.
+    // At the next open, the reader uses it and copies it into the backup copy.
+    // Otherwise write the main copy first. A valid backup copy keeps the old set
+    // until the main copy write ends.
+    final var writeBackupFirst = primaryValid && !shadowValid;
     final var buffer = serializeNonDurableRegistry(nonDurableFileIds);
-    writeNonDurableRegistryCopy(shadowFirst ? shadowPath : primaryPath, buffer);
+    writeNonDurableRegistryCopy(writeBackupFirst ? shadowPath : primaryPath, buffer);
     buffer.rewind();
-    writeNonDurableRegistryCopy(shadowFirst ? primaryPath : shadowPath, buffer);
+    writeNonDurableRegistryCopy(writeBackupFirst ? primaryPath : shadowPath, buffer);
   }
 
   private static long nonDurableRegistrySize(int count) {
