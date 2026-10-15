@@ -347,6 +347,11 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     return returnClass;
   }
 
+  /** The selected direct-count contract, or null when the general projection route is used. */
+  public PropertyGroupCount getPropertyGroupCount() {
+    return shaping.propertyGroupCount();
+  }
+
   /** Whether GROUP BY rows drain into one map payload ({@code group} / {@code groupCount}). */
   protected boolean accumulatesGroupMap() {
     return shaping.accumulateMap();
@@ -536,17 +541,20 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   }
 
   /**
-   * The group-barrier source: drains every GROUP BY row into one {@link LinkedHashMap} and yields it
-   * as a single payload — native {@code group} / {@code groupCount} are barrier steps, so the whole
-   * stream must be consumed before the one map emits. Eager by nature; called inside {@link
-   * #processNextStart()}'s try so a drain failure releases the plan.
+   * The group-barrier source: drains grouped projection rows or directly counts matched properties
+   * into one {@link LinkedHashMap}. Native {@code group} / {@code groupCount} are barrier steps, so
+   * the whole stream must be consumed before the one map emits. Eager by nature, called inside
+   * {@link #processNextStart()}'s try so a drain failure releases the plan.
    */
   private Iterator<Object> accumulatedGroupMapSource() {
     if (shaping.emptyBarrier()) {
       return Collections.emptyIterator();
     }
     var ctx = planContext();
-    return List.<Object>of(drainGroupRowsToMap(ctx, openStream)).iterator();
+    var counting = shaping.propertyGroupCount();
+    var map = counting == null ? drainGroupRowsToMap(ctx, openStream)
+        : counting.drain(ctx, openStream, armingGraph);
+    return List.<Object>of(map).iterator();
   }
 
   /**
@@ -778,6 +786,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   @Override
   public void reset() {
     super.reset();
+    // The emitted map belongs to the consumer. A shallow clone may share this iterator.
+    shapedPayloads = null;
     entityColumnResolutions = 0;
     if (state == State.OPEN || state == State.DRAINED) {
       state = State.REARMED;

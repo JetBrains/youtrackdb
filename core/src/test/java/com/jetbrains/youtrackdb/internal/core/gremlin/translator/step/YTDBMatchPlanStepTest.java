@@ -2806,6 +2806,112 @@ public class YTDBMatchPlanStepTest {
     };
   }
 
+  /** Reset alone drops the direct-count iterator without clearing the consumer's emitted map. */
+  @Test
+  public void directCountResetDropsIteratorWithoutMutatingConsumerMap() throws Exception {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getEntity("v")).thenReturn(entity);
+    when(entity.getPropertyAndType("p")).thenReturn(
+        new EntityImpl.ValueAndType<>("same", null));
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE
+        .withAccumulateMap(true).withPropertyGroupCount(new PropertyGroupCount("v", "p", false)));
+    var map = (Map<Object, Object>) step.processNextStart().get();
+    assertThat(map).containsExactlyInAnyOrderEntriesOf(Map.of("same", 1L));
+    map.put("consumer", 9L);
+    var iteratorField = AbstractMatchPlanStep.class.getDeclaredField("shapedPayloads");
+    iteratorField.setAccessible(true);
+    assertThat(iteratorField.get(step)).as("iterator is retained after emitting the map")
+        .isNotNull();
+
+    step.reset();
+
+    // Observe reset before close or reopen can independently release the iterator.
+    assertThat(iteratorField.get(step)).as("reset alone releases the iterator").isNull();
+    assertThat(map).containsExactlyInAnyOrderEntriesOf(Map.of("same", 1L, "consumer", 9L));
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+    verify(stream, never()).close(any());
+    verify(plan, never()).close();
+    step.close();
+  }
+
+  /** Read failures during a direct-count drain reach the caller and release stream and plan. */
+  @Test
+  public void directCountReadFailurePropagates() {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getEntity("v")).thenReturn(entity);
+    var failure = new IllegalStateException("property read failed");
+    when(entity.getPropertyAndType("p")).thenThrow(failure);
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE
+        .withAccumulateMap(true).withPropertyGroupCount(new PropertyGroupCount("v", "p", false)));
+
+    assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::processNextStart)
+        .isSameAs(failure);
+    verify(stream).close(ctx);
+    verify(plan).close();
+  }
+
+  /** Two concurrent clones of one template own distinct maps and leave the template unstarted. */
+  @Test
+  public void directCountConcurrentTemplateCopiesOwnTheirMaps() throws Exception {
+    var copies = new CopyOnWriteArrayList<InternalExecutionPlan>();
+    var keys = new AtomicInteger();
+    when(plan.copy(any())).thenAnswer(call -> {
+      var context = (CommandContext) call.getArgument(0);
+      var copy = mock(InternalExecutionPlan.class);
+      var row = mock(Result.class);
+      var entity = mock(EntityImpl.class);
+      when(row.getEntity("v")).thenReturn(entity);
+      when(entity.getPropertyAndType("p")).thenReturn(
+          new EntityImpl.ValueAndType<>(keys.incrementAndGet(), null));
+      when(copy.getContext()).thenReturn(context);
+      when(copy.start()).thenAnswer(ignored -> ExecutionStream.resultIterator(
+          List.of(row, row).iterator()));
+      copies.add(copy);
+      return copy;
+    });
+    var shaping = ResultShaping.NONE.withAccumulateMap(true)
+        .withPropertyGroupCount(new PropertyGroupCount("v", "p", true));
+    var template = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+        BoundaryOutputType.MAP, Map.of(), shaping, true);
+    var cloneA = template.clone();
+    var cloneB = template.clone();
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+    var barrier = new CyclicBarrier(2);
+    var drainedA = new AtomicReference<List<Object>>();
+    var drainedB = new AtomicReference<List<Object>>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    var threadA = new Thread(driver(barrier, cloneA, drainedA, errors));
+    var threadB = new Thread(driver(barrier, cloneB, drainedB, errors));
+    threadA.start();
+    threadB.start();
+    threadA.join(5_000);
+    threadB.join(5_000);
+    assertThat(threadA.isAlive()).isFalse();
+    assertThat(threadB.isAlive()).isFalse();
+    assertThat(errors).isEmpty();
+    var mapA = (Map<Object, Object>) drainedA.get().getFirst();
+    var mapB = (Map<Object, Object>) drainedB.get().getFirst();
+    assertThat(mapA).hasSize(1).containsValue(2L);
+    assertThat(mapB).hasSize(1).containsValue(2L);
+    assertThat(mapA).isNotSameAs(mapB);
+    assertThat(mapA.keySet()).doesNotContainAnyElementsOf(mapB.keySet());
+    mapA.put("consumer", 9L);
+    cloneA.reset();
+    cloneB.close();
+    assertThat(mapA).containsEntry("consumer", 9L);
+    assertThat(mapB).hasSize(1).containsValue(2L);
+    assertThat(copies).hasSize(2);
+    verify(plan, never()).start();
+  }
+
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
     return new YTDBMatchPlanStep<>(
         traversal, Vertex.class, plan, alias, BoundaryOutputType.ELEMENT);

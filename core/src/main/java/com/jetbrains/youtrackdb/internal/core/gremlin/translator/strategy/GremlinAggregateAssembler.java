@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PropertyGroupCount;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
@@ -244,9 +245,23 @@ final class GremlinAggregateAssembler {
     ctx.appendReturnColumn(keyExpr, GROUP_KEY_ALIAS);
     ctx.appendReturnColumn(MatchProjectionBuilder.countStar(), GROUP_VALUE_ALIAS);
     ctx.setGroupBy(MatchProjectionBuilder.groupBy(keyExpr));
+    var projection = ctx.lastPropertyProjection();
+    PropertyGroupCount counting = null;
+    if (keyTraversal == null || keyTraversal instanceof IdentityTraversal) {
+      if (projection != null) {
+        // values(k) keeps its own absence drop even with ProductiveByStrategy.
+        counting = new PropertyGroupCount(projection.alias(), projection.propertyKey(), false);
+      }
+    } else if (projection == null) {
+      var key = ByModulatorTranslator.keyModulatorPropertyKey(keyTraversal).orElse(null);
+      if (key != null) {
+        counting = new PropertyGroupCount(boundary, key, ctx.byModulatorIsProductive(key));
+      }
+    }
     ctx.setLastPropertyProjection(null);
-    // accumulateMap so the boundary drains every GROUP BY row into one map and emits one traverser.
-    ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true));
+    // This is a candidate only. The completed walk excludes union arms and grouped entries.
+    ctx.setResultShaping(ResultShaping.NONE.withAccumulateMap(true)
+        .withPropertyGroupCount(counting));
     ctx.pinBoundary(boundary, BoundaryOutputType.MAP, Vertex.class);
     return Outcome.ACCEPTED;
   }
