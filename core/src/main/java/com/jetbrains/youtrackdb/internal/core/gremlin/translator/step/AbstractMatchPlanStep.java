@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,13 +30,16 @@ import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.TraverserGenerator;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.ElementHelper;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 /**
@@ -155,6 +160,13 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   /** Sentinel from {@link #projectOrSkip} when the row must not emit a traverser. */
   private static final Object SKIP = new Object();
 
+  // Limit each pull to a bounded run, even for an infinite stream of equal values.
+  static final int MAX_EMISSION_BULK = 256;
+
+  private Object pendingPayload = SKIP;
+  private Throwable deferredFailure;
+  private Boolean bulkEmissionAllowed;
+
   private final Class<E> returnClass;
   private final String boundaryAlias;
   private final BoundaryOutputType outputType;
@@ -214,9 +226,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   // The current arming's shaped payload iterator: the projected rows (or the drained group map) fed
   // through the ordered list-shaping stage. Built lazily on the first pull of an arming and rebuilt
   // fresh on every (re)open; null before the first build and after the stream is released. One
-  // traverser is emitted per payload this iterator yields, so a cardinality-changing op emits more
-  // or fewer traversers than the source produced — the exhaustion signal is this iterator running
-  // dry, not the underlying stream.
+  // logical result is emitted per payload this iterator yields. Eligible adjacent results share a
+  // bulk traverser after all shaping. Exhaustion follows this iterator, not the underlying stream.
   private Iterator<Object> shapedPayloads;
 
   // The graph resolved for the current arming; used to wrap projected vertices.
@@ -385,6 +396,18 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
   protected Traverser.Admin<E> processNextStart() {
+    // Cleanup may already have closed the plan during look-ahead. Report the saved failure before
+    // consulting the terminal state, so it cannot turn into normal exhaustion.
+    if (deferredFailure instanceof Error error) {
+      throw error;
+    }
+    if (deferredFailure instanceof RuntimeException runtime) {
+      // TinkerPop treats NoSuchElementException as exhaustion, not as an iteration failure.
+      if (runtime instanceof NoSuchElementException) {
+        throw new IllegalStateException("MATCH payload look-ahead failed", runtime);
+      }
+      throw runtime;
+    }
     if (state == State.DRAINED || state == State.CLOSED || state == State.CLOSED_UNSTARTED) {
       // Exhausted or closed: no more payloads until a reset() re-arms the step.
       throw FastNoSuchElementException.instance();
@@ -405,15 +428,40 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
         // plan through the terminal handler below.
         shapedPayloads = openShapedPayloads();
       }
-      if (!shapedPayloads.hasNext()) {
+      if (pendingPayload == SKIP && !shapedPayloads.hasNext()) {
         // The shaped stream is dry (the underlying stream is exhausted and every op has emitted all
         // it will). Close the arming's stream, keep the plan open for a possible reset + reopen.
         state = State.DRAINED;
         releaseStream();
         throw FastNoSuchElementException.instance();
       }
-      return getTraversal().getTraverserGenerator().generate(shapedPayloads.next(), (Step) this,
-          1L);
+      var payload = pendingPayload == SKIP ? shapedPayloads.next() : pendingPayload;
+      pendingPayload = SKIP;
+      var generator = getTraversal().getTraverserGenerator();
+      long bulk = 1;
+      if (allowsBulkEmission(generator) && mergeablePayload(payload)) {
+        while (bulk < MAX_EMISSION_BULK) {
+          Object next;
+          try {
+            if (!shapedPayloads.hasNext()) {
+              break;
+            }
+            next = shapedPayloads.next();
+          } catch (RuntimeException | Error failure) {
+            // The accepted run is already a final result. Release resources now, then deliver it
+            // before reporting the failure on the next pull. A failed group drain never gets here.
+            failIteration(failure);
+            deferredFailure = failure;
+            break;
+          }
+          if (!samePayload(payload, next)) {
+            pendingPayload = next;
+            break;
+          }
+          bulk++;
+        }
+      }
+      return generator.generate(payload, (Step) this, bulk);
     } catch (FastNoSuchElementException e) {
       throw e;
     } catch (RuntimeException | Error e) {
@@ -424,16 +472,57 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       // teardown. The iteration failure stays primary; a release failure is attached with
       // addSuppressed. Moving to CLOSED both ends iteration and marks the plan closed, so the
       // just-closed plan is never re-run.
-      state = State.CLOSED;
-      try {
-        releaseStreamAndClosePlan();
-      } catch (RuntimeException | Error suppressed) {
-        if (e != suppressed) {
-          e.addSuppressed(suppressed);
-        }
-      }
+      failIteration(e);
       throw e;
     }
+  }
+
+  private void failIteration(Throwable failure) {
+    state = State.CLOSED;
+    try {
+      releaseStreamAndClosePlan();
+    } catch (RuntimeException | Error cleanup) {
+      if (failure != cleanup) {
+        failure.addSuppressed(cleanup);
+      }
+    }
+  }
+
+  private boolean allowsBulkEmission(TraverserGenerator generator) {
+    if (bulkEmissionAllowed == null) {
+      var provided = generator.getProvidedRequirements();
+      // Check the actual generator. A cached generator can retain path requirements from before
+      // translation, even when the boundary no longer requests them.
+      bulkEmissionAllowed = getTraversal().isRoot() && getLabels().isEmpty()
+          && getTraversal().getSideEffects().getSackInitialValue() == null
+          && !getTraversal().getTraverserRequirements().contains(TraverserRequirement.ONE_BULK)
+          && provided.contains(TraverserRequirement.BULK)
+          && !provided.contains(TraverserRequirement.PATH)
+          && !provided.contains(TraverserRequirement.LABELED_PATH)
+          && !provided.contains(TraverserRequirement.SACK);
+    }
+    return bulkEmissionAllowed;
+  }
+
+  private static boolean mergeablePayload(Object value) {
+    if (value == null || value instanceof Vertex || value instanceof Edge) {
+      return true;
+    }
+    // Exact immutable types only. Number subclasses, containers and arbitrary equals methods do
+    // not establish a safe final-result identity contract.
+    var type = value.getClass();
+    return type == String.class || type == Boolean.class || type == Character.class
+        || type == Byte.class || type == Short.class || type == Integer.class || type == Long.class
+        || type == Float.class || type == Double.class || type == BigInteger.class
+        || type == BigDecimal.class;
+  }
+
+  private static boolean samePayload(Object left, Object right) {
+    if (left instanceof Element element) {
+      return right instanceof Element other && ElementHelper.areEqual(element, other);
+    }
+    return left == null ? right == null
+        : right != null && left.getClass() == right.getClass() && left.equals(right);
   }
 
   /**
@@ -698,6 +787,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     // Drop the shaped iterator with the stream it read from — a re-arm rebuilds it against the fresh
     // stream, so a stale iterator must never outlive its source.
     shapedPayloads = null;
+    dropEmissionState();
     if (stream != null) {
       stream.close(planContext());
     }
@@ -788,6 +878,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     super.reset();
     // The emitted map belongs to the consumer. A shallow clone may share this iterator.
     shapedPayloads = null;
+    dropEmissionState();
     entityColumnResolutions = 0;
     if (state == State.OPEN || state == State.DRAINED) {
       state = State.REARMED;
@@ -813,6 +904,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
    */
   @Override
   public void close() {
+    dropEmissionState();
     if (state == State.CLOSED || state == State.CLOSED_UNSTARTED) {
       return;
     }
@@ -844,9 +936,17 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.openStream = null;
     this.armingGraph = null;
     this.shapedPayloads = null;
+    dropEmissionState();
     this.rowEntityCache = new HashMap<>();
     this.entityColumnResolutions = 0;
     this.state = State.NEW;
+  }
+
+  private void dropEmissionState() {
+    // Never clear a shared holder. AbstractStep.clone() resets a shallow copy first.
+    pendingPayload = SKIP;
+    deferredFailure = null;
+    bulkEmissionAllowed = null;
   }
 
   /**

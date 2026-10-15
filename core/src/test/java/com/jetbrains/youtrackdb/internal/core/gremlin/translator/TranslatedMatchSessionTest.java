@@ -316,7 +316,7 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
       var step = boundary(traversal);
       var probe = armWithProbe(step);
       var first = traversal.next();
-      var matched = probe.lastRow;
+      var matched = probe.firstRow;
       var alias = matched.getPropertyNames().getFirst();
       int before = reads.size();
       assertThat(matched.getVertex(alias)).isSameAs(((YTDBElementImpl) first).getRawEntity());
@@ -364,7 +364,7 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
       var probe = armWithProbe(step);
       probe.recordReads = reads;
       var first = (YTDBElementImpl) traversal.next();
-      var row = (ResultInternal) probe.lastRow;
+      var row = (ResultInternal) probe.firstRow;
       var alias = row.getPropertyNames().getFirst();
       assertThat(row.getMatchedRecord(alias)).isNotNull();
       var retained = row.getMatchedRecord(alias).reusableIn(db);
@@ -406,7 +406,7 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
       var probe = armWithProbe(step);
       probe.recordReads = reads;
       var first = (YTDBElementImpl) traversal.next();
-      var row = (ResultInternal) probe.lastRow;
+      var row = (ResultInternal) probe.firstRow;
       var alias = row.getPropertyNames().getFirst();
       assertThat((Object) row.getProperty(alias)).isInstanceOf(
           com.jetbrains.youtrackdb.internal.core.db.record.record.RID.class);
@@ -444,7 +444,7 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
           var template = step.getPlan();
           var probe = armWithProbe(step);
           var first = (YTDBElementImpl) traversal.next();
-          var row = (ResultInternal) probe.lastRow;
+          var row = (ResultInternal) probe.firstRow;
           var alias = row.getPropertyNames().getFirst();
           var evidence = row.getMatchedRecord(alias);
           assertThat(evidence).isNotNull();
@@ -580,9 +580,10 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     private final ExecutionStream delegate;
     private int reads;
     private int closes;
-    private Result lastRow;
+    // The first emitted element belongs to the first source row, not a read-ahead row.
+    private Result firstRow;
     private List<DBRecord> recordReads;
-    private int readsBeforeProjection;
+    private int readsBeforeProjection = -1;
 
     private StreamProbe(ExecutionStream delegate) {
       this.delegate = delegate;
@@ -592,17 +593,29 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     @Override
     public boolean hasNext(CommandContext ctx) {
       reads++;
-      return delegate.hasNext(ctx);
+      if (recordReads != null && readsBeforeProjection >= 0) {
+        // Projection finishes before the next source advance. Check every such interval without
+        // attributing reads from the next MATCH candidate to projection of the previous row.
+        assertThat(recordReads).as("projection adds no READ hook").hasSize(readsBeforeProjection);
+      }
+      var more = delegate.hasNext(ctx);
+      if (recordReads != null) {
+        readsBeforeProjection = recordReads.size();
+      }
+      return more;
     }
 
     @Override
     public Result next(CommandContext ctx) {
       reads++;
-      lastRow = delegate.next(ctx);
+      var row = delegate.next(ctx);
+      if (firstRow == null) {
+        firstRow = row;
+      }
       if (recordReads != null) {
         readsBeforeProjection = recordReads.size();
       }
-      return lastRow;
+      return row;
     }
 
     @Override
