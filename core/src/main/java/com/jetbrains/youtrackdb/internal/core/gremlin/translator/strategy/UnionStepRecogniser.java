@@ -3,14 +3,21 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -117,6 +124,11 @@ final class UnionStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    var labelAliases = sortLabelAliases(cursor, ctx);
+    if (labelAliases == null) {
+      return Outcome.DECLINE;
+    }
+
     var globalChildren = union.getGlobalChildren();
     if (globalChildren.isEmpty()) {
       return Outcome.DECLINE;
@@ -152,7 +164,10 @@ final class UnionStepRecogniser implements StepRecogniser {
       }
 
       if (canonicalAlias == null) {
-        canonicalAlias = childResult.boundaryAlias();
+        // A dedicated result column cannot collide with a transported prefix alias, including
+        // a filter-only arm whose result is the labelled prefix element itself.
+        canonicalAlias = labelAliases.isEmpty()
+            ? childResult.boundaryAlias() : "$g2m_union_result";
         agreedOutputType = childResult.outputType();
         agreedReturnClass = childResult.returnClass();
         agreedShaping = childResult.shaping();
@@ -163,8 +178,24 @@ final class UnionStepRecogniser implements StepRecogniser {
         return Outcome.DECLINE;
       }
 
-      childInputs.add(
-          rewriteReturnAlias(childResult.inputs(), childResult.boundaryAlias(), canonicalAlias));
+      var inputs = rewriteReturnAlias(
+          childResult.inputs(), childResult.boundaryAlias(), canonicalAlias);
+      if (!labelAliases.isEmpty()) {
+        if (childResult.outputType() != BoundaryOutputType.ELEMENT
+            || inputs.returnDistinct() || !ResultShaping.NONE.equals(childResult.shaping())) {
+          return Outcome.DECLINE;
+        }
+        for (var binding : labelAliases.entrySet()) {
+          // Fork walks resolve their own labels. Fail closed rather than assuming that their
+          // alias counters happened to assign the parent's alias to the same labelled element.
+          if (!binding.getValue().equals(childResult.userLabelAliases().get(binding.getKey()))
+              || inputs.pattern().get(binding.getValue()) == null) {
+            return Outcome.DECLINE;
+          }
+        }
+        inputs = appendLabelColumns(inputs, labelAliases);
+      }
+      childInputs.add(inputs);
       childParams.add(childResult.inputParameters());
       // Preserve each fork's RID-bearing / cache decision; children cache under their own
       // fingerprints, the multi-plan carrier does not.
@@ -179,6 +210,54 @@ final class UnionStepRecogniser implements StepRecogniser {
     // Post-concat barriers (count / limit / dedup / order) may follow; every other suffix step
     // declines through the walker's post-union suffix gate.
     return Outcome.ACCEPTED;
+  }
+
+  /**
+   * Finds only supported prefix-label property keys. The walker excludes repeated step labels.
+   * Dedup can choose a different source representative in native interleaved order, so it is
+   * excluded on either side of the sort.
+   */
+  private static Map<String, String> sortLabelAliases(
+      StepCursor cursor, RecognitionContext ctx) {
+    var aliases = new LinkedHashMap<String, String>();
+    boolean dedup = ctx.returnDistinct();
+    for (int ahead = 0;; ahead++) {
+      var step = cursor.peek(ahead);
+      if (step == null) {
+        return dedup && !aliases.isEmpty() ? null : aliases;
+      }
+      dedup |= step instanceof DedupGlobalStep<?>;
+      if (step instanceof OrderGlobalStep<?, ?> order) {
+        for (var pair : order.getComparators()) {
+          var target =
+              ByModulatorTranslator.selectModulatorTarget(pair.getValue0(), label -> label);
+          if (target.isEmpty()) {
+            // Unsupported modulators still decline in OrderGlobalStepRecogniser.
+            continue;
+          }
+          var label = target.get().alias();
+          var alias = ctx.resolveUserLabel(label);
+          if (alias == null) {
+            return null;
+          }
+          aliases.put(label, alias);
+        }
+      }
+    }
+  }
+
+  /** Rename the result before adding columns, so a filter-only arm retains its label column. */
+  private static MatchPlanInputs appendLabelColumns(
+      MatchPlanInputs inputs, Map<String, String> labelAliases) {
+    var items = new ArrayList<>(inputs.returnItems());
+    var aliases = new ArrayList<>(inputs.returnAliases());
+    var nested = new ArrayList<>(inputs.returnNestedProjections());
+    for (var alias : new LinkedHashSet<>(labelAliases.values())) {
+      items.add(MatchProjectionBuilder.aliasColumn(alias));
+      aliases.add(MatchProjectionBuilder.columnAlias(alias));
+      nested.add(null);
+    }
+    return withReturnProjection(inputs, items, aliases, nested);
   }
 
   /** True when any step of {@code child} is a {@link UnionStep}. */
@@ -228,15 +307,22 @@ final class UnionStepRecogniser implements StepRecogniser {
     if (!changed) {
       return inputs;
     }
+    return withReturnProjection(
+        inputs, inputs.returnItems(), rewritten, inputs.returnNestedProjections());
+  }
+
+  private static MatchPlanInputs withReturnProjection(
+      MatchPlanInputs inputs, List<SQLExpression> items, List<SQLIdentifier> aliases,
+      List<SQLNestedProjection> nested) {
     return MatchPlanInputs.builder(inputs.pattern())
         .aliasClasses(inputs.aliasClasses())
         .aliasFilters(inputs.aliasFilters())
         .matchExpressions(inputs.matchExpressions())
         .notMatchExpressions(inputs.notMatchExpressions())
         .existsMatchExpressions(inputs.existsMatchExpressions())
-        .returnItems(inputs.returnItems())
-        .returnAliases(rewritten)
-        .returnNestedProjections(inputs.returnNestedProjections())
+        .returnItems(items)
+        .returnAliases(aliases)
+        .returnNestedProjections(nested)
         .groupBy(inputs.groupBy())
         .orderBy(inputs.orderBy())
         .unwind(inputs.unwind())

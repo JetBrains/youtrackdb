@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.countMultiPlanSteps;
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedIds;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -22,6 +23,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -1252,38 +1254,82 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * Branch rows do not retain the source label column. Every row-returning slice must decline a
-   * foreign source key even without dedup, in both missing-key modes, and preserve native rows.
+   * Prefix-label keys must survive each branch projection. Reversed source-name and target-RID
+   * orders make a missing label column select different rows. Both supported key spellings,
+   * directions, missing-key modes and all slice forms must match an independent row oracle.
    */
   @Test
-  public void orderedUnionSlices_foreignSourceKeyWithoutDedupDecline() {
+  public void orderedUnionLabelKeys_matchNativeForEverySliceAndCount() {
     var targets = new ArrayList<Vertex>();
     targets.add(graph.addVertex(T.label, "Person", "name", "one"));
     targets.add(graph.addVertex(T.label, "Person", "name", "two"));
     graph.tx().commit();
     targets.sort(Comparator.comparing(vertex -> (RID) vertex.id()));
     // Reverse the source-name and target-RID orders so a missing primary key changes the slice.
-    graph.addVertex(T.label, "Person", "name", "z", "source", true)
-        .addEdge("knows", targets.getFirst());
-    graph.addVertex(T.label, "Person", "name", "a", "source", true)
-        .addEdge("knows", targets.getLast());
+    var z = graph.addVertex(T.label, "Person", "name", "z", "source", true);
+    var a = graph.addVertex(T.label, "Person", "name", "a", "source", true);
+    var missing = graph.addVertex(T.label, "Person", "source", true);
+    z.addEdge("knows", targets.getFirst());
+    a.addEdge("knows", targets.getLast());
+    missing.addEdge("knows", targets.getFirst());
     graph.tx().commit();
     for (boolean includesMissing : List.of(true, false)) {
-      for (int kind = 0; kind < 3; kind++) {
-        int sliceKind = kind;
-        Supplier<GraphTraversal<?, ?>> shape = () -> {
-          var traversal = graph.traversal()
-              .with(YTDBQueryConfigParam.orderIncludesMissingKey, includesMissing)
-              .V().has("source", true).as("s").union(__.out("knows"), __.out("knows"))
-              .order().by(__.select("s").by("name"));
-          return switch (sliceKind) {
-            case 0 -> traversal.limit(2);
-            case 1 -> traversal.range(1, 3);
-            default -> traversal.skip(1);
-          };
-        };
-        assertEquivalentOrdered("foreign source slice=" + kind + " includesMissing="
-            + includesMissing, Recognition.DECLINED, shape);
+      for (var direction : List.of(Order.asc, Order.desc)) {
+        var expected = new ArrayList<Vertex>();
+        if (direction == Order.asc) {
+          if (includesMissing) {
+            expected.addAll(List.of(targets.getFirst(), targets.getFirst()));
+          }
+          expected.addAll(List.of(targets.getLast(), targets.getLast(),
+              targets.getFirst(), targets.getFirst()));
+        } else {
+          expected.addAll(List.of(targets.getFirst(), targets.getFirst(),
+              targets.getLast(), targets.getLast()));
+          if (includesMissing) {
+            expected.addAll(List.of(targets.getFirst(), targets.getFirst()));
+          }
+        }
+        for (boolean valuesForm : List.of(false, true)) {
+          for (int kind = 0; kind < 5; kind++) {
+            int sliceKind = kind;
+            for (boolean count : List.of(false, true)) {
+              Supplier<GraphTraversal<?, ?>> shape = () -> {
+                var traversal = graph.traversal()
+                    .with(YTDBQueryConfigParam.orderIncludesMissingKey, includesMissing)
+                    .V().has("source", true).as("s")
+                    .union(__.out("knows"), __.out("knows")).order();
+                traversal = valuesForm
+                    ? traversal.by(__.select("s").by(__.values("name")), direction)
+                    : traversal.by(__.select("s").by("name"), direction);
+                traversal = switch (sliceKind) {
+                  case 0 -> traversal.limit(2);
+                  case 1 -> traversal.range(1, 3);
+                  case 2 -> traversal.skip(1);
+                  case 3 -> traversal.range(1, -1);
+                  default -> traversal;
+                };
+                return count ? traversal.count() : traversal;
+              };
+              var scenario = "label key slice=" + kind + " includesMissing=" + includesMissing
+                  + " values=" + valuesForm + " direction=" + direction + " count=" + count;
+              assertEquivalentOrdered(scenario, Recognition.RECOGNIZED_MULTI_PLAN, shape);
+              int low = kind == 0 || kind == 4 ? 0 : 1;
+              int high = kind < 2 ? (kind == 0 ? 2 : 3) : expected.size();
+              var rows = expected.subList(low, high);
+              support.withTranslator(true, () -> {
+                var actual = shape.get().toList();
+                if (count) {
+                  assertThat(actual).isEqualTo(List.of((long) rows.size()));
+                } else {
+                  // This also pins the output contract: transported labels must not leak as maps.
+                  assertThat(actual).allMatch(Vertex.class::isInstance);
+                  assertThat(actual.stream().map(value -> ((Vertex) value).id()).toList())
+                      .as(scenario).isEqualTo(rows.stream().map(Vertex::id).toList());
+                }
+              });
+            }
+          }
+        }
       }
     }
   }
@@ -1295,6 +1341,212 @@ public class UnionTraversalEquivalenceTest extends GraphBaseTest {
     assertEquivalentOrdered("foreign source key with post-order dedup", Recognition.DECLINED,
         () -> graph.traversal().V().as("a").union(__.out("knows"), __.in("knows"))
             .order().by(__.select("a").by("name")).dedup().limit(2));
+  }
+
+  /**
+   * Several prefix labels and unequal branch lengths need independent transported columns. A
+   * filter-only arm returns its prefix alias as the result, so renaming must not erase that key.
+   */
+  @Test
+  public void unionLabelKeys_multipleLabelsUnequalArmsAndFilterOnlyArmMatchNative() {
+    var root = graph.addVertex(T.label, "Person", "name", "root");
+    var z = graph.addVertex(T.label, "Person", "name", "z");
+    var a = graph.addVertex(T.label, "Person", "name", "a");
+    var first = graph.addVertex(T.label, "Person", "name", "one");
+    var last = graph.addVertex(T.label, "Person", "name", "two");
+    root.addEdge("source", z);
+    root.addEdge("source", a);
+    z.addEdge("knows", first);
+    a.addEdge("knows", last);
+    first.addEdge("knows", last);
+    last.addEdge("knows", first);
+    graph.tx().commit();
+    var id = root.id();
+    for (boolean filterOnly : List.of(false, true)) {
+      for (boolean slice : List.of(false, true)) {
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var traversal = graph.traversal().V(id).as("r").out("source").as("s", "same")
+              .union(__.out("knows"), filterOnly ? __.has("name", "a")
+                  : __.out("knows").out("knows"))
+              .order().by(__.select("r").by("name"))
+              .by(__.select("s").by(__.values("name")))
+              .by(__.select("same").by("name"));
+          return slice ? traversal.range(1, 3) : traversal;
+        };
+        assertEquivalentOrdered("multiple labels filterOnly=" + filterOnly + " slice=" + slice,
+            Recognition.RECOGNIZED_MULTI_PLAN, shape);
+      }
+    }
+  }
+
+  /**
+   * Selected edge outputs have no numeric RID proof, so a sliced label-key order declines and
+   * returns the same edge sequence as native execution.
+   */
+  @Test
+  public void unionLabelKeys_selectedEdgeOutputDeclinesAndMatchesNative() {
+    seedLongKnowsChain();
+    assertEquivalentOrdered("source-label order over selected edges", Recognition.DECLINED,
+        () -> graph.traversal().V().as("s")
+            .union(__.outE("knows").as("e").inV().select("e"),
+                __.inE("knows").as("e").outV().select("e"))
+            .order().by(__.select("s").by("name"), Order.desc).range(1, 5));
+  }
+
+  /**
+   * Dedup may choose a different prefix representative before or after a label-key sort. Disable
+   * ranking as well as keeping it enabled so both recogniser positions are exercised explicitly.
+   * DISTINCT inside either branch must also decline because extra columns change its row identity.
+   */
+  @Test
+  public void unionLabelKeys_dedupAtEveryPositionDeclines() {
+    seedLongKnowsChain();
+    for (boolean ranking : List.of(false, true)) {
+      for (int position = 0; position < 4; position++) {
+        int dedupPosition = position;
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var source = graph.traversal();
+          if (!ranking) {
+            source = source.withoutStrategies(
+                org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.FilterRankingStrategy.class);
+          }
+          var traversal = source.V().as("s");
+          if (dedupPosition == 0) {
+            traversal = traversal.dedup();
+          }
+          traversal = traversal.union(dedupPosition == 3 ? __.out("knows").dedup()
+              : __.out("knows"), __.in("knows"));
+          if (dedupPosition == 1) {
+            traversal = traversal.dedup();
+          }
+          traversal = traversal.order().by(__.select("s").by("name"));
+          return dedupPosition == 2 ? traversal.dedup() : traversal;
+        };
+        assertEquivalentOrdered("label dedup position=" + position + " ranking=" + ranking,
+            Recognition.DECLINED, shape);
+      }
+    }
+  }
+
+  /**
+   * Pop.last must not read a stale prefix binding when the union or a suffix step rebinds it.
+   * Both no-slice and limit forms decline, including a later labelled no-op slice.
+   */
+  @Test
+  public void unionLabelKeys_reboundOnUnionOrBeforeOrderDeclines() {
+    seedLongKnowsChain();
+    for (boolean later : List.of(false, true)) {
+      for (boolean slice : List.of(false, true)) {
+        Supplier<GraphTraversal<?, ?>> shape = () -> {
+          var traversal = graph.traversal().withoutStrategies(
+              org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.FilterRankingStrategy.class)
+              .V().as("s").union(__.out("knows"), __.in("knows"));
+          traversal = later ? traversal.skip(0).as("s") : traversal.as("s");
+          traversal = traversal.order().by(__.select("s").by("name"));
+          return slice ? traversal.limit(2) : traversal;
+        };
+        assertEquivalentOrdered("rebound label later=" + later + " slice=" + slice,
+            Recognition.DECLINED, shape);
+      }
+    }
+  }
+
+  /**
+   * Only Pop.last label sort keys translate. Pop.first and Pop.mixed decline even with one
+   * binding. Pop.all preserves the native error from applying a property modulator to a list.
+   */
+  @Test
+  public void unionLabelKeys_nonDefaultPopDeclinesAndPreservesNativeBehavior() {
+    seedKnowsChain();
+    for (var pop : Pop.values()) {
+      Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V().as("s")
+          .union(__.out("knows"), __.out("knows"))
+          .order().by(__.select(pop, "s").by("name")).limit(1);
+      if (pop == Pop.all) {
+        for (boolean enabled : List.of(true, false)) {
+          support.withTranslator(enabled, () -> {
+            var admin = shape.get().asAdmin();
+            admin.applyStrategies();
+            assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+            assertThatThrownBy(admin::toList).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Element or a Map");
+          });
+        }
+      } else {
+        assertEquivalentOrdered("label sort Pop=" + pop,
+            pop == Pop.last ? Recognition.RECOGNIZED_MULTI_PLAN : Recognition.DECLINED, shape);
+      }
+    }
+  }
+
+  /**
+   * A filter-step rebind before a union or select must decline instead of reading the older alias.
+   * Reverse source and intermediate names make the sorted slice depend on the latest binding.
+   * Duplicate bindings inside a branch also decline, even without a label reader.
+   */
+  @Test
+  public void duplicateFilterAndBranchLabels_declineAndMatchNative() {
+    var a = graph.addVertex(T.label, "Person", "name", "a", "src", true);
+    var b = graph.addVertex(T.label, "Person", "name", "b", "src", true);
+    var z = graph.addVertex(T.label, "Person", "name", "z");
+    var y = graph.addVertex(T.label, "Person", "name", "y");
+    a.addEdge("knows", z);
+    b.addEdge("knows", y);
+    z.addEdge("knows", a);
+    y.addEdge("knows", b);
+    graph.tx().commit();
+    assertEquivalentOrdered("prefix filter label rebind before sliced union", Recognition.DECLINED,
+        () -> graph.traversal().V().has("src", true).as("s").out("knows")
+            .has("name").as("s").union(__.has("name", P.neq("q")), __.out("knows"))
+            .order().by(__.select("s").by("name")).limit(2));
+    assertEquivalent("prefix filter label rebind before select", Recognition.DECLINED,
+        () -> graph.traversal().V().has("src", true).as("s").out("knows")
+            .has("name").as("s").select("s"));
+    assertEquivalent("label rebound inside a union branch", Recognition.DECLINED,
+        () -> graph.traversal().V().has("src", true).as("s")
+            .union(__.out("knows").as("s"), __.out("knows")));
+    assertEquivalent("label repeated across union branches", Recognition.DECLINED,
+        () -> graph.traversal().V().has("src", true)
+            .union(__.out("knows").as("s"), __.out("knows").as("s")));
+    assertEquivalent("label repeated in a filter child", Recognition.DECLINED,
+        () -> graph.traversal().V().has("src", true).as("s")
+            .filter(__.out("knows").as("s")));
+  }
+
+  /**
+   * Only a single prefix label with one property modulator has a transport contract. All other
+   * key forms and non-element branch outputs must leave the native pipeline in place.
+   */
+  @Test
+  public void unionLabelKeys_unsupportedFormsAndOutputTypesDecline() {
+    seedLongKnowsChain();
+    List<Supplier<GraphTraversal<?, ?>>> shapes = List.of(
+        () -> graph.traversal().V().as("s").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("s")),
+        () -> graph.traversal().V().as("s").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("s").by(T.id)),
+        () -> graph.traversal().V().as("s").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("s").values("name")),
+        () -> graph.traversal().V().as("s", "t").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("s", "t").by("name")),
+        () -> graph.traversal().V().as("s").union(__.out("knows"), __.in("knows"))
+            .order().by(__.select("s").by(__.out("knows").values("name"))),
+        () -> graph.traversal().V().union(__.out("knows").as("s"), __.in("knows"))
+            .order().by(__.select("s").by("name")),
+        () -> graph.traversal().V().as("s").union(__.values("name"), __.values("name"))
+            .order().by(__.select("s").by("name")),
+        () -> graph.traversal().V().as("s").union(__.valueMap("name"), __.valueMap("name"))
+            .order().by(__.select("s").by("name")),
+        () -> graph.traversal().V().as("s").union(__.count(), __.count())
+            .order().by(__.select("s").by("name")));
+    support.withTranslator(true, () -> {
+      for (var shape : shapes) {
+        var admin = shape.get().asAdmin();
+        admin.applyStrategies();
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin.getSteps()))
+            .as("unsupported label sort must decline: " + admin).isZero();
+      }
+    });
   }
 
   /** A total order does not admit tail or value outputs through the slice-only relaxation. */

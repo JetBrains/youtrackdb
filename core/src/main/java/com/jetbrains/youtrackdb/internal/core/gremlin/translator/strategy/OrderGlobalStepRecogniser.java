@@ -132,6 +132,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     // Contribution — reached only after every comparator resolved, so a declining modulator leaves
     // the context unmutated.
     if (ctx.hasUnionCarrier()) {
+      if (!orderKeysOnlyBoundary(boundary, items)
+          && ctx.postConcatOps().stream().anyMatch(PostConcatOp.Dedup.class::isInstance)) {
+        return Outcome.DECLINE;
+      }
       // Sealed child plans cannot take a pattern IS DEFINED from this parent walk. Under standard
       // order semantics emit the same drop as a post-concat stream filter before the in-memory sort.
       if (!ctx.emitGroupEntries()) {
@@ -207,7 +211,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
   /**
    * Whether every sort item keys {@code boundary} (no foreign-alias comparator). Equal-key ties are
    * left to MATCH — same as YQL {@code ORDER BY} + {@code LIMIT}. A comparator that sorts another
-   * alias zeroes the flag so a following slice declines.
+   * alias prevents dedup from moving ahead of the sort.
    */
   private static boolean orderKeysOnlyBoundary(String boundary, ArrayList<SQLOrderByItem> items) {
     if (items.isEmpty()) {

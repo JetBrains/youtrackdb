@@ -94,6 +94,27 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
 
+  /**
+   * The lexical guard covers both child kinds and sibling branches. Null labels do not bind,
+   * and several distinct labels on one step remain valid.
+   */
+  @Test
+  public void walk_duplicateLabelsAnywhereInTraversalTreeDecline() {
+    var shapes = List.of(
+        graph.traversal().V().as("s").out("knows").has("name").as("s").select("s"),
+        graph.traversal().V().as("s").filter(__.out("knows").as("s")),
+        graph.traversal().V().as("s").union(__.out("knows").as("s"), __.in("knows")),
+        graph.traversal().V().union(__.out("knows").as("s"), __.in("knows").as("s")));
+    for (var shape : shapes) {
+      assertThat(GremlinStepWalker.production().walk(shape.asAdmin()))
+          .as("duplicate label must decline: " + shape).isNull();
+    }
+    var distinct = graph.traversal().V().as("s", "same").out("knows").as("t").asAdmin();
+    distinct.getStartStep().addLabel(null);
+    distinct.getEndStep().addLabel(null);
+    assertThat(GremlinStepWalker.production().walk(distinct)).isNotNull();
+  }
+
   // ---------------------------------------------------------------------------
   // Translation correctness — g.V() / g.V(id) / g.V(ids) → MatchPlanInputs.
   // ---------------------------------------------------------------------------
@@ -2041,6 +2062,52 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * The same label name must resolve to the same existing pattern alias in each fork. Missing,
+   * mismatched and dangling bindings decline instead of silently producing null sort keys.
+   */
+  @Test
+  public void union_labelColumnsValidateEachForkBinding() {
+    var template = GremlinStepWalker.production().walk(
+        graph.traversal().V().as("s").out().asAdmin());
+    assertThat(template).isNotNull();
+    var prefixAlias = template.userLabelAliases().get("s");
+    for (int variant = 0; variant < 4; variant++) {
+      var expectedAlias = variant == 3 ? "$absent" : prefixAlias;
+      var bindings = switch (variant) {
+        case 1 -> Map.<String, String>of();
+        case 2 -> Map.of("s", template.boundaryAlias());
+        default -> Map.of("s", expectedAlias);
+      };
+      var host = new ShapingUnionForkHost(template.withUserLabelAliases(bindings),
+          ResultShaping.NONE);
+      var ctx = unionSeededContext(host);
+      ctx.userLabelToAlias.put("s", expectedAlias);
+      var admin = graph.traversal().V().as("s").union(__.out(), __.in())
+          .order().by(__.select("s").by("name")).asAdmin();
+      var outcome = UnionStepRecogniser.INSTANCE.recognize(cursorAtUnion(admin), ctx);
+      assertThat(outcome).as("fork label binding variant " + variant)
+          .isEqualTo(variant == 0 ? Outcome.ACCEPTED : Outcome.DECLINE);
+      assertThat(host.stashed).isEqualTo(variant == 0);
+      if (variant == 0) {
+        assertThat(ctx.boundaryAlias()).isEqualTo("$g2m_union_result");
+      }
+    }
+  }
+
+  /** Exported fork bindings are immutable snapshots and survive a shaping-only replacement. */
+  @Test
+  public void translationResult_labelBindingsAreCopiedAndPreserved() {
+    var labels = new java.util.HashMap<>(Map.of("s", "$g2m_v0"));
+    var result = singlePlanTemplate().withUserLabelAliases(labels);
+    labels.put("s", "different");
+    assertThat(result.userLabelAliases()).containsEntry("s", "$g2m_v0");
+    assertThat(result.withShaping(ResultShaping.NONE.withDropOnAbsent(true)).userLabelAliases())
+        .containsExactlyEntriesOf(result.userLabelAliases());
+    assertThatThrownBy(() -> result.userLabelAliases().put("t", "other"))
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  /**
    * A real single-plan translation, used as the template every {@link ShapingUnionForkHost} arm
    * hands back. Building the plan inputs by hand would pin this fixture to a builder API the tests
    * do not otherwise touch; walking a hop gives a well-formed result whose shaping is the only
@@ -2080,21 +2147,14 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     @Override
     public boolean postUnionSuffixTranslatable() {
-      // The fixtures end at the union, so the suffix is empty and the production check is vacuous.
+      // These tests isolate child contracts. Suffix recognition has separate production-gate tests.
       return true;
     }
 
     @Override
     public GremlinToMatchTranslator.TranslationResult walkFork(List<Step<?, ?>> childSuffix) {
       forkCalls++;
-      return GremlinToMatchTranslator.TranslationResult.singlePlan(
-          template.inputs(),
-          template.boundaryAlias(),
-          template.outputType(),
-          template.returnClass(),
-          Map.of(),
-          true,
-          childShaping);
+      return template.withShaping(childShaping);
     }
 
     @Override

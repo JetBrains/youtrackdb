@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
@@ -515,6 +517,9 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
+    if (hasDuplicateStepLabels(traversal)) {
+      return null;
+    }
     // Child labels do not escape a detached expression. A reader on the outer traversal could
     // otherwise observe the binding that the expression discarded.
     if (DetachedChildGrammar.hasOuterLabelReader(traversal)) {
@@ -1282,6 +1287,38 @@ final class GremlinStepWalker {
     return adapter;
   }
 
+  /**
+   * Label aliases represent one binding, not path history. Decline a repeated label anywhere in
+   * the traversal tree, including separate branches and detached filter children.
+   */
+  static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal) {
+    return hasDuplicateStepLabels(traversal, new HashSet<>());
+  }
+
+  private static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal,
+      Set<String> labels) {
+    for (Step<?, ?> step : traversal.getSteps()) {
+      for (var label : GremlinStepLabels.userLabels(step)) {
+        if (!labels.add(label)) {
+          return true;
+        }
+      }
+      if (step instanceof TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          if (hasDuplicateStepLabels(child, labels)) {
+            return true;
+          }
+        }
+        for (var child : parent.getGlobalChildren()) {
+          if (hasDuplicateStepLabels(child, labels)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   /** Native select resolves side effects before path labels. Never cache a label-only projection
    * for a traversal whose selected key also names a side effect. */
   static boolean selectCollidesWithSideEffect(Traversal.Admin<?, ?> traversal) {
@@ -1434,7 +1471,7 @@ final class GremlinStepWalker {
         Map.copyOf(inputParameters),
         !ctx.ridBearing(),
         ctx.shaping(),
-        ctx.hasBindings);
+        ctx.hasBindings).withUserLabelAliases(ctx.userLabelToAlias);
   }
 
   /**

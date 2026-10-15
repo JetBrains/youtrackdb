@@ -130,8 +130,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
  * promises no arrival order of its own. A captured sort removes that difference before the slice
  * only when {@link #hasSliceSafeOrder} holds. The branches must agree on element output. Result
  * shaping must be plain ELEMENT, so it cannot drop a sliced row. The sort must contain the numeric
- * RID key. Every sort key must read only the union output column. Branch rows do not retain source
- * columns. Without this full proof, only an immediate {@code count()} makes the slice safe:
+ * RID key. Sort keys may read transported prefix label columns when no dedup is present. Without
+ * this full proof, only an immediate {@code count()} makes the slice safe:
  * {@code min(n, total)} and {@code max(0, total - n)} are independent of arrival order.
  * A slice that normalises away to nothing ({@code skip(0)}, {@code range(0, -1)}) selects no
  * position at all and is accepted unconditionally.
@@ -324,7 +324,8 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
   /**
    * A row-returning slice needs a captured numeric RID key over the branches' agreed element
    * output. Plain ELEMENT shaping cannot return SKIP or apply a later row-dedup filter. All sort
-   * keys must read the boundary column because union branch rows do not retain source columns.
+   * keys must read the boundary column when dedup is present, since different source rows can
+   * supply different label keys for the same boundary element.
    */
   static boolean hasSliceSafeOrder(RecognitionContext ctx) {
     if (ctx.boundaryOutputType() != BoundaryOutputType.ELEMENT
@@ -333,12 +334,14 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
       return false;
     }
     PostConcatOp.Order order = null;
+    boolean dedup = false;
     for (var op : ctx.postConcatOps()) {
+      dedup |= op instanceof PostConcatOp.Dedup;
       if (op instanceof PostConcatOp.Order captured) {
         order = captured;
       }
     }
-    return order != null && order.hasNumericRidKey() && order.keysOnlyBoundary();
+    return order != null && order.hasNumericRidKey() && (order.keysOnlyBoundary() || !dedup);
   }
 
   /**
