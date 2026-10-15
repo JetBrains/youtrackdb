@@ -39,7 +39,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
@@ -2155,7 +2154,7 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       checkNameIdMapAppendsAllowed();
 
-      final RawPair<String, String> file;
+      final DeletedFileNames file;
       final var future =
           commitExecutor().submit(new DeleteFileTask(this, fileId));
       try {
@@ -2190,7 +2189,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
+        writeNameIdEntry(new NameFileIdEntry(file.logicalName(), -intId, file.diskName()), true);
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -2790,7 +2789,7 @@ public final class WOWCache extends AbstractWriteCache
 
         final var externalId = composeFileId(id, internalFileId);
 
-        final RawPair<String, String> file;
+        final DeletedFileNames file;
         final var future =
             commitExecutor().submit(new DeleteFileTask(this, externalId));
         try {
@@ -5701,7 +5700,10 @@ public final class WOWCache extends AbstractWriteCache
     return storageName;
   }
 
-  @Nullable public RawPair<String, String> executeDeleteFile(long externalFileId)
+  record DeletedFileNames(String diskName, String logicalName) {
+  }
+
+  @Nullable public DeletedFileNames executeDeleteFile(long externalFileId)
       throws IOException, java.lang.InterruptedException {
     final var internalFileId = extractFileId(externalFileId);
     final var fileId = composeFileId(id, internalFileId);
@@ -5722,7 +5724,7 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.put(name, -internalFileId);
       idNameMap.put(-internalFileId, name);
 
-      return new RawPair<>(fileClassic.getName(), name);
+      return new DeletedFileNames(fileClassic.getName(), name);
     }
 
     return null;
