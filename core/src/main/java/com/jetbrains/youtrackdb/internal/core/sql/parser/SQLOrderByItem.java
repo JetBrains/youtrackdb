@@ -265,7 +265,8 @@ public class SQLOrderByItem {
     var comparison = comparisonCollate();
     if (gremlinToMatchTranslatorProduced && collateStrategy == null
         && declaredCollate == null) {
-      result = GremlinOrderComparator.INSTANCE.compare(aVal, bVal);
+      result = GremlinOrderComparator.INSTANCE.compare(
+          aVal, bVal, ctx == null ? null : ctx.getDatabaseSession());
     } else if ((aVal instanceof Comparable && bVal instanceof Comparable)
         || collateStrategy != null) {
       // A value that is not Comparable still has an order whenever the query states a COLLATE
