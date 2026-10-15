@@ -8,6 +8,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.spy;
@@ -754,6 +755,58 @@ public class ChangedPageTrackerStartupTest {
         assertDistrusted(pending);
       }
     }
+  }
+
+  // A failed gate clear leaves resolution pending. The original reader Error stays primary, and
+  // a later distrust attempt completes the transition and clears the gate.
+  @Test
+  public void readerErrorSurvivesDistrustErrorAndLaterDistrustCompletes() throws Exception {
+    assertReaderSurvivesDistrust(new Error("reader failure"), new Error("gate failure"));
+  }
+
+  // Checked reader failures retain their identity when trust revocation throws a runtime failure.
+  @Test
+  public void checkedReaderFailureSurvivesDistrustRuntimeException() throws Exception {
+    assertReaderSurvivesDistrust(new IOException("reader failure"),
+        new IllegalStateException("gate failure"));
+  }
+
+  // A repeated throwable must not trigger self-suppression or replace the reader failure.
+  @Test
+  public void readerFailureSurvivesSameFailureFromDistrust() throws Exception {
+    var failure = new Error("shared failure");
+    assertReaderSurvivesDistrust(failure, failure);
+  }
+
+  private void assertReaderSurvivesDistrust(Throwable primary, Throwable secondary)
+      throws Exception {
+    var tracker = spy(new ChangedPageTracker());
+    ChangedPageTrackerStartup.PendingHistory pending;
+    try (var files = mockStatic(ChangedPageTrackerFile.class)) {
+      var path = sideFile();
+      files.when(() -> ChangedPageTrackerFile.load(path))
+          .thenReturn(new ChangedPageTrackerFile.Loaded(tracker, COVERAGE));
+      pending = ChangedPageTrackerStartup.load(path);
+    }
+    doThrow(secondary).doCallRealMethod().when(tracker).startupVerificationPending(false);
+    try (var logs = LogRecordCollector.attachTo(ChangedPageTrackerStartup.class)) {
+      assertSame(primary, assertThrows(primary.getClass(),
+          () -> ChangedPageTrackerStartup.readerFailed(pending, primary)));
+      assertTrue(logs.warnedWithAll("outcome=READER_FAILURE", "cause=" + primary));
+    }
+    assertEquals(primary == secondary ? List.of() : List.of(secondary),
+        Arrays.asList(primary.getSuppressed()));
+    assertEquals(ChangedPageTrackerStartup.Resolution.PENDING, pending.resolution());
+    pending.distrust();
+    assertEquals(ChangedPageTrackerStartup.Resolution.DISTRUSTED, pending.resolution());
+    // A cleared gate makes another clear a no-op, visible through the existing mutation clock.
+    long mutation = capture(tracker).mutationVersion();
+    tracker.startupVerificationPending(false);
+    assertEquals(mutation, capture(tracker).mutationVersion());
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(sideFile(), tracker, COVERAGE));
+    tracker.retire(tracker.beginBackup());
+    assertTrue(tracker.isTrusted());
   }
 
   // Logging itself can fail when memory is exhausted. Trust is still revoked and the original
