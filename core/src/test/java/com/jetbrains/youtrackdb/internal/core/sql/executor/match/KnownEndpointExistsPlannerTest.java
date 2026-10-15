@@ -775,9 +775,10 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
     var check = "MATCH {as:s}.out('KnownLink'){as:t,where:(@rid IN :rids)} RETURN s";
     var longList = java.util.Collections.nCopies(9, target);
     for (var initial : List.of(longList, List.of(target))) {
+      long gen = YqlExecutionPlanCache.getGeneration(session);
       var template = plan("MATCH {class:KnownSource,as:s} RETURN s.n as n", check,
           Map.of("rids", initial));
-      YqlExecutionPlanCache.put(key, template, session, null);
+      YqlExecutionPlanCache.put(key, template, session, gen, null);
       template.close();
       for (var binding : List.of(longList, List.of(target), longList)) {
         var cached = (SelectExecutionPlan) YqlExecutionPlanCache.get(key,
