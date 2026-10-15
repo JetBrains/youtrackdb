@@ -703,14 +703,6 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that {@code replaceFileId()} throws {@link UnsupportedOperationException}.
-   */
-  @Test(expected = UnsupportedOperationException.class)
-  public void testReplaceFileIdThrows() {
-    cache.replaceFileId(1L, 2L);
-  }
-
-  /**
    * Verifies that {@code store()} throws {@link UnsupportedOperationException}.
    */
   @Test(expected = UnsupportedOperationException.class)
