@@ -3320,13 +3320,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Nullable private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
-    final var offset = nameIdMapHolder.position();
-    final var entry = NameIdMapFile.readNext(nameIdMapHolder);
-    if (entry == null && offset < nameIdMapHolder.size()) {
-      logger.error("Damaged file registry record at byte {}. Storage name: {}", offset,
-          storageName);
-    }
-    return entry;
+    return NameIdMapFile.readNext(nameIdMapHolder, nameIdMapHolderPath, storageName, this);
   }
 
   private void checkNameIdMapAppendsAllowed() throws IOException {
