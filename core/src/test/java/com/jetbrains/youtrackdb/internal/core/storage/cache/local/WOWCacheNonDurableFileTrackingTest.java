@@ -1297,7 +1297,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     Files.write(legacy, legacyBytes);
     final var v3 = storagePath.resolve("name_id_map_v3.cm");
     final var v3Bytes = Files.readAllBytes(v3);
-    final var failure = assertThrows(IOException.class, () -> createNewCache());
+    final var failure = assertThrows(StorageException.class, () -> createNewCache());
     // loadRegisteredFiles releases and closes the failed cache before propagating the error.
     wowCache = null;
     assertTrue(failure.getMessage().contains(fileName));
@@ -1327,7 +1327,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var offset = laterRecord ? NameIdMapFile.HEADER_SIZE + image.getInt(8) : 0;
     image.putInt(offset + NameIdMapFile.LENGTH_OFFSET, length);
     Files.write(path, bytes);
-    final var failure = assertThrows(IOException.class, () -> createNewCache());
+    final var failure = assertThrows(StorageException.class, () -> createNewCache());
     // Failed-open cleanup already releases the cache without rewriting the damaged map.
     wowCache = null;
     assertTrue(failure.getMessage().contains(path.toString()));
