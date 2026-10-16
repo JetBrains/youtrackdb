@@ -544,10 +544,6 @@ public class AsyncReadCacheTestIT {
     }
 
     @Override
-    public void replaceFileId(long fileId, long newFileId) {
-    }
-
-    @Override
     public String getStorageName() {
       return null;
     }

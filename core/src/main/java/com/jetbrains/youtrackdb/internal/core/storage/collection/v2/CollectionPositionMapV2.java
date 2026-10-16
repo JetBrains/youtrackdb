@@ -778,10 +778,6 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     return fileId;
   }
 
-  /* void replaceFileId(final long newFileId) {
-    this.fileId = newFileId;
-  }*/
-
   /// Visitor callback for iterating over all position map entries, including
   /// both {@link CollectionPositionMapBucket#FILLED} and
   /// {@link CollectionPositionMapBucket#REMOVED} entries.

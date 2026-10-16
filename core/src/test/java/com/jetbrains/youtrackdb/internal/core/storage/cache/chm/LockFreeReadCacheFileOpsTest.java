@@ -968,10 +968,6 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
-    public void replaceFileId(long fileId, long newFileId) {
-    }
-
-    @Override
     public String getStorageName() {
       return null;
     }

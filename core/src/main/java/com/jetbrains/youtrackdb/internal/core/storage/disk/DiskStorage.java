@@ -1270,11 +1270,11 @@ public class DiskStorage extends AbstractStorage {
             callFsync,
             context.getIoExecutor());
 
+    // Failed-open cleanup must also reach a cache whose registry initialization fails.
+    writeCache = wowCache;
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
-
-    writeCache = wowCache;
   }
 
   static boolean warnIfFsyncDisabled(final boolean callFsync) {

@@ -486,11 +486,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void replaceFileId(long fileId, long newFileId) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
   public void deleteStorage(final WriteCache writeCache) {
     delete();
   }
