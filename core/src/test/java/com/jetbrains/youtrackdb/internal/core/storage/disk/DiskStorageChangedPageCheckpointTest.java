@@ -276,6 +276,114 @@ public class DiskStorageChangedPageCheckpointTest {
     assertOpenFailure(failure, 0, failure, failure);
   }
 
+  /** Rejected metadata admission must not create an IV or touch earlier cache and WAL fields. */
+  @Test
+  public void rejectedMetadataLeavesFilesAndEarlierResourcesUntouched() throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var oldCache = mock(com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class);
+    var oldWal = mock(WriteAheadLog.class);
+    setField(created, "writeCache", oldCache);
+    setField(created, "writeAheadLog", oldWal);
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    Files.delete(directory.resolve("data.iv"));
+    var before = new java.util.HashMap<Path, byte[]>();
+    doAnswer(call -> {
+      call.callRealMethod();
+      // Identity admission can publish bootstrap authority before metadata admission.
+      // Snapshot after that unchanged step to isolate IV, WAL, cache and tracker effects.
+      try (var paths = Files.list(directory)) {
+        for (var path : paths.toList()) {
+          if (!path.getFileName().toString().startsWith("dirty.fl")) {
+            before.put(path, Files.readAllBytes(path));
+          }
+        }
+      }
+      return null;
+    }).when(created).readStorageIdentity();
+    try (var channel = FileChannel.open(directory.resolve("dirty.fl"), StandardOpenOption.WRITE);
+        var lock = channel.lock()) {
+      assertThrows(RuntimeException.class, () -> created.open(new ContextConfiguration()));
+      assertFalse(Files.exists(directory.resolve("data.iv")));
+      verifyNoInteractions(oldCache, oldWal);
+      verify(created, never()).postCloseSteps(eq(false), eq(true), anyLong());
+      var after = new java.util.HashSet<Path>();
+      try (var paths = Files.list(directory)) {
+        paths.filter(path -> !path.getFileName().toString().startsWith("dirty.fl"))
+            .forEach(after::add);
+      }
+      assertEquals(before.keySet(), after);
+      for (var entry : before.entrySet()) {
+        org.junit.Assert.assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+      }
+      assertTrue(created.isClosed(null));
+    }
+  }
+
+  /** A registry-load failure must close the constructed cache before releasing metadata. */
+  @Test
+  public void registryLoadFailureClosesUnpublishedCacheBeforeMetadata() throws Exception {
+    assertRegistryLoadFailure(false);
+  }
+
+  /** Failed partial-cache close must retain metadata while the WAL still closes. */
+  @Test
+  public void registryLoadFailureRetainsMetadataWhenPartialCacheCloseFails() throws Exception {
+    assertRegistryLoadFailure(true);
+  }
+
+  private void assertRegistryLoadFailure(boolean failClose) throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var registry = directory.resolve("name_id_map_v3.cm");
+    Files.delete(registry);
+    Files.createDirectory(registry);
+    var steps = new ArrayList<String>();
+    var earlierCache = created.getWriteCache();
+    var actualReadCache = created.getReadCache();
+    var partialCache = new WOWCache[1];
+    var closeFailure = new Error("partial cache close failure");
+    var observed = mock(ReadCache.class, delegatesTo(actualReadCache));
+    doAnswer(call -> {
+      steps.add("cache");
+      var cache = (WOWCache) call.getArgument(0);
+      assertNotSame(earlierCache, cache);
+      partialCache[0] = cache;
+      if (failClose) {
+        throw closeFailure;
+      }
+      actualReadCache.closeStorage(cache);
+      assertTrue((boolean) field(WOWCache.class, cache, "stopFlush"));
+      return null;
+    }).when(observed).closeStorage(any());
+    setField(created, "readCache", observed);
+    doAnswer(call -> {
+      steps.add("metadata");
+      return call.callRealMethod();
+    }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+    try {
+      var failure = assertThrows(RuntimeException.class,
+          () -> created.open(new ContextConfiguration()));
+      assertEquals(failClose ? List.of("cache") : List.of("cache", "metadata"), steps);
+      if (failClose) {
+        assertTrue(Arrays.asList(failure.getCause().getSuppressed()).contains(closeFailure));
+        try (var channel = FileChannel.open(directory.resolve("dirty.fl"),
+            StandardOpenOption.WRITE)) {
+          assertThrows(OverlappingFileLockException.class, channel::tryLock);
+        }
+      }
+      assertTrue(created.isClosed(null));
+    } finally {
+      created.preCloseSteps();
+      if (partialCache[0] != null) {
+        actualReadCache.closeStorage(partialCache[0]);
+      }
+      ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      Files.delete(registry);
+    }
+  }
+
   private void assertOpenFailure(Throwable primary, int failedStep, Error cleanupFailure,
       Error diagnosticFailure) throws Exception {
     assertOpenFailure(primary, failedStep, cleanupFailure, diagnosticFailure, false);
@@ -290,9 +398,9 @@ public class DiskStorageChangedPageCheckpointTest {
     var actualReadCache = created.getReadCache();
     var actualWal = new WriteAheadLog[1];
     var reachedMigration = new boolean[1];
-    // Capture the actual new resources at the existing metadata seam, after real WAL/cache init.
+    // Wrap only resources acquired by this attempt, after real WAL and cache initialization.
     doAnswer(call -> {
-      var metadata = call.callRealMethod();
+      call.callRealMethod();
       actualWal[0] = created.getWALInstance();
       var observedReadCache = mock(ReadCache.class, delegatesTo(actualReadCache));
       doAnswer(close -> {
@@ -320,8 +428,8 @@ public class DiskStorageChangedPageCheckpointTest {
       if (!failDuringMigration) {
         throw primary;
       }
-      return metadata;
-    }).when(created).checkIfStorageDirty();
+      return null;
+    }).when(created).initWalAndDiskCacheOnOpen(any(ContextConfiguration.class));
     doAnswer(call -> {
       steps.add("metadata");
       call.callRealMethod();

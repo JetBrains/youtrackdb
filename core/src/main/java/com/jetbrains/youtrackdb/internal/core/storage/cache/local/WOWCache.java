@@ -554,6 +554,7 @@ public final class WOWCache extends AbstractWriteCache
 
   private final long pagesFlushInterval;
   private volatile boolean stopFlush;
+  private boolean doubleWriteLogOpenAttempted;
   private volatile Future<?> flushFuture;
 
   /**
@@ -715,6 +716,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       initNameIdMapping();
 
+      doubleWriteLogOpenAttempted = true;
       doubleWriteLog.open(storageName, doubleWriteLogFileName, storagePath, pageSize);
 
       closed = false;
@@ -863,8 +865,26 @@ public final class WOWCache extends AbstractWriteCache
     return pageSize;
   }
 
+  /**
+   * The caller holds an applied atomic operation or storage state write exclusion throughout.
+   * Backup cannot publish trusted history while adoption releases and retakes inventory exclusion.
+   */
   @Override
   public long loadFile(final String fileName) throws IOException {
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      var fileId = nameIdMap.get(fileName);
+      if (fileId != null && fileId >= 0) {
+        return registeredFileId(fileName, fileId);
+      }
+      // Detection is state-free. Choose the ID and remove any tombstone only after fallback.
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+
+    changedPageTracker.durableDistrust(storagePath.resolve(ChangedPageTrackerFile.FILE_NAME));
+
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -874,15 +894,7 @@ public final class WOWCache extends AbstractWriteCache
 
       // check that file is already registered
       if (!(fileId == null || fileId < 0)) {
-        final var externalId = composeFileId(id, fileId);
-        fileClassic = files.get(externalId);
-
-        if (fileClassic != null) {
-          return externalId;
-        } else {
-          throw new StorageException(storageName,
-              "File with given name " + fileName + " only partially registered in storage");
-        }
+        return registeredFileId(fileName, fileId);
       }
 
       if (fileId == null) {
@@ -915,8 +927,6 @@ public final class WOWCache extends AbstractWriteCache
                 logger);
 
         openFile(storageName, fileClassic);
-        // Existing unknown content has no complete page history. Keep marks but revoke trust.
-        changedPageTracker.invalidate();
 
         final var externalId = composeFileId(id, fileId);
         files.add(externalId, fileClassic);
@@ -934,6 +944,15 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  private long registeredFileId(String fileName, int fileId) {
+    final var externalId = composeFileId(id, fileId);
+    if (files.get(externalId) == null) {
+      throw new StorageException(storageName,
+          "File with given name " + fileName + " only partially registered in storage");
+    }
+    return externalId;
   }
 
   @Override
@@ -2505,6 +2524,23 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireWriteLock();
     try {
       if (closed) {
+        // Registry loading can fail after opening some handles. No page writers were admitted.
+        // Close those handles without persisting the incomplete inventory.
+        for (var fileId : nameIdMap.values()) {
+          if (fileId >= 0) {
+            long externalId = composeFileId(id, fileId);
+            if (files.get(externalId) != null) {
+              if (!files.close(externalId)) {
+                throw new StorageException(storageName, "File is still in use: " + externalId);
+              }
+              files.remove(externalId);
+            }
+          }
+        }
+        if (doubleWriteLogOpenAttempted) {
+          doubleWriteLog.close();
+          doubleWriteLogOpenAttempted = false;
+        }
         return new long[0];
       }
 
@@ -2568,6 +2604,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       doubleWriteLog.close();
+      doubleWriteLogOpenAttempted = false;
 
       for (final var closedId : closedIds) {
         files.remove(closedId);
