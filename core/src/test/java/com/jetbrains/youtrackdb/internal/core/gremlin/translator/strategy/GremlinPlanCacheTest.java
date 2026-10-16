@@ -317,14 +317,23 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       when(copy.getContext()).thenReturn(context);
       return copy;
     });
+    var session = graphSession();
+    var cache = GremlinPlanCache.instance(session);
+    var publisher = mock(InternalExecutionPlan.class);
+    when(publisher.canBeCached()).thenReturn(true);
+    when(publisher.copy(any())).thenReturn(template);
+    cache.putInternal("unionCopyFixture", publisher, session, cache.getGeneration());
+    var holder = cache.peekEntry("unionCopyFixture", cache.getGeneration());
+    org.mockito.Mockito.clearInvocations(template);
     var strategy = new GremlinToMatchStrategy(ignored -> translation,
-        (session, result, generation) -> template);
+        (db, result, scope) -> holder);
     var method = GremlinToMatchStrategy.class.getDeclaredMethod("buildChildPlans",
         com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
-        GremlinToMatchTranslator.TranslationResult.class, long.class);
+        GremlinToMatchTranslator.TranslationResult.class, GremlinToMatchStrategy.CacheScope.class);
     method.setAccessible(true);
     assertThat(
-        (List<InternalExecutionPlan>) method.invoke(strategy, graphSession(), translation, 0L))
+        (List<InternalExecutionPlan>) method.invoke(strategy, graphSession(), translation,
+            new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true)))
         .containsExactly(copy);
     for (boolean system : new boolean[] {false, true}) {
       for (Object value : new Object[] {"seeded", null}) {
@@ -336,7 +345,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         }
         when(template.getContext()).thenReturn(dirty);
         assertThatExceptionOfType(InvocationTargetException.class)
-            .isThrownBy(() -> method.invoke(strategy, graphSession(), translation, 0L))
+            .isThrownBy(() -> method.invoke(strategy, graphSession(), translation,
+                new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true)))
             .withCauseInstanceOf(IllegalStateException.class);
       }
     }
@@ -880,8 +890,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var misses = cache.getMisses();
 
     session.getMetadata().getSchema().createClass("TxPeekOnly");
-    var txPlan = GremlinToMatchStrategy.buildPlan(session, translation,
-        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false));
+    var txPlan = GremlinToMatchStrategy.buildPlanEntry(session, translation,
+        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false)).value;
     assertThat(txPlan).as("the tx builder must not return the uncounted stored plan")
         .isNotSameAs(stored);
     assertThat(cache.getHits()).isEqualTo(hits);
@@ -1195,9 +1205,9 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         single.shaping());
     var built = new ArrayList<InternalExecutionPlan>();
     var strategy = new GremlinToMatchStrategy(t -> multi, (db, translation, start) -> {
-      var plan = GremlinToMatchStrategy.buildPlan(db, translation, start);
-      built.add(plan);
-      return plan;
+      var entry = GremlinToMatchStrategy.buildPlanEntry(db, translation, start);
+      built.add(entry.value);
+      return entry;
     });
     var traversal = graph.traversal().V().hasLabel("Src").asAdmin();
     strategy.apply(traversal);
@@ -1245,7 +1255,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         single.shaping());
     var built = new ArrayList<InternalExecutionPlan>();
     var strategy = new GremlinToMatchStrategy(t -> multi, (db, translation, start) -> {
-      var ordered = GremlinToMatchStrategy.buildPlan(db, translation, start);
+      var ordered = GremlinToMatchStrategy.buildPlanEntry(db, translation, start).value;
       assertThat(ordered.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
       var ctx = new BasicCommandContext(db);
       var outer = new SelectExecutionPlan(ctx);
@@ -1253,7 +1263,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       assertThat(outer.canBeCached()).isTrue();
       assertThat(outer.getSteps()).noneMatch(IndexOrderedEdgeStep.class::isInstance);
       built.add(outer);
-      return outer;
+      return GremlinPlanCache.Entry.owned(outer, start.generation);
     });
     var traversal = graph.traversal().V().hasLabel("Src").asAdmin();
     strategy.apply(traversal);
@@ -1278,8 +1288,8 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var db = graphSession();
     var cache = GremlinPlanCache.instance(db);
     var ctx = new BasicCommandContext(db);
-    var ordered = GremlinToMatchStrategy.buildPlan(db, walk(orderedTraversal()),
-        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false));
+    var ordered = GremlinToMatchStrategy.buildPlanEntry(db, walk(orderedTraversal()),
+        new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), false)).value;
     var product = new CartesianProductStep(ctx, false);
     product.addSubPlan(ordered);
     var subquery = new SubQueryStep(ordered, ctx, ctx, false);
@@ -1487,14 +1497,6 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var planHits = cache.getHits();
     var reachedPublication = new java.util.concurrent.atomic.AtomicBoolean();
     var builder = new GremlinToMatchStrategy.MatchPlanBuilder() {
-      @Override
-      public InternalExecutionPlan buildPlan(
-          com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,
-          GremlinToMatchTranslator.TranslationResult result,
-          GremlinToMatchStrategy.CacheScope captured) {
-        return GremlinToMatchStrategy.buildPlan(db, result, captured);
-      }
-
       @Override
       public GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
           com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded db,

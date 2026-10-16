@@ -92,7 +92,7 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
           return GremlinToMatchTranslator.translate(t);
         }, (s, translation, scope) -> {
           builds.incrementAndGet();
-          return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+          return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
         }, true);
         com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan template = null;
         for (var bucket : List.of(1, 2, 1)) {

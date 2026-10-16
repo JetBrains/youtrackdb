@@ -37,10 +37,22 @@ public final class GremlinPlanCache
   static final class Entry<T> {
     final T value;
     final long generation;
+    // Provenance survives removal from the cache. A query never takes ownership of a template.
+    final boolean sharedPlanTemplate;
 
     Entry(T value, long generation) {
+      this(value, generation, false);
+    }
+
+    /** Explicit ownership for a fresh private plan or fixture. */
+    static <T> Entry<T> owned(T value, long generation) {
+      return new Entry<>(value, generation, false);
+    }
+
+    private Entry(T value, long generation, boolean sharedPlanTemplate) {
       this.value = value;
       this.generation = generation;
+      this.sharedPlanTemplate = sharedPlanTemplate;
     }
   }
 
@@ -162,7 +174,7 @@ public final class GremlinPlanCache
     }
     var copy = internal.copy(new BasicCommandContext(db));
     copy.close();
-    var entry = new Entry<InternalExecutionPlan>(copy, generation);
+    var entry = new Entry<InternalExecutionPlan>(copy, generation, true);
     cache.asMap().compute(fingerprint,
         (key, previous) -> previous == null || previous.generation <= generation ? entry
             : previous);

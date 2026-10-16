@@ -18,8 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionP
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.RuntimeRidStartPlanningException;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -257,20 +255,8 @@ public final class GremlinToMatchStrategy
     }
   };
 
-  private static final MatchPlanBuilder PRODUCTION_PLAN_BUILDER = new MatchPlanBuilder() {
-    @Override
-    public InternalExecutionPlan buildPlan(DatabaseSessionEmbedded session,
-        GremlinToMatchTranslator.TranslationResult translation, CacheScope scope) {
-      return GremlinToMatchStrategy.buildPlan(session, translation, scope);
-    }
-
-    @Override
-    public GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
-        DatabaseSessionEmbedded session,
-        GremlinToMatchTranslator.TranslationResult translation, CacheScope scope) {
-      return GremlinToMatchStrategy.buildPlanEntry(session, translation, scope);
-    }
-  };
+  private static final MatchPlanBuilder PRODUCTION_PLAN_BUILDER =
+      GremlinToMatchStrategy::buildPlanEntry;
 
   private static final GremlinToMatchStrategy INSTANCE =
       new GremlinToMatchStrategy(PRODUCTION_TRANSLATOR, PRODUCTION_PLAN_BUILDER, true);
@@ -671,7 +657,8 @@ public final class GremlinToMatchStrategy
     }
     var planned = planBuilder.buildPlanEntry(session, translation, cacheScope);
     InternalExecutionPlan plan = planned.value;
-    var copyOnOpen = cacheScope.isShared(plan);
+    // Ownership belongs to the returned holder, not to current membership under its key.
+    var copyOnOpen = planned.sharedPlanTemplate;
     var shaping = OrderedFilterBinding.fresh(translation.shaping());
     var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
     // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
@@ -708,35 +695,14 @@ public final class GremlinToMatchStrategy
     }
   }
 
-  /**
-   * A successful translation's permission and unchanged pre-extraction generation. The identity
-   * set is allocated only when the builder records a shared template. Ownership checks never
-   * allocate it. Fixture builders returning private plans do not gain shared status from key equality.
-   */
+  /** Immutable cache permission and generation captured before extraction. */
   static final class CacheScope {
     final long generation;
     final boolean eligible;
-    @Nullable private Set<InternalExecutionPlan> sharedPlans;
 
     CacheScope(long generation, boolean eligible) {
       this.generation = generation;
       this.eligible = eligible;
-    }
-
-    InternalExecutionPlan shared(InternalExecutionPlan plan) {
-      if (sharedPlans == null) {
-        sharedPlans = Collections.newSetFromMap(new IdentityHashMap<>());
-      }
-      sharedPlans.add(plan);
-      return plan;
-    }
-
-    boolean isShared(InternalExecutionPlan plan) {
-      return eligible && sharedPlans != null && sharedPlans.contains(plan);
-    }
-
-    boolean hasSharedPlanSet() {
-      return sharedPlans != null;
     }
   }
 
@@ -753,13 +719,6 @@ public final class GremlinToMatchStrategy
    * only observable when a second thread invalidates mid-build, and a test that reimplemented the
    * guard would pin its own copy instead of this one.
    */
-  static InternalExecutionPlan buildPlan(
-      DatabaseSessionEmbedded session,
-      GremlinToMatchTranslator.TranslationResult translation,
-      CacheScope cacheScope) {
-    return buildPlanEntry(session, translation, cacheScope).value;
-  }
-
   static GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation, CacheScope cacheScope) {
@@ -777,7 +736,6 @@ public final class GremlinToMatchStrategy
     var cache = GremlinPlanCache.instance(session);
     var cached = cache.planEntry(fingerprint, session, generation);
     if (cached != null) {
-      cacheScope.shared(cached.value);
       return cached;
     }
     var plan = buildPlanUncached(session, inputs, translation.inputParameters());
@@ -788,7 +746,6 @@ public final class GremlinToMatchStrategy
         session.getTxSchemaState() == null ? cache.peekEntry(fingerprint, generation) : null;
     if (stored != null) {
       plan.close();
-      cacheScope.shared(stored.value);
       return stored;
     }
     return new GremlinPlanCache.Entry<>(plan, generation);
@@ -824,9 +781,10 @@ public final class GremlinToMatchStrategy
                 child.parameters(),
                 child.cacheEligible(),
                 translation.shaping());
-        var childPlan = planBuilder.buildPlan(session, childTranslation, cacheScope);
-        // Multi-plan boundaries own every child. Only shared templates need a private copy.
-        if (cacheScope.isShared(childPlan)) {
+        var childEntry = planBuilder.buildPlanEntry(session, childTranslation, cacheScope);
+        var childPlan = childEntry.value;
+        // Multi-plan boundaries own every child. Provenance survives invalidation after return.
+        if (childEntry.sharedPlanTemplate) {
           if (childPlan.getContext() instanceof BasicCommandContext context
               && context.hasLocalVariableKeys()) {
             throw new IllegalStateException("Shared MATCH template context contains variable keys");
@@ -1044,22 +1002,14 @@ public final class GremlinToMatchStrategy
 
   /**
    * Injection seam for building the MATCH execution plan from translated inputs. Production wires
-   * {@link #buildPlan}; tests pass a stub so the splice path runs without a real {@link
-   * MatchExecutionPlanner}. Named rather than a bare {@code BiFunction} so the call site reads
-   * {@code planBuilder.buildPlan(session, inputs)}.
+   * {@link #buildPlanEntry}; real-cache delegates preserve its holder. Private fixtures explicitly
+   * return {@link GremlinPlanCache.Entry#owned} so no adapter silently drops shared provenance.
    */
   @FunctionalInterface
   interface MatchPlanBuilder {
-    InternalExecutionPlan buildPlan(
+    GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
         DatabaseSessionEmbedded session,
         GremlinToMatchTranslator.TranslationResult translation,
         CacheScope cacheScope);
-
-    /** The production override preserves the generation of the returned physical holder. */
-    default GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
-        DatabaseSessionEmbedded session,
-        GremlinToMatchTranslator.TranslationResult translation, CacheScope scope) {
-      return new GremlinPlanCache.Entry<>(buildPlan(session, translation, scope), scope.generation);
-    }
   }
 }
