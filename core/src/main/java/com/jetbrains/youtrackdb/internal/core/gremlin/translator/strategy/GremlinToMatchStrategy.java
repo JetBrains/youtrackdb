@@ -653,7 +653,8 @@ public final class GremlinToMatchStrategy
     }
     var planned = planBuilder.buildPlanEntry(session, translation, generation);
     InternalExecutionPlan plan = planned.value;
-    var copyOnOpen = isSharedPlanTemplate(session, translation, plan);
+    // Ownership belongs to the returned holder, not to current membership under its key.
+    var copyOnOpen = planned.sharedPlanTemplate;
     var shaping = OrderedFilterBinding.fresh(translation.shaping());
     var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
     // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
@@ -686,28 +687,6 @@ public final class GremlinToMatchStrategy
               translation.hasContributions()),
           session, planned.generation);
     }
-  }
-
-  /**
-   * True when {@code plan} is the closed template living in {@link GremlinPlanCache} and the
-   * boundary step must copy it on first open rather than own it. Literal RID and non-cacheable
-   * plans (e.g. {@code CountFromClassStep}) stay eager: the step closes them.
-   */
-  private static boolean isSharedPlanTemplate(
-      DatabaseSessionEmbedded session,
-      GremlinToMatchTranslator.TranslationResult translation,
-      InternalExecutionPlan plan) {
-    // A fresh tx-local plan belongs to the boundary, even if the shared cache has the same key.
-    if (session.getTxSchemaState() != null || !translation.cacheEligible()
-        || !plan.canBeCached()) {
-      return false;
-    }
-    var inputs = translation.inputs();
-    if (inputs == null) {
-      return false;
-    }
-    return GremlinPlanCache.instance(session)
-        .contains(GremlinPlanFingerprint.fingerprint(inputs, translation.shaping()));
   }
 
   /**

@@ -845,6 +845,74 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             });
   }
 
+  /** A dirty later shared union child declines through apply without closing either template. */
+  @Test
+  public void applyRealUnionGuardPreservesNativeTraversalAndClosesOnlyEarlierCopy() {
+    setKillSwitch(true);
+    var a = graph.addVertex(T.label, "UnionGuardPerson");
+    var b = graph.addVertex(T.label, "UnionGuardPerson");
+    a.addEdge("unionGuardLink", b);
+    graph.tx().commit();
+    var nativeRows = TranslatorEquivalenceSupport.sortedIds(graph.traversal()
+        .withoutStrategies(GremlinToMatchStrategy.class).V()
+        .union(__.out("unionGuardLink"), __.in("unionGuardLink")).toList());
+    assertThat(nativeRows).hasSize(2);
+    var cache = GremlinPlanCache.instance(session());
+    cache.invalidate();
+    var templates = new ArrayList<InternalExecutionPlan>();
+    var copies = new ArrayList<InternalExecutionPlan>();
+    var metrics = GremlinTranslationMetrics.of(session());
+    var errors = metrics.getErrors();
+    var successes = metrics.getSuccesses();
+    var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
+        (db, result, generation) -> {
+          var raw = GremlinToMatchStrategy.buildPlan(db, result, generation);
+          var publishing = org.mockito.Mockito.spy(raw);
+          org.mockito.Mockito
+              .doAnswer(invocation -> org.mockito.Mockito.spy(invocation.callRealMethod()))
+              .when(publishing).copy(org.mockito.ArgumentMatchers.any());
+          var fp = GremlinPlanFingerprint.fingerprint(result.inputs(), result.shaping());
+          cache.putInternal(fp, publishing, db, generation);
+          var shared = cache.peekStored(fp);
+          // The instrumented object is the actual stored template, not an unrelated fixture plan.
+          org.mockito.Mockito.clearInvocations(shared);
+          templates.add(shared);
+          if (templates.size() == 2) {
+            ((BasicCommandContext) shared.getContext()).setVariable("dirtyUnionGuard", null);
+          } else {
+            org.mockito.Mockito.doAnswer(invocation -> {
+              var copy =
+                  org.mockito.Mockito.spy((InternalExecutionPlan) invocation.callRealMethod());
+              copies.add(copy);
+              return copy;
+            }).when(shared).copy(org.mockito.ArgumentMatchers.any());
+          }
+          return shared;
+        });
+    var query = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class).V()
+        .union(__.out("unionGuardLink"), __.in("unionGuardLink")).asAdmin();
+    var original = List.copyOf(query.getSteps());
+    try {
+      strategy.apply(query);
+      assertThat(query.getSteps()).containsExactlyElementsOf(original);
+      for (int i = 0; i < original.size(); i++) {
+        assertThat(query.getSteps().get(i)).isSameAs(original.get(i));
+      }
+      assertThat(metrics.getErrors()).isEqualTo(errors + 1);
+      assertThat(metrics.getSuccesses()).isEqualTo(successes);
+      assertThat(templates).hasSize(2);
+      assertThat(copies).hasSize(1);
+      verify(copies.getFirst(), times(1)).close();
+      for (var shared : templates) {
+        verify(shared, org.mockito.Mockito.never()).start();
+        verify(shared, org.mockito.Mockito.never()).close();
+      }
+      assertThat(TranslatorEquivalenceSupport.sortedIds(query.toList())).isEqualTo(nativeRows);
+    } finally {
+      cache.invalidate();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Gating cascade — non-YTDB / detached start, and the plain-GraphStep start gate.
   // ---------------------------------------------------------------------------

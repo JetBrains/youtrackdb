@@ -44,10 +44,17 @@ public final class GremlinPlanCache
   static final class Entry<T> {
     final T value;
     final long generation;
+    // Provenance survives removal from the cache. A query never takes ownership of a template.
+    final boolean sharedPlanTemplate;
 
     Entry(T value, long generation) {
+      this(value, generation, false);
+    }
+
+    private Entry(T value, long generation, boolean sharedPlanTemplate) {
       this.value = value;
       this.generation = generation;
+      this.sharedPlanTemplate = sharedPlanTemplate;
     }
   }
 
@@ -171,7 +178,7 @@ public final class GremlinPlanCache
     copyCtx.setDatabaseSession(db);
     internal = internal.copy(copyCtx);
     internal.close();
-    var entry = new Entry<InternalExecutionPlan>(internal, generation);
+    var entry = new Entry<InternalExecutionPlan>(internal, generation, true);
     putCached(fingerprint, entry);
     var hook = afterPlanPublication;
     if (hook != null) {

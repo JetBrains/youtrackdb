@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExpandSliceListShapingOp;
@@ -680,7 +681,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var failures = new ArrayList<String>();
     var strategy = new GremlinToMatchStrategy(
         traversal -> GremlinStepWalker.production().walk(ordered.get().asAdmin()),
-        GremlinToMatchStrategy::buildPlan, true, failures::add, null);
+        productionPlanBuilder(), true, failures::add, null);
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> absent =
         () -> graph.traversal().withSack(1).V().hasLabel("MissedSource");
     String key = GremlinStepWalker.extractShape(absent.get().asAdmin(), graphSession()).key();
@@ -706,7 +707,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(
         traversal -> GremlinToMatchTranslator.translate(
             graph.traversal().V().hasLabel("AgreementPerson").has("age", 30).asAdmin()),
-        GremlinToMatchStrategy::buildPlan, true, failures::add, publications::incrementAndGet);
+        productionPlanBuilder(), true, failures::add, publications::incrementAndGet);
 
     strategy.apply(admin);
 
@@ -1313,6 +1314,26 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     return ordered.out("unsafeHopEdge").has(key, predicate).limit(1).values("name");
   }
 
+  private static GremlinToMatchStrategy.MatchPlanBuilder productionPlanBuilder() {
+    return new GremlinToMatchStrategy.MatchPlanBuilder() {
+      @Override
+      public com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan buildPlan(
+          DatabaseSessionEmbedded db, GremlinToMatchTranslator.TranslationResult result,
+          long generation) {
+        return GremlinToMatchStrategy.buildPlan(db, result, generation);
+      }
+
+      @Override
+      public
+          GremlinPlanCache.Entry<
+              com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan>
+          buildPlanEntry(DatabaseSessionEmbedded db,
+              GremlinToMatchTranslator.TranslationResult result, long generation) {
+        return GremlinToMatchStrategy.buildPlanEntry(db, result, generation);
+      }
+    };
+  }
+
   private GremlinToMatchStrategy countingStrategy(AtomicInteger walks) {
     return countingStrategy(walks, GremlinToMatchStrategy::assertAgreement);
   }
@@ -1335,7 +1356,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         return GremlinToMatchTranslator.translate(traversal, includesMissing, placements,
             polymorphic);
       }
-    }, GremlinToMatchStrategy::buildPlan, true, agreementFailure, null);
+    }, productionPlanBuilder(), true, agreementFailure, null);
   }
 
   private List<String> runNativeHop(Supplier<
