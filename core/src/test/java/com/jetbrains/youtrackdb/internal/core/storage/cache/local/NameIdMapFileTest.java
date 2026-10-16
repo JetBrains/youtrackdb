@@ -16,12 +16,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.IOException;
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -57,9 +60,9 @@ public class NameIdMapFileTest {
     assertArrayEquals(expected.array(), NameIdMapFile.encode(FIRST, "test").array());
     final var path = write(image(FIRST, SECOND));
     try (final var channel = FileChannel.open(path)) {
-      assertEquals(FIRST, NameIdMapFile.readNext(channel));
-      assertEquals(SECOND, NameIdMapFile.readNext(channel));
-      assertNull(NameIdMapFile.readNext(channel));
+      assertEquals(FIRST, NameIdMapFile.readNext(channel, path, "test", this));
+      assertEquals(SECOND, NameIdMapFile.readNext(channel, path, "test", this));
+      assertNull(NameIdMapFile.readNext(channel, path, "test", this));
       final var scan = NameIdMapFile.scan(channel);
       assertTrue(scan.intact());
       assertEquals(channel.size(), scan.validEnd());
@@ -99,47 +102,110 @@ public class NameIdMapFileTest {
       assertEquals(prefix.limit(), scan.validEnd());
       assertEquals(List.of(FIRST), entries(scan));
       try (final var channel = FileChannel.open(path)) {
-        assertEquals(FIRST, NameIdMapFile.readNext(channel));
-        assertNull(NameIdMapFile.readNext(channel));
+        assertEquals(FIRST, NameIdMapFile.readNext(channel, path, "test", this));
+        assertNull(NameIdMapFile.readNext(channel, path, "test", this));
       }
     }
   }
 
-  /** Invalid lengths, malformed strings and bad hashes stop the scan even before valid tails. */
+  /**
+   * Scan classifies all malformed records as damage. Streaming fails on negative lengths and
+   * unparseable checksummed payloads, stops on bad hashes, and accepts unused payload bytes.
+   */
   @Test
   public void malformedRecordsNeverAllocateFromUncheckedLengths() throws Exception {
-    final var damaged = new ArrayList<ByteBuffer>();
-    for (final var length : new int[] {-1, Integer.MIN_VALUE, 0, 16385, Integer.MAX_VALUE, 1, 4}) {
+    for (final var length : new int[] {-1, Integer.MIN_VALUE, 0xFFFFFFF0}) {
       final var record = image(FIRST);
       record.putInt(8, length);
-      damaged.add(record);
+      assertDamagedRecord(record, IOException.class, null);
+    }
+    for (final var length : new int[] {0, 16385, Integer.MAX_VALUE, 1, 4}) {
+      final var record = image(FIRST);
+      record.putInt(8, length);
+      assertDamagedRecord(record, null, null);
     }
     for (final var offset : new int[] {16, 22}) {
       for (final var length : new int[] {-1, Integer.MAX_VALUE, 100}) {
         final var record = image(FIRST);
         record.putInt(offset, length);
         rehash(record);
-        damaged.add(record);
+        assertDamagedRecord(record,
+            length < 0 ? NegativeArraySizeException.class : BufferUnderflowException.class, null);
       }
+    }
+    for (final var length : new int[] {0, 1, 4}) {
+      final var record = image(FIRST);
+      record.putInt(8, length);
+      rehash(record);
+      assertDamagedRecord(record, BufferUnderflowException.class, null);
     }
     final var trailing = image(FIRST);
     trailing.putInt(22, 0);
     rehash(trailing);
-    damaged.add(trailing);
+    assertDamagedRecord(trailing, null, new NameFileIdEntry("a", 7, ""));
     final var badHash = image(FIRST);
     badHash.putLong(0, badHash.getLong(0) ^ 1);
-    damaged.add(badHash);
-    for (final var record : damaged) {
-      final var bytes = ByteBuffer.allocate(image(FIRST).limit() + record.limit()
-          + image(SECOND).limit());
-      bytes.put(image(FIRST)).put(record).put(image(SECOND)).flip();
-      final var path = write(bytes);
-      final var scan = scan(path);
-      assertFalse(scan.intact());
-      assertEquals(List.of(FIRST), entries(scan));
-      try (final var channel = FileChannel.open(path)) {
-        assertEquals(FIRST, NameIdMapFile.readNext(channel));
-        assertNull(NameIdMapFile.readNext(channel));
+    assertDamagedRecord(badHash, null, null);
+  }
+
+  private void assertDamagedRecord(ByteBuffer record, Class<? extends Throwable> failure,
+      NameFileIdEntry expected) throws Exception {
+    final var prefix = image(FIRST);
+    final var bytes = ByteBuffer.allocate(prefix.limit() + record.limit() + image(SECOND).limit());
+    bytes.put(prefix).put(record).put(image(SECOND)).flip();
+    final var path = write(bytes);
+    final var scan = scan(path);
+    assertFalse(scan.intact());
+    assertEquals(prefix.limit(), scan.validEnd());
+    assertEquals(List.of(FIRST), entries(scan));
+    try (final var channel = FileChannel.open(path)) {
+      assertEquals(FIRST, NameIdMapFile.readNext(channel, path, "test", this));
+      if (failure != null) {
+        final var thrown = assertThrows(failure,
+            () -> NameIdMapFile.readNext(channel, path, "test", this));
+        if (failure == IOException.class) {
+          assertTrue(thrown.getMessage().contains(path.toString()));
+          assertTrue(thrown.getMessage().contains("at byte " + prefix.limit()));
+        }
+      } else {
+        assertEquals(expected, NameIdMapFile.readNext(channel, path, "test", this));
+      }
+    }
+  }
+
+  /** Streaming logs only excessive lengths and checksum mismatches, not torn headers or payloads. */
+  @Test
+  public void streamingDamageKeepsOpenPathLogging() throws Exception {
+    final var excessive = image(FIRST);
+    excessive.putInt(8, 16385);
+    final var badHash = image(FIRST);
+    badHash.putLong(0, badHash.getLong(0) ^ 1);
+    for (final var record : List.of(excessive, badHash)) {
+      final var path = write(record);
+      final var log = mock(LogManager.class);
+      try (final var logs = mockStatic(LogManager.class);
+          final var channel = FileChannel.open(path)) {
+        logs.when(LogManager::instance).thenReturn(log);
+        assertNull(NameIdMapFile.readNext(channel, path, "test", this));
+        if (record == excessive) {
+          verify(log).error(this,
+              "Maximum record length in file registry can not exceed %d bytes. "
+                  + "But actual record length %d.  Storage name : %s",
+              null, NameIdMapFile.MAX_RECORD_LENGTH, "test", 16385);
+        } else {
+          verify(log).error(this, "Hash of the file registry is broken. Storage name : %s",
+              null, "test");
+        }
+      }
+    }
+    for (final var cut : new int[] {1, 11, 12, 31}) {
+      final var path = write(ByteBuffer.wrap(java.util.Arrays.copyOf(image(FIRST).array(), cut)));
+      final var log = mock(LogManager.class);
+      try (final var logs = mockStatic(LogManager.class);
+          final var channel = FileChannel.open(path)) {
+        logs.when(LogManager::instance).thenReturn(log);
+        assertNull(NameIdMapFile.readNext(channel, path, "test", this));
+        verifyNoInteractions(log);
       }
     }
   }

@@ -1308,6 +1308,60 @@ public class WOWCacheNonDurableFileTrackingTest {
     org.junit.Assert.assertArrayEquals(v3Bytes, Files.readAllBytes(v3));
   }
 
+  /** A first-record rewrite guard fails the open without changing any map bytes. */
+  @Test
+  public void testV3GuardedFirstRecordFailsOpenWithoutChangingMap() throws Exception {
+    assertNegativeMapLengthFailsOpen(false, -1);
+  }
+
+  /** A negative length after a valid record fails instead of exposing only the valid prefix. */
+  @Test
+  public void testV3LaterNegativeRecordLengthFailsOpenWithoutChangingMap() throws Exception {
+    assertNegativeMapLengthFailsOpen(true, 0xFFFFFFF0);
+  }
+
+  private void assertNegativeMapLengthFailsOpen(boolean laterRecord, int length) throws Exception {
+    final var path = writeClosedV3Map();
+    final var bytes = Files.readAllBytes(path);
+    final var image = ByteBuffer.wrap(bytes);
+    final var offset = laterRecord ? NameIdMapFile.HEADER_SIZE + image.getInt(8) : 0;
+    image.putInt(offset + NameIdMapFile.LENGTH_OFFSET, length);
+    Files.write(path, bytes);
+    final var failure = assertThrows(IOException.class, () -> createNewCache());
+    // Failed-open cleanup already releases the cache without rewriting the damaged map.
+    wowCache = null;
+    assertTrue(failure.getMessage().contains(path.toString()));
+    assertTrue(failure.getMessage().contains("at byte " + offset));
+    assertTrue(failure.getMessage().contains("Negative record length " + length));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(path));
+  }
+
+  /** A bad checksum keeps the valid prefix, ignores later records and leaves the map unchanged. */
+  @Test
+  public void testV3ChecksumMismatchOpensOnlyValidPrefix() throws Exception {
+    final var path = writeClosedV3Map();
+    final var bytes = Files.readAllBytes(path);
+    final var image = ByteBuffer.wrap(bytes);
+    final NameFileIdEntry first;
+    try (final var channel = FileChannel.open(path)) {
+      first = NameIdMapFile.readNext(channel, path, storageName, this);
+    }
+    final var offset = NameIdMapFile.HEADER_SIZE + image.getInt(8);
+    image.putLong(offset, image.getLong(offset) ^ 1);
+    Files.write(path, bytes);
+    createNewCache();
+    assertEquals(java.util.Map.of(first.getName(), first.getFileId()), mapSnapshot("nameIdMap"));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(path));
+  }
+
+  private Path writeClosedV3Map() throws Exception {
+    wowCache.addFile("first.tst");
+    wowCache.addFile("second.tst");
+    wowCache.addFile("third.tst");
+    wowCache.close();
+    return storagePath.resolve("name_id_map_v3.cm");
+  }
+
   // --- Side file persistence tests ---
 
   /**
