@@ -2538,7 +2538,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
         if (doubleWriteLogOpenAttempted) {
-          doubleWriteLog.close();
+          doubleWriteLog.closeAfterFailedOpen();
           doubleWriteLogOpenAttempted = false;
         }
         return new long[0];

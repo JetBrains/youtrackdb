@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
@@ -35,6 +36,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.EntryPoint;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -516,13 +519,75 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
-  /** Real registry loading opens handles before a DWL fault. Close must release those handles. */
+  /** Partial production log opens preserve recovery bytes and release all acquired handles. */
+  @Test
+  public void failedProductionLogOpenBeforeChannelPreservesSegmentsAndReleasesHandles()
+      throws Exception {
+    assertFailedProductionLogOpen(false);
+  }
+
+  /** A failure after channel assignment closes that channel without deleting recovery segments. */
+  @Test
+  public void failedProductionLogOpenAfterChannelPreservesSegmentsAndReleasesHandles()
+      throws Exception {
+    assertFailedProductionLogOpen(true);
+  }
+
+  private void assertFailedProductionLogOpen(boolean afterChannel) throws Exception {
+    long file = cache.addFile("partial-production.tst");
+    cache.close();
+    var path = cache.getRootDirectory();
+    var segment = path.resolve(ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME
+        + (afterChannel ? "_0.dwl" : "_bad.dwl"));
+    byte[] bytes = {3, 1, 4, 1, 5};
+    Files.write(segment, bytes);
+    var log = spy(new DoubleWriteLogGL(1024 * 1024, 4096, false));
+    if (afterChannel) {
+      doAnswer(call -> {
+        call.callRealMethod();
+        throw new IOException("after channel assignment");
+      }).when(log).open(org.mockito.ArgumentMatchers.anyString(),
+          org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), anyInt());
+    }
+    setField(cache, "doubleWriteLog", log);
+    try {
+      if (afterChannel) {
+        assertThrows(IOException.class, cache::loadRegisteredFiles);
+      } else {
+        assertThrows(NumberFormatException.class, cache::loadRegisteredFiles);
+      }
+      var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+      var handle = handles.get(file);
+      assertTrue(handle.isOpen());
+      cache.close();
+      assertFalse(handle.isOpen());
+      assertNull(handles.get(file));
+      assertArrayEquals(bytes, Files.readAllBytes(segment));
+      var channel = (FileChannel) field(log, "currentFile");
+      if (afterChannel) {
+        assertFalse(channel.isOpen());
+      }
+      cache.close();
+      assertArrayEquals(bytes, Files.readAllBytes(segment));
+    } finally {
+      var channel = (FileChannel) field(log, "currentFile");
+      if (channel != null) {
+        channel.close();
+      }
+      Files.deleteIfExists(segment);
+      setField(cache, "doubleWriteLog", new DoubleWriteLogNoOP());
+      cache.loadRegisteredFiles();
+      cache.deleteFile(file);
+    }
+  }
+
+  /** Real registry loading opens handles before a double-write log open failure. */
   @Test
   public void closeReleasesHandlesAfterFailedRegisteredFilesLoad() throws Exception {
     long file = cache.addFile("partial.tst");
     cache.close();
     var log = spy(new DoubleWriteLogNoOP());
-    org.mockito.Mockito.doThrow(new java.io.IOException("DWL open failed"))
+    org.mockito.Mockito.doThrow(new java.io.IOException("double-write log open failed"))
         .when(log).open(org.mockito.ArgumentMatchers.anyString(),
             org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), anyInt());
     setField(cache, "doubleWriteLog", log);
