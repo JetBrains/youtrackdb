@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +20,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
@@ -306,11 +308,9 @@ final class GremlinStepWalker {
    * walking every child — see that method for why the look-ahead exists.
    *
    * <p>Membership is necessary, not sufficient. {@link RangeGlobalStepRecogniser} sits here because
-   * a slice <em>can</em> ride the concatenation, but it accepts only when a {@code count()} follows
-   * immediately: the concatenation emits child one's rows then child two's while native {@code
-   * union(...)} interleaves the arms, so any surviving positional selection would return a different
-   * multiset with the translator on than off. That recogniser's class Javadoc carries the full
-   * argument.
+   * a slice <em>can</em> ride the concatenation after a captured total element order or immediately
+   * before {@code count()}. Without either, branch-major and native interleaved arrival orders can
+   * select different rows. That recogniser's class Javadoc carries the full argument.
    *
    * <p>That second condition rides on {@link StepRecogniser#selectsPositionally}, so adding a member
    * here is two decisions rather than one: whether the recogniser's contribution survives {@link
@@ -517,6 +517,9 @@ final class GremlinStepWalker {
     // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
     // resolution below.
     rejectReservedPrefixLabels(steps);
+    if (hasDuplicateStepLabels(traversal)) {
+      return null;
+    }
     // Child labels do not escape a detached expression. A reader on the outer traversal could
     // otherwise observe the binding that the expression discarded.
     if (DetachedChildGrammar.hasOuterLabelReader(traversal)) {
@@ -688,14 +691,15 @@ final class GremlinStepWalker {
       // may claim a step once a union carrier is on the context; every other one would write into
       // state buildResult discards for a multi-plan translation, so decline the whole walk and let
       // the traversal run on the native pipeline. Membership is necessary and not sufficient: a
-      // member that selects rows by position may only stand ahead of an immediate count(), and that
-      // second condition is applied here through the same body the pre-fork look-ahead uses, so
-      // neither reader can admit a step the other refuses. Without it the look-ahead would be the
-      // only guard against a translated union(...).tail(n) — a property of call order rather than
-      // of the gates, and one a later change to the fork path could take away silently.
+      // positional member needs an immediate count(), except a slice after a proven total order.
+      // Both gates use the same positional helper. The pre-fork scan checks only the numeric RID
+      // key. Here the captured order must also satisfy branch output, shaping and boundary-key
+      // safety. This stronger gate can refuse a suffix that passed the scan and fails closed.
+      // Tail never receives the range-only exception, even when the scan has found a total order.
       if (ctx.hasUnionCarrier()
           && (!POST_UNION_RECOGNISERS.contains(recogniser)
-              || !postUnionPositionalGateSatisfied(cursor, recognisers, recogniser, head, 0))) {
+              || !postUnionPositionalGateSatisfied(cursor, recognisers, recogniser, head, 0,
+                  RangeGlobalStepRecogniser.hasSliceSafeOrder(ctx)))) {
         return false;
       }
       // Single-plan cardinality gate (see capturedCardinalityClause and the allow-list below).
@@ -1143,19 +1147,16 @@ final class GremlinStepWalker {
    *
    * <p>This is a necessary condition, not a simulation: an allow-listed recogniser may still decline
    * its own step (a second {@code count()}, a {@code dedup(labels)}), in which case the fork is
-   * still paid and the in-loop gate plus the recogniser decline the walk. Fail-closed is preserved
-   * in both directions — the two readers apply the same two conditions over the same allow-list and
-   * the same shared positional body, so neither admits a shape the other refuses.
+   * still paid and the in-loop gate plus the recogniser decline the walk. The scan uses the shared
+   * positional helper with only the numeric RID proof. Dispatch additionally checks the captured
+   * order's output, shaping and boundary keys, so a scan acceptance can still fail closed.
    *
-   * <p>The one gate applied here as well as in the dispatch loop, rather than left to its
-   * recogniser, is the positional one: a step that selects rows by position needs a {@code count()}
-   * immediately after it (see {@link RangeGlobalStepRecogniser}), and {@code union(...).limit(n)} is
-   * common enough that paying N discarded sub-walks per compilation for it would give back most of
-   * what this look-ahead exists to save. The shared body asks the recogniser through {@link
-   * StepRecogniser#selectsPositionally} rather than testing one recogniser's identity or re-deriving
-   * the normalisation, so a slice that normalises away to nothing still reaches the fork exactly as
-   * it did before, the look-ahead stays no stricter than the recogniser, and a member added to
-   * {@link #POST_UNION_RECOGNISERS} later gets the positional gate along with the membership one.
+   * <p>A positional step needs an immediate {@code count()}, except a slice after an order with
+   * the numeric RID key. The context memoises that proof from the Gremlin step. Successful order
+   * capture stores the same answer on the post-concat op for dispatch and range recognition.
+   * Branch output agreement, shaping and boundary-key safety are checked after the fork, once
+   * their facts exist.
+   * No-op ranges remain non-positional. The total-order exception applies only to ranges, not tail.
    *
    * <p>The two halves spell "a count follows" differently on purpose. Here the next step is resolved
    * through {@code recognisers}, the same registry dispatch would use, so a curated test registry is
@@ -1165,7 +1166,8 @@ final class GremlinStepWalker {
    * registry, and both drift directions decline rather than translate.
    */
   static boolean postUnionSuffixTranslatable(
-      StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers) {
+      StepCursor cursor, Map<Class<?>, StepRecogniser> recognisers, RecognitionContext ctx) {
+    boolean totalOrder = false;
     for (var ahead = 0;; ahead++) {
       var step = cursor.peek(ahead);
       if (step == null) {
@@ -1177,7 +1179,11 @@ final class GremlinStepWalker {
       if (recogniser == null || !POST_UNION_RECOGNISERS.contains(recogniser)) {
         return false;
       }
-      if (!postUnionPositionalGateSatisfied(cursor, recognisers, recogniser, step, ahead)) {
+      if (step instanceof OrderGlobalStep<?, ?> order) {
+        totalOrder = ctx.unionOrderHasNumericRidKey(order);
+      }
+      if (!postUnionPositionalGateSatisfied(
+          cursor, recognisers, recogniser, step, ahead, totalOrder)) {
         return false;
       }
     }
@@ -1185,9 +1191,8 @@ final class GremlinStepWalker {
 
   /**
    * The second of the two post-union conditions, asked once membership has been established: a step
-   * that selects rows by position may stand after a union only when the very next significant step
-   * is an immediate {@code count()}, which collapses the concatenation to a cardinality before the
-   * arrival-order difference can be observed. A step that selects no position passes unconditionally.
+   * that selects rows by position needs an immediate {@code count()}, or must be a range after a
+   * proven total order. A step that selects no position passes unconditionally.
    *
    * <p>Both readers of the post-union rule call this — {@link #postUnionSuffixTranslatable} while
    * scanning the suffix before the fork, {@link #dispatchAll} on its own head once the union carrier
@@ -1207,8 +1212,10 @@ final class GremlinStepWalker {
       Map<Class<?>, StepRecogniser> recognisers,
       StepRecogniser recogniser,
       Step<?, ?> step,
-      int ahead) {
-    if (!recogniser.selectsPositionally(step)) {
+      int ahead,
+      boolean totalOrder) {
+    if (!recogniser.selectsPositionally(step)
+        || (recogniser == RangeGlobalStepRecogniser.INSTANCE && totalOrder)) {
       return true;
     }
     var next = cursor.peek(ahead + 1);
@@ -1278,6 +1285,38 @@ final class GremlinStepWalker {
     adapter.markOutcome(accepted && (adapter.limit() == null || inertLimit)
         && adapter.skip() == null ? Outcome.ACCEPTED : Outcome.DECLINE);
     return adapter;
+  }
+
+  /**
+   * Label aliases represent one binding, not path history. Decline a repeated label anywhere in
+   * the traversal tree, including separate branches and detached filter children.
+   */
+  static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal) {
+    return hasDuplicateStepLabels(traversal, new HashSet<>());
+  }
+
+  private static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal,
+      Set<String> labels) {
+    for (Step<?, ?> step : traversal.getSteps()) {
+      for (var label : GremlinStepLabels.userLabels(step)) {
+        if (!labels.add(label)) {
+          return true;
+        }
+      }
+      if (step instanceof TraversalParent parent) {
+        for (var child : parent.getLocalChildren()) {
+          if (hasDuplicateStepLabels(child, labels)) {
+            return true;
+          }
+        }
+        for (var child : parent.getGlobalChildren()) {
+          if (hasDuplicateStepLabels(child, labels)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /** Native select resolves side effects before path labels. Never cache a label-only projection
@@ -1432,7 +1471,7 @@ final class GremlinStepWalker {
         Map.copyOf(inputParameters),
         !ctx.ridBearing(),
         ctx.shaping(),
-        ctx.hasBindings);
+        ctx.hasBindings).withUserLabelAliases(ctx.userLabelToAlias);
   }
 
   /**

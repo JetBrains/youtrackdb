@@ -10,7 +10,9 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
@@ -144,6 +146,76 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
         graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList(),
         List.of("Bob", "Cara", "Zebra", "\u00c4hhhh"),
         true);
+  }
+
+  /** An edge-only declaration governs union sorts over vertices through the native whole graph set. */
+  @Test
+  public void unionSortWithEdgeOnlyCollation_declinesWithAndWithoutSlice() {
+    session.createEdgeClass("CollatedEdge")
+        .createProperty("name", PropertyType.STRING).setCollate("ci");
+    assertCollatedUnionDeclines();
+  }
+
+  /** A declaration only on a subclass must be found by the shared hierarchy walk. */
+  @Test
+  public void unionSortWithSubclassOnlyCollation_declinesWithAndWithoutSlice() {
+    var parent = session.createVertexClass("Parent");
+    session.getMetadata().getSchema().createClass("CollatedChild", parent)
+        .createProperty("name", PropertyType.STRING).setCollate("ci");
+    assertCollatedUnionDeclines();
+  }
+
+  /** A declared default disagrees with ci, so native and translated union sorts use plain order. */
+  @Test
+  public void unionSortWithDisagreeingCollations_keepsTranslation() {
+    session.createEdgeClass("CollatedEdge")
+        .createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.createVertexClass("DefaultClass").createProperty("name", PropertyType.STRING);
+    seedUnionNames();
+    support.assertEquivalent("union default fallback", Recognition.RECOGNIZED_MULTI_PLAN,
+        Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::unionNames,
+        () -> graph.traversal().V().union(__.out("next"), __.in("next")).order().by("name"));
+  }
+
+  /**
+   * Branches duplicate six names. A collated second key must decline even when the first key is
+   * uncollated. A slice plus count reaches the order recogniser without relaxing the slice gate.
+   */
+  private void assertCollatedUnionDeclines() {
+    seedUnionNames();
+    support.assertEquivalent("collated union sort", Recognition.DECLINED,
+        Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::unionNames,
+        () -> graph.traversal().V().union(__.out("next"), __.in("next"))
+            .order().by(T.label).by("name"));
+    var expected = List.of("ada", "Ada", "ada", "Ada", "Bob", "Bob", "Cara", "Cara",
+        "Zebra", "Zebra", "Ähhhh", "Ähhhh");
+    // Case variants tie, so verify the ci group separately from its RID-defined inner sequence.
+    var names = unionNames(graph.traversal().V().union(__.out("next"), __.in("next"))
+        .order().by(T.label).by("name").toList());
+    assertThat(names.subList(0, 4)).containsExactlyInAnyOrderElementsOf(expected.subList(0, 4));
+    assertThat(names.subList(4, 12)).isEqualTo(expected.subList(4, 12));
+    support.assertEquivalent("collated union sort with slice", Recognition.DECLINED,
+        Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::unionNames,
+        () -> graph.traversal().V().union(__.out("next"), __.in("next"))
+            .order().by("name").limit(3));
+    support.assertEquivalent("collated union sort with counted slice", Recognition.DECLINED,
+        Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::orderedRows,
+        () -> graph.traversal().V().union(__.out("next"), __.in("next"))
+            .order().by("name").limit(3).count());
+  }
+
+  /** A committed ring makes each branch emit every name once and supports translated hops. */
+  private void seedUnionNames() {
+    seedNames("Thing");
+    var vertices = graph.traversal().V().toList();
+    for (var index = 0; index < vertices.size(); index++) {
+      vertices.get(index).addEdge("next", vertices.get((index + 1) % vertices.size()));
+    }
+    graph.tx().commit();
+  }
+
+  private static List<String> unionNames(List<?> rows) {
+    return rows.stream().map(row -> ((Vertex) row).<String>value("name")).toList();
   }
 
   /**

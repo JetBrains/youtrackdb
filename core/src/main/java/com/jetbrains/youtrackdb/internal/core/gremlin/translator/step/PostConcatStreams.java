@@ -10,9 +10,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -20,10 +22,10 @@ import javax.annotation.Nonnull;
  * The {@link ExecutionStream} decorators that realise {@link PostConcatOp} over a concatenated union
  * stream, plus the single-row {@code count} result both count paths emit.
  *
- * <p>These are plain stream decorators with no tie to the boundary-step lifecycle — only their
- * construction site lives in {@link MultiPlanMatchStep}. Keeping them here gives each operator a
- * unit-test home that needs no boundary step, and keeps the one {@code "count"} column name in a
- * single place instead of once per count path.
+ * <p>These plain stream decorators have no tie to the boundary-step lifecycle. The {@link #apply}
+ * factory assembles them for {@link MultiPlanMatchStep}. Keeping them here gives each operator a
+ * unit-test home that needs no boundary step. Both count paths share the {@code "count"} column
+ * name.
  */
 final class PostConcatStreams {
 
@@ -108,7 +110,61 @@ final class PostConcatStreams {
    */
   static ExecutionStream sort(
       @Nonnull ExecutionStream upstream, @Nonnull List<SQLOrderByItem> items) {
-    return new SortStream(upstream, List.copyOf(items));
+    return new SortStream(upstream, List.copyOf(items), -1);
+  }
+
+  /**
+   * Assembles the union suffix without changing the recognised operations. An ended slice bounds
+   * the preceding sort. Dedup between those two operations moves before the sort so duplicate rows
+   * cannot consume the top-N budget. No operation crosses a slice or a count barrier.
+   */
+  static ExecutionStream apply(
+      ExecutionStream stream, List<PostConcatOp> ops, String boundaryAlias) {
+    for (int i = 0; i < ops.size(); i++) {
+      var op = ops.get(i);
+      if (op instanceof PostConcatOp.Order order) {
+        int next = i + 1;
+        boolean dedup = next < ops.size() && ops.get(next) instanceof PostConcatOp.Dedup;
+        if (dedup) {
+          next++;
+        }
+        if (next < ops.size() && ops.get(next) instanceof PostConcatOp.Range range
+            && range.limit() >= 0) {
+          if (dedup) {
+            stream = dedup(stream, boundaryAlias);
+            i++;
+          }
+          // Saturation also handles hand-built operation lists whose skip + limit overflows.
+          long end = range.limit() == 0 ? 0
+              : range.skip() + Math.min(range.limit(), Long.MAX_VALUE - range.skip());
+          stream = sort(stream, order.items(), end);
+          if (end == 0) {
+            // The empty draining sort implements the slice itself. A limit(0) wrapper would
+            // bypass the sort and hide upstream failures.
+            i = next;
+          }
+          continue;
+        }
+      }
+      stream = switch (op) {
+        case PostConcatOp.Count ignored -> count(stream);
+        case PostConcatOp.Range range -> {
+          var sliced = range.skip() > 0 ? skip(stream, range.skip()) : stream;
+          yield range.limit() >= 0 ? sliced.limit(range.limit()) : sliced;
+        }
+        case PostConcatOp.Dedup ignored -> dedup(stream, boundaryAlias);
+        case PostConcatOp.RequireDefined defined -> requireDefined(
+            stream, defined.entityColumnAlias(), defined.propertyKey());
+        case PostConcatOp.Order order -> sort(stream, order.items());
+      };
+    }
+    return stream;
+  }
+
+  /** Stable top-N sort with a long bound and no allocation based on the declared slice end. */
+  static ExecutionStream sort(
+      ExecutionStream upstream, List<SQLOrderByItem> items, long end) {
+    return new SortStream(upstream, List.copyOf(items), end);
   }
 
   /** Drain-and-count decorator; see {@link #count(ExecutionStream)}. */
@@ -219,13 +275,20 @@ final class PostConcatStreams {
     private final ExecutionStream upstream;
     private final List<SQLOrderByItem> items;
     private final List<Result> sorted = new ArrayList<>();
+    private final long end;
+    private PriorityQueue<SortRow> heap;
     private int index;
     private boolean materialized;
     private boolean upstreamClosed;
 
-    SortStream(ExecutionStream upstream, List<SQLOrderByItem> items) {
+    SortStream(ExecutionStream upstream, List<SQLOrderByItem> items, long end) {
       this.upstream = upstream;
       this.items = items;
+      this.end = end;
+    }
+
+    /** Arrival order is the final key, matching the full sort's stable treatment of ties. */
+    private record SortRow(Result result, long ordinal) {
     }
 
     @Override
@@ -246,6 +309,10 @@ final class PostConcatStreams {
     public void close(CommandContext ctx) {
       closeUpstreamOnce(ctx);
       sorted.clear();
+      if (heap != null) {
+        heap.clear();
+        heap = null;
+      }
       index = 0;
       materialized = false;
     }
@@ -264,25 +331,77 @@ final class PostConcatStreams {
       }
       materialized = true;
       try {
-        while (upstream.hasNext(ctx)) {
-          sorted.add(upstream.next(ctx));
+        if (end == 0) {
+          // A sort is a draining barrier even for an empty slice. Preserve upstream failures
+          // and cancellation without retaining any rows.
+          while (upstream.hasNext(ctx)) {
+            upstream.next(ctx);
+          }
+          return;
+        }
+        // Resolve once: a mid-sort config flip would break the comparator, and each resolution
+        // takes a storage lock. Both paths keep the upstream hasNext/next cancellation checks.
+        var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+        Comparator<Result> comparator = (a, b) -> {
+          for (var item : items) {
+            var cmp = item.compare(a, b, ctx, nullsDefault);
+            if (cmp != 0) {
+              return cmp;
+            }
+          }
+          return 0;
+        };
+        if (end < 0) {
+          while (upstream.hasNext(ctx)) {
+            sorted.add(upstream.next(ctx));
+          }
+          sorted.sort(comparator);
+        } else {
+          Comparator<SortRow> stable = (a, b) -> {
+            int cmp = comparator.compare(a.result(), b.result());
+            return cmp != 0 ? cmp : Long.compare(a.ordinal(), b.ordinal());
+          };
+          long ordinal = 0;
+          while (upstream.hasNext(ctx)) {
+            var result = upstream.next(ctx);
+            long arrival = ordinal++;
+            if (heap == null && sorted.size() < end) {
+              sorted.add(result);
+              continue;
+            }
+            if (heap == null) {
+              // Delay the heap until the bound actually discards a row. Inputs that fit keep
+              // the full sort's adaptive comparison count and need no SortRow wrappers.
+              // Capacity never depends on end, and there is no row-count cap.
+              heap = new PriorityQueue<>(1, stable.reversed());
+              for (int i = 0; i < sorted.size(); i++) {
+                heap.add(new SortRow(sorted.set(i, null), i));
+              }
+              sorted.clear();
+            }
+            var row = new SortRow(result, arrival);
+            if (stable.compare(row, heap.element()) < 0) {
+              heap.remove();
+              heap.add(row);
+            }
+          }
+          if (heap == null) {
+            sorted.sort(comparator);
+          } else {
+            // Sorting the heap contents avoids a logarithmic poll for every output row.
+            // Release the heap array before replay, and the wrappers when ensure returns.
+            var kept = new ArrayList<>(heap);
+            heap.clear();
+            heap = null;
+            kept.sort(stable);
+            for (var row : kept) {
+              sorted.add(row.result());
+            }
+          }
         }
       } finally {
         closeUpstreamOnce(ctx);
       }
-      // Resolve once for the whole sort: a mid-sort config flip would break Comparator, and each
-      // resolve takes a storage lock (see SQLOrderByItem.compare).
-      var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
-      sorted.sort(
-          (a, b) -> {
-            for (var item : items) {
-              var cmp = item.compare(a, b, ctx, nullsDefault);
-              if (cmp != 0) {
-                return cmp;
-              }
-            }
-            return 0;
-          });
       index = 0;
     }
   }

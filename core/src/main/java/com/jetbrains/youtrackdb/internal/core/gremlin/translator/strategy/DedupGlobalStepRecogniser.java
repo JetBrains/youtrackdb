@@ -67,7 +67,8 @@ final class DedupGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     for (var op : ctx.postConcatOps()) {
-      if (op instanceof PostConcatOp.Dedup || op instanceof PostConcatOp.Count) {
+      if (op instanceof PostConcatOp.Dedup || op instanceof PostConcatOp.Count
+          || (op instanceof PostConcatOp.Order order && !order.keysOnlyBoundary())) {
         return Outcome.DECLINE;
       }
     }

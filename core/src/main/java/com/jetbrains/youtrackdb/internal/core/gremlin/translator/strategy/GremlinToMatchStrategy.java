@@ -370,9 +370,10 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
-    // Check before a template lookup: a cached path-label projection cannot stand in for a
+    // Check before a template lookup: aliases cannot represent repeated path bindings or a
     // side-effect value that belongs to this invocation.
-    if (GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
+    if (GremlinStepWalker.hasDuplicateStepLabels(traversal)
+        || GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
       GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }

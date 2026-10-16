@@ -60,9 +60,8 @@ import org.junit.Test;
  *       {@code dedup()}, and boundary-named {@code dedup(v)} translate.
  *   <li><b>Keyless {@code valueMap()}/{@code elementMap()}</b> — declines (schema keys alone
  *       under-project vs native schemaless enumeration); keyed forms translate.
- *   <li><b>Post-union hop/filter/positional slice</b> — declines; union+{@code count}/early
- *       {@code dedup}/{@code order} translate. {@code union(...).order().by(k).limit(n)} still
- *       declines (slice after post-concat sort is not yet on the allow path).
+ *   <li><b>Post-union hop/filter/unordered slice</b> — declines; union+{@code count}/early
+ *       {@code dedup}/{@code order} translate. Slices after a captured total element sort translate.
  *   <li><b>{@code Order.shuffle}</b> / second {@code order()} / order after {@code group} — decline.
  *   <li><b>Nested {@code by(__.order().by(Column.values|keys))}</b> after {@code groupCount().unfold()}
  *       — declines; direct {@code by(Column.values)} / {@code by(Column.keys)} translate.

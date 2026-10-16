@@ -5,6 +5,8 @@ import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy
 import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.sortedStrings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -21,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.List;
@@ -30,6 +33,7 @@ import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
+import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
@@ -38,6 +42,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -277,6 +282,28 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.orderBy.getItems()).hasSize(1);
     assertThat(ctx.orderBy.toString()).contains("name");
     assertThat(ctx.orderBy.toString()).doesNotContain("@rid");
+  }
+
+  /**
+   * Both select step representations accept only Pop.last as a property sort key. A mocked
+   * single-label SelectStep isolates its classifier arm because its constructor needs two keys.
+   */
+  @Test
+  public void labelSortClassifier_onlyDefaultPopForEitherSelectRepresentation() {
+    for (var pop : Pop.values()) {
+      var one = __.select(pop, "s").by("name").asAdmin();
+      var many = __.start().asAdmin();
+      var select = mock(SelectStep.class);
+      when(select.getPop()).thenReturn(pop);
+      when(select.getSelectKeys()).thenReturn(List.of("s"));
+      when(select.getLocalChildren()).thenReturn(List.of(__.values("name").asAdmin()));
+      many.addStep(select);
+      for (var modulator : List.of(one, many)) {
+        var target = ByModulatorTranslator.selectModulatorTarget(modulator, label -> "bound");
+        assertThat(target.isPresent()).as("select representation=" + modulator + " Pop=" + pop)
+            .isEqualTo(pop == Pop.last);
+      }
+    }
   }
 
   /** {@code order().by(select('k').by(key))} resolves through {@link ByModulatorTranslator}. */
@@ -865,6 +892,96 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(cursor, ctx))
         .isEqualTo(Outcome.ACCEPTED);
     assertThat(ctx.postConcatOps()).isEmpty();
+  }
+
+  /** A captured total union order accepts row-returning ranges without touching SQL clauses. */
+  @Test
+  public void postUnionOrderedRange_acceptsOnlyCapturedNumericRidProof() {
+    for (boolean numeric : List.of(true, false)) {
+      var ctx = unionCarrierContext();
+      var admin = graph.traversal().V().order().by(T.id).range(1, 3).asAdmin();
+      if (numeric) {
+        applyOrderTieBreak(admin);
+      }
+      assertThat(OrderGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, OrderGlobalStep.class), ctx)).isEqualTo(Outcome.ACCEPTED);
+      var order = (PostConcatOp.Order) ctx.postConcatOps().getLast();
+      assertThat(order.hasNumericRidKey()).isEqualTo(numeric);
+      assertThat(order.keysOnlyBoundary()).isTrue();
+      assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, RangeGlobalStep.class), ctx))
+          .isEqualTo(numeric ? Outcome.ACCEPTED : Outcome.DECLINE);
+      assertThat(ctx.skip).isNull();
+      assertThat(ctx.limit).isNull();
+    }
+  }
+
+  /** Transported label keys permit a slice only when no dedup selects a source representative. */
+  @Test
+  public void postUnionOrderedRange_labelKeysAcceptOnlyWithoutDedup() {
+    for (int dedupPosition = 0; dedupPosition < 3; dedupPosition++) {
+      var ctx = unionCarrierContext();
+      var order = new PostConcatOp.Order(List.of(
+          ProjectionExpressionFactories.orderByProperty("foreign", "name", true),
+          ProjectionExpressionFactories.orderByRecordAttribute(BOUNDARY_ALIAS, "@rid", true)),
+          true, false);
+      if (dedupPosition == 1) {
+        ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
+      }
+      ctx.appendPostConcatOp(order);
+      if (dedupPosition == 2) {
+        ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
+      }
+      var admin = graph.traversal().V().limit(1).asAdmin();
+      assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+          cursorAt(admin, RangeGlobalStep.class), ctx))
+          .isEqualTo(dedupPosition == 0 ? Outcome.ACCEPTED : Outcome.DECLINE);
+    }
+  }
+
+  /** Each post-union recogniser independently refuses dedup on either side of a label-key sort. */
+  @Test
+  public void postUnionLabelOrder_dedupDeclinesBeforeAndAfterSort() {
+    for (boolean dedupFirst : List.of(false, true)) {
+      var ctx = unionCarrierContext();
+      ctx.userLabelToAlias.put("s", "source");
+      var admin = graph.traversal().V().order().by(__.select("s").by("name"))
+          .dedup().asAdmin();
+      if (dedupFirst) {
+        ctx.appendPostConcatOp(PostConcatOp.Dedup.INSTANCE);
+      }
+      assertThat(recognizeOrder(admin, ctx))
+          .isEqualTo(dedupFirst ? Outcome.DECLINE : Outcome.ACCEPTED);
+      if (!dedupFirst) {
+        assertThat(DedupGlobalStepRecogniser.INSTANCE.recognize(cursorAt(admin,
+            org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep.class), ctx))
+            .isEqualTo(Outcome.DECLINE);
+      }
+    }
+  }
+
+  /** An agreed element shaping that deduplicates rows after the slice must still decline. */
+  @Test
+  public void postUnionOrderedRange_rowDroppingElementShapingDeclines() {
+    var ctx = unionCarrierContext();
+    var admin = graph.traversal().V().order().by("name").limit(1).asAdmin();
+    assertThat(recognizeOrder(admin, ctx)).isEqualTo(Outcome.ACCEPTED);
+    ctx.setRowDedupAlias(BOUNDARY_ALIAS);
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, RangeGlobalStep.class), ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /** The total-order proof cannot make a property projection safe after a slice. */
+  @Test
+  public void postUnionOrderedRange_nonElementShapingDeclines() {
+    var ctx = unionCarrierContext();
+    ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.SINGLE_VALUE, Vertex.class);
+    ctx.appendPostConcatOp(new PostConcatOp.Order(List.of(
+        ProjectionExpressionFactories.orderByRecordAttribute(BOUNDARY_ALIAS, "@rid", true)),
+        true, true));
+    var admin = graph.traversal().V().limit(1).asAdmin();
+    assertThat(RangeGlobalStepRecogniser.INSTANCE.recognize(
+        cursorAt(admin, RangeGlobalStep.class), ctx)).isEqualTo(Outcome.DECLINE);
   }
 
   // ---------------------------------------------------------------------------

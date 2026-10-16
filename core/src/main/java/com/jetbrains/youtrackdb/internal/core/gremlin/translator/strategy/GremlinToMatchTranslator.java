@@ -124,6 +124,7 @@ final class GremlinToMatchTranslator {
    * @param shaping the boundary row-projection shaping the terminator pinned (row dropping, presence
    *     checks, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, elementMap
    *     token keys); {@link ResultShaping#NONE} for the element path
+   * @param userLabelAliases immutable label bindings exported by this walk for union-fork checks
    */
   record TranslationResult(
       @Nullable MatchPlanInputs inputs,
@@ -135,7 +136,24 @@ final class GremlinToMatchTranslator {
       @Nonnull Map<Object, Object> inputParameters,
       boolean cacheEligible,
       @Nonnull ResultShaping shaping,
-      @Nonnull List<HasBindingContext.Contribution> hasContributions) {
+      @Nonnull List<HasBindingContext.Contribution> hasContributions,
+      @Nonnull Map<String, String> userLabelAliases) {
+
+    /** Label bindings belong to the fork that produced this result, not its parent walk. */
+    TranslationResult withUserLabelAliases(Map<String, String> aliases) {
+      return new TranslationResult(inputs, childPlans, postConcatOps, boundaryAlias, outputType,
+          returnClass, inputParameters, cacheEligible, shaping, hasContributions, aliases);
+    }
+
+    /** Compatibility constructor for callers without exported label bindings. */
+    TranslationResult(
+        MatchPlanInputs inputs, List<ChildPlan> childPlans, List<PostConcatOp> postConcatOps,
+        String boundaryAlias, BoundaryOutputType outputType, Class<? extends Element> returnClass,
+        Map<Object, Object> inputParameters, boolean cacheEligible, ResultShaping shaping,
+        List<HasBindingContext.Contribution> hasContributions) {
+      this(inputs, childPlans, postConcatOps, boundaryAlias, outputType, returnClass,
+          inputParameters, cacheEligible, shaping, hasContributions, Map.of());
+    }
 
     /** Compatibility constructor for tests and callers with no recorded has contributions. */
     TranslationResult(
@@ -172,6 +190,7 @@ final class GremlinToMatchTranslator {
       childPlans = List.copyOf(childPlans);
       postConcatOps = List.copyOf(postConcatOps);
       hasContributions = List.copyOf(hasContributions);
+      userLabelAliases = Map.copyOf(userLabelAliases);
       boolean singlePlan = inputs != null;
       boolean multiPlan = !childPlans.isEmpty();
       if (singlePlan == multiPlan) {
@@ -195,7 +214,8 @@ final class GremlinToMatchTranslator {
     /** Replace only invocation-specific post-plan filters, leaving all other shaping intact. */
     TranslationResult withShaping(ResultShaping replacement) {
       return new TranslationResult(inputs, childPlans, postConcatOps, boundaryAlias, outputType,
-          returnClass, inputParameters, cacheEligible, replacement, hasContributions);
+          returnClass, inputParameters, cacheEligible, replacement, hasContributions,
+          userLabelAliases);
     }
 
     /**

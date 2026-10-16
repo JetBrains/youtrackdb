@@ -70,7 +70,7 @@ final class UnionForkHostImpl implements UnionForkHost {
 
   @Override
   public boolean postUnionSuffixTranslatable() {
-    return GremlinStepWalker.postUnionSuffixTranslatable(cursor, recognisers);
+    return GremlinStepWalker.postUnionSuffixTranslatable(cursor, recognisers, ctx);
   }
 
   @Nullable @Override

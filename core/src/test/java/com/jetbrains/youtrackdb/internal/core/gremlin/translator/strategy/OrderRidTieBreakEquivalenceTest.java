@@ -12,8 +12,10 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.util.GremlinValueComparator;
 import org.junit.Test;
 
 /**
@@ -222,6 +224,71 @@ public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
         graph.traversal().V().out("knows").order().by("id").limit(3).values("tag").toList())
         .as("a bound cutting inside a tie group must keep the ordered prefix")
         .isEqualTo(oracle.subList(0, 3));
+  }
+
+  /**
+   * Union arms duplicate all rows, including pending and committed identifiers. Forced ties make
+   * the numeric RID key decide the sequence in both directions and after several property keys.
+   * Explicit T.id and identity keys must use that same numeric order, also in a non-final slot.
+   * Committed rows use a lower collection than pending rows, so numeric RID order puts committed
+   * rows first while TinkerPop orderability groups pending identifier classes first.
+   */
+  @Test
+  public void elementUnionSorts_matchNumericRidSequenceWithPendingRowsAndDuplicates() {
+    var schema = session.getMetadata().getSchema();
+    var vertexClass = schema.getClass("V");
+    var classes = new ArrayList<>(List.of(
+        schema.createClass("UnionPeopleA", 1, vertexClass),
+        schema.createClass("UnionPeopleB", 1, vertexClass)));
+    classes.sort(Comparator.comparingInt(type -> type.getCollectionIds()[0]));
+    // One collection per class removes random placement. Choosing by the actual collection IDs
+    // keeps the fixture deterministic without assuming that schema allocation follows creation order.
+    for (var index = 1; index <= 3; index++) {
+      graph.addVertex(T.label, classes.getFirst().getName(), "age", 30, "tag",
+          "committed-" + index);
+    }
+    graph.tx().commit();
+    graph.addVertex(T.label, classes.getLast().getName(), "age", 30, "tag", "pending-1");
+    graph.addVertex(T.label, classes.getLast().getName(), "age", 30, "tag", "pending-2");
+    var vertices = graph.traversal().V().toList();
+    assertThat(vertices).hasSize(5);
+    // A ring gives every vertex one target. Repeating that hop in both branches emits each row
+    // twice without relying on identity-only arms, which the translator does not claim.
+    for (var index = 0; index < vertices.size(); index++) {
+      vertices.get(index).addEdge("next", vertices.get((index + 1) % vertices.size()));
+    }
+    assertThat(vertices.stream().map(vertex -> vertex.id().getClass()).distinct().count())
+        .as("the fixture must mix pending and committed identifier classes").isEqualTo(2);
+    var numericOrder = orderedRows(vertices.stream().sorted(byRecordId()).toList());
+    var orderabilityOrder = orderedRows(
+        vertices.stream().sorted(GremlinValueComparator.ORDERABILITY).toList());
+    assertThat(numericOrder)
+        .as("numeric RID order must differ from identity orderability on the actual fixture rows")
+        .isNotEqualTo(orderabilityOrder);
+    for (var direction : List.of(Order.asc, Order.desc)) {
+      var comparator = direction == Order.asc ? byRecordId() : byRecordId().reversed();
+      var expected = vertices.stream().sorted(comparator)
+          .flatMap(vertex -> java.util.stream.Stream.of(vertex, vertex))
+          .map(vertex -> "V:" + vertex.id()).toList();
+      List<Supplier<GraphTraversal<?, ?>>> sorts = List.of(
+          () -> graph.traversal().V().union(__.out("next"), __.out("next").has("age"))
+              .order().by("age", direction),
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by("age", Order.asc).by("age", direction),
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by(T.id, direction).by("age"),
+          () -> graph.traversal().V().union(__.out("next"), __.out("next"))
+              .order().by(direction).by("age"));
+      for (var sort : sorts) {
+        assertEquivalentOrdered("element union numeric sort " + direction,
+            Recognition.RECOGNIZED_MULTI_PLAN, sort);
+        // Pin each arm to an independent numeric oracle. Equal wrong arms must not pass.
+        for (var translated : List.of(true, false)) {
+          support.withTranslator(translated,
+              () -> assertThat(orderedRows(sort.get().toList())).isEqualTo(expected));
+        }
+      }
+    }
   }
 
   /**
