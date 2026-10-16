@@ -37,7 +37,6 @@ import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
-import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -56,7 +55,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
-import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
@@ -72,7 +70,6 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -92,11 +89,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
@@ -205,12 +200,10 @@ public final class WOWCache extends AbstractWriteCache
   private static final String NAME_ID_MAP_V3 = "name_id_map_v3" + NAME_ID_MAP_EXTENSION;
 
   /**
-   * Name of file temporary which contains third version of binary format. Temporary file is used to
-   * prevent situation when DB is crashed because of migration to third version of binary format and
-   * data are lost.
+   * Temporary file used to create the initial V3 map before publishing it by rename.
    *
    * @see #NAME_ID_MAP_V3
-   * @see #storedNameIdMapToV3()
+   * @see #createNameIdMapV3()
    */
   private static final String NAME_ID_MAP_V3_T = "name_id_map_v3_t" + NAME_ID_MAP_EXTENSION;
 
@@ -227,7 +220,7 @@ public final class WOWCache extends AbstractWriteCache
    *
    * @see #NAME_ID_MAP_V3
    */
-  private static final int MAX_FILE_RECORD_LEN = 16 << 10;
+  private static final int MAX_FILE_RECORD_LEN = NameIdMapFile.MAX_RECORD_LENGTH;
 
   /**
    * Main copy of the registry for persisting non-durable file IDs.
@@ -2937,31 +2930,12 @@ public final class WOWCache extends AbstractWriteCache
     final var nameIdMapHolderV2 = storagePath.resolve(NAME_ID_MAP_V2);
     final var nameIdMapHolderV3 = storagePath.resolve(NAME_ID_MAP_V3);
 
-    if (Files.exists(nameIdMapHolderV1)) {
-      if (Files.exists(nameIdMapHolderV2)) {
-        Files.delete(nameIdMapHolderV2);
+    for (final var legacyPath : List.of(nameIdMapHolderV1, nameIdMapHolderV2)) {
+      if (Files.exists(legacyPath)) {
+        throw new IOException("Name-id map format is no longer supported: " + legacyPath
+            + ". Export the database with the older release that created it, then import it"
+            + " into a fresh database with this release. See docs/operator-migration-procedure.md");
       }
-      if (Files.exists(nameIdMapHolderV3)) {
-        Files.delete(nameIdMapHolderV3);
-      }
-
-      try (final var nameIdMapHolder =
-          FileChannel.open(nameIdMapHolderV1, StandardOpenOption.WRITE, StandardOpenOption.READ)) {
-        readNameIdMapV1(nameIdMapHolder);
-      }
-
-      Files.delete(nameIdMapHolderV1);
-    } else if (Files.exists(nameIdMapHolderV2)) {
-      if (Files.exists(nameIdMapHolderV3)) {
-        Files.delete(nameIdMapHolderV3);
-      }
-
-      try (final var nameIdMapHolder =
-          FileChannel.open(nameIdMapHolderV2, StandardOpenOption.WRITE, StandardOpenOption.READ)) {
-        readNameIdMapV2(nameIdMapHolder);
-      }
-
-      Files.delete(nameIdMapHolderV2);
     }
 
     nameIdMapHolderPath = nameIdMapHolderV3;
@@ -2972,10 +2946,10 @@ public final class WOWCache extends AbstractWriteCache
         readNameIdMapV3(nameIdMapHolder);
       }
     } else {
-      storedNameIdMapToV3();
+      createNameIdMapV3();
     }
 
-    // Filter after all name-id map migrations. Persist before writers can reuse deleted IDs,
+    // Filter after loading the name-id map. Persist before writers can reuse deleted IDs,
     // so a later crash cannot apply an old non-durable flag to a new durable file.
     nonDurableFileIds = readNonDurableRegistry();
     final var filtered = nonDurableFileIds.removeIf((int fileId) -> !idNameMap.containsKey(fileId));
@@ -2987,7 +2961,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void storedNameIdMapToV3() throws IOException {
+  private void createNameIdMapV3() throws IOException {
     final var nameIdMapHolderFileV3T = storagePath.resolve(NAME_ID_MAP_V3_T);
 
     if (Files.exists(nameIdMapHolderFileV3T)) {
@@ -3000,21 +2974,6 @@ public final class WOWCache extends AbstractWriteCache
             StandardOpenOption.CREATE,
             StandardOpenOption.WRITE,
             StandardOpenOption.READ);
-
-    for (final var nameIdEntry : nameIdMap.entrySet()) {
-      if (nameIdEntry.getValue() >= 0) {
-        final var fileClassic = files.get(externalFileId(nameIdEntry.getValue()));
-        final var fileSystemName = fileClassic.getName();
-
-        final var nameFileIdEntry =
-            new NameFileIdEntry(nameIdEntry.getKey(), nameIdEntry.getValue(), fileSystemName);
-        writeNameIdEntry(v3NameIdMapHolder, nameFileIdEntry, false);
-      } else {
-        final var nameFileIdEntry =
-            new NameFileIdEntry(nameIdEntry.getKey(), nameIdEntry.getValue(), "");
-        writeNameIdEntry(v3NameIdMapHolder, nameFileIdEntry, false);
-      }
-    }
 
     if (callFsync) {
       v3NameIdMapHolder.force(true);
@@ -3360,301 +3319,14 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  /**
-   * Read information about files are registered inside of write cache/storage File consist of rows
-   * of variable length which contains following entries:
-   *
-   * <ol>
-   *   <li>Internal file id, may be positive or negative depends on whether file is removed or not
-   *   <li>Name of file inside of write cache, this name is case sensitive
-   *   <li>Name of file which is used inside file system it can be different from name of file used
-   *       inside write cache
-   * </ol>
-   */
-  private void readNameIdMapV2(FileChannel nameIdMapHolder)
-      throws IOException, java.lang.InterruptedException {
-    nameIdMap.clear();
-
-    long localFileCounter = -1;
-
-    nameIdMapHolder.position(0);
-
-    NameFileIdEntry nameFileIdEntry;
-
-    final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
-
-    while ((nameFileIdEntry = readNextNameIdEntryV2(nameIdMapHolder)) != null) {
-      final long absFileId = Math.abs(nameFileIdEntry.getFileId());
-
-      if (localFileCounter < absFileId) {
-        localFileCounter = absFileId;
-      }
-
-      if (absFileId != 0) {
-        nameIdMap.put(nameFileIdEntry.getName(), nameFileIdEntry.getFileId());
-        idNameMap.put(nameFileIdEntry.getFileId(), nameFileIdEntry.getName());
-
-        idFileNameMap.put(nameFileIdEntry.getFileId(), nameFileIdEntry.getFileSystemName());
-      } else {
-        nameIdMap.remove(nameFileIdEntry.getName());
-        idNameMap.remove(nameFileIdEntry.getFileId());
-
-        idFileNameMap.remove(nameFileIdEntry.getFileId());
-      }
-    }
-
-    for (final var nameIdEntry : nameIdMap.entrySet()) {
-      final int fileId = nameIdEntry.getValue();
-
-      if (fileId > 0) {
-        final var externalId = composeFileId(id, nameIdEntry.getValue());
-
-        if (files.get(externalId) == null) {
-          final var path =
-              storagePath.resolve(idFileNameMap.get(nameIdEntry.getValue().intValue()));
-          final var file =
-              new AsyncFile(
-                  path, pageSize, logFileDeletion, this.executor, storageName, callFsync);
-
-          if (file.exists()) {
-            file.open();
-            registerOpenFile(externalId, file);
-          } else {
-            idNameMap.remove(fileId);
-
-            nameIdMap.put(nameIdEntry.getKey(), -fileId);
-            idNameMap.put(-fileId, nameIdEntry.getKey());
-          }
-        }
-      }
-    }
-  }
-
-  private void readNameIdMapV1(final FileChannel nameIdMapHolder)
-      throws IOException, java.lang.InterruptedException {
-    // older versions of ODB incorrectly logged file deletions
-    // some deleted files have the same id
-    // because we reuse ids of removed files when we re-create them
-    // we need to fix this situation
-    final var filesWithNegativeIds =
-        new Int2ObjectOpenHashMap<Set<String>>(1_000);
-
-    nameIdMap.clear();
-
-    long localFileCounter = -1;
-
-    nameIdMapHolder.position(0);
-
-    NameFileIdEntry nameFileIdEntry;
-    while ((nameFileIdEntry = readNextNameIdEntryV1(nameIdMapHolder)) != null) {
-
-      final long absFileId = Math.abs(nameFileIdEntry.getFileId());
-      if (localFileCounter < absFileId) {
-        localFileCounter = absFileId;
-      }
-
-      final var existingId = nameIdMap.get(nameFileIdEntry.getName());
-
-      if (existingId != null && existingId < 0) {
-        final var files = filesWithNegativeIds.get(existingId.intValue());
-
-        if (files != null) {
-          files.remove(nameFileIdEntry.getName());
-          if (files.isEmpty()) {
-            filesWithNegativeIds.remove(existingId.intValue());
-          }
-        }
-      }
-
-      if (nameFileIdEntry.getFileId() < 0) {
-        var files = filesWithNegativeIds.get(nameFileIdEntry.getFileId());
-
-        if (files == null) {
-          files = new HashSet<>(8);
-          files.add(nameFileIdEntry.getName());
-          filesWithNegativeIds.put(nameFileIdEntry.getFileId(), files);
-        } else {
-          files.add(nameFileIdEntry.getName());
-        }
-      }
-
-      nameIdMap.put(nameFileIdEntry.getName(), nameFileIdEntry.getFileId());
-      idNameMap.put(nameFileIdEntry.getFileId(), nameFileIdEntry.getName());
-    }
-
-    for (final var nameIdEntry : nameIdMap.entrySet()) {
-      if (nameIdEntry.getValue() >= 0) {
-        final var externalId = composeFileId(id, nameIdEntry.getValue());
-
-        if (files.get(externalId) == null) {
-          final File fileClassic =
-              new AsyncFile(
-                  storagePath.resolve(nameIdEntry.getKey()),
-                  pageSize,
-                  logFileDeletion,
-                  this.executor,
-                  storageName,
-                  callFsync);
-
-          if (fileClassic.exists()) {
-            fileClassic.open();
-            registerOpenFile(externalId, fileClassic);
-          } else {
-            final var fileId = nameIdMap.get(nameIdEntry.getKey());
-
-            if (fileId != null && fileId > 0) {
-              nameIdMap.put(nameIdEntry.getKey(), -fileId);
-
-              idNameMap.remove(fileId);
-              idNameMap.put(-fileId, nameIdEntry.getKey());
-            }
-          }
-        }
-      }
-    }
-
-    final Set<String> fixedFiles = new HashSet<>(8);
-
-    for (final var entry : filesWithNegativeIds.int2ObjectEntrySet()) {
-      final var files = entry.getValue();
-
-      if (files.size() > 1) {
-        idNameMap.remove(entry.getIntKey());
-
-        for (final var fileName : files) {
-          int fileId;
-
-          while (true) {
-            final var nextId = fileIdGen.nextInt(Integer.MAX_VALUE - 1) + 1;
-            if (!idNameMap.containsKey(nextId) && !idNameMap.containsKey(-nextId)) {
-              fileId = nextId;
-              break;
-            }
-          }
-
-          nameIdMap.put(fileName, -fileId);
-          idNameMap.put(-fileId, fileName);
-
-          fixedFiles.add(fileName);
-        }
-      }
-    }
-
-    if (!fixedFiles.isEmpty()) {
-      LogManager.instance()
-          .warn(
-              this,
-              "Removed files "
-                  + fixedFiles
-                  + " had duplicated ids. Problem is fixed automatically.");
-    }
-  }
-
-  @Nullable private static NameFileIdEntry readNextNameIdEntryV1(FileChannel nameIdMapHolder)
-      throws IOException {
-    try {
-      var buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var nameSize = buffer.getInt();
-      buffer = ByteBuffer.allocate(nameSize + LongSerializer.LONG_SIZE);
-
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
-      final var fileId = (int) buffer.getLong();
-
-      return new NameFileIdEntry(name, fileId);
-    } catch (final EOFException ignore) {
-      return null;
-    }
-  }
-
-  @Nullable private static NameFileIdEntry readNextNameIdEntryV2(FileChannel nameIdMapHolder)
-      throws IOException {
-    try {
-      var buffer = ByteBuffer.allocate(2 * IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var fileId = buffer.getInt();
-      final var nameSize = buffer.getInt();
-
-      buffer = ByteBuffer.allocate(nameSize);
-
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
-
-      buffer = ByteBuffer.allocate(IntegerSerializer.INT_SIZE);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var fileNameSize = buffer.getInt();
-
-      buffer = ByteBuffer.allocate(fileNameSize);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
-
-      return new NameFileIdEntry(name, fileId, fileName);
-
-    } catch (final EOFException ignore) {
-      return null;
-    }
-  }
-
   @Nullable private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
-    try {
-      final var xxHashLen = 8;
-      final var recordSizeLen = 4;
-
-      var buffer = ByteBuffer.allocate(xxHashLen + recordSizeLen);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var storedXxHash = buffer.getLong();
-      final var recordLen = buffer.getInt();
-
-      if (recordLen > MAX_FILE_RECORD_LEN) {
-        LogManager.instance()
-            .error(
-                this,
-                "Maximum record length in file registry can not exceed %d bytes. "
-                    + "But actual record length %d.  Storage name : %s",
-                null,
-                MAX_FILE_RECORD_LEN,
-                storageName,
-                recordLen);
-        return null;
-      }
-
-      buffer = ByteBuffer.allocate(recordLen);
-      IOUtils.readByteBuffer(buffer, nameIdMapHolder);
-      buffer.rewind();
-
-      final var xxHash = DiskStorage.XX_HASH_64.hash(buffer, 0, recordLen,
-          DiskStorage.XX_HASH_SEED);
-      if (xxHash != storedXxHash) {
-        LogManager.instance()
-            .error(
-                this, "Hash of the file registry is broken. Storage name : %s", null, storageName);
-        return null;
-      }
-
-      final var fileId = buffer.getInt();
-      final var name = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
-      final var fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
-
-      return new NameFileIdEntry(name, fileId, fileName);
-
-    } catch (final EOFException ignore) {
-      return null;
+    final var offset = nameIdMapHolder.position();
+    final var entry = NameIdMapFile.readNext(nameIdMapHolder);
+    if (entry == null && offset < nameIdMapHolder.size()) {
+      logger.error("Damaged file registry record at byte {}. Storage name: {}", offset,
+          storageName);
     }
+    return entry;
   }
 
   private void checkNameIdMapAppendsAllowed() throws IOException {
@@ -3694,47 +3366,7 @@ public final class WOWCache extends AbstractWriteCache
   private void writeNameIdEntry(
       final FileChannel nameIdMapHolder, final NameFileIdEntry nameFileIdEntry, final boolean sync)
       throws IOException {
-    final var xxHashSize = 8;
-    final var recordLenSize = 4;
-
-    final var nameSize = StringSerializer.staticGetObjectSize(nameFileIdEntry.getName());
-    final var fileNameSize = StringSerializer.staticGetObjectSize(
-        nameFileIdEntry.getFileSystemName());
-
-    // file id size + file name + file system name + xx_hash size + record_size size
-    final var serializedRecord =
-        ByteBuffer.allocate(
-            IntegerSerializer.INT_SIZE + nameSize + fileNameSize + xxHashSize + recordLenSize);
-
-    serializedRecord.position(xxHashSize + recordLenSize);
-
-    // serialize file id
-    serializedRecord.putInt(nameFileIdEntry.getFileId());
-
-    // serialize file name
-    StringSerializer.staticSerializeInByteBufferObject(nameFileIdEntry.getName(),
-        serializedRecord);
-
-    // serialize file system name
-    StringSerializer.staticSerializeInByteBufferObject(nameFileIdEntry.getFileSystemName(),
-        serializedRecord);
-
-    final var recordLen = serializedRecord.position() - xxHashSize - recordLenSize;
-    if (recordLen > MAX_FILE_RECORD_LEN) {
-      throw new StorageException(storageName,
-          "Maximum record length in file registry can not exceed "
-              + MAX_FILE_RECORD_LEN
-              + " bytes. But actual record length "
-              + recordLen);
-    }
-    serializedRecord.putInt(xxHashSize, recordLen);
-
-    final var xxHash =
-        DiskStorage.XX_HASH_64.hash(serializedRecord, xxHashSize + recordLenSize, recordLen,
-            DiskStorage.XX_HASH_SEED);
-    serializedRecord.putLong(0, xxHash);
-
-    serializedRecord.position(0);
+    final var serializedRecord = NameIdMapFile.encode(nameFileIdEntry, storageName);
 
     IOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
     //noinspection ResultOfMethodCallIgnored
