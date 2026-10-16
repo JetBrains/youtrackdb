@@ -44,6 +44,11 @@ public interface DoubleWriteLog {
 
   void close() throws IOException;
 
+  /** Releases failed-open resources without removing segments needed by the next recovery. */
+  default void closeAfterFailedOpen() throws IOException {
+    close();
+  }
+
   void startCheckpoint() throws IOException;
 
   void endCheckpoint();

@@ -909,13 +909,13 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
-          // This call is the single admission decision of storage open. Admission runs before
-          // write-ahead log initialization and before recovery, so a rejected image never reaches
-          // recovery. A write-ahead log records a change before that change reaches its final file.
           // Only acquisitions of this physical attempt belong to failure cleanup. Closed fields
           // from an earlier open are not resources of this attempt.
           prepareOpenResources();
           physicalOpenStarted = true;
+          // This call is the single admission decision of storage open. Admission runs before
+          // write-ahead log initialization and before recovery, so a rejected image never reaches
+          // recovery. A write-ahead log records a change before that change reaches its final file.
           readStorageIdentity();
           final var startupMetadata = checkIfStorageDirty();
           metadataOpened = true;

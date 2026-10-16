@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -55,6 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.Files;
@@ -317,6 +319,87 @@ public class DiskStorageChangedPageCheckpointTest {
         org.junit.Assert.assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
       }
       assertTrue(created.isClosed(null));
+    }
+  }
+
+  /** An Error after metadata locking releases this attempt's lock and keeps its identity. */
+  @Test
+  public void metadataReadErrorReleasesAcquiredLock() throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var failure = new OutOfMemoryError("metadata read failure");
+    var previous = GlobalConfiguration.FILE_LOCK.getValue();
+    GlobalConfiguration.FILE_LOCK.setValue(true);
+    try {
+      try (var reads = mockStatic(IOUtils.class, CALLS_REAL_METHODS)) {
+        reads.when(() -> IOUtils.readByteBuffer(
+            any(ByteBuffer.class), any(FileChannel.class), eq(0L), eq(true)))
+            .thenThrow(failure);
+        assertSame(failure, assertThrows(OutOfMemoryError.class,
+            () -> created.open(new ContextConfiguration())));
+      }
+      assertTrue(created.isClosed(null));
+      try (var channel = FileChannel.open(directory.resolve("dirty.fl"),
+          StandardOpenOption.WRITE); var lock = channel.tryLock()) {
+        assertNotNull(lock);
+      }
+      verify(created, never()).postCloseSteps(eq(false), eq(true), anyLong());
+    } finally {
+      ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      GlobalConfiguration.FILE_LOCK.setValue(previous);
+    }
+  }
+
+  /** Failed production double-write log open releases metadata without deleting recovery bytes. */
+  @Test
+  public void doubleWriteOpenFailureBeforeChannelReleasesMetadataAndPreservesSegments()
+      throws Exception {
+    assertDoubleWriteOpenFailure(false);
+  }
+
+  /** A failure after log channel assignment preserves recovery bytes and releases metadata. */
+  @Test
+  public void doubleWriteOpenFailureAfterChannelReleasesMetadataAndPreservesSegments()
+      throws Exception {
+    assertDoubleWriteOpenFailure(true);
+  }
+
+  private void assertDoubleWriteOpenFailure(boolean afterChannel) throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var segment = directory.resolve(ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME
+        + (afterChannel ? "_0.dwl" : "_bad.dwl"));
+    byte[] bytes = {1, 4, 9, 16};
+    Files.write(segment, bytes);
+    var previous = GlobalConfiguration.FILE_LOCK.getValue();
+    GlobalConfiguration.FILE_LOCK.setValue(true);
+    var readCache = created.getReadCache();
+    try {
+      if (afterChannel) {
+        try (var blocks = mockStatic(IOUtils.class, CALLS_REAL_METHODS)) {
+          blocks.when(() -> IOUtils.calculateBlockSize(any(Path.class)))
+              .thenThrow(new Error("after double-write channel assignment"));
+          assertThrows(Error.class, () -> created.open(new ContextConfiguration()));
+        }
+      } else {
+        assertThrows(RuntimeException.class, () -> created.open(new ContextConfiguration()));
+      }
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(segment));
+      try (var channel = FileChannel.open(directory.resolve("dirty.fl"),
+          StandardOpenOption.WRITE); var lock = channel.tryLock()) {
+        assertNotNull(lock);
+      }
+      verify(created).postCloseSteps(eq(false), eq(true), anyLong());
+    } finally {
+      created.preCloseSteps();
+      if (created.getWriteCache() != null) {
+        readCache.closeStorage(created.getWriteCache());
+      }
+      ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      Files.deleteIfExists(segment);
+      GlobalConfiguration.FILE_LOCK.setValue(previous);
     }
   }
 
