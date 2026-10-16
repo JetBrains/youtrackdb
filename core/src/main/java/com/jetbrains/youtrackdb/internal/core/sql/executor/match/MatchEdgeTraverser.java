@@ -460,14 +460,13 @@ public class MatchEdgeTraverser implements ExecutionStream {
           getStartingPointAlias(), sourceRecord.getProperty(getStartingPointAlias()));
     }
     iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, next);
-    if (matchesFilters(iCommandContext, theFilter, next)
-        && matchesClassCached(iCommandContext, theClassName, next)
-        && matchesRid(iCommandContext, theTargetRid, next)) {
+    try {
+      return matchesFilters(iCommandContext, theFilter, next)
+          && matchesClassCached(iCommandContext, theClassName, next)
+          && matchesRid(iCommandContext, theTargetRid, next) ? next : null;
+    } finally {
+      // Filters, class checks, and RID evaluation can all fail after candidate substitution.
       ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
-      return next;
-    } else {
-      ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, previousMatch);
-      return null;
     }
   }
 

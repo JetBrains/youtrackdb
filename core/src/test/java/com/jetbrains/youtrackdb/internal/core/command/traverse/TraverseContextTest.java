@@ -28,6 +28,9 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -128,6 +131,45 @@ public class TraverseContextTest extends DbTestBase {
         top.getPath().toString(), ctx.getPath());
     assertEquals("getDepth follows the current process's path depth",
         top.getPath().getDepth(), ctx.getDepth());
+  }
+
+  /**
+   * Direct reads honor traversal path and depth instead of named values or system slots. A basic
+   * parent must retain those overrides when delegating either direct route to its traversal child.
+   */
+  @Test
+  public void directReadsPreserveTraversalOverridesLocallyAndAsChild() {
+    var traverse = newTraverse();
+    var path = TraversePath.empty().append(new RecordId(12, 100L))
+        .append(new RecordId(12, 101L));
+    new TraverseRecordSetProcess(traverse, Collections.<Identifiable>emptyList().iterator(),
+        path, session);
+    var ctx = traverse.getContext();
+    ctx.next();
+    var expectedPath = "(#12:100)(#12:101)";
+    var expectedDepth = 1;
+    ctx.setVariable("path", "named-path");
+    ctx.setVariable("depth", 100);
+    ctx.setSystemVariable(BasicCommandContext.VAR_DEPTH, 200);
+    ctx.setVariable("matched", "ordinary-value");
+    var root = new BasicCommandContext(session);
+    root.setChild(ctx);
+
+    assertEquals(expectedPath, ctx.getVariable("path"));
+    assertEquals(expectedDepth, ctx.getVariable("depth"));
+    for (var context : Arrays.asList(ctx, root)) {
+      assertEquals(expectedPath,
+          context.getVariableByReference(new ContextVariableReference("path")));
+      assertEquals(expectedDepth,
+          context.getVariableByReference(new ContextVariableReference("depth")));
+      assertEquals(expectedDepth, context.getInternalVariable(InternalVariable.DEPTH));
+      assertEquals("ordinary-value",
+          context.getVariableByReference(new ContextVariableReference("matched")));
+      assertEquals("ordinary-value", context.getInternalVariable(InternalVariable.MATCHED));
+    }
+    // The child named route receives the dollar-stripped name from the basic parent.
+    assertEquals(expectedPath,
+        root.getVariableByReference(new ContextVariableReference("$path")));
   }
 
   /**

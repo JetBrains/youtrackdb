@@ -101,9 +101,8 @@ public class BasicCommandContext implements CommandContext {
     return false;
   }
 
-  // Invariant: system variables must never be set to null. The get/has methods use
-  // null-return from Int2ObjectOpenHashMap.get() to distinguish "not present" from
-  // "present". If this invariant changes, switch to containsKey() guards.
+  // Null values fall through on reads but remain present for write ownership in hasSystemVariable.
+  // Temporary current-row substitution relies on this distinction when restoring a saved null.
   @Nullable @SuppressWarnings("TypeParameterUnusedInFormals")
   @Override
   public <T> T getSystemVariable(int id) {
@@ -114,6 +113,31 @@ public class BasicCommandContext implements CommandContext {
       return parent.getSystemVariable(id);
     }
     return null;
+  }
+
+  @Override
+  public Object getInternalVariable(InternalVariable variable) {
+    Object result;
+    if (variables != null && variables.containsKey(variable.variableName)) {
+      result = variables.get(variable.variableName);
+    } else {
+      result = getSystemVariable(variable.id);
+      if (result == null) {
+        // Child lookup resolves in the child first, exactly as the named route does.
+        result = child != null ? child.getInternalVariable(variable)
+            : getVariableFromParentHierarchy(variable.variableName);
+      }
+    }
+    return result != null ? resolveValue(result) : null;
+  }
+
+  @Override
+  public Object getVariableByReference(ContextVariableReference variable) {
+    if (!variable.simple) {
+      return getVariable(variable.name);
+    }
+    var result = lookupVariable(variable.lookupName, variable);
+    return result != null ? resolveValue(result) : null;
   }
 
   @Override
@@ -193,10 +217,14 @@ public class BasicCommandContext implements CommandContext {
 
   /**
    * Looks up a variable name: first checks special keywords (CONTEXT, PARENT, ROOT),
-   * then system variables for hot-path names ("current", "matched"), then local
-   * variables, child context, and finally parent hierarchy.
+   * then local named variables, system variables for hot-path names ("current", "matched"),
+   * child context, and finally the named parent hierarchy.
    */
   private Object lookupVariable(String name) {
+    return lookupVariable(name, null);
+  }
+
+  private Object lookupVariable(String name, @Nullable ContextVariableReference reference) {
     // Special keywords take precedence over user-defined variables.
     int len = name.length();
     if (len == 7 && name.equalsIgnoreCase("CONTEXT")) {
@@ -222,7 +250,8 @@ public class BasicCommandContext implements CommandContext {
       return sysVar;
     }
     if (child != null) {
-      return child.getVariable(name);
+      return reference == null ? child.getVariable(name)
+          : child.getVariableByReference(reference.childReference);
     }
     return getVariableFromParentHierarchy(name);
   }

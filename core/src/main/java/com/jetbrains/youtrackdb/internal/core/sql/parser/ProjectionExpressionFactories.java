@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalContextVariableSuffix;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,9 +12,6 @@ import java.util.List;
  * and other MATCH IR front-ends.
  */
 public final class ProjectionExpressionFactories {
-
-  /** The MATCH context variable that binds the current row's matched aliases. */
-  private static final String MATCHED_VARIABLE = "$matched";
 
   /** Record-attribute namespace prefix ({@code @rid} / {@code @class}) — a segment starting with
    *  this is a record attribute rather than a plain property. */
@@ -29,7 +28,7 @@ public final class ProjectionExpressionFactories {
 
   /** {@code list($currentMatch)} — default {@code group()} value column. */
   public static SQLExpression listCurrentMatch() {
-    return functionCall("list", contextVariable("$currentMatch"));
+    return functionCall("list", internalVariable(InternalVariable.CURRENT_MATCH, null));
   }
 
   /** {@code list(alias)} — collects the grouped element bound to {@code alias} into a list. */
@@ -109,6 +108,17 @@ public final class ProjectionExpressionFactories {
     return bareIdentifier(name);
   }
 
+  static SQLExpression internalVariable(InternalVariable variable, SQLModifier modifier) {
+    var identifier = new SQLBaseIdentifier(-1);
+    identifier.suffix = new InternalContextVariableSuffix(variable);
+    var base = new SQLBaseExpression(-1);
+    base.setIdentifier(identifier);
+    base.modifier = modifier;
+    var expression = new SQLExpression(-1);
+    expression.setMathExpression(base);
+    return expression;
+  }
+
   // --- RETURN column plumbing (bare alias reference + AS name) ----------------------------------
   // The two nodes a RETURN column is made of. Both embed the caller's name as a literal
   // SQLIdentifier, so a Gremlin-supplied alias or label can never be re-tokenized into extra
@@ -183,7 +193,7 @@ public final class ProjectionExpressionFactories {
       tail.next = modifier;
       tail = modifier;
     }
-    return new SQLExpression(new SQLIdentifier(MATCHED_VARIABLE), first);
+    return internalVariable(InternalVariable.MATCHED, first);
   }
 
   /**

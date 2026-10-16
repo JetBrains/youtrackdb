@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
@@ -713,6 +714,7 @@ public class MultiPlanMatchStepTest {
   public void clone_afterRunUsesCleanRootContextsWithoutSeededVariables() {
     var source = new BasicCommandContext(threadSession);
     source.setVariable("someAlias", "original");
+    source.setVariable("$$YouTrackDB_Prefetched_Alias_Prefix__v", List.of("original"));
     source.setInputParameters(Map.of(0, "binding"));
     var slots = List.of(CommandContext.VAR_CURRENT, CommandContext.VAR_CURRENT_MATCH,
         CommandContext.VAR_MATCHED, CommandContext.VAR_DEPTH,
@@ -728,6 +730,8 @@ public class MultiPlanMatchStepTest {
     var context = clone.getPlans().getFirst().getContext();
     assertThat(context.getParent()).isNull();
     assertThat(context.getVariables()).isEmpty();
+    assertThat(context.getVariableByReference(new ContextVariableReference(
+        "$$YouTrackDB_Prefetched_Alias_Prefix__v"))).isNull();
     assertThat(context.getInputParameters()).containsEntry(0, "binding");
     for (int slot : slots) {
       assertThat(context.hasSystemVariable(slot)).isFalse();
@@ -1629,7 +1633,8 @@ public class MultiPlanMatchStepTest {
    */
   private static final class VariableProbeStream implements ExecutionStream {
 
-    private static final String PROBE_KEY = "probe";
+    private static final ContextVariableReference PROBE_KEY = new ContextVariableReference(
+        "$$YouTrackDB_Prefetched_Alias_Prefix__probe");
     private final int cyclesPerProbe;
     private final List<String> mismatches;
 
@@ -1642,9 +1647,9 @@ public class MultiPlanMatchStepTest {
     public boolean hasNext(CommandContext ctx) {
       var mine = Thread.currentThread().getName();
       for (int i = 0; i < cyclesPerProbe; i++) {
-        ctx.setVariable(PROBE_KEY, mine);
+        ctx.setVariable(PROBE_KEY.getName(), mine);
         Thread.onSpinWait(); // widen the interleaving window a shared context would expose
-        var seen = ctx.getVariable(PROBE_KEY);
+        var seen = ctx.getVariableByReference(PROBE_KEY);
         if (!mine.equals(seen)) {
           mismatches
               .add("thread " + mine + " read back '" + seen + "' from a shared child context");

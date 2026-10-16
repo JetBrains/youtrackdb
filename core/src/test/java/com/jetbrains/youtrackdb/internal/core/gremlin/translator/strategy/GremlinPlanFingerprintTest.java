@@ -129,6 +129,29 @@ public class GremlinPlanFingerprintTest {
         .existsMatchExpressions()).hasSize(1);
   }
 
+  /** Direct-count alias, key and productive rules are structural even on identical raw inputs. */
+  @Test
+  public void propertyCountingContractDistinguishesFingerprint() {
+    var inputs = MatchPlanInputs.builder(patternWithAlias("a")).returnPaths(true).build();
+    var plain = ResultShaping.NONE.withAccumulateMap(true);
+    var seen = new java.util.HashSet<String>();
+    var plainFingerprint = GremlinPlanFingerprint.fingerprint(inputs, plain);
+    assertThat(plainFingerprint).doesNotContain(";PC:");
+    seen.add(plainFingerprint);
+    for (var counting : List.of(
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PropertyGroupCount(
+            "a", "p", false),
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PropertyGroupCount(
+            "a", "p", true),
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PropertyGroupCount(
+            "b", "p", false),
+        new com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PropertyGroupCount(
+            "a", "p]1:q", false))) {
+      assertThat(seen.add(GremlinPlanFingerprint.fingerprint(inputs,
+          plain.withPropertyGroupCount(counting)))).isTrue();
+    }
+  }
+
   /** Explicit null placement in ORDER BY distinguishes the built-plan cache fingerprint. */
   @Test
   public void orderByNullPlacement_distinguishesFingerprint() {

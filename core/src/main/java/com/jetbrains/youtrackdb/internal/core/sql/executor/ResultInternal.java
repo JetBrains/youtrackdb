@@ -21,12 +21,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkListResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkMapResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkSetResultImpl;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -48,6 +50,76 @@ public class ResultInternal implements Result, BasicResultInternal {
   protected Map<String, Object> content;
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
+
+  // Ordinary SQL rows only remember the checked transaction. MATCH creates the token on binding.
+  private FrontendTransactionImpl checkedTransaction;
+  private Map<String, MatchedRecord> matchedRecords;
+
+  /** Only call after the normal checked session read, never for an arbitrary bound record. */
+  public static ResultInternal fromCheckedRecord(DatabaseSessionEmbedded session, DBRecord record) {
+    var result = new ResultInternal(session, record);
+    result.checkedTransaction = session.getActiveTransaction();
+    return result;
+  }
+
+  /** Only call for the result of a transaction load, not an arbitrary record input. */
+  public static ResultInternal fromLoadedRecord(DatabaseSessionEmbedded session, DBRecord record) {
+    // A direct tx return has a txEntry. A checked read can also acquire one in a READ hook,
+    // so refusing those records is conservative and avoids another transaction-map lookup.
+    return record instanceof RecordAbstract loaded && loaded.txEntry == null
+        ? fromCheckedRecord(session, record) : new ResultInternal(session, record);
+  }
+
+  /** MATCH keeps checked read evidence separately from the compatible property value. */
+  public void setMatchProperty(String name, Object value) {
+    setProperty(name, value);
+    retainMatchedRecord(name, matchedRecordFrom(value));
+  }
+
+  /** Preserve evidence across a plain alias projection without changing its external value. */
+  public void retainMatchedRecord(String name, @Nullable MatchedRecord retained) {
+    retained = matchingRecord(retained, getProperty(name));
+    if (retained != null) {
+      if (matchedRecords == null) {
+        matchedRecords = new HashMap<>();
+      }
+      matchedRecords.put(name, retained);
+    } else if (matchedRecords != null) {
+      matchedRecords.remove(name);
+    }
+  }
+
+  /** Evidence is valid only for the effective external binding, including after conversion. */
+  @Nullable protected static MatchedRecord matchingRecord(
+      @Nullable MatchedRecord retained, Object value) {
+    return retained != null && retained.record().getIdentity().equals(value) ? retained : null;
+  }
+
+  @Nullable protected static MatchedRecord matchedRecordFrom(Object value) {
+    if (value instanceof ResultInternal result && result.checkedTransaction != null
+        && result.identifiable instanceof DBRecord record) {
+      return new MatchedRecord(record, result.session, result.checkedTransaction);
+    }
+    return null;
+  }
+
+  /** Layered rows override this to honor local alias shadowing before consulting their parent. */
+  @Nullable public MatchedRecord getMatchedRecord(String name) {
+    return matchedRecords == null ? null : matchedRecords.get(name);
+  }
+
+  @Nullable private DBRecord getReusableRecord(String name) {
+    var retained = getMatchedRecord(name);
+    return retained == null ? null : retained.reusableIn(session);
+  }
+
+  private void rememberCheckedLoad(DBRecord record) {
+    // All callers invoke this before replacing an identifier with its loaded record.
+    if (identifiable instanceof RID && record instanceof RecordAbstract loaded
+        && loaded.txEntry == null) {
+      checkedTransaction = session.getActiveTransaction();
+    }
+  }
 
   @Nullable protected Identifiable identifiable;
   @Nullable protected DatabaseSessionEmbedded session;
@@ -199,6 +271,10 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
 
     value = convertPropertyValue(value);
+    if (matchedRecords != null
+        && matchingRecord(matchedRecords.get(name), value) == null) {
+      matchedRecords.remove(name);
+    }
     content.put(name, value);
   }
 
@@ -455,6 +531,9 @@ public class ResultInternal implements Result, BasicResultInternal {
     if (content != null) {
       content.remove(name);
     }
+    if (matchedRecords != null) {
+      matchedRecords.remove(name);
+    }
   }
 
   @SuppressWarnings("TypeParameterUnusedInFormals")
@@ -491,6 +570,7 @@ public class ResultInternal implements Result, BasicResultInternal {
   @SuppressWarnings("TypeParameterUnusedInFormals")
   @Nullable private <T> T loadLazyAndGetProperty(@Nonnull String name) {
     DBRecord record = session.getActiveTransaction().load(identifiable);
+    rememberCheckedLoad(record);
     this.identifiable = record;
     if (record instanceof Entity entity) {
       //noinspection unchecked
@@ -502,6 +582,9 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Entity getEntity(@Nonnull String name) {
     assert checkSession();
+    if (getReusableRecord(name) instanceof Entity entity) {
+      return entity;
+    }
     Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
@@ -535,6 +618,9 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Vertex getVertex(@Nonnull String name) {
     checkSessionForRecords();
+    if (getReusableRecord(name) instanceof Vertex vertex) {
+      return vertex;
+    }
     Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
@@ -550,6 +636,9 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Edge getEdge(@Nonnull String name) {
     checkSessionForRecords();
+    if (getReusableRecord(name) instanceof Edge edge) {
+      return edge;
+    }
     Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
@@ -568,6 +657,9 @@ public class ResultInternal implements Result, BasicResultInternal {
   @Override
   public Blob getBlob(@Nonnull String name) {
     checkSessionForRecords();
+    if (getReusableRecord(name) instanceof Blob blob) {
+      return blob;
+    }
     Object result = getProperty(name);
 
     if (result instanceof Identifiable id) {
@@ -638,6 +730,7 @@ public class ResultInternal implements Result, BasicResultInternal {
    */
   private boolean loadLazyAndHasProperty(@Nonnull String propName) {
     DBRecord record = session.getActiveTransaction().load(identifiable);
+    rememberCheckedLoad(record);
     this.identifiable = record;
     return record instanceof Entity entity && entity.hasProperty(propName);
   }
@@ -648,6 +741,10 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   public void setSession(@Nullable DatabaseSessionEmbedded session) {
+    if (this.session != session) {
+      checkedTransaction = null;
+      matchedRecords = null;
+    }
     this.session = session;
   }
 
@@ -710,7 +807,9 @@ public class ResultInternal implements Result, BasicResultInternal {
 
     if (isEntity()) {
       var transaction = session.getActiveTransaction();
-      this.identifiable = transaction.loadEntity(identifiable);
+      var record = transaction.loadEntity(identifiable);
+      rememberCheckedLoad(record);
+      this.identifiable = record;
       return asEntity();
     }
 
@@ -735,7 +834,9 @@ public class ResultInternal implements Result, BasicResultInternal {
         return null;
       }
 
-      this.identifiable = transaction.loadEntity(identifiable);
+      var record = transaction.loadEntity(identifiable);
+      rememberCheckedLoad(record);
+      this.identifiable = record;
       return asEntityOrNull();
     }
 
@@ -774,7 +875,9 @@ public class ResultInternal implements Result, BasicResultInternal {
     }
 
     var transaction = session.getActiveTransaction();
-    this.identifiable = transaction.load(identifiable);
+    var record = transaction.load(identifiable);
+    rememberCheckedLoad(record);
+    this.identifiable = record;
     return asRecord();
   }
 
@@ -798,7 +901,9 @@ public class ResultInternal implements Result, BasicResultInternal {
       return null;
     }
 
-    this.identifiable = transaction.load(this.identifiable);
+    var record = transaction.load(this.identifiable);
+    rememberCheckedLoad(record);
+    this.identifiable = record;
     return asRecordOrNull();
   }
 
@@ -830,7 +935,9 @@ public class ResultInternal implements Result, BasicResultInternal {
 
     if (isBlob()) {
       var transaction = session.getActiveTransaction();
-      this.identifiable = transaction.loadBlob(this.identifiable);
+      var record = transaction.loadBlob(this.identifiable);
+      rememberCheckedLoad(record);
+      this.identifiable = record;
       return asBlob();
     }
 
@@ -860,7 +967,9 @@ public class ResultInternal implements Result, BasicResultInternal {
         return null;
       }
 
-      this.identifiable = transaction.loadBlob(this.identifiable);
+      var record = transaction.loadBlob(this.identifiable);
+      rememberCheckedLoad(record);
+      this.identifiable = record;
       return asBlobOrNull();
     }
 
@@ -911,6 +1020,8 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
+    checkedTransaction = null;
+    matchedRecords = null;
 
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {
       content = new HashMap<>();

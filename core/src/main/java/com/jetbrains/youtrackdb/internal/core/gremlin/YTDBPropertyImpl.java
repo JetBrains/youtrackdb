@@ -27,13 +27,13 @@ public class YTDBPropertyImpl<V> implements YTDBProperty<V> {
     this.key = key;
     this.value = value;
     this.element = element;
-    this.wrappedValue = wrapIntoGraphElement(value);
+    this.wrappedValue = wrapIntoGraphElement(element.getGraph(), value);
     this.propertyType = propertyType;
   }
 
-  private Object wrapIntoGraphElement(V value) {
+  /** Converts a filtered property value to the graph provider's native key or payload type. */
+  public static Object wrapIntoGraphElement(YTDBGraphInternal graph, Object value) {
     Object result = value;
-    var graph = element.getGraph();
     var graphTx = graph.tx();
 
     if (result instanceof RID rid) {

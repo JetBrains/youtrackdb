@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphImplAbstract;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
@@ -329,6 +330,21 @@ public class YTDBMatchPlanStepTest {
     assertThat(assertRawEntityOf(resultB)).isSameAs(vertexUnderB);
     verify(row).getVertex("a");
     verify(row).getVertex("b");
+  }
+
+  /** Identifier-only edge projection stays lazy and does not invoke typed record resolution. */
+  @Test
+  public void projectElement_identifierOnlyEdgeDoesNotLoad() {
+    var row = mock(Result.class);
+    var rid = new com.jetbrains.youtrackdb.internal.core.id.RecordId(1, 1);
+    when(row.getProperty("e")).thenReturn(rid);
+    var step = new YTDBMatchPlanStep(traversal, Edge.class, plan, "e",
+        BoundaryOutputType.ELEMENT);
+    var result = step.projectElement(row, graph);
+    assertThat(result)
+        .isInstanceOf(com.jetbrains.youtrackdb.internal.core.gremlin.YTDBEdgeImpl.class);
+    assertThat(((Edge) result).id()).isEqualTo(rid);
+    verify(row, never()).getEdge("e");
   }
 
   /** Edge-boundary projection wraps the matched edge as {@link YTDBEdgeImpl}. */
@@ -1266,6 +1282,8 @@ public class YTDBMatchPlanStepTest {
     var source = new BasicCommandContext(threadSession);
     source.setInputParameters(Map.of(0, "binding"));
     source.setVariable("alias", "original");
+    var prefetch = new ContextVariableReference("$$YouTrackDB_Prefetched_Alias_Prefix__v");
+    source.setVariable(prefetch.getName(), List.of("original"));
     source.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, true);
     var realPlan = ReplayablePlanFixture.planOver(source, List.of());
     var original = new YTDBMatchPlanStep<>(traversal, Vertex.class, realPlan, "v",
@@ -1274,6 +1292,9 @@ public class YTDBMatchPlanStepTest {
     var clean = cloned.getPlan().getContext();
     assertThat(clean.getParent()).isNull();
     assertThat(clean.getVariables()).isEmpty();
+    assertThat(clean.getVariableByReference(prefetch)).isNull();
+    clean.setVariable(prefetch.getName(), List.of("clone"));
+    assertThat(source.getVariableByReference(prefetch)).isEqualTo(List.of("original"));
     assertThat(clean.getInputParameters()).containsEntry(0, "binding");
     assertThat(clean.hasSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED)).isFalse();
     clean.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, false);
@@ -1285,6 +1306,7 @@ public class YTDBMatchPlanStepTest {
         BoundaryOutputType.ELEMENT, Map.of(), ResultShaping.NONE, true);
     drainPayloads(lazy);
     assertThat(lazy.getPlan().getContext().getParent()).isNull();
+    assertThat(lazy.getPlan().getContext().getVariableByReference(prefetch)).isNull();
     assertThat(source.<Boolean>getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
         .isTrue();
   }
@@ -2782,6 +2804,112 @@ public class YTDBMatchPlanStepTest {
         errors.add(t);
       }
     };
+  }
+
+  /** Reset alone drops the direct-count iterator without clearing the consumer's emitted map. */
+  @Test
+  public void directCountResetDropsIteratorWithoutMutatingConsumerMap() throws Exception {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true, false);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getEntity("v")).thenReturn(entity);
+    when(entity.getPropertyAndType("p")).thenReturn(
+        new EntityImpl.ValueAndType<>("same", null));
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE
+        .withAccumulateMap(true).withPropertyGroupCount(new PropertyGroupCount("v", "p", false)));
+    var map = (Map<Object, Object>) step.processNextStart().get();
+    assertThat(map).containsExactlyInAnyOrderEntriesOf(Map.of("same", 1L));
+    map.put("consumer", 9L);
+    var iteratorField = AbstractMatchPlanStep.class.getDeclaredField("shapedPayloads");
+    iteratorField.setAccessible(true);
+    assertThat(iteratorField.get(step)).as("iterator is retained after emitting the map")
+        .isNotNull();
+
+    step.reset();
+
+    // Observe reset before close or reopen can independently release the iterator.
+    assertThat(iteratorField.get(step)).as("reset alone releases the iterator").isNull();
+    assertThat(map).containsExactlyInAnyOrderEntriesOf(Map.of("same", 1L, "consumer", 9L));
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+    verify(stream, never()).close(any());
+    verify(plan, never()).close();
+    step.close();
+  }
+
+  /** Read failures during a direct-count drain reach the caller and release stream and plan. */
+  @Test
+  public void directCountReadFailurePropagates() {
+    var row = mock(Result.class);
+    var entity = mock(EntityImpl.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getEntity("v")).thenReturn(entity);
+    var failure = new IllegalStateException("property read failed");
+    when(entity.getPropertyAndType("p")).thenThrow(failure);
+    var step = shapedStep("v", BoundaryOutputType.MAP, ResultShaping.NONE
+        .withAccumulateMap(true).withPropertyGroupCount(new PropertyGroupCount("v", "p", false)));
+
+    assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::processNextStart)
+        .isSameAs(failure);
+    verify(stream).close(ctx);
+    verify(plan).close();
+  }
+
+  /** Two concurrent clones of one template own distinct maps and leave the template unstarted. */
+  @Test
+  public void directCountConcurrentTemplateCopiesOwnTheirMaps() throws Exception {
+    var copies = new CopyOnWriteArrayList<InternalExecutionPlan>();
+    var keys = new AtomicInteger();
+    when(plan.copy(any())).thenAnswer(call -> {
+      var context = (CommandContext) call.getArgument(0);
+      var copy = mock(InternalExecutionPlan.class);
+      var row = mock(Result.class);
+      var entity = mock(EntityImpl.class);
+      when(row.getEntity("v")).thenReturn(entity);
+      when(entity.getPropertyAndType("p")).thenReturn(
+          new EntityImpl.ValueAndType<>(keys.incrementAndGet(), null));
+      when(copy.getContext()).thenReturn(context);
+      when(copy.start()).thenAnswer(ignored -> ExecutionStream.resultIterator(
+          List.of(row, row).iterator()));
+      copies.add(copy);
+      return copy;
+    });
+    var shaping = ResultShaping.NONE.withAccumulateMap(true)
+        .withPropertyGroupCount(new PropertyGroupCount("v", "p", true));
+    var template = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+        BoundaryOutputType.MAP, Map.of(), shaping, true);
+    var cloneA = template.clone();
+    var cloneB = template.clone();
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+    var barrier = new CyclicBarrier(2);
+    var drainedA = new AtomicReference<List<Object>>();
+    var drainedB = new AtomicReference<List<Object>>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    var threadA = new Thread(driver(barrier, cloneA, drainedA, errors));
+    var threadB = new Thread(driver(barrier, cloneB, drainedB, errors));
+    threadA.start();
+    threadB.start();
+    threadA.join(5_000);
+    threadB.join(5_000);
+    assertThat(threadA.isAlive()).isFalse();
+    assertThat(threadB.isAlive()).isFalse();
+    assertThat(errors).isEmpty();
+    var mapA = (Map<Object, Object>) drainedA.get().getFirst();
+    var mapB = (Map<Object, Object>) drainedB.get().getFirst();
+    assertThat(mapA).hasSize(1).containsValue(2L);
+    assertThat(mapB).hasSize(1).containsValue(2L);
+    assertThat(mapA).isNotSameAs(mapB);
+    assertThat(mapA.keySet()).doesNotContainAnyElementsOf(mapB.keySet());
+    mapA.put("consumer", 9L);
+    cloneA.reset();
+    cloneB.close();
+    assertThat(mapA).containsEntry("consumer", 9L);
+    assertThat(mapB).hasSize(1).containsValue(2L);
+    assertThat(copies).hasSize(2);
+    verify(plan, never()).start();
   }
 
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {

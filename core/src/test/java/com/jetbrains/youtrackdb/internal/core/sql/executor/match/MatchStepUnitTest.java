@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Blob;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
@@ -23,9 +24,13 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Edge;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
@@ -33,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilterDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
@@ -52,6 +58,10 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.annotation.Nonnull;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -67,6 +77,338 @@ import org.junit.experimental.categories.Category;
  */
 @Category(SequentialTest.class)
 public class MatchStepUnitTest extends DbTestBase {
+
+  /** Checked collection reads survive initial and layered alias conversion without another read. */
+  @Test
+  public void checkedMatchRowsReuseRecordsAndKeepExternalRids() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var other = session.newVertex("V");
+    session.commit();
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var ctx = createCommandContext();
+      var scan = ExecutionStream.loadIterator(new RecordIteratorCollection<>(session,
+          vertex.getIdentity().getCollectionId(), true));
+      var source = scan.next(ctx);
+      var record = source.asRecord();
+      var initial = firstRow(source);
+      var lazy = new ResultInternal(session, other.getIdentity());
+      var layered = new MatchResultRow(session, initial, "b", lazy);
+      var secondRecord = lazy.asRecord();
+      int before = reads.size();
+      assertSame(record, initial.getVertex("a"));
+      assertSame(record, layered.getEntity("a"));
+      assertSame(secondRecord, layered.getVertex("b"));
+      assertEquals(before, reads.size());
+      assertTrue(initial.getProperty("a") instanceof RID);
+      assertTrue(layered.getProperty("b") instanceof RID);
+      assertEquals(record.getIdentity(), layered.getLink("a"));
+      assertEquals(layered.toMap(), layered.detach().toMap());
+      assertEquals(layered.toJSON(), layered.detach().toJSON());
+      assertTrue(reads.contains(record));
+      assertTrue(reads.contains(secondRecord));
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Local replacement, removal, and optional absence must never reveal a retained parent alias. */
+  @Test
+  public void retainedMatchAliasesHonorShadowingAndRemoval() {
+    session.begin();
+    try {
+      var vertex = session.newVertex("V");
+      var other = session.newVertex("V");
+      var source = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+          (RecordIdInternal) vertex.getIdentity(), null, true));
+      var parent = firstRow(source);
+      var layer = new MatchResultRow(session, parent, "b", source);
+      layer.setProperty("a", other.getIdentity());
+      assertSame(other, layer.getVertex("a"));
+      layer.removeProperty("a");
+      assertNull(layer.getVertex("a"));
+      assertSame(vertex, parent.getVertex("a"));
+      layer.setProperty("b", other.getIdentity());
+      assertSame(other, layer.getVertex("b"));
+      layer.removeProperty("b");
+      assertNull(layer.getVertex("b"));
+      var missing = new MatchResultRow(session, parent, "a", null);
+      assertNull(missing.getVertex("a"));
+      parent.setProperty("a", other.getIdentity());
+      assertSame(other, parent.getVertex("a"));
+      parent.removeProperty("a");
+      assertNull(parent.getVertex("a"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Layered retention follows effective values for no-op writes and explicit MATCH bindings. */
+  @Test
+  public void layeredMatchEvidenceFollowsEffectiveBindings() {
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var vertex = session.newVertex("V");
+      var checked = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+          (RecordIdInternal) vertex.getIdentity(), null, true));
+      var parent = firstRow(checked);
+      var layer = new MatchResultRow(session, parent, "b", checked);
+      parent.setProperty("a", vertex.getIdentity());
+      layer.setProperty("a", vertex.getIdentity());
+      layer.setProperty("b", vertex.getIdentity());
+      int before = reads.size();
+      assertSame(vertex, parent.getVertex("a"));
+      assertSame(vertex, layer.getVertex("a"));
+      assertSame(vertex, layer.getVertex("b"));
+      assertNotNull(layer.getMatchedRecord("a"));
+      assertNotNull(layer.getMatchedRecord("b"));
+      assertEquals(before, reads.size());
+      layer.setMatchProperty("b", checked);
+      layer.setMatchProperty("c", checked);
+      assertNotNull(layer.getMatchedRecord("b"));
+      assertNotNull(layer.getMatchedRecord("c"));
+      layer.setProperty("c", 42);
+      assertNull(layer.getMatchedRecord("c"));
+      layer.retainMatchedRecord("c", parent.getMatchedRecord("a"));
+      assertNull(layer.getMatchedRecord("c"));
+      layer.removeProperty("b");
+      layer.removeProperty("a");
+      assertNull(layer.getMatchedRecord("b"));
+      assertNull(layer.getMatchedRecord("a"));
+      var blob = session.newBlob(new byte[] {1, 2});
+      var blobSource = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+          (RecordIdInternal) blob.getIdentity(), null, true));
+      var blobLayer = new MatchResultRow(session, parent, "blob", blobSource);
+      assertTrue(blobLayer.getProperty("blob") instanceof byte[]);
+      assertNull(blobLayer.getMatchedRecord("blob"));
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** A lazy blob binds checked evidence in a layered row without an extra typed read. */
+  @Test
+  public void layeredLazyBlobRetainsCheckedLoad() {
+    session.begin();
+    var rid = session.newBlob(new byte[] {1, 2}).getIdentity();
+    session.commit();
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var source = new ResultInternal(session, rid);
+      var layer = new MatchResultRow(session, new ResultInternal(session), "blob", source);
+      assertEquals(1, reads.size());
+      assertNotNull(layer.getMatchedRecord("blob"));
+      assertSame(source.asBlob(), layer.getBlob("blob"));
+      assertEquals(1, reads.size());
+      assertEquals(rid, layer.getProperty("blob"));
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Unchecked records and identifier bindings still take a checked read on typed consumption. */
+  @Test
+  public void unsafeMatchSourcesAndIdentifierOnlyBindingsKeepCheckedResolution() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    session.commit();
+    session.begin();
+    vertex = session.loadVertex(vertex.getIdentity());
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var ctx = createCommandContext();
+      var stream = ExecutionStream.loadIterator(List.of(vertex).iterator());
+      var source = stream.next(ctx);
+      assertTrue(reads.isEmpty());
+      var initial = firstRow(source);
+      var layer = new MatchResultRow(session, initial, "b", source);
+      int before = reads.size();
+      assertSame(vertex, initial.getVertex("a"));
+      assertSame(vertex, layer.getVertex("b"));
+      assertEquals(before + 2, reads.size());
+      var identifiers = new ResultInternal(session);
+      identifiers.setMatchProperty("a", vertex.getIdentity());
+      before = reads.size();
+      assertSame(vertex, identifiers.getVertex("a"));
+      assertEquals(before + 1, reads.size());
+      var checked =
+          ExecutionStream.loadIterator(List.of(vertex.getIdentity()).iterator()).next(ctx);
+      var eligible = firstRow(checked);
+      before = reads.size();
+      assertSame(vertex, eligible.getVertex("a"));
+      assertEquals(before, reads.size());
+      var enrolled = session.newVertex("V");
+      var direct =
+          ExecutionStream.loadIterator(List.of(enrolled.getIdentity()).iterator()).next(ctx);
+      assertNull(firstRow(direct).getMatchedRecord("a"));
+      var lazyEnrolled = new ResultInternal(session, enrolled.getIdentity());
+      assertNull(firstRow(lazyEnrolled).getMatchedRecord("a"));
+      // Persistent updated records also return from the transaction without a checked read.
+      vertex.setProperty("updated", true);
+      before = reads.size();
+      var updated =
+          ExecutionStream.loadIterator(List.of(vertex.getIdentity()).iterator()).next(ctx);
+      assertNull(firstRow(updated).getMatchedRecord("a"));
+      assertNull(firstRow(new ResultInternal(session, vertex.getIdentity())).getMatchedRecord("a"));
+      assertEquals(before, reads.size());
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Temporary RID refresh keeps identity, while transaction end and deletion invalidate reuse. */
+  @Test
+  public void retainedMatchRecordsFollowTransactionAndIdentifierLifecycle() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var source = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+        (RecordIdInternal) vertex.getIdentity(), null, true));
+    var row = firstRow(source);
+    var layered = new MatchResultRow(session, row, "b", source);
+    assertSame(vertex, row.getVertex("a"));
+    assertSame(vertex, layered.getVertex("b"));
+    var rid = row.getLink("a");
+    assertFalse(rid.isPersistent());
+    session.commit();
+    assertTrue(rid.isPersistent());
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var refreshed = row.getVertex("a");
+      assertNotSame(vertex, refreshed);
+      assertFalse(reads.isEmpty());
+      int before = reads.size();
+      assertSame(refreshed, layered.getVertex("b"));
+      assertEquals(before + 1, reads.size());
+      var current = firstRow(ResultInternal.fromCheckedRecord(session,
+          session.load(refreshed.getIdentity())));
+      refreshed.delete();
+      assertThrows(com.jetbrains.youtrackdb.api.exception.RecordNotFoundException.class,
+          () -> current.getVertex("a"));
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** A new session cannot reuse a record from a parent row or a newly layered local binding. */
+  @Test
+  public void retainedMatchRecordsRejectSessionRebinding() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    session.commit();
+    session.begin();
+    var source = ResultInternal.fromCheckedRecord(session, session.load(vertex.getIdentity()));
+    var row = firstRow(source);
+    var layer = new MatchResultRow(session, row, "b", source);
+    try (var otherSession = openDatabase()) {
+      otherSession.begin();
+      row.setSession(otherSession);
+      layer.setSession(otherSession);
+      var reads = new ArrayList<DBRecord>();
+      var hook = observeReads(otherSession, reads);
+      try {
+        var other = row.getVertex("a");
+        assertNotSame(source.asIdentifiable(), other);
+        assertSame(other, layer.getVertex("b"));
+        assertEquals(2, reads.size());
+      } finally {
+        otherSession.unregisterHook(hook);
+        otherSession.rollback();
+      }
+    } finally {
+      session.activateOnCurrentThread();
+      session.rollback();
+    }
+  }
+
+  private ResultInternal firstRow(Result source) {
+    var ctx = createCommandContext();
+    var node = new PatternNode();
+    node.alias = "a";
+    ctx.setVariable(MatchPrefetchStep.PREFETCHED_MATCH_ALIAS_PREFIX + "a", List.of(source));
+    return (ResultInternal) new MatchFirstStep(ctx, node, false).start(ctx).next(ctx);
+  }
+
+  /** Read policies filter scans, while a denied identifier binding keeps its not-found behavior. */
+  @Test
+  public void retainedMatchRecordsPreserveReadPolicyAndDeniedIdentifierBehavior() {
+    session.createVertexClass("Visible");
+    session.begin();
+    var allowed = session.newVertex("Visible");
+    allowed.setProperty("allowed", true);
+    var denied = session.newVertex("Visible");
+    denied.setProperty("allowed", false);
+    var security = session.getSharedContext().getSecurity();
+    var policy = security.createSecurityPolicy(session, "visibleRecords");
+    policy.setActive(true);
+    policy.setReadRule("allowed = true");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, security.getRole(session, "reader"),
+        "database.class.Visible", policy);
+    session.commit();
+    var deniedRid = denied.getIdentity();
+    reOpen(readerUser, readerPassword);
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var ctx = createCommandContext();
+      var scan = ExecutionStream.loadIterator(new RecordIteratorCollection<>(session,
+          allowed.getIdentity().getCollectionId(), true));
+      assertTrue(scan.hasNext(ctx));
+      var source = scan.next(ctx);
+      assertFalse(scan.hasNext(ctx));
+      var record = source.asRecord();
+      var row = firstRow(source);
+      int before = reads.size();
+      assertSame(record, row.getVertex("a"));
+      assertEquals(before, reads.size());
+      assertTrue(reads.contains(record));
+      var identifiers = new ResultInternal(session);
+      identifiers.setMatchProperty("a", deniedRid);
+      assertTrue(identifiers.getProperty("a") instanceof RID);
+      assertThrows(com.jetbrains.youtrackdb.api.exception.RecordNotFoundException.class,
+          () -> identifiers.getVertex("a"));
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  private RecordHook observeReads(List<DBRecord> reads) {
+    return observeReads(session, reads);
+  }
+
+  private static RecordHook observeReads(DatabaseSessionEmbedded db, List<DBRecord> reads) {
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(@Nonnull TYPE type, @Nonnull DBRecord record) {
+        if (type == TYPE.READ) {
+          reads.add(record);
+        }
+      }
+    };
+    db.registerHook(hook);
+    return hook;
+  }
 
   // -- EdgeTraversal tests --
 
@@ -628,6 +970,170 @@ public class MatchStepUnitTest extends DbTestBase {
     var field = target.getClass().getDeclaredField(fieldName);
     field.setAccessible(true);
     field.set(target, value);
+  }
+
+  /** Alias-specific prefetch producers and copied consumers avoid every named lookup entry. */
+  @Test
+  public void prefetchedAliasesUseDirectReferences() {
+    var ctx = new ObservedContext();
+    var sources = new LinkedHashMap<String, ResultInternal>();
+    for (var alias : List.of("a", "b")) {
+      var source = new ResultInternal(session);
+      source.setProperty("name", alias);
+      sources.put(alias, source);
+      var plan = createBuildPlan(ctx, source);
+      new MatchPrefetchStep(ctx, plan, alias, false).start(ctx).close(ctx);
+    }
+    for (var alias : sources.keySet()) {
+      var source = sources.get(alias);
+      var node = new PatternNode();
+      node.alias = alias;
+      var step = (MatchFirstStep) new MatchFirstStep(ctx, node, false).copy(ctx);
+      for (int i = 0; i < 3; i++) {
+        var stream = step.start(ctx);
+        assertSame(source, stream.next(ctx).getProperty(alias));
+        assertFalse(stream.hasNext(ctx));
+        stream.close(ctx);
+      }
+    }
+    assertEquals(6, ctx.directReads);
+    assertEquals(0, ctx.namedReads);
+  }
+
+  /** Concurrent copies execute private prefetch plans with separate sessions and live bindings. */
+  @Test
+  public void copiedPrefetchPlansKeepConcurrentExecutionsIsolated() throws Exception {
+    var template = new SelectExecutionPlan(createCommandContext());
+    var node = new PatternNode();
+    node.alias = "a";
+    var scan = new SelectExecutionPlan(template.getContext());
+    scan.chain(new PrefetchSource(template.getContext()));
+    template.chain(new MatchPrefetchStep(template.getContext(), scan, "a", false));
+    template.chain(new MatchFirstStep(template.getContext(), node, false));
+    var barrier = new CyclicBarrier(2);
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var futures = new ArrayList<Future<String>>();
+      for (var value : List.of("first", "second")) {
+        futures.add(pool.submit(() -> {
+          try (var db = openDatabase()) {
+            var ctx = YTDBMatchPlanStep.cleanCopyContext(template.getContext());
+            ctx.setDatabaseSession(db);
+            ctx.setInputParameters(Map.of(0, value));
+            var copy = template.copy(ctx);
+            barrier.await(5, TimeUnit.SECONDS);
+            var stream = copy.start();
+            Result row = stream.next(ctx).getProperty("a");
+            var result = row.<String>getProperty("name");
+            stream.close(ctx);
+            copy.close();
+            return result;
+          }
+        }));
+      }
+      assertEquals("first", futures.get(0).get(10, TimeUnit.SECONDS));
+      assertEquals("second", futures.get(1).get(10, TimeUnit.SECONDS));
+    } finally {
+      session.activateOnCurrentThread();
+    }
+  }
+
+  private static final class PrefetchSource extends AbstractExecutionStep {
+    PrefetchSource(CommandContext ctx) {
+      super(ctx, false);
+    }
+
+    @Override
+    protected ExecutionStream internalStart(CommandContext ctx) {
+      var result = new ResultInternal(ctx.getDatabaseSession());
+      result.setProperty("name", ctx.getInputParameters().get(0));
+      return ExecutionStream.singleton(result);
+    }
+
+    @Override
+    public ExecutionStep copy(CommandContext ctx) {
+      return new PrefetchSource(ctx);
+    }
+  }
+
+  /** Candidate substitution restores parent-owned nulls and values on pass, rejection, and error. */
+  @Test
+  public void edgeCandidatesRestoreEvenWhenFilterFails() {
+    for (int outcome = 0; outcome < 3; outcome++) {
+      for (Object saved : java.util.Arrays.asList(null, "outer")) {
+        var parent = createCommandContext();
+        parent.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, saved);
+        var ctx = new ObservedContext();
+        ctx.setParentWithoutOverridingChild(parent);
+        var candidate = new ResultInternal(session);
+        var failure = new IllegalStateException("candidate filter");
+        final int mode = outcome;
+        var where = new SQLWhereClause(-1) {
+          @Override
+          public boolean matchesFilters(Result record, CommandContext context) {
+            assertSame(candidate, context.getInternalVariable(
+                CommandContext.InternalVariable.CURRENT_MATCH));
+            if (mode == 2) {
+              throw failure;
+            }
+            return mode == 0;
+          }
+        };
+        var filter = new SQLMatchFilter(-1);
+        filter.setFilter(where);
+        var item = new SQLMatchPathItem(-1);
+        item.setFilter(filter);
+        var traverser = new MatchEdgeTraverser(new ResultInternal(session), item) {
+          @Override
+          protected ExecutionStream traversePatternEdge(Result start, CommandContext context) {
+            return ExecutionStream.singleton(candidate);
+          }
+        };
+        var stream = traverser.executeTraversal(ctx, item, candidate, 0, null,
+            new RidSet());
+        if (mode == 2) {
+          assertSame(failure, assertThrows(IllegalStateException.class, () -> stream.hasNext(ctx)));
+        } else {
+          assertEquals(mode == 0, stream.hasNext(ctx));
+        }
+        assertTrue(parent.hasSystemVariable(CommandContext.VAR_CURRENT_MATCH));
+        assertSame(saved, parent.getSystemVariable(CommandContext.VAR_CURRENT_MATCH));
+        assertEquals(0, ctx.namedReads);
+        stream.close(ctx);
+      }
+    }
+  }
+
+  private final class ObservedContext extends BasicCommandContext {
+    int namedReads;
+    int directReads;
+
+    ObservedContext() {
+      super(MatchStepUnitTest.this.session);
+    }
+
+    @Override
+    public Object getVariable(String name) {
+      namedReads++;
+      return super.getVariable(name);
+    }
+
+    @Override
+    public Object getVariable(String name, Object fallback) {
+      namedReads++;
+      return super.getVariable(name, fallback);
+    }
+
+    @Override
+    public Map<String, Object> getVariables() {
+      namedReads++;
+      return super.getVariables();
+    }
+
+    @Override
+    public Object getVariableByReference(ContextVariableReference reference) {
+      directReads++;
+      return super.getVariableByReference(reference);
+    }
   }
 
   // -- MatchFirstStep tests --

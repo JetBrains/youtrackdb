@@ -602,6 +602,12 @@ final class GremlinStepWalker {
       return null;
     }
 
+    // A fork is a complete single-plan walk too, but its parent executes MultiPlanMatchStep.
+    // Keep the grouping marker until every recogniser has seen it, then choose the raw-row path.
+    if (childScopeBoundary != NO_CHILD_SCOPE || ctx.shaping().emitGroupEntries()
+        || !ctx.shaping().accumulateMap()) {
+      ctx.shaping = ctx.shaping().withPropertyGroupCount(null);
+    }
     return buildResult(ctx);
   }
 
@@ -1412,11 +1418,16 @@ final class GremlinStepWalker {
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
             .existsMatchExpressions(List.copyOf(ctx.existsMatchExpressions))
-            .returnItems(ctx.returnItems)
-            .returnAliases(ctx.returnAliases)
-            .returnNestedProjections(ctx.returnNestedProjections)
+            // RETURN $paths is an existing pass-through of MATCH rows. Direct counting needs
+            // the checked alias record, not the SELECT pre/aggregate/post projection pipeline.
+            .returnItems(ctx.shaping().propertyGroupCount() == null ? ctx.returnItems : List.of())
+            .returnAliases(
+                ctx.shaping().propertyGroupCount() == null ? ctx.returnAliases : List.of())
+            .returnNestedProjections(ctx.shaping().propertyGroupCount() == null
+                ? ctx.returnNestedProjections : List.of())
+            .returnPaths(ctx.shaping().propertyGroupCount() != null)
             .returnDistinct(ctx.returnDistinct)
-            .groupBy(ctx.groupBy)
+            .groupBy(ctx.shaping().propertyGroupCount() == null ? ctx.groupBy : null)
             .orderBy(ctx.orderBy)
             .limit(ctx.limit)
             .skip(ctx.skip)

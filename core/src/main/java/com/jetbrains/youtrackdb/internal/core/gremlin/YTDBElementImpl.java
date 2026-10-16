@@ -264,7 +264,8 @@ public abstract class YTDBElementImpl implements YTDBElement {
     return !keyIgnored(entity, key) && entity.hasProperty(key);
   }
 
-  private static boolean keyIgnored(Entity entity, String key) {
+  /** Property names hidden by the graph provider, including internal attributes and edge links. */
+  public static boolean keyIgnored(Entity entity, String key) {
     return key == null || key.isEmpty() ||
         key.charAt(0) == INTERNAL_PREFIX ||
         (entity.isEdge() && EDGE_LINK_FIELDS.contains(key));

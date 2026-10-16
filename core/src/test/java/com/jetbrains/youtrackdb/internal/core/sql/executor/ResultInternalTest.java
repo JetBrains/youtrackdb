@@ -22,8 +22,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
@@ -70,6 +72,128 @@ import org.junit.Test;
  * rollbackIfLeftOpen} safety-net established in Track 7 and codified in Track 8.
  */
 public class ResultInternalTest extends TestUtilsFixture {
+
+  /** Typed entity, edge, and blob access reuse checked records while properties stay RID-valued. */
+  @Test
+  public void matchPropertyRetainsCheckedEdgesAndBlobs() {
+    session.begin();
+    var from = session.newVertex("V");
+    var to = session.newVertex("V");
+    var edge = session.newEdge(from, to);
+    var blob = session.newBlob(new byte[] {1, 2, 3});
+    session.commit();
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      edge = session.loadEdge(edge.getIdentity());
+      blob = session.loadBlob(blob.getIdentity());
+      var row = new ResultInternal(session);
+      row.setMatchProperty("edge", ResultInternal.fromCheckedRecord(session, edge));
+      row.setMatchProperty("blob", ResultInternal.fromCheckedRecord(session, blob));
+      assertThat(reads).containsExactly(edge, blob);
+      var before = reads.size();
+      assertThat(row.getEdge("edge")).isSameAs(edge);
+      assertThat(reads).hasSize(before);
+      assertThat(row.getEntity("edge")).isSameAs(edge);
+      assertThat(reads).hasSize(before);
+      assertThat(row.getBlob("blob")).isSameAs(blob);
+      assertThat(reads).hasSize(before);
+      assertThat((Object) row.getProperty("edge")).isInstanceOf(RID.class);
+      assertThat((Object) row.getProperty("blob")).isInstanceOf(RID.class);
+      for (var unchecked : new boolean[] {false, true}) {
+        var fallback = new ResultInternal(session);
+        fallback.setMatchProperty("edge", unchecked
+            ? new ResultInternal(session, edge) : edge.getIdentity());
+        fallback.setMatchProperty("blob", unchecked
+            ? new ResultInternal(session, blob) : blob.getIdentity());
+        assertThat(fallback.getMatchedRecord("edge")).isNull();
+        assertThat(fallback.getMatchedRecord("blob")).isNull();
+        before = reads.size();
+        assertThat(fallback.getEdge("edge")).isSameAs(edge);
+        assertThat(reads).hasSize(before + 1);
+        assertThat(fallback.getBlob("blob")).isSameAs(blob);
+        assertThat(reads).hasSize(before + 2);
+      }
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Both lazy blob conversions record checked reads, but tx-enrolled blobs remain ineligible. */
+  @Test
+  public void lazyBlobConversionsRetainOnlyCheckedLoads() {
+    session.begin();
+    var blobRid = session.newBlob(new byte[] {1, 2, 3}).getIdentity();
+    session.commit();
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      for (var nullable : new boolean[] {false, true}) {
+        var lazy = new ResultInternal(session, blobRid);
+        int before = reads.size();
+        var blob = nullable ? lazy.asBlobOrNull() : lazy.asBlob();
+        assertThat(reads).hasSize(before + 1);
+        var row = new ResultInternal(session);
+        row.setMatchProperty("blob", lazy);
+        assertThat(row.getBlob("blob")).isSameAs(blob);
+        assertThat(reads).hasSize(before + 1);
+        assertThat((Object) row.getProperty("blob")).isEqualTo(blobRid);
+      }
+      var enrolled = session.newBlob(new byte[] {4});
+      var lazy = new ResultInternal(session, enrolled.getIdentity());
+      assertThat(lazy.asBlobOrNull()).isSameAs(enrolled);
+      var row = new ResultInternal(session);
+      row.setMatchProperty("blob", lazy);
+      assertThat(row.getMatchedRecord("blob")).isNull();
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Embedded replacement clears alias evidence and the source's checked transaction marker. */
+  @Test
+  public void embeddedReplacementClearsMatchEvidence() {
+    session.begin();
+    try {
+      var vertex = session.newVertex("V");
+      var checked = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+          (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+          true));
+      var row = new ResultInternal(session);
+      row.setMatchProperty("a", checked);
+      var embedded = session.newEmbeddedEntity();
+      embedded.setProperty("k", 42);
+      row.setIdentifiable(embedded);
+      assertThat(row.getMatchedRecord("a")).isNull();
+      checked.setIdentifiable(embedded);
+      checked.setIdentifiable(vertex);
+      row.setMatchProperty("a", checked);
+      assertThat(row.getMatchedRecord("a")).isNull();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private RecordHook observeReads(List<DBRecord> reads) {
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(TYPE type, DBRecord record) {
+        if (type == TYPE.READ) {
+          reads.add(record);
+        }
+      }
+    };
+    session.registerHook(hook);
+    return hook;
+  }
 
   // =========================================================================
   // Constructors

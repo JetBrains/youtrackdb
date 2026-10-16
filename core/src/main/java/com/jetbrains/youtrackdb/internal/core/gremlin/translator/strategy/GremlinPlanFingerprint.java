@@ -304,6 +304,14 @@ final class GremlinPlanFingerprint {
         .append(shaping.elementMapTokens() ? '1' : '0')
         .append(shaping.emitGroupEntries() ? '1' : '0')
         .append(shaping.emptyBarrier() ? '1' : '0');
+    var counting = shaping.propertyGroupCount();
+    if (counting != null) {
+      // Other shapes retain their established fingerprint, including pinned cache contracts.
+      sb.append(";PC:");
+      appendToken(sb, counting.alias());
+      appendToken(sb, counting.propertyKey());
+      sb.append(counting.includeMissing() ? '1' : '0');
+    }
     sb.append(";PK:");
     for (var key : shaping.presencePropertyKeys()) {
       appendToken(sb, key);
