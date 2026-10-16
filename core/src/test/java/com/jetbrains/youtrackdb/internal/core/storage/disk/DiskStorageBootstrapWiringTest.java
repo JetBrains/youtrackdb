@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -15,9 +16,11 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
@@ -38,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -589,6 +593,87 @@ public class DiskStorageBootstrapWiringTest {
       }
     } finally {
       DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  /**
+   * A negative first or later V3 record length rejects both opens of the same storage object.
+   * Each rejection must report the path, offset and length, keep error state clear and preserve bytes.
+   */
+  @Test
+  public void negativeMapLengthsRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Use a complete disk image so each open reaches the name-id map reader.
+    }
+    final var path = directory.resolve(DATABASE).resolve("name_id_map_v3.cm");
+    final var original = Files.readAllBytes(path);
+    final var laterOffset = Long.BYTES + Integer.BYTES + ByteBuffer.wrap(original).getInt(8);
+    for (final var offset : new int[] {0, laterOffset}) {
+      final var length = offset == 0 ? -1 : 0xFFFFFFF0;
+      final var bytes = original.clone();
+      ByteBuffer.wrap(bytes).putInt(offset + Long.BYTES, length);
+      Files.write(path, bytes);
+      assertMapRejectedOnRepeatedOpen(Map.of(path, bytes),
+          "Negative record length " + length, path.toString(), "at byte " + offset);
+    }
+  }
+
+  /**
+   * Each legacy map rejects both opens of the same storage object with the migration remedy.
+   * Neither rejection may set error state or change the legacy map or the existing V3 map.
+   */
+  @Test
+  public void legacyMapsRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Keep a current map beside each legacy map to check that rejection preserves both.
+    }
+    final var storageDirectory = directory.resolve(DATABASE);
+    final var current = storageDirectory.resolve("name_id_map_v3.cm");
+    final var currentBytes = Files.readAllBytes(current);
+    for (final var fileName : new String[] {"name_id_map.cm", "name_id_map_v2.cm"}) {
+      final var legacy = storageDirectory.resolve(fileName);
+      final var legacyBytes = new byte[] {1, 2, 3};
+      Files.write(legacy, legacyBytes);
+      assertMapRejectedOnRepeatedOpen(Map.of(current, currentBytes, legacy, legacyBytes),
+          legacy.toString(), "no longer supported", "Export the database with the older release",
+          "import it into a fresh database", "docs/operator-migration-procedure.md");
+      Files.delete(legacy);
+    }
+  }
+
+  private void assertMapRejectedOnRepeatedOpen(Map<Path, byte[]> maps, String... messageParts)
+      throws Exception {
+    final var observed = new AtomicReference<DiskStorage>();
+    DiskStorage.setOpenIndicationActionForTesting(directory.resolve(DATABASE), observed::set);
+    try (var manager = openManager()) {
+      final var first = assertThrows(DatabaseException.class,
+          () -> manager.open(DATABASE, ADMIN, ADMIN));
+      assertTrue("the manager must retain the storage rejection",
+          first.getCause() instanceof StorageException);
+      final var storage = observed.get();
+      assertNotNull("the failed storage must be observed", storage);
+      assertMapRejection(storage, (StorageException) first.getCause(), maps, messageParts);
+
+      // Bypass the manager, which removes failed storages and would hide a poisoned instance.
+      final var second = assertThrows(StorageException.class,
+          () -> storage.open(new ContextConfiguration()));
+      assertMapRejection(storage, second, maps, messageParts);
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  private static void assertMapRejection(DiskStorage storage, StorageException failure,
+      Map<Path, byte[]> maps, String[] messageParts) throws Exception {
+    for (final var part : messageParts) {
+      assertTrue(failure.getMessage(), failure.getMessage().contains(part));
+    }
+    assertEquals(AbstractStorage.STATUS.CLOSED, storage.getStatus());
+    // This public guard throws if isInError() is true, even while the storage is CLOSED.
+    storage.checkErrorState();
+    for (final var entry : maps.entrySet()) {
+      assertArrayEquals(entry.getKey().toString(), entry.getValue(),
+          Files.readAllBytes(entry.getKey()));
     }
   }
 

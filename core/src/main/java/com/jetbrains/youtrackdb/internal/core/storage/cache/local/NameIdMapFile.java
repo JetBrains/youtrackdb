@@ -64,8 +64,9 @@ final class NameIdMapFile {
       IOUtils.readByteBuffer(header, channel);
       final var length = header.getInt(LENGTH_OFFSET);
       if (length < 0) {
-        throw new IOException("Negative record length " + length + " in name-id map " + path
-            + " at byte " + offset);
+        // Runtime rejection keeps repeated storage opens on the map-validation path.
+        throw new StorageException(storageName,
+            "Negative record length " + length + " in name-id map " + path + " at byte " + offset);
       }
       if (length > MAX_RECORD_LENGTH) {
         LogManager.instance().error(requester,

@@ -2932,9 +2932,11 @@ public final class WOWCache extends AbstractWriteCache
 
     for (final var legacyPath : List.of(nameIdMapHolderV1, nameIdMapHolderV2)) {
       if (Files.exists(legacyPath)) {
-        throw new IOException("Name-id map format is no longer supported: " + legacyPath
-            + ". Export the database with the older release that created it, then import it"
-            + " into a fresh database with this release. See docs/operator-migration-procedure.md");
+        // Runtime rejection keeps repeated storage opens on the map-validation path.
+        throw new StorageException(storageName,
+            "Name-id map format is no longer supported: " + legacyPath
+                + ". Export the database with the older release that created it, then import it"
+                + " into a fresh database with this release. See docs/operator-migration-procedure.md");
       }
     }
 

@@ -117,7 +117,7 @@ public class NameIdMapFileTest {
     for (final var length : new int[] {-1, Integer.MIN_VALUE, 0xFFFFFFF0}) {
       final var record = image(FIRST);
       record.putInt(8, length);
-      assertDamagedRecord(record, IOException.class, null);
+      assertDamagedRecord(record, StorageException.class, null);
     }
     for (final var length : new int[] {0, 16385, Integer.MAX_VALUE, 1, 4}) {
       final var record = image(FIRST);
@@ -163,7 +163,7 @@ public class NameIdMapFileTest {
       if (failure != null) {
         final var thrown = assertThrows(failure,
             () -> NameIdMapFile.readNext(channel, path, "test", this));
-        if (failure == IOException.class) {
+        if (failure == StorageException.class) {
           assertTrue(thrown.getMessage().contains(path.toString()));
           assertTrue(thrown.getMessage().contains("at byte " + prefix.limit()));
         }
