@@ -82,6 +82,9 @@ public final class ChangedPageTrackerFile {
         if (!tracker.isCaptureValid(state)) {
           throw new IOException("Changed-page tracker capture invalidated before publication");
         }
+        if (state.trusted()) {
+          tracker.trustedFileMayExist(true);
+        }
         if (files.windows()) {
           files.windowsMove(temporary, target);
         } else {
@@ -97,10 +100,13 @@ public final class ChangedPageTrackerFile {
       } catch (IOException | RuntimeException | Error failure) {
         // Revoke trust before cleanup or diagnostics can allocate or fail.
         tracker.invalidate();
+        // An unclear publication result cannot certify absence, even if cleanup fails too.
+        tracker.trustedFileMayExist(true);
         var result = SaveResult.FAILED_INVALIDATED;
         Error cleanupError = null;
         try {
           invalidateFile(target, files);
+          tracker.trustedFileMayExist(false);
         } catch (IOException | RuntimeException | Error secondary) {
           if (secondary instanceof Error && !(failure instanceof Error)) {
             suppress(secondary, failure);
@@ -144,14 +150,19 @@ public final class ChangedPageTrackerFile {
     tracker.saveOrderLock().lock();
     try {
       tracker.invalidate();
+      if (!tracker.trustedFileMayExist()) {
+        return null;
+      }
       var target = sideFile.toAbsolutePath();
       try {
         invalidateFile(target, files);
+        tracker.trustedFileMayExist(false);
         return null;
       } catch (IOException | RuntimeException | Error failure) {
         if (failure instanceof Error error) {
           try {
             invalidateFile(target, files);
+            tracker.trustedFileMayExist(false);
           } catch (IOException | RuntimeException | Error secondary) {
             suppress(error, secondary);
           }

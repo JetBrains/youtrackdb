@@ -249,6 +249,62 @@ public class ChangedPageTrackerFileTest {
     assertTrue(hasUnsavedChanges(loaded, failedCoverage));
   }
 
+  /** Completion is shared across fallback calls and trusted publication rearms disk work. */
+  @Test
+  public void completedInvalidationSkipsDiskWorkUntilTrustedPublication() throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = ChangedPageTracker.restoration(UUID.randomUUID(), UUID.randomUUID(), true, null)
+        .build();
+    var operations = new RecordingOperations(path);
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker, operations));
+    assertEquals(List.of("delete side", "folder force"), operations.events);
+    operations.events.clear();
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker, operations));
+    assertTrue(operations.events.isEmpty());
+    // A full backup establishes trusted continuity again after fallback.
+    tracker.saveOrderLock().lock();
+    try {
+      tracker.saveSucceeded(tracker.capture());
+    } finally {
+      tracker.saveOrderLock().unlock();
+    }
+    tracker.retire(tracker.beginBackup());
+    assertTrue(tracker.isTrusted());
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE));
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker, operations));
+    assertEquals(List.of("delete side", "folder force"), operations.events);
+    operations.events.clear();
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker, operations));
+    assertTrue(operations.events.isEmpty());
+  }
+
+  /** A rename followed by failed force and failed cleanup cannot leave completion cached. */
+  @Test
+  public void unclearPublicationRearmsFallbackEvenAfterEarlierCompletedInvalidation()
+      throws Exception {
+    Assume.assumeFalse(IOUtils.isOsWindows());
+    var path = folder.getRoot().toPath().resolve("tracker");
+    var tracker = new ChangedPageTracker();
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker,
+        new RecordingOperations(path)));
+    var operations = new RecordingOperations(path) {
+      @Override
+      void event(String operation) throws IOException {
+        super.event(operation);
+        if (operation.equals("folder force") || operation.equals("delete side")) {
+          throw new IOException("unclear publication and failed cleanup");
+        }
+      }
+    };
+    assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATION_FAILED,
+        ChangedPageTrackerFile.save(path, tracker, COVERAGE, operations));
+    var retry = new RecordingOperations(path);
+    assertNull(ChangedPageTrackerFile.invalidateWithCause(path, tracker, retry));
+    assertEquals(List.of("delete side", "folder force"), retry.events);
+  }
+
   private static boolean hasUnsavedChanges(ChangedPageTracker tracker,
       LogSequenceNumber coverage) {
     tracker.saveOrderLock().lock();
@@ -394,7 +450,9 @@ public class ChangedPageTrackerFileTest {
           ChangedPageTrackerFile.invalidate(path, tracker));
       assertFalse(Files.exists(path));
       var retry = new RecordingOperations(path);
-      assertTrue(ChangedPageTrackerFile.invalidate(path, tracker, retry).allowsWalCut());
+      // A fresh tracker must still force an absent name. It has no completed disk evidence.
+      assertTrue(ChangedPageTrackerFile.invalidate(path, new ChangedPageTracker(), retry)
+          .allowsWalCut());
       assertEquals(List.of("delete side", "folder force"), retry.events);
     }
   }
@@ -827,7 +885,7 @@ public class ChangedPageTrackerFileTest {
       }
       operations.events.clear();
       assertEquals(ChangedPageTrackerFile.InvalidationResult.INVALIDATED,
-          ChangedPageTrackerFile.invalidate(path, tracker, operations));
+          ChangedPageTrackerFile.invalidate(path, new ChangedPageTracker(), operations));
       assertEquals(List.of("delete temporary", "file force", "windows move"), operations.events);
       assertEquals(0, Files.size(path));
       assertFalse(ChangedPageTrackerFile.load(path).tracker().isTrusted());

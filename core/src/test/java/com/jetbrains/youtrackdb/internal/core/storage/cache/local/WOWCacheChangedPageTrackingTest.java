@@ -254,7 +254,8 @@ public class WOWCacheChangedPageTrackingTest {
       assertSealedPages(seal, file, 7L);
       assertThrows(StorageException.class,
           () -> cache.loadFile("missing.tst"));
-      assertTrue(tracker.isTrusted());
+      // Unknown-name fallback precedes the final disk check, even when that check fails.
+      assertFalse(tracker.isTrusted());
     } finally {
       cache.endStartupReplayPreservation();
     }
@@ -419,6 +420,126 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
+  /** Failed durable fallback changes no inventory or registry bytes, including tombstones. */
+  @Test
+  public void adoptionFallbackFailureRegistersNothingAndRetryKeepsMarks() throws Exception {
+    for (boolean tombstone : new boolean[] {false, true}) {
+      String name = tombstone ? "tombstone.tst" : "absent.tst";
+      long seed = tombstone ? 32 : 31;
+      int internal = new Random(seed).nextInt(Integer.MAX_VALUE - 1) + 1;
+      setField(cache, "fileIdGen", new Random(seed));
+      long file = tombstone ? cache.bookFileId(name) : cache.externalFileId(internal);
+      internal = cache.internalFileId(file);
+      int dot = name.lastIndexOf('.');
+      Files.write(cache.getRootDirectory().resolve(name.substring(0, dot) + "_" + internal
+          + name.substring(dot)), new byte[File.HEADER_SIZE + pageSize]);
+      var seal = seedTrustedGenerations(file);
+      var names = Map.copyOf((Map<?, ?>) field(cache, "nameIdMap"));
+      var ids = Map.copyOf((Map<?, ?>) field(cache, "idNameMap"));
+      var registry = cache.getRootDirectory().resolve("name_id_map_v3.cm");
+      var bytes = Files.readAllBytes(registry);
+      var side = cache.getRootDirectory().resolve(ChangedPageTrackerFile.FILE_NAME);
+      Files.createDirectory(side);
+      Files.writeString(side.resolve("blocker"), "cannot delete");
+      assertThrows(java.io.IOException.class, () -> cache.loadFile(name));
+      assertEquals(names, field(cache, "nameIdMap"));
+      assertEquals(ids, field(cache, "idNameMap"));
+      assertArrayEquals(bytes, Files.readAllBytes(registry));
+      assertNull(((ClosableLinkedContainer<Long, File>) field(cache, "files")).get(file));
+      Files.delete(side.resolve("blocker"));
+      Files.delete(side);
+      assertEquals(file, cache.loadFile(name));
+      assertPages(file, 8L);
+      assertSealedPages(seal, file, 7L);
+      assertFalse(tracker.isTrusted());
+    }
+  }
+
+  /** Retaking inventory observes registration, changed tombstones and removal during fallback. */
+  @Test
+  public void adoptionRetakesInventoryOutsideInvalidationAndUsesCurrentState() throws Exception {
+    for (int event = 0; event < 3; event++) {
+      String name = "retake" + event + ".tst";
+      long original = cache.bookFileId(name);
+      int internal = cache.internalFileId(original);
+      var physical = cache.getRootDirectory().resolve("retake" + event + "_" + internal + ".tst");
+      Files.write(physical, new byte[File.HEADER_SIZE + pageSize]);
+      var observed = spy(tracker);
+      setField(cache, "changedPageTracker", observed);
+      var worker = Executors.newSingleThreadExecutor();
+      int selected = event;
+      long replacement = cache.externalFileId(internal == 1 ? 2 : internal - 1);
+      doAnswer(call -> {
+        call.callRealMethod();
+        // A cooperating inventory writer must finish while invalidation is on this stack.
+        worker.submit(() -> {
+          if (selected == 0) {
+            cache.addFile(name, original);
+          } else if (selected == 1) {
+            var lock =
+                (com.jetbrains.youtrackdb.internal.common.concur.lock.ReadersWriterSpinLock) field(
+                    cache,
+                    "filesLock");
+            lock.acquireWriteLock();
+            try {
+              ((Map<String, Integer>) field(cache, "nameIdMap"))
+                  .put(name, -cache.internalFileId(replacement));
+              ((Map<Integer, String>) field(cache, "idNameMap"))
+                  .put(-cache.internalFileId(replacement), name);
+              Files.move(physical, cache.getRootDirectory().resolve("retake" + selected + "_"
+                  + cache.internalFileId(replacement) + ".tst"));
+            } finally {
+              lock.releaseWriteLock();
+            }
+          } else {
+            Files.delete(physical);
+          }
+          return null;
+        }).get(5, TimeUnit.SECONDS);
+        return null;
+      }).when(observed).invalidate();
+      try {
+        if (event == 2) {
+          assertThrows(StorageException.class, () -> cache.loadFile(name));
+          assertEquals(-1, cache.fileIdByName(name));
+        } else {
+          assertEquals(event == 0 ? original : replacement, cache.loadFile(name));
+        }
+      } finally {
+        worker.shutdownNow();
+        assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        setField(cache, "changedPageTracker", tracker);
+      }
+      // Rearm the conservative default for the next independent release-window scenario.
+      tracker = new ChangedPageTracker();
+      setField(cache, "changedPageTracker", tracker);
+    }
+  }
+
+  /** Real registry loading opens handles before a DWL fault. Close must release those handles. */
+  @Test
+  public void closeReleasesHandlesAfterFailedRegisteredFilesLoad() throws Exception {
+    long file = cache.addFile("partial.tst");
+    cache.close();
+    var log = spy(new DoubleWriteLogNoOP());
+    org.mockito.Mockito.doThrow(new java.io.IOException("DWL open failed"))
+        .when(log).open(org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), anyInt());
+    setField(cache, "doubleWriteLog", log);
+    assertThrows(java.io.IOException.class, cache::loadRegisteredFiles);
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    assertTrue(handles.get(file).isOpen());
+    try {
+      cache.close();
+      assertNull(handles.get(file));
+      org.mockito.Mockito.verify(log).close();
+    } finally {
+      // Reopen only for the fixture's normal destructive teardown.
+      setField(cache, "doubleWriteLog", new DoubleWriteLogNoOP());
+      cache.loadRegisteredFiles();
+    }
+  }
+
   private ChangedPageTracker.SaveState capture() {
     tracker.saveOrderLock().lock();
     try {
@@ -527,6 +648,16 @@ public class WOWCacheChangedPageTrackingTest {
   // notification and the operation finish. Reopening installs fresh, untrusted tracker state.
   @Test
   public void atomicCommitPublishesMarksBeforeCompletionAndWriteFreeze() throws Exception {
+    assertAtomicOperationExcludesFreeze(false);
+  }
+
+  /** Runtime adoption remains counted by the freezer while its durable fallback is unresolved. */
+  @Test
+  public void runtimeAdoptionExcludesBackupFreezeThroughDurableFallback() throws Exception {
+    assertAtomicOperationExcludesFreeze(true);
+  }
+
+  private void assertAtomicOperationExcludesFreeze(boolean adoption) throws Exception {
     String root = directory.newFolder("database").getAbsolutePath();
     ChangedPageTracker first;
     try (var tracks = (YouTrackDBImpl) YourTracks.instance(root)) {
@@ -540,30 +671,58 @@ public class WOWCacheChangedPageTrackingTest {
         assertFalse(first.isTrusted());
         var observed = spy(first);
         setField(wow, "changedPageTracker", observed);
+        var authority = wow.getRootDirectory().resolve(ChangedPageTrackerFile.FILE_NAME);
+        if (adoption) {
+          observed.saveOrderLock().lock();
+          try {
+            observed.saveSucceeded(observed.capture());
+          } finally {
+            observed.saveOrderLock().unlock();
+          }
+          observed.retire(observed.beginBackup());
+          assertTrue(observed.isTrusted());
+          assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+              ChangedPageTrackerFile.save(authority, observed, new LogSequenceNumber(0, 0)));
+        }
         var manager = storage.getAtomicOperationsManager();
         var operation = new AtomicReference<AtomicOperation>();
         var marked = new CountDownLatch(1);
         var finish = new CountDownLatch(1);
         var freezeEntered = new CountDownLatch(1);
-        doAnswer(call -> {
+        org.mockito.stubbing.Answer<Object> pause = call -> {
           call.callRealMethod();
           if (operation.get() == null || !operation.get().isActive()) {
             return null;
           }
-          assertTrue("the real notification must publish its candidate",
-              pages(observed, call.getArgument(0)).contains(call.getArgument(1)));
+          if (!adoption) {
+            assertTrue("the real notification must publish its candidate",
+                pages(observed, call.getArgument(0)).contains(call.getArgument(1)));
+          }
           marked.countDown();
           assertTrue(finish.await(10, TimeUnit.SECONDS));
           return null;
-        }).when(observed).mark(anyInt(), anyLong());
+        };
+        if (adoption) {
+          doAnswer(pause).when(observed).invalidate();
+        } else {
+          doAnswer(pause).when(observed).mark(anyInt(), anyLong());
+        }
         var workers = Executors.newFixedThreadPool(2);
         try {
           var writer = workers.submit(() -> {
             manager.executeInsideAtomicOperation(op -> {
               operation.set(op);
-              long file = op.addFile("atomic.tst");
-              try (var entry = op.allocatePageForWrite(file, 0)) {
-                new EntryPoint(entry).init();
+              if (adoption) {
+                long file = wow.bookFileId("adopted.tst");
+                Files.write(wow.getRootDirectory().resolve("adopted_"
+                    + wow.internalFileId(file) + ".tst"), new byte[File.HEADER_SIZE + pageSize]);
+                assertEquals(file, op.loadFile("adopted.tst"));
+                assertFalse(Files.exists(authority));
+              } else {
+                long file = op.addFile("atomic.tst");
+                try (var entry = op.allocatePageForWrite(file, 0)) {
+                  new EntryPoint(entry).init();
+                }
               }
             });
             return null;

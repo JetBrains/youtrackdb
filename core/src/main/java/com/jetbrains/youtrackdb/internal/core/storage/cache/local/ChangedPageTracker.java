@@ -41,6 +41,8 @@ public final class ChangedPageTracker {
   private final AtomicLong failures = new AtomicLong();
   private final MutationClock mutations = new MutationClock();
   private long savedMutationVersion = -1;
+  // Only a completed durable invalidation proves absence. Access requires save order.
+  private boolean trustedFileMayExist = true;
   @Nullable private LogSequenceNumber durableCoverageLsn;
   private final AllocationObserver allocations;
   private final FileIndex<FileIdentity> identities = new FileIndex<>();
@@ -322,6 +324,29 @@ public final class ChangedPageTracker {
 
   /** Unavailability has no cut invocation. Other outcomes report the real bounded cut result. */
   public record CheckpointResult(CheckpointOutcome outcome, boolean segmentsRemoved) {
+  }
+
+  /**
+   * Unknown-content adoption holds an applied atomic operation or storage state write exclusion.
+   * It holds no inventory lock while waiting for save order or performing invalidation I/O.
+   */
+  public void durableDistrust(Path sideFile) throws IOException {
+    var failure = ChangedPageTrackerFile.invalidateWithCause(sideFile, this,
+        new ChangedPageTrackerFile.FileOperations());
+    if (failure != null) {
+      throw new IOException("Failed to durably distrust changed-page tracker: " + sideFile,
+          failure);
+    }
+  }
+
+  boolean trustedFileMayExist() {
+    requireSaveOrder();
+    return trustedFileMayExist;
+  }
+
+  void trustedFileMayExist(boolean value) {
+    requireSaveOrder();
+    trustedFileMayExist = value;
   }
 
   /** Later save code holds this domain from capture through publication and the associated cut. */

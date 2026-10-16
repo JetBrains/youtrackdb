@@ -877,6 +877,8 @@ public abstract class AbstractStorage
       }
 
       checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
+      boolean physicalOpenStarted = false;
+      boolean metadataOpened = false;
       try {
         stateLock.writeLock().lock();
         try {
@@ -910,7 +912,13 @@ public abstract class AbstractStorage
           // This call is the single admission decision of storage open. Admission runs before
           // write-ahead log initialization and before recovery, so a rejected image never reaches
           // recovery. A write-ahead log records a change before that change reaches its final file.
+          // Only acquisitions of this physical attempt belong to failure cleanup. Closed fields
+          // from an earlier open are not resources of this attempt.
+          prepareOpenResources();
+          physicalOpenStarted = true;
           readStorageIdentity();
+          final var startupMetadata = checkIfStorageDirty();
+          metadataOpened = true;
           readIv();
 
           initWalAndDiskCacheOnOpen(contextConfiguration);
@@ -919,7 +927,6 @@ public abstract class AbstractStorage
           // Must happen after WAL initialization (above) and before recoverIfNeeded() (below).
           PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
 
-          final var startupMetadata = checkIfStorageDirty();
           final var openingFloor = operationIdFloorOnOpen(startupMetadata.lastTxId);
           if (openingFloor >= idGen.getLastId()) {
             idGen.advanceToAtLeast(openingFloor);
@@ -1041,7 +1048,7 @@ public abstract class AbstractStorage
       } catch (final Throwable e) {
         var cacheClosed = true;
         try {
-          if (writeCache != null) {
+          if (physicalOpenStarted && writeCache != null) {
             readCache.closeStorage(writeCache);
           }
         } catch (final Throwable ee) {
@@ -1050,7 +1057,7 @@ public abstract class AbstractStorage
         }
 
         try {
-          if (writeAheadLog != null) {
+          if (physicalOpenStarted && writeAheadLog != null) {
             writeAheadLog.close();
           }
         } catch (final Throwable ee) {
@@ -1059,7 +1066,7 @@ public abstract class AbstractStorage
 
         // Another process may open once the metadata lock is released. Release it only after
         // the cache writers have stopped and their files have closed.
-        if (cacheClosed) {
+        if (metadataOpened && cacheClosed) {
           try {
             postCloseSteps(false, true, idGen.getLastId());
           } catch (final Throwable ee) {
@@ -1118,6 +1125,10 @@ public abstract class AbstractStorage
         // Cleanup and diagnostic failures must never replace the original open failure.
       }
     }
+  }
+
+  /** Disk open starts new acquisitions. Memory open retains its existing in-memory image. */
+  protected void prepareOpenResources() {
   }
 
   protected abstract void readIv() throws IOException;

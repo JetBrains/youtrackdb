@@ -1200,6 +1200,12 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
+  protected void prepareOpenResources() {
+    writeCache = null;
+    writeAheadLog = null;
+  }
+
+  @Override
   protected void initWalAndDiskCacheOnOpen(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
     buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
@@ -1317,11 +1323,11 @@ public class DiskStorage extends AbstractStorage {
             context.getIoExecutor(),
             tracker);
 
+    // Failure cleanup must see the constructed cache even when registry loading fails.
+    writeCache = wowCache;
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
-
-    writeCache = wowCache;
   }
 
   static boolean warnIfFsyncDisabled(final boolean callFsync) {
