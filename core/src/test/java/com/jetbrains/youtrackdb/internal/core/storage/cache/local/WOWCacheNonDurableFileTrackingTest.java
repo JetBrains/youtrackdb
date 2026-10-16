@@ -514,19 +514,19 @@ public class WOWCacheNonDurableFileTrackingTest {
         countInvocations(channel, "force"));
   }
 
-  /** V3 migration suppresses its registry force when fsync is disabled. */
+  /** Initial V3 map creation suppresses its registry force when fsync is disabled. */
   @Test
-  public void testV3MigrationSkipsForceWhenFsyncIsDisabled() throws Exception {
-    assertV3MigrationForces(false, 0);
+  public void testV3CreationSkipsForceWhenFsyncIsDisabled() throws Exception {
+    assertV3CreationForces(false, 0);
   }
 
-  /** V3 migration retains its registry force when fsync is enabled. */
+  /** Initial V3 map creation retains its registry force when fsync is enabled. */
   @Test
-  public void testV3MigrationForcesWhenFsyncIsEnabled() throws Exception {
-    assertV3MigrationForces(true, 1);
+  public void testV3CreationForcesWhenFsyncIsEnabled() throws Exception {
+    assertV3CreationForces(true, 1);
   }
 
-  private void assertV3MigrationForces(boolean callFsync, long expectedForces) throws Exception {
+  private void assertV3CreationForces(boolean callFsync, long expectedForces) throws Exception {
     wowCache.delete();
     createNewCache(callFsync);
 
@@ -567,12 +567,12 @@ public class WOWCacheNonDurableFileTrackingTest {
         }
       }
       assertNotNull("stub setup must open the temporary channel", stubbingChannel[0]);
-      invokeFsyncFilesOrMigration(wowCache, "storedNameIdMapToV3");
+      invokeFsyncFilesOrMigration(wowCache, "createNameIdMapV3");
     }
 
-    assertNotNull("migration must open its temporary registry channel", channel.get());
+    assertNotNull("creation must open its temporary registry channel", channel.get());
     assertEquals(
-        "V3 migration force count must follow callFsync",
+        "V3 creation force count must follow callFsync",
         expectedForces,
         countInvocations(channel.get(), "force"));
   }
@@ -1275,6 +1275,37 @@ public class WOWCacheNonDurableFileTrackingTest {
       }
     }
     return entries;
+  }
+
+  /** V1 is rejected without changing either the legacy map or an existing V3 map. */
+  @Test
+  public void testV1MapIsRejectedWithMigrationRemedy() throws Exception {
+    assertLegacyMapRejected("name_id_map.cm");
+  }
+
+  /** V2 is rejected without changing either the legacy map or an existing V3 map. */
+  @Test
+  public void testV2MapIsRejectedWithMigrationRemedy() throws Exception {
+    assertLegacyMapRejected("name_id_map_v2.cm");
+  }
+
+  private void assertLegacyMapRejected(String fileName) throws Exception {
+    wowCache.addFile("retained.tst");
+    wowCache.close();
+    final var legacy = storagePath.resolve(fileName);
+    final var legacyBytes = new byte[] {1, 2, 3};
+    Files.write(legacy, legacyBytes);
+    final var v3 = storagePath.resolve("name_id_map_v3.cm");
+    final var v3Bytes = Files.readAllBytes(v3);
+    final var failure = assertThrows(IOException.class, () -> createNewCache());
+    // loadRegisteredFiles releases and closes the failed cache before propagating the error.
+    wowCache = null;
+    assertTrue(failure.getMessage().contains(fileName));
+    assertTrue(failure.getMessage().contains("no longer supported"));
+    assertTrue(failure.getMessage().contains("Export the database with the older release"));
+    assertTrue(failure.getMessage().contains("import it into a fresh database"));
+    org.junit.Assert.assertArrayEquals(legacyBytes, Files.readAllBytes(legacy));
+    org.junit.Assert.assertArrayEquals(v3Bytes, Files.readAllBytes(v3));
   }
 
   // --- Side file persistence tests ---
