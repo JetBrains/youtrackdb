@@ -490,6 +490,9 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ReadersWriterSpinLock filesLock = new ReadersWriterSpinLock();
 
+  // Read and written only under filesLock. Independent of trust and generic restore mode.
+  private boolean startupReplayPreservation;
+
   /**
    * Mapping between case sensitive file names are used in write cache and file's internal id. Name
    * of file in write cache is case sensitive and can be different from file name which is used to
@@ -599,6 +602,7 @@ public final class WOWCache extends AbstractWriteCache
   private final ExecutorService executor;
 
   private final boolean logFileDeletion;
+  private final ChangedPageTracker changedPageTracker;
 
   public WOWCache(
       final int pageSize,
@@ -618,7 +622,34 @@ public final class WOWCache extends AbstractWriteCache
       final byte[] aesKey,
       final boolean callFsync,
       ExecutorService executor) {
+    this(pageSize, logFileDeletion, bufferPool, writeAheadLog, doubleWriteLog, pagesFlushInterval,
+        shutdownTimeout, exclusiveWriteCacheMaxSize, storagePath, storageName, files, id,
+        doubleWriteLogFileName, checksumMode, iv, aesKey, callFsync, executor,
+        new ChangedPageTracker());
+  }
 
+  /** The disk storage supplies one fresh, untrusted tracker for each open or creation. */
+  public WOWCache(
+      final int pageSize,
+      final boolean logFileDeletion,
+      final ByteBufferPool bufferPool,
+      final WriteAheadLog writeAheadLog,
+      final DoubleWriteLog doubleWriteLog,
+      final long pagesFlushInterval,
+      final int shutdownTimeout,
+      final long exclusiveWriteCacheMaxSize,
+      final Path storagePath,
+      final String storageName,
+      final ClosableLinkedContainer<Long, File> files,
+      final int id, String doubleWriteLogFileName,
+      final ChecksumMode checksumMode,
+      final byte[] iv,
+      final byte[] aesKey,
+      final boolean callFsync,
+      ExecutorService executor,
+      ChangedPageTracker changedPageTracker) {
+
+    this.changedPageTracker = java.util.Objects.requireNonNull(changedPageTracker);
     this.logFileDeletion = logFileDeletion;
     this.doubleWriteLogFileName = doubleWriteLogFileName;
     if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
@@ -884,6 +915,8 @@ public final class WOWCache extends AbstractWriteCache
                 logger);
 
         openFile(storageName, fileClassic);
+        // Existing unknown content has no complete page history. Keep marks but revoke trust.
+        changedPageTracker.invalidate();
 
         final var externalId = composeFileId(id, fileId);
         files.add(externalId, fileClassic);
@@ -932,6 +965,9 @@ public final class WOWCache extends AbstractWriteCache
 
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
+      if (!startupReplayPreservation) {
+        changedPageTracker.resetFile(fileId);
+      }
 
       final var externalId = composeFileId(id, fileId);
       files.add(externalId, fileClassic);
@@ -995,6 +1031,10 @@ public final class WOWCache extends AbstractWriteCache
 
     final long pageIndex = pointer.getPageIndex();
 
+    // Commit-time cache application runs before AtomicOperationsManager ends its freezer entry.
+    // TRANSIENT_QUIESCE therefore waits for this mark, not just for the page exclusive lock.
+    // Recovery and restore use lifecycle exclusion instead. Mark again even if still dirty.
+    changedPageTracker.mark(intFileId, pageIndex);
     final var pageKey = new PageKey(intFileId, pageIndex);
 
     LogSequenceNumber dirtyLSN;
@@ -1039,6 +1079,10 @@ public final class WOWCache extends AbstractWriteCache
       final var existingFileId = nameIdMap.get(fileName);
 
       final var intId = extractFileId(fileId);
+      // Replay preservation suppresses tracker clearing, not file-ID validation.
+      if (intId <= 0) {
+        throw new IllegalArgumentException("Internal file identifier must be positive");
+      }
 
       if (existingFileId != null && existingFileId >= 0) {
         if (existingFileId == intId) {
@@ -1079,6 +1123,12 @@ public final class WOWCache extends AbstractWriteCache
         files.add(fileId, fileClassic);
       }
 
+      // File events run under the caller's component writer exclusion, or storage lifecycle
+      // exclusion during recovery/restore. filesLock orders inventory, not lock-free marks.
+      // Empty-file creation during startup keeps both generations and their existing trust.
+      if (!startupReplayPreservation) {
+        changedPageTracker.resetFile(intId);
+      }
       idNameMap.remove(-intId);
 
       nameIdMap.put(fileName, intId);
@@ -1186,7 +1236,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
-  public void syncDataFiles(final long segmentId) throws IOException {
+  public void syncDataFiles() throws IOException {
     filesLock.acquireReadLock();
     try {
       checkForClose();
@@ -1217,7 +1267,6 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         writeAheadLog.flush();
-        writeAheadLog.cutAllSegmentsSmallerThan(segmentId);
       } finally {
         doubleWriteLog.endCheckpoint();
       }
@@ -1278,6 +1327,36 @@ public final class WOWCache extends AbstractWriteCache
       return file.exists();
     } finally {
       filesLock.releaseReadLock();
+    }
+  }
+
+  /**
+   * Begins startup-replay preservation of active and sealed marks and trust for empty-file
+   * creation and file removal. Only registration of unknown existing content revokes memory trust.
+   * One lifecycle owner must exclude writers, backup and cuts, and pair a successful begin with
+   * {@link #endStartupReplayPreservation()} in finally. Nested or repeated begin throws without
+   * changing the active interval. The owner performs any durable distrust outside filesLock before
+   * a cut or admission.
+   */
+  public void beginStartupReplayPreservation() {
+    filesLock.acquireWriteLock();
+    try {
+      if (startupReplayPreservation) {
+        throw new IllegalStateException("Startup-replay preservation is already active");
+      }
+      startupReplayPreservation = true;
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  /** Ends startup-replay preservation. Repeated end is harmless under the single-owner contract. */
+  public void endStartupReplayPreservation() {
+    filesLock.acquireWriteLock();
+    try {
+      startupReplayPreservation = false;
+    } finally {
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -2060,6 +2139,9 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public void deleteFile(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
 
     filesLock.acquireWriteLock();
     try {
@@ -2079,6 +2161,12 @@ public final class WOWCache extends AbstractWriteCache
             storageName);
       }
 
+      // The caller excludes writers for this file through its component or lifecycle lock.
+      // Startup removal keeps both generations and their existing trust, even for an absent file.
+      // Ordinary deletion clears marks even for absent IDs.
+      if (!startupReplayPreservation) {
+        changedPageTracker.deleteFile(intId);
+      }
       if (file != null) {
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
@@ -2380,20 +2468,17 @@ public final class WOWCache extends AbstractWriteCache
     // What "quiescent" does and does not mean here. It is FLUSH-side quiescence only, and it
     // rests on the three things this method just did: stopFlush is set (so a periodic flush
     // exits at its entry guard), every triggered ExclusiveFlushTask's completionLatch has been
-    // awaited, and the periodic flushFuture has been awaited. It does NOT rest on stateLock:
-    // close(session, force = true) reaches doShutdown() without taking the write lock at all
-    // (AbstractStorage.close), so page releases on other threads can in principle still fire
-    // addOnlyWriters/removeOnlyWriters while this runs.
+    // awaited, and the periodic flushFuture has been awaited. Storage shutdown, including
+    // forced close, also holds the state write lock. It first drains operations holding state
+    // read mode or a commit window under state write mode.
+    // This cache method does not acquire that lock itself, so its local invariant relies on
+    // flush-side quiescence rather than assuming storage lifecycle exclusion.
     //
-    // That residual is small but it is genuinely a NEW sampling window, not a subset of an
-    // existing one. Two pre-existing assertions on this same counter (in
-    // flushExclusivePagesIfNeeded and in the exclusive-flush task) sample it far more often and
-    // under far more concurrency — but only while flushing is still running, and by the time
-    // control reaches this point flushing has been quiesced, so those two can no longer sample at
-    // all. This assertion therefore covers an instant they never see: rarer than theirs, and not
-    // dominated by them. It is kept because the invariant it checks is the one the clamp exists to
-    // protect, and because a violation here is far cheaper to act on than the silent
-    // back-pressure loss it would otherwise announce much later.
+    // The assertions in flushExclusivePagesIfNeeded and the exclusive-flush task sample this
+    // counter while flushing is running. They cannot check its final value after the flush
+    // workers stop. This assertion checks that shutdown state and the invariant the clamp
+    // protects. Reporting a violation here is cheaper than the silent back-pressure loss it
+    // would otherwise cause later.
     //
     // It is here rather than inside doRemoveCachePages because an assertion firing in the purge
     // aborts it mid-loop — leaking a PageFrame, orphaning a writeCachePages entry whose listener

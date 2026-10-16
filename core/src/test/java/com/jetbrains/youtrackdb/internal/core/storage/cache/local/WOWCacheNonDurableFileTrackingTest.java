@@ -726,13 +726,13 @@ public class WOWCacheNonDurableFileTrackingTest {
     files.add(secondId, second);
     final var originalBegin = writeAheadLog.begin();
 
-    assertThrows(StorageException.class, () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+    assertThrows(StorageException.class, () -> wowCache.syncDataFiles());
     assertEquals("one successful file must precede the failure", 2, attempts.get());
     assertEquals("failed attempt must retain WAL", originalBegin, writeAheadLog.begin());
     verify(doubleWriteLog, never()).truncate();
     verify(doubleWriteLog).endCheckpoint();
 
-    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    wowCache.syncDataFiles();
     assertEquals("the next attempt retries both files", 4, attempts.get());
   }
 
@@ -780,11 +780,11 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue("real full checkpoint reports the file-force failure",
         failure.getCause() instanceof RuntimeException);
     assertThrows(StorageException.class,
-        () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+        () -> wowCache.syncDataFiles());
     assertEquals("neither failure can delete WAL", begin, writeAheadLog.begin());
     verify(doubleWriteLog, never()).truncate();
     wowCache.flush();
-    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    wowCache.syncDataFiles();
     assertEquals("both paths invoked file force again", 3, attempts.get());
   }
 
@@ -1586,8 +1586,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // syncDataFiles should succeed — the non-durable file is skipped before fsync.
     // The durable file's channel is still open, so its fsync proceeds normally.
-    final var walSegment = writeAheadLog.begin().getSegment();
-    wowCache.syncDataFiles(walSegment);
+    wowCache.syncDataFiles();
   }
 
   /**

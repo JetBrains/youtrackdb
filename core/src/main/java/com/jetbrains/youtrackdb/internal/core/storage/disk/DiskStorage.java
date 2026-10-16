@@ -53,6 +53,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -344,6 +346,8 @@ public class DiskStorage extends AbstractStorage {
 
   private final Path storagePath;
   private final ClosableLinkedContainer<Long, File> files;
+  // Replaced under lifecycle exclusion. Checkpoint callers retain storage state exclusion.
+  private volatile ChangedPageTracker changedPageTracker;
 
   private Future<?> fuzzyCheckpointTask;
   private Future<?> recordsGcTask;
@@ -929,7 +933,19 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected void preCreateSteps() throws IOException {
+    removeStaleChangedPageFiles(storagePath);
     startupMetadata.create(YouTrackDBConstants.getRawVersion());
+  }
+
+  /** A newly created database image must not keep side-file authority from another image. */
+  static void removeStaleChangedPageFiles(Path directory) throws IOException {
+    try {
+      ChangedPageTrackerFile.cleanupForCreation(directory);
+    } catch (IOException | SecurityException failure) {
+      LogManager.instance().error(DiskStorage.class,
+          "Cannot durably clear stale changed-page tracker files in " + directory, failure);
+      throw failure;
+    }
   }
 
   @Override
@@ -976,6 +992,15 @@ public class DiskStorage extends AbstractStorage {
 
         // TRY TO DELETE ALL THE FILES
         for (final var f : storageFiles) {
+          // Tracker cleanup uses exact names so unrelated .cpt and .tmp files stay untouched.
+          if (ChangedPageTrackerFile.isTrackerFile(f.getName())) {
+            if (!f.delete()) {
+              notDeletedFiles++;
+              LogManager.instance().warn(DiskStorage.class,
+                  "Cannot delete changed-page tracker file " + f.getAbsolutePath());
+            }
+            continue;
+          }
           // DELETE ONLY THE SUPPORTED FILES
           for (final var ext : ALL_FILE_EXTENSIONS) {
             if (f.getPath().endsWith(ext)) {
@@ -1162,8 +1187,26 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
+  protected ChangedPageTracker.CheckpointResult checkpointChangedPages(long fixedBoundary)
+      throws IOException {
+    return changedPageTracker.checkpoint(
+        storagePath.resolve(ChangedPageTrackerFile.FILE_NAME), writeAheadLog, fixedBoundary);
+  }
+
+  @Override
   protected void initWalAndDiskCache(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+  }
+
+  @Override
+  protected void initWalAndDiskCacheOnOpen(final ContextConfiguration contextConfiguration)
+      throws IOException, java.lang.InterruptedException {
+    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+  }
+
+  private void buildWalAndDiskCache(final ContextConfiguration contextConfiguration,
+      final ChangedPageTracker tracker) throws IOException, java.lang.InterruptedException {
     final var callFsync =
         contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
     warnIfFsyncDisabled(callFsync);
@@ -1246,6 +1289,9 @@ public class DiskStorage extends AbstractStorage {
       doubleWriteLog = new DoubleWriteLogNoOP();
     }
 
+    // Lifecycle exclusion keeps the storage coordinator and cache on the same selected tracker.
+    // Both disk entry points select fresh, untrusted history. Memory storage has no tracker.
+    changedPageTracker = tracker;
     final var wowCache =
         new WOWCache(
             pageSize,
@@ -1268,7 +1314,8 @@ public class DiskStorage extends AbstractStorage {
             iv,
             aesKey,
             callFsync,
-            context.getIoExecutor());
+            context.getIoExecutor(),
+            tracker);
 
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
