@@ -685,7 +685,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var failures = new ArrayList<String>();
     var strategy = new GremlinToMatchStrategy(
         traversal -> GremlinStepWalker.production().walk(ordered.get().asAdmin()),
-        GremlinToMatchStrategy::buildPlan, true, failures::add, null);
+        productionPlanBuilder(), true, failures::add, null);
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> absent =
         () -> graph.traversal().withSack(1).V().hasLabel("MissedSource");
     String key = GremlinStepWalker.extractShape(absent.get().asAdmin(), graphSession()).key();
@@ -711,7 +711,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(
         traversal -> GremlinToMatchTranslator.translate(
             graph.traversal().V().hasLabel("AgreementPerson").has("age", 30).asAdmin()),
-        GremlinToMatchStrategy::buildPlan, true, failures::add, publications::incrementAndGet);
+        productionPlanBuilder(), true, failures::add, publications::incrementAndGet);
 
     strategy.apply(admin);
 
@@ -1318,6 +1318,10 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     return ordered.out("unsafeHopEdge").has(key, predicate).limit(1).values("name");
   }
 
+  private static GremlinToMatchStrategy.MatchPlanBuilder productionPlanBuilder() {
+    return GremlinToMatchStrategy::buildPlanEntry;
+  }
+
   private GremlinToMatchStrategy countingStrategy(AtomicInteger walks) {
     return countingStrategy(walks, GremlinToMatchStrategy::assertAgreement);
   }
@@ -1340,7 +1344,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         return GremlinToMatchTranslator.translate(traversal, includesMissing, placements,
             polymorphic);
       }
-    }, GremlinToMatchStrategy::buildPlan, true, agreementFailure, null);
+    }, productionPlanBuilder(), true, agreementFailure, null);
   }
 
   private List<String> runNativeHop(Supplier<
@@ -2924,7 +2928,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       walks.incrementAndGet();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     var extraction = GremlinStepWalker.extractShape(
         graph.traversal().V(alice.id(), alice.id()).out("knows").asAdmin(), db);
     assertThat(extraction.complete()).isTrue();

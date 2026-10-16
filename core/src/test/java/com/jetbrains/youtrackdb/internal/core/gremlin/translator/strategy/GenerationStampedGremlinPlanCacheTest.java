@@ -154,7 +154,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     traversal.addStep(1, has);
     new GremlinToMatchStrategy(GremlinToMatchTranslator::translate, (s, translation, scope) -> {
       assertThat(scope.generation).isEqualTo(before);
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true).apply(traversal);
     assertThat(reads.get()).isGreaterThanOrEqualTo(2);
     assertThat(cache.getGeneration()).isGreaterThan(before);
@@ -174,7 +174,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       cache.invalidate();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.apply(traversal);
     assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
     var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
@@ -195,8 +195,8 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var key = GremlinStepWalker.extractShape(traversal, db).key();
     var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
         (s, translation, scope) -> {
-          var template = GremlinToMatchStrategy.buildPlan(s, translation, scope);
-          assertThat(scope.isShared(template)).isTrue();
+          var template = GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
+          assertThat(template.sharedPlanTemplate).isTrue();
           cache.invalidate();
           return template;
         }, true);
@@ -215,24 +215,33 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(db);
     var traversal = graph.traversal().V().has("name", "Alice").asAdmin();
     var key = GremlinStepWalker.extractShape(traversal, db).key();
+    var fresh = new AtomicReference<GremlinPlanCache.Entry<InternalExecutionPlan>>();
+    var physicalKey = new AtomicReference<String>();
     var strategy = new GremlinToMatchStrategy(t -> {
       var translation = GremlinToMatchTranslator.translate(t);
+      physicalKey
+          .set(GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping()));
       cache.invalidate();
       try (var other = openDatabase()) {
         other.activateOnCurrentThread();
-        GremlinToMatchStrategy.buildPlan(other, translation,
-            new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true));
+        fresh.set(GremlinToMatchStrategy.buildPlanEntry(other, translation,
+            new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true)));
       } finally {
         db.activateOnCurrentThread();
       }
       return translation;
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     var hits = cache.getHits();
     strategy.apply(traversal);
     // Approved captured-generation policy trades cross-generation reuse for a private rebuild.
     assertThat(cache.getHits()).isEqualTo(hits);
+    var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+    var privatePlan = boundary.getPlan();
+    assertThat(privatePlan).isNotSameAs(fresh.get().value);
     assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
     assertThat(traversal.toList()).hasSize(1);
+    assertThat(boundary.getPlan()).isSameAs(privatePlan);
+    assertThat(cache.peekEntry(physicalKey.get(), cache.getGeneration())).isSameAs(fresh.get());
   }
 
   /** A newer shared holder cannot publish a translation for bindings captured before invalidation. */
@@ -291,12 +300,13 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var translation = GremlinToMatchTranslator.translate(
         graph.traversal().V().has("name", "Alice").asAdmin());
     var scope = new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true);
-    var shared = GremlinToMatchStrategy.buildPlan(db, translation, scope);
-    assertThat(scope.isShared(shared)).isTrue();
-    var privatePlan = shared.copy(new BasicCommandContext(db));
+    var shared = GremlinToMatchStrategy.buildPlanEntry(db, translation, scope);
+    assertThat(shared.sharedPlanTemplate).isTrue();
+    var privatePlan = shared.value.copy(new BasicCommandContext(db));
     var traversal = graph.traversal().V().has("name", "Alice").asAdmin();
     var key = GremlinStepWalker.extractShape(traversal, db).key();
-    new GremlinToMatchStrategy(t -> translation, (s, tr, access) -> privatePlan, true)
+    new GremlinToMatchStrategy(t -> translation,
+        (s, tr, access) -> GremlinPlanCache.Entry.owned(privatePlan, access.generation), true)
         .apply(traversal);
     assertThat(cache.containsTranslation(key)).isFalse();
     var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();

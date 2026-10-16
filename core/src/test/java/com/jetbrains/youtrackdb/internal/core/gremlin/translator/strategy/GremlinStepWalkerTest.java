@@ -190,6 +190,64 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     }
   }
 
+  /** Container order cannot reorder the sole runtime slot, including separately retained steps. */
+  @Test
+  public void labelBeforeIdHasExactBindingParityForMergedAndSeparateContainers() {
+    graph.addVertex(T.label, "Person");
+    graph.tx().commit();
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var db = tx.getDatabaseSession();
+    var rid = new RecordId(25, 7);
+    for (boolean separate : List.of(false, true)) {
+      for (boolean poly : List.of(false, true)) {
+        var admin = graph.traversal().V().hasLabel("Person").hasId(rid).out("knows").asAdmin();
+        if (separate) {
+          var merged = (HasStep<?>) admin.getSteps().get(1);
+          var id = merged.getHasContainers().stream()
+              .filter(c -> c.getKey().equals(T.id.getAccessor())).findFirst().orElseThrow();
+          merged.removeHasContainer(id);
+          admin.addStep(2, new HasStep<>(admin, id));
+        }
+        var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+        assertThat(decision).isNotNull();
+        var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+        var shape = GremlinStepWalker.extractShape(admin, db, false, nulls, poly, decision);
+        var result = GremlinToMatchTranslator.translate(admin, false, nulls, poly, decision);
+        assertThat(shape.bindings()).isEqualTo(Map.of(0, rid)).isEqualTo(result.inputParameters());
+        assertThat(result.inputs().runtimeRidStarts().get(BOUNDARY_ALIAS).aliasClass())
+            .isEqualTo("Person");
+        assertThat(shape.bindings().get(0)).isSameAs(decision.rid());
+      }
+    }
+  }
+
+  /** Literal ID and zero-slot predicates leave ordinary and multi-slot operands in exact order. */
+  @Test
+  public void ineligibleMixedContainersHaveCompleteBindingParity() {
+    graph.addVertex(T.label, "Person");
+    graph.tx().commit();
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var db = tx.getDatabaseSession();
+    for (boolean within : List.of(false, true)) {
+      var rid = new RecordId(25, 7);
+      var admin = graph.traversal().V().hasLabel("Person")
+          .hasId(within ? P.within(rid) : P.eq(rid))
+          .has("missing", P.eq(null)).has("name", "A").has("age", P.between(10, 20))
+          .out("knows").asAdmin();
+      assertThat(RuntimeRidStartEligibility.evaluate(admin, true)).isNull();
+      var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+      var shape = GremlinStepWalker.extractShape(admin, db, false, nulls, true, null);
+      var result = GremlinToMatchTranslator.translate(admin, false, nulls, true, null);
+      assertThat(result).isNotNull();
+      assertThat(shape.bindings()).isEqualTo(Map.of(0, "A", 1, 10, 2, 20))
+          .isEqualTo(result.inputParameters());
+      assertThat(result.inputs().runtimeRidStarts()).isEmpty();
+      assertThat(result.cacheEligible()).isFalse();
+    }
+  }
+
   /** Identity changes after eligibility cannot change either pass or make them reread the input. */
   @Test
   public void runtimeSnapshotIsReadOnceAndNonRootWalksStayLiteral() {

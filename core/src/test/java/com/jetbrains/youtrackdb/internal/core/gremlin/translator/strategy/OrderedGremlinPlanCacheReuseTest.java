@@ -55,7 +55,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(t);
     }, (s, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
     var registry = mock(MetricsRegistry.class);
@@ -116,7 +116,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       walks.incrementAndGet();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     db.getConfiguration().setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED,
         false);
     List<String> expected;
@@ -160,7 +160,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(t);
     }, (s, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
     var keys = new ArrayList<String>();

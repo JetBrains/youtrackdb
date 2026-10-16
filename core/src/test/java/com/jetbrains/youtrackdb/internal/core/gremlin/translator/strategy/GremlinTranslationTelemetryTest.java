@@ -71,7 +71,8 @@ public class GremlinTranslationTelemetryTest extends GraphBaseTest {
             t -> {
               throw new IllegalStateException("simulated translator bug");
             },
-            (s, tr, planningStart) -> mock(InternalExecutionPlan.class));
+            (s, tr, scope) -> GremlinPlanCache.Entry.owned(
+                mock(InternalExecutionPlan.class), scope.generation));
 
     strategy.apply(admin);
 

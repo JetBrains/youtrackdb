@@ -498,7 +498,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
               },
               (s, tr, planningStart) -> {
                 neverBuilt[0]++;
-                return mock(InternalExecutionPlan.class);
+                return GremlinPlanCache.Entry.owned(
+                    mock(InternalExecutionPlan.class), planningStart.generation);
               });
 
       strategy.apply(admin);
@@ -742,7 +743,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var translation = fixtureTranslation();
 
     var strategy =
-        new GremlinToMatchStrategy(t -> translation, (s, tr, planningStart) -> stubPlan);
+        new GremlinToMatchStrategy(t -> translation,
+            (s, tr, scope) -> GremlinPlanCache.Entry.owned(stubPlan, scope.generation));
 
     strategy.apply(admin);
 
@@ -783,7 +785,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             t -> translation,
             (s, tr, planningStart) -> {
               built.add(tr.inputs());
-              return built.size() == 1 ? planA : planB;
+              return GremlinPlanCache.Entry.owned(
+                  built.size() == 1 ? planA : planB, planningStart.generation);
             });
 
     strategy.apply(admin);
@@ -824,7 +827,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             (s, tr, planningStart) -> {
               builds[0]++;
               if (builds[0] == 1) {
-                return planA;
+                return GremlinPlanCache.Entry.owned(planA, planningStart.generation);
               }
               throw new IllegalStateException("child build blew up");
             });
@@ -843,6 +846,74 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
               assertThat(r.getMessage()).contains("translation declined");
               assertThat(r.getThrown()).isInstanceOf(IllegalStateException.class);
             });
+  }
+
+  /** A dirty later shared union child declines through apply without closing either template. */
+  @Test
+  public void applyRealUnionGuardPreservesNativeTraversalAndClosesOnlyEarlierCopy() {
+    setKillSwitch(true);
+    var a = graph.addVertex(T.label, "UnionGuardPerson");
+    var b = graph.addVertex(T.label, "UnionGuardPerson");
+    a.addEdge("unionGuardLink", b);
+    graph.tx().commit();
+    var nativeRows = TranslatorEquivalenceSupport.sortedIds(graph.traversal()
+        .withoutStrategies(GremlinToMatchStrategy.class).V()
+        .union(__.out("unionGuardLink"), __.in("unionGuardLink")).toList());
+    assertThat(nativeRows).hasSize(2);
+    var cache = GremlinPlanCache.instance(session());
+    cache.invalidate();
+    var templates = new ArrayList<InternalExecutionPlan>();
+    var copies = new ArrayList<InternalExecutionPlan>();
+    var metrics = GremlinTranslationMetrics.of(session());
+    var errors = metrics.getErrors();
+    var successes = metrics.getSuccesses();
+    var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
+        (db, result, generation) -> {
+          var raw = GremlinToMatchStrategy.buildPlanEntry(db, result, generation).value;
+          var publishing = org.mockito.Mockito.spy(raw);
+          org.mockito.Mockito
+              .doAnswer(invocation -> org.mockito.Mockito.spy(invocation.callRealMethod()))
+              .when(publishing).copy(org.mockito.ArgumentMatchers.any());
+          var fp = GremlinPlanFingerprint.fingerprint(result.inputs(), result.shaping());
+          cache.putInternal(fp, publishing, db, generation.generation);
+          var shared = cache.peekStored(fp);
+          // The instrumented object is the actual stored template, not an unrelated fixture plan.
+          org.mockito.Mockito.clearInvocations(shared);
+          templates.add(shared);
+          if (templates.size() == 2) {
+            ((BasicCommandContext) shared.getContext()).setVariable("dirtyUnionGuard", null);
+          } else {
+            org.mockito.Mockito.doAnswer(invocation -> {
+              var copy =
+                  org.mockito.Mockito.spy((InternalExecutionPlan) invocation.callRealMethod());
+              copies.add(copy);
+              return copy;
+            }).when(shared).copy(org.mockito.ArgumentMatchers.any());
+          }
+          return cache.peekEntry(fp, generation.generation);
+        });
+    var query = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class).V()
+        .union(__.out("unionGuardLink"), __.in("unionGuardLink")).asAdmin();
+    var original = List.copyOf(query.getSteps());
+    try {
+      strategy.apply(query);
+      assertThat(query.getSteps()).containsExactlyElementsOf(original);
+      for (int i = 0; i < original.size(); i++) {
+        assertThat(query.getSteps().get(i)).isSameAs(original.get(i));
+      }
+      assertThat(metrics.getErrors()).isEqualTo(errors + 1);
+      assertThat(metrics.getSuccesses()).isEqualTo(successes);
+      assertThat(templates).hasSize(2);
+      assertThat(copies).hasSize(1);
+      verify(copies.getFirst(), times(1)).close();
+      for (var shared : templates) {
+        verify(shared, org.mockito.Mockito.never()).start();
+        verify(shared, org.mockito.Mockito.never()).close();
+      }
+      assertThat(TranslatorEquivalenceSupport.sortedIds(query.toList())).isEqualTo(nativeRows);
+    } finally {
+      cache.invalidate();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1146,7 +1217,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             (s, tr, planningStart) -> {
               builds[0]++;
               if (builds[0] == 1) {
-                return planA;
+                return GremlinPlanCache.Entry.owned(planA, planningStart.generation);
               }
               throw new IllegalStateException("child build blew up");
             });
@@ -1234,7 +1305,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         new GremlinToMatchStrategy(
             t -> translation,
             (s, tr, planningStart) -> {
-              var plan = GremlinToMatchStrategy.buildPlan(s, tr, planningStart);
+              var plan = GremlinToMatchStrategy.buildPlanEntry(s, tr, planningStart);
               if (firstChildBuilt.getCount() > 0) {
                 firstChildBuilt.countDown();
                 awaitLatch(invalidated);
