@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -2768,6 +2769,34 @@ public class MatchStatementExecutionTest extends DbTestBase {
     }
     assertTrue(names.contains("t1"));
     assertTrue(names.contains("t2"));
+    session.commit();
+  }
+
+  /** Filters after chained, optional, and recursive edges must see the original start binding. */
+  @Test
+  public void testFilteredStartBindingsAcrossEdgePatterns() {
+    session.begin();
+    var start = "MATCH {class:Person, as:a, where:(name='n1')}";
+    for (var path : List.of(
+        ".out('Friend'){as:b,where:(name='n2')}.out('Friend')",
+        ".(out('Friend'){where:(name='n2')}.out('Friend'))",
+        ".out('Friend'){as:b,while:($depth < 2),where:($depth=1)}.out('Friend')")) {
+      var rows = session.query(start + path
+          + "{as:c,where:($matched.a.name='n1')} RETURN c.name as name").toList();
+      assertEquals(1, rows.size());
+      assertEquals("n4", rows.getFirst().getProperty("name"));
+    }
+    var optional = session.query(start
+        + ".out('Friend'){as:b,optional:true,where:($matched.a.name='n1')}"
+        + " RETURN b.name as name").toList();
+    assertEquals(2, optional.size());
+    assertEquals(Set.of("n2", "n3"), optional.stream()
+        .map(row -> row.<String>getProperty("name")).collect(Collectors.toSet()));
+    var missing = session.query(start
+        + ".out('Friend'){as:b,optional:true,where:(name='missing' and $matched.a.name='n1')}"
+        + " RETURN b").toList();
+    assertEquals(1, missing.size());
+    assertNull(missing.getFirst().getProperty("b"));
     session.commit();
   }
 

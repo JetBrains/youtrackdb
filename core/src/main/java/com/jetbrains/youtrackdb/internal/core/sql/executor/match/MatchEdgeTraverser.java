@@ -456,8 +456,15 @@ public class MatchEdgeTraverser implements ExecutionStream {
     var previousMatch = ctx.getSystemVariable(CommandContext.VAR_CURRENT_MATCH);
     var matched = (ResultInternal) ctx.getSystemVariable(CommandContext.VAR_MATCHED);
     if (matched != null) {
-      matched.setProperty(
-          getStartingPointAlias(), sourceRecord.getProperty(getStartingPointAlias()));
+      var alias = getStartingPointAlias();
+      Object sourceValue = sourceRecord.getProperty(alias);
+      Object matchedValue = matched.getProperty(alias);
+      // Compare effective stored bindings, not retained records or newly converted values.
+      // Equal identifiers already preserve any checked-record evidence on this row or its parent.
+      if (!(sourceValue instanceof RID && matchedValue instanceof RID
+          && sourceValue.equals(matchedValue))) {
+        matched.setProperty(alias, sourceValue);
+      }
     }
     iCommandContext.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, next);
     try {

@@ -48,7 +48,7 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   protected final SQLProjection projection;
 
   // Immutable alias descriptions only. Retained records belong to the output row.
-  private final Map<String, String> matchAliases;
+  protected final Map<String, String> matchAliases;
 
   /**
    * Cached {@link SQLProjection#isExpand()} for this step — same for all rows; evaluated once when the
@@ -71,9 +71,26 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
       CommandContext ctx,
       boolean profilingEnabled,
       boolean expandProjection) {
+    this(projection, ctx, profilingEnabled, expandProjection, buildMatchAliases(projection));
+  }
+
+  /**
+   * Copies share only the immutable alias description, never execution-local record evidence.
+   * {@code matchAliases} must be an immutable map built from the same projection definition.
+   */
+  protected ProjectionCalculationStep(
+      SQLProjection projection,
+      CommandContext ctx,
+      boolean profilingEnabled,
+      boolean expandProjection,
+      Map<String, String> matchAliases) {
     super(ctx, profilingEnabled);
     this.projection = projection;
     this.expandProjection = expandProjection;
+    this.matchAliases = matchAliases;
+  }
+
+  private static Map<String, String> buildMatchAliases(SQLProjection projection) {
     var aliases = new HashMap<String, String>();
     for (var item : projection.getItems()) {
       var output = item.getProjectionAliasAsString();
@@ -85,7 +102,7 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
         aliases.remove(output);
       }
     }
-    matchAliases = Map.copyOf(aliases);
+    return Map.copyOf(aliases);
   }
 
   @Override
@@ -112,7 +129,8 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
 
   private Result calculateProjections(CommandContext ctx, Result next) {
     var projected = this.projection.calculateSingle(ctx, next, expandProjection);
-    if (next instanceof ResultInternal source && projected instanceof ResultInternal target) {
+    if (!matchAliases.isEmpty()
+        && next instanceof ResultInternal source && projected instanceof ResultInternal target) {
       for (var alias : matchAliases.entrySet()) {
         target.retainMatchedRecord(alias.getKey(), source.getMatchedRecord(alias.getValue()));
       }
@@ -141,6 +159,6 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new ProjectionCalculationStep(projection.copy(), ctx, profilingEnabled,
-        expandProjection);
+        expandProjection, matchAliases);
   }
 }

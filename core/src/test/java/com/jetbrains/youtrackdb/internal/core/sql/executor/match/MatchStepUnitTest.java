@@ -1055,6 +1055,134 @@ public class MatchStepUnitTest extends DbTestBase {
     }
   }
 
+  /** Equal local, inherited, and shadowing RIDs skip every write and preserve checked evidence. */
+  @Test
+  public void edgeFiltersSkipEqualEffectiveBindingsWithoutLosingCheckedRecords() {
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var vertex = session.newVertex("V");
+      var checked = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+          (RecordIdInternal) vertex.getIdentity(), null, true));
+      var source = firstRow(checked);
+      var other = firstRow(new ResultInternal(session, session.newVertex("V")));
+      var rows = List.of(new WriteObservedRow(session, source, "a", checked),
+          new WriteObservedRow(session, source, "b", checked),
+          new WriteObservedRow(session, other, "a", checked));
+      for (var row : rows) {
+        var ctx = createCommandContext();
+        ctx.setSystemVariable(CommandContext.VAR_MATCHED, row);
+        var evidence = row.getMatchedRecord("a");
+        assertNotNull(evidence);
+        var where = new SQLWhereClause(-1) {
+          @Override
+          public boolean matchesFilters(Result record, CommandContext context) {
+            assertEquals(vertex.getIdentity(), row.getProperty("a"));
+            return true;
+          }
+        };
+        var candidates = List.<Result>of(new ResultInternal(session),
+            new ResultInternal(session), new ResultInternal(session));
+        var stream = filteredCandidates(source, candidates, where, ctx);
+        int before = reads.size();
+        for (var candidate : candidates) {
+          assertTrue(stream.hasNext(ctx));
+          assertSame(candidate, stream.next(ctx));
+          assertSame(evidence, row.getMatchedRecord("a"));
+          assertSame(vertex, row.getVertex("a"));
+        }
+        assertFalse(stream.hasNext(ctx));
+        assertEquals(0, row.writes);
+        assertEquals(before, reads.size());
+        stream.close(ctx);
+      }
+    } finally {
+      session.unregisterHook(hook);
+      session.rollback();
+    }
+  }
+
+  /** Different, removed, null, scalar, optional, and unconverted bindings must still be written. */
+  @Test
+  public void edgeFiltersRebindEveryIneligibleStoredValue() {
+    session.begin();
+    try {
+      var vertex = session.newVertex("V");
+      var rid = vertex.getIdentity();
+      var otherRid = session.newVertex("V").getIdentity();
+      var unconverted = new ResultInternal(session, vertex);
+      Object[][] bindings = {{rid, otherRid}, {rid, null}, {null, null},
+          {"scalar", "scalar"}, {OptionalMatchEdgeTraverser.EMPTY_OPTIONAL,
+              OptionalMatchEdgeTraverser.EMPTY_OPTIONAL},
+          {unconverted, rid}, {rid, "scalar"}};
+      for (var binding : bindings) {
+        var source = mock(Result.class);
+        when(source.getProperty("a")).thenReturn(binding[0]);
+        var parent = new ResultInternal(session);
+        parent.setProperty("a", otherRid);
+        var row = new WriteObservedRow(session, parent, "a", binding[1]);
+        if (binding[1] == null && binding[0] != null) {
+          row.removeProperty("a");
+        }
+        var ctx = createCommandContext();
+        ctx.setSystemVariable(CommandContext.VAR_MATCHED, row);
+        var candidate = new ResultInternal(session);
+        var where = new SQLWhereClause(-1) {
+          @Override
+          public boolean matchesFilters(Result record, CommandContext context) {
+            assertEquals(1, row.writes);
+            assertSame(binding[0], row.lastWrite);
+            return true;
+          }
+        };
+        var stream = filteredCandidates(source, List.of(candidate), where, ctx);
+        assertTrue(stream.hasNext(ctx));
+        assertSame(candidate, stream.next(ctx));
+        assertEquals(otherRid, parent.getProperty("a"));
+        stream.close(ctx);
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private ExecutionStream filteredCandidates(Result source, List<Result> candidates,
+      SQLWhereClause where, CommandContext ctx) {
+    var filter = new SQLMatchFilter(-1);
+    filter.setFilter(where);
+    var item = new SQLMatchPathItem(-1);
+    item.setFilter(filter);
+    var traverser = new MatchEdgeTraverser(source, item) {
+      @Override
+      protected String getStartingPointAlias() {
+        return "a";
+      }
+
+      @Override
+      protected ExecutionStream traversePatternEdge(Result start, CommandContext context) {
+        return ExecutionStream.resultIterator(candidates.iterator());
+      }
+    };
+    return traverser.executeTraversal(ctx, item, candidates.getFirst(), 0, null, new RidSet());
+  }
+
+  private static final class WriteObservedRow extends MatchResultRow {
+    int writes;
+    Object lastWrite;
+
+    WriteObservedRow(DatabaseSessionEmbedded session, Result parent, String alias, Object value) {
+      super(session, parent, alias, value);
+    }
+
+    @Override
+    public void setProperty(@Nonnull String name, Object value) {
+      writes++;
+      lastWrite = value;
+      super.setProperty(name, value);
+    }
+  }
+
   /** Candidate substitution restores parent-owned nulls and values on pass, rejection, and error. */
   @Test
   public void edgeCandidatesRestoreEvenWhenFilterFails() {
@@ -1064,6 +1192,11 @@ public class MatchStepUnitTest extends DbTestBase {
         parent.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, saved);
         var ctx = new ObservedContext();
         ctx.setParentWithoutOverridingChild(parent);
+        var source = new ResultInternal(session);
+        source.setProperty("a", new RecordId(10, 1));
+        var row = new WriteObservedRow(session, source, "a", new RecordId(10, 1));
+        assertNotSame(source.getProperty("a"), row.getProperty("a"));
+        ctx.setSystemVariable(CommandContext.VAR_MATCHED, row);
         var candidate = new ResultInternal(session);
         var failure = new IllegalStateException("candidate filter");
         final int mode = outcome;
@@ -1078,18 +1211,7 @@ public class MatchStepUnitTest extends DbTestBase {
             return mode == 0;
           }
         };
-        var filter = new SQLMatchFilter(-1);
-        filter.setFilter(where);
-        var item = new SQLMatchPathItem(-1);
-        item.setFilter(filter);
-        var traverser = new MatchEdgeTraverser(new ResultInternal(session), item) {
-          @Override
-          protected ExecutionStream traversePatternEdge(Result start, CommandContext context) {
-            return ExecutionStream.singleton(candidate);
-          }
-        };
-        var stream = traverser.executeTraversal(ctx, item, candidate, 0, null,
-            new RidSet());
+        var stream = filteredCandidates(source, List.of(candidate), where, ctx);
         if (mode == 2) {
           assertSame(failure, assertThrows(IllegalStateException.class, () -> stream.hasNext(ctx)));
         } else {
@@ -1098,6 +1220,7 @@ public class MatchStepUnitTest extends DbTestBase {
         assertTrue(parent.hasSystemVariable(CommandContext.VAR_CURRENT_MATCH));
         assertSame(saved, parent.getSystemVariable(CommandContext.VAR_CURRENT_MATCH));
         assertEquals(0, ctx.namedReads);
+        assertEquals(0, row.writes);
         stream.close(ctx);
       }
     }

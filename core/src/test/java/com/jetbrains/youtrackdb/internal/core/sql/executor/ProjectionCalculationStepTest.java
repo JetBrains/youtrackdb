@@ -16,8 +16,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -82,6 +85,51 @@ public class ProjectionCalculationStepTest extends DbTestBase {
       assertThat((Object) outCopy.get(i).getProperty("x"))
           .isEqualTo(outOriginal.get(i).getProperty("x"));
     }
+  }
+
+  /** Projection and aggregate copies share one immutable map but keep separate projection ASTs. */
+  @Test
+  public void copiesShareImmutableMatchAliases() throws ParseException {
+    var ctx = newContext();
+    for (var sql : List.of("select a as renamed", "select 1 as scalar")) {
+      for (var aggregate : List.of(false, true)) {
+        var projection = parseExpandProjection(sql);
+        var step = aggregate
+            ? new AggregateProjectionCalculationStep(projection, null, -1, ctx, -1, false)
+            : new ProjectionCalculationStep(projection, ctx, false);
+        var copy = (ProjectionCalculationStep) step.copy(ctx);
+        var secondCopy = (ProjectionCalculationStep) copy.copy(newContext());
+        assertThat(copy.matchAliases).isSameAs(step.matchAliases);
+        assertThat(secondCopy.matchAliases).isSameAs(step.matchAliases);
+        assertThat(copy.projection).isNotSameAs(step.projection);
+        assertThat(step.matchAliases).isEqualTo(sql.contains("renamed")
+            ? Map.of("renamed", "a") : Map.of());
+        assertThatThrownBy(() -> copy.matchAliases.put("injected", "b"))
+            .isInstanceOf(UnsupportedOperationException.class);
+      }
+    }
+  }
+
+  /** An alias-free projection never requests an entry set while processing nonempty input. */
+  @Test
+  public void emptyMatchAliasesAvoidPerRowEntrySetAccess() throws ParseException {
+    var ctx = newContext();
+    Map<String, String> emptyAliases = new AbstractMap<>() {
+      @Override
+      public boolean isEmpty() {
+        return true;
+      }
+
+      @Override
+      public Set<Entry<String, String>> entrySet() {
+        throw new AssertionError("Empty alias map must not be iterated");
+      }
+    };
+    var step = new ProjectionCalculationStep(parseExpandProjection("select 1 as scalar"),
+        ctx, false, false, emptyAliases);
+    step.setPrevious(upstreamTwoRows(ctx));
+    assertThat(drain(step.start(ctx), ctx)).hasSize(2)
+        .allSatisfy(row -> assertThat((Object) row.getProperty("scalar")).isEqualTo(1));
   }
 
   /** Only plain alias projections retain records. Scalar and nested projections keep their values. */

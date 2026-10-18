@@ -85,9 +85,8 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
   }
 
   /**
-   * Same as the public constructor but reuses {@code expandProjection} from an existing step when
-   * {@link #copy} already deep-copied {@code projection} — avoids a redundant {@link
-   * SQLProjection#isExpand()} on the copy.
+   * Reuses the cached expand flag and immutable alias description while keeping the projection AST
+   * private to this execution copy.
    */
   private AggregateProjectionCalculationStep(
       SQLProjection projection,
@@ -96,8 +95,9 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
       CommandContext ctx,
       long timeoutMillis,
       boolean profilingEnabled,
-      boolean expandProjection) {
-    super(projection, ctx, profilingEnabled, expandProjection);
+      boolean expandProjection,
+      Map<String, String> matchAliases) {
+    super(projection, ctx, profilingEnabled, expandProjection, matchAliases);
     this.groupBy = groupBy;
     this.timeoutMillis = timeoutMillis;
     this.limit = limit;
@@ -251,6 +251,7 @@ public class AggregateProjectionCalculationStep extends ProjectionCalculationSte
         ctx,
         timeoutMillis,
         profilingEnabled,
-        expandProjection);
+        expandProjection,
+        matchAliases);
   }
 }
