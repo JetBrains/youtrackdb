@@ -3,6 +3,13 @@
 
 Implementation detail for the six sections listed below. Each section gathers the full pseudo-implementation, mapping tables, and edge cases an implementer needs. The text stands on its own; concepts named here either define themselves locally or appear under the same name in the companion polished view.
 
+TX means transaction. Sem-conv means OpenTelemetry semantic conventions. D-numbers such as
+D34 identify design decisions. Section References footers summarize them.
+
+A completion is accepted when it passes its own query gates. It then becomes a candidate for
+retention. Admission means storing that candidate in the traversal buffer. Neither acceptance
+nor admission guarantees span construction or export.
+
 ## Slow-query threshold gating
 
 The resolver and its rule type reuse the same machinery as `QueryMonitoringModeResolver` — only the `T` parameter on `TagRule<T>` differs (`Long` instead of `QueryMonitoringMode`):
@@ -35,7 +42,10 @@ public final class SlowQueryThresholdResolver {
 
 The gate sits inside `OTelQueryMetricsListener.queryFinished`, not in the YTDB fire site. Three reasons: (1) other listeners registered alongside the OTel one (custom host implementations) may have their own gating policy and must continue to see every event; (2) the gate is OTel-specific configuration and lives in the OTel module rather than `core`; (3) `QueryDetails` already carries the inputs the gate needs — `executionTimeNanos` arrives as a method parameter, error state arrives through `QueryDetails.getErrorType()`, and the query tag arrives through `QueryDetails.getQuerySummary()` (same source the OTel sem-conv mapping already reads).
 
-Pseudo-implementation at the top of `queryFinished`:
+Duration-check fragment only. In the complete callback, errors bypass both checks and a
+successful heartbeat claim bypasses this fragment. [Time-based sampling](#time-based-sampling)
+defines the combined gate order. [Buffered SQL children](#buffered-sql-children) defines
+completion routing and cleanup.
 
 ```java
 @Override
@@ -47,31 +57,32 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
     long thresholdNanos = SlowQueryThresholdResolver.global()
         .resolve(Optional.ofNullable(details.getQuerySummary()), perTxOrGlobal);
     if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
-      return;  // gate dropped this query
-                // SQL path: returns before spanBuilder(), no allocation.
-                // Gremlin path: GremlinSpanLifecycleHook already allocated the span
-                // at first hasNext(); the early return leaves a skinny span
-                // (no sem-conv attributes set); the hook still ends it at close().
+      // A rejected Gremlin completion also discards and counts its buffered SQL candidates.
+      return;  // no span allocation on either path
     }
   }
-  // Gremlin path: read Span.fromContext(Context.current()), set sem-conv attributes.
-  // SQL path: spanBuilder(...).setParent(details.getParentContext().orElse(Context.current()))
-  //     .startSpan(); attributes; span.end(...)
-  // dispatched via details.getQuerySource() — see §"Context propagation in embedded".
+  // Nested SQL: offer an immutable completion snapshot to the captured traversal buffer.
+  // Gremlin: build the late parent, the real Gremlin SDK span created at traversal completion.
+  // Use the recorded host Context and explicit start timestamp.
+  // Drain means emit buffered SQL snapshots as child spans.
+  // Drain only when that parent is recording and sampled.
+  // Direct SQL: build a span with the captured host parent and explicit recorded timestamps.
+  // See Buffered SQL children for cleanup and Time-based sampling for the combined gates.
 }
 ```
 
 `QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. They capture context, tag, Gremlin-origin marker, mode and start time before the failing work. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
 
-Direct SQL has no query tag and uses the per-TX fallback. SQL entered inside tagged Gremlin inherits `YTDBContextKeys.QUERY_TAG` captured before execution. An untagged nested Gremlin traversal clears an inherited tag and still stamps `GREMLIN_ORIGIN=true`. Gremlin pins its span name at first `hasNext()` to the tag or `youtrackdb`. SQL uses the sem-conv fallback chain. The resolver reads the inherited tag, not a classifier-derived display summary.
+Direct SQL has no query tag and uses the per-TX fallback. SQL entered inside tagged Gremlin inherits `YTDBContextKeys.QUERY_TAG` captured before execution. `GREMLIN_ORIGIN` is a boolean provenance marker set for tagged and untagged Gremlin execution. An untagged nested Gremlin traversal clears an inherited tag and still stamps `GREMLIN_ORIGIN=true`. Gremlin pins its span name at first `hasNext()` to the tag or `youtrackdb`. SQL uses the sem-conv fallback chain. The resolver reads the inherited tag, not a classifier-derived display summary.
 
 Successful commit spans use the separate `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` gate. Its default `0` emits every successful commit. Failed commits bypass it. Query thresholds, query tags and heartbeat sampling do not govern commit emission.
 
 ### Bundled skinny-span filter
 
-The on-the-wire span count for Gremlin without a downstream drop equals the traversal count regardless of how aggressive the slow-query and heartbeat gates are. The asymmetry between SQL and Gremlin is the cause: SQL gate-drops cost zero allocations because the gate runs ahead of `spanBuilder()`, but Gremlin's lifecycle hook has already created the span at first `hasNext()` to give Path B inner SQL (when a step routes through the SQL entry points) a parent during iteration. The early return then leaves a no-sem-conv span that still flows through `Span.end()` → `SpanProcessor.onEnd()` → `BatchSpanProcessor` → exporter.
-
-`SkinnySpanFilterProcessor` closes that gap by short-circuiting the export step. The processor inspects every span at `onEnd` and forwards only those that either carry a `db.system.name` attribute (the gate let them through) or originate from a non-YTDB instrumentation scope (a host span that happens to flow through the same SDK). Implementation shape:
+Late Gremlin creation applies the query gates before `spanBuilder()`. A rejected traversal has
+no span to export. The configured `SkinnySpanFilterProcessor` remains in the SDK pipeline.
+It inspects spans at `onEnd` and forwards those with `db.system.name` or a non-YTDB scope.
+Its predicate does not select buffered SQL candidates or retain their parent. Implementation shape:
 
 ```java
 public final class SkinnySpanFilterProcessor implements SpanProcessor {
@@ -127,22 +138,100 @@ SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
 
 `YouTrackDBOpenTelemetry.skinnySpanFilter(SpanProcessor delegate): SpanProcessor` is the only new public-API method this feature adds.
 
-Why allocate-then-filter, and not something cheaper. The eager Gremlin-span allocation is forced by the Path B parent-child contract when inner SQL spans exist: inner SQL captures the parent `Context` (hence the parent `span_id`) at its construction, mid-iteration, so the outer span must exist by first `hasNext()`. The gate, by contrast, is a *tail* decision: it depends on the traversal's duration, known only at `close()`. OTel's consistent-drop mechanisms are all *head* decisions taken at span start: a `Sampler` (including `ParentBased`) and `SamplingResult.RECORD_ONLY` decide before any duration is observable, so none can drop a span that turned out fast. That leaves two tail-consistent alternatives, both rejected:
+The chosen alternative is to buffer SQL completion data locally and build the parent at traversal
+close. SQL does not need a parent span ID during execution because it creates no span then.
+The SDK generates the real Gremlin span ID at close. Child builders use that real span as their
+explicit parent. No chosen-ID injection or hand-built `SpanData` is needed.
 
-- Collector `tail_sampling` keeps traces consistent (it buffers a whole trace and decides at trace end, so no orphans), but it requires shipping *every* span to the Collector before the decision, which is exactly the wire traffic D46 exists to avoid.
-- A lazy outer span with a pre-generated `SpanContext` (stamp a `span_id` into `Context` at first `hasNext()`, then materialize the recording span only if the gate passes at `close()`) fails on the SDK surface: the high-level `Tracer` API does not let you inject a chosen `span_id` (the `IdGenerator` owns it), so emitting the real span later would mean fighting the generator or hand-building `SpanData`, more fragile than the filter.
+Rejected alternatives remain:
 
-So the filter at `onEnd` is the optimum under the twin constraints *minimize wire traffic* and *use the high-level SDK*: zero extra bytes on the wire, at the cost of a bounded broken-parent edge case.
+- Collector `tail_sampling` requires shipping every candidate span before deciding what to keep.
+  Local completion buffering avoids that traffic.
+- A pre-generated `SpanContext` during traversal execution cannot later become the same recording
+  span through the high-level `Tracer` API. The SDK's `IdGenerator` owns the span ID. Local
+  buffering needs no placeholder ID.
 
-Broken-parent radius is small. In the dominant case a fast traversal has fast inner SQL, and the inner SQL gates on the *same* tag/threshold the outer inherited (via the OTel `Context` tag-inheritance rule), so the whole Path B subtree drops together and produces no orphan. The orphan (an inner SQL child surviving under a dropped outer parent) arises only in the parent-fast / child-slow corner: the traversal finished under the threshold but one inner statement individually exceeded it. That child still carries its full sem-conv attribute set and the original `trace_id`, so the loss is the outer Gremlin name and duration only (the next paragraph covers how each backend renders it).
+### Buffered SQL children
 
-Path B downstream effect. When the filter drops the outer Gremlin parent and the inner SQL child survives, the inner SQL span surfaces in the backend as a span whose `parent_span_id` references a span the backend never saw. The mechanism: the inner SQL wrapper captured the outer Gremlin span via `setParent(capturedContext)` at construction (§"Context propagation in embedded" step 2), so the inner span's OTLP record carries the parent's `span_id` on the wire before the filter ever sees the outer span at `onEnd`. By the time the filter decides to drop the outer, the inner has already been handed to `BatchSpanProcessor` with a populated `parent_span_id` field. Most trace backends (Jaeger, Tempo, Datadog) render the inner as a "broken trace" with the SQL span as a synthetic root carrying the original `trace_id`. The diagnostic loss is bounded: operators see the SQL leaf with its full sem-conv attribute set and the original `trace_id` correlates it back to host-side spans; the only signal that disappears is the outer Gremlin name and its duration. Operators who depend on outer-Gremlin visibility for Path B disable the filter via `OPENTELEMETRY_GREMLIN_DROP_SKINNY_SPANS=false`.
+`GremlinTraversalState` is an OTel-module object for one traversal. It holds the recorded host
+Context, start timestamp, fixed query name, a bounded list of `PendingSqlSpan` values and a sealed
+flag. `PendingSqlSpan` holds captured SQL completion data, not an SDK span. A sealed buffer is
+closed to all further offers. It rejects subsequent candidates as `traversal_closed`. This flag
+is separate from Java sealed interfaces. A private OTel-module Context key carries the state.
+`GremlinSpanLifecycleHook.onFirstHasNext` returns a Context derived from the host context with
+this key, `QUERY_TAG` and `GREMLIN_ORIGIN`. It adds no span. The step installs that Context only
+around delegated database calls and closes each scope in `finally` on the thread that opened it.
+Server execution installs it on the Gremlin executor worker, including the per-session executor
+path, rather than the network dispatch thread.
+
+Each SQL fire site captures that Context before execution or at wrapper construction. At SQL
+completion the OTel listener records histograms and applies the existing SQL gates, including
+heartbeat claiming at that moment. A rejected completion creates no buffer entry. An accepted
+completion has passed its own query gates and becomes a candidate for retention. It snapshots
+the values needed to build its span, then offers the snapshot to the buffer. Admission means
+storing the candidate in the traversal buffer. Neither acceptance nor admission guarantees span
+construction or export. The snapshot holds recorded start and duration, sanitized query text,
+name, error type, row count, classification and other configured attribute values. It copies
+parameter values only when the existing parameter opt-in is enabled. It retains no result set, execution plan, transaction or
+lazy `QueryDetails` accessor. Custom listeners still receive their SQL completion immediately.
+
+`OPENTELEMETRY_GREMLIN_MAX_BUFFERED_SQL_SPANS` is a non-negative integer with default `128`.
+The facade reads it at SDK initialization. Each traversal takes that limit when its state is
+created. A full buffer drops the newest candidate. It never blocks for space, spills to disk or
+evicts an earlier candidate. `0` disables child retention without disabling the Gremlin span or
+SQL histograms. Invalid values fail SDK configuration. This limit bounds entry count. Payload
+byte limits belong to the query-text and queue limits, which are separate settings.
+
+The buffer serializes offer and seal through a short synchronized critical section. Snapshot
+creation, span building and exporter calls run outside it. Traversal close seals and detaches the
+list once. A racing SQL completion either enters the detached list or is rejected as late.
+The traversal does not wait for open SQL results. Their later completion is dropped and counted.
+After detaching, the state releases its list references. The listener owns the detached batch
+and clears unconsumed entries in its final cleanup, including when parent construction fails.
+An abandoned traversal with no close emits no parent or buffered children. Its state becomes
+collectible with the traversal and any remaining captured SQL contexts. No timeout or background
+cleanup task is introduced.
+
+After resources close, Gremlin completion records histograms and evaluates its existing gates.
+If those reject the parent, discard every buffered candidate. Otherwise build the Gremlin span
+with the recorded host parent, name and explicit start timestamp. If it is not recording or not
+sampled, discard the candidates. This includes an SDK `DROP` result and `RECORD_ONLY` output
+that the normal export pipeline would not export. An accepted SQL child never forces its parent
+through a gate. It is never promoted to a root or reparented to the host on rejection.
+
+For a recording, sampled Gremlin parent, build each buffered child with
+`recordedHostContext.with(gremlinSpan)` as its explicit parent. Preserve the child's recorded
+start and timing-mode endpoint. Do not call `queryFinished` again, rerun its gates, claim another
+heartbeat slot or record its histograms twice. Each child builder still uses the configured SDK
+sampler. Emit children in buffer admission order, then end the Gremlin span in `finally` using
+its recorded timing-mode endpoint. EXACT uses start plus measured active duration.
+
+`hook.onClose` seals and clears entries not detached by the listener in `finally` after dispatch.
+Listener cleanup owns detached entries. Both cleanup paths count unconsumed candidates once as
+`parent_not_emitted`. If Gremlin span construction or listener work fails, the normal isolation
+warning reports it. Repeated close cannot re-emit. Error SQL uses the same buffer limit and
+parent requirement as successful SQL.
+An error bypasses its own duration gate, but capacity exhaustion can still discard its candidate.
+
+One process-wide monotonic counter records discarded candidates while the OTel listener is
+installed. With metrics and the `queries` group enabled, expose it as the `LongCounter`
+`youtrackdb.otel.gremlin.sql_spans.dropped`, unit `{span}`. Use one bounded `reason` attribute:
+`capacity`, `parent_not_emitted` or `traversal_closed`. The backing total advances even when
+metrics export is off. A rejected offer increments once. Parent rejection or cleanup adds the
+number of remaining entries once. SQL rejected by its own gates was never a candidate and does
+not increment this counter. SDK child sampling and exporter losses are outside this counter.
+No query tag, query text or transaction ID is a counter dimension.
+
+Regression tests cover zero, one, full and overflowing buffers, explicit parent IDs after late
+creation, SQL gate rejection, parent gate rejection, parent SDK drop and record-only decisions,
+error candidates, close idempotence, cleanup after listener failure, and offer-versus-seal races.
+They also verify one histogram sample per completion and no second heartbeat evaluation on drain.
 
 ### Edge cases / Gotchas
 
-- Default `0` (emit-all) matches the OTel-standard "emit everything, let downstream samplers decide" pattern and gives operators first-run visibility immediately after `OPENTELEMETRY_ENABLED=true`. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook; errors always bypass regardless.
-- A query whose duration equals the threshold emits, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
-- The trace gate runs before SQL span allocation and Gremlin span enrichment. It reads the error, original tag and per-TX threshold override. Metrics-enabled listeners record histogram samples before this gate. Gated-out Gremlin still pays for its lifecycle span.
+- Default `0` disables the duration gate and gives operators first-run visibility after `OPENTELEMETRY_ENABLED=true`. Nested SQL still requires buffer space and a retained parent. SDK sampling and export still apply. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook. Errors bypass both query gates.
+- A query whose duration equals the threshold passes the duration gate, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
+- The trace gate runs before span allocation or SQL candidate buffering. It reads the error, original tag and per-TX threshold override. Metrics-enabled listeners record histogram samples before this gate. Parent rejection drops buffered children without changing their already-recorded metrics.
 - Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) would otherwise grow each resolver's cache without bound. Both resolvers use a bounded LRU (`Collections.synchronizedMap` over `LinkedHashMap(1024, 0.75f, true)` with access-order eviction, capacity 1024), so the heap footprint is capped at roughly 2 × 200 KB even under sustained unique-tag-per-request abuse. Eviction logs INFO once per 60 s window with the count of evictions in that window; an evicted tag pays the rule walk again on its next access, and rule walks are deterministic so the resolved value stays stable across miss / re-resolve / re-cache. The heartbeat gate has no resolver and contributes no cache.
 - A tag that matches no rule resolves to the per-TX override (`withSlowQueryThresholdMillis`) when the transaction set one, else the global default. The cache records the rule-walk outcome — the matched value, or an empty marker when no rule matched — so future identical tags skip the walk; the fallback (per-TX override, else global default) is applied after the cache lookup, at the resolver's fallback slot, so a fallback that varies by transaction is never baked into the shared cache.
 - Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
@@ -150,7 +239,7 @@ Path B downstream effect. When the filter drops the outer Gremlin parent and the
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
 - Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means "emit a hot-path span when DB-side active work exceeded 100 ms" — not "real-time exceeded 100 ms". The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag means "real-time exceeded 100 ms". A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices spans on `db.youtrackdb.duration_semantics` to keep histograms semantically homogeneous. Inside a single Path B traversal both the outer Gremlin span and the inner SQL spans gate on the same resolved threshold because inner SQL inherits the outer's tag via `YTDBContextKeys.QUERY_TAG` on the OTel `Context` (see §"Query tagging and per-tag rule resolution" → tag inheritance); no parent-child threshold drift within a traversal. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
 - The filter drops end events only for its delegate. Sibling processors receive skinny spans regardless of registration order. Automatic installation applies only to YTDB-owned SDKs. Hosts opt in through `YouTrackDBOpenTelemetry.skinnySpanFilter(...)` and wrap every processor that should drop skinny spans.
-- Path B broken-parent rendering across backends. With the filter ON and the gate dropping the outer Gremlin span, the inner SQL child surfaces with a `parent_span_id` the backend never saw. Jaeger renders this as a root span (the SQL leaf) under the original `trace_id`, with the parent slot greyed out; Tempo renders the SQL span as a standalone root; Datadog APM shows the SQL span as the root of the resource trace. None of the three drop or corrupt the trace; the diagnostic loss is the outer Gremlin name and duration only. Operators who depend on outer-Gremlin visibility for Path B disable the filter for the affected workload.
+- A child whose own gate accepts it can still be lost when its parent is rejected, the buffer is full or completion is late. The drop counter reports these losses. Parent retention is never forced by a child. Exporter or processor losses can still produce an incomplete backend trace.
 - Cross-instrumentation scope safety. The filter's `InstrumentationScopeInfo.name == "io.youtrackdb"` check is the load-bearing safety against collateral damage. A host that wires the YTDB SDK alongside auto-instrumentation for HTTP, gRPC, or its own application code sees those spans flow through `onEnd` unchanged because their scope name differs. Custom YTDB-adjacent code that creates spans via `GlobalOpenTelemetry.getTracer("io.youtrackdb")` (sharing the name) WOULD be subject to the filter; the workaround is to use a distinct scope name (`io.youtrackdb.host`, the host's own package) when authoring custom YTDB-adjacent instrumentation.
 - Filter and `forceFlush` / `shutdown`. The chain wrapper delegates both lifecycle calls unconditionally, so flush semantics during graceful shutdown are identical to the delegate's. Spans dropped by the filter were never added to the batch buffer in the first place, so a flush sees nothing for them.
 
@@ -159,7 +248,21 @@ Path B downstream effect. When the filter drops the outer Gremlin parent and the
 
 ## Time-based sampling
 
-The heartbeat gate uses one `AtomicLong` and one final-field interval; no resolver, no tag read, no cache. Composition rule: the heartbeat runs first at the top of `OTelQueryMetricsListener.queryFinished`. If it claims the slot, the query emits and the slow-query gate is bypassed. If it does not claim, the slow-query gate evaluates as before. Error queries bypass both gates and always emit; the heartbeat clock is not advanced by error emissions, so a stream of errors does not suppress the heartbeat sample of successful queries.
+The heartbeat gate uses one `AtomicLong` and one final-field interval. It reads no resolver, tag or cache. The heartbeat runs first at the top of `OTelQueryMetricsListener.queryFinished`. A winning claim makes the completion pass the query trace gate and bypass the slow-query check. If it does not claim, the slow-query gate evaluates as before. Error completions bypass both query gates without advancing the heartbeat clock. A stream of errors does not suppress heartbeat selection of successful queries.
+
+Heartbeat claiming occurs at query completion, before buffer admission or span construction.
+A successful claim advances the heartbeat clock even if the selected nested SQL candidate is
+later discarded because the buffer is full, the traversal is sealed, or the Gremlin parent is
+not retained. Discarding the candidate does not refund the slot or select a replacement. Drain
+does not evaluate heartbeat claiming again. SDK sampling and export can also prevent a selected
+span from appearing.
+
+Error completions bypass heartbeat and slow-query checks without advancing the heartbeat clock.
+Direct SQL and Gremlin error completions proceed to span construction. Nested SQL error
+completions use the same bounded buffer and parent-retention rules as successful SQL. They can
+be discarded when the buffer is full, after traversal sealing, or when the Gremlin parent is not
+retained. Any emitted error span carries the error type and sanitized query text. SDK sampling
+and export still apply.
 
 Pseudo-implementation:
 
@@ -173,17 +276,21 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
   boolean isError = details.getErrorType().isPresent();
   if (!isError) {
     if (defaultHeartbeatNanos > 0 && tryClaimHeartbeat(defaultHeartbeatNanos)) {
-      // heartbeat slot claimed; fall through to span emission
+      // Heartbeat slot claimed. Bypass the slow-query check and continue to completion routing.
     } else {
       Optional<String> tag = Optional.ofNullable(details.getQuerySummary());
       long thresholdNanos = SlowQueryThresholdResolver.global()
           .resolve(tag, details.getSlowQueryThresholdOverrideNanos().orElse(defaultThresholdNanos));
       if (thresholdNanos > 0 && executionTimeNanos < thresholdNanos) {
-        return;  // both gates dropped this query
+        // A rejected Gremlin completion must discard, count and clear its SQL candidates.
+        return;  // Both gates rejected this completion.
       }
     }
   }
-  // existing span construction (sem-conv attributes, parent context, span.end)
+  // Route accepted nested SQL to its captured traversal buffer.
+  // Route Gremlin completion through seal, parent creation and conditional drain.
+  // Build direct SQL immediately. Use the cleanup contract in Buffered SQL children.
+  // A Gremlin rejection or failure must discard, count and clear its remaining candidates.
 }
 
 private boolean tryClaimHeartbeat(long heartbeatNanos) {
@@ -194,14 +301,14 @@ private boolean tryClaimHeartbeat(long heartbeatNanos) {
 }
 ```
 
-The `AtomicLong.compareAndSet` resolves the multi-thread race: under load several queries finish within the same heartbeat window and all see `now - last >= heartbeatNanos`, but only the first CAS succeeds; losers fall through to the slow-query gate. Result: exactly one query per heartbeat window claims the heartbeat slot; the rest either pass the slow-query gate, get dropped, or emit on error.
+The `AtomicLong.compareAndSet` resolves the multi-thread race: under load several queries finish within the same heartbeat window and all see `now - last >= heartbeatNanos`, but only the first CAS succeeds; losers fall through to the slow-query gate. Under load, exactly one successful completion per heartbeat window claims the slot. Other successful completions fall through to the slow-query check. Errors bypass both checks. Accepted completions then follow the routing and retention rules above.
 
 ### Edge cases / Gotchas
 
-- The heartbeat clock is process-global per `OTelQueryMetricsListener` instance (one `AtomicLong`), not per-thread. This matches "one sample every N ms of wall-clock" semantics regardless of QPS or thread count. Per-thread heartbeat would emit one sample per thread per N ms, which scales noise with parallelism.
+- The heartbeat clock is process-global per `OTelQueryMetricsListener` instance (one `AtomicLong`), not per-thread. This permits at most one successful heartbeat claim per interval regardless of QPS or thread count. Per-thread heartbeat would permit one claim per thread per interval, which scales noise with parallelism.
 - No per-tag override exists in v1. The heartbeat samples the workload as a whole; whichever tag arrives first after the interval claims the slot. This biases visibility toward high-QPS tags by construction, which is the intent: heartbeat answers "what is the system spending its time on right now". Operators who need per-tag sampling streams configure downstream OTel pipeline filtering on `db.query.summary` against the global heartbeat output.
-- A query that is slow AND wins the heartbeat CAS emits only once, not twice. The composition order (heartbeat first, slow-query second) skips the slow-query gate after a heartbeat claim.
-- Error queries always emit, regardless of heartbeat or slow-query state. The heartbeat clock is NOT advanced by error emissions; an error every N ms does not suppress the heartbeat sample of successful queries.
+- A slow query that wins the heartbeat CAS passes the query trace gate once. The composition order skips the slow-query check after a heartbeat claim. Normal routing, retention and SDK sampling still apply.
+- Error completions bypass both query gates without advancing the heartbeat clock. Nested SQL still needs buffer capacity and a retained parent. An error every N ms does not suppress heartbeat selection of successful queries.
 - Heartbeat-emitted spans look identical to slow-query-emitted spans in the trace viewer; no `sample.reason` attribute distinguishes them in YTDB-496. Operators wanting to tell "this was a heartbeat sample" apart from "this was actually slow" compare span duration against the configured slow-query threshold downstream. Adding an explicit attribute is a future-ticket concern (low cost; would land alongside the structured-attributes extension).
 - Mid-process changes to the heartbeat interval require an SDK rebuild, same constraint as the slow-query threshold default.
 - A heartbeat interval shorter than the CAS cost (single uncontended CAS on a hot AtomicLong, ~10 ns) is wasted: the gate evaluates more often than it can possibly emit. Practical minimum is around 1 ms; sensible production defaults are 100 ms to 10 s.
@@ -209,7 +316,7 @@ The `AtomicLong.compareAndSet` resolves the multi-thread race: under load severa
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The heartbeat gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners wanting their own sampling implement it in their own callback.
 
 ### References
-- D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for race-free single-emit per window, single global interval with no per-tag override)
+- D-records: D18 (time-based heartbeat sampling alongside slow-query gate, AtomicLong CAS for one successful heartbeat claim per window, single global interval with no per-tag override)
 
 ## Commit slow-query gating
 
@@ -340,9 +447,18 @@ The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(
 
 ### Hard-context correlation across threads
 
-Only the Gremlin lifecycle hook makes a YTDB span current during iteration. Logs on that thread inherit the outer Gremlin span. SQL and commit spans are built at completion and never made current. Logs during SQL or commit work therefore inherit the outer Gremlin span or the host span when one is current. They carry no YTDB SQL or commit span ID. Without an active span, the log record has no trace correlation.
+D34 uses the host span active around traversal execution. Gremlin, SQL and commit spans are built
+at completion and are never made current. The traversal Context carries tag, origin and buffer
+values while preserving that host span. Logs during traversal and nested SQL work therefore carry
+the host span ID. They carry no YTDB query or commit span ID. Without a host span, they have no
+trace correlation. Late query span emission does not rewrite a log record already emitted.
 
-The correlation is automatic only when the log call originates on the thread that owns the span scope. Logs emitted from a background thread spawned inside the span scope (a thread-pool task, a `CompletableFuture` continuation) lose the correlation unless the caller propagates the context. Same caveat as for child-span creation across threads, which OTel covers through `Context.taskWrapping(...)` / `Context.makeCurrent()` on the receiving thread.
+Correlation requires the host context on the thread that writes the log. In server mode traversal
+work runs on a Gremlin executor worker, including the per-session executor. Install traversal
+Context values there. Network-thread Context alone cannot correlate worker logs. Server requests
+have no remote parent in this design. A host using its own executor propagates its Context with
+`Context.taskWrapping(...)` or `Context.wrap(...)`. Every receiving-thread scope must close on
+that thread in `finally`. Background storage or exporter threads have no automatic query context.
 
 ### Edge cases / Gotchas
 
@@ -355,7 +471,7 @@ The correlation is automatic only when the log call originates on the thread tha
 - Hosts already using the OTel `opentelemetry-instrumentation-logback-appender` (or its log4j equivalent) on their SLF4J binding: that path catches every log record SLF4J emits, including YTDB's. Running both side-by-side double-emits each YTDB log record (once via the host's appender, once via YTDB's hook). Operators run one or the other, not both. The hook is the recommended path because it carries the `Context.current()` read at the YTDB invocation site, not at the host's appender callback site (potentially on a different thread).
 
 ### References
-- D-records: D34 (single-chokepoint `LogAppenderHook` invoked inside `SLF4JLogManager.log`, severity-floor pre-filter, hard-context inheritance from `Context.current()`), D35 (thread-local re-entrance guard against recursive logging from inside the OTel exporter)
+- D-records: D34 (single-chokepoint `LogAppenderHook` invoked inside `SLF4JLogManager.log`, severity-floor pre-filter, host-span correlation from `Context.current()` during traversal work), D35 (thread-local re-entrance guard against recursive logging from inside the OTel exporter)
 - Invariants: Listener exception isolation (the hook follows the same isolation contract; a throw from `onLog` is caught at the iteration site and reported via the fallback `Logger.getLogger("io.youtrackdb.otel.appender")` channel)
 
 ## Metrics integration
@@ -395,7 +511,7 @@ Sem-conv stability matters for dashboard authors: `stable` metrics will keep the
 
 The query listener records the returned-row histogram on each completion when `getResultCount()` is present. Duration samples carry bounded operation, collection, source and duration-semantics dimensions. Public-query totals select outer Gremlin samples plus SQL with `invoked_via=native`. They exclude commits and Gremlin-origin SQL. The SQL entry context captures `YTDBContextKeys.GREMLIN_ORIGIN`, independent of the tag. Its presence gives `invoked_via=gremlin_dsl` for graph-step fallback as well as DSL passthrough. Parent IDs and span attributes read at close cannot identify this provenance.
 
-Profile preserves one outer Gremlin span plus SQL children on Path B steps that enter SQL. Path A profiles the steps of the held plan before execution and reads their costs afterward. Path B retains its executed graph-step plan. Explain renders those plan objects. ClassCount has no plan and its profiling flag is a no-op. Profile metrics are forwarded to TinkerPop separately from OTel histograms.
+Profile does not change normal span selection or retention. Path B steps that enter SQL can emit an outer Gremlin span with retained SQL children. Path A profiles the steps of the held plan before execution and reads their costs afterward. Path B retains its executed graph-step plan. Explain renders those plan objects. ClassCount has no plan and its profiling flag is a no-op. Profile metrics are forwarded to TinkerPop separately from OTel histograms.
 
 Histograms are synchronous instruments. The SDK has no asynchronous histogram. The metrics switch and included-group filter govern listener instruments as well as bridge callbacks. Trace gates do not discard metric samples. The shipped rate, count and latency panels consume these metrics through Prometheus.
 
