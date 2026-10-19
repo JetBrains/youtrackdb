@@ -55,6 +55,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -904,6 +905,9 @@ public class DiskStorage extends AbstractStorage {
   protected StartupMetadata checkIfStorageDirty() throws IOException {
     // open also handles a missing main with a valid backup under the main-file lock.
     startupMetadata.open(YouTrackDBConstants.getRawVersion());
+    startupShutdown = startupMetadata.isDirty()
+        ? ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+        : ChangedPageTrackerStartup.ShutdownState.CLEAN;
 
     return new StartupMetadata(startupMetadata.getLastTxId());
   }
@@ -1189,6 +1193,7 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected ChangedPageTracker.CheckpointResult checkpointChangedPages(long fixedBoundary)
       throws IOException {
+    startupHistoryBarrier();
     return changedPageTracker.checkpoint(
         storagePath.resolve(ChangedPageTrackerFile.FILE_NAME), writeAheadLog, fixedBoundary);
   }
@@ -1208,7 +1213,112 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void initWalAndDiskCacheOnOpen(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
-    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+    startupOwner = new StartupOwner();
+    startupOwner.history = ChangedPageTrackerStartup.load(changedPageSideFile());
+    buildWalAndDiskCache(contextConfiguration, startupOwner.history.tracker());
+  }
+
+  // Access is confined to physical-open state write exclusion. Resource cleanup outlives this owner.
+  private StartupOwner startupOwner;
+  private ChangedPageTrackerStartup.ShutdownState startupShutdown;
+
+  private static final class StartupOwner {
+    private ChangedPageTrackerStartup.PendingHistory history;
+    private WOWCache cache;
+    private boolean replay;
+  }
+
+  private Path changedPageSideFile() {
+    return storagePath.resolve(ChangedPageTrackerFile.FILE_NAME);
+  }
+
+  @Override
+  protected void verifyStartupHistory() throws IOException {
+    var owner = startupOwner;
+    if (owner != null) {
+      ChangedPageTrackerStartup.verify(owner.history, writeAheadLog, startupShutdown,
+          new ChangedPageTrackerStartup.FileIds() {
+            @Override
+            public int internalFileId(long externalId) {
+              return owner.cache.internalFileId(externalId);
+            }
+
+            @Override
+            public String currentName(int internalId) {
+              return owner.cache.fileNameById(owner.cache.externalFileId(internalId));
+            }
+          });
+      startupHistoryBarrier();
+    }
+  }
+
+  @Override
+  protected void startupHistoryBarrier() throws IOException {
+    var owner = startupOwner;
+    if (owner != null && owner.history != null && !owner.history.tracker().isTrusted()) {
+      ChangedPageTrackerStartup.durableDistrust(changedPageSideFile(), owner.history);
+    }
+  }
+
+  @Override
+  protected void beginStartupReplay() {
+    if (startupOwner != null) {
+      startupOwner.cache.beginStartupReplayPreservation();
+      startupOwner.replay = true;
+    }
+  }
+
+  @Override
+  protected void endStartupReplay() {
+    if (startupOwner != null && startupOwner.replay) {
+      startupOwner.cache.endStartupReplayPreservation();
+      startupOwner.replay = false;
+    }
+  }
+
+  @Override
+  protected void startupReplayFailed() {
+    if (startupOwner != null && startupOwner.history != null) {
+      ChangedPageTrackerStartup.replayFailed(startupOwner.history);
+    }
+  }
+
+  @Override
+  protected void finishStartupHistory() throws IOException {
+    startupHistoryBarrier();
+    startupOwner = null;
+    startupShutdown = null;
+  }
+
+  @Override
+  protected void abortStartupHistory(Throwable primary) {
+    if (startupOwner == null) {
+      startupShutdown = null;
+      return;
+    }
+    try {
+      try {
+        endStartupReplay();
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+      try {
+        startupReplayFailed();
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+      try {
+        if (startupOwner != null && startupOwner.history != null) {
+          // This independent barrier still runs if PendingHistory resolution itself failed.
+          startupOwner.history.tracker().durableDistrust(changedPageSideFile());
+        }
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+    } finally {
+      startupOwner = null;
+      startupShutdown = null;
+    }
   }
 
   private void buildWalAndDiskCache(final ContextConfiguration contextConfiguration,
@@ -1296,7 +1406,7 @@ public class DiskStorage extends AbstractStorage {
     }
 
     // Lifecycle exclusion keeps the storage coordinator and cache on the same selected tracker.
-    // Both disk entry points select fresh, untrusted history. Memory storage has no tracker.
+    // Existing-disk open selects loaded history. Creation is fresh and memory has no tracker.
     changedPageTracker = tracker;
     final var wowCache =
         new WOWCache(
@@ -1325,6 +1435,9 @@ public class DiskStorage extends AbstractStorage {
 
     // Failure cleanup must see the constructed cache even when registry loading fails.
     writeCache = wowCache;
+    if (startupOwner != null) {
+      startupOwner.cache = wowCache;
+    }
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);

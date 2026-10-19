@@ -21,7 +21,8 @@ import javax.annotation.Nullable;
 
 /**
  * Explicit side-file loading for a single-threaded startup lifecycle. Content validation does not
- * prove WAL coverage or database-image ownership. No storage initialization path calls this helper.
+ * prove WAL coverage or database-image ownership. Disk existing-image open owns loading, verification,
+ * replay preservation and durable fallback under its first-phase state write exclusion.
  */
 public final class ChangedPageTrackerStartup {
 
