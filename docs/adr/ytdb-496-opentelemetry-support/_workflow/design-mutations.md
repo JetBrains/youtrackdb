@@ -1656,3 +1656,84 @@ The mechanical baseline debt remains outside this wording-only fix.
 **Iterations**: 2 of 3 (PASS on the requested wording delta with baseline findings carried forward).
 The retained wording batch is the first iteration. The resumed first-use and wording polish is
 one follow-up iteration. This fix introduces no behavior change or unapproved deviation.
+
+## Mutation 81 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Track 90 removes the unreleased skinny-span processor, setting and public
+factory from the active design. It updates the class diagram, SDK ownership paths, processor
+ordering and decision summaries. D46 remains explicitly superseded by late Gremlin creation.
+One SDK sampling contract defines candidates, the three sampler outcomes and the unsampled-host
+parent case. Gate sections and lifecycle diagrams reference that contract. Commit wording now
+distinguishes gate acceptance from SDK recording and export. No ratio sampler is introduced.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The pre-edit result has 0 blockers, 38 should-fix findings and 1 suggestion. The post-edit result
+has 0 blockers, 37 should-fix findings and 1 suggestion. Normalized finding comparison removes
+shifted line references from locations and descriptions. It finds no new finding. The commit-gate
+rewrite clears one existing fragmented-header finding. `git diff --check` passes. Filter-name
+searches over both design files match superseded D46 history only. Line-1 workflow stamps,
+H2 names and local fragment links pass checks. The configuration table has 21 entries.
+All edit regions passed uniqueness and overlap preflight. No apply failed.
+
+**Cold-read** (scope: whole-doc): The author read every changed passage, its surrounding gate
+and lifecycle text, and both files' descriptions of parent retention and sampling. This is a
+self-review, not an independent cold-read. No new contradiction was found. An independent
+cold-read follows the commit in a separate action, as requested.
+
+**Findings**:
+- Removed: one existing should-fix fragmented-header finding in Commit slow-query gating.
+- Carried forward: 37 pre-existing should-fix findings and 1 suggestion.
+- Preserved: heartbeat selection, tag rules, emit-all defaults and all eight Track 89 choices.
+  The buffered-SQL contract and heartbeat algorithm are byte-identical to the Track 89 boundary.
+- Deferred: Tracks 91–93 own performance changes, limits, counters, benchmarks, attribute and
+  span-kind corrections, EXACT timestamps, propagation follow-up text and the PR plan update.
+- Choices for user confirmation: none. The approved goals determine the sampling semantics.
+- No Maven, push or marker commit runs in this action.
+
+**Iterations**: 1 of 3 (PASS on the approved delta with baseline findings carried forward).
+
+## Mutation 82 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Track 90 fix round 1 qualifies visibility and emission promises under the
+SDK sampling contract. It distinguishes gate acceptance, buffer admission, SDK recording and
+export. The contract names the default sampled-only processor pipeline and allows custom host
+export policies. No-op instances return non-recording spans without an SDK sampling decision.
+Commit construction is conditional in the diagram. Query diagrams show child sampling, and
+server shutdown closes an SDK only when YTDB installed one. Four footers link to the companion
+mechanisms. D46 clearly names the superseded filter decision. Regression coverage is stated as
+a requirement. First uses define YTDB, Gremlin, SDK, the facade, BOM and POM.
+
+The user-approved owned-SDK policy delegates sampler selection to SDK autoconfiguration. It
+supports standard sampler properties and environment variables and defaults to
+`parentbased_always_on` without an override. Host samplers remain unchanged. The user-approved
+scope addition also resolves the master-switch, facade-isolation, signal-switch, exporter,
+configuration, API-version, tracking-ID, log-SPI and exception-isolation contradictions.
+Tracking-ID storage belongs to `FrontendTransactionImpl`, consistent with Core Concepts and
+the class diagram. `FrontendTransaction` exposes both tracking-ID accessors. Two lifecycle
+problems remain explicitly open: first-listener bootstrap and old transaction snapshots during
+SDK replacement. This mutation chooses no solution for either problem.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. The normalized finding
+multisets match after removing shifted line references. No finding was added or worsened.
+`git diff --check`, line-1 workflow stamps, H2 names and local fragment links pass. The
+configuration table remains byte-identical with 21 entries. Every edit batch passed uniqueness
+and overlap preflight. No apply failed.
+
+**Cold-read** (scope: whole-doc): The supplied independent Track 90 cold-read required revisions.
+This fix addresses its approved findings. The author reread every changed passage and the
+surrounding lifecycle and sampling text. This is a self-review. A fresh independent cold-read
+remains for the orchestrator after this commit.
+
+**Findings**:
+- Fixed: 1–14, 17–28. Finding 6 uses the user-approved sampler policy. Finding 25 follows the
+  surrounding design intent. Finding 26 names a public internal SPI outside the product API.
+- Deferred by user decision: 15 and 16. Both have explicit open follow-up entries in the design.
+- Fixed: the six first-use term suggestions.
+- Carried forward: the unchanged mechanical baseline debt.
+- Preserved: all eight Track 89 choices, the Track 90 sampling boundary, heartbeat behavior,
+  tag rules and emit-all defaults. The heartbeat section, buffer synchronization and cleanup
+  blocks, and configuration table are byte-identical to the fix-round baseline.
+- No ratio sampler, Maven run, push or marker commit is part of this mutation.
+
+**Iterations**: 2 of 3 (PASS on the approved delta with baseline findings carried forward).
