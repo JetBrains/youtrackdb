@@ -37,7 +37,7 @@
     <mockito.version>5.19.0</mockito.version>
     <netty.version>4.1.125.Final</netty.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <snakeyaml.version>2.0</snakeyaml.version>
+    <snakeyaml.version>2.7</snakeyaml.version>
     <bouncycastle.version>1.69</bouncycastle.version>
     <ayza.version>10.0.0</ayza.version>
     <!-- Kryo and Groovy need reflective access on Java 21. These flags apply only to tests. -->
