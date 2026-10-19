@@ -1,0 +1,22 @@
+{
+  "modules": {
+    "core": 27373,
+    "docker-tests": 1893,
+    "embedded": 1932,
+    "examples": 6,
+    "gremlin-annotations": 30,
+    "gremlin-console": 41,
+    "gremlin-core": 7439,
+    "gremlin-driver": 80,
+    "gremlin-groovy": 3272,
+    "gremlin-language": 46,
+    "gremlin-server": 9675,
+    "gremlin-test": 2,
+    "gremlin-util": 556,
+    "jmh-ldbc": 82,
+    "server": 5538,
+    "tests": 1167,
+    "tinkergraph-gremlin": 18623
+  },
+  "total": 77755
+}
