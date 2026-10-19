@@ -1,10 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
-import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchedRecord;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -31,9 +32,9 @@ import javax.annotation.Nullable;
  * <p>
  * Typed accessors ({@code getEntity}, {@code getVertex}, etc.), {@code equals},
  * {@code hashCode}, {@code toMap}, {@code detach}, and {@code toString} are inherited
- * from {@link ResultInternal}, which delegates through the virtual {@code getProperty}/
- * {@code getPropertyNames} methods and therefore gets correct layered behavior
- * automatically.
+ * from {@link ResultInternal}. Virtual property and property-name lookups preserve external
+ * values. Virtual matched-record lookups preserve the effective alias bindings for typed
+ * record access.
  */
 class MatchResultRow extends ResultInternal {
 
@@ -46,6 +47,7 @@ class MatchResultRow extends ResultInternal {
   private final Result parent;
   private final String newAlias;
   private Object newValue;
+  private MatchedRecord newRecord;
   private boolean newAliasRemoved;
 
   /**
@@ -66,14 +68,17 @@ class MatchResultRow extends ResultInternal {
     this.parent = parent;
     this.newAlias = newAlias;
     this.newValue = convertPropertyValue(newValue);
+    this.newRecord = matchingRecord(matchedRecordFrom(newValue), this.newValue);
   }
 
   @Override
   public void setProperty(@Nonnull String name, Object value) {
     assert checkSession();
     value = convertPropertyValue(value);
+    var retained = matchingRecord(getMatchedRecord(name), value);
     if (name.equals(newAlias)) {
       newValue = value;
+      newRecord = retained;
       newAliasRemoved = false;
       return;
     }
@@ -81,6 +86,28 @@ class MatchResultRow extends ResultInternal {
       content = new HashMap<>();
     }
     content.put(name, value);
+    super.retainMatchedRecord(name, retained);
+  }
+
+  @Override
+  public void retainMatchedRecord(String name, @Nullable MatchedRecord retained) {
+    if (name.equals(newAlias)) {
+      newRecord = matchingRecord(retained, getProperty(name));
+    } else {
+      super.retainMatchedRecord(name, retained);
+    }
+  }
+
+  @Nullable @Override
+  public MatchedRecord getMatchedRecord(String name) {
+    if (name.equals(newAlias)) {
+      return newAliasRemoved ? null : newRecord;
+    }
+    var local = super.getMatchedRecord(name);
+    if (local != null || (content != null && content.containsKey(name))) {
+      return local;
+    }
+    return parent instanceof ResultInternal result ? result.getMatchedRecord(name) : null;
   }
 
   @SuppressWarnings("TypeParameterUnusedInFormals")
@@ -153,8 +180,10 @@ class MatchResultRow extends ResultInternal {
   @Override
   public void removeProperty(String name) {
     assert checkSession();
+    super.removeProperty(name);
     if (name.equals(newAlias)) {
       newAliasRemoved = true;
+      newRecord = null;
       return;
     }
     // If the property exists in the parent, shadow it with the sentinel
@@ -168,8 +197,7 @@ class MatchResultRow extends ResultInternal {
     }
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public RID getLink(@Nonnull String name) {
     assert checkSession();
     // Override to go through the layered getProperty() rather than the inherited

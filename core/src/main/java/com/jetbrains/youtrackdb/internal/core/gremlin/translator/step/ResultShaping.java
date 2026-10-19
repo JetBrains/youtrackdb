@@ -58,6 +58,7 @@ import javax.annotation.Nullable;
  *     bypasses the stage entirely (see {@link ListShapingOp} and {@link AbstractMatchPlanStep})
  * @param orderedSourceKeyColumns hidden RETURN columns for the sorted element and live aliases;
  *     non-empty only when an ordered-hop op projects rows after the source merge or source slice
+ * @param propertyGroupCount direct property-count contract, or null for general grouped projection
  */
 public record ResultShaping(
     boolean dropNullRows,
@@ -75,7 +76,31 @@ public record ResultShaping(
     boolean emptyBarrier,
     @Nullable String rowDedupAlias,
     @Nonnull List<ListShapingOp> listShapingOps,
-    @Nonnull List<String> orderedSourceKeyColumns) {
+    @Nonnull List<String> orderedSourceKeyColumns,
+    @Nullable PropertyGroupCount propertyGroupCount) {
+
+  /** Existing projections do not carry a direct property-count contract. */
+  public ResultShaping(boolean dropNullRows, boolean dropOnAbsent,
+      List<String> presencePropertyKeys, List<AliasPropertyPresence> aliasPropertyPresences,
+      List<String> mapEmitColumnOrder, List<String> recordIdMapKeys, List<String> edgeMapKeys,
+      boolean wrapMapValuesInLists, boolean accumulateMap, boolean unwrapSingletonMap,
+      boolean elementMapTokens, boolean emitGroupEntries, boolean emptyBarrier,
+      String rowDedupAlias, List<ListShapingOp> listShapingOps,
+      List<String> orderedSourceKeyColumns) {
+    this(dropNullRows, dropOnAbsent, presencePropertyKeys, aliasPropertyPresences,
+        mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys, wrapMapValuesInLists, accumulateMap,
+        unwrapSingletonMap, elementMapTokens, emitGroupEntries, emptyBarrier, rowDedupAlias,
+        listShapingOps, orderedSourceKeyColumns, null);
+  }
+
+  /** This shaping with an immutable direct counting contract. */
+  public ResultShaping withPropertyGroupCount(@Nullable PropertyGroupCount counting) {
+    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys,
+        aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
+        wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
+        emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, orderedSourceKeyColumns,
+        counting);
+  }
 
   /** Existing projections do not carry ordered-source identities. */
   public ResultShaping(boolean dropNullRows, boolean dropOnAbsent,
@@ -95,7 +120,8 @@ public record ResultShaping(
     return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys,
         aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
         wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
-        emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, columns);
+        emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, columns,
+        propertyGroupCount);
   }
 
   /**
@@ -156,7 +182,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code dropOnAbsent} set to {@code value}. */
@@ -176,7 +204,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code presencePropertyKeys} replaced by {@code keys}. */
@@ -196,7 +226,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code aliasPropertyPresences} replaced by {@code presences}. */
@@ -217,7 +249,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -240,7 +274,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -263,7 +299,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -286,7 +324,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code wrapMapValuesInLists} set to {@code value}. */
@@ -306,7 +346,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code accumulateMap} set to {@code value}. */
@@ -326,7 +368,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code unwrapSingletonMap} set to {@code value}. */
@@ -346,7 +390,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code elementMapTokens} set to {@code value}. */
@@ -366,7 +412,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -389,7 +437,9 @@ public record ResultShaping(
         value,
         emptyBarrier,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /** This shaping with {@code emptyBarrier} set to {@code value}. */
@@ -409,7 +459,9 @@ public record ResultShaping(
         emitGroupEntries,
         value,
         rowDedupAlias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -432,7 +484,9 @@ public record ResultShaping(
         emitGroupEntries,
         emptyBarrier,
         alias,
-        listShapingOps);
+        listShapingOps,
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 
   /**
@@ -456,6 +510,7 @@ public record ResultShaping(
         emptyBarrier,
         rowDedupAlias,
         ops,
-        orderedSourceKeyColumns);
+        orderedSourceKeyColumns,
+        propertyGroupCount);
   }
 }

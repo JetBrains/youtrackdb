@@ -16,8 +16,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.junit.Test;
 
 /**
@@ -81,6 +84,140 @@ public class ProjectionCalculationStepTest extends DbTestBase {
     for (var i = 0; i < outOriginal.size(); i++) {
       assertThat((Object) outCopy.get(i).getProperty("x"))
           .isEqualTo(outOriginal.get(i).getProperty("x"));
+    }
+  }
+
+  /** Projection and aggregate copies share one immutable map but keep separate projection ASTs. */
+  @Test
+  public void copiesShareImmutableMatchAliases() throws ParseException {
+    var ctx = newContext();
+    for (var sql : List.of("select a as renamed", "select 1 as scalar")) {
+      for (var aggregate : List.of(false, true)) {
+        var projection = parseExpandProjection(sql);
+        var step = aggregate
+            ? new AggregateProjectionCalculationStep(projection, null, -1, ctx, -1, false)
+            : new ProjectionCalculationStep(projection, ctx, false);
+        var copy = (ProjectionCalculationStep) step.copy(ctx);
+        var secondCopy = (ProjectionCalculationStep) copy.copy(newContext());
+        assertThat(copy.matchAliases).isSameAs(step.matchAliases);
+        assertThat(secondCopy.matchAliases).isSameAs(step.matchAliases);
+        assertThat(copy.projection).isNotSameAs(step.projection);
+        assertThat(step.matchAliases).isEqualTo(sql.contains("renamed")
+            ? Map.of("renamed", "a") : Map.of());
+        assertThatThrownBy(() -> copy.matchAliases.put("injected", "b"))
+            .isInstanceOf(UnsupportedOperationException.class);
+      }
+    }
+  }
+
+  /** An alias-free projection never requests an entry set while processing nonempty input. */
+  @Test
+  public void emptyMatchAliasesAvoidPerRowEntrySetAccess() throws ParseException {
+    var ctx = newContext();
+    Map<String, String> emptyAliases = new AbstractMap<>() {
+      @Override
+      public boolean isEmpty() {
+        return true;
+      }
+
+      @Override
+      public Set<Entry<String, String>> entrySet() {
+        throw new AssertionError("Empty alias map must not be iterated");
+      }
+    };
+    var step = new ProjectionCalculationStep(parseExpandProjection("select 1 as scalar"),
+        ctx, false, false, emptyAliases);
+    step.setPrevious(upstreamTwoRows(ctx));
+    assertThat(drain(step.start(ctx), ctx)).hasSize(2)
+        .allSatisfy(row -> assertThat((Object) row.getProperty("scalar")).isEqualTo(1));
+  }
+
+  /** Only plain alias projections retain records. Scalar and nested projections keep their values. */
+  @Test
+  public void matchRecordProjectionRetainsOnlyCompatibleAliasBindings() throws ParseException {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var row = new ResultInternal(session);
+    row.setMatchProperty("a", ResultInternal.fromCheckedRecord(session,
+        session.executeReadRecord(
+            (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+            true)));
+    try {
+      for (var sql : List.of("select a as renamed", "select 1 as renamed",
+          "select a:{@rid} as renamed")) {
+        var ctx = newContext();
+        var step = new ProjectionCalculationStep(parseExpandProjection(sql), ctx, false);
+        step.setPrevious(new AbstractExecutionStep(ctx, false) {
+          @Override
+          public ExecutionStep copy(CommandContext context) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public ExecutionStream internalStart(CommandContext context) {
+            return ExecutionStream.singleton(row);
+          }
+        });
+        var stream = step.start(ctx);
+        try {
+          var projected = (ResultInternal) stream.next(ctx);
+          if (sql.equals("select a as renamed")) {
+            assertThat(projected.getVertex("renamed")).isSameAs(vertex);
+            assertThat(projected.getMatchedRecord("renamed")).isNotNull();
+          } else {
+            assertThat(projected.getMatchedRecord("renamed")).isNull();
+          }
+        } finally {
+          stream.close(ctx);
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Projection success and failure restore parent-owned current values, including saved null. */
+  @Test
+  public void projectionAlwaysRestoresCurrentAndNullOwnership() {
+    for (var fail : List.of(false, true)) {
+      for (var saved : new Object[] {null, "outer-current"}) {
+        var parent = newContext();
+        var ctx = newContext();
+        ctx.setParentWithoutOverridingChild(parent);
+        parent.setSystemVariable(CommandContext.VAR_CURRENT, saved);
+        var item = new SQLProjectionItem(-1) {
+          @Override
+          public Object execute(Result record, CommandContext context) {
+            assertThat((Object) context.getSystemVariable(CommandContext.VAR_CURRENT))
+                .isSameAs(record);
+            if (fail) {
+              throw new IllegalStateException("projection failure");
+            }
+            return 1;
+          }
+
+          @Override
+          public SQLIdentifier getProjectionAlias() {
+            return new SQLIdentifier("x");
+          }
+        };
+        var step =
+            new ProjectionCalculationStep(new SQLProjection(List.of(item), false), ctx, false);
+        step.setPrevious(upstreamTwoRows(ctx));
+        var stream = step.start(ctx);
+        try {
+          if (fail) {
+            assertThatThrownBy(() -> stream.next(ctx)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("projection failure");
+          } else {
+            assertThat((Object) stream.next(ctx).getProperty("x")).isEqualTo(1);
+          }
+          assertThat((Object) parent.getSystemVariable(CommandContext.VAR_CURRENT)).isSameAs(saved);
+          assertThat(parent.hasSystemVariable(CommandContext.VAR_CURRENT)).isTrue();
+        } finally {
+          stream.close(ctx);
+        }
+      }
     }
   }
 

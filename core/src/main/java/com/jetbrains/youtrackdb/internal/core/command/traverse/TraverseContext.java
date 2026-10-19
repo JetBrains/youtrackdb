@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.command.traverse;
 
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.ContextVariableReference;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityHelper;
@@ -82,6 +83,17 @@ public class TraverseContext extends BasicCommandContext {
     {
       return super.getVariable(iName);
     }
+  }
+
+  // Traversal state belongs to the named override, not the BasicCommandContext variable slots.
+  @Override
+  public Object getVariableByReference(ContextVariableReference variable) {
+    return getVariable(variable.getName());
+  }
+
+  @Override
+  public Object getInternalVariable(InternalVariable variable) {
+    return getVariable(variable.getVariableName());
   }
 
   public void pop(final Identifiable currentRecord) {

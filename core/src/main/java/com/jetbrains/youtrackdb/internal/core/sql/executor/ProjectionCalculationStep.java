@@ -6,6 +6,8 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Intermediate step that computes the SELECT projections for each record.
@@ -45,6 +47,9 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   /** The projection definition (list of expressions with aliases). */
   protected final SQLProjection projection;
 
+  // Immutable alias descriptions only. Retained records belong to the output row.
+  protected final Map<String, String> matchAliases;
+
   /**
    * Cached {@link SQLProjection#isExpand()} for this step — same for all rows; evaluated once when the
    * step is first built so per-row projection does not call {@code isExpand()}. Preserved across {@link
@@ -66,9 +71,38 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
       CommandContext ctx,
       boolean profilingEnabled,
       boolean expandProjection) {
+    this(projection, ctx, profilingEnabled, expandProjection, buildMatchAliases(projection));
+  }
+
+  /**
+   * Copies share only the immutable alias description, never execution-local record evidence.
+   * {@code matchAliases} must be an immutable map built from the same projection definition.
+   */
+  protected ProjectionCalculationStep(
+      SQLProjection projection,
+      CommandContext ctx,
+      boolean profilingEnabled,
+      boolean expandProjection,
+      Map<String, String> matchAliases) {
     super(ctx, profilingEnabled);
     this.projection = projection;
     this.expandProjection = expandProjection;
+    this.matchAliases = matchAliases;
+  }
+
+  private static Map<String, String> buildMatchAliases(SQLProjection projection) {
+    var aliases = new HashMap<String, String>();
+    for (var item : projection.getItems()) {
+      var output = item.getProjectionAliasAsString();
+      var expression = item.getExpression();
+      if (!item.isAll() && !item.isExclude() && !item.hasNestedProjection()
+          && expression != null && expression.isBaseIdentifier()) {
+        aliases.put(output, expression.getDefaultAlias().getStringValue());
+      } else {
+        aliases.remove(output);
+      }
+    }
+    return Map.copyOf(aliases);
   }
 
   @Override
@@ -85,14 +119,23 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
     // Temporarily set $current so projection expressions (e.g. $current.name) can reference this row.
     var oldCurrent = ctx.getSystemVariable(CommandContext.VAR_CURRENT);
     ctx.setSystemVariable(CommandContext.VAR_CURRENT, result);
-    var newResult = calculateProjections(ctx, result);
-    // Restore the previous $current to support correct behavior in nested contexts.
-    ctx.setSystemVariable(CommandContext.VAR_CURRENT, oldCurrent);
-    return newResult;
+    try {
+      return calculateProjections(ctx, result);
+    } finally {
+      // Restore even on failure. A saved null remains present for nested write ownership.
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, oldCurrent);
+    }
   }
 
   private Result calculateProjections(CommandContext ctx, Result next) {
-    return this.projection.calculateSingle(ctx, next, expandProjection);
+    var projected = this.projection.calculateSingle(ctx, next, expandProjection);
+    if (!matchAliases.isEmpty()
+        && next instanceof ResultInternal source && projected instanceof ResultInternal target) {
+      for (var alias : matchAliases.entrySet()) {
+        target.retainMatchedRecord(alias.getKey(), source.getMatchedRecord(alias.getValue()));
+      }
+    }
+    return projected;
   }
 
   @Override
@@ -116,6 +159,6 @@ public class ProjectionCalculationStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     return new ProjectionCalculationStep(projection.copy(), ctx, profilingEnabled,
-        expandProjection);
+        expandProjection, matchAliases);
   }
 }

@@ -1,10 +1,28 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.util.Resettable;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalContextVariableSuffix;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 /**
@@ -17,6 +35,174 @@ import org.junit.Test;
  * identifier that can never be re-tokenized into extra syntax).
  */
 public class ProjectionExpressionFactoriesTest {
+
+  /** Builder-proven matched access and its copy bypass named reads, unlike a user expression. */
+  @Test
+  public void internalMatchedAccessUsesDirectRouteAndUserNamesDoNot() throws ParseException {
+    var ctx = new ObservedContext();
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, Map.of("a", Map.of("name", "first")));
+    var built = new MatchWhereBuilder().matchedAccess("a", "name");
+    var copy = built.copy();
+    assertThat(built.execute((Result) null, ctx)).isEqualTo("first");
+    ctx.setSystemVariable(CommandContext.VAR_MATCHED, Map.of("a", Map.of("name", "second")));
+    assertThat(copy.execute((Result) null, ctx)).isEqualTo("second");
+    assertThat(ctx.directReads).isEqualTo(4);
+    assertThat(ctx.namedReads).isZero();
+    ctx.setDynamicVariable("userName", c -> "user-value");
+    assertThat(ProjectionExpressionFactories.contextVariable("$userName")
+        .execute((Result) null, ctx)).isEqualTo("user-value");
+    var userMatched = parse("SELECT $matched.a.name").getProjection().getItems().getFirst()
+        .getExpression();
+    assertThat(userMatched.execute((Result) null, ctx)).isEqualTo("second");
+    // Each ordinary read enters both overloads. Direct calls to the defaulted overload and
+    // bulk named access must also be visible without passing through getVariable(String).
+    assertThat(ctx.namedReads).isEqualTo(8);
+    assertThat(ctx.getVariable("$userName", "fallback")).isEqualTo("user-value");
+    assertThat(ctx.namedReads).isEqualTo(9);
+    assertThat(ctx.getVariables()).containsKey("userName");
+    assertThat(ctx.namedReads).isEqualTo(10);
+    assertThat(ctx.directReads).isEqualTo(4);
+  }
+
+  /** The list factory reads CURRENT_MATCH through the Result route, never CURRENT or named lookup. */
+  @Test
+  public void listCurrentMatchArgumentUsesDirectRouteAndCorrectRole() {
+    var ctx = new ObservedContext();
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, "current-row");
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT_MATCH, "match-candidate");
+    var expression = ProjectionExpressionFactories.listCurrentMatch();
+    var base = (SQLBaseExpression) expression.getMathExpression();
+    var call = base.getIdentifier().getLevelZero().getFunctionCall();
+    assertThat(call.getParams()).hasSize(1);
+    var argument = call.getParams().getFirst();
+    assertThat(argument.execute((Result) new ResultInternal(null), ctx))
+        .isEqualTo("match-candidate");
+    assertThat(ctx.namedReads).isZero();
+    assertThat(ctx.directReads).isEqualTo(2);
+  }
+
+  /** Builder-proven Map and context reads keep Map precedence, saved nulls, and dynamic calls. */
+  @Test
+  public void internalSuffixUsesDirectMapAndContextRoutes() {
+    var ctx = new ObservedContext();
+    var suffix = new InternalContextVariableSuffix(InternalVariable.MATCHED).copy();
+    var calls = new AtomicInteger();
+    ctx.setDynamicVariable("matched", c -> calls.incrementAndGet());
+    assertThat(suffix.execute(Map.of(), ctx)).isEqualTo(2);
+    assertThat(suffix.execute(ctx)).isEqualTo(3);
+    var map = new HashMap<String, Object>();
+    map.put("$matched", null);
+    assertThat(suffix.execute(map, ctx)).isNull();
+    map.put("$matched", "map-value");
+    assertThat(suffix.execute(map, ctx)).isEqualTo("map-value");
+    assertThat(suffix.execute((Map) null, ctx)).isEqualTo(5);
+    ctx.setVariable("matched", null);
+    assertThat(suffix.execute(Map.of(), ctx)).isNull();
+    assertThat(suffix.execute((Map) null, null)).isNull();
+    assertThat(suffix.execute((CommandContext) null)).isNull();
+    assertThat(ctx.namedReads).isZero();
+  }
+
+  /** Null context values retain Result columns, metadata, temporary properties, and misses. */
+  @Test
+  public void directSuffixRetainsNullAndMissingResultFallbacks() {
+    var ctx = new ObservedContext();
+    var suffix = new InternalContextVariableSuffix(InternalVariable.CURRENT);
+    var row = new ResultInternal(null);
+    assertThat(suffix.execute((Result) null, ctx)).isNull();
+    assertThat(suffix.execute(mock(Result.class), ctx)).isNull();
+    assertThat(suffix.execute(row, ctx)).isNull();
+    row.setTemporaryProperty("$current", "temporary");
+    assertThat(suffix.execute(row, ctx)).isEqualTo("temporary");
+    row.setMetadata("$current", "metadata");
+    assertThat(suffix.execute(row, ctx)).isEqualTo("metadata");
+    row.setProperty("$current", "column");
+    assertThat(suffix.execute(row, ctx)).isEqualTo("column");
+    assertThat(suffix.execute(row, null)).isEqualTo("column");
+    ctx.setVariable("current", null);
+    ctx.setSystemVariable(CommandContext.VAR_CURRENT, "slot");
+    assertThat(suffix.execute(row, ctx)).isEqualTo("column");
+    assertThat(ctx.namedReads).isZero();
+  }
+
+  /** Both dynamic callbacks run. Resettable values reset only when enabled and cursors copy. */
+  @Test
+  public void directSuffixKeepsDynamicCallbacksResetAndCursorCopy() {
+    var ctx = new ObservedContext();
+    var suffix = new InternalContextVariableSuffix(InternalVariable.CURRENT_MATCH);
+    var calls = new AtomicInteger();
+    ctx.setDynamicVariable("currentMatch", c -> calls.incrementAndGet());
+    assertThat(suffix.execute((Result) null, ctx)).isEqualTo(2);
+    var resettable = mock(Resettable.class);
+    ctx.setVariable("currentMatch", resettable);
+    suffix.execute((Result) null, ctx);
+    verify(resettable, never()).reset();
+    when(resettable.isResetable()).thenReturn(true);
+    assertThat(suffix.execute((Result) null, ctx)).isSameAs(resettable);
+    verify(resettable).reset();
+    var cursor = new InternalResultSet(null);
+    ctx.setVariable("currentMatch", cursor);
+    assertThat(suffix.execute((Result) null, ctx)).isInstanceOf(InternalResultSet.class)
+        .isNotSameAs(cursor);
+    assertThat(ctx.namedReads).isZero();
+  }
+
+  /** Concurrent copies read private live values. Re-execution never retains the previous value. */
+  @Test
+  public void copiedInternalExpressionsReadIndependentExecutionState() throws Exception {
+    var expression = ProjectionExpressionFactories.internalVariable(InternalVariable.CURRENT, null);
+    var copies = new SQLExpression[] {expression.copy(), expression.copy()};
+    try (var pool = Executors.newFixedThreadPool(2)) {
+      var first = pool.submit(() -> readRepeatedValues(copies[0], "first"));
+      var second = pool.submit(() -> readRepeatedValues(copies[1], "second"));
+      assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo("first");
+      assertThat(second.get(5, TimeUnit.SECONDS)).isEqualTo("second");
+    }
+  }
+
+  private static String readRepeatedValues(SQLExpression expression, String value) {
+    var ctx = new ObservedContext();
+    for (var i = 0; i < 100; i++) {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, value + i);
+      assertThat(expression.execute((Result) null, ctx)).isEqualTo(value + i);
+    }
+    assertThat(ctx.namedReads).isZero();
+    return value;
+  }
+
+  private static final class ObservedContext extends BasicCommandContext {
+    int directReads;
+    int namedReads;
+
+    @Override
+    public Object getVariable(String name) {
+      namedReads++;
+      return super.getVariable(name);
+    }
+
+    @Override
+    public Object getVariable(String name, Object defaultValue) {
+      namedReads++;
+      return super.getVariable(name, defaultValue);
+    }
+
+    @Override
+    public Map<String, Object> getVariables() {
+      namedReads++;
+      return super.getVariables();
+    }
+
+    @Override
+    public Object getInternalVariable(InternalVariable variable) {
+      directReads++;
+      return super.getInternalVariable(variable);
+    }
+
+    @Override
+    public DatabaseSessionEmbedded getDatabaseSession() {
+      return null;
+    }
+  }
 
   private static SQLSelectStatement parse(String sql) throws ParseException {
     return (SQLSelectStatement)
