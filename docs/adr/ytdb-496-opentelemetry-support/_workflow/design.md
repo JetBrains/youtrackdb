@@ -50,13 +50,14 @@ Other subsystems restructured to fit.
 
 When enabled in embedded mode, the `YouTrackDBOpenTelemetry` facade resolves the SDK in three steps in priority order: host-provided via `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, then the registered global discovered through `GlobalOpenTelemetry.isSet()` and read through `getOrNoop()`, then a YTDB-built SDK auto-configured from `OPENTELEMETRY_*` config when neither host source is present. The flag is never inert; ownership is tracked so `shutdown()` closes only the SDK YTDB created. In server mode YTDB always owns the SDK because the server is a standalone process; an `OpenTelemetrySdk` built from the same config entries wires through a `ServerLifecycleListener`-based plugin.
 
-Alongside the three pillars the PR also ships a quick-start observability stack under `youtrackdb-opentelemetry/examples/docker-compose/` so a first-time operator goes from clone to first span in under five minutes without assembling the Collector / Jaeger / Loki / Prometheus / Grafana wiring from upstream docs. The stack is example-files-only (zero source-code edits in `core`, `server`, or the OTel module), uses pinned image versions, ships three pre-provisioned Grafana dashboards (overview, queries, storage), and links the selected trace data source to Loki logs by `trace_id` and to Prometheus metrics by `service.name`. Grafana is the chosen operator UI, self-hosted or Grafana Cloud. Production uses Tempo for traces, Loki for logs and a Prometheus-compatible metrics store. YouTrackDB neither embeds nor depends on Grafana. A smoke script (`scripts/smoke.sh`) runs a minimal embedded query and exits non-zero when any pillar fails to land within 30 seconds, giving the optional CI job a deterministic signal that the example stack and the YTDB-side wiring agree. § "Quick-start observability stack" below covers the full deliverable list and the production-vs-local-dev trade-offs the example deliberately makes. A separate user manual for OpenTelemetry (OTel), the open standard for traces, logs and metrics, is planned at `docs/opentelemetry.md`.
+Alongside the three pillars the PR also ships a quick-start observability stack under `youtrackdb-opentelemetry/examples/docker-compose/` so a first-time operator goes from clone to first span in under five minutes without assembling the Collector / Jaeger / Loki / Prometheus / Grafana wiring from upstream docs. The stack is example-files-only (zero source-code edits in `core`, `server`, or the OTel module), uses pinned image versions, ships three pre-provisioned Grafana dashboards (overview, queries, storage), and links the selected trace data source to Loki logs by `trace_id` and to Prometheus metrics by `service.name`. Grafana is the chosen operator UI, self-hosted or Grafana Cloud. Production uses Tempo for traces, Loki for logs and a Prometheus-compatible metrics store. YouTrackDB neither embeds nor depends on Grafana. A smoke script (`scripts/smoke.sh`) runs a minimal embedded query and exits non-zero when any pillar fails to land within 30 seconds, giving the optional continuous integration (CI) job a deterministic signal that the example stack and the YTDB-side wiring agree. § "Quick-start observability stack" below covers the full deliverable list and the production-vs-local-dev trade-offs the example deliberately makes. A separate user manual for OpenTelemetry (OTel), the open standard for traces, logs and metrics, is planned at `docs/opentelemetry.md`.
 
 The rest of this document covers: Core Concepts (vocabulary primer), Class Design, Workflow, sem-conv attribute mapping, context propagation in embedded, Gremlin bytecode classification, SQL execution layer hook, OpenTelemetry logs integration, metrics integration, quick-start observability stack with the "User manual (planned)" subsection, SDK lifecycle for embedded vs server, listener registration and ordering, and the exception-isolation contract. The deep-mechanism content for the slow-query gate, the heartbeat sampler, the logs appender, the metrics bridge, and the Collector pipeline shape of the quick-start stack lives in the [`design-mechanics.md`](design-mechanics.md) companion file; the five corresponding sections here keep the TL;DR, the configuration entries operators read at configure time, and a Mechanism overview paragraph pointing into the companion.
 
 ## Core Concepts
 
 D-numbers such as D34 identify design decisions. Section References footers summarize them.
+SLF4J means Simple Logging Facade for Java. OTLP means OpenTelemetry Protocol.
 
 This design introduces eleven load-bearing ideas. Each is named and used without re-definition later; if a downstream section references one, the relevant definition is here. Each entry pairs the new term with what it replaces, so the delta from the baseline is visible at a glance.
 
@@ -641,6 +642,13 @@ Deferred attributes are unavailable during sampling. A host that needs equivalen
 must supply independent inputs, such as parent Context values, before query execution.
 This design defines no general YTDB builder-customization hook.
 
+Every query-text value follows the [query-text limit](design-mechanics.md#telemetry-limits-and-loss-counters)
+before span attachment or nested-SQL snapshot retention. This includes `db.query.text`, script
+text, dominant-statement text and `db.youtrackdb.gremlin.embedded_sql.N`. The limit applies after
+sanitization. A recording span carries `db.youtrackdb.query.text_truncated=true` if any non-empty
+query-text value was shortened or omitted by the limit. This boolean extends the vendor key inventory below.
+Tags, summaries and parameter values keep their separate contracts.
+
 The full mapping per attribute:
 
 | Attribute | Requirement | Source | Notes |
@@ -715,7 +723,7 @@ Out of MVP (high-cardinality, deferred to follow-up):
 - specific property keys read via `values(...)` or projection — same cardinality concern as ORDER BY keys
 - full execution-plan structure (per-operator timing, per-step row counts) — already covered by the § Non-Goals bullet on per-operator timing; the follow-up ticket sources data from `SQLProfiler` and emits span events rather than span attributes to avoid polluting the per-span attribute set
 
-Cardinality policy. Two axes have to stay bounded for these attributes to cost a trace backend little: how many distinct keys exist, and how many distinct values each key takes. The key set is closed, meaning the four tables above are the complete list of `db.youtrackdb.*` keys; the only key that multiplies is `db.youtrackdb.gremlin.embedded_sql.N`, capped at N = 0..2 (at most 3 per outer span). Each value is held to one of the four bounded shapes (`boolean`, `small int`, `enum`, `host-discipline`). Both axes matter because backends index per key per distinct value, so total cost tracks the product of the two; bounding one alone still blows up. The `host-discipline` shape is the deliberate exception: YTDB caps the structural side, and the host's query content or explicit choice carries any residual cardinality risk consciously (a host templating a UUID per request into `db.youtrackdb.transaction.tracking_id` blows value-cardinality and owns that). The four-shape constraint is enforced for every new attribute under `db.youtrackdb.*`; see § Future-extension policy.
+Cardinality policy. Two axes have to stay bounded for these attributes to cost a trace backend little: how many distinct keys exist, and how many distinct values each key takes. The key set is closed, meaning the four tables above and the boolean `db.youtrackdb.query.text_truncated` marker define the `db.youtrackdb.*` keys in this section; the only key that multiplies is `db.youtrackdb.gremlin.embedded_sql.N`, capped at N = 0..2 (at most 3 per outer span). Each value is held to one of the four bounded shapes (`boolean`, `small int`, `enum`, `host-discipline`). Both axes matter because backends index per key per distinct value, so total cost tracks the product of the two; bounding one alone still blows up. The `host-discipline` shape is the deliberate exception: YTDB caps the structural side, and the host's query content or explicit choice carries any residual cardinality risk consciously (a host templating a UUID per request into `db.youtrackdb.transaction.tracking_id` blows value-cardinality and owns that). The four-shape constraint is enforced for every new attribute under `db.youtrackdb.*`; see § Future-extension policy.
 
 Future-extension policy. New attributes land under `db.youtrackdb.*` if they pass two tests: (a) bounded cardinality per the policy above, and (b) extractable from existing parser output without re-walking the query. Attributes failing either test go into the per-operator span-events follow-up, which can carry higher-cardinality fields without cost-amplifying the per-span attribute set.
 
@@ -1295,9 +1303,9 @@ close():
 
 All three SQL execution entry points produce a parsed `SQLStatement`, then call `statement.execute(this, args, true)` (or the pre-parsed overload at line 697 for `executeInternal()`). On the `query()` path the cache lookup runs inside `serveThroughCache(...)`, and `query()` returns `queryStartedLifecycle(serveThroughCache(...))`: every outcome flows through `queryStartedLifecycle(original)` for `activeQueries` tracking — the cache-hit and cacheable-miss `CachedResultSetView`, plus the bypass `LocalResultSet` for non-deterministic / `NOCACHE`-hinted / re-entrant / splice-failure / cache-disabled cases. A `CachedResultSetView` lands inside a `LocalResultSetLifecycleDecorator` there because it is not itself a `LocalResultSet`; the cache result does not bypass `queryStartedLifecycle`. The third entry point, `executeInternal()`, has two return branches with different wrap shapes. The idempotent path ends with `queryStartedLifecycle(original)` (same shape as the other two entries) and gets the standard wrap-after-lifecycle treatment: `return InstrumentedSqlResultSet.wrapIfListening(lifecycled, statement, rawSql, args, currentTx, entryState);`. The non-idempotent path (INSERT / UPDATE / DELETE / DDL / CREATE / DROP) at lines 733-739 eagerly prefetches the result into an `InternalResultSet` because the executor work cannot be deferred past the return. The wrap-site sits BEFORE the eager drain so `executionTimeNanos` covers the executor's work, not the consumer's no-op iteration over the already-drained buffer: `var instrumented = wrapIfListening(original, statement, rawSql, args, currentTx, entryState); instrumented.forEachRemaining(prefetched::add); instrumented.close(); return new LocalResultSetLifecycleDecorator(prefetched);`. The wrapper's `close()` fires `queryFinished` after the drain, inside `executeInternal()`, with the real executor elapsed time. The caller receives a wrapper-free `LocalResultSetLifecycleDecorator(prefetched)` and consumer iteration over the in-memory buffer does not refire the listener. Without this wrap-before-drain placement every `db.execute(...)` write would emit a span with near-zero duration. The wrapper receives the `SQLStatement` (for lazy classification + sanitization), the raw SQL text (from `stringStatement` when non-null, else from `statement.getOriginalStatement()`), the args and captured entry state with its operation listener snapshot, Context, tag, provenance and mode. The constructor prepares successful-result clock readings. The wrapper does not call `statement.execute(...)` or `executionPlan.start()` itself; it only delegates iteration to whatever inner `ResultSet` the entry point produced.
 
-Multi-statement scripts route through `DatabaseSessionEmbedded.computeScript(...)` — two overloads declared at lines 753 and 813, with returns at lines 785 and 847 respectively. The script-engine path builds a `ScriptExecutionPlan` via `executor.execute(...)` and drives `ScriptLineStep` for each inner statement — inner statements run their own `start()` directly without re-entering the three SQL entry points. The wrap point for scripts is at `computeScript` itself, not at the inner statements: both `computeScript` return statements end with `InstrumentedSqlResultSet.wrapIfListening(scriptResult, /* statement */ null, script, args, currentTx, entryState)` so one outer SQL completion fires per completed script invocation. Normal gates and nested-buffer retention determine whether it produces a span. Inner statements accrue to that completion's duration. The wrapper's `statement` field carries `null` for scripts (the `SqlSyntaxClassifier` returns `Optional.empty()` for both operation and collection, and the SQL span name falls back to `"youtrackdb"`); `db.query.text` carries the script text from the `script` argument.
+Multi-statement scripts route through `DatabaseSessionEmbedded.computeScript(...)` — two overloads declared at lines 753 and 813, with returns at lines 785 and 847 respectively. The script-engine path builds a `ScriptExecutionPlan` via `executor.execute(...)` and drives `ScriptLineStep` for each inner statement — inner statements run their own `start()` directly without re-entering the three SQL entry points. The wrap point is `computeScript` itself. Both returns call `InstrumentedSqlResultSet.wrapIfListening(...)` so one outer SQL completion fires per completed script invocation. Normal gates and nested-buffer retention determine whether it produces a span. Inner statements accrue to that completion's duration. The wrapper's `statement` field is null for scripts. Script classification returns empty operation and collection values, so the SQL span name falls back to `"youtrackdb"`. The guarded script entry state carries the language and, for SQL, its complete parsed script representation. The lazy `getQuery()` branch sanitizes that representation as a whole through `SqlSanitizer`. Scripts in other languages carry no query text. A null statement, missing script representation or sanitizer failure never falls back to raw script text. The OTel query-text limit applies only to successfully sanitized output.
 
-The `QueryDetails` impl is lazy: `getQuery()` calls `SqlSanitizer.sanitize(statement)` (a static utility in `core`, since the walk needs the parser-output AST) on first access; `getOperationName()` and `getCollectionName()` call `SqlSyntaxClassifier.classify(statement)` (a static utility in `core`) on first access. Hosts that don't read these accessors pay no sanitization or classification cost; the parsed `SQLStatement` is already available because `SQLEngine.parse(...)` runs unconditionally to execute the query. `getResultCount()` returns the wrapper's row counter eagerly (the counter is already incremented per `next()`; no recomputation).
+For a single SQL statement, lazy `getQuery()` calls `SqlSanitizer.sanitize(statement)` on first access. A missing statement or sanitizer failure omits text. The operation and collection accessors lazily call `SqlSyntaxClassifier.classify(statement)`. These are static utilities in `core` that reuse parser output. Hosts that do not read these accessors pay no sanitizer walk or classification cost. `getResultCount()` returns the existing wrapper row counter without recomputation.
 
 The wrapper uses the mode resolved from the entry's captured `QUERY_TAG`, or by the guarded standalone factory. An inherited tag reaches the rule table. An empty tag resolves to the per-TX default. The same tag is carried on `QueryDetails` for threshold resolution. Under `LIGHTWEIGHT` the constructor reads `GranularTicker` at 10 ms granularity with no syscall on the hot path; `executionTimeNanos` at close is the ticker delta from start to close (wall-clock, consumer idle time included). Under `EXACT` the constructor reads `Instant.now()` for the wall-clock start (single syscall, ns / μs field on JDK 21 Linux), iteration brackets each delegated `hasNext()` / `next()` call with paired `System.nanoTime()` reads that accumulate into an `activeNanos` field, and `executionTimeNanos` at close is `activeNanos` (sum of per-call deltas, consumer idle gaps excluded). Either way, the wall-clock start populates both the legacy `startedAtMillis` listener parameter (via `Instant.toEpochMilli()` under `EXACT`, via the ticker under `LIGHTWEIGHT`) and the new `getStartedAtEpochNanos()` accessor at the mode's precision (see §"Span timing capture"). The commit fire site in `FrontendTransactionImpl.notifyMetricsListener` has no per-statement tag context and reads directly from `currentTx.getDefaultQueryMonitoringMode()`, so the commit timer matches whatever default the host set on the transaction; commit operates as a single synchronous step with no streaming consumer, so wall-clock and active-time collapse to the same value in practice. Different statements within one transaction can therefore record under different modes while the commit timer remains aligned with the TX default. Gremlin resolves the traversal tag before timing starts at first `hasNext()`. SQL resolves the inherited context tag before its own timing starts. The OTel lifecycle hook gives outer Gremlin and inner SQL the same tag and resolution rules. Matching rules give equal results. Otherwise equality requires an unchanged applicable TX fallback between their capture points. Each query retains its own captured resolution. Different traversals in one TX can still use different modes.
 
@@ -1397,7 +1405,7 @@ The `SqlSanitizer` walks the parsed `SQLStatement` AST and emits a sanitized ren
 - Direct SQL has an empty query tag and uses the per-TX default. SQL inside tagged Gremlin inherits the tag and resolves both mode and threshold from it. Capture the tag before execution, including the early-error path.
 - Tag rules are immutable after process startup; mid-TX changes to the rule table are not supported in YTDB-496 (see §"Query tagging and per-tag rule resolution" Edge cases). Mid-TX changes to the per-TX default via `YTDBTransaction.withQueryMonitoringMode(...)` apply to the next query because SQL entry, or the guarded standalone factory, reads `getDefaultQueryMonitoringMode()` once per query: no snapshot, no `next begin()` cycle latency.
 - Span count depends on gates, SDK sampling and retained candidates. An accepted Path A traversal creates one Gremlin span with no SQL children. SQL re-entry suppression still excludes nested plan calls. Path B can add retained SQL children beneath its late parent. ClassCount and by-ID lookups create none. Buffered children carry sanitized SQL as diagnostic detail. Parent rejection, capacity exhaustion or late completion can discard them. Direct SQL, DDL and scripts each create one candidate per outer call.
-- Multi-statement scripts via `DatabaseSessionEmbedded.computeScript(language, script, args)` (script-engine method declarations at lines 753 and 813; returns at lines 785 and 847) produce one outer SQL completion per completed script call because the SQL execution layer hook instruments `computeScript` itself with its own `InstrumentedSqlResultSet.wrapIfListening(...)` call (the script executor builds a `ScriptExecutionPlan` and drives `ScriptLineStep` for each inner statement without re-entering the three SQL entry points, so per-script instrumentation is the correct site). Inner statements accrue to the outer span's duration; the wrapper carries `statement=null` and the classifier returns `Optional.empty()`. The outer span's `db.query.text` carries the full script text. Per-statement breakdown of a script is a future-ticket concern.
+- Multi-statement scripts via `DatabaseSessionEmbedded.computeScript(language, script, args)` (script-engine method declarations at lines 753 and 813; returns at lines 785 and 847) produce one outer SQL completion per completed script call because the SQL execution layer hook instruments `computeScript` itself with its own `InstrumentedSqlResultSet.wrapIfListening(...)` call (the script executor builds a `ScriptExecutionPlan` and drives `ScriptLineStep` for each inner statement without re-entering the three SQL entry points, so per-script instrumentation is the correct site). Inner statements accrue to the outer span's duration; the wrapper carries `statement=null` and the classifier returns `Optional.empty()`. SQL scripts sanitize their complete parsed script representation before the OTel query-text limit applies. Other script languages carry no query text. A null statement, missing script representation or sanitizer failure never falls back to raw script text. Per-statement breakdown of a script is a future-ticket concern.
 - Consumer patterns: every read pathway on the wrapper routes through the wrapper's own `hasNext()` / `next()`. `tryAdvance(Consumer)`, `forEachRemaining(Consumer)`, `stream()`, `toList()`, `findFirst()`, `findFirstOrNull()`, `detach()`, `toDetachedList()`, `detachedStream()`, and every other `BasicResultSet` accessor that drives the `Spliterator` / `Iterator` surface all see the wrapper's row counter and error capture. Without explicit `tryAdvance` / `forEachRemaining` overrides, the dominant YTDB consumer patterns (`.toList()`, `.stream().forEach(...)`) would silently bypass the counter and report `OptionalLong.of(0)` regardless of actual row count. The wrapper overrides both methods to route through its own `next()` / `hasNext()`.
 - Cross-thread SQL completion needs no current scope. Direct SQL uses the captured host Context as its explicit parent. Nested SQL offers a snapshot to the captured traversal buffer. A sealed buffer rejects it as `traversal_closed`. The OTel wrapper performs no `makeCurrent()` or `Scope.close()` at completion. `OTelResultSetThreadAffinityTest` checks direct-SQL parent identity, buffered child linkage, late drops and absence of scope warnings across completion threads. This telemetry contract does not relax database transaction ownership rules.
 
@@ -1600,12 +1608,110 @@ lookup, bounds and tests. It changes no histogram attribute list.
 
 The bridge subscribes through `addRegistrationListener(...)` before calling `forEachMetric(...)`. Both paths send registration work to one executor and de-duplicate by source metric identity. An identity-keyed map holds `AutoCloseable` callback handles. Shared metric names use a shared instrument with a `database` attribute per database-scoped observation. Stop removes the listener, cancels work and closes callback handles. Tests drain registration through `refresh()`, then collect through `InMemoryMetricReader.collectAllMetrics()`. `DatabaseSessionRegistry` and the profiler `Counter` primitive are new components with new accounting and writer sites. `Meter` flushes each `TimeRate`/`Ratio` rate window internally every `flushRateTicks`, so the bridge reads current rates through `getRate()`/`getRatio()`; it also schedules a `ScheduledExecutorService` task to re-read those windows independently of the OTel `PeriodicMetricReader` cadence (the task reads only, it does not mutate metric state). A `MetricGroup` annotation on `MetricDefinition` (added by the metrics inventory work — an enum with values `QUERIES`, `CACHE`, `STORAGE`, `WAL`, `LOCKS`, `TRANSACTIONS`) drives the `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` filter.
 
+### JMH benchmark gate
+
+Java Microbenchmark Harness (JMH) scenarios in the existing `jmh-ldbc` benchmark module measure
+instrumentation cost against a matched OpenTelemetry-off baseline. The module is named for the
+Linked Data Benchmark Council (LDBC). An arm is one workload/configuration side of a comparison.
+A fixture is the dataset, operation, setup and configuration used by a benchmark. Each pair runs
+the same query, result consumption, transaction pattern and thread count. The off arm has no
+telemetry listener or log hook. Enabled query arms include query histograms, their attribute cache and SDK
+self-metrics. Heartbeat stays disabled. LIGHTWEIGHT is the timing mode except in the EXACT arm.
+The sampler records every accepted root and child, so sampling cannot hide instrumentation cost.
+
+The table defines alert limits as throughput loss: `100 * (1 - enabled_ops / off_ops)`.
+A positive value means fewer operations per second. Each SQL and Gremlin variant has its own
+off denominator. These are user-accepted engineering budgets, separate from the estimates below.
+
+| Scenario | Matched workload and enabled settings | Alert limit relative to off |
+|---|---|---|
+| OpenTelemetry off | No listener or hook, tiny SQL and Gremlin queries plus scans. Compare candidate-off with the base revision's off arm. | 1% |
+| Positive threshold, mostly rejected | Tiny SQL, Path A and Path B Gremlin. Threshold `100` ms, at least 99% successful completions rejected. Histograms remain enabled. | 10% |
+| Emit-all | Same tiny queries, threshold `0`. Path B includes one accepted SQL child per traversal. | 35% for SQL and Path A, 40% for Path B |
+| EXACT-mode scans | Fully consume 10,000 rows, threshold `0`, with direct SQL and Path A separately from layered Path B timing. | 30% for one timing layer, 45% for two |
+| Concurrent tagged queries | Mostly rejected Gremlin at 1 and 8 threads. Use repeated and distinct tags with 16 ordered exact, prefix and simple regex rules. | 15% at each thread count |
+| Logs enabled | One admitted INFO record per operation through `LogManager`, fixed template and arguments, no exception. Compare with the identical SLF4J path without the OTel hook. | 50% |
+
+Use the existing comparison and nightly workflows, `ldbc-jmh-compare.yml` and
+`ldbc-jmh-nightly.yml`. Later benchmark code work must extend parsing, rendering, comparison,
+nightly suite discovery and `jmh-to-influxdb.sh` persistence together. Preserve full benchmark
+identity, all parameters, thread count, mode and score unit through stored history and reports.
+Pair scenario and off arms explicitly while retaining every other identity key. Validate score
+errors rather than coercing missing or malformed values to zero. Missing, invalid or noisy
+evidence is inconclusive, never a pass. Land compatible off fixtures first or use one trusted
+compatible harness for both revisions. A base without a matching fixture makes the off
+comparison inconclusive. Never substitute another workload.
+
+Preserve the nominal nightly thresholds of 10% run-over-run and 5% rolling-average loss.
+Exclude the current run from history and compare only with preceding completed runs.
+The current nightly workflow pushes the result before the alerter runs. Its script does not
+exclude that run, so the run-over-run alert compares the run with itself and the average includes
+it. Correct that script in later benchmark code work. The PR comparison keeps its existing 5%
+base-versus-candidate threshold for identical arms.
+
+The OTel performance gate is reporting-only in continuous integration (CI). Budget breaches
+produce a visible report and nightly alert without failing the build. The confidence filter
+reports a point-estimate budget breach with non-overlapping score intervals. It does not establish
+that the loss exceeds the budget at the reported confidence level. Inconclusive evidence gets a
+warning and rerun recommendation. Existing execution and artifact-integrity failures retain their
+normal CI failure behavior. This design creates no benchmark code or workflow change.
+
+Collect throughput, allocated bytes per operation, garbage-collection time and process CPU cost.
+Run a separate JMH sample-time pass for the 99th-percentile latency, called p99. Do not compare
+latency with the throughput-loss limits. Publish all values and confidence intervals. Use an
+isolated Linux x86-64 runner with the comparison workflow's requested 8-vCPU profile.
+A vCPU is a virtual CPU allocated to the benchmark job. Verify actual CPU availability.
+Use JDK 21, a fixed heap and collector, a warmed resident dataset and the same allocation for
+each pair. Add a matching nightly telemetry job or document an independently verified equivalent
+allocation. Existing bare-metal nightly results are not automatically comparable with this
+profile. Record actual hardware and VM settings. Run paired arms sequentially with alternating
+order. The detailed repetition, noise rules and exporter controls live in the companion section.
+
+### Slowdown estimates
+
+**These are planning estimates, not measurements.** The ranges describe throughput loss under
+the stated assumptions for the matched scenarios above. The distinct-tag variant is unestimated.
+Off is the denominator for enabled arms. The off row estimates the
+candidate's residual cost against the base revision with telemetry disabled. A 20% throughput
+loss corresponds to 25% more average time per operation at fixed serial work. These percentages
+are not p99 predictions or promises for other hardware.
+
+| Scenario | Estimated throughput loss | Main assumption |
+|---|---|---|
+| OpenTelemetry off | 0–1% | Listener-first guards avoid telemetry Context, clocks and allocations. |
+| Positive threshold, mostly rejected | SQL 0.5–5%, Gremlin 0.5–8% | Warm 10–50 microsecond queries, at least 99% rejected, histograms enabled. Late parents avoid span construction. |
+| Emit-all | SQL 2–25%, Path A 3–30%, Path B 5–35% | Warm 10–50 microsecond queries, short text and at most one retained SQL child, healthy exporter. |
+| EXACT-mode scans | 2–25% with one timing layer, up to 40% with two | Baseline 0.5–5 microseconds per row. Clock reads occur on each `hasNext()` and `next()`. |
+| Concurrent tagged queries, repeated tags | 2–12% | One to eight threads, short tags and 16 simple rules, mostly rejected completions and reusable histogram dimensions. |
+| Concurrent tagged queries, distinct tags | Unestimated until measured | Report separately. Distinct inputs may prevent histogram cache reuse. The accepted 15% budget still applies independently. |
+| Logs enabled | 10–50% | Cheap 1–5 microsecond local logging path, short INFO records, no exception serialization or console I/O. |
+
+Late Gremlin construction saves eager span work on rejected traversals. Listener-first guards
+protect the off path. Recording-only enrichment avoids span-only text and plan work after SDK
+rejection. Sampler inputs and enabled histograms still require their own work. Nested SQL still
+copies immutable snapshot values before its later SDK decision. Ordered precompiled tag rules
+retain no tag cache, so there is no cache lock but each lookup pays its rule walk. Histogram
+attribute reuse helps repeated dimensions and loses that benefit on collisions.
+
+Assume a warm JDK 21 JVM, default text and buffer limits, parameters off, no `.profile()`, no
+consumer idle gaps and no exporter drops. Enabled query estimates include metrics. They exclude
+collector and backend CPU outside the process. SDK workers still share application CPU.
+Many accepted children, long text, expensive regex patterns, cache churn, large exceptions and
+stalled export can exceed these ranges. Scans below 0.2 microseconds per row can lose 40–60%
+under layered EXACT timing. A small export queue limits retention, not allocation rate.
+A full queue can make an apparently fast benchmark invalid by dropping its telemetry.
+
+The cost model includes late parents, guarded entry, recording-only attributes, uncached tag
+resolution and histogram attribute reuse. They do not establish parity
+with another database. The benchmark gate must replace these estimates with measured evidence.
+
 The full sem-conv v1.33.0 / `youtrackdb.*` counter inventory (two tables with stable/experimental markers and existing-vs-new annotations), the `forEachMetric` / `addRegistrationListener` API shape on `MetricsRegistry`, the start/stop/refresh lifecycle, the six-group taxonomy, and edge cases (high-cardinality fan-out, profiler-thread contention, exporter back-pressure, SDK swap window, disabled-with-host-SDK semantics, bootstrap race, late-DB-open registration event) live in [`design-mechanics.md §"Metrics integration"`](design-mechanics.md).
 
 ### References
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task re-reading YTDB-side `TimeRate`/`Ratio` rates, flushed internally by `Meter`, independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
 - Invariants: Listener exception isolation (exceptions in observable callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
-- Mechanics: [`design-mechanics.md §"Metrics integration"`](design-mechanics.md)
+- Mechanics: [`design-mechanics.md §"Metrics integration"`](design-mechanics.md),
+  [`design-mechanics.md §"JMH benchmark gate"`](design-mechanics.md#jmh-benchmark-gate)
 
 ## Quick-start observability stack (operator example)
 
@@ -1623,7 +1729,7 @@ Five services, each on a pinned image version with a healthcheck:
 | Prometheus | `prom/prometheus:v2.55.0` | `9090` | Metrics backend; scrapes the Collector's `/metrics` endpoint at 15-second interval |
 | Grafana | `grafana/grafana:11.3.0` | `3000` | UI with provisioned datasources and dashboards |
 
-**Grafana decision.** The YTDB-owned SDK exports OTLP only to an OTel Collector. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. The local example uses Jaeger for traces. Other backends remain usable through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards. It leaves operators to assemble the first usable UI themselves.
+**Grafana decision.** The default YTDB-owned pipeline exports OTLP to an OTel Collector. Standard exporter-selection settings can select other exporters. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. The local example uses Jaeger for traces. Other backends remain usable through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards. It leaves operators to assemble the first usable UI themselves.
 
 The same three dashboard JSON files serve the quick-start, self-hosted production and Grafana Cloud. Import maps their data source inputs to the target instance. Trace views select Jaeger or Tempo. Latency, rate and count panels query Prometheus metrics. Fixed instance UIDs must not enter the committed JSON.
 
@@ -1752,7 +1858,7 @@ Embedded path — three-step resolution on first listener fire:
 
 1. **Explicit setter wins**: if the host called `YouTrackDBOpenTelemetry.setOpenTelemetry(otel)`, use that instance. Ownership = host. `shutdown()` will not close it.
 2. **Global fallback**: check `GlobalOpenTelemetry.isSet()` without initializing the global. If set, use `GlobalOpenTelemetry.getOrNoop()` as host-owned. Do not compare instance identity with `OpenTelemetry.noop()` or cast the returned wrapper to `OpenTelemetrySdk`. A registered no-op is still host-owned. It returns non-recording spans without an SDK sampling decision. Avoid `get()` for discovery because it can register a no-op and prevent later host installation.
-3. **YTDB auto-configure**: if no explicit setter or registered global is present, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries. It configures tracing and the enabled log and metric signals. Autoconfiguration creates signal-specific OTLP exporters that share the configured endpoint, protocol and headers, with the required signal-specific routing. Ownership = YTDB. `shutdown()` closes this SDK, removes any installed appender and stops any started metrics bridge.
+3. **YTDB auto-configure**: if no explicit setter or registered global is present, the facade builds an `OpenTelemetrySdk` via `AutoConfiguredOpenTelemetrySdk` using the `OPENTELEMETRY_*` config entries. It configures tracing and the enabled log and metric signals. By default, autoconfiguration creates signal-specific OTLP exporters that share the configured endpoint, protocol and headers, with the required signal-specific routing. The owned SDK also supports standard exporter-selection settings such as `otel.traces.exporter`, `otel.logs.exporter` and `otel.metrics.exporter`, with their environment equivalents. YTDB log and metric switches still govern whether those signals are configured. Ownership = YTDB. `shutdown()` closes this SDK, removes any installed appender and stops any started metrics bridge.
 
 For every ownership path, activate the log appender only when both the master switch and
 `OPENTELEMETRY_LOGS_ENABLED` are true. Activate the metrics bridge only when both the master
@@ -1767,7 +1873,7 @@ Server path:
 1. `ServerMain.create()` builds a `YouTrackDBServer` and calls `activate()`.
 2. The server discovers `ServerLifecycleListener` implementations via the `ServiceLoader.load(ServerLifecycleListener.class)` call the server-mode SDK wiring adds to `YouTrackDBServer.activate()` (the existing code only honors explicit `registerLifecycleListener(...)` calls), appends them to the existing `lifecycleListeners` list, and calls `onBeforeActivate` on each.
 3. After databases load, the server calls `onAfterActivate` on each lifecycle listener.
-4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` carrying `SdkTracerProvider` and (when the respective master switches are on) `SdkLoggerProvider` and `SdkMeterProvider` from the same exporter endpoint. The plugin then calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The setter installs the log appender and starts the metrics bridge under the same master and signal-switch rules as the embedded path. The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, registered-global fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
+4. `OpenTelemetryServerPlugin.onAfterActivate()` reads config: if `OPENTELEMETRY_ENABLED=true`, builds an `AutoConfiguredOpenTelemetrySdk` carrying `SdkTracerProvider` and (when the respective master switches are on) `SdkLoggerProvider` and `SdkMeterProvider` with standard exporter selection. The default OTLP exporters share the configured endpoint. The plugin then calls the package-private 3-arg variant `YouTrackDBOpenTelemetry.setOpenTelemetry(sdk.getOpenTelemetrySdk(), ownedByYtdb=true, serverMode=true)`. The setter installs the log appender and starts the metrics bridge under the same master and signal-switch rules as the embedded path. The `serverMode=true` flag causes the facade to select `SpanKind.CLIENT` for the query and commit listeners; the `ownedByYtdb=true` flag causes `shutdown()` to close the SDK on server stop. Embedded entry points (host setter, registered-global fallback, YTDB auto-configure) default `serverMode=false`, so embedded query and commit spans use `SpanKind.INTERNAL`.
 5. Transactions run. When OpenTelemetry is enabled, accepted completions follow the SDK sampling and processing pipeline.
 6. On shutdown, `server.shutdown()` calls `onBeforeDeactivate` on every plugin. `OpenTelemetryServerPlugin.onBeforeDeactivate()` calls `YouTrackDBOpenTelemetry.shutdown()`. If a YTDB-owned SDK was installed, shutdown unregisters listeners, removes any registered `OTelLogAppender`, stops any started `OTelMetricsBridge` and closes the SDK. `OpenTelemetrySdk.close()` flushes pending spans, log records and the final metrics export cycle. Otherwise shutdown is a no-op.
 
@@ -1785,9 +1891,55 @@ Autoconfiguration also supplies the owned processor pipeline. Host-owned instanc
 existing sampler and processor configuration. Both ownership paths follow the
 [SDK sampling contract](design-mechanics.md#sdk-sampling-contract).
 
+### Telemetry limits and loss counters
+
+YTDB-owned SDKs support standard OpenTelemetry exporter-selection settings. The default OTLP
+pipeline uses autoconfiguration's bounded `BatchSpanProcessor` and `BatchLogRecordProcessor`.
+BSP and BLRP settings apply only to exporters that use those batch processors. Console/logging
+exporters can use simple processors instead. Each batch queue defaults to 2048 records and each
+export batch to 512 records.
+A full queue rejects the new record without waiting for space. This does not imply lock-free
+enqueue. SDK 1.66.0 uses a lock in its log queue. Queue capacity bounds record count, not bytes.
+The worker batch, serialization and exporter retry state consume additional memory.
+YouTrackDB adds no export queue or queue-size alias. Standard SDK settings below control them.
+Host-owned SDKs retain their processors, exporters and queue policies without reconfiguration.
+
+`OPENTELEMETRY_QUERY_TEXT_MAX_LENGTH` adds a YTDB-local limit of 4096 Unicode code points per
+query-text attribute. Read it when installing the OTel listener. It accepts a non-negative
+integer. Invalid values fail configuration. `0` omits query-text attributes. Positive values
+keep a prefix at a code-point boundary after sanitization, with no ellipsis or raw-text fallback.
+Set `db.youtrackdb.query.text_truncated=true` on a recording span when any non-empty sanitized
+query text is shortened or omitted. At zero, resolve sanitized text only to test whether a
+non-empty value was omitted. Attach and retain no text. Sanitizer failure alone sets no marker.
+Otherwise omit that marker. Apply the same limit before retaining an
+immutable SQL snapshot, and carry its marker to the child. It also applies with a host-owned
+SDK because it changes only values produced by YouTrackDB. It never changes host SDK limits,
+tags, rule matching, summaries, span names or custom listener results.
+
+The limit bounds each retained text value. It does not bound sanitizer working memory, opted-in
+parameters, arbitrary log bodies or stack traces. SDK attribute limits may shorten text further
+or remove attributes, including the marker. The marker reports YTDB-side truncation only.
+The existing 128-entry nested-SQL buffer and its drop counter keep their retention and counting
+rules. Queue limits do not create a total process-memory budget.
+
+SDK self-metrics supply dropped-span, dropped-log-record and export-failure counters. A
+self-metric is a metric that the SDK records about its own processing. With YTDB-owned metrics
+enabled, use the SDK meter provider already wired by autoconfiguration. Visibility also requires
+an exporting metric reader and an enabled metric exporter. Retain SDK 1.66.0's
+default `LEGACY` internal telemetry schema and names. These counters need no separate
+experimental enable flag when autoconfiguration supplies an exporting meter provider.
+`otel.experimental.sdk.telemetry.version=latest` selects different names and labels.
+Add no duplicate YTDB counter or exporter wrapper. These SDK metrics are outside the six database
+metric groups. For a YTDB-owned installation, metrics off configures no self-metric export path.
+For a host-owned SDK, the switch disables only YTDB bridge and listener metrics. Host-configured
+SDK self-metrics may continue exporting unchanged. The host owns their wiring.
+These counters cover their entire processor or exporter. In a shared SDK they include other
+instrumentations and cannot isolate YTDB losses. Missing data means unknown loss. The companion
+defines exact series, labels, host wiring and observability limits.
+
 ### Configuration surface
 
-These 21 settings are `GlobalConfiguration` entries and support environment variables. The shipped master-switch default keeps YouTrackDB OpenTelemetry instrumentation disabled. Other defaults govern behavior after the operator enables it. The YTDB-496 implementation plan will carry the canonical per-entry types. The table below is the operator-facing summary grouped by signal.
+These 22 settings are `GlobalConfiguration` entries and support environment variables. The shipped master-switch default keeps YouTrackDB OpenTelemetry instrumentation disabled. Other defaults govern behavior after the operator enables it. The YTDB-496 implementation plan will carry the canonical per-entry types. The table below is the operator-facing summary grouped by signal.
 
 | Group | Entry | Default | Role |
 |---|---|---|---|
@@ -1795,12 +1947,13 @@ These 21 settings are `GlobalConfiguration` entries and support environment vari
 | SDK | `OPENTELEMETRY_EXPORTER_ENDPOINT` | protocol-dependent | OTLP Collector URL. When unset, grpc uses `http://localhost:4317`, http/protobuf uses `http://localhost:4318` with signal-specific `/v1/{signal}` paths. |
 | SDK | `OPENTELEMETRY_EXPORTER_PROTOCOL` | `grpc` | `grpc` or `http/protobuf` |
 | SDK | `OPENTELEMETRY_EXPORTER_HEADERS` | empty | comma-separated `key=value`; e.g. `Authorization=Bearer <token>` for hosted backends |
-| SDK | `OPENTELEMETRY_EXPORTER_TIMEOUT_MILLIS` | `10000` | OTLP request timeout; bounds exporter-shutdown stall |
+| SDK | `OPENTELEMETRY_EXPORTER_TIMEOUT_MILLIS` | `10000` | OTLP request timeout. Separate from processor export waits. It does not define a total SDK shutdown deadline. |
 | SDK | `OPENTELEMETRY_SERVICE_NAME` | `youtrackdb` | `service.name` resource attribute |
 | Query | `OPENTELEMETRY_QUERY_MODE_TAG_RULES` | empty | per-tag LIGHTWEIGHT/EXACT monitoring-mode rules (D15) |
 | Query | `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` | `0` | `0` disables the duration gate. Buffer retention, parent acceptance and SDK sampling still apply. Positive values reject fast successful completions (D16). |
 | Query | `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` | empty | per-tag slow-threshold overrides (D16) |
 | Query | `OPENTELEMETRY_QUERY_HEARTBEAT_SAMPLE_MILLIS` | `0` | `0` disables heartbeat claiming. Positive values permit at most one successful heartbeat claim per interval across the listener. Nested SQL remains subject to buffer and parent retention. No per-tag rules apply (D18). |
+| Query | `OPENTELEMETRY_QUERY_TEXT_MAX_LENGTH` | `4096` | Non-negative integer code-point limit per query-text attribute. `0` omits text. Sanitize before truncation and mark shortened or omitted non-empty text with `db.youtrackdb.query.text_truncated=true`. Invalid values fail configuration. Applies to YTDB values under either SDK ownership. |
 | Query | `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS` | `false` | trace-side PII knob; `true` attaches parameter values as `db.operation.parameter.<index>` (per-tag deferred to YTDB-708) |
 | Query | `OPENTELEMETRY_GREMLIN_MAX_BUFFERED_SQL_SPANS` | `128` | Non-negative integer, read at SDK initialization and fixed per traversal at first execution. `0` disables child retention. Drop the newest candidate when full, including errors. Invalid values fail configuration. See [Buffered SQL children](design-mechanics.md#buffered-sql-children) for all retention rules. |
 | Commit | `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME` | `true` | `false` drops dbName from commit-span names for high-cardinality multi-tenant hosts |
@@ -1812,6 +1965,30 @@ These 21 settings are `GlobalConfiguration` entries and support environment vari
 | Metrics | `OPENTELEMETRY_METRICS_ENABLED` | `false` | metrics-pillar master switch (D36) |
 | Metrics | `OPENTELEMETRY_METRICS_PERIOD_MILLIS` | `10000` | collection cadence; clamped to at least `1000` at SDK init |
 | Metrics | `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` | empty | empty = all six groups; opt into `queries`/`cache`/`storage`/`wal`/`locks`/`transactions` for cardinality budget (D37) |
+
+The following are existing SDK settings, not additional `GlobalConfiguration` entries. YTDB-owned
+autoconfiguration reads JVM properties or their environment-variable equivalents. System
+properties take precedence over environment variables. Do not override these with YTDB aliases.
+Host-owned SDKs read their own configuration and YouTrackDB leaves it untouched.
+
+| SDK property | Environment variable | SDK 1.66.0 default | Role |
+|---|---|---|---|
+| `otel.bsp.max.queue.size` | `OTEL_BSP_MAX_QUEUE_SIZE` | `2048` | Maximum queued spans, positive integer. |
+| `otel.bsp.max.export.batch.size` | `OTEL_BSP_MAX_EXPORT_BATCH_SIZE` | `512` | Maximum spans per batch, positive integer. |
+| `otel.bsp.schedule.delay` | `OTEL_BSP_SCHEDULE_DELAY` | `5000` ms | Span worker scheduled delay after export completion. A full batch can export earlier. |
+| `otel.bsp.export.timeout` | `OTEL_BSP_EXPORT_TIMEOUT` | `30000` ms | Span processor wait for export completion. |
+| `otel.blrp.max.queue.size` | `OTEL_BLRP_MAX_QUEUE_SIZE` | `2048` | Maximum queued log records, positive integer. |
+| `otel.blrp.max.export.batch.size` | `OTEL_BLRP_MAX_EXPORT_BATCH_SIZE` | `512` | Maximum log records per batch, positive integer. |
+| `otel.blrp.schedule.delay` | `OTEL_BLRP_SCHEDULE_DELAY` | `1000` ms | Log worker scheduled delay after export completion. A full batch can export earlier. |
+| `otel.blrp.export.timeout` | `OTEL_BLRP_EXPORT_TIMEOUT` | `30000` ms | Log processor wait for export completion. |
+
+Retain SDK validation. In 1.66.0 a batch larger than its queue is clamped to the queue size with
+a warning. Duration values accept whole numbers with optional `ns`, `us`, `ms`, `s`, `m`, `h` or
+`d` suffixes. Unitless values mean milliseconds. Negative values fail configuration. A full batch
+can export before its scheduled delay expires. The next delay starts after export completion.
+An export timeout of zero means an unbounded processor wait. Processor waits are separate from
+the OTLP request timeout configured by `OPENTELEMETRY_EXPORTER_TIMEOUT_MILLIS`. Neither defines
+a total SDK shutdown deadline. Neither queue waits for space on the query or log caller.
 
 The tracking-ID attribute `db.youtrackdb.transaction.tracking_id` has no config flag: it is gated by construction via `QueryDetails.getExplicitTrackingId().isPresent()`, so the host's explicit `withTrackingId(...)` call is the opt-in (M49).
 
@@ -1838,7 +2015,7 @@ The tracking-ID attribute `db.youtrackdb.transaction.tracking_id` has no config 
 
 ### Edge cases / Gotchas
 
-- A host that sets `OPENTELEMETRY_ENABLED=true` without wiring any OTel sees YTDB open a network connection to the configured endpoint (grpc default `http://localhost:4317`, http/protobuf default `http://localhost:4318`) on first listener fire. The flag is an explicit opt-in so this is acceptable; the auto-configure path logs one INFO line with the resolved endpoint so the operator sees what happened. Hosts that do not want this MUST keep `OPENTELEMETRY_ENABLED=false`.
+- A host that uses the default OTLP exporters and sets `OPENTELEMETRY_ENABLED=true` without wiring any OTel sees YTDB open a network connection to the configured endpoint (grpc default `http://localhost:4317`, http/protobuf default `http://localhost:4318`) on first listener fire. The flag is an explicit opt-in so this is acceptable; the auto-configure path logs one INFO line with the resolved endpoint so the operator sees what happened. Hosts that do not want this MUST keep `OPENTELEMETRY_ENABLED=false`.
 - Embedded host that calls `YouTrackDB.close()` without calling `YouTrackDBOpenTelemetry.shutdown()`: when ownership is YTDB the SDK keeps running until the JVM exits and OTel's own shutdown hook flushes pending spans. When ownership is host, the SDK was never ours to close.
 - Server with `OPENTELEMETRY_ENABLED=false` (default): the plugin's `onAfterActivate` returns immediately. Zero OTel runtime cost. The listeners never register.
 - Race on auto-configure: the facade synchronizes the resolution chain so two concurrent first-listener-fires produce exactly one SDK build.
@@ -1846,7 +2023,8 @@ The tracking-ID attribute `db.youtrackdb.transaction.tracking_id` has no config 
 
 ### References
 - D-records: D2
-- Mechanics: [SDK sampling contract](design-mechanics.md#sdk-sampling-contract)
+- Mechanics: [SDK sampling contract](design-mechanics.md#sdk-sampling-contract),
+  [`design-mechanics.md §"Telemetry limits and loss counters"`](design-mechanics.md#telemetry-limits-and-loss-counters)
 
 ## Listener registration and ordering
 

@@ -1839,3 +1839,96 @@ follow-up read. The preceding independent report supplied findings 1–19 for th
 - Deferred scope stays with Tracks 92 and 93. No Maven, push or marker commit runs here.
 
 **Iterations**: 1 of 3 (PASS on the approved fixes with baseline findings carried forward).
+
+## Mutation 85 — 2026-10-19 — structural-rewrite (design.md + design-mechanics.md)
+
+**Diff summary**: Track 92 adds the approved limits, loss counters, benchmark gate and slowdown
+estimates. Owned SDKs reuse standard bounded batch queues and their configuration properties.
+SDK 1.66.0 self-metrics supply queue-drop and failed-export counts without duplicate YTDB
+counters or wrappers. Host-owned SDK configuration stays untouched. One YTDB setting limits
+all query-text attributes to 4096 Unicode code points after sanitization. Zero omits text.
+A boolean marker reports truncation. Immutable SQL snapshots retain bounded text values.
+The existing child-buffer rules and counter stay unchanged.
+
+The six JMH scenario families have matched off baselines and explicit throughput-loss budgets.
+The gate reports performance findings in CI without blocking. It distinguishes inconclusive
+evidence from passing evidence and retains execution failures. The design names the existing
+module, comparison scripts and workflows. It defines fixture controls, statistical comparison,
+allocation and latency diagnostics, and later implementation requirements. Slowdown ranges
+are explicitly estimates, with assumptions for the late-parent and listener-first design.
+No benchmark code or workflow changes are included.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. Normalized finding
+multisets match after shifted line references are removed. No finding was added or worsened.
+`git diff --check` passes. Workflow stamps and H2 headings remain unchanged. The original
+21 configuration rows remain unchanged. The table adds one YTDB setting and separately lists
+8 existing SDK settings. Edit anchors passed uniqueness and overlap checks. No apply failed.
+
+**Cold-read** (scope: whole-doc): The author reread all changed text, both files' relevant
+surrounding contracts and the complete diff. This is a self-review. The orchestrator runs an
+independent cold-read after the commit in a separate action.
+
+**Findings**:
+- Carried forward: 37 baseline should-fix findings and 1 suggestion.
+- Self-review corrections: the vendor inventory includes the truncation marker, the script
+  description honors the text limit, and nightly alert defaults remain 10% and 5%.
+- User-accepted: the 4096-code-point text limit, one boolean marker, SDK-native queue settings
+  and self-metrics without YTDB aliases, reporting-only budgets, the 8-vCPU Linux runner with
+  at least three forks, the fixtures and the confidence rule with a 10% noise ceiling.
+  Budgets are off 1%, rejected 10%, emit-all 35% or Path B 40%, EXACT 30% or layered 45%,
+  tags 15% and logs 50%. The implementer report retains alternatives and reasons.
+- Preserved: heartbeat, tag rules, emit-all defaults, owned-SDK sampler policy, SDK sampling
+  contract, recording-only enrichment, histogram dimensions and child-buffer retention rules.
+- Deferred: attribute and span-kind corrections, EXACT timestamps, propagation follow-up and
+  PR plan synchronization remain outside Track 92. Benchmark implementation belongs to code tracks.
+- No Maven, push or marker commit runs in this action.
+
+**Iterations**: 2 of 3 (PASS on the approved delta with baseline findings carried forward).
+
+## Mutation 86 — 2026-10-19 — structural-rewrite (design.md + design-mechanics.md)
+
+**Diff summary**: Track 92 fix round 1 applies the accepted cold-read findings. SQL scripts
+sanitize their complete parsed representation. Other script languages omit query text. Missing
+representations and sanitizer failures never fall back to raw text. The query-text limit applies
+only to sanitized output. Zero retains no text. Sanitizer failure alone sets no truncation marker.
+Owned SDKs support standard exporter selection. Batch settings apply only to batch pipelines.
+Host pipelines stay untouched. The text names the default LEGACY self-metric schema, its wiring
+and its processor-wide and exporter-wide scope. Request timeout defines no total shutdown deadline.
+Duration syntax and scheduled-delay behavior are explicit.
+
+The benchmark design requires complete result identities, validated errors, telemetry report
+rendering, nightly suite discovery and matching persistence keys. Off fixtures must exist in both
+revisions or use one trusted compatible harness. Missing fixtures give inconclusive evidence.
+Versioned fixture metadata records reproducible workloads. Tag fixtures configure matched rules
+and unmatched fallbacks equally. Every enabled signal uses a non-network counting/discard exporter
+in the primary comparison. Counter updates stay measured and reconciliation runs outside it.
+The runner text distinguishes the requested comparison profile from nightly bare metal.
+Nightly alerts must exclude the current run and use preceding completed runs only. The current
+push-before-alert order exposes a self-comparison defect in the script. Later benchmark code work
+owns that correction. The confidence rule reports a point-estimate breach with detectable
+difference from off. It does not prove a confidence-level budget breach.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. No new finding remains.
+The SQL section keeps its baseline length. Workflow stamps and H2 names remain unchanged.
+`git diff --check` passes. Edit anchors pass uniqueness and overlap preflight. One ambiguous
+preflight anchor was corrected before apply. No edit apply failed.
+
+**Cold-read** (scope: whole-doc): The independent cold-read supplied findings 1–18. The author
+reread every changed passage and surrounding contracts for this fix round. This is a self-review.
+The orchestrator owns any independent follow-up read after this commit.
+
+**Findings**:
+- Fixed: 1–18 and all section-3 term definitions, including relative score error.
+- User-accepted: all seven Track 92 choices recorded in Mutation 85. No choice awaits confirmation.
+- User-accepted additions: complete parsed SQL-script sanitization, no query text for other script
+  languages, standard owned-SDK exporter selection and preceding-completed-run alert history.
+- Estimates stay unchanged. Repeated tags retain 2–12%. Distinct tags are separately unestimated.
+- Preserved: tag rules, heartbeat, emit-all defaults, Track 89–91 choices, the Track 90 sampling
+  contract, owned-SDK sampler policy, histogram dimensions, span kinds and EXACT timestamps.
+- Deferred: benchmark code and workflow changes, attribute and span-kind corrections, EXACT
+  timestamps, network propagation and PR plan synchronization remain outside this fix round.
+- Carried forward: 37 baseline should-fix findings and 1 suggestion. No Maven or push runs here.
+
+**Iterations**: 1 of 3 (PASS on the approved fixes with baseline findings carried forward).
