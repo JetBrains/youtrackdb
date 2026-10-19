@@ -51,6 +51,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -194,6 +195,42 @@ public class DiskStorageChangedPageCheckpointTest {
   @Test
   public void dirtyOpenLoadsTrustedHistoryAndEndsReplayPreservation() throws Exception {
     assertTrustedReopen(true);
+  }
+
+  /** Committed redo creates an absent file without clearing loaded active or sealed candidates. */
+  @Test
+  public void committedReplayPreservesLoadedCandidatesThroughFileCreation() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID(), true);
+    var originalReadCache = created.getReadCache();
+    var observed = mock(ReadCache.class, delegatesTo(originalReadCache));
+    var replayed = new AtomicInteger();
+    doAnswer(call -> {
+      var cache = (WOWCache) call.getArgument(2);
+      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+      assertTrue(selected.isTrusted());
+      assertFalse(cache.exists("committed.bin"));
+      assertEquals(List.of(0L, 7L, 9L), candidates(selected, 123456));
+      var result = originalReadCache.addFile(call.getArgument(0), call.getArgument(1), cache);
+      assertTrue(cache.exists("committed.bin"));
+      assertEquals("Real redo must preserve loaded candidates when it creates the absent file",
+          List.of(0L, 7L, 9L), candidates(selected, 123456));
+      replayed.incrementAndGet();
+      return result;
+    }).when(observed).addFile(eq("committed.bin"), anyLong(), any());
+    setField(created, "readCache", observed);
+    created.open(new ContextConfiguration());
+    assertEquals("The completed unit must reach real file-creation redo", 1, replayed.get());
+    var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+    assertTrue(selected.isTrusted());
+    assertEquals(List.of(0L, 7L, 9L), candidates(selected, 123456));
+    assertEquals("The incomplete unit remains proof evidence without being replayed",
+        List.of(31L, 33L), candidates(selected, 123457));
+    var cache = (WOWCache) created.getWriteCache();
+    assertFalse(cache.exists("incomplete.bin"));
+    assertEquals(1L, cache.getFilledUpTo(cache.externalFileId(123456)));
+    assertFalse((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
   }
 
   private void assertTrustedReopen(boolean dirty) throws Exception {
@@ -388,6 +425,7 @@ public class DiskStorageChangedPageCheckpointTest {
     seedTrustedHistory(created, true, UUID.randomUUID());
     var originalReadCache = created.getReadCache();
     var primary = new Error("delete before skip set returns");
+    var previousSkipSet = field(AbstractStorage.class, created, "deletedNonDurableFileIds");
     var seen = new boolean[1];
     var observed = mock(ReadCache.class, delegatesTo(originalReadCache));
     doAnswer(call -> {
@@ -424,6 +462,8 @@ public class DiskStorageChangedPageCheckpointTest {
     assertTrue(seen[0]);
     assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
         "startupReplayPreservation"));
+    assertNotSame("Replay cleanup releases the skip set even when deletion fails",
+        previousSkipSet, field(AbstractStorage.class, created, "deletedNonDurableFileIds"));
     assertTrue(((it.unimi.dsi.fastutil.ints.IntOpenHashSet) field(AbstractStorage.class, created,
         "deletedNonDurableFileIds")).isEmpty());
   }
@@ -847,6 +887,11 @@ public class DiskStorageChangedPageCheckpointTest {
 
   private void seedTrustedHistory(DiskStorage created, boolean dirty, UUID completed)
       throws Exception {
+    seedTrustedHistory(created, dirty, completed, false);
+  }
+
+  private void seedTrustedHistory(DiskStorage created, boolean dirty, UUID completed,
+      boolean committedReplay) throws Exception {
     var actual = created.getWALInstance();
     var coverage = actual.log(new AtomicUnitStartRecord(true, 123));
     var external = created.getWriteCache().externalFileId(123457);
@@ -854,6 +899,13 @@ public class DiskStorageChangedPageCheckpointTest {
     actual.log(new FileCreatedWALRecord(123, "incomplete.bin", external));
     actual.log(new UpdatePageRecord(33, external, 123, new WALPageChangesPortion(), coverage));
     // Deliberately omit the unit end. Proof must retain pages that redo will not apply.
+    if (committedReplay) {
+      var start = actual.log(new AtomicUnitStartRecord(true, 124));
+      var committedFile = created.getWriteCache().externalFileId(123456);
+      actual.log(new FileCreatedWALRecord(124, "committed.bin", committedFile));
+      actual.log(new UpdatePageRecord(0, committedFile, 124, new WALPageChangesPortion(), start));
+      actual.log(new AtomicUnitEndRecord(124, false, null));
+    }
     actual.flush();
     actual.addCutTillLimit(coverage);
     var metadata = (StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata");

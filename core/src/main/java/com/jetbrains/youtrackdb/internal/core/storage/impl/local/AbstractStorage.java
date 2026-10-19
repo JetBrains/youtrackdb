@@ -8291,7 +8291,7 @@ public abstract class AbstractStorage
           replayFailure = primary;
           throw primary;
         } finally {
-          deletedNonDurableFileIds.clear();
+          deletedNonDurableFileIds = new IntOpenHashSet();
           try {
             endStartupReplay();
           } catch (Throwable secondary) {
