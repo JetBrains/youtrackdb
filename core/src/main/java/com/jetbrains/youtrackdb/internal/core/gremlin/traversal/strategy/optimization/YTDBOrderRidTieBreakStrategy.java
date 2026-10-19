@@ -15,6 +15,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
+import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.DedupGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.FilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
@@ -55,6 +56,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.UnfoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep.EndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
@@ -395,7 +397,8 @@ public final class YTDBOrderRidTieBreakStrategy
       if (emitsNonElement(current)) {
         return StreamKind.OTHER;
       }
-      if (current instanceof MapStep || current instanceof FlatMapStep) {
+      if (current instanceof UnionStep || current instanceof MapStep
+          || current instanceof FlatMapStep) {
         return childrenEmitElements(current) ? StreamKind.ELEMENT : StreamKind.OTHER;
       }
       return StreamKind.OTHER;
@@ -404,15 +407,18 @@ public final class YTDBOrderRidTieBreakStrategy
   }
 
   /**
-   * A map or flat-map step re-emits elements only when <em>every</em> branch does. Reading the first
-   * branch alone called {@code coalesce(out(), constant(x))} an element stream, and the constant then
-   * met a modulator that only accepts elements.
+   * A union, map or flat-map step re-emits elements only when <em>every</em> branch does.
+   * Mixed outputs such as {@code coalesce(out(), constant(x))} keep the identity tie-break,
+   * because the numeric record identifier modulator accepts only elements.
    */
   private static boolean childrenEmitElements(Step<?, ?> step) {
     if (!(step instanceof TraversalParent parent)) {
       return false;
     }
-    var children = parent.getLocalChildren();
+    // Union arms are global children. Every arm must prove an element output before the union
+    // can use the same numeric identifier comparison as a single element stream.
+    var children = step instanceof UnionStep
+        ? parent.getGlobalChildren() : parent.getLocalChildren();
     if (children.isEmpty()) {
       return false;
     }
@@ -425,14 +431,28 @@ public final class YTDBOrderRidTieBreakStrategy
   }
 
   /**
-   * What one branch of a map / flat-map step emits. A branch that is only filters, only identity, or
-   * a bare lambda re-emits its parent's input, so the parent's input decides — reading the branch's
-   * last step class alone called {@code map(filter(...))} over a map stream an element stream.
+   * What one branch of a union / map / flat-map step emits. A branch that is only filters,
+   * only identity, or a bare lambda re-emits its parent's input, so the parent's input decides.
+   * In particular, {@code map(filter(...))} over a map stream remains a map stream.
    */
   private static StreamKind classifyChild(Admin<?, ?> child, Step<?, ?> parentInput) {
     var end = child.getEndStep();
+    // BranchStep adds this execution sentinel to global children. It does not change their output.
+    if (end instanceof EndStep) {
+      end = end.getPreviousStep();
+    }
     if (upstreamSource(end) instanceof EmptyStep) {
-      return classifyFrom(parentInput);
+      // An identity arm in a nested union may start at its outer branch boundary. Follow parent
+      // inputs until a producing step is available, just as for an identity arm in the root union.
+      var input = parentInput;
+      var scope = child;
+      while (upstreamSource(input) instanceof EmptyStep
+          && scope.getParent().asStep() instanceof UnionStep) {
+        var parent = scope.getParent().asStep();
+        input = parent.getPreviousStep();
+        scope = parent.getTraversal();
+      }
+      return classifyFrom(input);
     }
     return classifyFrom(end);
   }

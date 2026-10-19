@@ -4,13 +4,15 @@ import com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.ByModulatorTranslator;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
-import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
@@ -101,6 +103,10 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
+    if (ctx.hasUnionCarrier() && hasDeclaredUnionCollation(orderStep, ctx, boundary)) {
+      return Outcome.DECLINE;
+    }
+
     var items = new ArrayList<SQLOrderByItem>(comparators.size());
     for (var pair : comparators) {
       var direction = ByModulatorTranslator.parseSortDirection(pair.getValue1());
@@ -126,12 +132,17 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     // Contribution — reached only after every comparator resolved, so a declining modulator leaves
     // the context unmutated.
     if (ctx.hasUnionCarrier()) {
+      if (!orderKeysOnlyBoundary(boundary, items)
+          && ctx.postConcatOps().stream().anyMatch(PostConcatOp.Dedup.class::isInstance)) {
+        return Outcome.DECLINE;
+      }
       // Sealed child plans cannot take a pattern IS DEFINED from this parent walk. Under standard
       // order semantics emit the same drop as a post-concat stream filter before the in-memory sort.
       if (!ctx.emitGroupEntries()) {
         appendPostConcatPresenceDrops(ctx, boundary, orderStep);
       }
-      ctx.appendPostConcatOp(new PostConcatOp.Order(List.copyOf(items)));
+      ctx.appendPostConcatOp(new PostConcatOp.Order(items,
+          ctx.unionOrderHasNumericRidKey(orderStep), orderKeysOnlyBoundary(boundary, items)));
       return Outcome.ACCEPTED;
     }
     if (!ctx.emitGroupEntries()) {
@@ -153,6 +164,40 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     return Outcome.ACCEPTED;
   }
 
+  /** A plain T.id or identity slot is not the numeric RID key, even if it maps to SQL @rid. */
+  static boolean hasNumericRidKey(OrderGlobalStep<?, ?> step) {
+    return step.getComparators().stream()
+        .anyMatch(pair -> pair.getValue0() instanceof RecordIdSortKeyTraversal);
+  }
+
+  /**
+   * The post-concat sort does not resolve declared collations. Leave collated union sorts to the
+   * native strategy, using its whole vertex and edge hierarchy rather than a branch's class.
+   */
+  private static boolean hasDeclaredUnionCollation(
+      OrderGlobalStep<?, ?> step, RecognitionContext ctx, String boundary) {
+    var session = YTDBStrategyUtil.resolveYtdbSession(
+        YTDBStrategyUtil.rootTraversal(step.getTraversal()));
+    if (session == null) {
+      return false;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return false;
+    }
+    var classes = YTDBOrderCollationStrategy.graphClasses(schema);
+    for (var pair : step.getComparators()) {
+      var target = ByModulatorTranslator.orderModulatorPresenceTarget(
+          boundary, pair.getValue0(), ctx::resolveUserLabel);
+      if (target.isPresent()
+          && OrderByCollationResolver.declaredCollation(classes, target.get().propertyKey())
+              != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * {@code Column.values} / {@code Column.keys} over Map.Entry payloads after
    * {@code groupCount().unfold()}.
@@ -166,7 +211,7 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
   /**
    * Whether every sort item keys {@code boundary} (no foreign-alias comparator). Equal-key ties are
    * left to MATCH — same as YQL {@code ORDER BY} + {@code LIMIT}. A comparator that sorts another
-   * alias zeroes the flag so a following slice declines.
+   * alias prevents dedup from moving ahead of the sort.
    */
   private static boolean orderKeysOnlyBoundary(String boundary, ArrayList<SQLOrderByItem> items) {
     if (items.isEmpty()) {

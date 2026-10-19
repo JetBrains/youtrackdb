@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Pop;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ColumnTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.TokenTraversal;
@@ -106,7 +107,8 @@ public final class ByModulatorTranslator {
 
   /**
    * Resolves {@code order().by(select('label').by(key))} when the select names one bound label with
-   * one key modulator. After {@code applyStrategies()} TinkerPop often folds the inner {@code
+   * one key modulator and the default {@link Pop#last} binding. After {@code applyStrategies()}
+   * TinkerPop often folds the inner {@code
    * select} to {@link SelectOneStep} rather than {@link SelectStep}; both shapes are accepted.
    */
   public static Optional<SelectModulatorTarget> selectModulatorTarget(
@@ -119,10 +121,10 @@ public final class ByModulatorTranslator {
       return Optional.empty();
     }
     return switch (steps.getFirst()) {
-      case SelectStep<?, ?> select ->
+      case SelectStep<?, ?> select when select.getPop() == Pop.last ->
           resolveSelectModulatorTarget(select.getSelectKeys(), select.getLocalChildren(),
               labelResolver);
-      case SelectOneStep<?, ?> selectOne ->
+      case SelectOneStep<?, ?> selectOne when selectOne.getPop() == Pop.last ->
           resolveSelectModulatorTarget(
               List.copyOf(selectOne.getScopeKeys()), selectOne.getLocalChildren(), labelResolver);
       default -> Optional.empty();

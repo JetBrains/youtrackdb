@@ -749,20 +749,59 @@ public class YTDBOrderRidTieBreakStrategyTest extends GraphBaseTest {
     assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
   }
 
-  /**
-   * Steps outside the element / non-element catalogues fall through to OTHER — identity tie-break
-   * (covers the final {@code classifyFrom} fallback).
-   */
+  /** Identity and filter-only union arms retain the element input and mirror the last direction. */
   @Test
-  public void apply_appendsIdentityAfterUnionOrder() {
+  public void apply_appendsRecordIdKeyAfterElementUnionOrder() {
     var admin = graph.traversal().V()
-        .union(__.identity())
-        .order()
-        .by("name")
-        .asAdmin();
+        .union(__.identity(), __.has("name"), __.out().has("name"))
+        .order().by("name", Order.desc).asAdmin();
     YTDBOrderRidTieBreakStrategy.instance().apply(admin);
-    assertThat(comparators(orderStep(admin)).get(1).getValue0())
-        .isInstanceOf(IdentityTraversal.class);
+    var slots = comparators(orderStep(admin));
+    assertThat(slots).hasSize(2);
+    assertRecordIdKey(slots.get(1).getValue0());
+    assertThat(slots.get(1).getValue1()).isEqualTo(Order.desc);
+  }
+
+  /** Every explicit identifier and identity slot of an element union uses numeric RID comparison. */
+  @Test
+  public void apply_replacesIdentifierSlotsAfterElementUnion() {
+    var admin = graph.traversal().V().union(__.outE(), __.inE())
+        .order().by(T.id, Order.desc).by(Order.asc).by("name").asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    var slots = comparators(orderStep(admin));
+    assertThat(slots).hasSize(3);
+    assertRecordIdKey(slots.get(0).getValue0());
+    assertThat(slots.get(0).getValue1()).isEqualTo(Order.desc);
+    assertRecordIdKey(slots.get(1).getValue0());
+    assertThat(slots.get(1).getValue1()).isEqualTo(Order.asc);
+    assertThat(slots.get(2).getValue0()).isInstanceOf(ValueTraversal.class);
+  }
+
+  /** A nested element union also proves its output through every global child and its EndStep. */
+  @Test
+  public void apply_nestedElementUnionGetsRecordIdKey() {
+    var admin = graph.traversal().V().union(__.union(__.out(), __.identity()), __.in())
+        .order().by("name").asAdmin();
+    YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+    assertRecordIdKey(comparators(orderStep(admin)).get(1).getValue0());
+  }
+
+  /** Mixed and non-element unions retain identity ascending, even after a descending written key. */
+  @Test
+  public void apply_nonElementUnionsKeepAscendingIdentity() {
+    var traversals = List.of(
+        graph.traversal().V().union(arm(__.out()), arm(__.constant("none")))
+            .order().by(__.constant(1), Order.desc).asAdmin(),
+        graph.traversal().V().values("name").union(__.identity(), __.filter(__.is("a")))
+            .order().by(__.constant(1), Order.desc).asAdmin(),
+        graph.traversal().V().union().order().by("name", Order.desc).asAdmin());
+    for (var admin : traversals) {
+      YTDBOrderRidTieBreakStrategy.instance().apply(admin);
+      var slots = comparators(orderStep(admin));
+      assertThat(slots).hasSize(2);
+      assertThat(slots.get(1).getValue0()).isInstanceOf(IdentityTraversal.class);
+      assertThat(slots.get(1).getValue1()).isEqualTo(Order.asc);
+    }
   }
 
   /** Three people, marko knowing both of the others, so {@code out()} yields two vertices. */

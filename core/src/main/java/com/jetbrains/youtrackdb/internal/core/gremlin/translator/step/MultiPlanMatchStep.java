@@ -301,11 +301,8 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
             // No-op: plans are released by closePlan().
           }
         };
-    ExecutionStream stream = new MultipleExecutionStream(producer);
-    for (PostConcatOp op : postConcatOps) {
-      stream = applyPostConcatOp(stream, op);
-    }
-    return stream;
+    return PostConcatStreams.apply(
+        new MultipleExecutionStream(producer), postConcatOps, getBoundaryAlias());
   }
 
   /**
@@ -400,26 +397,6 @@ public final class MultiPlanMatchStep<S, E extends Element> extends AbstractMatc
         "union child count row carries no column other than the boundary alias '"
             + boundaryAlias
             + "'; the child plan was not rewritten to RETURN count(*)");
-  }
-
-  private ExecutionStream applyPostConcatOp(ExecutionStream stream, PostConcatOp op) {
-    return switch (op) {
-      case PostConcatOp.Count ignored -> PostConcatStreams.count(stream);
-      case PostConcatOp.Range range -> {
-        ExecutionStream s = stream;
-        if (range.skip() > 0) {
-          s = PostConcatStreams.skip(s, range.skip());
-        }
-        if (range.limit() >= 0) {
-          s = s.limit(range.limit());
-        }
-        yield s;
-      }
-      case PostConcatOp.Dedup ignored -> PostConcatStreams.dedup(stream, getBoundaryAlias());
-      case PostConcatOp.RequireDefined requireDefined -> PostConcatStreams.requireDefined(
-          stream, requireDefined.entityColumnAlias(), requireDefined.propertyKey());
-      case PostConcatOp.Order order -> PostConcatStreams.sort(stream, order.items());
-    };
   }
 
   /**

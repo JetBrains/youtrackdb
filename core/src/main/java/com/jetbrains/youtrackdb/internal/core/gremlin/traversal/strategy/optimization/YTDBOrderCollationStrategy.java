@@ -340,9 +340,10 @@ public final class YTDBOrderCollationStrategy
 
   /**
    * The vertex and edge hierarchies together — the answer for a stream whose class no step proves. A
-   * graph without them yields an empty list, and then nothing is replaced.
+   * graph without them yields an empty list, and then nothing is replaced. The translator uses
+   * this same set to decline union sorts whose keys carry a non-default collation.
    */
-  private static List<SchemaClass> graphClasses(Schema schema) {
+  public static List<SchemaClass> graphClasses(Schema schema) {
     List<SchemaClass> classes = new ArrayList<>();
     addHierarchy(schema, SchemaClass.VERTEX_CLASS_NAME, classes);
     addHierarchy(schema, SchemaClass.EDGE_CLASS_NAME, classes);

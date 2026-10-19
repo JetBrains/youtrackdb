@@ -29,9 +29,8 @@ public sealed interface PostConcatOp
    * {@code skip}/{@code limit}/{@code range} over the concatenation. {@code limit < 0} means
    * unbounded high (skip-only). Early-stops the concatenator so unopened children never start.
    *
-   * <p>Only built when a {@code count()} follows the slice immediately: the concatenation's row
-   * order is not native's, so a slice whose rows reach the caller would return a different multiset
-   * than the untranslated traversal. The recogniser's class Javadoc carries the argument.
+   * <p>Requires either an immediate {@code count()} or a captured total element order. Without
+   * either, native's interleaving and the branch-major concatenation can select different rows.
    */
   record Range(long skip, long limit) implements PostConcatOp {
     public Range {
@@ -65,9 +64,19 @@ public sealed interface PostConcatOp
 
   /**
    * {@code order().by(...)} over the concatenation — an in-memory sort because child plans cannot
-   * share one SQL {@code ORDER BY} across a branch-major concatenation.
+   * share one SQL {@code ORDER BY} across a branch-major concatenation. The numeric RID proof
+   * comes from the Gremlin modulator, not from SQL items: plain {@code T.id} and identity also map
+   * to {@code @rid} but do not promise native numeric ordering. Boundary-only keys let dedup move
+   * ahead of a bounded sort without changing which representative supplies the sort keys.
    */
-  record Order(@Nonnull List<SQLOrderByItem> items) implements PostConcatOp {
+  record Order(@Nonnull List<SQLOrderByItem> items, boolean hasNumericRidKey,
+      boolean keysOnlyBoundary) implements PostConcatOp {
+
+    /** Hand-built sorts carry no proof about the original Gremlin modulators. */
+    public Order(List<SQLOrderByItem> items) {
+      this(items, false, false);
+    }
+
     public Order {
       items = List.copyOf(items);
       if (items.isEmpty()) {

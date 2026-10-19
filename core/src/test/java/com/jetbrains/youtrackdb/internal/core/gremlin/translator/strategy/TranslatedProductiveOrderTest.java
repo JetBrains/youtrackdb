@@ -8,15 +8,25 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.util.GremlinValueComparator;
 import org.junit.Test;
 
 /**
@@ -221,6 +231,130 @@ public class TranslatedProductiveOrderTest extends GraphBaseTest {
         .V().hasLabel("Person").order().by("age").values("name")))
         .isInstanceOf(ContradictoryOrderSemanticsException.class)
         .hasMessageContaining("withoutStrategies(StandardOrderSemanticsStrategy.class)");
+  }
+
+  /** Loaded vertices precede loaded edges in full and bounded single-plan and union sorts. */
+  @Test
+  public void loadedGraphLinksMatchNativeTypeOrder() {
+    var rows = seedLinkSortRows();
+    var edge = graph.traversal().E().hasLabel("sortLink").next();
+    rows.get(0).property("key", rows.get(0));
+    rows.get(1).property("key", edge);
+    assertThat(rawKey(rows.get(0))).isInstanceOf(Entity.class);
+    assertThat(rawKey(rows.get(1))).isInstanceOf(Entity.class);
+    assertLinkSortOrders("one", "two");
+  }
+
+  /** Lazy reads expose bare RIDs. Both vertex/edge priority and vertex/list priority must match. */
+  @Test
+  public void unloadedGraphLinksMatchNativeTypeOrder() {
+    var rows = seedLinkSortRows();
+    var edge = graph.traversal().E().hasLabel("sortLink").next();
+    rows.get(0).property("key", rows.get(0));
+    rows.get(1).property("key", edge);
+    graph.tx().commit();
+    graph.tx().readWrite();
+    for (var row : rows) {
+      ((EntityImpl) ((YTDBElementImpl) row).getRawEntity()).setLazyLoad(false);
+      assertThat(rawKey(row)).isInstanceOf(RecordId.class);
+    }
+    assertLinkSortOrders("one", "two");
+    rows.get(1).property("key", List.of(1));
+    assertThat(rawKey(rows.get(0))).isInstanceOf(RID.class);
+    assertLinkSortOrders("one", "two");
+  }
+
+  /** Native identifier order keeps pending ChangeableRecordId separate from committed RecordId. */
+  @Test
+  public void pendingAndCommittedLinkIdentitiesMatchNative() {
+    var rows = seedLinkSortRows();
+    var committed = rows.get(0);
+    graphSession().createVertexClass("PendingLinkTarget");
+    var pending = graph.addVertex(T.label, "PendingLinkTarget");
+    assertThat(pending.id()).isInstanceOf(ChangeableRecordId.class);
+    var committedId = ((YTDBElementImpl) committed).getRawEntity().getIdentity();
+    assertThat(committedId).isInstanceOf(RecordId.class);
+    assertThat(GremlinValueComparator.ORDERABILITY.compare(pending.id(), committedId))
+        .isNegative();
+    rows.get(0).property("key", committed);
+    rows.get(1).property("key", pending);
+    assertLinkSortOrders("two", "one");
+  }
+
+  /** Link lists and embedded documents keep native comparison in single-plan and union sorts. */
+  @Test
+  public void listsAndEmbeddedValuesKeepNativeOrder() {
+    var rows = seedLinkSortRows();
+    rows.get(0).property("key", List.of(rows.get(0).id()));
+    rows.get(1).property("key", List.of(rows.get(1).id()));
+    var listComparison = GremlinValueComparator.ORDERABILITY.compare(
+        List.of(rows.get(0).id()), List.of(rows.get(1).id()));
+    assertThat(listComparison).isNotZero();
+    assertLinkSortOrders(listComparison < 0 ? "one" : "two",
+        listComparison < 0 ? "two" : "one");
+    var first = graphSession().newEmbeddedEntity();
+    first.setProperty("x", 1);
+    var second = graphSession().newEmbeddedEntity();
+    second.setProperty("x", 2);
+    ((YTDBElementImpl) rows.get(0)).getRawEntity().setProperty("key", first);
+    ((YTDBElementImpl) rows.get(1)).getRawEntity().setProperty("key", second);
+    var comparison = GremlinValueComparator.ORDERABILITY.compare(
+        rows.get(0).property("key").value(), rows.get(1).property("key").value());
+    assertThat(comparison).isNotZero();
+    assertLinkSortOrders(comparison < 0 ? "one" : "two", comparison < 0 ? "two" : "one");
+  }
+
+  private List<Vertex> seedLinkSortRows() {
+    var source = graph.addVertex(T.label, "LinkSortSource");
+    var one = graph.addVertex(T.label, "LinkSortRow", "name", "one");
+    var two = graph.addVertex(T.label, "LinkSortRow", "name", "two");
+    source.addEdge("sortLink", one);
+    source.addEdge("sortLink", two);
+    graph.tx().commit();
+    // Reload committed rows so their link identities are RecordId, not retained mutable wrappers.
+    return List.of(
+        graph.traversal().V().hasLabel("LinkSortRow").has("name", "one").next(),
+        graph.traversal().V().hasLabel("LinkSortRow").has("name", "two").next());
+  }
+
+  private Object rawKey(Vertex row) {
+    return ((YTDBElementImpl) row).getRawEntity().getProperty("key");
+  }
+
+  /** Pins exact rows as well as on/off parity and the single-plan versus multi-plan boundary. */
+  private void assertLinkSortOrders(String first, String second) {
+    for (var order : List.of(Order.asc, Order.desc)) {
+      var expected = order == Order.asc ? List.of(first, second) : List.of(second, first);
+      for (var union : List.of(false, true)) {
+        for (var bounded : List.of(false, true)) {
+          Supplier<GraphTraversal<?, ?>> shape = () -> {
+            GraphTraversal<?, Vertex> traversal = union
+                ? graph.traversal().V().hasLabel("LinkSortSource")
+                    .union(__.out("sortLink"), __.out("sortLink"))
+                : graph.traversal().V().hasLabel("LinkSortRow");
+            traversal = traversal.order().by("key", order);
+            if (bounded) {
+              traversal = traversal.limit(union ? 2 : 1);
+            }
+            return traversal;
+          };
+          var all = union
+              ? List.of(expected.get(0), expected.get(0), expected.get(1), expected.get(1))
+              : expected;
+          var wanted = bounded ? all.subList(0, union ? 2 : 1) : all;
+          new TranslatorEquivalenceSupport(this::graphSession).assertEquivalent(
+              "link order: " + order + ", union=" + union + ", bounded=" + bounded,
+              union ? TranslatorEquivalenceSupport.Recognition.RECOGNIZED_MULTI_PLAN
+                  : TranslatorEquivalenceSupport.Recognition.RECOGNIZED,
+              TranslatorEquivalenceSupport.Cardinality.NON_EMPTY,
+              rows -> {
+                var names = rows.stream().map(row -> ((Vertex) row).<String>value("name")).toList();
+                assertThat(names).isEqualTo(wanted);
+                return names;
+              }, shape);
+        }
+      }
+    }
   }
 
   // --- helpers ----------------------------------------------------------------------------------
