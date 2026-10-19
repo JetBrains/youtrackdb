@@ -1,11 +1,12 @@
 <!-- workflow-sha: 5db61a37462f0b28965113f39a81b6fcb1ed1340 -->
 # YTDB-496 OpenTelemetry support — Mechanics
 
-Implementation detail for the six sections listed below. Each section gathers the full pseudo-implementation, mapping tables, and edge cases an implementer needs. The text stands on its own; concepts named here either define themselves locally or appear under the same name in the companion polished view.
+Implementation detail for the sections listed below. Each section gathers the full pseudo-implementation, mapping tables, and edge cases an implementer needs. The text stands on its own; concepts named here either define themselves locally or appear under the same name in the companion polished view.
 
 YTDB means YouTrackDB. SDK means OpenTelemetry software development kit. TX means transaction.
 Sem-conv means OpenTelemetry semantic conventions. D-numbers such as
 D34 identify design decisions. Section References footers summarize them.
+SLF4J means Simple Logging Facade for Java. OTLP means OpenTelemetry Protocol.
 
 A completion is accepted when it passes its own query gates. It then becomes a candidate for
 retention. Admission means storing that candidate in the traversal buffer. Neither acceptance
@@ -243,8 +244,9 @@ The snapshot retains no result set, execution plan, transaction or lazy `QueryDe
 The `YouTrackDBOpenTelemetry` facade reads it at SDK initialization. Each traversal takes that limit when its state is
 created. A full buffer drops the newest candidate. It never blocks for space, spills to disk or
 evicts an earlier candidate. `0` disables child retention without disabling the Gremlin span or
-SQL histograms. Invalid values fail SDK configuration. This limit bounds entry count. Payload
-byte limits belong to the query-text and queue limits, which are separate settings.
+SQL histograms. Invalid values fail SDK configuration. This limit bounds entry count.
+The separate query-text limit bounds each retained text value. Neither the buffer count nor
+SDK queue capacities bound total payload bytes.
 
 The buffer serializes offer and seal through a short synchronized critical section. Snapshot
 creation, span building and exporter calls run outside it. Traversal close seals and detaches the
@@ -713,11 +715,254 @@ Operators wanting metrics on storage health but not query throughput configure `
 - D-records: D36 (OTelMetricsBridge surfaces `Profiler.getMetricsRegistry()` via OTel async instruments at a configurable period, with a scheduled task re-reading YTDB-side `TimeRate`/`Ratio` rates, flushed internally by `Meter`, independently of the OTel reader), D37 (group-based opt-in via `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` with six-group taxonomy `queries`/`cache`/`storage`/`wal`/`locks`/`transactions`)
 - Invariants: Listener exception isolation (exceptions in observable callbacks are caught and reported via OTel's own error handler, never propagating to the profiler), Counter source untouched (the bridge reads; the profiler keeps writing on its own threads independent of OTel state)
 
+## Telemetry limits and loss counters
+
+The facade preserves SDK ownership. YTDB-owned SDKs support standard exporter-selection
+settings such as `otel.traces.exporter`, `otel.logs.exporter` and `otel.metrics.exporter`, with
+their environment equivalents. The default OTLP pipeline uses autoconfiguration's batch span
+and log processors. Standard `otel.bsp.*` and `otel.blrp.*` properties apply only to exporters
+that use these batch processors. Console/logging exporters can use simple processors instead.
+Host-owned pipelines stay untouched. YTDB log and metric switches keep their existing scope.
+
+Both batch queues default to 2048 records, both batches to 512 records. The span worker delay
+is 5000 ms and the log worker delay is 1000 ms. Each processor's export wait timeout defaults
+to 30000 ms. The `max.queue.size` and `max.export.batch.size` suffixes accept positive integers.
+The `schedule.delay` and `export.timeout` suffixes accept whole numbers with optional `ns`, `us`,
+`ms`, `s`, `m`, `h` or `d` suffixes. Unitless values mean milliseconds. Negative values fail
+configuration. A full batch can export before the scheduled delay expires. The next delay starts
+after export completion. An export timeout of zero means an unbounded processor wait.
+Environment names use uppercase with dots replaced by underscores. System properties take
+precedence. Preserve SDK validation, including clamping a batch larger than its queue with a
+warning.
+
+The SDK rejects an offer when its queue is full. It does not wait for capacity or spill to disk.
+This is not a lock-free guarantee. The 1.66.0 span queue uses JCTools, a concurrent-queue library.
+The log queue uses `ArrayBlockingQueue`. Do not replace either queue. Each worker can hold a
+separate batch while records enter its queue. Encoding and transport retries add state outside those bounds. SDK
+queue capacities and the per-traversal SQL limit bound counts, not total heap usage.
+With no drain, 2048 slots hold about 205 ms of arrivals at 10,000 records per second, or 20 ms
+at 100,000. These are capacity calculations, not measured stall tolerances.
+
+YTDB adds only `OPENTELEMETRY_QUERY_TEXT_MAX_LENGTH` for query text. The facade validates a
+non-negative integer and captures it per OTel listener installation. The default is 4096
+Unicode code points per value. `0` omits query-text attributes. Apply it to every YTDB-produced
+query-text attribute, including `db.query.text`, scripts, dominant-statement text and the three
+possible `db.youtrackdb.gremlin.embedded_sql.N` values. Tags and classified summaries are
+identifiers rather than source text and keep their contracts. Parameters remain a separate opt-in.
+
+Sanitize the complete input through its source-specific sanitizer before taking a prefix.
+SQL scripts use a separate branch that sanitizes their complete parsed script representation.
+Scripts in other languages carry no query text. A null statement, missing script representation
+or sanitizer failure never falls back to raw script text. Never truncate raw SQL before parsing.
+Apply the query-text limit only to successfully sanitized output.
+For a positive limit, find the prefix end by code points and copy only that prefix. Do not split
+a UTF-16 surrogate pair and do not append an ellipsis. A value exactly at the limit is unchanged.
+At limit zero, resolve sanitized text only to determine whether a non-empty value was omitted.
+Attach and retain no text. Set one boolean `db.youtrackdb.query.text_truncated=true` if any
+non-empty sanitized value was shortened or omitted. Otherwise omit the marker. Sanitizer failure
+is not truncation and does not by itself set the marker. The marker describes YTDB's own action,
+independent of further SDK or collector truncation.
+
+Direct SQL and Gremlin run this work only after `isRecording()`. Accepted nested SQL must apply
+it while copying its immutable snapshot before buffer admission. Store the bounded strings and
+one marker flag without retaining the full sanitized strings or lazy accessors. At drain,
+attach those values only if the child records. The snapshot exception and recording-only
+attribute contract remain intact. Custom listeners retain access to their usual query details.
+A host-owned SDK receives the same bounded YTDB values without changing its global span limits.
+The existing nested-SQL buffer size, synchronization, parent retention and drop accounting stay
+unchanged. Sanitization may still allocate a complete rendering transiently. This design makes
+no byte-budget claim for that work, parameters, log bodies, exceptions or other attributes.
+
+Use SDK self-metrics rather than a second accounting path. SDK 1.66.0 uses the `LEGACY` internal
+telemetry schema by default. Its legacy self-metrics need no separate experimental enable flag
+when autoconfiguration supplies an exporting meter provider.
+`otel.experimental.sdk.telemetry.version=latest` selects different names and labels.
+The default schema supplies these monotonic counters. Units count records, not failed requests.
+
+| Loss | Metric and instrumentation scope | Selection and meaning |
+|---|---|---|
+| Span queue overflow | `processedSpans`, scope `io.opentelemetry.sdk.trace` | `processorType=BatchSpanProcessor`, `dropped=true`. One increment per rejected span. |
+| Log queue overflow | `processedLogs`, scope `io.opentelemetry.sdk.logs` | `processorType=BatchLogRecordProcessor`, `dropped=true`. One increment per rejected log record. |
+| OTLP export failure | `otlp.exporter.exported`, scope `io.opentelemetry.exporters.otlp-grpc` or `io.opentelemetry.exporters.otlp-http` | `success=false`, `type=span`, `log` or `metric`. Counts records in an export that finishes with failure. |
+
+These counters cover their entire processor or exporter. In a shared SDK they include records
+from other instrumentations. Their documented attributes cannot isolate YTDB losses. Do not
+present them as YTDB-only loss totals.
+
+`queueSize` in the corresponding processor scope reports pending records with `processorType`.
+The `dropped=false` processed series counts records handed to export. It does not prove delivery.
+Do not add it to exporter failures as a success total. A failed export counts its batch records
+once at exporter completion after transport retry handling, rather than once per retry attempt.
+Do not infer total losses by subtracting exported totals from query totals. Gates, SDK sampling,
+child retention and incomplete operations describe different populations.
+
+Autoconfiguration wires its meter provider into the batch processors and OTLP exporters.
+When `OPENTELEMETRY_METRICS_ENABLED=true`, the owned SDK exports available self-metrics through
+its normal metric reader and selected metric exporter. No export visibility is promised when
+that exporter is disabled. These SDK instruments bypass the YTDB database-group allow-list.
+Metrics off configures no self-metric export path in a YTDB-owned installation. It adds no
+private counter reader. The buffered-child backing total keeps its always-advance rule.
+
+For a host-owned SDK, the switch disables only YTDB bridge and listener metrics. Host-configured
+self-metrics may continue exporting unchanged. Programmatically configured hosts must supply a
+meter provider to their batch processors and OTLP exporters and register an exporting metric
+reader. Do not cast, replace or wrap host providers, processors or exporters. A no-op provider
+or a pipeline without these instruments gives unknown loss counts. YouTrackDB adds no queue
+alias, loss-counter alias, exporter decorator, additional sampler or new metric group.
+
+These counters cover queue overflow and exporter-reported failures. SDK 1.66.0's default schema
+does not count processor rejection after shutdown. Processor wait expiry alone does not prove
+that a transport failed, and collector partial rejection or downstream loss is not a local
+failure count. SDK diagnostics and collector monitoring complement the counters. If metrics
+share a failed destination, the backend may receive no loss report until recovery, and it may
+never receive one before process exit. Absence of samples must never render as zero loss.
+An operator-selected SDK telemetry schema can change names and labels. Keep SDK-native names
+and document the selected schema rather than manufacturing duplicate vendor counters.
+
+Required tests cover truncation below, at and above the limit, supplementary Unicode characters,
+zero, empty text, invalid configuration and sanitizer failure. Verify complete parsed SQL-script
+sanitization, omitted text for other languages and no raw fallback for missing representations.
+Assert that zero retains no text and sanitizer failure alone sets no marker. Cover embedded SQL,
+recording-only work, bounded snapshot strings and marker propagation. Assert that names, tags,
+rule results and custom listener text stay unchanged. With tiny SDK queues and a deliberately
+stalled test exporter, verify finite retention, rejected offers and the exact drop series.
+Exercise failed OTLP completion and successful retry without double counting. Collect through
+an in-memory metric reader so a failed remote endpoint cannot hide the assertion. Test metrics
+off, group filtering and a host-owned SDK whose configuration and lifecycle remain untouched.
+Assert that host SDK self-metrics continue with YTDB metrics off and that shared counters include
+other instrumentations. Cover owned standard exporter selection with batch and simple processors.
+Verify that BSP and BLRP settings affect only batch pipelines and no metric exporter gives no
+exported self-metric visibility.
+
+Reference sources for SDK 1.66.0:
+- [Span builder defaults](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk/trace/src/main/java/io/opentelemetry/sdk/trace/export/BatchSpanProcessorBuilder.java) and [log builder defaults](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk/logs/src/main/java/io/opentelemetry/sdk/logs/export/BatchLogRecordProcessorBuilder.java).
+- [Internal telemetry schema selection](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk-extensions/autoconfigure/src/main/java/io/opentelemetry/sdk/autoconfigure/InternalTelemetryConfiguration.java).
+- [Tracer autoconfiguration](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk-extensions/autoconfigure/src/main/java/io/opentelemetry/sdk/autoconfigure/TracerProviderConfiguration.java) and [logger autoconfiguration](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk-extensions/autoconfigure/src/main/java/io/opentelemetry/sdk/autoconfigure/LoggerProviderConfiguration.java).
+- [Span queue counters](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk/trace/src/main/java/io/opentelemetry/sdk/trace/export/LegacySpanProcessorInstrumentation.java), [log queue counters](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/sdk/logs/src/main/java/io/opentelemetry/sdk/logs/export/LegacyLogRecordProcessorInstrumentation.java) and [export counters](https://github.com/open-telemetry/opentelemetry-java/blob/v1.66.0/exporters/common/src/main/java/io/opentelemetry/exporter/internal/metrics/LegacyExporterMetrics.java).
+
+## JMH benchmark gate
+
+Add benchmark fixtures to the existing `jmh-ldbc` benchmark module in later implementation tracks.
+The module is named for the Linked Data Benchmark Council (LDBC). A fixture is the dataset,
+operation, setup and configuration used by a benchmark. JMH means Java Microbenchmark Harness.
+An arm is one workload/configuration side of a comparison. Measure full database calls with
+result consumption and close inside the measured operation. Use separate fixtures for direct
+SQL, translated Gremlin Path A and fallback Path B. Verify the selected path outside the timed
+region. Keep each fixture's data, transaction boundaries, query-result cache setting and result
+count identical between off and enabled arms. Consume results through the JMH black hole to
+prevent dead-code elimination. Reset the process-global telemetry installation between forks,
+never concurrently.
+
+Land backward-compatible off fixtures before comparing instrumentation changes, or use one
+trusted compatible harness against both revisions. If the base lacks a matching fixture,
+report the off comparison as inconclusive. Never substitute another workload or report a pass.
+Version exact query strings, the dataset generator, expected result counts, cache setting,
+tag lengths, ordered rule expressions and match distribution with each fixture. Publish them
+as fixture metadata.
+
+Use six scenario families:
+1. Off: no query or commit listener and no log hook. Run tiny queries and scans in candidate and
+   base revisions. A no-op SDK with registered listeners is not an off baseline.
+2. Mostly rejected: threshold `100` ms, heartbeat `0`, LIGHTWEIGHT, short successful queries.
+   Check that at least 99% of completions fail their own duration gate. Record histograms anyway.
+3. Emit-all: threshold `0`, LIGHTWEIGHT, short successful queries, with one accepted SQL child
+   per Path B traversal and no child on Path A. Keep the buffer at its default 128 entries.
+4. EXACT scans: 10,000 fully consumed rows. Measure direct SQL and Path A with one timing layer,
+   and Path B with both Gremlin and SQL timing. Threshold `0`, no consumer sleeps or `.profile()`.
+5. Concurrent tags: mostly rejected Gremlin at 1 and 8 threads. Configure 16 ordered rules
+   containing exact, prefix and simple regex cases. Exercise early, late and no match. Use both
+   32 repeated tags and a stream of distinct short tags. Set the global threshold fallback and
+   every threshold rule to `100` ms. Set the transaction mode fallback and every mode rule to
+   LIGHTWEIGHT. Keep heartbeat zero and transaction threshold overrides absent. Verify at least
+   99% rejection separately for early-match, late-match and no-match inputs. Report repeated and
+   distinct tags separately. The 2–12% estimate covers repeated tags with reusable histogram
+   dimensions only. Treat the distinct-tag variant as unestimated until measured. Its accepted
+   15% budget applies independently.
+6. Logs: invoke `LogManager` once per operation with a fixed INFO template and arguments, no
+   exception and message-body opt-in off. Use an admitting, non-noop SLF4J provider with a local
+   discard sink. Run 1 and 8 threads. Off performs the same local log call without the OTel hook.
+
+Each enabled query fixture enables metrics and the queries group. Keep the histogram dimension
+schema unchanged and report cache hit or collision pressure as fixture metadata. Warm the cache
+for the repeated-dimension fixture. Include a separate collision-heavy diagnostic variant.
+The logs fixture enables SDK metrics to observe queue losses. Other signal switches match each
+fixture's declared purpose. The owned SDK uses its normal default sampler with root contexts,
+so every accepted span is recording and sampled. Do not use a ratio sampler to reduce cost.
+
+Use actual batch processors with their default queue and batch sizes. In the primary run,
+replace every enabled signal's exporter with an immediate-success counting/discard exporter.
+Keep the normal metric reader at a fixed reported interval. No signal performs network export.
+SDK workers still execute in the benchmark JVM. Use SDK processor self-metrics for queue drops
+and counting-exporter results for export reconciliation. These custom exporters do not supply
+OTLP-exporter self-metrics. Normal counter updates remain in the processing paths being measured.
+Read counters, flush and reconcile outside measurement at iteration boundaries. A primary run
+with unexpected child loss, queue drops or export failure is invalid.
+Add an OTLP-to-healthy-collector diagnostic run with the same workload. Keep that collector
+outside the benchmark CPU allocation and report its transport and location. Network variance
+must not decide the primary budget result. Stalled-export tests validate bounded loss separately.
+
+Use the comparison workflow's requested 8-vCPU Linux x86-64 profile and verify actual CPU
+availability. A vCPU is a virtual CPU allocated to the benchmark job. Add a matching telemetry
+job to the nightly workflow or document its independently verified equivalent allocation.
+Existing bare-metal nightly results are not automatically comparable with this profile.
+Use JDK 21. Pin heap size and garbage collector across each comparison. Fit the warmed dataset
+in memory. Record CPU model, actual available CPUs, memory, JDK build, JVM options, SDK version,
+revisions and all scenario parameters.
+Run arms sequentially on the same runner with alternating order. Use at least 3 independent JVM
+forks per arm, 5 one-second warmup iterations and 10 one-second measurement iterations per fork.
+If warmup has not stabilized, lengthen it and rerun both arms. Never compare different runner
+profiles or merge data from different configurations into one score.
+
+Throughput loss is `100 * (1 - Qscenario / Qoff)`, where Q is operations per second. Candidate-off
+uses base-off as its denominator. All enabled scenarios use their own candidate-off fixture.
+The alert budgets are 1% for off, 10% for mostly rejected, 35% for emit-all SQL and Path A,
+40% for emit-all Path B, 30% for single-layer EXACT scans, 45% for layered EXACT scans,
+15% for concurrent tags and 50% for logs. Treat every thread count and query path independently.
+Do not average a regression away across scenarios. The collision-heavy and OTLP diagnostic
+variants report results without these budgets because they change the main assumptions.
+
+Extend `jmh-ldbc/jmh-compare.py` for paired comparisons. Key results by full benchmark identity,
+all parameters, thread count, mode and score unit. Explicitly pair scenario and off arms while
+retaining every other key. Add telemetry-suite report rendering. Reuse the non-overlap and
+relative-error filters only after replacing error coercion with explicit validation and
+inconclusive results. A confidence interval describes uncertainty in the benchmark score.
+Relative score error is `100 * scoreError / score`, using the JMH-reported confidence-interval
+half-width. Flag a budget breach only when the point-estimate loss exceeds the budget, the
+score intervals do not overlap and each relative score error is at most 10%. This reports a
+point-estimate breach with evidence of a difference from off. It does not establish that loss
+exceeds the budget at the reported confidence level. Overlap, missing, malformed or non-finite
+errors, non-positive scores, missing pairs and excessive noise make the result inconclusive.
+They must not become zero error or pass. The 10% noise ceiling may leave a 1% off comparison
+inconclusive. Three forks are a floor, not a precision guarantee. Publish raw JMH JSON and reports.
+Report bytes per operation with the JMH garbage-collection profiler, collection time and process
+CPU per operation. Measure p99 in a separate sample-time pass with the same fixture. Keep p99
+and allocation diagnostic until measurements justify separate budgets.
+
+Wire reports into `.github/workflows/ldbc-jmh-compare.yml` and the nightly workflow
+`ldbc-jmh-nightly.yml` in later benchmark code work. Extend parsing, rendering, nightly suite
+discovery and `jmh-to-influxdb.sh` persistence together with `jmh-regression-alert.py`.
+Preserve full benchmark identity, all scenario parameters, thread count, mode and score unit
+throughout stored history. Prevent different arms from sharing an InfluxDB series key.
+
+Preserve the nominal 10% run-over-run and 5% rolling-average alert thresholds. Explicitly
+exclude the current run from history. Compare only with the previous completed run and an
+average of preceding completed runs. The current nightly workflow pushes results before the
+alerter runs. Its script does not exclude that run, so the run-over-run check compares the run
+with itself and the rolling average includes it. The script correction belongs to later
+benchmark code work. The PR comparison keeps its 5% base-versus-candidate threshold for
+identical arms.
+
+Performance breaches are reporting-only in continuous integration (CI). They do not block
+merge. The user accepts these budgets, fixtures, runner and confidence rules. Inconclusive
+evidence gets an explicit warning and a rerun recommendation. Execution and artifact-integrity
+failures keep the workflows' existing failure behavior. No benchmark code or workflow is added
+by this design edit. Measured reports must distinguish this policy from correctness tests.
+
 ## Quick-start observability stack
 
 The quick-start docker-compose example assembles five containerized services into one Collector pipeline plus three viewer backends, with Grafana provisioning the operator-facing UI surface. The deep mechanism here covers what the upstream tools do, how the Collector pipeline routes the three signals, and what the smoke script actually verifies — material that does not belong in design.md because it is upstream-tool-specific operational detail, not YTDB design.
 
-Grafana is the chosen operator UI, self-hosted or Grafana Cloud. YouTrackDB does not embed or depend on Grafana. The YTDB-owned SDK exports OTLP only to an OTel Collector. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. Other backends work through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards, which leaves operators to assemble the UI. The planned user manual includes "Connect to Grafana" for self-hosted and Cloud endpoints, headers and dashboard import. Other hosted backends have no first-class setup documentation in this deliverable. When the YTDB exporter endpoint is unset, grpc defaults to `http://localhost:4317` and http/protobuf to `http://localhost:4318` with signal-specific `/v1/{signal}` paths.
+Grafana is the chosen operator UI, self-hosted or Grafana Cloud. YouTrackDB does not embed or depend on Grafana. The default YTDB-owned pipeline exports OTLP to an OTel Collector. Standard exporter-selection settings can select other exporters. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. Other backends work through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards, which leaves operators to assemble the UI. The planned user manual includes "Connect to Grafana" for self-hosted and Cloud endpoints, headers and dashboard import. Other hosted backends have no first-class setup documentation in this deliverable. When the YTDB exporter endpoint is unset, grpc defaults to `http://localhost:4317` and http/protobuf to `http://localhost:4318` with signal-specific `/v1/{signal}` paths.
 
 ### Collector pipeline shape
 
