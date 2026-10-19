@@ -1737,3 +1737,105 @@ remains for the orchestrator after this commit.
 - No ratio sampler, Maven run, push or marker commit is part of this mutation.
 
 **Iterations**: 2 of 3 (PASS on the approved delta with baseline findings carried forward).
+
+## Mutation 83 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Track 91 states one listener-first entry rule and applies it to SQL wrappers,
+SQL early failures, Gremlin strategy and first iteration, commits, log hooks and metric events.
+The empty path reads no telemetry Context or clock and allocates no instrumentation object.
+A non-empty operation snapshot governs continuation and cleanup. Both tag resolvers use ordered,
+precompiled regex patterns with lookup-local matchers and no per-tag result cache. They retain no observed tags and preserve
+rule syntax, matching, precedence and transaction fallback results.
+
+Span builders receive an explicit sampler-input subset. Remaining attribute reads, conversion,
+setters and error status require `isRecording()`, including for each buffered child.
+`RECORD_ONLY` spans still receive enrichment. Nested SQL keeps the approved immutable snapshot
+copies before its later SDK decision. Direct SQL and Gremlin keep span-only rendering and plan
+inspection lazy. Histograms reuse exact immutable attribute sets through a 1024-slot atomic
+cache per listener. Instrument identity and the complete existing dimension tuple form its key.
+Collisions and lost replacement races affect reuse only. No histogram attribute list changes.
+The class and sequence diagrams, pseudocode and regression requirements reflect these rules.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. Normalized finding
+multisets match after removing shifted line references. No finding was added or worsened.
+`git diff --check` passes. Both files contain no `synchronizedMap` or `LinkedHashMap` reference.
+Every remaining `Context.current()` use is behind a listener or hook guard, or describes that
+guarded path. The timestamp example uses a lazy fallback through `Context::current`.
+Line-1 workflow stamps, H2 names and local fragment links pass checks. The configuration table,
+heartbeat sections, SDK sampling contract, buffer limit and synchronization blocks, and buffer
+drop counter remain byte-identical. All edit batches passed uniqueness and overlap preflight.
+No edit failed.
+
+**Cold-read** (scope: whole-doc): The author reread every changed passage, both files' surrounding
+lifecycle and sampling text, and the complete diff. This is a self-review. No contradiction was
+found in the approved delta. An independent cold-read follows the commit in a separate action.
+
+**Findings**:
+- Carried forward: 37 pre-existing should-fix findings and 1 suggestion.
+- Preserved: heartbeat, tag semantics, emit-all defaults, all eight Track 89 choices and the
+  Track 90 sampling contract and owned-SDK sampler policy.
+- User-accepted Track 91 choices: precompiled regex patterns with lookup-local matchers and no
+  tag result cache, the builder-time sampler-input subset with recording-only enrichment,
+  and the per-listener 1024-slot direct-mapped atomic histogram Attributes cache with full-key
+  equality. The implementer report records each alternative and reason.
+- Deferred: queue and text limits, export counters, JMH and slowdown estimates belong to
+  Track 92. Names, span kinds, histogram attribute lists, EXACT timestamps, propagation
+  follow-up text and the PR plan update belong to Track 93.
+- No Maven, push or marker commit runs in this action.
+
+**Iterations**: 3 of 3 (PASS on the approved delta with baseline findings carried forward).
+
+## Mutation 84 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Track 91 fix round 1 applies the user-approved cold-read findings.
+Telemetry-only boundary classification checks query-listener presence before construction.
+SQL entry captures one operation listener snapshot and entry state. The wrapper inherits them.
+A standalone factory captures only when no entry state exists. Successful wrapper timing keeps
+its construction-time start. Commit freezes its combined operation listeners before timing.
+Live log-hook and registration dispatch stop on an empty captured snapshot. Later removal leaves
+captured callbacks and cleanup intact. User-requested Profile wiring works without listeners.
+Histogram caches stay usable by retained listeners until their final snapshots and callbacks end.
+
+Child builders receive sampler inputs before `startSpan()`. Only remaining span attributes wait
+for each child's `isRecording()` check. The workflow shows conditional memoized classification.
+Sanitized dominant-statement and embedded-SQL text use separate memoized accessors. The sampler
+input boundary preserves configuration and decision handling without promising identical decisions
+for samplers that require deferred attributes. Parent-child resolution equality requires matching
+rules or unchanged applicable fallbacks. Gremlin resolves mode once at first `hasNext()`.
+
+Plan-walk runtime is O(visited steps), with O(maximum depth) recursive stack space.
+The log timestamp description follows `SLF4JLogManager.log(...)`: it exposes no event timestamp
+before normal SLF4J emission. The guarded hook captures its own timestamp unless the logging path
+explicitly exposes one. Histogram hits require the same instrument reference and full typed
+component equality. The read entry stays local. Tests include distinct instruments with equal
+values. Resolver headings describe memory under high-cardinality input. First-use text defines
+traversal strategy, listener fire site, dimension tuple, instrument identity and direct-mapped
+atomic cache. Regex wording names precompiled patterns and lookup-local matchers.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. No new finding remains.
+The existing SQL-section length suggestion improves from 263 to 262 lines. All other normalized
+findings match. `git diff --check` passes. Edit anchors passed uniqueness and overlap preflight.
+No edit failed. Workflow stamps, H2 names and all attribute and configuration tables stay unchanged.
+Heartbeat sections, the SDK sampling contract, owned-SDK sampler policy, span timing section and
+buffer limit, synchronization, parent-retention and loss-accounting blocks stay byte-identical.
+
+**Cold-read** (scope: changed passages and surrounding contracts): The author reread every changed
+passage and the complete diff. This is a self-review. The orchestrator owns any independent
+follow-up read. The preceding independent report supplied findings 1–19 for this fix round.
+
+**Findings**:
+- Fixed: 1–10 and 14–19. No product behavior outside the user-approved fixes is defined.
+- Recorded as open follow-up: 11 regex match operation, 12 separator escaping and 13 invalid
+  threshold payloads. Defining these would change tag rules and is outside this change.
+- Accepted: all three Track 91 choices. They are precompiled regex patterns with lookup-local
+  matchers and no tag result cache, builder-time sampler inputs with recording-only enrichment,
+  and a per-listener 1024-slot direct-mapped atomic histogram Attributes cache with full-key equality.
+  Mutation 83 now records their user-accepted status.
+- Preserved: tag rules, heartbeat, emit-all defaults, all eight Track 89 choices, the Track 90
+  sampling contract and the owned-SDK sampler policy.
+- Carried forward: 37 baseline should-fix findings and 1 improved baseline suggestion.
+- Deferred scope stays with Tracks 92 and 93. No Maven, push or marker commit runs here.
+
+**Iterations**: 1 of 3 (PASS on the approved fixes with baseline findings carried forward).
