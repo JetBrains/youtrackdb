@@ -17,31 +17,25 @@ The resolver and its rule type reuse the same machinery as `QueryMonitoringModeR
 
 ```java
 public final class SlowQueryThresholdResolver {
-    private final List<TagRule<Long>> rules;           // immutable, compiled once at startup
-    private final Map<String, OptionalLong> cache;     // caches the rule-walk outcome (empty = no rule
-                                                       // matched), never the caller's fallback, so a per-TX
-                                                       // override cannot leak across transactions.
-                                                       // bounded LRU: Collections.synchronizedMap over
-                                                       // LinkedHashMap(1024, 0.75f, true) with access-order
-                                                       // eviction; INFO-rate-limited (once per 60 s window)
-                                                       // on eviction so unique-tag-per-request misuse cannot
-                                                       // exhaust the heap
+    private final List<TagRule<Long>> rules; // immutable, compiled once at startup
 
     public long resolve(Optional<String> tag, long defaultNanos) {
-        if (tag.isEmpty()) return defaultNanos;
-        // Cache only the rule-walk outcome; apply the (per-call, possibly per-TX) fallback outside it.
-        return cache.computeIfAbsent(tag.get(), this::walkRules).orElse(defaultNanos);
+        if (tag.isEmpty()) {
+            return defaultNanos;
+        }
+        return walkRules(tag.get()).orElse(defaultNanos);
     }
-    // walkRules returns OptionalLong.of(value) on first-wins match, OptionalLong.empty() when no rule
-    // matches; values stored as nanoseconds. The fallback (per-TX override, else global default) is
-    // applied by resolve() AFTER the cache lookup, so a fallback that varies by transaction is never
-    // baked into the shared cache.
+    // Return OptionalLong.of(nanos) for the first matching rule, or OptionalLong.empty().
+    // Apply the caller's fallback after the walk and retain no per-tag result.
+    // Exact and prefix rules compare strings. Regex rules share precompiled Pattern objects.
+    // Each regex lookup uses a local Matcher with the existing matching operation.
 
     public static SlowQueryThresholdResolver global() { ... }
 }
 ```
 
-The gate sits inside `OTelQueryMetricsListener.queryFinished`, not in the YTDB fire site. Three reasons: (1) other listeners registered alongside the OTel one (custom host implementations) may have their own gating policy and must continue to see every event; (2) the gate is OTel-specific configuration and lives in the OTel module rather than `core`; (3) `QueryDetails` already carries the inputs the gate needs — `executionTimeNanos` arrives as a method parameter, error state arrives through `QueryDetails.getErrorType()`, and the query tag arrives through `QueryDetails.getQuerySummary()` (same source the OTel sem-conv mapping already reads).
+A listener fire site is the core code that constructs completion details and invokes listeners.
+The gate sits inside `OTelQueryMetricsListener.queryFinished`. It is separate from the fire site. Three reasons: (1) other listeners registered alongside the OTel one (custom host implementations) may have their own gating policy and must continue to see every event; (2) the gate is OTel-specific configuration and lives in the OTel module rather than `core`; (3) `QueryDetails` already carries the inputs the gate needs — `executionTimeNanos` arrives as a method parameter, error state arrives through `QueryDetails.getErrorType()`, and the query tag arrives through `QueryDetails.getQuerySummary()` (same source the OTel sem-conv mapping already reads).
 
 Duration-check fragment only. In the complete callback, errors bypass both checks and a
 successful heartbeat claim bypasses this fragment. [Time-based sampling](#time-based-sampling)
@@ -72,7 +66,7 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
 }
 ```
 
-`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. They capture context, tag, Gremlin-origin marker, mode and start time before the failing work. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
+`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. SQL entry first checks the existing query-listener list through the presence check. With no listeners, it performs no telemetry Context read, clock read, snapshot or allocation. Otherwise it captures one operation listener snapshot, Context, tag, Gremlin-origin marker, mode and early-failure start time before the failing work. Pass that snapshot and captured entry state to the wrapper without repeating listener selection, Context capture or mode resolution. Successful-result timing still starts at wrapper construction. A standalone factory captures its own guarded state only when no entry state exists. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
 
 Direct SQL has no query tag and uses the per-TX fallback. SQL entered inside tagged Gremlin inherits `YTDBContextKeys.QUERY_TAG` captured before execution. `GREMLIN_ORIGIN` is a boolean provenance marker set for tagged and untagged Gremlin execution. An untagged nested Gremlin traversal clears an inherited tag and still stamps `GREMLIN_ORIGIN=true`. Gremlin pins its span name at first `hasNext()` to the tag or `youtrackdb`. SQL uses the sem-conv fallback chain. The resolver reads the inherited tag, not a classifier-derived display summary.
 
@@ -80,6 +74,20 @@ Successful commits use the separate `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS`
 default `0` accepts every successful commit candidate. Failed commits bypass it. Query thresholds,
 query tags and heartbeat sampling do not govern commit selection. The [SDK sampling contract](#sdk-sampling-contract)
 applies to accepted SQL, Gremlin and commit candidates.
+
+Required listener-first regression tests use counters for Context access, clock reads and
+instrumentation factories. With empty listener lists, assert zero calls for SQL success and
+early failure, Gremlin strategy and first `hasNext()`, successful and failed commit, log-hook
+dispatch and metric-registration events. Assert ordinary database and SLF4J behavior is
+unchanged. With listeners present, verify capture starts after the presence check and the
+non-empty operation snapshot still completes and cleans up after global unregistration.
+Assert zero boundary-classification construction without query listeners. A Gremlin traversal
+strategy is a pass that inspects or rewrites a traversal before execution. User-requested
+ProfileStep detection and plan-profiling wiring must still work with no listener.
+Verify that SQL entry and wrapper share one operation snapshot and that commit notification
+never rereads mutable lists. Race live log-hook and metric-registration removal with snapshot
+capture. An empty captured snapshot must prepare no hook arguments or registration event.
+Later removal must leave captured callbacks and cleanup intact.
 
 ### SDK sampling contract
 
@@ -140,6 +148,53 @@ These methods require `opentelemetry-api` 1.57 or later. Discovery does not call
 or cast the global wrapper to `OpenTelemetrySdk`. The explicit setter takes priority.
 A registered global remains host-owned even when it is no-op.
 
+### Span attribute work
+
+A recording span is a span for which `span.isRecording()` returns true. Both `RECORD_ONLY`
+and `RECORD_AND_SAMPLE` satisfy that check. `DROP` and no-op instances do not. This contract
+controls attribute work without changing the SDK sampling contract above.
+
+Set the following sampler inputs on the builder before `startSpan()` when available:
+`db.system.name`, `db.namespace`, `db.operation.name`, `db.collection.name`, `db.query.summary`,
+`error.type`, configured `server.address` and `server.port`, `db.youtrackdb.gremlin.path`,
+`db.youtrackdb.sql.invoked_via` and `db.youtrackdb.duration_semantics`.
+Commit supplies the applicable subset with its known operation. These are existing attributes.
+Absent values stay absent. Reuse constants, captured provenance and memoized classification.
+This work is required even if the sampler drops the span. It lets a host sampler select by
+query identity, source, timing semantics or error. The split preserves the configured sampler
+and the SDK decision-handling contract. Only the listed builder attributes are guaranteed
+sampler inputs. Deferred attributes are unavailable during sampling. A host that needs equivalent
+information must supply independent inputs, such as parent Context values, before query execution.
+This design defines no general YTDB builder-customization hook.
+
+After `startSpan()`, check `span.isRecording()` before reading or converting the remaining
+span-only values or calling their setters. This includes sanitized query text, opted-in
+parameters, explicit tracking ID, returned rows, structural and advisor flags, profile flags,
+cache outcome and custom attributes. Set error status only in this block. Do not require the
+sampled flag for enrichment. Host processors may consume `RECORD_ONLY` spans. Always call
+`end` in `finally`, even when the span does not record. Use this flow for direct SQL, Gremlin,
+commits and each buffered child when it is constructed. Predefine attribute keys at startup.
+Do not construct a per-span map or `Attributes` set for the deferred values before the check.
+
+Some work serves another consumer. Enabled histograms still need their own dimensions before
+trace gates. Name and sampler inputs can require classification before recording is known.
+Custom listeners can read lazy accessors independently. These are not deferred span-only work.
+
+Nested SQL is the snapshot exception. At SQL completion it must copy all configured values
+needed later, including sanitized text and opted-in parameters. It cannot retain a result,
+plan, transaction or lazy accessor until the late parent exists. Preserve this immutable
+snapshot contract even if the parent or child is later dropped. Populate each child builder
+with the documented sampler-input subset before `startSpan()`, including when the SDK later
+drops the child. Defer only the remaining span attributes, their SDK attribute-set construction
+and conversions not required by the snapshot until that child's own `isRecording()` check.
+A recording parent does not eliminate that child check.
+
+Required tests must count expensive accessor calls and attribute conversions for SDK `DROP`,
+`RECORD_ONLY`, `RECORD_AND_SAMPLE` and no-op instances. Assert sampler inputs at builder time,
+remaining attributes and ERROR status for recording spans, and unconditional end calls. Cover
+direct SQL, Gremlin, successful and failed commits, plus children dropped by their own sampler.
+Keep snapshot-copy assertions and one histogram sample per completion regardless of sampling.
+
 ### Late-parent construction
 
 The chosen alternative is to buffer SQL completion data locally and build the parent at traversal
@@ -168,7 +223,8 @@ around delegated database calls and closes each scope in `finally` on the thread
 Server execution installs it on the Gremlin executor worker, including the per-session executor
 path, rather than the network dispatch thread.
 
-Each SQL fire site captures that Context before execution or at wrapper construction. At SQL
+Each SQL entry captures that Context before execution. A standalone factory without entry state
+performs its own guarded capture. At SQL
 completion the OTel listener records histograms and applies the existing SQL gates, including
 heartbeat claiming at that moment. A rejected completion creates no buffer entry. An accepted
 completion has passed its own query gates and becomes a candidate for retention. It snapshots
@@ -176,8 +232,12 @@ the values needed to build its span, then offers the snapshot to the buffer. Adm
 storing the candidate in the traversal buffer. Neither acceptance nor admission guarantees span
 construction or export. The snapshot holds recorded start and duration, sanitized query text,
 name, error type, row count, classification and other configured attribute values. It copies
-parameter values only when the existing parameter opt-in is enabled. It retains no result set, execution plan, transaction or
-lazy `QueryDetails` accessor. Custom listeners still receive their SQL completion immediately.
+parameter values only when the existing parameter opt-in is enabled. These copies are required
+snapshot work before the child's SDK decision. Set the documented sampler inputs on each child
+builder before `startSpan()`. Defer only the remaining span attributes, their SDK attribute-set
+construction and non-snapshot conversions until that child's own `isRecording()` check.
+See [Span attribute work](#span-attribute-work).
+The snapshot retains no result set, execution plan, transaction or lazy `QueryDetails` accessor. Custom listeners still receive their SQL completion immediately.
 
 `OPENTELEMETRY_GREMLIN_MAX_BUFFERED_SQL_SPANS` is a non-negative integer with default `128`.
 The `YouTrackDBOpenTelemetry` facade reads it at SDK initialization. Each traversal takes that limit when its state is
@@ -237,12 +297,12 @@ heartbeat evaluation on drain.
 - Default `0` disables duration rejection when no tag rule or per-transaction override supplies a positive threshold. Duration alone then does not prevent first-run telemetry after `OPENTELEMETRY_ENABLED=true`. Buffer retention, parent retention, SDK sampling and export still determine whether a span appears. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook. Errors bypass both query gates.
 - A query whose duration equals the threshold passes the duration gate, because the comparison is strictly `<` (less-than). A 100 ms query against a 100 ms threshold passes the gate.
 - The trace gate runs before span allocation or SQL candidate buffering. It reads the error, original tag and per-TX threshold override. Metrics-enabled listeners record histogram samples before this gate. Parent rejection drops buffered children without changing their already-recorded metrics.
-- Tag-rule cache cardinality blow-up: a misuse-pattern host that emits unique tags per request (e.g., a UUID) would otherwise grow each resolver's cache without bound. Both resolvers use a bounded LRU (`Collections.synchronizedMap` over `LinkedHashMap(1024, 0.75f, true)` with access-order eviction, capacity 1024), so the heap footprint is capped at roughly 2 × 200 KB even under sustained unique-tag-per-request abuse. Eviction logs INFO once per 60 s window with the count of evictions in that window; an evicted tag pays the rule walk again on its next access, and rule walks are deterministic so the resolved value stays stable across miss / re-resolve / re-cache. The heartbeat gate has no resolver and contributes no cache.
-- A tag that matches no rule resolves to the per-TX override (`withSlowQueryThresholdMillis`) when the transaction set one, else the global default. The cache records the rule-walk outcome — the matched value, or an empty marker when no rule matched — so future identical tags skip the walk; the fallback (per-TX override, else global default) is applied after the cache lookup, at the resolver's fallback slot, so a fallback that varies by transaction is never baked into the shared cache.
+- Resolver memory under high-cardinality tag input: both resolvers retain only immutable startup rules and precompiled patterns. They store zero observed tags and need no locks or shared writes during resolution. Retained memory depends on configuration, not distinct-tag count. A lookup uses local regex matchers. Every tagged lookup walks rules until the first match. There is no admission, full-cache case or eviction work. Exact, prefix and regex semantics, insertion-order precedence and invalid-rule handling remain unchanged. The heartbeat gate has no resolver.
+- A tag that matches no rule uses the per-TX override (`withSlowQueryThresholdMillis`) when set, else the global default. Apply that fallback after each walk. Do not retain it. Different transaction defaults therefore cannot leak through shared state. Regression tests cover repeated tags, high-cardinality input, concurrent walks, overlapping rule kinds and unmatched tags with different fallbacks.
 - Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
 - The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules). The per-TX override is not subject to either constraint: the fire site reads `FrontendTransaction.getSlowQueryThresholdOverrideNanos()` per query and carries it on `QueryDetails`, so a transaction that calls `withSlowQueryThresholdMillis(...)` takes effect immediately without an SDK rebuild.
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
-- Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means the duration check accepts a hot-path completion with at least 100 ms of DB-side active work. The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag accepts a completion with at least 100 ms of wall-clock time. Acceptance does not guarantee span construction, recording or export. A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices spans on `db.youtrackdb.duration_semantics` to keep histograms semantically homogeneous. Inside a single Path B traversal both the outer Gremlin span and the inner SQL spans gate on the same resolved threshold because inner SQL inherits the outer's tag via `YTDBContextKeys.QUERY_TAG` on the OTel `Context` (see §"Query tagging and per-tag rule resolution" → tag inheritance); no parent-child threshold drift within a traversal. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
+- Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means the duration check accepts a hot-path completion with at least 100 ms of DB-side active work. The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag accepts a completion with at least 100 ms of wall-clock time. Acceptance does not guarantee span construction, recording or export. A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices spans on `db.youtrackdb.duration_semantics` to keep histograms semantically homogeneous. Inside a Path B traversal, nested SQL inherits the outer Gremlin tag through `YTDBContextKeys.QUERY_TAG`. Both queries use the same resolution rules and retain their own captured values. A matching threshold rule gives equal thresholds. Otherwise equality requires an unchanged applicable TX fallback between capture points. A changed fallback applies to later queries, including nested SQL started later. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
 - A child whose own gate accepts it can still be lost when its parent is rejected, the buffer is full or completion is late. The drop counter reports these losses. Parent retention is never forced by a child. Exporter or processor losses can still produce an incomplete backend trace.
 
 ### References
@@ -330,6 +390,12 @@ candidates. Gate acceptance never overrides the configured SDK sampler.
 
 The gate sits inside `OTelTransactionMetricsListener.writeTransactionCommitted`, not in the YTDB fire site. Same reasoning as the query gate (D16): other transaction listeners registered alongside the OTel one may have their own policy and must continue to see every event; the gate is OTel-specific configuration and lives in the OTel module; `TransactionDetails` already carries the input the gate needs (`executionTimeNanos` arrives as a method parameter; no error state to read because successful commits route through `writeTransactionCommitted` while failed commits route through `writeTransactionFailed` and bypass the gate by construction).
 
+Before commit timing starts, the core entry checks `isTransactionMetricsEnabled()`. With no
+listeners it commits normally without telemetry Context, clocks, snapshots or details objects.
+With listeners present, freeze the combined transaction snapshot and per-TX listener list before
+timing starts. Pass that operation snapshot to success or failure notification. Notification
+does not reread a mutable listener list. The OTel callback reads current Context only on this path.
+
 Pseudo-implementation at the top of the callback:
 
 ```java
@@ -378,7 +444,7 @@ The `defaultCommitThresholdNanos` final field is initialized at OTel listener co
 
 ## OpenTelemetry logs integration
 
-The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. The logs integration adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and one new line inside `log(...)` at the existing emit point (right before `logEventBuilder.log()` on line 98) that iterates the hook list. Before each iteration the manager skips records whose `requesterName` starts with `io.opentelemetry.` or equals `io.youtrackdb.otel.appender`; this name-prefix filter blocks the cross-thread recursive cycle that the OTel exporter would otherwise create through a `jul-to-slf4j` bridge (the exporter writes on its own thread pool where the per-thread re-entrance guard does not apply). Operators who need to admit specific OTel-internal loggers override the prefix via `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (comma-separated full prefixes; defaults to the two values above). The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, both the format string and formatted message, the optional `Throwable` and the event timestamp. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation. `LogAppenderHook` is a public internal SPI (service provider interface) in the core logging package. The OpenTelemetry module and host implementations can implement it. It is not part of the supported public product API.
+The chokepoint is `SLF4JLogManager.log(...)` (`core/src/main/java/com/jetbrains/youtrackdb/internal/common/log/SLF4JLogManager.java:38-103`), the single method every YTDB log call crosses. The logs integration adds a `LogAppenderHook` interface alongside `SLF4JLogManager`, a `CopyOnWriteArrayList<LogAppenderHook>` field on `SLF4JLogManager` itself, an `installAppenderHook(LogAppenderHook)` / `removeAppenderHook(LogAppenderHook)` accessor pair, and guarded hook dispatch at the existing emit point, before `logEventBuilder.log()` on line 98. Dispatch checks the hook list before any hook-specific preparation. No hooks means no telemetry Context read, clock read, formatting or event allocation. The ordinary SLF4J path remains independent. After a positive presence check, capture the iteration snapshot and stop hook dispatch if it is empty. Prepare hook arguments only for a non-empty snapshot. Later removal does not cancel captured callbacks. Before each iteration the manager skips records whose `requesterName` starts with `io.opentelemetry.` or equals `io.youtrackdb.otel.appender`; this name-prefix filter blocks the cross-thread recursive cycle that the OTel exporter would otherwise create through a `jul-to-slf4j` bridge (the exporter writes on its own thread pool where the per-thread re-entrance guard does not apply). Operators who need to admit specific OTel-internal loggers override the prefix via `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` (comma-separated full prefixes; defaults to the two values above). The hook signature is binding-agnostic: it takes the resolved requester class name, the resolved database name, the slf4j `Level`, both the format string and formatted message, the optional `Throwable` and the event timestamp. Hooks fire after the per-logger `isEnabledForLevel(level)` filter SLF4J already applies, so a hook subscribed at `INFO` for a logger configured at `WARN` sees no records below `WARN`. The OTel module ships `OTelLogAppender` as the only built-in implementation. `LogAppenderHook` is a public internal SPI (service provider interface) in the core logging package. The OpenTelemetry module and host implementations can implement it. It is not part of the supported public product API.
 
 Severity mapping (slf4j `event.Level` → OTel sem-conv `severityNumber`):
 
@@ -391,6 +457,9 @@ Severity mapping (slf4j `event.Level` → OTel sem-conv `severityNumber`):
 | `ERROR` | 17 | `ERROR` |
 
 The mapping has no `FATAL` row because slf4j `event.Level` carries no `FATAL` constant (it stops at `ERROR`). The `OPENTELEMETRY_LOGS_MIN_SEVERITY` config accepts `FATAL` for forward compatibility but treats it identically to `ERROR` (severity number 17).
+
+The following callback runs only after guarded dispatch found a non-empty hook snapshot.
+Its severity and re-entrance checks precede Context, the observation clock and builder work.
 
 Pseudo-implementation:
 
@@ -426,7 +495,7 @@ public final class OTelLogAppender implements LogAppenderHook {
       LogRecordBuilder builder = otelLogger.logRecordBuilder()
           .setSeverity(severity)
           .setSeverityText(level.name())
-          .setTimestamp(eventEpochNanos, TimeUnit.NANOSECONDS)   // original log-call wall-clock
+          .setTimestamp(eventEpochNanos, TimeUnit.NANOSECONDS)   // exposed event time or guarded hook time
           .setObservedTimestamp(Instant.now())                    // appender invocation wall-clock
           .setBody(body);
 
@@ -443,7 +512,8 @@ public final class OTelLogAppender implements LogAppenderHook {
         builder.setAttribute(AttributeKey.stringKey("exception.stacktrace"),
             stackTraceToString(thrown));
       }
-      // hard context: Context.current() picks up the active span automatically.
+      // Context.current() is read for correlation only after guarded hook dispatch.
+      // The callback's severity and re-entrance checks have also passed.
       builder.emit();
     } catch (RuntimeException | LinkageError | AssertionError t) {
       FALLBACK.log(java.util.logging.Level.WARNING, "OTel log emit failed", t);
@@ -454,11 +524,11 @@ public final class OTelLogAppender implements LogAppenderHook {
 }
 ```
 
-The `setTimestamp(eventEpochNanos, NS)` carries the SLF4J `LoggingEvent.getTimeStamp()` value (the wall-clock at the original log call, captured by the SLF4J binding before YTDB's hook fires) lifted from milliseconds to nanoseconds. The OTel sem-conv `Timestamp` field therefore matches the original log-call time even for high-frequency `DEBUG`/`TRACE` records where dispatch latency would otherwise drift `Instant.now()` by tens of microseconds. The `setObservedTimestamp(Instant.now())` follows sem-conv guidance for the "log was observed by the appender" axis. The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` replaces the `Handler.reportError` channel a JUL Handler would have used. The fallback logger is itself part of the SLF4J→JUL or SLF4J→Logback dispatch chain (via slf4j-jdk14 in server mode), so its output reaches the operator's normal log sink without re-entering the OTel hook (the appender's own logger name is filtered out at install time to keep the cycle impossible).
+Before normal SLF4J emission, reuse an event timestamp only when the logging path explicitly exposes one. Otherwise capture a hook event timestamp after confirming a non-empty hook snapshot. The current `SLF4JLogManager` path exposes no event timestamp before `logEventBuilder.log()`. Its `setTimestamp(eventEpochNanos, NS)` therefore represents guarded hook-dispatch time. It does not guarantee backend event time or original caller-entry time. `setObservedTimestamp(Instant.now())` records when the appender observes the record. The fallback `Logger.getLogger("io.youtrackdb.otel.appender")` replaces the `Handler.reportError` channel a JUL Handler would have used. The fallback logger is itself part of the SLF4J→JUL or SLF4J→Logback dispatch chain (via slf4j-jdk14 in server mode), so its output reaches the operator's normal log sink without re-entering the OTel hook (the appender's own logger name is filtered out at install time to keep the cycle impossible).
 
 **Body-policy default-deny.** The `body` slot is set from `formatString` when `OPENTELEMETRY_LOGS_INCLUDE_MESSAGE_BODY=false` (the default) and from `formattedMessage` when `true`. The default-false matches the trace-pillar discipline of `OPENTELEMETRY_QUERY_INCLUDE_PARAMETERS=false`: log lines whose format string is `"Query failed: {} with args {}"` ship that string as the body, rather than `"Query failed: SELECT FROM User WHERE id = 42 with args [42]"`. The `exception.stacktrace` attribute (set from `Throwable.getStackTrace()`) and `exception.message` (from `Throwable.getMessage()`) are NOT gated by the same flag because the throwable identity itself is the load-bearing diagnostic signal for failure investigation; hosts that need to redact those install a host-side OTel `LogRecordProcessor` at the collector boundary. The flag is a default-deny knob for the body slot only.
 
-The `SLF4JLogManager` hook iteration runs after the existing `isEnabledForLevel(level)` filter and before the marker/format work the existing path does. Hooks receive both the format string and the formatted message. The appender chooses the body through its message-body flag without reformatting the arguments.
+The `SLF4JLogManager` hook branch runs after the existing `isEnabledForLevel(level)` filter. Check hook presence before preparing hook arguments. Capture the iteration snapshot and stop hook dispatch if it is empty. Reuse the ordinary path's formatted message. Reuse an event timestamp only when explicitly exposed. Otherwise capture a hook timestamp after confirming the non-empty snapshot. Prepare any separate hook-only message only on that guarded path. Hooks receive both the format string and the formatted message before the normal SLF4J emit. The appender chooses the body through its message-body flag without reformatting the arguments.
 
 ### Hard-context correlation across threads
 
@@ -530,6 +600,48 @@ Profile does not change normal span selection or retention. Path B steps that en
 
 Histograms are synchronous instruments. The SDK has no asynchronous histogram. The metrics switch and included-group filter govern listener instruments as well as bridge callbacks. Trace gates do not discard metric samples. The shipped rate, count and latency panels consume these metrics through Prometheus.
 
+### Histogram attribute reuse
+
+`Attributes` is the immutable OpenTelemetry set of typed key/value pairs attached to a metric
+sample. Query and commit listeners reuse precomputed sets instead of rebuilding them on each
+completion. Apply the metrics switch and included-group filter before any cache lookup or
+attribute work. Metric recording remains before trace gates and independent of span sampling.
+
+Each listener owns a fixed `AtomicReferenceArray` with 1024 slots. A slot holds one immutable
+entry with an instrument identity, that instrument's complete existing dimension tuple and its
+`Attributes`. Instrument identity means the instrument object reference. The dimension tuple is
+the complete typed set of dimension values and absence markers for one instrument. It distinguishes
+absent values from empty strings. The cache key uses exactly the instrument's current attribute
+list. It adds no metric dimension and removes none. Instruments with different attribute lists cannot share an entry.
+Never add query text, tag or transaction ID to a key unless the existing schema requires it.
+
+A direct-mapped atomic cache sends each key to one slot by its hash. Atomic reads and replacement
+safely publish immutable entries across threads. Compute the hash and compare sample components
+without allocating a tuple or map. Read the slot once and keep the entry in a local reference.
+A hit requires the same instrument reference and equality of every typed dimension component,
+including presence markers. Compare strings by value. Hash equality alone is never a hit.
+Reuse that local entry's `Attributes` so concurrent replacement cannot change this sample's set.
+On a miss, build the full correct set and an immutable entry outside shared state.
+Try one compare-and-set replacement against the entry just read. A collision replaces that one entry if the compare-and-set succeeds. A lost
+race keeps the newly built set local to this sample. Do not retry, wait, scan or use an overflow
+map. Cache state never changes sample values or decides whether to record a sample.
+
+The cache retains at most 1024 entries per listener, regardless of distinct database or
+collection values. It bounds entry count rather than payload bytes. Concurrent misses may
+briefly hold additional local sets until their calls finish. Unregistration prevents inclusion
+in future transaction snapshots. Existing snapshots may still invoke the listener and use its
+bounded cache. Release the cache with the listener after its final retained snapshot and in-flight
+callback finish. Unregistration alone is not final release. A full cache needs no special path
+because every miss targets one slot. Repeated collisions can reduce reuse but cannot truncate attributes or drop samples.
+This cache changes no histogram names, attribute lists, absent-value rules or source selection.
+
+Tests must cover hit reuse without new keys or sets, colliding tuples, absent versus empty
+values, two instruments with different schemas, two distinct instrument objects with identical
+dimension values, and concurrent replacement loss. Cover callbacks retained across unregistration
+and cache lifetime through the final retained snapshot and in-flight callback. Compare all
+recorded attribute sets and sample counts with the uncached construction. Assert that disabled
+instruments do no cache work and SDK-dropped spans still produce their enabled metric samples.
+
 ### MetricsRegistry enumeration and lazy-registration API
 
 `OTelMetricsBridge` cannot rely on call-site knowledge of every `MetricDefinition` — this design adds enough new ones that a hand-maintained mirror list would drift. Two new public-API methods on `MetricsRegistry` close the gap:
@@ -553,7 +665,7 @@ public void addRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 public void removeRegistrationListener(Consumer<MetricRegistrationEvent> listener);
 ```
 
-Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>` and fires every listener inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. The fire is synchronous on the registering thread; listeners that need to do heavy work (registering an OTel observable callback is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
+Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>`. It checks listener presence before capturing an iteration snapshot. If that snapshot is empty, it stops event dispatch before allocating a registration event. Otherwise it fires the captured snapshot inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. Later removal does not cancel callbacks captured for that event. The fire is synchronous on the registering thread. Listeners that need to do heavy work (registering an OTel observable callback is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
 
 `forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk over `ConcurrentHashMap.entrySet()` is weakly consistent. The bridge subscribes before the walk, then sends both enumeration results and registration events through one serialized registration path. That path de-duplicates by source metric identity. A metric seen by both paths gets one callback. Enumeration and events both carry the database name. Metrics sharing an OTel name use a shared instrument with a `database` attribute on each database-scoped observation.
 
@@ -562,7 +674,7 @@ Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricR
 `OTelMetricsBridge.start()` does three things at SDK init:
 
 1. Subscribe through `registry.addRegistrationListener(...)`. Each event posts a registration task to the bridge executor.
-2. Enumerate through `Profiler.getMetricsRegistry().forEachMetric(...)`. Send every result to the same executor. Keep an identity-keyed `Map<Metric<?>, AutoCloseable>` of callback handles. Register each source once, even when the walk and listener both see it. Reuse the instrument for a shared OTel name and attach the database attribute to observations. Each callback captures its source `Metric` reference and reads its current value at SDK collection time.
+2. Enumerate through `Profiler.getMetricsRegistry().forEachMetric(...)`. Send every result to the same executor. Keep an identity-keyed `Map<Metric<?>, AutoCloseable>` of callback handles. Register each source once, even when the walk and listener both see it. Reuse the instrument for a shared OTel name and attach the database attribute to observations. Each callback captures its source `Metric` reference. At collection time it first checks that its bridge registration is active. Only then does it read the value or prepare observation attributes.
 3. Schedule a periodic task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS`. The SDK's `PeriodicMetricReader` drives the actual export; the bridge's task re-reads YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) via `getRate()`/`getRatio()` independently of the OTel reader. `Meter` flushes those windows internally every `flushRateTicks`; the task keeps the value the exporter sees fresh between polls.
 
 `OTelMetricsBridge.stop()` removes the listener and cancels the scheduled task. It prevents queued registrations from installing callbacks after stop. It closes each observable callback handle through `AutoCloseable.close()` and clears the identity map. Stopping a stopped bridge is a no-op. Synchronous histograms need no callback handle.
