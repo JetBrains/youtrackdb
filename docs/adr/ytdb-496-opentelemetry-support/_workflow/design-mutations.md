@@ -1932,3 +1932,324 @@ The orchestrator owns any independent follow-up read after this commit.
 - Carried forward: 37 baseline should-fix findings and 1 suggestion. No Maven or push runs here.
 
 **Iterations**: 1 of 3 (PASS on the approved fixes with baseline findings carried forward).
+
+## Mutation 87 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: Track 93 part 1 applies attribute, role and real-endpoint corrections.
+Query identity requires one operation on one static collection across the complete call.
+Generated summaries remain separate from host tags. SQL, scripts and both Gremlin paths
+use conservative classification. Parameters use `db.query.parameter.<key>` with preserved
+named placeholders and original positional indices. EXACT keeps active-time gates and
+exposes active time separately. Query and commit spans keep real completion timestamps.
+Server request spans use SERVER roots. Nested SQL and commits use INTERNAL.
+The existing follow-up section records deferred option C for network propagation.
+It adds no propagation setting, driver implementation or implementation track.
+
+**Mechanical checks** (target=both, scope=whole-doc): The first round check passes.
+Baseline and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized finding multisets match. `git diff --check` passes.
+Edit anchors pass uniqueness and overlap preflight. This file batch applies successfully.
+
+**Cold-read**: The author reviews the changed text and surrounding contracts as a self-review.
+The independent cold-read belongs to a separate action after this commit.
+
+**Findings**: Implementation details remain proposals for user confirmation.
+The Track 93 implementer report lists alternatives and reasons. Heartbeat, tag resolution,
+emit-all defaults and Track 90 SDK policy stay unchanged. Deferred propagation is not approved
+for implementation. Limits, JMH and PR synchronization remain outside this action.
+
+**Iterations**: First successful design file batch. Mutations 89 and 91 record its refinements.
+
+## Mutation 88 — 2026-10-19 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: Track 93 part 1 aligns the companion mechanics with Mutation 87.
+SQL snapshots retain real start and completion timestamps plus unchanged listener duration.
+Buffered children remain INTERNAL under their explicit late Gremlin parent.
+Duration histograms use elapsed real time. Closed query, commit and returned-row schemas
+define dimensions, units, absence rules and advisory buckets. Active-time values never become
+metric dimensions. Session accounting uses `youtrackdb.session.active_count`, not a pooled
+connection count. The Collector uses `deployment.environment.name` and a matching label.
+
+**Mechanical checks** (target=both, scope=whole-doc): The shared first round check passes.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings match. `git diff --check` passes. Anchors are unique and non-overlapping.
+This file batch applies successfully.
+
+**Cold-read**: Companion self-review only. The independent design cold-read follows the commit.
+
+**Findings**: The report marks metric schemas, bucket guidance and session instrument details
+as choices for confirmation. Samples remain before trace gates and never repeat on drain.
+Heartbeat, tag rules and SDK decision handling remain unchanged.
+
+**Iterations**: First successful mechanics file batch. Mutations 90 and 92 refine its wording.
+
+## Mutation 89 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The second design batch resolves cross-section inconsistencies.
+Operation and collection accessors use the same whole-call proof. SQL scripts use their
+complete parsed representation for classification and generated summaries. Multi-call and
+mixed Gremlin shapes omit the identity pair. Examples use ordered summaries instead of a
+selected dominant statement. Complete sanitized passthrough text retains the existing limit.
+Named and positional bindings stay distinct from redacted literals. Truncated or missing text
+and outer multi-statement calls omit parameter attributes. Real completion endpoints survive
+SQL snapshot retention and late-parent drain. Server root policy appears across lifecycle,
+startup and direct-SQL descriptions. Active time remains the threshold input.
+
+**Mechanical checks** (target=both, scope=whole-doc): The second round check passes.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings match. `git diff --check` passes. One attempted file batch fails atomically
+because an old-text anchor does not match. No partial changes remain. Corrected exact anchors
+pass uniqueness and overlap preflight. The retry succeeds.
+
+**Cold-read**: The author reads the complete changed text and surrounding contracts.
+This is a self-review, not the independent post-commit cold-read.
+
+**Findings**: Summary generation never becomes a tag-rule input. Original tags, heartbeat,
+emit-all defaults and SDK sampling policy remain intact. Compatibility accessors, summary
+rules, fallback timestamps and parameter omission rules await user confirmation in the report.
+
+**Iterations**: Second successful design file batch. Mutation 91 records final self-review fixes.
+
+## Mutation 90 — 2026-10-19 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: The second mechanics batch completes closed histogram contracts and aligns
+buffered timing with real endpoints. Query and row samples share the exact query schema.
+Commit samples have their own subset and known operation. Missing dimensions stay absent.
+Ports remain integers. No raw text, parameters, tracking IDs, active-time values or structural
+flags become dimensions. Gate-measurement semantics remain separate from elapsed duration.
+Required tests cover exact key sets, timing modes, errors, missing row counts, consumer pauses
+and one histogram sample per completion. Existing cache bounds and equality rules stay intact.
+
+**Mechanical checks** (target=both, scope=whole-doc): The shared second round check passes.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings match. `git diff --check` passes. One attempted batch fails atomically on
+an unmatched old-text anchor. No partial changes remain. Corrected anchors pass uniqueness
+and overlap preflight. The retry succeeds.
+
+**Cold-read**: Companion self-review only. Independent cold-read remains a post-commit action.
+
+**Findings**: The report records exact schemas, metric naming, buckets and session accounting
+as unconfirmed implementation choices. Query and commit gates still read listener duration.
+No histogram sample depends on trace acceptance, recording or export.
+
+**Iterations**: Second successful mechanics file batch. Mutation 92 records final clarifications.
+
+## Mutation 91 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The third design batch resolves self-review wording conflicts.
+CREATE INDEX naming matches the statement table. All cardinality descriptions recognize the
+numeric active-time exception without making it a grouping key. Server direct SQL and commits
+use explicit roots throughout the lifecycle description. Traversal state derives from the
+recorded embedded or server Context. The complete classification is memoized, including its
+generated summary. Dashboard text describes different gate populations rather than different
+standard histogram duration meanings. Missing parsed representations omit query text.
+
+**Mechanical checks** (target=both, scope=whole-doc): The third round check passes.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized finding multisets match exactly. `git diff --check` passes. Anchors pass uniqueness
+and overlap preflight. This file batch applies successfully. Stamps and H2 names are unchanged.
+
+**Cold-read**: The author reads all changed text and surrounding contracts.
+This remains a self-review. Independent cold-read follows the commit in a separate action.
+
+**Findings**: No new mechanical finding remains. Both heartbeat sections remain byte-identical.
+JMH, slowdown estimates and limit contracts stay unchanged. The configuration table gains no
+setting. Only the existing parameter setting's attribute description changes.
+Choices remain unconfirmed in the append-only Track 93 implementer report.
+
+**Iterations**: Third successful design file batch. No design conflict remains open.
+
+## Mutation 92 — 2026-10-19 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: The third mechanics batch makes endpoint reuse explicit at callback entry
+for query and commit histograms, snapshots and span end. Failure callbacks use the same timing
+rule. Traversal Context derives from the embedded host or server root. Fixed server root
+parenting is a role policy before SDK sampling. It is not a replacement or retry that overrides
+a sampling decision. The owned-SDK sampler and all other SDK handling stay unchanged.
+
+**Mechanical checks** (target=both, scope=whole-doc): The shared third round check passes.
+Baseline and after: 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings match exactly. `git diff --check` passes. Anchors pass uniqueness and
+overlap preflight. This file batch applies successfully. Workflow stamps and H2 names stay
+unchanged. Obsolete parameter, connection-count and synthetic-endpoint terms are absent.
+The remaining CLIENT occurrence is the generic span-kind glossary, not a role recommendation.
+
+**Cold-read**: The author reviews the complete diff and surrounding contracts.
+Independent cold-read remains a separate post-commit action. No independent verdict is claimed.
+
+**Findings**: The report lists every proposed detail with alternatives and rationale under
+Choices for user confirmation. Network option C stays deferred. No production code, Maven,
+PR edit, push or completion marker belongs to this action. Only the declared three design
+files are committed. The implementer report remains outside the worktree and uses append-only
+chunks with an expected-content comparison.
+
+**Iterations**: Third successful mechanics file batch. Final validation covers all six batches.
+
+## Mutation 93 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: Track 93 fix round 1 applies the approved independent operation and collection
+rules to SQL, scripts, both Gremlin paths, examples and span-name fallbacks. Identity facts come
+from execution parser metadata. Summaries include known static non-collection targets and preserve
+application spelling. Scripts and passthrough chains are not sem-conv batches. Parameter rendering
+depends on original placeholder syntax. Complete passthrough text joins sanitized commands in
+source order and fails closed. DDL also passes through the sanitizer. Classification and safe
+rendering have independent failure rules. First uses define the requested terms.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The shared fix-round checks report 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings match the baseline. `git diff --check` passes.
+
+**Cold-read** (scope: changed passages and surrounding contracts): The supplied cold-read drives
+these fixes. The author rereads every changed passage. This is a self-review.
+
+**Findings**: Fixed 1–7, 16–21, 25 and the section-3 definitions in this batch.
+The user changed approved goal 11 to independent identity eligibility. The user accepted all eight
+Track 93 choices. That acceptance supersedes every approval-status statement in Mutations 87–92.
+No Track 93 choice awaits confirmation. Propagation remains an unplanned idea with no approved
+implementation. Historical mutation entries remain unchanged under the append-only log contract.
+
+**Iterations**: First successful fix-round design batch. Later entries record its refinements.
+
+## Mutation 94 — 2026-10-19 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: The first companion batch splits embedded client histograms from server metrics.
+Server work uses `youtrackdb.server.operation.duration` and
+`youtrackdb.server.response.returned_rows`. Both families keep the same schemas and buckets.
+Instrument selection precedes the existing cache lookup. Independent identity rules also govern
+metric dimensions and builder inputs. Session counting covers successful opens through first
+close, including idle and internal schema sessions. Request role requires a known incoming
+request boundary. The query-text builder-time deviation and Collector resource rules are explicit.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The shared checks report 0 blockers, 37 should-fix findings and 1 suggestion with no new findings.
+Anchors are unique and non-overlapping. One preflight corrected a capitalization mismatch before
+application. No edit application failed. `git diff --check` passes.
+
+**Cold-read**: Companion consistency self-review. No independent verdict is claimed.
+
+**Findings**: Fixed 8–10 and 22–24 in this batch. The bounded Attributes cache does not bound
+SDK aggregation cardinality. All eight Track 93 choices are user-accepted. Mutation 93 records
+the approval-status supersession. The user-approved server metric split replaces same-name reuse.
+
+**Iterations**: First successful fix-round mechanics batch.
+
+## Mutation 95 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The second design batch qualifies every direct-SQL parent instruction by
+deployment. Embedded work uses the captured host. Server direct work uses explicit roots.
+Buffered SQL retains its late Gremlin parent. Known incoming requests use SERVER and local server
+SQL uses INTERNAL. SQL closes the delegated result set before capturing its endpoint and emitting
+completion once. Earlier execution errors remain the telemetry error. Delegate close failures
+keep normal propagation and suppression. SQL timestamps describe the instrumented consumption
+window. Exporters do not promise clock-skew repair. Overview and metrics text name both families.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. No new finding remains.
+`git diff --check` passes. Exact-text matching applies every replacement successfully.
+
+**Cold-read**: The author reads the timing, parent and listener contracts together as self-review.
+
+**Findings**: Fixed 9–14 in this batch. SQL cleanup ordering is user-approved. The active-time
+accumulator remains unchanged and does not start measuring delegated close. No sampling, heartbeat,
+tag-rule, limit or JMH change belongs to this batch.
+
+**Iterations**: Second successful fix-round design batch.
+
+## Mutation 96 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The third design batch describes EXACT as clock reads with JVM-dependent and
+platform-dependent cost. It removes promises of kernel syscalls. Duration descriptions select the
+embedded or server histogram and retain the real instrumented endpoint difference. Core Concepts
+names both histogram families without changing cache bounds, schemas or buckets.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The shared checks report 0 blockers, 37 should-fix findings and 1 suggestion. No new finding remains.
+An unused absent anchor was removed from preflight before application. The edit succeeds.
+`git diff --check` passes.
+
+**Cold-read**: Changed-text self-review only.
+
+**Findings**: Fixed 15 and completed the metric-name propagation for 9. Clock-call wording makes
+no new performance guarantee. The accepted slowdown estimates and JMH gate remain unchanged.
+
+**Iterations**: Third successful fix-round design batch.
+
+## Mutation 97 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The fourth design batch aligns cleanup, timing-window and snapshot descriptions.
+SQL copies immutable completion values after delegated cleanup and retains no live resources in
+the pending snapshot. Passthrough identity uses execution parser metadata. Regression requirements
+cover close-only failure, earlier execution plus close failure, repeated close and suppression.
+The row-count accessor maps to the selected histogram family. Request-role comments explain that
+routing and deployment alone do not prove an incoming request. FQN has a clear first-use definition.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The shared checks report 0 blockers, 37 should-fix findings and 1 suggestion with no new findings.
+Anchors are unique and non-overlapping. `git diff --check` passes.
+
+**Cold-read**: The author rereads all changed passages and the full surrounding contracts.
+
+**Findings**: Completes 2 and 9–13 without changing the immutable snapshot or recording-only
+contracts. The eight accepted Track 93 choices have no open approval item.
+
+**Iterations**: Fourth successful fix-round design batch within the requested fix action.
+
+## Mutation 98 — 2026-10-19 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: The second companion batch states successful SQL's consumption window and
+its post-cleanup completion order. It preserves earlier failures and delegate exception behavior.
+Metric regression requirements include an operation without a collection, a collection without one
+operation and both deployment-specific instrument families. First uses define JUL, WAL and DSL.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. Normalized findings match.
+Anchors are unique and non-overlapping. `git diff --check` passes.
+
+**Cold-read**: Companion self-review against the matching design passages.
+
+**Findings**: Completes 1, 9, 12, 13 and the section-3 companion definitions.
+Heartbeat sections, the SDK sampling contract, owned-SDK sampler policy, limits and JMH stay
+unchanged. No Maven, PR edit, push or marker commit runs in this action.
+
+**Iterations**: Second successful fix-round mechanics batch.
+
+## Mutation 99 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The fifth design batch polishes the independent-identity examples and the
+parent-context explanation. It names delegated close as an error source in both accessor and
+attribute tables. Port wording avoids an undefined acronym. Sentence capitalization and the
+passthrough custom-attribute introduction use plain consistent prose.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The shared checks report 0 blockers, 37 should-fix findings and 1 suggestion with no new findings.
+Anchors are unique and non-overlapping. `git diff --check` passes.
+
+**Cold-read**: The author reads every current changed passage and checks all 25 supplied findings.
+This is self-review after the supplied independent cold-read, not a new independent verdict.
+
+**Findings**: Fixed 1–25 and all section-3 definitions across this fix round. The active design
+contains no coupled operation/collection rule or unqualified server host-parent instruction.
+The append-only implementer report carries the per-finding status and acceptance record.
+
+**Iterations**: Fifth successful fix-round design batch.
+
+## Mutation 100 — 2026-10-19 — content-edit (design.md)
+
+**Diff summary**: The final design batch capitalizes the error-attribute sentence after the
+new delegated-close description. It changes no contract.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Final result: 0 blockers, 37 should-fix findings and 1 suggestion. The normalized finding multiset
+matches the 13767796d0 baseline. `git diff --check` passes. Stamps and all H2 names are unchanged.
+Configuration, heartbeat, commit-gate, limits, JMH and slowdown sections remain byte-identical.
+The companion SDK sampling contract remains byte-identical. The mutation log preserves its prefix.
+
+**Cold-read**: Complete changed-passage self-review. The orchestrator owns any new independent read.
+
+**Findings**: No new mechanical finding or design conflict remains. All eight Track 93 choices
+are user-accepted. The user-approved deviations are independent identity attributes, separate
+server instruments, non-batch scripts and chains, SQL cleanup before completion, DDL sanitization
+and fail-closed unknown-node handling. No product behavior beyond those decisions is introduced.
+Only the three declared files enter the commit. Propagation and the PR update remain outside scope.
+
+**Iterations**: Sixth successful fix-round design batch. Eight file batches complete this action.
