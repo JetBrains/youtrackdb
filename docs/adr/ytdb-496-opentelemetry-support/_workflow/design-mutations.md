@@ -1480,3 +1480,179 @@ python3 .claude/scripts/design-mechanical-checks.py \
 
 **Working-mode counter**: 0 mechanics-edits since this design-sync.
 
+## Mutation 79 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Partial application of Track 89. The mechanics edit describes late Gremlin
+creation, bounded SQL completion snapshots, tag and provenance Context values without a Gremlin
+span, host-span log correlation and worker-thread scope placement. It keeps the skinny filter,
+its setting and factory. It retains the rejected pre-generated context and Collector alternatives
+while selecting local child buffering. Heartbeat rules, tag rules and the emit-all default are
+unchanged. The parallel design.md edit failed because a replacement matched two locations.
+That file is unchanged. The edit-design apply-failure rule requires stopping without retry.
+No commit was made. This mutation is incomplete and is not an accepted coherent design.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS on structure only. Before and after
+partial application: 0 blockers, 38 should-fix findings and 1 suggestion. Normalize shifted line
+references when comparing finding sets. There are no added or removed mechanical findings.
+`git diff --check` passes. Both line-1 workflow stamps remain unchanged. No Maven command ran.
+
+**Cold-read** (scope: whole-doc): NOT COMPLETED. No independent sub-reader tool is available.
+The author read all changed mechanics text in full and checked it against the existing design.
+That consistency read finds an unresolved cross-file contradiction. It is not a cold-read PASS.
+
+**Findings**:
+- Blocker: design.md still opens the Gremlin span at first hasNext and parents nested SQL under
+  that active span. The retained mechanics edit creates it at close and buffers SQL completions.
+- Blocker: design.md still correlates traversal logs with the Gremlin span. The mechanics edit
+  correlates them with the host span. The diagrams, hook return type and configuration table
+  also need the matching design.md changes before this mutation can pass.
+- Process stop: edits[25] in the design.md batch matched two occurrences of the outer-span-open
+  phrase. No replacement from that batch applied. Preflight uniqueness and overlap on resumption.
+- Pending user confirmation: default child limit 128, newest-candidate drop, child own-gate
+  selection, parent recording-and-sampled requirement, same-thread per-call scopes, serialized
+  offer/seal with late-completion drops, immutable snapshots and the three-reason drop counter.
+- Carry forward the 38 baseline should-fix findings and 1 baseline suggestion without additions.
+
+**Iterations**: 1 of 3 (STOPPED — APPLY FAILURE, CROSS-FILE BLOCKERS REMAIN).
+
+### Resumed completion — 2026-10-19
+
+This completion supersedes the incomplete status above. The earlier stop remains as history.
+The user approved recovery from exact-text matching failures and accepted all eight detail
+choices. Matching failures were tool errors, not design deviations. The retained mechanics
+edits remain in place. The resumed design batch passed uniqueness and overlap preflight.
+One exact-text typo caused an atomic failure. Correcting that typo allowed the batch to apply.
+
+**Diff summary (final)**: Both design files now create the Gremlin span after traversal resources
+close and its query gates accept completion. Context carries the tag, Gremlin-origin marker and
+private traversal state during execution without a Gremlin span. Accepted SQL completions enter
+a bounded immutable snapshot buffer. A recording, sampled late parent supplies their real parent
+ID. The class and sequence diagrams show this lifecycle. The configuration table includes the
+child limit. D34 assigns traversal logs to the host span. Worker-thread scope placement includes
+per-session executors. The listener owns detached-batch cleanup. The hook clears entries not
+detached. Both count unconsumed entries once on failure. Heartbeat rules, tag rules, emit-all
+and timing-mode endpoint conventions remain unchanged. The skinny filter and its factory remain.
+
+**Accepted detail choices**:
+1. Use `OPENTELEMETRY_GREMLIN_MAX_BUFFERED_SQL_SPANS`, default `128`. Allow `0` to disable
+   child retention. Reject invalid values at SDK configuration.
+2. Drop the newest candidate when the buffer is full, including errors.
+3. Apply SQL gates and heartbeat claiming at SQL completion. Buffer only accepted candidates.
+   Do not repeat callbacks, gates or histograms when draining.
+4. Discard children if Gremlin gates reject or its SDK span is not recording and sampled.
+   Do not force parent retention, promote children to roots or attach them to the host.
+5. Serialize offer and seal in one short synchronized section. Do not wait for open SQL results.
+   Drop completions after seal as `traversal_closed`.
+6. Scope Context per delegated call on the executing thread. Restore it in `finally` there.
+7. Buffer immutable completion values. Retain no lazy `QueryDetails`, SDK span, result, plan
+   or transaction in a pending child.
+8. Count losses through `youtrackdb.otel.gremlin.sql_spans.dropped`. Export a `LongCounter`,
+   unit `{span}`, when query metrics are enabled. Use only `capacity`, `parent_not_emitted`
+   and `traversal_closed` reasons. The backing total advances with export off.
+
+**Mechanical checks (final)** (target=both, scope=whole-doc): PASS with baseline debt.
+The final result is 0 blockers, 38 should-fix findings and 1 suggestion. The normalized finding
+set equals the resumption baseline. Normalize shifted line numbers and the existing section-size
+value. There are no new or removed findings. The command is the whole-document command recorded
+in Mutation 78. `git diff --check` passes. Both line-1 workflow stamps and all existing H2 section
+names remain unchanged. The configuration table has 22 rows. Heartbeat and commit-gate sections
+are byte-identical to HEAD in both files. Only the three declared design files changed.
+
+**Cold-read (final)** (scope: whole-doc): PASS on the approved delta as self-review.
+No independent sub-reader tool is available. The user allowed separate self-read passes.
+One pass read the complete design and mechanics. A separate consistency pass read every changed
+passage and compared both lifecycle descriptions, diagrams, tag flow, SQL routing and D34 text.
+It found detached-batch cleanup ownership unclear. The follow-up states that the listener clears
+its detached batch and the hook clears entries not detached. Rereading the corrected passages
+found no remaining lifecycle contradiction. This is not an independent reviewer result.
+
+1. Addition: the Overview describes optional three-signal OTel integration and bounded SQL
+   buffering beneath a late Gremlin parent.
+2. Concepts: Core Concepts defines spans, Context, query tags, gates, logs and metrics.
+   Class Design defines traversal state and immutable pending SQL snapshots.
+3. Claim: Context propagation creates no query span during execution. It builds the Gremlin
+   parent only after resources close and gates accept completion.
+4. Constraints: each SQL completion evaluates its gates and histograms once. Children require
+   capacity and a recording, sampled parent. Every execution-thread scope closes there.
+5. Reverting the lifecycle would restore eager Gremlin allocation and host-log disagreement.
+6. Gotcha: an accepted error SQL candidate can still be lost to capacity, late completion or
+   parent rejection. EXACT endpoints do not guarantee timestamp containment.
+7. Detail: the Context propagation footer links to Slow-query threshold gating in mechanics,
+   whose Buffered SQL children subsection defines admission, sealing, loss and cleanup.
+
+**Findings (final)**:
+- Resolved: eager-span statements, active-Gremlin SQL parentage and traversal-log correlation.
+- Resolved: hook return type, stored Context, buffer classes, diagrams and configuration row.
+- Resolved: detached-batch cleanup ownership after listener or parent-builder failure.
+- Accepted: all eight detail choices. No pending approval remains for Track 89.
+- Carry forward 38 baseline should-fix findings and 1 baseline suggestion without additions.
+- Deferred: Track 90 owns skinny-filter removal and the sampling contract. Track 91 owns
+  listener order, caches, kept-span attributes and histograms. Track 92 owns other queue and
+  text limits, export counters, the JMH gate and slowdown section. Track 93 owns attribute
+  and span-kind fixes, real EXACT endpoints, the propagation note and the PR #1108 plan.
+- No remote-parent implementation or new propagation work group is added. Server requests
+  remain roots. No Maven, runtime code, POM, implementation plan, manual or example changed.
+
+**Iterations (final)**: 3 of 3 (PASS on the approved delta with baseline findings carried forward).
+The retained partial attempt, resumed reconciliation and cleanup clarification form these rounds.
+
+
+## Mutation 80 — 2026-10-19 — content-edit (design.md + design-mechanics.md)
+
+**Diff summary**: Track 89 fix round 1 qualifies heartbeat, error, duration-gate and span-count
+wording for nested SQL. Passing a query gate does not promise buffer admission, parent retention
+or export. The lifecycle diagram guards its export arrow with a recording, sampled parent.
+SQL completion text distinguishes captured routing Context from the later explicit Gremlin
+parent. Definitions introduce traversal state, immutable SQL snapshots, sealing, acceptance,
+candidates, admission, late parent, buffer drain, provenance, TX, sem-conv and decision IDs.
+The child-limit configuration row links directly to Buffered SQL children. All retained edits
+from the interrupted fix attempt are included in this mutation.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The HEAD baseline and fix-round result have 0 blockers, 38 should-fix findings and 1 suggestion.
+The normalized finding sets match after removing shifted line references. No finding was added
+or removed. `git diff --check` passes. Line-1 workflow stamps and all H2 names are unchanged.
+Each resumed edit batch passed uniqueness and overlap preflight. No Maven command ran.
+
+**Cold-read** (scope: whole-doc): The supplied Track 89 cold-read required revisions.
+This fix addresses its findings. The author reread every changed passage and checked the full
+lifecycle, diagrams and configuration against both files. This follow-up is a self-review,
+not a fresh independent cold-read. No independent sub-reader tool is available in this worker.
+The mechanical baseline debt remains outside this wording-only fix.
+
+**Findings**:
+- B1 resolved: a heartbeat claim passes the query trace gate. It advances the clock at completion.
+  Later buffer or parent loss does not refund the slot, select a replacement or re-claim at drain.
+- B2 resolved: errors bypass both query gates without advancing the heartbeat clock. Nested SQL
+  errors still need buffer capacity and a retained parent. SDK sampling and export still apply.
+- B3 resolved: only a recording, sampled parent reaches the diagram's export arrow. Parent end
+  remains unconditional in the accepted-Gremlin branch.
+- B4 resolved: SQL captures routing Context. Direct SQL uses its host parent. Nested SQL uses
+  `recordedHostContext.with(gremlinSpan)` only when its child span is built at drain.
+- S1 resolved: heartbeat pseudocode comments describe buffering, seal and cleanup.
+- S2 resolved: the first gate example is explicitly a duration-check fragment. It links to the
+  combined heartbeat-first order and the buffer cleanup contract.
+- S3 resolved: SQL examples, script completion sites, count guidance and Profile descriptions
+  distinguish instrumentation opportunities from retained or exported spans.
+- S4 resolved: zero threshold disables duration filtering. Equality passes the duration gate.
+  Configuration and mode examples no longer promise delivery merely because this gate accepts.
+- S5 resolved: the Context descriptions distinguish direct SQL, nested SQL and Gremlin completion.
+- Resolved vocabulary: sealed means closed to offers. Accepted means passed its own query gates.
+  Candidate means eligible for retention. Admitted means stored in the traversal buffer.
+  Neither acceptance nor admission promises span construction or export.
+- Resolved suggestions: first-use definitions and the heartbeat configuration row are qualified.
+  D-numbers are defined inline as decision identifiers. The buffer-limit row links to mechanics.
+- Skipped by decision: the optional three-path table and heartbeat-loss regression scenario.
+  Both remain useful additions but are not part of this wording-only fix round.
+- Skipped: a canonical D-record link has no target in this ADR directory.
+- Unchanged after inspection: standalone commit spans use the committing thread's current Context.
+  They enter neither the nested-SQL buffer nor the late Gremlin parent. Commit-gate sections,
+  failed-commit wording and the commit-threshold row remain unchanged. The D18 at-most-once
+  invariant is also unchanged because it does not promise emission.
+- Preserved: all eight approved Track 89 choices, heartbeat selection, tag rules and emit-all
+  defaults. Skinny-filter removal, span kinds, attribute names, EXACT timestamps, other queue
+  and text limits, and network propagation remain outside this fix.
+
+**Iterations**: 2 of 3 (PASS on the requested wording delta with baseline findings carried forward).
+The retained wording batch is the first iteration. The resumed first-use and wording polish is
+one follow-up iteration. This fix introduces no behavior change or unapproved deviation.
