@@ -939,6 +939,7 @@ public abstract class AbstractStorage
                   nextOperationId(idGen.getLastId(), "storage open"));
           atomicOperationsManager = new AtomicOperationsManager(this, atomicOperationsTable);
 
+          verifyStartupHistory();
           recoverIfNeeded();
 
           atomicOperationsManager.executeInsideAtomicOperation(
@@ -1000,7 +1001,17 @@ public abstract class AbstractStorage
                 }
               });
 
+          finishStartupHistory();
           status = STATUS.MIGRATION;
+        } catch (Throwable primary) {
+          try {
+            abortStartupHistory(primary);
+          } catch (Throwable secondary) {
+            suppressOpenFailure(primary, secondary);
+          } finally {
+            status = STATUS.CLOSED;
+          }
+          throw primary;
         } finally {
           stateLock.writeLock().unlock();
         }
@@ -1046,6 +1057,11 @@ public abstract class AbstractStorage
         }
 
       } catch (final Throwable e) {
+        try {
+          abortStartupHistory(e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
         var cacheClosed = true;
         try {
           if (physicalOpenStarted && writeCache != null) {
@@ -1117,7 +1133,7 @@ public abstract class AbstractStorage
    * Attaches secondary failures on a best-effort basis because suppression can be disabled.
    * Primary failure identity is the guarantee, even when attachment fails.
    */
-  private static void suppressOpenFailure(Throwable primary, Throwable secondary) {
+  protected static void suppressOpenFailure(Throwable primary, Throwable secondary) {
     if (primary != secondary) {
       try {
         primary.addSuppressed(secondary);
@@ -1129,6 +1145,28 @@ public abstract class AbstractStorage
 
   /** Disk open starts new acquisitions. Memory open retains its existing in-memory image. */
   protected void prepareOpenResources() {
+  }
+
+  /** Persistent startup history hooks are inert for engines without a disk startup owner. */
+  protected void verifyStartupHistory() throws IOException {
+  }
+
+  protected void startupHistoryBarrier() throws IOException {
+  }
+
+  protected void beginStartupReplay() {
+  }
+
+  protected void endStartupReplay() {
+  }
+
+  protected void startupReplayFailed() {
+  }
+
+  protected void finishStartupHistory() throws IOException {
+  }
+
+  protected void abortStartupHistory(Throwable primary) {
   }
 
   protected abstract void readIv() throws IOException;
@@ -7929,7 +7967,7 @@ public abstract class AbstractStorage
     initWalAndDiskCache(contextConfiguration);
   }
 
-  /** Initializes WAL and caches for a new image. */
+  /** Initializes WAL and caches for creation and the default existing-image memory open. */
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException;
 
@@ -8243,18 +8281,28 @@ public abstract class AbstractStorage
 
         wereDataRestoredAfterOpen = true;
 
-        // Delete non-durable files before WAL replay — their data is unrecoverable
-        // (no WAL records exist). The returned set is used by restoreAtomicUnit() to
-        // skip WAL records referencing these files.
-        deletedNonDurableFileIds = writeCache.deleteNonDurableFilesOnRecovery(readCache);
-
+        beginStartupReplay();
+        Throwable replayFailure = null;
         try {
+          // Deletion and replay form one preservation interval, including deletion failure.
+          deletedNonDurableFileIds = writeCache.deleteNonDurableFilesOnRecovery(readCache);
           restoreFromWAL();
+        } catch (Exception | Error primary) {
+          replayFailure = primary;
+          throw primary;
         } finally {
-          // Clear after replay — no longer needed, and prevents stale references
-          deletedNonDurableFileIds = new IntOpenHashSet();
+          deletedNonDurableFileIds.clear();
+          try {
+            endStartupReplay();
+          } catch (Throwable secondary) {
+            if (replayFailure == null) {
+              throw secondary;
+            }
+            suppressOpenFailure(replayFailure, secondary);
+          }
         }
 
+        startupHistoryBarrier();
         if (recoverListener != null) {
           recoverListener.onStorageRecover();
         }
@@ -8262,7 +8310,11 @@ public abstract class AbstractStorage
         flushDirtyHistograms();
         flushAllData();
       } catch (final Exception e) {
-        LogManager.instance().error(this, "Exception during storage data restore", e);
+        try {
+          LogManager.instance().error(this, "Exception during storage data restore", e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
         throw e;
       }
 
@@ -8995,28 +9047,9 @@ public abstract class AbstractStorage
       nullIndexSnapshotVisibilityIndex.clear();
       indexesSnapshotEntriesCount.set(0);
 
-      // writeCache and readCache are guaranteed non-null past this
-      // point. The entry guard at the top of doShutdownOnDelete returns
-      // early on STATUS.CLOSED and throws unless status == STATUS.OPEN
-      // or isInError(). writeCache is assigned during
-      // initWalAndDiskCache (DiskStorage.java:790 for the disk engine,
-      // DirectMemoryStorage.java:78 for the in-memory engine), and
-      // readCache is assigned in the DiskStorage constructor
-      // (DiskStorage.java:261) or during the in-memory engine's init
-      // (DirectMemoryStorage.java:74). status = STATUS.OPEN is reached
-      // only after that wiring completes; every open() failure path
-      // that flips isInError() leaves status at STATUS.CLOSED, which
-      // the early-return catches. The asserts document the invariant
-      // and runtime-check it under -ea (the test JVM default;
-      // production runs -ea off, so this is free).
-      //
-      // Listener teardown and read-cache deletion run inside a
-      // defensive try/catch(Throwable) so any unexpected runtime
-      // failure here (a future invariant violation under -ea off, an
-      // implementation that throws from a listener removal, etc.)
-      // cannot bypass writeAheadLog.delete() and re-leak the WAL's two
-      // direct-memory write buffers (the exact failure mode this
-      // commit fixed).
+      // Completed disk common-builder or memory initialization supplies both caches before OPEN.
+      // The entry guard rejects other states and returns for CLOSED, including failed opens.
+      // Listener teardown and cache deletion must not prevent the later WAL deletion attempt.
       assert writeCache != null;
       assert readCache != null;
       try {
@@ -9323,19 +9356,27 @@ public abstract class AbstractStorage
         records = writeAheadLog.next(records.getLast().getLsn(), 1_000);
       }
     } catch (final WALPageBrokenException e) {
-      LogManager.instance()
-          .error(
-              this,
-              "Data restore was paused because broken WAL page was found. The rest of changes will"
-                  + " be rolled back.",
-              e);
+      try {
+        startupReplayFailed();
+        LogManager.instance().error(this,
+            "Data restore was paused because broken WAL page was found. The rest of changes will"
+                + " be rolled back.",
+            e);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(e, secondary);
+        throw e;
+      }
     } catch (final RuntimeException e) {
-      LogManager.instance()
-          .error(
-              this,
-              "Data restore was paused because of exception. The rest of changes will be rolled"
-                  + " back.",
-              e);
+      try {
+        startupReplayFailed();
+        LogManager.instance().error(this,
+            "Data restore was paused because of exception. The rest of changes will be rolled"
+                + " back.",
+            e);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(e, secondary);
+        throw e;
+      }
     }
 
     // WAL operation identifiers are highest-issued evidence, not the next identifier to issue.

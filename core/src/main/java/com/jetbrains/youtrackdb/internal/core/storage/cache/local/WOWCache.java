@@ -629,7 +629,7 @@ public final class WOWCache extends AbstractWriteCache
         new ChangedPageTracker());
   }
 
-  /** The disk storage supplies one fresh, untrusted tracker for each open or creation. */
+  /** Disk storage shares its selected tracker, loaded on existing open and fresh on creation. */
   public WOWCache(
       final int pageSize,
       final boolean logFileDeletion,

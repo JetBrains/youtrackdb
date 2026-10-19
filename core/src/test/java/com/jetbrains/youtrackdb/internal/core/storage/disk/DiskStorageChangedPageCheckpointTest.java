@@ -47,10 +47,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
@@ -67,7 +73,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -134,6 +144,780 @@ public class DiskStorageChangedPageCheckpointTest {
     }
   }
 
+  /** Existing-disk admission must remove malformed authority without relying on a checkpoint. */
+  @Test
+  public void existingOpenEagerlyRemovesMalformedAuthority() throws Exception {
+    var created = createObservedStorage();
+    created.close(null, true);
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    Files.writeString(path, "invalid saved authority");
+    created.open(new ContextConfiguration());
+    assertFalse("Admission must durably remove unprovable authority", Files.exists(path));
+  }
+
+  /** An initial fallback failure must stop open before configuration or maintenance admission. */
+  @Test
+  public void existingOpenRejectsFailedInitialFallback() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    Files.deleteIfExists(path);
+    Files.createDirectory(path);
+    var blocker = Files.writeString(path.resolve("blocker"), "retain");
+    var recovery = new AtomicInteger();
+    setField(created, "recoverListener",
+        (com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverListener) recovery::incrementAndGet);
+    clearInvocations(created);
+    try {
+      assertThrows(RuntimeException.class, () -> created.open(new ContextConfiguration()));
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      verify(created, never()).beginStartupReplay();
+      verify(created, never()).checkpointChangedPages(anyLong());
+      verify(created, never()).finishStartupHistory();
+      assertEquals(0, recovery.get());
+    } finally {
+      Files.delete(blocker);
+      Files.delete(path);
+    }
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Real clean reopen proves retained coverage, merges sealed marks and keeps continuity. */
+  @Test
+  public void cleanOpenLoadsTrustedHistoryAndFinishesBeforeMigration() throws Exception {
+    assertTrustedReopen(false);
+  }
+
+  /** Dirty reopen uses the pre-recovery shutdown snapshot and ends preservation before components. */
+  @Test
+  public void dirtyOpenLoadsTrustedHistoryAndEndsReplayPreservation() throws Exception {
+    assertTrustedReopen(true);
+  }
+
+  private void assertTrustedReopen(boolean dirty) throws Exception {
+    var created = createObservedStorage();
+    var completed = UUID.randomUUID();
+    seedTrustedHistory(created, dirty, completed);
+    var selected = new ChangedPageTracker[1];
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+      var result = call.callRealMethod();
+      if (call.getMethod().getName().equals("verify")) {
+        var pending = (ChangedPageTrackerStartup.PendingHistory) call.getArgument(0);
+        selected[0] = pending.tracker();
+        assertEquals(dirty ? ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+            : ChangedPageTrackerStartup.ShutdownState.CLEAN, call.getArgument(2));
+        var ids = (ChangedPageTrackerStartup.FileIds) call.getArgument(3);
+        var cache = (WOWCache) created.getWriteCache();
+        long external = cache.externalFileId(123456);
+        assertEquals(123456, ids.internalFileId(external));
+        assertNull(ids.currentName(123456));
+        assertTrue(selected[0].isTrusted());
+      }
+      return result;
+    })) {
+      doAnswer(call -> {
+        assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+        assertNotNull(field(DiskStorage.class, created, "startupOwner"));
+        assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+            "startupReplayPreservation"));
+        call.callRealMethod();
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        return null;
+      }).when(created).finishStartupHistory();
+      created.open(new ContextConfiguration());
+    }
+    assertSame(selected[0], field(DiskStorage.class, created, "changedPageTracker"));
+    assertSame(selected[0], field(WOWCache.class, created.getWriteCache(), "changedPageTracker"));
+    assertTrue(selected[0].isTrusted());
+    assertNull(field(ChangedPageTracker.class, selected[0], "sealed"));
+    assertEquals(completed, field(ChangedPageTracker.class, selected[0], "lastCompleted"));
+    assertEquals(List.of(7L, 9L), candidates(selected[0], 123456));
+    assertEquals("Proof retains pages in an incomplete unit, including a page before create",
+        List.of(31L, 33L), candidates(selected[0], 123457));
+    // No startup interval leaks into ordinary file events or reused sessions.
+    clearInvocations(created);
+    created.open(new ContextConfiguration());
+    verify(created, never()).initWalAndDiskCacheOnOpen(any());
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Broken-page replay revokes loaded trust before its first error diagnostic. */
+  @Test
+  public void brokenPageReplayDistrustsBeforeDiagnostics() throws Exception {
+    assertAbsorbedReplayFailure(new WALPageBrokenException("broken startup page"));
+  }
+
+  /** Runtime replay failure revokes loaded trust before its first error diagnostic. */
+  @Test
+  public void runtimeReplayDistrustsBeforeDiagnostics() throws Exception {
+    assertAbsorbedReplayFailure(new IllegalStateException("runtime startup replay"));
+  }
+
+  private void assertAbsorbedReplayFailure(RuntimeException failure) throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    injectReplayFailure(created, failure);
+    var observed = new boolean[1];
+    var logger = LogManager.instance();
+    try (var logging = mockStatic(LogManager.class)) {
+      var diagnostic = mock(LogManager.class, call -> {
+        if (call.getMethod().getName().equals("error") && call.getArguments().length > 2
+            && call.getArgument(2) == failure) {
+          observed[0] = true;
+          assertFalse(((ChangedPageTracker) field(DiskStorage.class, created,
+              "changedPageTracker")).isTrusted());
+        }
+        return delegatesTo(logger).answer(call);
+      });
+      logging.when(LogManager::instance).thenReturn(diagnostic);
+      created.open(new ContextConfiguration());
+    }
+    assertTrue(observed[0]);
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+    created.close(null, true);
+  }
+
+  /** A post-replay barrier failure prevents recovery notification and leaves CLOSED. */
+  @Test
+  public void postReplayFallbackFailurePreventsRecoveryListener() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    injectReplayFailure(created, new IllegalStateException("replay distrust"));
+    var histogram =
+        mock(com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager.class);
+    var engine =
+        mock(com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine.class);
+    when(engine.getHistogramManager()).thenReturn(histogram);
+    doAnswer(call -> {
+      call.callRealMethod();
+      @SuppressWarnings("unchecked")
+      var engines =
+          (List<com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine>) field(
+              AbstractStorage.class, created, "indexEngines");
+      engines.add(engine);
+      return null;
+    }).when(created).verifyStartupHistory();
+    var failure = new IOException("post-replay invalidation");
+    var entered = new boolean[1];
+    var fullFlush = new AtomicInteger();
+    var flush = AbstractStorage.class.getDeclaredMethod("flushAllData");
+    flush.setAccessible(true);
+    flush.invoke(doAnswer(call -> {
+      fullFlush.incrementAndGet();
+      return call.callRealMethod();
+    }).when(created));
+    clearInvocations(created);
+    setField(created, "recoverListener",
+        (com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverListener) () -> entered[0] =
+            true);
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+      if (call.getMethod().getName().equals("durableDistrust")) {
+        throw failure;
+      }
+      return call.callRealMethod();
+    })) {
+      var thrown = assertThrows(RuntimeException.class,
+          () -> created.open(new ContextConfiguration()));
+      assertSame(failure, thrown.getCause());
+      assertFalse(entered[0]);
+      assertEquals(0, fullFlush.get());
+      verify(histogram, never()).flushIfDirty();
+      verify(created, never()).checkpointChangedPages(anyLong());
+      assertTrue(created.isClosed(null));
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+    }
+  }
+
+  /** Abort attempts end, distrust and durable removal independently while preserving the Error. */
+  @Test
+  public void abortKeepsPrimaryAndAttemptsAllOwnerStepsUnderWriteExclusion() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var primary = new Error("proof failed");
+    var secondary = new Error("end failed");
+    var steps = new ArrayList<String>();
+    doAnswer(call -> {
+      var lock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
+      assertTrue(lock.isWriteLockedByCurrentThread());
+      steps.add("end");
+      throw secondary;
+    }).when(created).endStartupReplay();
+    doAnswer(call -> {
+      steps.add("resource-close");
+      assertTrue(created.isClosed(null));
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+      return call.callRealMethod();
+    }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+      if (call.getMethod().getName().equals("verify")) {
+        throw primary;
+      }
+      if (call.getMethod().getName().equals("replayFailed")) {
+        steps.add("distrust");
+      }
+      return call.callRealMethod();
+    })) {
+      assertSame(primary,
+          assertThrows(Error.class, () -> created.open(new ContextConfiguration())));
+    }
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
+    assertEquals(List.of("end", "distrust", "resource-close"), steps);
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    assertFalse(Files.exists(path));
+  }
+
+  /** Replay deletion keeps unrelated saved candidates and normal clearing resumes afterward. */
+  @Test
+  public void preservationBeginsBeforeNonDurableDeletionAndEndsBeforeComponents() throws Exception {
+    assertDeletionPreservation(false);
+  }
+
+  /** An Error before deletion returns still ends the interval and clears the replay skip set. */
+  @Test
+  public void deletionFailureEndsPreservationAndKeepsPrimary() throws Exception {
+    assertDeletionPreservation(true);
+  }
+
+  private void assertDeletionPreservation(boolean failDeletion) throws Exception {
+    var created = createObservedStorage();
+    var cache = (WOWCache) created.getWriteCache();
+    cache.addFile("sentinel.bin", cache.externalFileId(123456));
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var originalReadCache = created.getReadCache();
+    var primary = new Error("delete before skip set returns");
+    var seen = new boolean[1];
+    var observed = mock(ReadCache.class, delegatesTo(originalReadCache));
+    doAnswer(call -> {
+      var actual = (WOWCache) call.getArgument(1);
+      seen[0] = true;
+      assertTrue((boolean) field(WOWCache.class, actual, "startupReplayPreservation"));
+      if (failDeletion) {
+        throw primary;
+      }
+      originalReadCache.deleteFile(call.getArgument(0), actual);
+      assertEquals(List.of(7L, 9L), candidates(
+          (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker"), 123456));
+      return null;
+    }).when(observed).deleteFile(anyLong(), any());
+    setField(created, "readCache", observed);
+    doAnswer(call -> {
+      call.callRealMethod();
+      var ids = (it.unimi.dsi.fastutil.ints.IntOpenHashSet) field(WOWCache.class,
+          created.getWriteCache(), "nonDurableFileIds");
+      ids.add(123456);
+      return null;
+    }).when(created).initWalAndDiskCacheOnOpen(any());
+    if (failDeletion) {
+      assertSame(primary, assertThrows(Error.class,
+          () -> created.open(new ContextConfiguration())));
+    } else {
+      created.open(new ContextConfiguration());
+      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+      assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+      var actual = (WOWCache) created.getWriteCache();
+      actual.addFile("sentinel.bin", actual.externalFileId(123456));
+      assertTrue(candidates(selected, 123456).isEmpty());
+    }
+    assertTrue(seen[0]);
+    assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+        "startupReplayPreservation"));
+    assertTrue(((it.unimi.dsi.fastutil.ints.IntOpenHashSet) field(AbstractStorage.class, created,
+        "deletedNonDurableFileIds")).isEmpty());
+  }
+
+  /** An escaping replay Error stays identical even when interval end fails once and abort retries. */
+  @Test
+  public void escapingReplayErrorSurvivesFailedEndAndAbortRetries() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var primary = new Error("escaping replay");
+    var secondary = new Error("first interval end");
+    injectReplayFailure(created, primary);
+    var attempts = new int[1];
+    doAnswer(call -> {
+      if (++attempts[0] == 1) {
+        throw secondary;
+      }
+      return call.callRealMethod();
+    }).when(created).endStartupReplay();
+    assertSame(primary, assertThrows(Error.class, () -> created.open(new ContextConfiguration())));
+    assertEquals(2, attempts[0]);
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
+    assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+        "startupReplayPreservation"));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Late live distrust is resolved by the final barrier rather than the earlier proof result. */
+  @Test
+  public void finalBarrierUsesLiveTrustAfterComponentOpen() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    var resolved = new AtomicInteger();
+    doAnswer(call -> {
+      resolved.incrementAndGet();
+      assertTrue(Files.exists(path));
+      var owner = field(DiskStorage.class, created, "startupOwner");
+      var pending =
+          (ChangedPageTrackerStartup.PendingHistory) field(owner.getClass(), owner, "history");
+      ChangedPageTrackerStartup.replayFailed(pending);
+      call.callRealMethod();
+      assertFalse(Files.exists(path));
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      return null;
+    }).when(created).finishStartupHistory();
+    created.open(new ContextConfiguration());
+    assertEquals(1, resolved.get());
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Checked replay failure retains its exact cause when interval end also fails. */
+  @Test
+  public void checkedReplayFailureRetainsCauseThroughIntervalEndFailure() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var primary = new IOException("checked replay failure");
+    var secondary = new Error("end failure");
+    injectReplayFailure(created, primary);
+    doThrow(secondary).when(created).endStartupReplay();
+    var thrown = assertThrows(RuntimeException.class,
+        () -> created.open(new ContextConfiguration()));
+    assertSame(primary, thrown.getCause());
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Failed pending resolution cannot skip the independent tracker invalidation during abort. */
+  @Test
+  public void abortInvalidatesAuthorityEvenWhenPendingDistrustFails() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var primary = new Error("proof error");
+    var secondary = new Error("pending resolution error");
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+      if (call.getMethod().getName().equals("verify")) {
+        throw primary;
+      }
+      if (call.getMethod().getName().equals("replayFailed")) {
+        throw secondary;
+      }
+      return call.callRealMethod();
+    })) {
+      assertSame(primary,
+          assertThrows(Error.class, () -> created.open(new ContextConfiguration())));
+    }
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
+    assertFalse(Files.exists(path));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Broken-page identity survives failure of the diagnostic that normally absorbs replay. */
+  @Test
+  public void brokenPageReplayKeepsPrimaryWhenDiagnosticsFail() throws Exception {
+    assertReplayDiagnosticFailure(new WALPageBrokenException("broken page primary"));
+  }
+
+  /** Runtime replay identity survives failure of the diagnostic that normally absorbs replay. */
+  @Test
+  public void runtimeReplayKeepsPrimaryWhenDiagnosticsFail() throws Exception {
+    assertReplayDiagnosticFailure(new IllegalStateException("runtime replay primary"));
+  }
+
+  private void assertReplayDiagnosticFailure(RuntimeException primary) throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    injectReplayFailure(created, primary);
+    var logger = LogManager.instance();
+    var secondary = new Error("diagnostic failure");
+    try (var logging = mockStatic(LogManager.class)) {
+      var diagnostic = mock(LogManager.class, call -> {
+        if (call.getMethod().getName().equals("error") && call.getArguments().length > 2
+            && call.getArgument(2) == primary) {
+          throw secondary;
+        }
+        return delegatesTo(logger).answer(call);
+      });
+      logging.when(LogManager::instance).thenReturn(diagnostic);
+      assertSame(primary, assertThrows(RuntimeException.class,
+          () -> created.open(new ContextConfiguration())));
+    }
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+    assertTrue(created.isClosed(null));
+  }
+
+  /** The shared replay consumer sends no startup notification outside a physical-open owner. */
+  @Test
+  public void ordinaryRestoreConsumerDoesNotNotifyStartupHistory() throws Exception {
+    var consumer = AbstractStorage.class.getDeclaredMethod("restoreFrom", WriteAheadLog.class,
+        LogSequenceNumber.class);
+    consumer.setAccessible(true);
+    var input = mock(WriteAheadLog.class);
+    when(input.read(any(), anyInt())).thenThrow(new WALPageBrokenException("backup replay"));
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, CALLS_REAL_METHODS)) {
+      consumer.invoke(storage, input, COVERAGE);
+      startup.verifyNoInteractions();
+    }
+  }
+
+  /** Every fallback input acquires a real owner and resolves authority before admission. */
+  @Test
+  public void realOwnerFallbackMatrixCompletesBeforeAdmission() throws Exception {
+    for (var input : List.of("missing", "temporary", "untrusted", "unprovable")) {
+      var created = createObservedStorage("fallback-" + input);
+      seedTrustedHistory(created, false, UUID.randomUUID());
+      var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+          .resolve(ChangedPageTrackerFile.FILE_NAME);
+      if (input.equals("missing") || input.equals("temporary")) {
+        Files.delete(path);
+        if (input.equals("temporary")) {
+          Files.writeString(path.resolveSibling(path.getFileName() + ".tmp"), "temporary only");
+        }
+      } else if (input.equals("untrusted")) {
+        saveHistory(path, new ChangedPageTracker(), COVERAGE);
+      } else {
+        var pending = ChangedPageTrackerStartup.load(path);
+        saveHistory(path, pending.tracker(), new LogSequenceNumber(Long.MAX_VALUE, 32));
+      }
+      var barriers = new AtomicInteger();
+      doAnswer(call -> {
+        if (field(DiskStorage.class, created, "startupOwner") == null) {
+          return call.callRealMethod();
+        }
+        call.callRealMethod();
+        assertFalse(Files.exists(path));
+        barriers.incrementAndGet();
+        return null;
+      }).when(created).startupHistoryBarrier();
+      created.open(new ContextConfiguration());
+      assertFalse(((ChangedPageTracker) field(DiskStorage.class, created,
+          "changedPageTracker")).isTrusted());
+      assertTrue(barriers.get() >= 2);
+      created.close(null, true);
+    }
+  }
+
+  /** Real unknown-content adoption runs after components and invalidates loaded authority first. */
+  @Test
+  public void lateAdoptionResolvesLoadedHistoryWhileKnownFileKeepsTrust() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    var adopted = new AtomicInteger();
+    doAnswer(call -> {
+      adopted.incrementAndGet();
+      var cache = (WOWCache) created.getWriteCache();
+      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+      var known = cache.files().keySet().iterator().next();
+      cache.loadFile(known);
+      assertTrue(selected.isTrusted());
+      assertTrue(Files.exists(path));
+      long id = cache.bookFileId("late.bin");
+      Files.write(cache.getRootDirectory().resolve("late_" + cache.internalFileId(id) + ".bin"),
+          new byte[com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE]);
+      assertEquals(id, cache.loadFile("late.bin"));
+      assertFalse(Files.exists(path));
+      assertFalse(selected.isTrusted());
+      assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+      assertNotNull(field(DiskStorage.class, created, "startupOwner"));
+      call.callRealMethod();
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      return null;
+    }).when(created).finishStartupHistory();
+    created.open(new ContextConfiguration());
+    assertEquals(1, adopted.get());
+  }
+
+  /** A new storage object over the same files inherits no owner from a failed attempt. */
+  @Test
+  public void failedAttemptDoesNotLeakOwnerToNewManager() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var primary = new Error("recover using a new manager");
+    doThrow(primary).when(created).verifyStartupHistory();
+    assertSame(primary, assertThrows(Error.class, () -> created.open(new ContextConfiguration())));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
+    replaceWal(realWal);
+    manager.close();
+    manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    session = manager.open("startup", "admin", "admin");
+    var reopened = (DiskStorage) session.getStorage();
+    assertNotSame(created, reopened);
+    assertEquals(AbstractStorage.STATUS.OPEN, reopened.getStatus());
+    assertNull(field(DiskStorage.class, reopened, "startupOwner"));
+    // The ordinary bridge teardown must not reinstall the WAL from the closed manager.
+    storage = reopened;
+    realWal = reopened.getWALInstance();
+  }
+
+  /** A checksum-valid stale side file is removed by create without loading or proving it. */
+  @Test
+  public void creationNeverLoadsValidStaleAuthority() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+        .resolve(ChangedPageTrackerFile.FILE_NAME);
+    var bytes = Files.readAllBytes(path);
+    var stale = path.getParent().resolveSibling("stale").resolve(path.getFileName());
+    Files.createDirectories(stale.getParent());
+    Files.write(stale, bytes);
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, CALLS_REAL_METHODS)) {
+      manager.create("stale", DatabaseType.DISK, "admin", "admin", "admin");
+      startup.verifyNoInteractions();
+    }
+  }
+
+  /** Proof, post-replay, final resolution and abort exclude all real maintenance admissions. */
+  @Test
+  public void unresolvedOwnerExcludesCheckpointVacuumAndBackup() throws Exception {
+    for (var boundary : List.of("proof", "post-replay", "final", "abort")) {
+      var created = createObservedStorage("admission-" + boundary);
+      seedTrustedHistory(created, boundary.equals("post-replay"), UUID.randomUUID());
+      var executor = Executors.newFixedThreadPool(3);
+      var tasks = new ArrayList<Future<?>>();
+      var protectedEntry = new CountDownLatch(1);
+      var held = new AtomicInteger();
+      var opener = Thread.currentThread();
+      doAnswer(call -> {
+        if (Thread.currentThread() != opener) {
+          protectedEntry.countDown();
+          assertNull(field(DiskStorage.class, created, "startupOwner"));
+        }
+        return call.callRealMethod();
+      }).when(created).checkpointChangedPages(anyLong());
+      org.mockito.stubbing.Answer<Object> hold = call -> {
+        if (field(DiskStorage.class, created, "startupOwner") == null) {
+          return call.callRealMethod();
+        }
+        assertTrue(((ScalableRWLock) field(AbstractStorage.class, created, "stateLock"))
+            .isWriteLockedByCurrentThread());
+        assertNotNull(field(DiskStorage.class, created, "startupOwner"));
+        assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+        held.incrementAndGet();
+        var actual = created.getWALInstance();
+        setField(created, "writeAheadLog", mock(WriteAheadLog.class, walCall -> {
+          if (Thread.currentThread() != opener
+              && (walCall.getMethod().getName().equals("nonActiveSegments")
+                  || walCall.getMethod().getName().equals("begin"))) {
+            protectedEntry.countDown();
+            assertNull(field(DiskStorage.class, created, "startupOwner"));
+          }
+          return delegatesTo(actual).answer(walCall);
+        }));
+        var attempted = new CountDownLatch(3);
+        var start = new CountDownLatch(1);
+        tasks.add(executor.submit(() -> {
+          attempted.countDown();
+          assertTrue(start.await(5, TimeUnit.SECONDS));
+          created.makeFuzzyCheckpoint();
+          return null;
+        }));
+        tasks.add(executor.submit(() -> {
+          attempted.countDown();
+          assertTrue(start.await(5, TimeUnit.SECONDS));
+          var vacuum = AbstractStorage.class.getDeclaredMethod("runWALVacuum");
+          vacuum.setAccessible(true);
+          vacuum.invoke(created);
+          return null;
+        }));
+        tasks.add(executor.submit(() -> {
+          attempted.countDown();
+          assertTrue(start.await(5, TimeUnit.SECONDS));
+          try {
+            created.backup(() -> {
+              protectedEntry.countDown();
+              return java.util.Collections.emptyIterator();
+            }, ignored -> null, ignored -> new java.io.ByteArrayOutputStream(), ignored -> {
+            });
+          } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException expected) {
+            assertTrue(created.getStatus() != AbstractStorage.STATUS.OPEN);
+          }
+          return null;
+        }));
+        assertTrue(attempted.await(5, TimeUnit.SECONDS));
+        start.countDown();
+        assertFalse("No protected entry while the owner is unresolved",
+            protectedEntry.await(200, TimeUnit.MILLISECONDS));
+        return call.callRealMethod();
+      };
+      if (boundary.equals("proof")) {
+        doAnswer(hold).when(created).verifyStartupHistory();
+      } else if (boundary.equals("post-replay")) {
+        var barriers = new AtomicInteger();
+        doAnswer(call -> barriers.incrementAndGet() == 2 ? hold.answer(call)
+            : call.callRealMethod()).when(created).startupHistoryBarrier();
+      } else if (boundary.equals("final")) {
+        doAnswer(hold).when(created).finishStartupHistory();
+      } else {
+        doThrow(new Error("abort admission fixture")).when(created).verifyStartupHistory();
+        doAnswer(hold).when(created).abortStartupHistory(any());
+      }
+      try {
+        if (boundary.equals("abort")) {
+          assertThrows(Error.class, () -> created.open(new ContextConfiguration()));
+          assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+        } else {
+          created.open(new ContextConfiguration());
+        }
+        for (var task : tasks) {
+          task.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(1, held.get());
+      } finally {
+        executor.shutdownNow();
+        assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        created.close(null, true);
+        created.preCloseSteps();
+      }
+    }
+  }
+
+  /** Builder, floor and component failures abort every acquired owner before resource close. */
+  @Test
+  public void ownerFailureMatrixClearsReferencesBeforeResourceCleanup() throws Exception {
+    for (var boundary : List.of("builder", "floor", "component")) {
+      var created = createObservedStorage("failure-" + boundary);
+      seedTrustedHistory(created, false, UUID.randomUUID());
+      var primary = new Error(boundary + " failure");
+      var aborted = new AtomicInteger();
+      doAnswer(call -> {
+        if (field(DiskStorage.class, created, "startupOwner") == null) {
+          return call.callRealMethod();
+        }
+        assertTrue(((ScalableRWLock) field(AbstractStorage.class, created, "stateLock"))
+            .isWriteLockedByCurrentThread());
+        call.callRealMethod();
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        aborted.incrementAndGet();
+        return null;
+      }).when(created).abortStartupHistory(any());
+      doAnswer(call -> {
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+        return call.callRealMethod();
+      }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+      if (boundary.equals("builder")) {
+        doAnswer(call -> {
+          call.callRealMethod();
+          throw primary;
+        }).when(created).initWalAndDiskCacheOnOpen(any());
+      } else if (boundary.equals("floor")) {
+        doThrow(primary).when(created).operationIdFloorOnOpen(anyLong());
+      } else {
+        doThrow(primary).when(created).initConfiguration(any(), any());
+      }
+      assertSame(primary,
+          assertThrows(boundary, Error.class, () -> created.open(new ContextConfiguration())));
+      assertEquals(1, aborted.get());
+      created.preCloseSteps();
+    }
+  }
+
+  private static void saveHistory(Path path, ChangedPageTracker saved, LogSequenceNumber coverage)
+      throws Exception {
+    var save = ChangedPageTrackerFile.class.getDeclaredMethod("save", Path.class,
+        ChangedPageTracker.class, LogSequenceNumber.class);
+    save.setAccessible(true);
+    save.invoke(null, path, saved, coverage);
+  }
+
+  private void injectReplayFailure(DiskStorage created, Throwable failure) throws Exception {
+    doAnswer(call -> {
+      call.callRealMethod();
+      var actual = created.getWALInstance();
+      var observed = mock(WriteAheadLog.class, delegatesTo(actual));
+      doAnswer(read -> {
+        assertTrue("Replay starts only after loaded history is proved",
+            ((ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker"))
+                .isTrusted());
+        throw failure;
+      }).when(observed).read(any(), anyInt());
+      setField(created, "writeAheadLog", observed);
+      return null;
+    }).when(created).initWalAndDiskCacheOnOpen(any());
+  }
+
+  private void seedTrustedHistory(DiskStorage created, boolean dirty, UUID completed)
+      throws Exception {
+    var actual = created.getWALInstance();
+    var coverage = actual.log(new AtomicUnitStartRecord(true, 123));
+    var external = created.getWriteCache().externalFileId(123457);
+    actual.log(new UpdatePageRecord(31, external, 123, new WALPageChangesPortion(), coverage));
+    actual.log(new FileCreatedWALRecord(123, "incomplete.bin", external));
+    actual.log(new UpdatePageRecord(33, external, 123, new WALPageChangesPortion(), coverage));
+    // Deliberately omit the unit end. Proof must retain pages that redo will not apply.
+    actual.flush();
+    actual.addCutTillLimit(coverage);
+    var metadata = (StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata");
+    metadata.makeDirty(com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants.getRawVersion());
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var image = new java.util.HashMap<Path, byte[]>();
+    var lock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
+    lock.writeLock().lock();
+    try {
+      if (dirty) {
+        // Copy this small fixture while all storage writes are excluded. Restore the entire image,
+        // not just its dirty flag, so recovery consumes the exact pre-close WAL and registry.
+        try (var paths = Files.list(directory)) {
+          for (var path : paths.filter(Files::isRegularFile).toList()) {
+            image.put(path, Files.readAllBytes(path));
+          }
+        }
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+    try {
+      created.close(null, true);
+    } finally {
+      actual.removeCutTillLimit(coverage);
+    }
+    if (dirty) {
+      try (var paths = Files.list(directory)) {
+        for (var path : paths.filter(Files::isRegularFile).toList()) {
+          Files.delete(path);
+        }
+      }
+      for (var entry : image.entrySet()) {
+        Files.write(entry.getKey(), entry.getValue());
+      }
+    }
+    var restore = ChangedPageTracker.class.getDeclaredMethod("restoration", UUID.class,
+        UUID.class, boolean.class, UUID.class);
+    restore.setAccessible(true);
+    var builder = restore.invoke(null, UUID.randomUUID(), completed, true, UUID.randomUUID());
+    for (var name : List.of("activeWord", "sealedWord")) {
+      var word = builder.getClass().getDeclaredMethod(name, int.class, long.class, long.class);
+      word.setAccessible(true);
+      word.invoke(builder, 123456, 0L, name.equals("activeWord") ? 1L << 7 : 1L << 9);
+    }
+    var build = builder.getClass().getDeclaredMethod("build");
+    build.setAccessible(true);
+    var saved = (ChangedPageTracker) build.invoke(builder);
+    var save = ChangedPageTrackerFile.class.getDeclaredMethod("save", Path.class,
+        ChangedPageTracker.class, LogSequenceNumber.class);
+    save.setAccessible(true);
+    save.invoke(null, directory.resolve(ChangedPageTrackerFile.FILE_NAME), saved, coverage);
+  }
+
+  private static List<Long> candidates(ChangedPageTracker selected, int id) throws Exception {
+    var active = field(ChangedPageTracker.class, selected, "active");
+    var collect = active.getClass().getDeclaredMethod("forEachCandidate", int.class,
+        java.util.function.LongConsumer.class);
+    collect.setAccessible(true);
+    var result = new ArrayList<Long>();
+    collect.invoke(active, id, (java.util.function.LongConsumer) result::add);
+    return result;
+  }
+
   /** Real disk creation uses only the create initializer and shares one untrusted tracker. */
   @Test
   public void creationSelectsCreateInitializerAndSharesTracker() throws Exception {
@@ -143,7 +927,7 @@ public class DiskStorageChangedPageCheckpointTest {
     assertSharedUntrustedTracker(created);
   }
 
-  /** An existing image uses only the open initializer and shares a fresh untrusted tracker. */
+  /** An existing image without saved authority shares its loaded untrusted tracker. */
   @Test
   public void existingImageSelectsOpenInitializerAndSharesTracker() throws Exception {
     var created = createObservedStorage();
@@ -155,7 +939,7 @@ public class DiskStorageChangedPageCheckpointTest {
     assertSharedUntrustedTracker(created);
   }
 
-  /** Every physical reopen replaces both tracker references together, without trusting history. */
+  /** Each physical open without trusted authority replaces both selected references together. */
   @Test
   public void repeatedPhysicalOpenReplacesSharedTracker() throws Exception {
     var created = createObservedStorage();
@@ -430,6 +1214,8 @@ public class DiskStorageChangedPageCheckpointTest {
     var observed = mock(ReadCache.class, delegatesTo(actualReadCache));
     doAnswer(call -> {
       steps.add("cache");
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
       var cache = (WOWCache) call.getArgument(0);
       assertNotSame(earlierCache, cache);
       partialCache[0] = cache;
@@ -605,6 +1391,10 @@ public class DiskStorageChangedPageCheckpointTest {
   }
 
   private DiskStorage createObservedStorage() throws Exception {
+    return createObservedStorage("startup");
+  }
+
+  private DiskStorage createObservedStorage(String name) throws Exception {
     // Replace only this manager's factory. The shared engine and other managers stay untouched.
     var engineField = manager.internal.getClass().getDeclaredField("disk");
     engineField.setAccessible(true);
@@ -620,8 +1410,8 @@ public class DiskStorageChangedPageCheckpointTest {
     }).when(engine).createStorage(anyString(), anyLong(), anyLong(), anyInt(), any());
     engineField.set(manager.internal, engine);
     try {
-      manager.create("startup", DatabaseType.DISK, "admin", "admin", "admin");
-      try (var opened = manager.open("startup", "admin", "admin")) {
+      manager.create(name, DatabaseType.DISK, "admin", "admin", "admin");
+      try (var opened = manager.open(name, "admin", "admin")) {
         return (DiskStorage) opened.getStorage();
       }
     } finally {
