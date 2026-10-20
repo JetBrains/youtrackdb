@@ -43,6 +43,8 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.engine.Engine;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
@@ -55,11 +57,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MetaDataRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -71,8 +76,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Random;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -231,6 +239,298 @@ public class DiskStorageChangedPageCheckpointTest {
     assertEquals(1L, cache.getFilledUpTo(cache.externalFileId(123456)));
     assertFalse((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
     assertNull(field(DiskStorage.class, created, "startupOwner"));
+  }
+
+  /** Physical damage is admitted only for an unclean terminal page without a readable suffix. */
+  @Test
+  public void physicalWalDamageResolvesTrustBeforeStorageAdmission() throws Exception {
+    for (var variant : List.of("unclean-tail", "clean-tail", "interior", "later-segment",
+        "missing-coverage")) {
+      var created = createObservedStorage("damage-" + variant);
+      try (var baseline = manager.open(created.getName(), "admin", "admin")) {
+        baseline.getMetadata().getSchema().createClass("DamageBaseline");
+        baseline
+            .executeInTx(tx -> baseline.newEntity("DamageBaseline").setProperty("value", "safe"));
+        baseline.freeze();
+        baseline.release();
+      }
+      var completed = UUID.randomUUID();
+      var metadataLsn = new LogSequenceNumber[1];
+      var coverageLsn = new LogSequenceNumber[1];
+      seedTrustedHistory(created, true, completed, false, (target, coverage) -> {
+        coverageLsn[0] = coverage;
+        var input = target.getWALInstance();
+        var payload = new byte[variant.equals("interior") ? 10000 : 4500];
+        new Random(18).nextBytes(payload);
+        metadataLsn[0] = input.log(new MetaDataRecord(payload));
+        if (variant.equals("interior") || variant.equals("later-segment")) {
+          if (variant.equals("later-segment")) {
+            assertTrue(input.appendNewSegment());
+          }
+          input.log(new UpdatePageRecord(599, target.getWriteCache().externalFileId(123457),
+              123, new WALPageChangesPortion(), coverage));
+        }
+        if (variant.equals("clean-tail") || variant.equals("missing-coverage")) {
+          ((StorageStartupMetadata) field(DiskStorage.class, target, "startupMetadata"))
+              .clearDirty();
+        }
+      });
+      var directory = (Path) field(DiskStorage.class, created, "storagePath");
+      var path = directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "."
+          + metadataLsn[0].getSegment() + ".wal");
+      long size = Files.size(path);
+      assertEquals(0, size % CASWALPage.DEFAULT_PAGE_SIZE);
+      long brokenPage = variant.equals("interior")
+          ? metadataLsn[0].getPosition() / CASWALPage.DEFAULT_PAGE_SIZE + 1L
+          : size / CASWALPage.DEFAULT_PAGE_SIZE - 1;
+      assertTrue(brokenPage > metadataLsn[0].getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
+      if (variant.equals("missing-coverage")) {
+        Files.delete(directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "."
+            + coverageLsn[0].getSegment() + ".wal"));
+      } else {
+        try (var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+          var damage = ByteBuffer.wrap(new byte[Long.BYTES]);
+          long offset = brokenPage * CASWALPage.DEFAULT_PAGE_SIZE;
+          while (damage.hasRemaining()) {
+            assertTrue(channel.write(damage, offset + damage.position()) > 0);
+          }
+        }
+      }
+      boolean trusted = variant.equals("unclean-tail");
+      var probes = new AtomicInteger();
+      doAnswer(call -> {
+        var input = created.getWALInstance();
+        var reader = input.openProofReader(coverageLsn[0], 16 * 1024 * 1024);
+        var prefix = new ArrayList<Long>();
+        WriteAheadLog.ProofBatch batch;
+        do {
+          batch = reader.next(16);
+          for (var record : batch.records()) {
+            if (record instanceof UpdatePageRecord page && page.getFileId()
+                == created.getWriteCache().externalFileId(123457)) {
+              prefix.add(page.getPageIndex());
+            }
+          }
+        } while (batch.status() == WriteAheadLog.ProofStatus.MORE);
+        if (variant.equals("missing-coverage")) {
+          assertEquals(WriteAheadLog.ProofStatus.COVERAGE_NOT_RETAINED, batch.status());
+          assertTrue(prefix.isEmpty());
+        } else {
+          assertEquals(WriteAheadLog.ProofStatus.BROKEN_PAGE, batch.status());
+          assertEquals(new LogSequenceNumber(metadataLsn[0].getSegment(),
+              Math.toIntExact(brokenPage * CASWALPage.DEFAULT_PAGE_SIZE)), batch.position());
+          assertEquals(variant.equals("interior") || variant.equals("later-segment"),
+              batch.readablePageFollows());
+          assertEquals(List.of(31L, 33L), prefix);
+        }
+        assertEquals(variant.equals("clean-tail") || variant.equals("missing-coverage")
+            ? ChangedPageTrackerStartup.ShutdownState.CLEAN
+            : ChangedPageTrackerStartup.ShutdownState.UNCLEAN,
+            field(DiskStorage.class, created, "startupShutdown"));
+        call.callRealMethod();
+        var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+        assertEquals(trusted, selected.isTrusted());
+        assertEquals(completed, field(ChangedPageTracker.class, selected, "lastCompleted"));
+        probes.incrementAndGet();
+        return null;
+      }).when(created).verifyStartupHistory();
+      var barriers = new AtomicInteger();
+      doAnswer(call -> {
+        call.callRealMethod();
+        if (!trusted && barriers.get() == 0) {
+          assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+        }
+        barriers.incrementAndGet();
+        return null;
+      }).when(created).startupHistoryBarrier();
+      try {
+        created.open(new ContextConfiguration());
+        assertEquals(1, probes.get());
+        assertTrue(barriers.get() > 0);
+        var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+        assertEquals(trusted, selected.isTrusted());
+        if (trusted) {
+          assertEquals(completed, field(ChangedPageTracker.class, selected, "lastCompleted"));
+        }
+        // An untrusted recovery checkpoint may reset continuity but must retain candidates.
+        assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+        // Direct storage admission does not reopen the manager's cached security context.
+        try (var baseline =
+            ((com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded) manager.internal)
+                .openNoAuthorization(created.getName())) {
+          baseline.executeInTx(tx -> {
+            try (var rows = baseline.query("select value from DamageBaseline")) {
+              assertEquals("safe", rows.next().getProperty("value"));
+              assertFalse(rows.hasNext());
+            }
+          });
+        }
+        assertEquals(variant.equals("missing-coverage") ? List.of() : List.of(31L, 33L),
+            candidates(selected, 123457));
+        assertNotNull(field(AbstractStorage.class, created, "configuration"));
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+      } finally {
+        created.close(null, true);
+        created.preCloseSteps();
+      }
+    }
+  }
+
+  /** Invalid primary bytes cannot gain authority from a valid temporary file on either open. */
+  @Test
+  public void structuredCorruptionInvalidatesBeforeAdmissionAndCannotResurrect() throws Exception {
+    for (var fault : List.of("truncated", "checksum", "version")) {
+      var created = createObservedStorage("corruption-" + fault);
+      seedTrustedHistory(created, false, UUID.randomUUID());
+      var path = ((Path) field(DiskStorage.class, created, "storagePath"))
+          .resolve(ChangedPageTrackerFile.FILE_NAME);
+      var temporary = path.resolveSibling(ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
+      var valid = Files.readAllBytes(path);
+      Files.write(temporary, valid);
+      var invalid = valid.clone();
+      if (fault.equals("truncated")) {
+        invalid = Arrays.copyOf(valid, valid.length - 1);
+      } else if (fault.equals("checksum")) {
+        invalid[invalid.length - 1] ^= 1;
+      } else {
+        ByteBuffer.wrap(invalid).putInt(4, Integer.MAX_VALUE);
+      }
+      Files.write(path, invalid);
+      var barriers = new AtomicInteger();
+      doAnswer(call -> {
+        call.callRealMethod();
+        // Temporary bytes have no authority. The platform may leave that name until publication.
+        assertFalse(Files.exists(path));
+        barriers.incrementAndGet();
+        return null;
+      }).when(created).startupHistoryBarrier();
+      for (int attempt = 0; attempt < 2; attempt++) {
+        try {
+          created.open(new ContextConfiguration());
+          var selected = assertSharedUntrustedTracker(created);
+          assertTrue(candidates(selected, 123456).isEmpty());
+          assertNull(field(DiskStorage.class, created, "startupOwner"));
+          assertTrue(barriers.get() > attempt);
+        } finally {
+          created.close(null, true);
+          created.preCloseSteps();
+        }
+      }
+    }
+  }
+
+  /** Pre-DDL trusted coverage survives a dirty class-creation image and actual schema redo. */
+  @Test
+  public void trustedHistorySurvivesClassCreationAndCrash() throws Exception {
+    var created = createObservedStorage();
+    try (var source = manager.open("startup", "admin", "admin")) {
+      source.getMetadata().getSchema().createClass("Baseline");
+      source.executeInTx(tx -> source.newEntity("Baseline").setProperty("value", "before"));
+      source.freeze();
+      source.release();
+    }
+    var completed = UUID.randomUUID();
+    var proofPages = new HashMap<Integer, TreeSet<Long>>();
+    seedTrustedHistory(created, true, completed, false, (target, coverage) -> {
+      var path = ((Path) field(DiskStorage.class, target, "storagePath"))
+          .resolve(ChangedPageTrackerFile.FILE_NAME);
+      assertEquals(coverage, ChangedPageTrackerStartup.load(path).coverageLsn());
+      try (var source = manager.open("startup", "admin", "admin")) {
+        var targetClass = source.getMetadata().getSchema().createClass("CrashTarget");
+        targetClass.createProperty("name", PropertyType.STRING);
+        targetClass.createIndex("CrashTarget.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+        source.executeInTx(tx -> source.newEntity("CrashTarget").setProperty("name", "first"));
+        source.executeInTx(tx -> source.newEntity("CrashTarget").setProperty("name", "later"));
+      }
+      var input = target.getWALInstance();
+      input.flush();
+      var batch = input.read(coverage, 1000);
+      while (!batch.isEmpty()) {
+        for (var record : batch) {
+          if (record instanceof PageOperation page) {
+            proofPages.computeIfAbsent(target.getWriteCache().internalFileId(page.getFileId()),
+                ignored -> new TreeSet<>()).add(page.getPageIndex());
+          } else if (record instanceof UpdatePageRecord page) {
+            proofPages.computeIfAbsent(target.getWriteCache().internalFileId(page.getFileId()),
+                ignored -> new TreeSet<>()).add(page.getPageIndex());
+          }
+        }
+        batch = input.next(batch.getLast().getLsn(), 1000);
+      }
+      // This case checks actual schema and data files, not the synthetic incomplete unit.
+      proofPages.remove(123457);
+      assertFalse("Real schema and data records must contribute proof candidates",
+          proofPages.isEmpty());
+    });
+    replaceWal(realWal);
+    session.close();
+    session = null;
+    manager.close();
+    manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+      if (call.getMethod().getName().equals("verify")) {
+        var pending = (ChangedPageTrackerStartup.PendingHistory) call.getArgument(0);
+        boolean needsProof = false;
+        for (var entry : proofPages.entrySet()) {
+          needsProof |=
+              !candidates(pending.tracker(), entry.getKey()).containsAll(entry.getValue());
+        }
+        assertTrue("Saved baseline history must need real post-DDL proof marks", needsProof);
+      }
+      var result = call.callRealMethod();
+      if (call.getMethod().getName().equals("verify")) {
+        var pending = (ChangedPageTrackerStartup.PendingHistory) call.getArgument(0);
+        for (var entry : proofPages.entrySet()) {
+          assertTrue(
+              "Proof must add schema and data pages before replay for file " + entry.getKey(),
+              candidates(pending.tracker(), entry.getKey()).containsAll(entry.getValue()));
+        }
+        assertEquals(ChangedPageTrackerStartup.ShutdownState.UNCLEAN, call.getArgument(2));
+        assertTrue(((ChangedPageTrackerStartup.PendingHistory) call.getArgument(0))
+            .tracker().isTrusted());
+      }
+      return result;
+    })) {
+      session = manager.open("startup", "admin", "admin");
+    }
+    storage = (DiskStorage) session.getStorage();
+    realWal = storage.getWALInstance();
+    stateLock = (ScalableRWLock) field(AbstractStorage.class, storage, "stateLock");
+    var selected = (ChangedPageTracker) field(DiskStorage.class, storage, "changedPageTracker");
+    assertTrue(selected.isTrusted());
+    assertEquals(completed, field(ChangedPageTracker.class, selected, "lastCompleted"));
+    assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+    for (var entry : proofPages.entrySet()) {
+      assertTrue("Replay must preserve proof pages for file " + entry.getKey(),
+          candidates(selected, entry.getKey()).containsAll(entry.getValue()));
+    }
+    session.executeInTx(tx -> {
+      try (var rows = session.query("select name from CrashTarget order by name")) {
+        assertEquals(List.of("first", "later"),
+            rows.stream().map(row -> row.<String>getProperty("name")).toList());
+      }
+      try (var rows = session.query("select value from Baseline")) {
+        assertEquals("before", rows.next().getProperty("value"));
+        assertFalse(rows.hasNext());
+      }
+    });
+    assertNull(field(DiskStorage.class, storage, "startupOwner"));
+    session.close();
+    manager.close();
+    manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    session = manager.open("startup", "admin", "admin");
+    storage = (DiskStorage) session.getStorage();
+    realWal = storage.getWALInstance();
+    selected = (ChangedPageTracker) field(DiskStorage.class, storage, "changedPageTracker");
+    assertTrue("A clean physical reopen must retain the proved continuity", selected.isTrusted());
+    assertEquals(completed, field(ChangedPageTracker.class, selected, "lastCompleted"));
+    assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+    assertNull(field(DiskStorage.class, storage, "startupOwner"));
+    stateLock = (ScalableRWLock) field(AbstractStorage.class, storage, "stateLock");
+    var cache = (WOWCache) storage.getWriteCache();
+    assertFalse((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
+    cache.addFile("ordinary-after-crash.bin", cache.externalFileId(123456));
+    assertTrue(candidates(selected, 123456).isEmpty());
   }
 
   private void assertTrustedReopen(boolean dirty) throws Exception {
@@ -892,6 +1192,16 @@ public class DiskStorageChangedPageCheckpointTest {
 
   private void seedTrustedHistory(DiskStorage created, boolean dirty, UUID completed,
       boolean committedReplay) throws Exception {
+    seedTrustedHistory(created, dirty, completed, committedReplay, null);
+  }
+
+  @FunctionalInterface
+  private interface StartupImageAction {
+    void run(DiskStorage created, LogSequenceNumber coverage) throws Exception;
+  }
+
+  private void seedTrustedHistory(DiskStorage created, boolean dirty, UUID completed,
+      boolean committedReplay, StartupImageAction beforeImage) throws Exception {
     var actual = created.getWALInstance();
     var coverage = actual.log(new AtomicUnitStartRecord(true, 123));
     var external = created.getWriteCache().externalFileId(123457);
@@ -911,6 +1221,19 @@ public class DiskStorageChangedPageCheckpointTest {
     var metadata = (StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata");
     metadata.makeDirty(com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants.getRawVersion());
     var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var saved = trustedSavedHistory(created, completed, beforeImage != null);
+    saveHistory(directory.resolve(ChangedPageTrackerFile.FILE_NAME), saved, coverage);
+    try {
+      if (beforeImage != null) {
+        beforeImage.run(created, coverage);
+      }
+    } catch (Exception | Error failure) {
+      actual.removeCutTillLimit(coverage);
+      throw failure;
+    }
+    actual.flush();
+    // Drain asynchronous file initialization as well as periodic page writes before copying.
+    created.getWriteCache().pauseBackgroundFlush();
     var image = new java.util.HashMap<Path, byte[]>();
     var lock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
     lock.writeLock().lock();
@@ -942,6 +1265,11 @@ public class DiskStorageChangedPageCheckpointTest {
         Files.write(entry.getKey(), entry.getValue());
       }
     }
+    saveHistory(directory.resolve(ChangedPageTrackerFile.FILE_NAME), saved, coverage);
+  }
+
+  private static ChangedPageTracker trustedSavedHistory(DiskStorage created, UUID completed,
+      boolean includeBaseline) throws Exception {
     var restore = ChangedPageTracker.class.getDeclaredMethod("restoration", UUID.class,
         UUID.class, boolean.class, UUID.class);
     restore.setAccessible(true);
@@ -951,13 +1279,24 @@ public class DiskStorageChangedPageCheckpointTest {
       word.setAccessible(true);
       word.invoke(builder, 123456, 0L, name.equals("activeWord") ? 1L << 7 : 1L << 9);
     }
+    if (includeBaseline) {
+      // Conservatively cover every baseline page. No pre-coverage change is omitted from history.
+      var cache = created.getWriteCache();
+      var word = builder.getClass().getDeclaredMethod("activeWord", int.class, long.class,
+          long.class);
+      word.setAccessible(true);
+      for (var id : cache.files().values()) {
+        long pages = cache.getFilledUpTo(id);
+        for (long first = 0; first < pages; first += 64) {
+          int count = (int) Math.min(64, pages - first);
+          word.invoke(builder, cache.internalFileId(id), first / 64,
+              count == 64 ? -1L : (1L << count) - 1);
+        }
+      }
+    }
     var build = builder.getClass().getDeclaredMethod("build");
     build.setAccessible(true);
-    var saved = (ChangedPageTracker) build.invoke(builder);
-    var save = ChangedPageTrackerFile.class.getDeclaredMethod("save", Path.class,
-        ChangedPageTracker.class, LogSequenceNumber.class);
-    save.setAccessible(true);
-    save.invoke(null, directory.resolve(ChangedPageTrackerFile.FILE_NAME), saved, coverage);
+    return (ChangedPageTracker) build.invoke(builder);
   }
 
   private static List<Long> candidates(ChangedPageTracker selected, int id) throws Exception {
