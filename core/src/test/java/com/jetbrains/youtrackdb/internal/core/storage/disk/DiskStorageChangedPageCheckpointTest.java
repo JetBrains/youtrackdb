@@ -87,6 +87,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -699,10 +700,22 @@ public class DiskStorageChangedPageCheckpointTest {
     var completed = UUID.randomUUID();
     seedTrustedHistory(created, false, completed);
     Object previous = null;
+    var owners = new ArrayList<Object>();
+    doAnswer(call -> {
+      call.callRealMethod();
+      var owner = field(DiskStorage.class, created, "startupOwner");
+      assertNotNull(owner);
+      owners.add(owner);
+      return null;
+    }).when(created).initWalAndDiskCacheOnOpen(any());
     try {
       for (int attempt = 0; attempt < 2; attempt++) {
         clearInvocations(created);
         created.open(new ContextConfiguration());
+        assertEquals(attempt + 1, owners.size());
+        if (attempt > 0) {
+          assertNotSame(owners.get(0), owners.get(attempt));
+        }
         var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
         assertNotSame(previous, selected);
         assertSame(selected, field(WOWCache.class, created.getWriteCache(), "changedPageTracker"));
@@ -845,10 +858,13 @@ public class DiskStorageChangedPageCheckpointTest {
     var workers = Executors.newFixedThreadPool(3);
     var tasks = new ArrayList<Future<?>>();
     var vacuumEntry = new CountDownLatch(1);
+    var vacuumWorker = new AtomicReference<Thread>();
     var fuzzyEntry = new CountDownLatch(1);
     var actualLock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
     var reader = mock(java.util.concurrent.locks.Lock.class, call -> {
-      if (call.getMethod().getName().equals("lock")) {
+      // Open also takes this lock. Only the submitted vacuum proves concurrent entry.
+      if (call.getMethod().getName().equals("lock")
+          && Thread.currentThread() == vacuumWorker.get()) {
         vacuumEntry.countDown();
       } else if (call.getMethod().getName().equals("tryLock")) {
         fuzzyEntry.countDown();
@@ -880,6 +896,7 @@ public class DiskStorageChangedPageCheckpointTest {
       tasks.get(0).get(10, TimeUnit.SECONDS);
       tasks.get(1).get(10, TimeUnit.SECONDS);
       tasks.add(workers.submit(() -> {
+        vacuumWorker.set(Thread.currentThread());
         var vacuum = AbstractStorage.class.getDeclaredMethod("runWALVacuum");
         vacuum.setAccessible(true);
         vacuum.invoke(created);
@@ -897,6 +914,23 @@ public class DiskStorageChangedPageCheckpointTest {
       assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
       return call.callRealMethod();
     }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+    var originalReadCache = created.getReadCache();
+    var observedReadCache = mock(ReadCache.class, delegatesTo(originalReadCache));
+    var cacheCloses = new AtomicInteger();
+    var cleanCacheCloses = new AtomicInteger();
+    doAnswer(call -> {
+      // Count entry even if open suppresses an observer assertion during cleanup.
+      cacheCloses.incrementAndGet();
+      // Observe cleanup at cache-close entry, before delegation can hide an ordering error.
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+      var cache = (WOWCache) call.getArgument(0);
+      assertFalse((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      cleanCacheCloses.incrementAndGet();
+      originalReadCache.closeStorage(cache);
+      return null;
+    }).when(observedReadCache).closeStorage(any());
+    setField(created, "readCache", observedReadCache);
     var flushes = new AtomicInteger();
     var flush = AbstractStorage.class.getDeclaredMethod("flushAllData");
     flush.setAccessible(true);
@@ -925,6 +959,8 @@ public class DiskStorageChangedPageCheckpointTest {
       }
       assertEquals(1, barriers.get());
       assertEquals(1, aborts.get());
+      assertEquals(1, cacheCloses.get());
+      assertEquals(1, cleanCacheCloses.get());
       assertEquals(0, recovery.get());
       assertEquals(0, flushes.get());
       assertEquals(0, payload.get());
@@ -935,6 +971,7 @@ public class DiskStorageChangedPageCheckpointTest {
       workers.shutdownNow();
       assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
       setField(created, "stateLock", actualLock);
+      setField(created, "readCache", originalReadCache);
       created.preCloseSteps();
     }
     replaceWal(realWal);
