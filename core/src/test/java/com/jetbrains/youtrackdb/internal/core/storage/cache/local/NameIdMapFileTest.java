@@ -114,7 +114,8 @@ public class NameIdMapFileTest {
    */
   @Test
   public void malformedRecordsNeverAllocateFromUncheckedLengths() throws Exception {
-    for (final var length : new int[] {-1, Integer.MIN_VALUE, 0xFFFFFFF0}) {
+    for (final var length : new int[] {
+        NameIdMapFile.INCOMPLETE_REWRITE_LENGTH, Integer.MIN_VALUE, 0xFFFFFFF0}) {
       final var record = image(FIRST);
       record.putInt(8, length);
       assertDamagedRecord(record, StorageException.class, null);
