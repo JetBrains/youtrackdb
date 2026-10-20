@@ -50,6 +50,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.StartupPerformanceFixture;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.TrackerPerformanceProbe;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
@@ -101,7 +103,15 @@ public class DiskStorageChangedPageCheckpointTest {
   private static final LogSequenceNumber COVERAGE = new LogSequenceNumber(2, 32);
 
   @Rule
-  public final TemporaryFolder folder = new TemporaryFolder();
+  public final TemporaryFolder folder;
+
+  public DiskStorageChangedPageCheckpointTest() {
+    folder = new TemporaryFolder();
+  }
+
+  private DiskStorageChangedPageCheckpointTest(Path root) {
+    folder = new TemporaryFolder(root.toFile());
+  }
 
   private YouTrackDBImpl manager;
   private DatabaseSessionEmbedded session;
@@ -1595,6 +1605,247 @@ public class DiskStorageChangedPageCheckpointTest {
           assertThrows(boundary, Error.class, () -> created.open(new ContextConfiguration())));
       assertEquals(1, aborted.get());
       created.preCloseSteps();
+    }
+  }
+
+  /** Physical opens reset frozen disk bytes before every warmup and measured sample. */
+  @Test
+  public void trackerPerformanceStartupOpen() throws Exception {
+    TrackerPerformanceProbe.launchStartup(StartupOpenProbe.class,
+        List.of("open1CLEAN", "open1UNCLEAN", "open128CLEAN", "open128UNCLEAN", "untrusted1CLEAN"),
+        "loadMergeNs", "verifyNs", "fullOpenNs", "openingThreadAllocationBytes",
+        "replayPreservationNs", "barrierCalls", "barrierNs", "firstPhaseWriteLockNs",
+        "invalidationCalls", "invalidationNs", "deleteCalls", "deleteNs", "folderForceCalls",
+        "folderForceNs", "laterBarrierDiskCalls", "msPerScannedMiB");
+  }
+
+  public static final class StartupOpenProbe {
+    public static void main(String[] args) throws Exception {
+      var test = new DiskStorageChangedPageCheckpointTest(StartupPerformanceFixture.root());
+      test.folder.create();
+      try {
+        test.openStorage();
+        for (int mib : new int[] {1, 128}) {
+          for (boolean dirty : new boolean[] {false, true}) {
+            test.measureStartupOpen(mib, dirty, true);
+          }
+        }
+        test.measureStartupOpen(1, false, false);
+      } finally {
+        test.closeStorage();
+        test.folder.delete();
+      }
+      System.out.println(TrackerPerformanceProbe.COMPLETE);
+    }
+  }
+
+  private void measureStartupOpen(int mib, boolean dirty, boolean trusted) throws Exception {
+    String row = (trusted ? "open" : "untrusted") + mib + (dirty ? "UNCLEAN" : "CLEAN");
+    var created = createObservedStorage(row);
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var image = folder.newFolder().toPath();
+    // Close the baseline before writing synthetic incomplete units. Replay must not apply them.
+    created.close(null, true);
+    StartupPerformanceFixture fixture;
+    try (var writer =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog(
+            row, directory, directory, ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null,
+            Integer.MAX_VALUE, Integer.MAX_VALUE, 20, true, java.util.Locale.US, -1, 1000,
+            false, true, false, 10)) {
+      writer.log(new AtomicUnitStartRecord(true, 991));
+      fixture = new StartupPerformanceFixture(writer, directory, mib, false);
+    }
+    var path = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+    fixture.save(path, trusted, 1);
+    if (dirty) {
+      var metadata = new StorageStartupMetadata(directory.resolve("dirty.fl"),
+          directory.resolve("dirty.flb"));
+      metadata.open(com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants.getRawVersion());
+      metadata
+          .makeDirty(com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants.getRawVersion());
+      metadata.close();
+    }
+    copyStartupImage(directory, image);
+    String label = fixture.label(row, 1, dirty ? "UNCLEAN" : "CLEAN",
+        fixture.positions.size() + fixture.inventory.stream()
+            .filter(s -> s.segment() > fixture.coverage.getSegment()).count());
+    if (!trusted) {
+      label = label.replace("PROVED_HISTORY_TRUSTED", "PROVED_HISTORY_UNTRUSTED");
+    }
+    var series = new TrackerPerformanceProbe.Series(label, "loadMergeNs", "verifyNs", "fullOpenNs",
+        "openingThreadAllocationBytes", "replayPreservationNs", "barrierCalls", "barrierNs",
+        "firstPhaseWriteLockNs", "invalidationCalls", "invalidationNs", "deleteCalls", "deleteNs",
+        "folderForceCalls", "folderForceNs", "laterBarrierDiskCalls", "msPerScannedMiB");
+    try {
+      for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+        copyStartupImage(image, directory);
+        assertEquals(fixture.inventory, StartupPerformanceFixture.inventory(directory));
+        long[] m = new long[16];
+        long[] decoded = {0};
+        doAnswer(call -> {
+          call.callRealMethod();
+          setField(created, "writeAheadLog",
+              StartupPerformanceFixture.countDecoded(created.getWALInstance(), decoded));
+          return null;
+        }).when(created).initWalAndDiskCacheOnOpen(any());
+        long[] replay = {0};
+        long[] held = {0};
+        int[] writeDepth = {0};
+        int[] barrier = {0};
+        boolean[] invalidating = {false};
+        var pendingHistory = new ChangedPageTrackerStartup.PendingHistory[1];
+        var proofResult = new ChangedPageTrackerStartup.StartupResult[1];
+        var shutdown = new ChangedPageTrackerStartup.ShutdownState[1];
+        var extent = new WriteAheadLog.PreOpenExtent[1];
+        var actualLock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
+        var writeLock = mock(java.util.concurrent.locks.Lock.class, call -> {
+          if (call.getMethod().getName().equals("lock")) {
+            actualLock.writeLock().lock();
+            if (writeDepth[0]++ == 0) {
+              held[0] = System.nanoTime();
+            }
+            return null;
+          }
+          if (call.getMethod().getName().equals("unlock")) {
+            if (--writeDepth[0] == 0 && m[7] == 0) {
+              m[7] = System.nanoTime() - held[0];
+            }
+            actualLock.writeLock().unlock();
+            return null;
+          }
+          return delegatesTo(actualLock.writeLock()).answer(call);
+        });
+        var observedLock = mock(ScalableRWLock.class, delegatesTo(actualLock));
+        doReturn(writeLock).when(observedLock).writeLock();
+        setField(created, "stateLock", observedLock);
+        doAnswer(call -> {
+          long start = System.nanoTime();
+          barrier[0]++;
+          m[5]++;
+          try {
+            return call.callRealMethod();
+          } finally {
+            m[6] += System.nanoTime() - start;
+          }
+        }).when(created).startupHistoryBarrier();
+        doAnswer(call -> {
+          call.callRealMethod();
+          replay[0] = System.nanoTime();
+          return null;
+        }).when(created).beginStartupReplay();
+        doAnswer(call -> {
+          call.callRealMethod();
+          if (replay[0] != 0) {
+            m[4] += System.nanoTime() - replay[0];
+            replay[0] = 0;
+          }
+          return null;
+        }).when(created).endStartupReplay();
+        try (var filesystem =
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest
+                .observeFilesystem(call -> {
+                  String name = call.getMethod().getName();
+                  int index = name.equals("delete") && path.equals(call.getArgument(0)) ? 10
+                      : name.equals("forceFolder") && directory.equals(call.getArgument(0)) ? 12
+                          : -1;
+                  long start = System.nanoTime();
+                  var result = call.callRealMethod();
+                  if (index >= 0 && invalidating[0]) {
+                    m[index]++;
+                    m[index + 1] += System.nanoTime() - start;
+                    if (barrier[0] > 1) {
+                      m[14]++;
+                    }
+                  }
+                  return result;
+                });
+            var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+              String name = call.getMethod().getName();
+              int index = name.equals("load") ? 0 : name.equals("verify") ? 1
+                  : name.equals("durableDistrust") && call.getArguments().length == 2 ? 9 : -1;
+              long start = System.nanoTime();
+              if (index == 9) {
+                invalidating[0] = true;
+              }
+              Object result;
+              try {
+                result = call.callRealMethod();
+              } finally {
+                if (index == 9) {
+                  invalidating[0] = false;
+                }
+              }
+              if (index >= 0) {
+                m[index] += System.nanoTime() - start;
+              }
+              if (index == 9) {
+                m[8]++;
+              }
+              if (index == 1) {
+                pendingHistory[0] = call.getArgument(0);
+                proofResult[0] = (ChangedPageTrackerStartup.StartupResult) result;
+                extent[0] = ((WriteAheadLog) call.getArgument(1)).preOpenExtent();
+                shutdown[0] = call.getArgument(2);
+              }
+              return result;
+            })) {
+          assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+          long before = TrackerPerformanceProbe.allocated();
+          long start = System.nanoTime();
+          created.open(new ContextConfiguration());
+          m[2] = System.nanoTime() - start;
+          m[3] = TrackerPerformanceProbe.allocated() - before;
+          assertTrue(m[0] > 0 && m[1] > 0 && m[7] > 0);
+          assertEquals(fixture.inventory, extent[0].segments());
+          assertEquals(dirty ? ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+              : ChangedPageTrackerStartup.ShutdownState.CLEAN, shutdown[0]);
+          assertEquals(trusted, proofResult[0].historyTrusted());
+          assertTrue(proofResult[0].coverageProved());
+          assertEquals(WriteAheadLog.ProofStatus.REACHED_END, proofResult[0].terminalStatus());
+          fixture.assertMarks(pendingHistory[0].tracker(), 1);
+          assertEquals(fixture.coverage, pendingHistory[0].coverageLsn());
+          if (!trusted) {
+            assertInvalidatedAuthority(path);
+          }
+          assertEquals(fixture.positions.size() + fixture.inventory.stream()
+              .filter(s -> s.segment() > fixture.coverage.getSegment()).count(), decoded[0]);
+          assertTrue(m[5] >= 2);
+          assertEquals(dirty, m[4] > 0);
+          assertEquals(trusted ? 0 : 1, m[10]);
+          assertEquals(trusted ? 0 : 1, m[12]);
+          assertEquals(0, m[14]);
+          assertEquals(trusted, ((ChangedPageTracker) field(DiskStorage.class, created,
+              "changedPageTracker")).isTrusted());
+          if (sample >= 0) {
+            double[] values = new double[16];
+            for (int i = 0; i < 15; i++) {
+              values[i] = m[i];
+            }
+            values[15] = m[1] / 1e6 / (fixture.suffixBytes / 1048576.0);
+            series.add(values);
+          }
+        } finally {
+          setField(created, "stateLock", actualLock);
+          created.close(null, true);
+        }
+      }
+      series.report();
+    } finally {
+      created.preCloseSteps();
+    }
+  }
+
+  // Files.copy streams through the filesystem. No whole-file Java byte arrays are retained.
+  private static void copyStartupImage(Path source, Path target) throws Exception {
+    try (var files = Files.list(target)) {
+      for (var file : files.filter(Files::isRegularFile).toList()) {
+        Files.delete(file);
+      }
+    }
+    try (var files = Files.list(source)) {
+      for (var file : files.filter(Files::isRegularFile).toList()) {
+        Files.copy(file, target.resolve(file.getFileName()));
+      }
     }
   }
 

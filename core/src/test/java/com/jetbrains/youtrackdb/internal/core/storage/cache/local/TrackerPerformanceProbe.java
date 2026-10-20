@@ -18,11 +18,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.Assume;
 
 /** Opt-in, uninstrumented child workloads. Timings are evidence, not regression thresholds. */
-final class TrackerPerformanceProbe {
+public final class TrackerPerformanceProbe {
 
   static final String ENABLED = "youtrackdb.test.trackerPerformance";
   static final String SAMPLES = ENABLED + ".samples";
-  static final String COMPLETE = "TRACKER_PERFORMANCE_COMPLETE";
+  public static final String COMPLETE = "TRACKER_PERFORMANCE_COMPLETE";
   private static final ThreadMXBean ALLOCATIONS =
       (ThreadMXBean) ManagementFactory.getThreadMXBean();
 
@@ -31,10 +31,21 @@ final class TrackerPerformanceProbe {
 
   static void launch(Class<?> main, List<String> workloads, List<Integer> generations,
       String... metrics) throws Exception {
+    launch(main, workloads, generations, 180, metrics);
+  }
+
+  public static void launchStartup(Class<?> main, List<String> workloads, String... metrics)
+      throws Exception {
+    launch(main, workloads, List.of(0), 900, metrics);
+  }
+
+  private static void launch(Class<?> main, List<String> workloads, List<Integer> generations,
+      int timeoutSeconds, String... metrics) throws Exception {
     Assume.assumeTrue(Boolean.getBoolean(ENABLED));
     var command = new ArrayList<String>();
     command.add(System.getProperty("java.home") + "/bin/java");
-    command.addAll(java.util.List.of("-Xms256m", "-Xmx256m", "-XX:-DoEscapeAnalysis", "-ea"));
+    command.addAll(java.util.List.of("-Xms256m",
+        timeoutSeconds == 900 ? "-Xmx1g" : "-Xmx256m", "-XX:-DoEscapeAnalysis", "-ea"));
     // The real WAL needs the same module access as the parent, but no instrumentation agent.
     ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
         .filter(arg -> arg.startsWith("--add-opens=") || arg.startsWith("--add-exports="))
@@ -48,12 +59,25 @@ final class TrackerPerformanceProbe {
     var process = new ProcessBuilder(command).redirectErrorStream(true).start();
     try (var reader = Executors.newSingleThreadExecutor()) {
       // Drain while the child runs so logging cannot fill its pipe and block termination.
-      var output = reader.submit(() -> new String(process.getInputStream().readAllBytes(),
-          StandardCharsets.UTF_8));
+      var output = reader.submit(() -> {
+        var text = new StringBuilder();
+        try (var lines = process.inputReader(StandardCharsets.UTF_8)) {
+          String line;
+          while ((line = lines.readLine()) != null) {
+            text.append(line).append('\n');
+            if (timeoutSeconds == 900) {
+              System.out.println(line);
+            }
+          }
+        }
+        return text.toString();
+      });
       try {
-        assertTrue("Probe timed out", process.waitFor(180, TimeUnit.SECONDS));
+        assertTrue("Probe timed out", process.waitFor(timeoutSeconds, TimeUnit.SECONDS));
         var text = output.get(10, TimeUnit.SECONDS);
-        System.out.print(text);
+        if (timeoutSeconds != 900) {
+          System.out.print(text);
+        }
         assertEquals(text, 0, process.exitValue());
         assertRows(text, workloads, generations, metrics);
       } finally {
@@ -114,32 +138,32 @@ final class TrackerPerformanceProbe {
   private record MetricRow(String workload, int generations, String metric) {
   }
 
-  static int samples() {
+  public static int samples() {
     int count = Integer.getInteger(SAMPLES, 15);
     assertTrue("Use 1 to 100 samples", count > 0 && count <= 100);
     return count;
   }
 
-  static long allocated() {
+  public static long allocated() {
     assertTrue("Thread allocation accounting is required",
         ALLOCATIONS.isThreadAllocatedMemorySupported());
     ALLOCATIONS.setThreadAllocatedMemoryEnabled(true);
     return ALLOCATIONS.getThreadAllocatedBytes(Thread.currentThread().threadId());
   }
 
-  static final class Series {
+  public static final class Series {
     private final String label;
     private final String[] fields;
     private final double[][] values;
     private int count;
 
-    Series(String label, String... fields) {
+    public Series(String label, String... fields) {
       this.label = label;
       this.fields = fields;
       values = new double[fields.length][samples()];
     }
 
-    void add(double... sample) {
+    public void add(double... sample) {
       assertEquals(fields.length, sample.length);
       assertTrue(count < samples());
       for (int metric = 0; metric < fields.length; metric++) {
@@ -149,8 +173,18 @@ final class TrackerPerformanceProbe {
       count++;
     }
 
-    void report() {
+    public void report() {
       assertEquals(samples(), count);
+      long gcCount = 0;
+      long gcMillis = 0;
+      for (var gc : ManagementFactory.getGarbageCollectorMXBeans()) {
+        gcCount += Math.max(0, gc.getCollectionCount());
+        gcMillis += Math.max(0, gc.getCollectionTime());
+      }
+      System.out.println("TRACKER_CHILD_STATE row=" + label.split(" ")[0]
+          + " cumulativeGcCount=" + gcCount + " cumulativeGcMillis=" + gcMillis
+          + " heapUsedBytes=" + ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed()
+          + " allocationScope=opening-thread-Java-bytes nestedTimes=not-additive");
       for (int metric = 0; metric < fields.length; metric++) {
         var sorted = values[metric].clone();
         Arrays.sort(sorted);

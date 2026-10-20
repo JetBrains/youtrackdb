@@ -1594,6 +1594,122 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
+  /** Real, frozen disk WAL scans measure load/merge and proof separately with exact witnesses. */
+  @Test
+  public void trackerPerformanceStartupScan() throws Exception {
+    TrackerPerformanceProbe.launchStartup(StartupScanProbe.class,
+        List.of("scan1", "scan16", "scan128", "scan1024", "scan1024tail", "scan128sealed"),
+        "loadMergeNs", "verifyNs", "openingThreadAllocationBytes", "msPerScannedMiB");
+  }
+
+  /** Separate raw batching diagnostic. Trace only paths between the PF1 interval markers. */
+  @Test
+  public void trackerPerformanceProofBatchDiagnostic() throws Exception {
+    TrackerPerformanceProbe.launchStartup(ProofBatchProbe.class, List.of("batch16", "batch256"),
+        "verifyNs", "openingThreadAllocationBytes", "msPerScannedMiB");
+  }
+
+  public static final class StartupScanProbe {
+    public static void main(String[] args) throws Exception {
+      for (int row = 0; row < 6; row++) {
+        int mib = new int[] {1, 16, 128, 1024, 1024, 128}[row];
+        runStartupScan(mib, row == 4, row == 5 ? 2 : 1, false);
+      }
+      System.out.println(TrackerPerformanceProbe.COMPLETE);
+    }
+  }
+
+  public static final class ProofBatchProbe {
+    public static void main(String[] args) throws Exception {
+      runStartupScan(128, false, 1, true);
+      System.out.println(TrackerPerformanceProbe.COMPLETE);
+    }
+  }
+
+  private static void runStartupScan(int mib, boolean tail, int generations, boolean diagnostic)
+      throws Exception {
+    var directory = Files.createTempDirectory(StartupPerformanceFixture.root(),
+        "startup-performance-");
+    try {
+      StartupPerformanceFixture fixture;
+      try (var writer = diskWal(directory)) {
+        fixture = new StartupPerformanceFixture(writer, directory, mib, tail);
+      }
+      var side = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+      fixture.save(side, true, generations);
+      try (var wal = diskWal(directory)) {
+        assertEquals(fixture.inventory, wal.preOpenExtent().segments());
+        long records = fixture.raw(wal, 16);
+        long[] expectedSequence = diagnostic ? fixture.sequence(wal, 16) : null;
+        for (int batch : diagnostic ? new int[] {16, 256} : new int[] {16}) {
+          String row = diagnostic ? "batch" + batch : "scan" + mib
+              + (tail ? "tail" : generations == 2 ? "sealed" : "");
+          String label = fixture.label(row, generations, diagnostic ? "NA" : "CLEAN", records);
+          if (diagnostic) {
+            label = label.replace("markCalls=" + fixture.positions.size(), "markCalls=0")
+                .replace("distinctScanMarks=" + fixture.positions.size(), "distinctScanMarks=0")
+                .replaceAll("bitmapSegments=\\d+", "bitmapSegments=0")
+                .replace("PROVED_HISTORY_TRUSTED", "RAW_PROOF_COMPLETE");
+          }
+          var series = diagnostic
+              ? new TrackerPerformanceProbe.Series(label, "verifyNs",
+                  "openingThreadAllocationBytes", "msPerScannedMiB")
+              : new TrackerPerformanceProbe.Series(label, "loadMergeNs", "verifyNs",
+                  "openingThreadAllocationBytes", "msPerScannedMiB");
+          System.out.println("PF1_BEGIN path=" + directory + " batch=" + batch);
+          Files.writeString(directory.resolve("PF1_BEGIN_" + batch), "");
+          for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+            long[] decoded = {0};
+            var observed = diagnostic ? wal : StartupPerformanceFixture.countDecoded(wal, decoded);
+            long before = TrackerPerformanceProbe.allocated();
+            long start = System.nanoTime();
+            var pending = diagnostic ? null : ChangedPageTrackerStartup.load(side);
+            long loaded = System.nanoTime();
+            var files = new TestFileIds();
+            files.internal = StartupPerformanceFixture.FILE;
+            ChangedPageTrackerStartup.StartupResult result = null;
+            long[] sequence = diagnostic ? fixture.sequence(wal, batch) : null;
+            if (!diagnostic) {
+              result = ChangedPageTrackerStartup.verify(pending, observed,
+                  ChangedPageTrackerStartup.ShutdownState.CLEAN, files);
+            }
+            long elapsed = System.nanoTime() - loaded;
+            long allocation = TrackerPerformanceProbe.allocated() - before;
+            if (diagnostic) {
+              org.junit.Assert.assertArrayEquals(expectedSequence, sequence);
+            } else {
+              assertEquals(ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+                  result.outcome());
+              assertEquals(ProofStatus.REACHED_END, result.terminalStatus());
+              assertEquals(fixture.positions.size() - fixture.firstPage, files.converted.size());
+              assertEquals(records, decoded[0]);
+              fixture.assertMarks(pending.tracker(), generations);
+              assertEquals(fixture.coverage, pending.coverageLsn());
+              assertEquals(fixture.coverage, pending.tracker().durableCoverageLsn());
+            }
+            if (sample >= 0) {
+              double normalized = elapsed / 1e6 / (fixture.suffixBytes / 1048576.0);
+              if (diagnostic) {
+                series.add(elapsed, allocation, normalized);
+              } else {
+                series.add(loaded - start, elapsed, allocation, normalized);
+              }
+            }
+          }
+          Files.writeString(directory.resolve("PF1_END_" + batch), "");
+          System.out.println("PF1_END path=" + directory + " batch=" + batch);
+          series.report();
+        }
+      }
+    } finally {
+      try (var files = Files.walk(directory)) {
+        for (var file : files.sorted(java.util.Comparator.reverseOrder()).toList()) {
+          Files.delete(file);
+        }
+      }
+    }
+  }
+
   private static LogSequenceNumber threeSegmentPageWal(Path directory) throws IOException {
     try (var wal = diskWal(directory)) {
       var coverage = wal.begin();
