@@ -692,6 +692,266 @@ public class DiskStorageChangedPageCheckpointTest {
     assertNull(field(DiskStorage.class, created, "startupOwner"));
   }
 
+  /** Trusted physical attempts replace shared state, while OPEN session reuse retains continuity. */
+  @Test
+  public void repeatedTrustedOpensRetainContinuityWithoutReloadingOnReuse() throws Exception {
+    var created = createObservedStorage();
+    var completed = UUID.randomUUID();
+    seedTrustedHistory(created, false, completed);
+    Object previous = null;
+    try {
+      for (int attempt = 0; attempt < 2; attempt++) {
+        clearInvocations(created);
+        created.open(new ContextConfiguration());
+        var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+        assertNotSame(previous, selected);
+        assertSame(selected, field(WOWCache.class, created.getWriteCache(), "changedPageTracker"));
+        assertTrue(selected.isTrusted());
+        assertEquals(completed, field(ChangedPageTracker.class, selected, "lastCompleted"));
+        assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+        assertNull(field(ChangedPageTracker.class, selected, "sealed"));
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+            "startupReplayPreservation"));
+        created.open(new ContextConfiguration());
+        verify(created).initWalAndDiskCacheOnOpen(any());
+        assertSame(selected, field(DiskStorage.class, created, "changedPageTracker"));
+        previous = selected;
+        created.close(null, true);
+      }
+    } finally {
+      created.preCloseSteps();
+    }
+  }
+
+  /** Linux owner fallback performs real unlink and folder force and restores inherited cancellation. */
+  @Test
+  public void linuxOwnerInvalidatesAndRestoresInterruptBeforeAdmission() throws Exception {
+    org.junit.Assume.assumeTrue(System.getProperty("os.name").startsWith("Linux"));
+    var created = createObservedStorage();
+    seedTrustedHistory(created, false, UUID.randomUUID());
+    var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    var path = directory.resolve(ChangedPageTrackerFile.FILE_NAME);
+    saveHistory(path, new ChangedPageTracker(), ChangedPageTrackerStartup.load(path).coverageLsn());
+    var events = new ArrayList<String>();
+    var barriers = new AtomicInteger();
+    try (var filesystem =
+        com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest
+            .observeFilesystem(call -> {
+              var result = call.callRealMethod();
+              if (call.getMethod().getName().equals("delete") && path.equals(call.getArgument(0))) {
+                events.add("unlink");
+              }
+              if (call.getMethod().getName().equals("forceFolder")
+                  && directory.equals(call.getArgument(0))) {
+                events.add("force");
+              }
+              return result;
+            });
+        var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+          if (!call.getMethod().getName().equals("durableDistrust")
+              || call.getArguments().length != 2 || barriers.get() != 0) {
+            return call.callRealMethod();
+          }
+          assertNotNull(field(DiskStorage.class, created, "startupOwner"));
+          Thread.currentThread().interrupt();
+          try {
+            var result = call.callRealMethod();
+            assertTrue(Thread.currentThread().isInterrupted());
+            Thread.interrupted();
+            assertInvalidatedAuthority(path);
+            assertEquals(List.of("unlink", "force"), events);
+            barriers.incrementAndGet();
+            return result;
+          } finally {
+            Thread.interrupted();
+          }
+        })) {
+      created.open(new ContextConfiguration());
+    } finally {
+      Thread.interrupted();
+      created.preCloseSteps();
+    }
+    assertEquals(1, barriers.get());
+    created.close(null, true);
+    try (var channel = FileChannel.open(directory.resolve("dirty.fl"), StandardOpenOption.WRITE);
+        var lock = channel.tryLock()) {
+      assertNotNull(lock);
+    }
+    replaceWal(realWal);
+    manager.close();
+    manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    session = manager.open("startup", "admin", "admin");
+    storage = (DiskStorage) session.getStorage();
+    realWal = storage.getWALInstance();
+    var selected = assertSharedUntrustedTracker(storage);
+    assertNull(field(ChangedPageTracker.class, selected, "lastCompleted"));
+  }
+
+  /** Real committed deletion reaches redo with preserved marks and removes the registered file. */
+  @Test
+  public void committedDeleteRedoPreservesTrustedCandidates() throws Exception {
+    var created = createObservedStorage();
+    var initial = (WOWCache) created.getWriteCache();
+    initial.addFile("sentinel.bin", initial.externalFileId(123456));
+    seedTrustedHistory(created, true, UUID.randomUUID(), false, (target, coverage) -> {
+      var actual = target.getWALInstance();
+      actual.log(new AtomicUnitStartRecord(true, 124));
+      actual.log(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord(
+              124, target.getWriteCache().externalFileId(123456)));
+      actual.log(new AtomicUnitEndRecord(124, false, null));
+    });
+    var original = created.getReadCache();
+    var observed = mock(ReadCache.class, delegatesTo(original));
+    var deletes = new AtomicInteger();
+    doAnswer(call -> {
+      var cache = (WOWCache) call.getArgument(1);
+      assertEquals(123456, cache.internalFileId(call.getArgument(0)));
+      assertTrue(cache.exists("sentinel.bin"));
+      assertTrue((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
+      original.deleteFile(call.getArgument(0), cache);
+      assertFalse(cache.exists("sentinel.bin"));
+      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+      assertTrue(selected.isTrusted());
+      assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+      deletes.incrementAndGet();
+      return null;
+    }).when(observed).deleteFile(anyLong(), any());
+    setField(created, "readCache", observed);
+    try {
+      created.open(new ContextConfiguration());
+      assertEquals(1, deletes.get());
+      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+      assertTrue(selected.isTrusted());
+      assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+      assertFalse(created.getWriteCache().exists("sentinel.bin"));
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+      assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+          "startupReplayPreservation"));
+    } finally {
+      setField(created, "readCache", original);
+      created.preCloseSteps();
+    }
+  }
+
+  /** Failed fallback excludes maintenance through abort and permits only a fresh-object retry. */
+  @Test
+  public void failedFallbackExcludesMaintenanceAndFreshRetryCannotRestoreTrust() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    injectReplayFailure(created, new IllegalStateException("revoke proved history"));
+    var failure = new IOException("failed coupled fallback");
+    var workers = Executors.newFixedThreadPool(3);
+    var tasks = new ArrayList<Future<?>>();
+    var vacuumEntry = new CountDownLatch(1);
+    var fuzzyEntry = new CountDownLatch(1);
+    var actualLock = (ScalableRWLock) field(AbstractStorage.class, created, "stateLock");
+    var reader = mock(java.util.concurrent.locks.Lock.class, call -> {
+      if (call.getMethod().getName().equals("lock")) {
+        vacuumEntry.countDown();
+      } else if (call.getMethod().getName().equals("tryLock")) {
+        fuzzyEntry.countDown();
+      }
+      return delegatesTo(actualLock.readLock()).answer(call);
+    });
+    var observedLock = mock(ScalableRWLock.class, delegatesTo(actualLock));
+    doReturn(reader).when(observedLock).readLock();
+    setField(created, "stateLock", observedLock);
+    var aborts = new AtomicInteger();
+    var barriers = new AtomicInteger();
+    var payload = new AtomicInteger();
+    var recovery = new AtomicInteger();
+    setField(created, "recoverListener",
+        (com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageRecoverListener) recovery::incrementAndGet);
+    doAnswer(call -> {
+      assertTrue(actualLock.isWriteLockedByCurrentThread());
+      assertNotNull(field(DiskStorage.class, created, "startupOwner"));
+      tasks.add(workers.submit(created::makeFuzzyCheckpoint));
+      tasks.add(workers.submit(() -> {
+        assertThrows(com.jetbrains.youtrackdb.internal.core.exception.StorageException.class,
+            () -> created.backup(() -> {
+              payload.incrementAndGet();
+              return java.util.Collections.emptyIterator();
+            }, ignored -> null, ignored -> new java.io.ByteArrayOutputStream(), ignored -> {
+            }));
+      }));
+      assertTrue(fuzzyEntry.await(5, TimeUnit.SECONDS));
+      tasks.get(0).get(10, TimeUnit.SECONDS);
+      tasks.get(1).get(10, TimeUnit.SECONDS);
+      tasks.add(workers.submit(() -> {
+        var vacuum = AbstractStorage.class.getDeclaredMethod("runWALVacuum");
+        vacuum.setAccessible(true);
+        vacuum.invoke(created);
+        return null;
+      }));
+      assertTrue(vacuumEntry.await(5, TimeUnit.SECONDS));
+      call.callRealMethod();
+      aborts.incrementAndGet();
+      return null;
+    }).when(created).abortStartupHistory(any());
+    doAnswer(call -> {
+      assertNull(field(DiskStorage.class, created, "startupOwner"));
+      assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+          "startupReplayPreservation"));
+      assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
+      return call.callRealMethod();
+    }).when(created).postCloseSteps(eq(false), eq(true), anyLong());
+    var flushes = new AtomicInteger();
+    var flush = AbstractStorage.class.getDeclaredMethod("flushAllData");
+    flush.setAccessible(true);
+    flush.invoke(doAnswer(call -> {
+      flushes.incrementAndGet();
+      return call.callRealMethod();
+    }).when(created));
+    clearInvocations(created);
+    try {
+      try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+        if (call.getMethod().getName().equals("durableDistrust")
+            && call.getArguments().length == 2) {
+          assertFalse(((ChangedPageTracker) field(DiskStorage.class, created,
+              "changedPageTracker")).isTrusted());
+          barriers.incrementAndGet();
+          throw failure;
+        }
+        return call.callRealMethod();
+      })) {
+        var thrown = assertThrows(RuntimeException.class,
+            () -> created.open(new ContextConfiguration()));
+        assertSame(failure, thrown.getCause());
+      }
+      for (var task : tasks) {
+        task.get(10, TimeUnit.SECONDS);
+      }
+      assertEquals(1, barriers.get());
+      assertEquals(1, aborts.get());
+      assertEquals(0, recovery.get());
+      assertEquals(0, flushes.get());
+      assertEquals(0, payload.get());
+      verify(created, never()).checkpointChangedPages(anyLong());
+      assertInvalidatedAuthority(((Path) field(DiskStorage.class, created, "storagePath"))
+          .resolve(ChangedPageTrackerFile.FILE_NAME));
+    } finally {
+      workers.shutdownNow();
+      assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+      setField(created, "stateLock", actualLock);
+      created.preCloseSteps();
+    }
+    replaceWal(realWal);
+    manager.close();
+    manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    session = manager.open("startup", "admin", "admin");
+    storage = (DiskStorage) session.getStorage();
+    realWal = storage.getWALInstance();
+    assertNotSame(created, storage);
+    assertEquals(AbstractStorage.STATUS.OPEN, storage.getStatus());
+    var selected = assertSharedUntrustedTracker(storage);
+    assertNull(field(ChangedPageTracker.class, selected, "lastCompleted"));
+    assertNull(field(DiskStorage.class, storage, "startupOwner"));
+    assertFalse((boolean) field(WOWCache.class, storage.getWriteCache(),
+        "startupReplayPreservation"));
+  }
+
   /** Broken-page replay revokes loaded trust before its first error diagnostic. */
   @Test
   public void brokenPageReplayDistrustsBeforeDiagnostics() throws Exception {
@@ -838,6 +1098,21 @@ public class DiskStorageChangedPageCheckpointTest {
     var originalReadCache = created.getReadCache();
     var primary = new Error("delete before skip set returns");
     var previousSkipSet = field(AbstractStorage.class, created, "deletedNonDurableFileIds");
+    var replaySkipSet = new Object[1];
+    var replayWal = new WriteAheadLog[1];
+    doAnswer(call -> {
+      call.callRealMethod();
+      var actualWal = created.getWALInstance();
+      replayWal[0] = actualWal;
+      var observedWal = mock(WriteAheadLog.class, delegatesTo(actualWal));
+      doAnswer(read -> {
+        replaySkipSet[0] = field(AbstractStorage.class, created, "deletedNonDurableFileIds");
+        assertTrue(((it.unimi.dsi.fastutil.ints.IntOpenHashSet) replaySkipSet[0]).contains(123456));
+        return delegatesTo(actualWal).answer(read);
+      }).when(observedWal).read(any(), anyInt());
+      setField(created, "writeAheadLog", observedWal);
+      return null;
+    }).when(created).verifyStartupHistory();
     var seen = new boolean[1];
     var observed = mock(ReadCache.class, delegatesTo(originalReadCache));
     doAnswer(call -> {
@@ -860,24 +1135,37 @@ public class DiskStorageChangedPageCheckpointTest {
       ids.add(123456);
       return null;
     }).when(created).initWalAndDiskCacheOnOpen(any());
-    if (failDeletion) {
-      assertSame(primary, assertThrows(Error.class,
-          () -> created.open(new ContextConfiguration())));
-    } else {
-      created.open(new ContextConfiguration());
-      var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
-      assertEquals(List.of(7L, 9L), candidates(selected, 123456));
-      var actual = (WOWCache) created.getWriteCache();
-      actual.addFile("sentinel.bin", actual.externalFileId(123456));
-      assertTrue(candidates(selected, 123456).isEmpty());
+    try {
+      if (failDeletion) {
+        assertSame(primary, assertThrows(Error.class,
+            () -> created.open(new ContextConfiguration())));
+      } else {
+        created.open(new ContextConfiguration());
+        assertNotNull(replaySkipSet[0]);
+        assertNotSame(replaySkipSet[0],
+            field(AbstractStorage.class, created, "deletedNonDurableFileIds"));
+        replaySkipSet[0] = null;
+        var selected = (ChangedPageTracker) field(DiskStorage.class, created, "changedPageTracker");
+        assertEquals(List.of(7L, 9L), candidates(selected, 123456));
+        var actual = (WOWCache) created.getWriteCache();
+        actual.addFile("sentinel.bin", actual.externalFileId(123456));
+        assertTrue(candidates(selected, 123456).isEmpty());
+      }
+      assertTrue(seen[0]);
+      assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
+          "startupReplayPreservation"));
+      assertNotSame("Replay cleanup releases the skip set even when deletion fails",
+          previousSkipSet, field(AbstractStorage.class, created, "deletedNonDurableFileIds"));
+      assertTrue(((it.unimi.dsi.fastutil.ints.IntOpenHashSet) field(AbstractStorage.class, created,
+          "deletedNonDurableFileIds")).isEmpty());
+    } finally {
+      if (replayWal[0] != null) {
+        setField(created, "writeAheadLog", replayWal[0]);
+      }
+      setField(created, "readCache", originalReadCache);
+      replaySkipSet[0] = null;
+      created.preCloseSteps();
     }
-    assertTrue(seen[0]);
-    assertFalse((boolean) field(WOWCache.class, created.getWriteCache(),
-        "startupReplayPreservation"));
-    assertNotSame("Replay cleanup releases the skip set even when deletion fails",
-        previousSkipSet, field(AbstractStorage.class, created, "deletedNonDurableFileIds"));
-    assertTrue(((it.unimi.dsi.fastutil.ints.IntOpenHashSet) field(AbstractStorage.class, created,
-        "deletedNonDurableFileIds")).isEmpty());
   }
 
   /** An escaping replay Error stays identical even when interval end fails once and abort retries. */
