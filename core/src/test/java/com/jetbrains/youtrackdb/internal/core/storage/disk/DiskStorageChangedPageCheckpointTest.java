@@ -244,8 +244,14 @@ public class DiskStorageChangedPageCheckpointTest {
   /** Physical damage is admitted only for an unclean terminal page without a readable suffix. */
   @Test
   public void physicalWalDamageResolvesTrustBeforeStorageAdmission() throws Exception {
-    for (var variant : List.of("unclean-tail", "clean-tail", "interior", "later-segment",
-        "missing-coverage")) {
+    for (var variant : List.of("unclean-tail", "clean-tail", "interior", "clean-interior",
+        "later-segment", "clean-later-segment", "missing-coverage", "missing-interior",
+        "vanished")) {
+      boolean interior = variant.endsWith("interior") && !variant.equals("missing-interior");
+      boolean later = variant.endsWith("later-segment");
+      boolean missing = variant.startsWith("missing-");
+      boolean vanished = variant.equals("vanished");
+      boolean clean = variant.startsWith("clean-") || missing || vanished;
       var created = createObservedStorage("damage-" + variant);
       try (var baseline = manager.open(created.getName(), "admin", "admin")) {
         baseline.getMetadata().getSchema().createClass("DamageBaseline");
@@ -257,20 +263,27 @@ public class DiskStorageChangedPageCheckpointTest {
       var completed = UUID.randomUUID();
       var metadataLsn = new LogSequenceNumber[1];
       var coverageLsn = new LogSequenceNumber[1];
+      var lostSegment = new long[1];
       seedTrustedHistory(created, true, completed, false, (target, coverage) -> {
         coverageLsn[0] = coverage;
         var input = target.getWALInstance();
-        var payload = new byte[variant.equals("interior") ? 10000 : 4500];
+        var payload = new byte[interior ? 10000 : 4500];
         new Random(18).nextBytes(payload);
         metadataLsn[0] = input.log(new MetaDataRecord(payload));
-        if (variant.equals("interior") || variant.equals("later-segment")) {
-          if (variant.equals("later-segment")) {
+        if (interior || later) {
+          if (later) {
             assertTrue(input.appendNewSegment());
           }
           input.log(new UpdatePageRecord(599, target.getWriteCache().externalFileId(123457),
               123, new WALPageChangesPortion(), coverage));
         }
-        if (variant.equals("clean-tail") || variant.equals("missing-coverage")) {
+        if (variant.equals("missing-interior") || vanished) {
+          assertTrue(input.appendNewSegment());
+          lostSegment[0] = input.log(new MetaDataRecord(new byte[] {1})).getSegment();
+          assertTrue(input.appendNewSegment());
+          input.log(new MetaDataRecord(new byte[] {2}));
+        }
+        if (clean) {
           ((StorageStartupMetadata) field(DiskStorage.class, target, "startupMetadata"))
               .clearDirty();
         }
@@ -280,14 +293,17 @@ public class DiskStorageChangedPageCheckpointTest {
           + metadataLsn[0].getSegment() + ".wal");
       long size = Files.size(path);
       assertEquals(0, size % CASWALPage.DEFAULT_PAGE_SIZE);
-      long brokenPage = variant.equals("interior")
+      long brokenPage = interior
           ? metadataLsn[0].getPosition() / CASWALPage.DEFAULT_PAGE_SIZE + 1L
           : size / CASWALPage.DEFAULT_PAGE_SIZE - 1;
       assertTrue(brokenPage > metadataLsn[0].getPosition() / CASWALPage.DEFAULT_PAGE_SIZE);
       if (variant.equals("missing-coverage")) {
         Files.delete(directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "."
             + coverageLsn[0].getSegment() + ".wal"));
-      } else {
+      } else if (variant.equals("missing-interior")) {
+        Files.delete(directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "."
+            + lostSegment[0] + ".wal"));
+      } else if (!vanished) {
         try (var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
           var damage = ByteBuffer.wrap(new byte[Long.BYTES]);
           long offset = brokenPage * CASWALPage.DEFAULT_PAGE_SIZE;
@@ -300,6 +316,19 @@ public class DiskStorageChangedPageCheckpointTest {
       var probes = new AtomicInteger();
       doAnswer(call -> {
         var input = created.getWALInstance();
+        if (variant.equals("missing-interior") || vanished) {
+          var extent = input.preOpenExtent();
+          var segments = extent.segments().stream().map(segment -> segment.segment()).toList();
+          assertTrue(segments.contains(coverageLsn[0].getSegment()));
+          assertTrue(segments.contains(lostSegment[0] + 1));
+          assertEquals(vanished, segments.contains(lostSegment[0]));
+          if (vanished) {
+            // Construction captured this unread extent. Both readers see the later unlink.
+            Files.delete(directory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + "."
+                + lostSegment[0] + ".wal"));
+            assertSame(extent, input.preOpenExtent());
+          }
+        }
         var reader = input.openProofReader(coverageLsn[0], 16 * 1024 * 1024);
         var prefix = new ArrayList<Long>();
         WriteAheadLog.ProofBatch batch;
@@ -314,17 +343,26 @@ public class DiskStorageChangedPageCheckpointTest {
         } while (batch.status() == WriteAheadLog.ProofStatus.MORE);
         if (variant.equals("missing-coverage")) {
           assertEquals(WriteAheadLog.ProofStatus.COVERAGE_NOT_RETAINED, batch.status());
+          assertEquals(coverageLsn[0], batch.position());
+          assertFalse(batch.readablePageFollows());
           assertTrue(prefix.isEmpty());
+        } else if (variant.equals("missing-interior") || vanished) {
+          assertEquals(vanished ? WriteAheadLog.ProofStatus.SEGMENT_VANISHED
+              : WriteAheadLog.ProofStatus.MISSING_SEGMENT, batch.status());
+          assertEquals(
+              new LogSequenceNumber(lostSegment[0], vanished ? 0 : CASWALPage.RECORDS_OFFSET),
+              batch.position());
+          assertFalse(batch.readablePageFollows());
+          assertEquals(vanished ? List.of(31L, 33L) : List.of(), prefix);
         } else {
           assertEquals(WriteAheadLog.ProofStatus.BROKEN_PAGE, batch.status());
           assertEquals(new LogSequenceNumber(metadataLsn[0].getSegment(),
               Math.toIntExact(brokenPage * CASWALPage.DEFAULT_PAGE_SIZE)), batch.position());
-          assertEquals(variant.equals("interior") || variant.equals("later-segment"),
+          assertEquals(interior || later,
               batch.readablePageFollows());
           assertEquals(List.of(31L, 33L), prefix);
         }
-        assertEquals(variant.equals("clean-tail") || variant.equals("missing-coverage")
-            ? ChangedPageTrackerStartup.ShutdownState.CLEAN
+        assertEquals(clean ? ChangedPageTrackerStartup.ShutdownState.CLEAN
             : ChangedPageTrackerStartup.ShutdownState.UNCLEAN,
             field(DiskStorage.class, created, "startupShutdown"));
         call.callRealMethod();
@@ -338,7 +376,7 @@ public class DiskStorageChangedPageCheckpointTest {
       doAnswer(call -> {
         call.callRealMethod();
         if (!trusted && barriers.get() == 0) {
-          assertFalse(Files.exists(directory.resolve(ChangedPageTrackerFile.FILE_NAME)));
+          assertInvalidatedAuthority(directory.resolve(ChangedPageTrackerFile.FILE_NAME));
         }
         barriers.incrementAndGet();
         return null;
@@ -365,7 +403,7 @@ public class DiskStorageChangedPageCheckpointTest {
             }
           });
         }
-        assertEquals(variant.equals("missing-coverage") ? List.of() : List.of(31L, 33L),
+        assertEquals(missing ? List.of() : List.of(31L, 33L),
             candidates(selected, 123457));
         assertNotNull(field(AbstractStorage.class, created, "configuration"));
         assertNull(field(DiskStorage.class, created, "startupOwner"));
@@ -381,7 +419,8 @@ public class DiskStorageChangedPageCheckpointTest {
   public void structuredCorruptionInvalidatesBeforeAdmissionAndCannotResurrect() throws Exception {
     for (var fault : List.of("truncated", "checksum", "version")) {
       var created = createObservedStorage("corruption-" + fault);
-      seedTrustedHistory(created, false, UUID.randomUUID());
+      var completed = UUID.randomUUID();
+      seedTrustedHistory(created, false, completed);
       var path = ((Path) field(DiskStorage.class, created, "storagePath"))
           .resolve(ChangedPageTrackerFile.FILE_NAME);
       var temporary = path.resolveSibling(ChangedPageTrackerFile.TEMPORARY_FILE_NAME);
@@ -399,23 +438,39 @@ public class DiskStorageChangedPageCheckpointTest {
       var barriers = new AtomicInteger();
       doAnswer(call -> {
         call.callRealMethod();
-        // Temporary bytes have no authority. The platform may leave that name until publication.
-        assertFalse(Files.exists(path));
+        assertInvalidatedAuthority(path);
         barriers.incrementAndGet();
         return null;
       }).when(created).startupHistoryBarrier();
-      for (int attempt = 0; attempt < 2; attempt++) {
-        try {
-          created.open(new ContextConfiguration());
-          var selected = assertSharedUntrustedTracker(created);
-          assertTrue(candidates(selected, 123456).isEmpty());
-          assertNull(field(DiskStorage.class, created, "startupOwner"));
-          assertTrue(barriers.get() > attempt);
-        } finally {
-          created.close(null, true);
-          created.preCloseSteps();
-        }
+      try {
+        created.open(new ContextConfiguration());
+        var selected = assertSharedUntrustedTracker(created);
+        assertTrue(candidates(selected, 123456).isEmpty());
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        assertTrue(barriers.get() > 0);
+      } finally {
+        created.close(null, true);
+        created.preCloseSteps();
       }
+      replaceWal(realWal);
+      if (session != null) {
+        session.close();
+        session = null;
+      }
+      var previousManager = manager;
+      manager.close();
+      manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+      assertNotSame(previousManager, manager);
+      session = manager.open(created.getName(), "admin", "admin");
+      storage = (DiskStorage) session.getStorage();
+      realWal = storage.getWALInstance();
+      assertNotSame(created, storage);
+      var reopened = assertSharedUntrustedTracker(storage);
+      assertFalse(completed.equals(field(ChangedPageTracker.class, reopened, "lastCompleted")));
+      assertTrue(candidates(reopened, 123456).isEmpty());
+      assertNull(field(DiskStorage.class, storage, "startupOwner"));
+      session.close();
+      session = null;
     }
   }
 
@@ -431,6 +486,9 @@ public class DiskStorageChangedPageCheckpointTest {
     }
     var completed = UUID.randomUUID();
     var proofPages = new HashMap<Integer, TreeSet<Long>>();
+    var replayedPages = new AtomicInteger();
+    var recoveringStorage = new DiskStorage[1];
+    var replayReadCache = new ReadCache[1];
     seedTrustedHistory(created, true, completed, false, (target, coverage) -> {
       var path = ((Path) field(DiskStorage.class, target, "storagePath"))
           .resolve(ChangedPageTrackerFile.FILE_NAME);
@@ -467,6 +525,15 @@ public class DiskStorageChangedPageCheckpointTest {
     session = null;
     manager.close();
     manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+    var engineField = manager.internal.getClass().getDeclaredField("disk");
+    engineField.setAccessible(true);
+    var originalEngine = (Engine) engineField.get(manager.internal);
+    var observedEngine = spy(originalEngine);
+    doAnswer(call -> {
+      recoveringStorage[0] = (DiskStorage) call.callRealMethod();
+      return recoveringStorage[0];
+    }).when(observedEngine).createStorage(anyString(), anyLong(), anyLong(), anyInt(), any());
+    engineField.set(manager.internal, observedEngine);
     try (var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
       if (call.getMethod().getName().equals("verify")) {
         var pending = (ChangedPageTrackerStartup.PendingHistory) call.getArgument(0);
@@ -486,12 +553,40 @@ public class DiskStorageChangedPageCheckpointTest {
               candidates(pending.tracker(), entry.getKey()).containsAll(entry.getValue()));
         }
         assertEquals(ChangedPageTrackerStartup.ShutdownState.UNCLEAN, call.getArgument(2));
-        assertTrue(((ChangedPageTrackerStartup.PendingHistory) call.getArgument(0))
-            .tracker().isTrusted());
+        assertTrue(pending.tracker().isTrusted());
+        // Observe actual page-redo delegation on the new storage, not a begin/end hook alone.
+        var recovering = recoveringStorage[0];
+        assertNotSame(created, recovering);
+        var original = recovering.getReadCache();
+        replayReadCache[0] = original;
+        var observed = mock(ReadCache.class, invocation -> {
+          if (!invocation.getMethod().getName().equals("loadOrAddForWrite")) {
+            return delegatesTo(original).answer(invocation);
+          }
+          var cache = (WOWCache) invocation.getArgument(2);
+          assertTrue("Actual page redo must run inside replay preservation",
+              (boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
+          for (var entry : proofPages.entrySet()) {
+            assertTrue(candidates(pending.tracker(), entry.getKey()).containsAll(entry.getValue()));
+          }
+          var loaded = delegatesTo(original).answer(invocation);
+          for (var entry : proofPages.entrySet()) {
+            assertTrue("Page redo must keep proof marks",
+                candidates(pending.tracker(), entry.getKey()).containsAll(entry.getValue()));
+          }
+          replayedPages.incrementAndGet();
+          return loaded;
+        });
+        setField(recovering, "readCache", observed);
       }
       return result;
     })) {
       session = manager.open("startup", "admin", "admin");
+    } finally {
+      engineField.set(manager.internal, originalEngine);
+      if (replayReadCache[0] != null) {
+        setField(recoveringStorage[0], "readCache", replayReadCache[0]);
+      }
     }
     storage = (DiskStorage) session.getStorage();
     realWal = storage.getWALInstance();
@@ -515,6 +610,13 @@ public class DiskStorageChangedPageCheckpointTest {
       }
     });
     assertNull(field(DiskStorage.class, storage, "startupOwner"));
+    assertTrue("Real schema/data page redo must reach the observer", replayedPages.get() > 0);
+    var recoveredCache = (WOWCache) storage.getWriteCache();
+    assertFalse((boolean) field(WOWCache.class, recoveredCache, "startupReplayPreservation"));
+    // Clear another sentinel on this recovered cache before a clean reopen can mask a leak.
+    assertEquals(List.of(31L, 33L), candidates(selected, 123457));
+    recoveredCache.addFile("ordinary-on-recovered.bin", recoveredCache.externalFileId(123457));
+    assertTrue(candidates(selected, 123457).isEmpty());
     session.close();
     manager.close();
     manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
@@ -531,6 +633,16 @@ public class DiskStorageChangedPageCheckpointTest {
     assertFalse((boolean) field(WOWCache.class, cache, "startupReplayPreservation"));
     cache.addFile("ordinary-after-crash.bin", cache.externalFileId(123456));
     assertTrue(candidates(selected, 123456).isEmpty());
+  }
+
+  private static void assertInvalidatedAuthority(Path path) throws Exception {
+    // Windows may keep an empty primary name. Corrupt old bytes cannot remain authoritative.
+    assertTrue("Durable invalidation must remove or empty " + path,
+        !Files.exists(path) || Files.size(path) == 0);
+    assertNull(ChangedPageTrackerStartup.load(path).coverageLsn());
+    // Linux may leave temporary bytes. The temporary name itself must never grant authority.
+    assertNull(ChangedPageTrackerStartup.load(
+        path.resolveSibling(ChangedPageTrackerFile.TEMPORARY_FILE_NAME)).coverageLsn());
   }
 
   private void assertTrustedReopen(boolean dirty) throws Exception {
