@@ -92,10 +92,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.rules.TestName;
 
 /** Direct storage bridge contracts, independent of ordinary checkpoint caller routing. */
 public class DiskStorageChangedPageCheckpointTest {
@@ -113,6 +115,9 @@ public class DiskStorageChangedPageCheckpointTest {
     folder = new TemporaryFolder(root.toFile());
   }
 
+  @Rule
+  public final TestName testName = new TestName();
+
   private YouTrackDBImpl manager;
   private DatabaseSessionEmbedded session;
   private DiskStorage storage;
@@ -124,6 +129,11 @@ public class DiskStorageChangedPageCheckpointTest {
 
   @Before
   public void openStorage() throws Exception {
+    // The parent launcher needs no database. The child calls this setup directly without a name.
+    if ("trackerPerformanceStartupOpen".equals(testName.getMethodName())) {
+      Assume.assumeTrue(Boolean.getBoolean("youtrackdb.test.trackerPerformance"));
+      return;
+    }
     var config = new BaseConfiguration();
     // Keep periodic work away from the scoped WAL replacement used by these direct bridge tests.
     config.setProperty(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT.getKey(), false);
@@ -1672,6 +1682,8 @@ public class DiskStorageChangedPageCheckpointTest {
     if (!trusted) {
       label = label.replace("PROVED_HISTORY_TRUSTED", "PROVED_HISTORY_UNTRUSTED");
     }
+    label += " observers=Mockito-including-nested-static-calls+decoded-record-counter"
+        + " timingScope=open-only";
     var series = new TrackerPerformanceProbe.Series(label, "loadMergeNs", "verifyNs", "fullOpenNs",
         "openingThreadAllocationBytes", "replayPreservationNs", "barrierCalls", "barrierNs",
         "firstPhaseWriteLockNs", "invalidationCalls", "invalidationNs", "deleteCalls", "deleteNs",
@@ -1682,6 +1694,8 @@ public class DiskStorageChangedPageCheckpointTest {
         assertEquals(fixture.inventory, StartupPerformanceFixture.inventory(directory));
         long[] m = new long[16];
         long[] decoded = {0};
+        boolean[] collecting = {false};
+        int[] loadCalls = {0};
         doAnswer(call -> {
           call.callRealMethod();
           setField(created, "writeAheadLog",
@@ -1760,9 +1774,15 @@ public class DiskStorageChangedPageCheckpointTest {
                   return result;
                 });
             var startup = mockStatic(ChangedPageTrackerStartup.class, call -> {
+              if (!collecting[0]) {
+                return call.callRealMethod();
+              }
               String name = call.getMethod().getName();
               int index = name.equals("load") ? 0 : name.equals("verify") ? 1
                   : name.equals("durableDistrust") && call.getArguments().length == 2 ? 9 : -1;
+              if (index == 0) {
+                loadCalls[0]++;
+              }
               long start = System.nanoTime();
               if (index == 9) {
                 invalidating[0] = true;
@@ -1792,7 +1812,12 @@ public class DiskStorageChangedPageCheckpointTest {
           assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
           long before = TrackerPerformanceProbe.allocated();
           long start = System.nanoTime();
-          created.open(new ContextConfiguration());
+          collecting[0] = true;
+          try {
+            created.open(new ContextConfiguration());
+          } finally {
+            collecting[0] = false;
+          }
           m[2] = System.nanoTime() - start;
           m[3] = TrackerPerformanceProbe.allocated() - before;
           assertTrue(m[0] > 0 && m[1] > 0 && m[7] > 0);
@@ -1807,6 +1832,7 @@ public class DiskStorageChangedPageCheckpointTest {
           if (!trusted) {
             assertInvalidatedAuthority(path);
           }
+          assertEquals("Only the open-interval load is measured", 1, loadCalls[0]);
           assertEquals(fixture.positions.size() + fixture.inventory.stream()
               .filter(s -> s.segment() > fixture.coverage.getSegment()).count(), decoded[0]);
           assertTrue(m[5] >= 2);

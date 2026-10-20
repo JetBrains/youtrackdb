@@ -1650,6 +1650,12 @@ public class ChangedPageTrackerStartupTest {
                 .replace("distinctScanMarks=" + fixture.positions.size(), "distinctScanMarks=0")
                 .replaceAll("bitmapSegments=\\d+", "bitmapSegments=0")
                 .replace("PROVED_HISTORY_TRUSTED", "RAW_PROOF_COMPLETE");
+            // Sequence equality is a separate, untimed pass, outside the trace markers.
+            org.junit.Assert.assertArrayEquals(expectedSequence, fixture.sequence(wal, batch));
+            label += " timingScope=reader-next-loop sequenceCapture=excluded"
+                + " observers=batch-call-and-record-counters";
+          } else {
+            label += " observers=Mockito-decoded-record-counter+TestFileIds-Long-boxing";
           }
           var series = diagnostic
               ? new TrackerPerformanceProbe.Series(label, "verifyNs",
@@ -1659,41 +1665,41 @@ public class ChangedPageTrackerStartupTest {
           System.out.println("PF1_BEGIN path=" + directory + " batch=" + batch);
           Files.writeString(directory.resolve("PF1_BEGIN_" + batch), "");
           for (int sample = -3; sample < TrackerPerformanceProbe.samples(); sample++) {
+            if (diagnostic) {
+              var reader = new StartupPerformanceFixture.CountingReader(
+                  wal.openProofReader(fixture.coverage, 16 * 1024 * 1024));
+              var measured = fixture.measureReader(reader, batch);
+              reader.assertBatch(batch, records);
+              if (sample >= 0) {
+                series.add(measured[0], measured[1],
+                    measured[0] / 1e6 / (fixture.suffixBytes / 1048576.0));
+              }
+              System.out.println("PF1_WITNESS batch=" + batch + reader.label());
+              continue;
+            }
             long[] decoded = {0};
-            var observed = diagnostic ? wal : StartupPerformanceFixture.countDecoded(wal, decoded);
+            var observed = StartupPerformanceFixture.countDecoded(wal, decoded);
             long before = TrackerPerformanceProbe.allocated();
             long start = System.nanoTime();
-            var pending = diagnostic ? null : ChangedPageTrackerStartup.load(side);
+            var pending = ChangedPageTrackerStartup.load(side);
             long loaded = System.nanoTime();
             var files = new TestFileIds();
             files.internal = StartupPerformanceFixture.FILE;
-            ChangedPageTrackerStartup.StartupResult result = null;
-            long[] sequence = diagnostic ? fixture.sequence(wal, batch) : null;
-            if (!diagnostic) {
-              result = ChangedPageTrackerStartup.verify(pending, observed,
-                  ChangedPageTrackerStartup.ShutdownState.CLEAN, files);
-            }
+            var result = ChangedPageTrackerStartup.verify(pending, observed,
+                ChangedPageTrackerStartup.ShutdownState.CLEAN, files);
             long elapsed = System.nanoTime() - loaded;
             long allocation = TrackerPerformanceProbe.allocated() - before;
-            if (diagnostic) {
-              org.junit.Assert.assertArrayEquals(expectedSequence, sequence);
-            } else {
-              assertEquals(ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
-                  result.outcome());
-              assertEquals(ProofStatus.REACHED_END, result.terminalStatus());
-              assertEquals(fixture.positions.size() - fixture.firstPage, files.converted.size());
-              assertEquals(records, decoded[0]);
-              fixture.assertMarks(pending.tracker(), generations);
-              assertEquals(fixture.coverage, pending.coverageLsn());
-              assertEquals(fixture.coverage, pending.tracker().durableCoverageLsn());
-            }
+            assertEquals(ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+                result.outcome());
+            assertEquals(ProofStatus.REACHED_END, result.terminalStatus());
+            assertEquals(fixture.positions.size() - fixture.firstPage, files.converted.size());
+            assertEquals(records, decoded[0]);
+            fixture.assertMarks(pending.tracker(), generations);
+            assertEquals(fixture.coverage, pending.coverageLsn());
+            assertEquals(fixture.coverage, pending.tracker().durableCoverageLsn());
             if (sample >= 0) {
               double normalized = elapsed / 1e6 / (fixture.suffixBytes / 1048576.0);
-              if (diagnostic) {
-                series.add(elapsed, allocation, normalized);
-              } else {
-                series.add(loaded - start, elapsed, allocation, normalized);
-              }
+              series.add(loaded - start, elapsed, allocation, normalized);
             }
           }
           Files.writeString(directory.resolve("PF1_END_" + batch), "");

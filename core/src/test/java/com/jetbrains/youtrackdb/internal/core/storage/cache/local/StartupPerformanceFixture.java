@@ -27,6 +27,7 @@ public final class StartupPerformanceFixture {
   public long extentBytes;
   public long suffixBytes;
   public List<WriteAheadLog.SegmentExtent> inventory;
+  private boolean timingReader;
 
   public static Path root() throws Exception {
     var root = Files.createDirectories(Path.of("target", "tracker-startup-performance"))
@@ -120,6 +121,7 @@ public final class StartupPerformanceFixture {
 
   /** Captures a bounded diagnostic sequence for validation outside the timed reader loop. */
   public long[] sequence(WriteAheadLog wal, int batchSize) {
+    assertTrue("Sequence capture must stay outside reader timing", !timingReader);
     var sequence = new long[(positions.size() + inventory.size() + 1) * 4];
     int index = 0;
     var reader = wal.openProofReader(coverage, 16 * 1024 * 1024);
@@ -135,6 +137,61 @@ public final class StartupPerformanceFixture {
         sequence[index++] = batch.status().ordinal();
         return java.util.Arrays.copyOf(sequence, index);
       }
+    }
+  }
+
+  /** Only next() and its lightweight counters run inside both measurement windows. */
+  public long[] measureReader(CountingReader reader, int batchSize) {
+    timingReader = true;
+    try {
+      long before = TrackerPerformanceProbe.allocated();
+      long start = System.nanoTime();
+      while (reader.next(batchSize).status() == ProofStatus.MORE) {
+        // Drain without capturing sequences or validating individual records.
+      }
+      long elapsed = System.nanoTime() - start;
+      long allocation = TrackerPerformanceProbe.allocated() - before;
+      return new long[] {elapsed, allocation};
+    } finally {
+      timingReader = false;
+    }
+  }
+
+  /** Independent witness of the batch arguments actually sent to the production reader. */
+  public static final class CountingReader implements WriteAheadLog.ProofReader {
+    private final WriteAheadLog.ProofReader delegate;
+    private int calls;
+    private int maxRequested;
+    private int minRequested = Integer.MAX_VALUE;
+    private long records;
+    private ProofStatus terminal;
+
+    public CountingReader(WriteAheadLog.ProofReader delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public WriteAheadLog.ProofBatch next(int maxRecords) {
+      calls++;
+      maxRequested = Math.max(maxRequested, maxRecords);
+      minRequested = Math.min(minRequested, maxRecords);
+      var batch = delegate.next(maxRecords);
+      records += batch.records().size();
+      terminal = batch.status();
+      return batch;
+    }
+
+    public void assertBatch(int expectedBatch, long expectedRecords) {
+      assertEquals("Maximum requested batch", expectedBatch, maxRequested);
+      assertEquals("Minimum requested batch", expectedBatch, minRequested);
+      assertEquals(expectedRecords, records);
+      assertEquals(ProofStatus.REACHED_END, terminal);
+      // A full final batch needs a separate terminal call. A short batch carries REACHED_END.
+      assertEquals(expectedRecords / expectedBatch + 1, calls);
+    }
+
+    public String label() {
+      return " requestedBatch=" + maxRequested + " nextCalls=" + calls;
     }
   }
 
