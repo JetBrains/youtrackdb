@@ -609,6 +609,7 @@ public class DiskStorageBootstrapWiringTest {
     final var original = Files.readAllBytes(path);
     final var laterOffset = Long.BYTES + Integer.BYTES + ByteBuffer.wrap(original).getInt(8);
     for (final var offset : new int[] {0, laterOffset}) {
+      // -1 marks the incomplete-rewrite guard in the first record.
       final var length = offset == 0 ? -1 : 0xFFFFFFF0;
       final var bytes = original.clone();
       ByteBuffer.wrap(bytes).putInt(offset + Long.BYTES, length);

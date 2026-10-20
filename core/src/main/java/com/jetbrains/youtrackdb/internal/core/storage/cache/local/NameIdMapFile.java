@@ -30,6 +30,12 @@ final class NameIdMapFile {
   static final int LENGTH_OFFSET = Long.BYTES;
   static final int HEADER_SIZE = Long.BYTES + Integer.BYTES;
 
+  /**
+   * Marks an incomplete rewrite in the first-record length field. Rewrite steps 1 and 3 write it.
+   * Must stay negative ({@code -1}) so older readers fail at {@code ByteBuffer.allocate(-1)}.
+   */
+  static final int INCOMPLETE_REWRITE_LENGTH = -1;
+
   private NameIdMapFile() {
   }
 
@@ -195,10 +201,11 @@ final class NameIdMapFile {
   /**
    * Rewrites an existing copy using a complete encoded image starting at byte zero.
    * The caller must force the other copy before calling this method and keep the source
-   * unchanged until this copy is complete. An incomplete nonempty rewrite has length -1.
+   * unchanged until this copy is complete. An incomplete nonempty rewrite has length
+   * {@link #INCOMPLETE_REWRITE_LENGTH}.
    */
   static void rewrite(FileChannel channel, ByteBuffer image, boolean callFsync) throws IOException {
-    final var guard = ByteBuffer.allocate(Integer.BYTES).putInt(-1).flip();
+    final var guard = ByteBuffer.allocate(Integer.BYTES).putInt(INCOMPLETE_REWRITE_LENGTH).flip();
     IOUtils.writeByteBuffer(guard, channel, LENGTH_OFFSET);
     force(channel, callFsync);
 
@@ -217,7 +224,7 @@ final class NameIdMapFile {
     final var first = ByteBuffer.allocate(firstEnd);
     first.put(image.duplicate().position(0).limit(firstEnd));
     final var length = first.getInt(LENGTH_OFFSET);
-    first.putInt(LENGTH_OFFSET, -1);
+    first.putInt(LENGTH_OFFSET, INCOMPLETE_REWRITE_LENGTH);
     first.flip();
     IOUtils.writeByteBuffer(first, channel, 0);
     force(channel, callFsync);

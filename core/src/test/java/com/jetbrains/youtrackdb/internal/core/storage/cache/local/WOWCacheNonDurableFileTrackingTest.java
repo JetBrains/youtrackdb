@@ -1311,7 +1311,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   /** A first-record rewrite guard fails the open without changing any map bytes. */
   @Test
   public void testV3GuardedFirstRecordFailsOpenWithoutChangingMap() throws Exception {
-    assertNegativeMapLengthFailsOpen(false, -1);
+    assertNegativeMapLengthFailsOpen(false, NameIdMapFile.INCOMPLETE_REWRITE_LENGTH);
   }
 
   /** A negative length after a valid record fails instead of exposing only the valid prefix. */
