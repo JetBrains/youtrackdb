@@ -656,6 +656,9 @@ public class WOWCacheFlushErrorTest {
         final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
         setField(cache, "files", container);
         setField(cache, "filesLock", new ReadersWriterSpinLock());
+        setField(cache, "mapBackupLock", new Object());
+        // Isolate data-file eviction retry from the independently tested registry barrier.
+        Mockito.doNothing().when(cache).forceNameIdMapBackup();
         setField(cache, "storageName", "owner");
         setField(cache, "nameIdMap", new ConcurrentHashMap<>(java.util.Map.of("data", 1)));
         setField(cache, "nonDurableFileIds", new IntOpenHashSet());

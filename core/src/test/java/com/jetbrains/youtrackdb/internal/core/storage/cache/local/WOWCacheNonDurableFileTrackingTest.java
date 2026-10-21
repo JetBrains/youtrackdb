@@ -468,7 +468,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   /** Clean close retains the rewritten registry force when fsync is enabled. */
   @Test
   public void testCleanCloseRegistryRewriteForcesWhenFsyncIsEnabled() throws Exception {
-    assertCleanCloseRegistryForces(true, 1);
+    assertCleanCloseRegistryForces(true, 4);
   }
 
   private void assertCleanCloseRegistryForces(boolean callFsync, long expectedForces)
@@ -476,13 +476,13 @@ public class WOWCacheNonDurableFileTrackingTest {
     wowCache.delete();
     createNewCache(callFsync);
     wowCache.addFile("closeForceProbe.tst");
+    wowCache.deleteFile(wowCache.addFile("compactAway.tst"));
 
-    final var backupPath = storagePath.resolve("name_id_map_v2_backup.cm");
+    final var backupPath = storagePath.resolve("name_id_map_v3_backup.cm");
     final var channel =
         spy(
             FileChannel.open(
                 backupPath,
-                StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE));
     final var stubbingChannel = new FileChannel[1];
@@ -493,7 +493,6 @@ public class WOWCacheNonDurableFileTrackingTest {
             .when(
                 () -> stubbingChannel[0] = FileChannel.open(
                     backupPath,
-                    StandardOpenOption.CREATE,
                     StandardOpenOption.READ,
                     StandardOpenOption.WRITE))
             .thenReturn(channel);
@@ -523,58 +522,30 @@ public class WOWCacheNonDurableFileTrackingTest {
   /** Initial V3 map creation retains its registry force when fsync is enabled. */
   @Test
   public void testV3CreationForcesWhenFsyncIsEnabled() throws Exception {
-    assertV3CreationForces(true, 1);
+    assertV3CreationForces(true, 2);
   }
 
   private void assertV3CreationForces(boolean callFsync, long expectedForces) throws Exception {
     wowCache.delete();
-    createNewCache(callFsync);
-
-    Files.deleteIfExists(storagePath.resolve("name_id_map_v3.cm"));
-    final var temporaryPath = storagePath.resolve("name_id_map_v3_t.cm");
-    final var channel = new java.util.concurrent.atomic.AtomicReference<FileChannel>();
-    final var stubbingChannel = new FileChannel[1];
-    try (MockedStatic<FileChannel> mockedChannels =
-        mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      try {
-        mockedChannels
-            .when(
-                () -> stubbingChannel[0] = FileChannel.open(
-                    temporaryPath,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.READ))
-            .thenAnswer(
-                invocation -> {
-                  final var realChannel =
-                      temporaryPath
-                          .getFileSystem()
-                          .provider()
-                          .newFileChannel(
-                              temporaryPath,
-                              java.util.Set.of(
-                                  StandardOpenOption.CREATE,
-                                  StandardOpenOption.WRITE,
-                                  StandardOpenOption.READ));
-                  final var channelSpy = spy(realChannel);
-                  channel.set(channelSpy);
-                  return channelSpy;
-                });
-      } finally {
-        // Close the real channel opened by CALLS_REAL_METHODS during stub setup.
-        if (stubbingChannel[0] != null) {
-          stubbingChannel[0].close();
-        }
-      }
-      assertNotNull("stub setup must open the temporary channel", stubbingChannel[0]);
-      invokeFsyncFilesOrMigration(wowCache, "createNameIdMapV3");
+    final var channels = new ArrayList<FileChannel>();
+    try (MockedStatic<FileChannel> opens = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> FileChannel.open(any(Path.class), eq(StandardOpenOption.WRITE)))
+          .thenAnswer(invocation -> {
+            final var real = (FileChannel) invocation.callRealMethod();
+            if (((Path) invocation.getArgument(0)).getFileName().toString().endsWith(".tmp")) {
+              final var channel = mock(FileChannel.class, delegatesTo(real));
+              channels.add(channel);
+              return channel;
+            }
+            return real;
+          });
+      createNewCache(callFsync);
     }
-
-    assertNotNull("creation must open its temporary registry channel", channel.get());
-    assertEquals(
-        "V3 creation force count must follow callFsync",
-        expectedForces,
-        countInvocations(channel.get(), "force"));
+    assertEquals("both copies must be created through staging files", 2, channels.size());
+    assertEquals(expectedForces,
+        channels.stream().mapToLong(channel -> countInvocations(channel, "force")).sum());
+    assertTrue(Files.exists(storagePath.resolve("name_id_map_v3.cm")));
+    assertTrue(Files.exists(storagePath.resolve("name_id_map_v3_backup.cm")));
   }
 
   /** fsyncFiles skips per-file synchronization but still truncates the DWL when disabled. */
@@ -854,17 +825,16 @@ public class WOWCacheNonDurableFileTrackingTest {
     wowCache.delete();
     createNewCache(true);
     final var fileId = wowCache.addFile("retryRegistryForce.tst");
-    final var backupPath = storagePath.resolve("name_id_map_v2_backup.cm");
+    final var backupPath = storagePath.resolve("name_id_map_v3_backup.cm");
     final var forceCalls = new AtomicInteger();
     final var stubbingChannel = new FileChannel[1];
     try (MockedStatic<FileChannel> channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
       try {
         channels.when(() -> stubbingChannel[0] = FileChannel.open(backupPath,
-            StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE))
+            StandardOpenOption.WRITE))
             .thenAnswer(invocation -> {
               final var real = backupPath.getFileSystem().provider().newFileChannel(backupPath,
-                  java.util.Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ,
-                      StandardOpenOption.WRITE));
+                  java.util.Set.of(StandardOpenOption.WRITE));
               final var channel = spy(real);
               org.mockito.Mockito.doAnswer(force -> {
                 if (forceCalls.incrementAndGet() == 1) {
@@ -888,7 +858,8 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertEquals("physical file closed but still owned", false, files.get(fileId).isOpen());
       wowCache.close();
     }
-    assertEquals(2, forceCalls.get());
+    assertTrue("retry forces the surviving copy again", forceCalls.get() >= 2);
+    assertTrue("close rewrite never clears the session latch", wowCache.isWalCuttingStopped());
     assertEquals("successful close releases the file registration", null, files.get(fileId));
     createNewCache(true);
     assertTrue("a retried close must persist the original name",
@@ -1265,14 +1236,9 @@ public class WOWCacheNonDurableFileTrackingTest {
   }
 
   private java.util.List<NameFileIdEntry> readMapEntries() throws Exception {
-    final var reader = WOWCache.class.getDeclaredMethod("readNextNameIdEntryV3", FileChannel.class);
-    reader.setAccessible(true);
     final var entries = new ArrayList<NameFileIdEntry>();
     try (var channel = FileChannel.open(storagePath.resolve("name_id_map_v3.cm"))) {
-      NameFileIdEntry entry;
-      while ((entry = (NameFileIdEntry) reader.invoke(wowCache, channel)) != null) {
-        entries.add(entry);
-      }
+      NameIdMapFile.scan(channel).forEach(entries::add);
     }
     return entries;
   }
@@ -1308,35 +1274,32 @@ public class WOWCacheNonDurableFileTrackingTest {
     org.junit.Assert.assertArrayEquals(v3Bytes, Files.readAllBytes(v3));
   }
 
-  /** A first-record rewrite guard fails the open without changing any map bytes. */
+  /** A first-record rewrite guard is repaired from the intact backup before any append. */
   @Test
-  public void testV3GuardedFirstRecordFailsOpenWithoutChangingMap() throws Exception {
-    assertNegativeMapLengthFailsOpen(false, NameIdMapFile.INCOMPLETE_REWRITE_LENGTH);
+  public void testV3GuardedFirstRecordRepairsFromBackup() throws Exception {
+    assertNegativeMapLengthRepairs(false, NameIdMapFile.INCOMPLETE_REWRITE_LENGTH);
   }
 
-  /** A negative length after a valid record fails instead of exposing only the valid prefix. */
+  /** A later negative length is damage and the intact backup restores the complete map. */
   @Test
-  public void testV3LaterNegativeRecordLengthFailsOpenWithoutChangingMap() throws Exception {
-    assertNegativeMapLengthFailsOpen(true, 0xFFFFFFF0);
+  public void testV3LaterNegativeRecordLengthRepairsFromBackup() throws Exception {
+    assertNegativeMapLengthRepairs(true, 0xFFFFFFF0);
   }
 
-  private void assertNegativeMapLengthFailsOpen(boolean laterRecord, int length) throws Exception {
+  private void assertNegativeMapLengthRepairs(boolean laterRecord, int length) throws Exception {
     final var path = writeClosedV3Map();
-    final var bytes = Files.readAllBytes(path);
+    final var original = Files.readAllBytes(path);
+    final var bytes = original.clone();
     final var image = ByteBuffer.wrap(bytes);
     final var offset = laterRecord ? NameIdMapFile.HEADER_SIZE + image.getInt(8) : 0;
     image.putInt(offset + NameIdMapFile.LENGTH_OFFSET, length);
     Files.write(path, bytes);
-    final var failure = assertThrows(StorageException.class, () -> createNewCache());
-    // Failed-open cleanup already releases the cache without rewriting the damaged map.
-    wowCache = null;
-    assertTrue(failure.getMessage().contains(path.toString()));
-    assertTrue(failure.getMessage().contains("at byte " + offset));
-    assertTrue(failure.getMessage().contains("Negative record length " + length));
-    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(path));
+    createNewCache();
+    org.junit.Assert.assertArrayEquals(original, Files.readAllBytes(path));
+    assertEquals(3, wowCache.files().size());
   }
 
-  /** A bad checksum keeps the valid prefix, ignores later records and leaves the map unchanged. */
+  /** Two damaged copies keep the source prefix and repair both files before later appends. */
   @Test
   public void testV3ChecksumMismatchOpensOnlyValidPrefix() throws Exception {
     final var path = writeClosedV3Map();
@@ -1344,14 +1307,18 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var image = ByteBuffer.wrap(bytes);
     final NameFileIdEntry first;
     try (final var channel = FileChannel.open(path)) {
-      first = NameIdMapFile.readNext(channel, path, storageName, this);
+      first = NameIdMapFile.scan(channel).iterator().next();
     }
     final var offset = NameIdMapFile.HEADER_SIZE + image.getInt(8);
     image.putLong(offset, image.getLong(offset) ^ 1);
     Files.write(path, bytes);
+    Files.write(storagePath.resolve("name_id_map_v3_backup.cm"), bytes);
     createNewCache();
     assertEquals(java.util.Map.of(first.getName(), first.getFileId()), mapSnapshot("nameIdMap"));
-    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(path));
+    org.junit.Assert.assertArrayEquals(java.util.Arrays.copyOf(bytes, offset),
+        Files.readAllBytes(path));
+    wowCache.addFile("afterRepair.tst");
+    assertEquals(2, readMapEntries().size());
   }
 
   private Path writeClosedV3Map() throws Exception {
@@ -1360,6 +1327,368 @@ public class WOWCacheNonDurableFileTrackingTest {
     wowCache.addFile("third.tst");
     wowCache.close();
     return storagePath.resolve("name_id_map_v3.cm");
+  }
+
+  /** Source selection covers absent, empty, prefix, divergent and damaged copies. */
+  @Test
+  public void twoCopySourceRuleRepairsBeforeAppending() throws Exception {
+    final var a = mapImage(new NameFileIdEntry("a.tst", -7, "a_7.tst"));
+    final var ab = mapImage(new NameFileIdEntry("a.tst", -7, "a_7.tst"),
+        new NameFileIdEntry("b.tst", -8, "b_8.tst"));
+    final var c = mapImage(new NameFileIdEntry("c.tst", -9, "c_9.tst"));
+    final var damagedA = java.util.Arrays.copyOf(a, a.length + 3);
+    final var damagedAB = java.util.Arrays.copyOf(ab, ab.length + 3);
+    final var empty = new byte[0];
+    assertMapSource(null, null, empty);
+    assertMapSource(a, null, a);
+    assertMapSource(null, a, a);
+    assertMapSource(damagedA, null, a);
+    assertMapSource(null, damagedA, a);
+    assertMapSource(empty, ab, ab);
+    assertMapSource(ab, empty, ab);
+    assertMapSource(a, ab, ab);
+    assertMapSource(ab, a, ab);
+    assertMapSource(a, damagedAB, a);
+    assertMapSource(damagedA, ab, ab);
+    assertMapSource(damagedA, damagedAB, ab);
+    assertMapSource(damagedAB, damagedA, ab);
+    assertMapSource(c, ab, c);
+    assertMapSource(damagedAB, c, ab);
+    assertMapSource(a, a, a);
+    assertMapSource(empty, null, empty);
+    assertMapSource(null, empty, empty);
+    assertMapSource(empty, damagedAB, empty);
+  }
+
+  private void assertMapSource(byte[] main, byte[] backup, byte[] expected) throws Exception {
+    wowCache.close();
+    final var mainPath = storagePath.resolve("name_id_map_v3.cm");
+    final var backupPath = storagePath.resolve("name_id_map_v3_backup.cm");
+    for (final var path : java.util.List.of(mainPath, backupPath)) {
+      final var bytes = path.equals(mainPath) ? main : backup;
+      if (bytes == null) {
+        Files.deleteIfExists(path);
+      } else {
+        Files.write(path, bytes);
+      }
+    }
+    createNewCache();
+    org.junit.Assert.assertArrayEquals(expected, Files.readAllBytes(mainPath));
+    org.junit.Assert.assertArrayEquals(expected, Files.readAllBytes(backupPath));
+    final var expectedNames = new java.util.HashMap<String, Integer>();
+    try (final var channel = FileChannel.open(mainPath)) {
+      NameIdMapFile.scan(channel)
+          .forEach(entry -> expectedNames.put(entry.getName(), entry.getFileId()));
+    }
+    assertEquals(expectedNames, mapSnapshot("nameIdMap"));
+    wowCache.addFile("appendedAfterRepair.tst");
+    assertEquals(expectedNames.size() + 1, readMapEntries().size());
+    org.junit.Assert.assertArrayEquals(Files.readAllBytes(mainPath),
+        Files.readAllBytes(backupPath));
+  }
+
+  private static byte[] mapImage(NameFileIdEntry... entries) {
+    final var records = new ArrayList<ByteBuffer>();
+    var size = 0;
+    for (final var entry : entries) {
+      final var record = NameIdMapFile.encode(entry, storageName);
+      records.add(record);
+      size += record.remaining();
+    }
+    final var image = ByteBuffer.allocate(size);
+    records.forEach(image::put);
+    return image.array();
+  }
+
+  /** Open and drop remove only map staging files, including .tmp files outside the .cm sweep. */
+  @Test
+  public void openAndDropRemoveMapLeftoversAndBothCopies() throws Exception {
+    final var leftovers = java.util.List.of("name_id_map_ab.tmp", "name_id_map_v3_t.cm",
+        "name_id_map_v2_backup.cm");
+    for (final var name : leftovers) {
+      Files.write(storagePath.resolve(name), new byte[] {1});
+    }
+    Files.write(storagePath.resolve("unrelated.tmp"), new byte[] {2});
+    reopenCache();
+    for (final var name : leftovers) {
+      assertFalse(Files.exists(storagePath.resolve(name)));
+      Files.write(storagePath.resolve(name), new byte[] {1});
+    }
+    wowCache.delete();
+    wowCache = null;
+    for (final var name : leftovers) {
+      assertFalse(Files.exists(storagePath.resolve(name)));
+    }
+    assertFalse(Files.exists(storagePath.resolve("name_id_map_v3.cm")));
+    assertFalse(Files.exists(storagePath.resolve("name_id_map_v3_backup.cm")));
+    assertTrue(Files.exists(storagePath.resolve("unrelated.tmp")));
+  }
+
+  /** Main write, main force and backup write failures undo a create and stop all later appends. */
+  @Test
+  public void eitherCopyAppendFailureRestoresMemoryAndPreventsWalCuts() throws Exception {
+    for (final var failurePoint : java.util.List.of("main-write", "main-force", "backup-write")) {
+      wowCache.delete();
+      createNewCache(true);
+      final var id = wowCache.bookFileId("failedCopy.tst");
+      final var namesBefore = mapSnapshot("nameIdMap");
+      final var idsBefore = mapSnapshot("idNameMap");
+      final var path = storagePath.resolve(failurePoint.startsWith("main")
+          ? "name_id_map_v3.cm" : "name_id_map_v3_backup.cm");
+      final var failure = new IOException("injected " + failurePoint);
+      try (var opens = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+        opens.when(() -> FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE))
+            .thenAnswer(invocation -> {
+              final var real = (FileChannel) invocation.callRealMethod();
+              final var channel = mock(FileChannel.class, delegatesTo(real));
+              if (failurePoint.endsWith("force")) {
+                doThrow(failure).when(channel).force(true);
+              } else {
+                doThrow(failure).when(channel).write(any(ByteBuffer.class),
+                    org.mockito.ArgumentMatchers.anyLong());
+              }
+              return channel;
+            });
+        assertEquals(failure, assertThrows(IOException.class,
+            () -> wowCache.addFile("failedCopy.tst", id)));
+      }
+      assertEquals(namesBefore, mapSnapshot("nameIdMap"));
+      assertEquals(idsBefore, mapSnapshot("idNameMap"));
+      assertEquals(null, files.get(id));
+      assertTrue(wowCache.isWalCuttingStopped());
+      assertThrows(IOException.class, () -> wowCache.addFile("blocked.tst"));
+      final var cut = new AtomicBoolean();
+      assertFalse(wowCache.executeCheckpoint(() -> cut.set(true)));
+      assertFalse(cut.get());
+      wowCache.syncDataFiles(0);
+    }
+  }
+
+  /** Backup force failure during rename keeps the completed physical rename and stops writers. */
+  @Test
+  public void renameBackupForceFailureLatchesAndRetainsPhysicalState() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var id = wowCache.addFile("oldCopy.tst");
+    final var path = storagePath.resolve("name_id_map_v3_backup.cm");
+    try (var opens = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> FileChannel.open(path, StandardOpenOption.WRITE))
+          .thenThrow(new IOException("backup force open rejected"));
+      assertThrows(IOException.class, () -> wowCache.renameFile(id, "newCopy.tst"));
+    }
+    assertTrue(wowCache.isWalCuttingStopped());
+    assertEquals(-1, wowCache.fileIdByName("oldCopy.tst"));
+    assertEquals(id, wowCache.fileIdByName("newCopy.tst"));
+    assertTrue(files.get(id).exists());
+    reopenCache();
+    assertEquals(id, wowCache.fileIdByName("newCopy.tst"));
+  }
+
+  /** A missing backup fails its force without CREATE and keeps all WAL records available. */
+  @Test
+  public void missingBackupCheckpointFailsWithoutRecreatingIt() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var path = storagePath.resolve("name_id_map_v3_backup.cm");
+    Files.delete(path);
+    final var cut = new AtomicBoolean();
+    assertThrows(IOException.class, () -> wowCache.executeCheckpoint(() -> cut.set(true)));
+    assertFalse(Files.exists(path));
+    assertFalse(cut.get());
+    assertTrue(wowCache.isWalCuttingStopped());
+  }
+
+  /** Open repairs the non-source first. A failed guard force cannot alter the source copy. */
+  @Test
+  public void failedOpenRepairPreservesChosenCopyAndPermitsFreshRetry() throws Exception {
+    final var path = writeClosedV3Map();
+    final var backup = storagePath.resolve("name_id_map_v3_backup.cm");
+    final var original = Files.readAllBytes(backup);
+    Files.write(path, new byte[] {1, 2, 3});
+    try (var opens = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      opens.when(() -> FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE))
+          .thenAnswer(invocation -> {
+            final var real = (FileChannel) invocation.callRealMethod();
+            final var channel = mock(FileChannel.class, delegatesTo(real));
+            doThrow(new IOException("repair guard force rejected")).when(channel).force(true);
+            return channel;
+          });
+      assertThrows(StorageException.class, () -> createNewCache(true));
+      assertTrue(wowCache.isWalCuttingStopped());
+      wowCache = null;
+    }
+    org.junit.Assert.assertArrayEquals(original, Files.readAllBytes(backup));
+    createNewCache(true);
+    org.junit.Assert.assertArrayEquals(original, Files.readAllBytes(path));
+    assertEquals(3, wowCache.files().size());
+  }
+
+  /** A shutdown interrupt does not close the async force channel or latch a map failure. */
+  @Test
+  public void interruptedCheckpointForceKeepsSessionWritable() throws Exception {
+    wowCache.delete();
+    createNewCache(true);
+    final var cut = new AtomicBoolean();
+    Thread.currentThread().interrupt();
+    try {
+      assertTrue(wowCache.executeCheckpoint(() -> cut.set(true)));
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertFalse(wowCache.isWalCuttingStopped());
+      assertTrue(cut.get());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  /** Either checkpoint path can latch failure while the other waits. Neither may cut after it. */
+  @Test(timeout = 120_000)
+  public void fullAndMaintenanceCheckpointsSerializeFailurePublicationAndCuts() throws Exception {
+    for (final var failFullCheckpoint : new boolean[] {false, true}) {
+      final var root = Files.createTempDirectory("two-copy-checkpoint-");
+      final var config = com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig.builder()
+          .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CALL_FSYNC, true)
+          .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL,
+              100000000)
+          .build();
+      try (var manager =
+          (com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl) com.jetbrains.youtrackdb.api.YourTracks
+              .instance(root.toString())) {
+        manager.create("checkpoint", com.jetbrains.youtrackdb.api.DatabaseType.DISK,
+            config, "admin", "admin", "admin");
+        try (var session = manager.open("checkpoint", "admin", "admin")) {
+          final var storage =
+              (com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage) session
+                  .getStorage();
+          final var original = (WOWCache) storage.getWriteCache();
+          original.pauseBackgroundFlush();
+          final var cache = spy(original);
+          final var originalWal = storage.getWALInstance();
+          final var wal = mock(
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+              delegatesTo(originalWal));
+          setTestField(storage,
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+              "writeCache", cache);
+          setTestField(storage,
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+              "writeAheadLog", wal);
+          setTestField(cache, WOWCache.class, "writeAheadLog", wal);
+          final var entered = new CountDownLatch(1);
+          final var release = new CountDownLatch(1);
+          final var forceCalls = new AtomicInteger();
+          final var firstFailure = new AtomicReference<Throwable>();
+          final var secondFailure = new AtomicReference<Throwable>();
+          doAnswer(invocation -> {
+            forceCalls.incrementAndGet();
+            entered.countDown();
+            assertTrue(release.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            throw new IOException("injected backup checkpoint force failure");
+          }).when(cache).forceNameIdMapBackup();
+          final Runnable full = storage::synch;
+          final Runnable maintenance = () -> {
+            try {
+              cache.syncDataFiles(0);
+            } catch (IOException failure) {
+              throw new java.io.UncheckedIOException(failure);
+            }
+          };
+          final var first = new Thread(() -> {
+            try {
+              (failFullCheckpoint ? full : maintenance).run();
+            } catch (Throwable failure) {
+              firstFailure.set(failure);
+            }
+          }, "failing-map-checkpoint");
+          final var second = new Thread(() -> {
+            try {
+              (failFullCheckpoint ? maintenance : full).run();
+            } catch (Throwable failure) {
+              secondFailure.set(failure);
+            }
+          }, "waiting-map-checkpoint");
+          try {
+            first.start();
+            assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            second.start();
+            // Observe the monitor wait, not just a scheduling delay. Both paths already hold
+            // filesLock read when the second checkpoint reaches the shared backup mutex.
+            final var deadline =
+                System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (second.getState() != Thread.State.BLOCKED && second.isAlive()
+                && System.nanoTime() < deadline) {
+              Thread.sleep(1);
+            }
+            assertEquals(Thread.State.BLOCKED, second.getState());
+            release.countDown();
+            first.join(10_000);
+            second.join(10_000);
+            assertFalse(first.isAlive());
+            assertFalse(second.isAlive());
+            assertNotNull(firstFailure.get());
+            assertEquals(null, secondFailure.get());
+            assertEquals("a latched failure rejects the waiting force", 1, forceCalls.get());
+            assertTrue(cache.isWalCuttingStopped());
+            verify(wal, never()).cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+            verify(wal, never()).cutTill(any());
+            final var dirty = storage.getClass().getDeclaredMethod("isDirty");
+            dirty.setAccessible(true);
+            assertEquals("a suppressed full checkpoint must keep recovery enabled", true,
+                dirty.invoke(storage));
+
+            // Post-failure maintenance must do no target drain, floor publication or sync.
+            org.mockito.Mockito.clearInvocations(cache);
+            storage.setBeforeMaintenanceFloorReadActionForTesting(() -> {
+              throw new AssertionError("stopped reclamation must not save a floor");
+            });
+            storage.makeFuzzyCheckpoint();
+            final var vacuum =
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class
+                    .getDeclaredMethod("runWALVacuum");
+            vacuum.setAccessible(true);
+            vacuum.invoke(storage);
+            storage.requestCheckpoint();
+            verify(cache, never()).flushTillSegment(org.mockito.ArgumentMatchers.anyLong());
+            verify(cache, never()).syncDataFiles(org.mockito.ArgumentMatchers.anyLong());
+            verify(cache, never()).forceNameIdMapBackup();
+          } finally {
+            release.countDown();
+            first.join(10_000);
+            second.join(10_000);
+            storage.clearCheckpointActionsForTesting();
+            // Restore the original owner for resource cleanup. Its session flag was not
+            // copied back from the spy, and the injected force changed no on-disk bytes.
+            setTestField(storage,
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+                "writeCache", original);
+            setTestField(storage,
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+                "writeAheadLog", originalWal);
+          }
+        }
+      } finally {
+        FileUtils.deleteRecursively(root.toFile());
+      }
+    }
+  }
+
+  private static void setTestField(Object target, Class<?> owner, String name, Object value)
+      throws Exception {
+    final var field = owner.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
+  /** A closed cache rejects a checkpoint without recreating the removed backup. */
+  @Test
+  public void closedCheckpointCannotRecreateBackup() throws Exception {
+    wowCache.close();
+    final var path = storagePath.resolve("name_id_map_v3_backup.cm");
+    Files.delete(path);
+    assertThrows(StorageException.class, () -> wowCache.executeCheckpoint(() -> {
+      throw new AssertionError("closed cache must not cut");
+    }));
+    assertFalse(Files.exists(path));
+    wowCache = null;
   }
 
   // --- Side file persistence tests ---

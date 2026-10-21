@@ -76,8 +76,8 @@ import java.io.StringWriter;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.FileChannel;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -199,21 +199,15 @@ public final class WOWCache extends AbstractWriteCache
    */
   private static final String NAME_ID_MAP_V3 = "name_id_map_v3" + NAME_ID_MAP_EXTENSION;
 
-  /**
-   * Temporary file used to create the initial V3 map before publishing it by rename.
-   *
-   * @see #NAME_ID_MAP_V3
-   * @see #createNameIdMapV3()
-   */
+  /** Leftover initial-map staging file removed during open and drop. */
   private static final String NAME_ID_MAP_V3_T = "name_id_map_v3_t" + NAME_ID_MAP_EXTENSION;
 
-  /**
-   * Name of the file which is used to compact file registry on close. All compacted data will be
-   * written first to this file and then file will be atomically moved on the place of existing
-   * registry.
-   */
+  /** Leftover compaction staging file removed during open and drop. */
   private static final String NAME_ID_MAP_V2_BACKUP =
       "name_id_map_v2_backup" + NAME_ID_MAP_EXTENSION;
+
+  private static final String NAME_ID_MAP_V3_BACKUP =
+      "name_id_map_v3_backup" + NAME_ID_MAP_EXTENSION;
 
   /**
    * Maximum length of the row in file registry
@@ -503,9 +497,14 @@ public final class WOWCache extends AbstractWriteCache
    */
   private Path nameIdMapHolderPath;
 
-  // Guarded by filesLock. A failed append may leave a torn record, so no later append is safe.
-  // Rewrites use a separate channel and remain available during clean close.
-  private boolean nameIdMapAppendsStopped;
+  // Mutations publish failure under filesLock write. Checkpoints publish it under filesLock
+  // read plus mapBackupLock. Volatile also supports cheap reclamation-submission checks.
+  // Never reset in this cache session, including after a clean-close rewrite.
+  private volatile boolean nameIdMapAppendsStopped;
+
+  // Lock order: filesLock read -> mapBackupLock -> WAL cutting lock. Never take filesLock
+  // inside this monitor or use it on the write-cache flush executor.
+  private final Object mapBackupLock = new Object();
 
   /**
    * Write cache id , which should be unique across all storages.
@@ -721,6 +720,12 @@ public final class WOWCache extends AbstractWriteCache
         if (interrupted) {
           Thread.currentThread().interrupt();
         }
+      }
+      if (nameIdMapAppendsStopped && failure instanceof IOException) {
+        // A checked open failure poisons AbstractStorage's repeated-open path.
+        throw BaseException.wrapException(
+            new StorageException(storageName, "Failed to initialize the file registry"),
+            failure, storageName);
       }
       throw failure;
     }
@@ -1150,7 +1155,7 @@ public final class WOWCache extends AbstractWriteCache
         }
         if (registryAttempted) {
           // A registry failure also stops writers. Undo any partially published side file.
-          nameIdMapAppendsStopped = true;
+          stopNameIdMapWrites(failure);
           try {
             writeNonDurableRegistry();
           } catch (IOException | RuntimeException | Error registryFailure) {
@@ -1251,7 +1256,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       writeNonDurableRegistry();
     } catch (IOException | RuntimeException | Error failure) {
-      nameIdMapAppendsStopped = true;
+      stopNameIdMapWrites(failure);
       throw failure;
     } finally {
       filesLock.releaseWriteLock();
@@ -1271,6 +1276,9 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
+      if (nameIdMapAppendsStopped) {
+        return;
+      }
 
       doubleWriteLog.startCheckpoint();
       try {
@@ -1298,7 +1306,7 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         writeAheadLog.flush();
-        writeAheadLog.cutAllSegmentsSmallerThan(segmentId);
+        executeCheckpoint(() -> writeAheadLog.cutAllSegmentsSmallerThan(segmentId));
       } finally {
         doubleWriteLog.endCheckpoint();
       }
@@ -2176,7 +2184,7 @@ public final class WOWCache extends AbstractWriteCache
             } catch (IOException | RuntimeException | Error failure) {
               // The deletion is already reflected in memory. Stop writers so the stale
               // side file cannot mark a later durable file with this ID as non-durable.
-              nameIdMapAppendsStopped = true;
+              stopNameIdMapWrites(failure);
               throw failure;
             }
           }
@@ -2345,6 +2353,12 @@ public final class WOWCache extends AbstractWriteCache
 
       writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
       writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
+      try {
+        forceMapCopy(storagePath.resolve(NAME_ID_MAP_V3_BACKUP));
+      } catch (IOException | RuntimeException | Error failure) {
+        stopNameIdMapWrites(failure);
+        throw failure;
+      }
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Rename of file was interrupted"),
@@ -2483,15 +2497,10 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
-      final var nameIdMapBackupPath = storagePath.resolve(NAME_ID_MAP_V2_BACKUP);
-      try (final var nameIdMapHolder =
-          FileChannel.open(
-              nameIdMapBackupPath,
-              StandardOpenOption.CREATE,
-              StandardOpenOption.READ,
-              StandardOpenOption.WRITE)) {
-        nameIdMapHolder.truncate(0);
-
+      try {
+        // Serialize each entry once. The same complete image feeds both positional rewrites.
+        final var records = new ArrayList<ByteBuffer>(nameIdMap.size());
+        var size = 0;
         for (final var entry : nameIdMap.entrySet()) {
           final String fileName;
           var storedId = entry.getValue();
@@ -2501,26 +2510,20 @@ public final class WOWCache extends AbstractWriteCache
             fileName = entry.getKey();
             storedId = -Math.abs(storedId);
           }
-
-          writeNameIdEntry(
-              nameIdMapHolder,
-              new NameFileIdEntry(entry.getKey(), storedId, fileName),
-              false);
+          final var record = NameIdMapFile.encode(
+              new NameFileIdEntry(entry.getKey(), storedId, fileName), storageName);
+          size = Math.addExact(size, record.remaining());
+          records.add(record);
         }
-
-        if (callFsync) {
-          nameIdMapHolder.force(true);
+        final var image = ByteBuffer.allocate(size);
+        for (final var record : records) {
+          image.put(record);
         }
-      }
-
-      try {
-        Files.move(
-            nameIdMapBackupPath,
-            nameIdMapHolderPath,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE);
-      } catch (AtomicMoveNotSupportedException e) {
-        Files.move(nameIdMapBackupPath, nameIdMapHolderPath, StandardCopyOption.REPLACE_EXISTING);
+        image.flip();
+        repairMapCopies(readMapCopies(), image);
+      } catch (IOException | RuntimeException | Error failure) {
+        stopNameIdMapWrites(failure);
+        throw failure;
       }
 
       doubleWriteLog.close();
@@ -2802,12 +2805,11 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (nameIdMapHolderPath != null) {
-        if (Files.exists(nameIdMapHolderPath)) {
-          Files.delete(nameIdMapHolderPath);
-        }
-
+        Files.deleteIfExists(nameIdMapHolderPath);
         nameIdMapHolderPath = null;
       }
+      Files.deleteIfExists(storagePath.resolve(NAME_ID_MAP_V3_BACKUP));
+      deleteMapTemporaryFiles();
 
       // Delete non-durable side files alongside name-id map deletion
       Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
@@ -2941,14 +2943,22 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     nameIdMapHolderPath = nameIdMapHolderV3;
-    if (Files.exists(nameIdMapHolderPath)) {
-      try (final var nameIdMapHolder =
-          FileChannel.open(
-              nameIdMapHolderPath, StandardOpenOption.WRITE, StandardOpenOption.READ)) {
-        readNameIdMapV3(nameIdMapHolder);
+    try {
+      deleteMapTemporaryFiles();
+      final var copies = readMapCopies();
+      final var source = copies.source();
+      if (source != null && !source.intact()) {
+        logger.warn("Damaged name-id map {}. Keeping valid prefix [0, {}) of {} bytes",
+            copies.sourcePath(), source.validEnd(), source.bytes().limit());
       }
-    } else {
-      createNameIdMapV3();
+      final var image = source == null ? ByteBuffer.allocate(0)
+          : source.bytes().slice(0, source.validEnd());
+      // Repair and force both copies before opening components can append new records.
+      repairMapCopies(copies, image);
+      readNameIdMapV3(source == null ? List.of() : source);
+    } catch (IOException | RuntimeException | Error failure) {
+      stopNameIdMapWrites(failure);
+      throw failure;
     }
 
     // Filter after loading the name-id map. Persist before writers can reuse deleted IDs,
@@ -2963,32 +2973,133 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void createNameIdMapV3() throws IOException {
-    final var nameIdMapHolderFileV3T = storagePath.resolve(NAME_ID_MAP_V3_T);
-
-    if (Files.exists(nameIdMapHolderFileV3T)) {
-      Files.delete(nameIdMapHolderFileV3T);
+  private void deleteMapTemporaryFiles() throws IOException {
+    Files.deleteIfExists(storagePath.resolve(NAME_ID_MAP_V3_T));
+    Files.deleteIfExists(storagePath.resolve(NAME_ID_MAP_V2_BACKUP));
+    try (final var temporaryFiles = Files.newDirectoryStream(storagePath, "name_id_map_*.tmp")) {
+      for (final var path : temporaryFiles) {
+        Files.deleteIfExists(path);
+      }
     }
+  }
 
-    final var v3NameIdMapHolder =
-        FileChannel.open(
-            nameIdMapHolderFileV3T,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.WRITE,
-            StandardOpenOption.READ);
+  private MapCopies readMapCopies() throws IOException {
+    final var main = scanMapCopy(nameIdMapHolderPath);
+    final var backupPath = storagePath.resolve(NAME_ID_MAP_V3_BACKUP);
+    final var backup = scanMapCopy(backupPath);
+    final boolean useBackup;
+    if (main == null || backup == null) {
+      useBackup = main == null && backup != null;
+    } else {
+      final var prefix = main.bytes().slice(0, main.validEnd());
+      useBackup = main.validEnd() <= backup.validEnd()
+          && prefix.equals(backup.bytes().slice(0, main.validEnd()))
+          && (backup.intact() || !main.intact());
+    }
+    return useBackup ? new MapCopies(backupPath, backup, nameIdMapHolderPath, main)
+        : new MapCopies(nameIdMapHolderPath, main, backupPath, backup);
+  }
 
+  private static NameIdMapFile.Scan scanMapCopy(Path path) throws IOException {
+    if (!Files.exists(path)) {
+      return null;
+    }
+    try (final var channel = FileChannel.open(path, StandardOpenOption.WRITE,
+        StandardOpenOption.READ)) {
+      return NameIdMapFile.scan(channel);
+    }
+  }
+
+  private record MapCopies(Path sourcePath, NameIdMapFile.Scan source,
+      Path otherPath, NameIdMapFile.Scan other) {
+  }
+
+  private void repairMapCopies(MapCopies copies, ByteBuffer image) throws IOException {
+    // Keep the chosen source untouched until a complete, forced other copy exists.
+    if (copies.source() != null) {
+      forceMapCopy(copies.sourcePath());
+    }
+    replaceMapCopy(copies.otherPath(), copies.other(), image);
+    // replaceMapCopy finishes by forcing the other copy, including unchanged images.
+    // An unchanged source was already forced above and needs no second barrier.
+    if (copies.source() == null || !copies.source().intact()
+        || !copies.source().bytes().equals(image)) {
+      replaceMapCopy(copies.sourcePath(), copies.source(), image);
+    }
+  }
+
+  private void replaceMapCopy(Path path, NameIdMapFile.Scan scan, ByteBuffer image)
+      throws IOException {
+    if (scan == null) {
+      NameIdMapFile.create(path, image, callFsync, this);
+    } else if (!scan.intact() || !scan.bytes().equals(image)) {
+      try (final var channel = FileChannel.open(path, StandardOpenOption.READ,
+          StandardOpenOption.WRITE)) {
+        NameIdMapFile.rewrite(channel, image, callFsync);
+      }
+    } else {
+      forceMapCopy(path);
+    }
+  }
+
+  private void forceMapCopy(Path path) throws IOException {
     if (callFsync) {
-      v3NameIdMapHolder.force(true);
+      try (final var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+        channel.force(true);
+      }
     }
-    v3NameIdMapHolder.close();
+  }
 
+  @Override
+  public boolean isWalCuttingStopped() {
+    return nameIdMapAppendsStopped;
+  }
+
+  @Override
+  public boolean executeCheckpoint(CheckpointAction cut) throws IOException {
+    filesLock.acquireReadLock();
     try {
-      Files.move(
-          nameIdMapHolderFileV3T,
-          storagePath.resolve(NAME_ID_MAP_V3),
-          StandardCopyOption.ATOMIC_MOVE);
-    } catch (AtomicMoveNotSupportedException e) {
-      Files.move(nameIdMapHolderFileV3T, storagePath.resolve(NAME_ID_MAP_V3));
+      checkForClose();
+      synchronized (mapBackupLock) {
+        if (nameIdMapAppendsStopped) {
+          return false;
+        }
+        try {
+          forceNameIdMapBackup();
+        } catch (IOException | RuntimeException | Error failure) {
+          stopNameIdMapWrites(failure);
+          if (failure instanceof Error error) {
+            throw error;
+          }
+          throw new IOException("Failed to force the file registry backup", failure);
+        }
+        cut.execute();
+        return true;
+      }
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
+  // As with AsyncFile.synch, force is not interruptible. A shutdown interrupt must not
+  // close the channel and turn cancellation into a latched map write failure. No CREATE:
+  // a missing backup is a real failure, never a new empty authorization for WAL removal.
+  void forceNameIdMapBackup() throws IOException {
+    if (callFsync) {
+      try (final var channel = AsynchronousFileChannel.open(
+          storagePath.resolve(NAME_ID_MAP_V3_BACKUP),
+          java.util.Set.of(StandardOpenOption.WRITE), executor)) {
+        channel.force(true);
+      }
+    }
+  }
+
+  private void stopNameIdMapWrites(Throwable failure) {
+    if (!nameIdMapAppendsStopped) {
+      nameIdMapAppendsStopped = true;
+      logger.error("File registry writes and WAL reclamation stopped for storage {}. "
+          + "Reopen the storage to continue. Background page and WAL flushing remain active.",
+          storageName, failure);
     }
   }
 
@@ -3258,24 +3369,14 @@ public final class WOWCache extends AbstractWriteCache
    *       inside write cache
    * </ol>
    */
-  private void readNameIdMapV3(FileChannel nameIdMapHolder)
-      throws IOException, java.lang.InterruptedException {
+  private void readNameIdMapV3(Iterable<NameFileIdEntry> entries)
+      throws java.lang.InterruptedException {
     nameIdMap.clear();
-
-    long localFileCounter = -1;
-
-    nameIdMapHolder.position(0);
-
-    NameFileIdEntry nameFileIdEntry;
-
+    idNameMap.clear();
     final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
 
-    while ((nameFileIdEntry = readNextNameIdEntryV3(nameIdMapHolder)) != null) {
+    for (final var nameFileIdEntry : entries) {
       final long absFileId = Math.abs(nameFileIdEntry.getFileId());
-
-      if (localFileCounter < absFileId) {
-        localFileCounter = absFileId;
-      }
 
       if (absFileId != 0) {
         nameIdMap.put(nameFileIdEntry.getName(), nameFileIdEntry.getFileId());
@@ -3321,10 +3422,6 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Nullable private NameFileIdEntry readNextNameIdEntryV3(FileChannel nameIdMapHolder) throws IOException {
-    return NameIdMapFile.readNext(nameIdMapHolder, nameIdMapHolderPath, storageName, this);
-  }
-
   private void checkNameIdMapAppendsAllowed() throws IOException {
     if (nameIdMapAppendsStopped) {
       // Keep registry failures on the checked I/O path. WAL replay catches runtime exceptions
@@ -3340,12 +3437,12 @@ public final class WOWCache extends AbstractWriteCache
     try {
       appendNameIdEntry(nameFileIdEntry, sync);
     } catch (RuntimeException failure) {
-      nameIdMapAppendsStopped = true;
+      stopNameIdMapWrites(failure);
       // WAL replay treats runtime exceptions as incomplete units. A registry failure must
       // instead fail the open, including unchecked failures while opening the append channel.
       throw new IOException("Failed to append the file registry", failure);
     } catch (IOException | Error failure) {
-      nameIdMapAppendsStopped = true;
+      stopNameIdMapWrites(failure);
       throw failure;
     }
   }
@@ -3353,23 +3450,19 @@ public final class WOWCache extends AbstractWriteCache
   // Package-private seam. Rewrites deliberately bypass the guarded append path.
   void appendNameIdEntry(final NameFileIdEntry nameFileIdEntry, final boolean sync)
       throws IOException {
-    try (final var nameIdMapHolder =
-        FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-      writeNameIdEntry(nameIdMapHolder, nameFileIdEntry, sync);
-    }
+    final var record = NameIdMapFile.encode(nameFileIdEntry, storageName);
+    appendMapCopy(nameIdMapHolderPath, record, sync);
+    appendMapCopy(storagePath.resolve(NAME_ID_MAP_V3_BACKUP), record, false);
   }
 
-  private void writeNameIdEntry(
-      final FileChannel nameIdMapHolder, final NameFileIdEntry nameFileIdEntry, final boolean sync)
-      throws IOException {
-    final var serializedRecord = NameIdMapFile.encode(nameFileIdEntry, storageName);
-
-    IOUtils.writeByteBuffer(serializedRecord, nameIdMapHolder, nameIdMapHolder.size());
-    //noinspection ResultOfMethodCallIgnored
-    nameIdMapHolder.write(serializedRecord);
-
-    if (sync && callFsync) {
-      nameIdMapHolder.force(true);
+  private void appendMapCopy(Path path, ByteBuffer record, boolean sync) throws IOException {
+    checkNameIdMapAppendsAllowed();
+    try (final var channel = FileChannel.open(path, StandardOpenOption.READ,
+        StandardOpenOption.WRITE)) {
+      IOUtils.writeByteBuffer(record.duplicate(), channel, channel.size());
+      if (sync && callFsync) {
+        channel.force(true);
+      }
     }
   }
 

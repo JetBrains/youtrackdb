@@ -108,6 +108,22 @@ public interface WriteCache {
 
   void syncDataFiles(long segmentId) throws IOException;
 
+  /** Whether a registry failure forbids WAL reclamation for this cache session. */
+  default boolean isWalCuttingStopped() {
+    return false;
+  }
+
+  /** Runs WAL removal only after the cache has made its file registry durable. */
+  default boolean executeCheckpoint(CheckpointAction cut) throws IOException {
+    cut.execute();
+    return true;
+  }
+
+  @FunctionalInterface
+  interface CheckpointAction {
+    void execute() throws IOException;
+  }
+
   void flushTillSegment(long segmentId);
 
   boolean exists(String fileName);
