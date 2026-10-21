@@ -14,8 +14,6 @@ import javax.annotation.Nullable;
  */
 public final class ChangedPageTrackerBackup {
 
-  private static final IOException NO_SAFE_COVERAGE = new IOException("No retained safe coverage");
-
   private ChangedPageTrackerBackup() {
   }
 
@@ -130,7 +128,7 @@ public final class ChangedPageTrackerBackup {
   }
 
   public enum Status {
-    SAVED_CONTINUITY, SAVED_UNTRUSTED, SAVE_FAILED_INVALIDATED, SAVE_FAILED_INVALIDATION_FAILED, COVERAGE_UNAVAILABLE, MERGED_NOT_CONSUMED, NO_BOUNDARY
+    SAVED_CONTINUITY, SAVED_UNTRUSTED, SAVE_FAILED_INVALIDATED, SAVE_FAILED_INVALIDATION_FAILED, COVERAGE_UNAVAILABLE, COVERAGE_UNAVAILABLE_INVALIDATION_FAILED, MERGED_NOT_CONSUMED, NO_BOUNDARY
   }
 
   public static Status complete(ChangedPageTracker tracker, Context context, Path sideFile,
@@ -172,23 +170,33 @@ public final class ChangedPageTrackerBackup {
           || preflight.effectiveBoundary() < 0 || preflight.effectiveBoundary() > fixed) {
         tracker.invalidate();
         tracker.mergeBack(handle.seal);
+        boolean invalidated;
         try {
-          ChangedPageTrackerFile.invalidate(sideFile, tracker, files);
+          invalidated = ChangedPageTrackerFile.invalidate(sideFile, tracker, files)
+              == ChangedPageTrackerFile.InvalidationResult.INVALIDATED;
         } catch (Error cleanupFailure) {
-          // Completion-only reporting preserves the durable output's success.
+          // Completion-only reporting preserves durable output success, not cleanup success.
+          invalidated = !tracker.trustedFileMayExist();
         }
         ChangedPageTrackerFile.warn(files, "Backup completion coverage unavailable: ", sideFile,
-            NO_SAFE_COVERAGE);
-        return Status.COVERAGE_UNAVAILABLE;
+            new IOException("No retained safe coverage"));
+        return invalidated ? Status.COVERAGE_UNAVAILABLE
+            : Status.COVERAGE_UNAVAILABLE_INVALIDATION_FAILED;
       }
-      tracker.stageCompletion(handle.seal, facts.fullRead());
+      tracker.stageCompletion(handle.seal, facts.fullRead(), context.selectionEligible());
       try {
         tracker.beforeCompletionCapture();
         ChangedPageTrackerFile.SaveResult result;
+        // An inherited cancellation must not break publication of already durable output.
+        boolean interrupted = Thread.interrupted();
         try {
           result = ChangedPageTrackerFile.save(sideFile, tracker, preflight.coverageLsn(), files);
         } catch (Error publicationFailure) {
           return failureStatus(tracker);
+        } finally {
+          if (interrupted) {
+            Thread.currentThread().interrupt();
+          }
         }
         if (result != ChangedPageTrackerFile.SaveResult.SAVED) {
           return failureStatus(tracker);
