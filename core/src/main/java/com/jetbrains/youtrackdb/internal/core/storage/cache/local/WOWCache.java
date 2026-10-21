@@ -108,6 +108,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
@@ -503,8 +504,9 @@ public final class WOWCache extends AbstractWriteCache
   private volatile boolean nameIdMapAppendsStopped;
 
   // Lock order: filesLock read -> mapBackupLock -> WAL cutting lock. Never take filesLock
-  // inside this monitor or use it on the write-cache flush executor.
-  private final Object mapBackupLock = new Object();
+  // while holding this lock or use it on the write-cache flush executor.
+  // On JDK 21, fsync inside synchronized pins a blocked virtual thread to its carrier.
+  private final ReentrantLock mapBackupLock = new ReentrantLock();
 
   /**
    * Write cache id , which should be unique across all storages.
@@ -3022,17 +3024,20 @@ public final class WOWCache extends AbstractWriteCache
     replaceMapCopy(copies.otherPath(), copies.other(), image);
     // replaceMapCopy finishes by forcing the other copy, including unchanged images.
     // An unchanged source was already forced above and needs no second barrier.
-    if (copies.source() == null || !copies.source().intact()
-        || !copies.source().bytes().equals(image)) {
+    if (!holdsImage(copies.source(), image)) {
       replaceMapCopy(copies.sourcePath(), copies.source(), image);
     }
+  }
+
+  private static boolean holdsImage(NameIdMapFile.Scan scan, ByteBuffer image) {
+    return scan != null && scan.intact() && scan.bytes().equals(image);
   }
 
   private void replaceMapCopy(Path path, NameIdMapFile.Scan scan, ByteBuffer image)
       throws IOException {
     if (scan == null) {
       NameIdMapFile.create(path, image, callFsync, this);
-    } else if (!scan.intact() || !scan.bytes().equals(image)) {
+    } else if (!holdsImage(scan, image)) {
       try (final var channel = FileChannel.open(path, StandardOpenOption.READ,
           StandardOpenOption.WRITE)) {
         NameIdMapFile.rewrite(channel, image, callFsync);
@@ -3060,7 +3065,8 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
-      synchronized (mapBackupLock) {
+      mapBackupLock.lock();
+      try {
         if (nameIdMapAppendsStopped) {
           return false;
         }
@@ -3075,6 +3081,8 @@ public final class WOWCache extends AbstractWriteCache
         }
         cut.execute();
         return true;
+      } finally {
+        mapBackupLock.unlock();
       }
     } finally {
       filesLock.releaseReadLock();
