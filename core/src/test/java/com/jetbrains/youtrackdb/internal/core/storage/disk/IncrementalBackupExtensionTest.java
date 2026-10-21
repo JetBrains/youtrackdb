@@ -619,35 +619,13 @@ public class IncrementalBackupExtensionTest {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
       var output = new ByteArrayOutputStream();
-      var logger = Logger.getLogger(DiskStorage.class.getName());
-      var previousLevel = logger.getLevel();
       var records = new CopyOnWriteArrayList<LogRecord>();
-      Handler handler = new Handler() {
-        @Override
-        public void publish(LogRecord record) {
-          records.add(record);
-        }
-
-        @Override
-        public void flush() {
-        }
-
-        @Override
-        public void close() {
-        }
-      };
-      handler.setLevel(Level.ALL);
-      logger.addHandler(handler);
-      logger.setLevel(Level.ALL);
-      String name;
-      try {
-        name = storage.backup(() -> List.<String>of().iterator(),
-            file -> InputStream.nullInputStream(), file -> output, file -> {
-            });
-      } finally {
-        logger.removeHandler(handler);
-        logger.setLevel(previousLevel);
-      }
+      var names = new ArrayList<String>();
+      withDiskStorageLogs(records, () -> names.add(storage.backup(
+          () -> List.<String>of().iterator(),
+          file -> InputStream.nullInputStream(), file -> output, file -> {
+          })));
+      var name = names.getFirst();
       assertEquals("the missing force capability must be reported once at INFO", 1,
           records.stream().filter(record -> record.getLevel() == Level.INFO
               && record.getMessage().contains("has no force capability")).count());
@@ -722,7 +700,7 @@ public class IncrementalBackupExtensionTest {
     throw new AssertionError("no ZIP end record before the backup tail");
   }
 
-  /** Each publication phase propagates its injected failure and still attempts close. */
+  /** Each publication failure reaches the caller, attempts close and keeps its output unit. */
   @Test
   public void publicationPhaseFailuresReachCallerWithoutSuccessLog() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -731,13 +709,25 @@ public class IncrementalBackupExtensionTest {
         var output = new RecordingOutput();
         output.failPhase = phase;
         var records = new CopyOnWriteArrayList<LogRecord>();
+        var created = new ArrayList<String>();
+        var remaining = new ArrayList<String>();
+        var removed = new ArrayList<String>();
         withDiskStorageLogs(records, () -> {
           var failure = assertThrows(RuntimeException.class, () -> storage.backup(
               () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
-              file -> output, file -> {
+              file -> {
+                created.add(file);
+                remaining.add(file);
+                return output;
+              }, file -> {
+                removed.add(file);
+                remaining.remove(file);
               }));
           assertEquals("injected " + phase, failure.getCause().getMessage());
         });
+        assertTrue("a publication failure must not invoke the remover", removed.isEmpty());
+        assertEquals("one output unit must be created", 1, created.size());
+        assertEquals("the failed output unit must remain", created, remaining);
         assertTrue("the injected phase must be reached", output.faultReached);
         assertTrue("close must be attempted", output.closed);
         assertEquals(phase.equals("payloadFlush") || phase.equals("force") ? 0 : 1,
@@ -755,7 +745,7 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** Local payload force succeeds, but close force fails after complete v6 bytes exist. */
+  /** A final local force failure reaches the caller and keeps the complete v6 output unit. */
   @Test
   public void localFinalForceFailureFailsBackupAfterTailPublication() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -774,11 +764,23 @@ public class IncrementalBackupExtensionTest {
           Path.class);
       constructor.setAccessible(true);
       var output = (OutputStream) constructor.newInstance(delegate, channel, backupPath);
+      var created = new ArrayList<String>();
+      var remaining = new ArrayList<String>();
+      var removed = new ArrayList<String>();
       var failure = assertThrows(RuntimeException.class, () -> storage.backup(
           () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
-          file -> output, file -> {
+          file -> {
+            created.add(file);
+            remaining.add(file);
+            return output;
+          }, file -> {
+            removed.add(file);
+            remaining.remove(file);
           }));
       assertEquals("injected final force", failure.getCause().getMessage());
+      assertTrue("a final force failure must not invoke the remover", removed.isEmpty());
+      assertEquals("one output unit must be created", 1, created.size());
+      assertEquals("the complete output unit must remain", created, remaining);
       assertEquals(2, forces.get());
       assertTrue(delegate.closed);
       assertEquals(1, delegate.tailRequests);
@@ -1349,15 +1351,19 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** Captures extension fallback signals without changing global logging after the test. */
+  /** Captures only the calling backup thread and restores the logger configuration afterward. */
   private void withDiskStorageLogs(List<LogRecord> records, ThrowingAction action)
       throws Exception {
     var logger = Logger.getLogger(DiskStorage.class.getName());
     var previousLevel = logger.getLevel();
+    // Backup publication and its log calls run synchronously on the caller thread.
+    var threadId = Thread.currentThread().threadId();
     Handler handler = new Handler() {
       @Override
       public void publish(LogRecord record) {
-        records.add(record);
+        if (record.getLongThreadID() == threadId) {
+          records.add(record);
+        }
       }
 
       @Override
