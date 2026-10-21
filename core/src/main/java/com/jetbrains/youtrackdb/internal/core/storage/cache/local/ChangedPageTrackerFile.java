@@ -241,7 +241,7 @@ public final class ChangedPageTrackerFile {
     }
   }
 
-  private static void warn(FileOperations files, String prefix, Path target, Throwable failure) {
+  static void warn(FileOperations files, String prefix, Path target, Throwable failure) {
     try {
       files.warn(prefix + target, failure);
     } catch (RuntimeException | Error loggingFailure) {

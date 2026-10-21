@@ -53,6 +53,10 @@ public final class ChangedPageTracker {
   private long savedFailureVersion = -1;
   private boolean historyTrusted;
   private boolean startupVerificationPending;
+  @Nullable private UUID pendingResetId;
+  private long pendingResetVersion = -1;
+  // Exists only under save order. It contains no bitmap copy.
+  @Nullable private CompletionProposal completionProposal;
 
   public ChangedPageTracker() {
     this(kind -> {
@@ -119,18 +123,36 @@ public final class ChangedPageTracker {
    * A null result signals a pending backup and requires a full read without a third generation.
    */
   @Nullable SealedGeneration beginBackup() {
+    return beginBoundary(null, true).internalSeal();
+  }
+
+  ChangedPageTrackerBackup.Context beginBoundary(
+      @Nullable ChangedPageTrackerBackup.Continuity head, boolean capable) {
     generationState.lock();
     try {
       if (sealed != null) {
         invalidate();
-        return null;
+        return ChangedPageTrackerBackup.context(this, null, resetIdentifier(failures.get()),
+            null, false, head, capable);
       }
+      long version = failures.get();
+      UUID identifier = resetIdentifier(version);
+      boolean trusted = !startupVerificationPending && historyTrusted
+          && savedFailureVersion == version;
+      allocations.beforeBoundaryAllocation(BoundaryAllocation.REPLACEMENT);
       var replacement = new Generation(allocations, mutations);
-      var boundary = new SealedGeneration(UUID.randomUUID(), active, trackerId, failures.get());
+      allocations.beforeBoundaryAllocation(BoundaryAllocation.SEAL);
+      var boundary = new SealedGeneration(UUID.randomUUID(), active, identifier, version);
+      allocations.beforeBoundaryAllocation(BoundaryAllocation.HANDLE);
+      var handle = ChangedPageTrackerBackup.handle(this, boundary);
+      allocations.beforeBoundaryAllocation(BoundaryAllocation.CONTEXT);
+      var context = ChangedPageTrackerBackup.context(this, handle, identifier,
+          savedFailureVersion == version ? lastCompleted : null, trusted, head, capable);
+      // All fallible construction precedes ownership publication.
       sealed = boundary;
       active = replacement;
       mutations.changed();
-      return boundary;
+      return context;
     } catch (RuntimeException | Error failure) {
       invalidate();
       throw failure;
@@ -367,10 +389,18 @@ public final class ChangedPageTracker {
     try {
       long version = failures.get();
       boolean reset = version != savedFailureVersion;
-      return new SaveState(reset ? UUID.randomUUID() : trackerId,
-          reset ? null : lastCompleted, !reset && !startupVerificationPending && historyTrusted,
-          active, sealed, version, reset,
-          mutationVersion);
+      var proposal = completionProposal;
+      boolean completionTrusted = proposal != null && proposal.eligible
+          && proposal.boundary.failureVersion() == version && !startupVerificationPending;
+      var state = new SaveState(completionTrusted ? proposal.boundary.trackerIdentifier()
+          : resetIdentifier(version),
+          completionTrusted ? proposal.boundary.identifier() : reset ? null : lastCompleted,
+          completionTrusted || (!reset && !startupVerificationPending && historyTrusted),
+          active, sealed, version, reset, mutationVersion);
+      if (proposal != null) {
+        proposal.captured = state;
+      }
+      return state;
     } finally {
       generationState.unlock();
     }
@@ -398,10 +428,10 @@ public final class ChangedPageTracker {
       if (!isCaptureValid(state)) {
         return false;
       }
-      if (state.resetsTracker()) {
+      if (state.resetsTracker() || completionProposal != null) {
         trackerId = state.trackerIdentifier();
-        lastCompleted = null;
-        historyTrusted = false;
+        lastCompleted = completionProposal == null ? null : state.lastCompletedIdentifier();
+        historyTrusted = completionProposal != null && state.trusted();
         savedFailureVersion = state.failureVersion();
       }
       // Installing the proposed identifier applies the captured state, not a new mutation.
@@ -411,6 +441,76 @@ public final class ChangedPageTracker {
       return isCaptureValid(state);
     } finally {
       generationState.unlock();
+    }
+  }
+
+  /** A reset proposal is stable across begin, checkpoint and completion at one failure version. */
+  private UUID resetIdentifier(long version) {
+    if (version == savedFailureVersion) {
+      return trackerId;
+    }
+    if (pendingResetId == null || pendingResetVersion != version) {
+      pendingResetId = UUID.randomUUID();
+      pendingResetVersion = version;
+    }
+    return pendingResetId;
+  }
+
+  void validateBoundary(SealedGeneration boundary) {
+    requireSaveOrder();
+    generationState.lock();
+    try {
+      requireSealed(boundary);
+    } finally {
+      generationState.unlock();
+    }
+  }
+
+  void stageCompletion(SealedGeneration boundary, boolean fullRead) {
+    requireSaveOrder();
+    generationState.lock();
+    try {
+      requireSealed(boundary);
+      var proposal = new CompletionProposal(boundary, fullRead
+          || (!startupVerificationPending && historyTrusted
+              && savedFailureVersion == failures.get()));
+      completionProposal = proposal;
+      // Trust is installed only by validated publication, never by preliminary validation.
+      historyTrusted = false;
+      lastCompleted = null;
+      sealed = null;
+      mutations.changed();
+    } finally {
+      generationState.unlock();
+    }
+  }
+
+  void beforeCompletionCapture() {
+    allocations.beforeCompletionCapture();
+  }
+
+  boolean completionInstalled(SealedGeneration boundary) {
+    requireSaveOrder();
+    var state = Objects.requireNonNull(completionProposal).captured;
+    return state != null && state.trusted() && isCaptureValid(state)
+        && boundary.trackerIdentifier().equals(state.trackerIdentifier())
+        && boundary.identifier().equals(state.lastCompletedIdentifier()) && isTrusted();
+  }
+
+  void clearCompletion() {
+    requireSaveOrder();
+    completionProposal = null;
+  }
+
+  private static final class CompletionProposal {
+
+    private final SealedGeneration boundary;
+    private final boolean eligible;
+    @Nullable private SaveState captured;
+
+    private CompletionProposal(SealedGeneration boundary, boolean eligible) {
+      this.boundary = boundary;
+      this.eligible = eligible;
     }
   }
 
@@ -861,12 +961,22 @@ public final class ChangedPageTracker {
     NODE, IDENTITY, FILE, SEGMENT
   }
 
+  enum BoundaryAllocation {
+    REPLACEMENT, SEAL, HANDLE, CONTEXT
+  }
+
   @FunctionalInterface
   interface AllocationObserver {
 
     void beforeAllocation(Allocation kind);
 
     default void beforeBitPublication() {
+    }
+
+    default void beforeCompletionCapture() {
+    }
+
+    default void beforeBoundaryAllocation(BoundaryAllocation kind) {
     }
   }
 

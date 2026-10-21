@@ -868,17 +868,18 @@ public class ChangedPageTrackerTest {
     assertEquals(reset.trackerIdentifier(), capture(tracker).trackerIdentifier());
   }
 
-  // Saving the initial reset during a backup changes its history even without a mark failure.
-  // The seal's tracker identifier fence must therefore also prevent continuity certification.
+  // A same-version reset publication installs the UUID shared with the boundary. It does not
+  // establish trust by itself, but cannot defeat later unchanged durable completion.
   @Test
-  public void trackerResetDuringBackupCannotCertifyItsSeal() {
+  public void sameVersionResetDuringBackupPreservesBoundaryIdentity() {
     var tracker = new ChangedPageTracker();
     var seal = tracker.beginBackup();
     successfulSave(tracker);
-    assertNotEquals(seal.trackerIdentifier(), capture(tracker).trackerIdentifier());
-    tracker.retire(seal);
+    assertEquals(seal.trackerIdentifier(), capture(tracker).trackerIdentifier());
     assertFalse(tracker.isTrusted());
-    assertNull(capture(tracker).lastCompletedIdentifier());
+    tracker.retire(seal);
+    assertTrue(tracker.isTrusted());
+    assertEquals(seal.identifier(), capture(tracker).lastCompletedIdentifier());
   }
 
   // Restore streaming words into a genuinely new tracker, including the same file in both
