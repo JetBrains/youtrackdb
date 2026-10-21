@@ -466,13 +466,13 @@ public final class ChangedPageTracker {
     }
   }
 
-  void stageCompletion(SealedGeneration boundary, boolean fullRead) {
+  void stageCompletion(SealedGeneration boundary, boolean fullRead, boolean selectionEligible) {
     requireSaveOrder();
     generationState.lock();
     try {
       requireSealed(boundary);
       var proposal = new CompletionProposal(boundary, fullRead
-          || (!startupVerificationPending && historyTrusted
+          || (selectionEligible && !startupVerificationPending && historyTrusted
               && savedFailureVersion == failures.get()));
       completionProposal = proposal;
       // Trust is installed only by validated publication, never by preliminary validation.

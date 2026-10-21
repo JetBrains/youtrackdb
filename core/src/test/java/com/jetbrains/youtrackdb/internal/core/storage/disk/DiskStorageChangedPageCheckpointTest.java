@@ -458,9 +458,13 @@ public class DiskStorageChangedPageCheckpointTest {
       Files.write(path, invalid);
       var barriers = new AtomicInteger();
       doAnswer(call -> {
+        var owner = field(DiskStorage.class, created, "startupOwner");
         call.callRealMethod();
-        assertInvalidatedAuthority(path);
-        barriers.incrementAndGet();
+        // Ordinary checkpoints can publish untrusted coverage after startup finishes.
+        if (owner != null) {
+          assertInvalidatedAuthority(path);
+          barriers.incrementAndGet();
+        }
         return null;
       }).when(created).startupHistoryBarrier();
       try {
@@ -480,7 +484,9 @@ public class DiskStorageChangedPageCheckpointTest {
       }
       var previousManager = manager;
       manager.close();
-      manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString());
+      var config = new BaseConfiguration();
+      config.setProperty(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT.getKey(), false);
+      manager = (YouTrackDBImpl) YourTracks.instance(folder.getRoot().toString(), config);
       assertNotSame(previousManager, manager);
       session = manager.open(created.getName(), "admin", "admin");
       storage = (DiskStorage) session.getStorage();

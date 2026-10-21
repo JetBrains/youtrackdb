@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Status.COVERAGE_UNAVAILABLE;
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Status.COVERAGE_UNAVAILABLE_INVALIDATION_FAILED;
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Status.MERGED_NOT_CONSUMED;
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Status.NO_BOUNDARY;
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Status.SAVED_CONTINUITY;
@@ -11,6 +12,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -29,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -148,6 +151,122 @@ public class ChangedPageTrackerBackupTest {
       release.countDown();
       pool.shutdownNow();
     }
+  }
+
+  // A queued begin must sample history at the switch, after an older publisher loses trust.
+  @Test
+  public void queuedBeginSamplesIdentifiersAndTrustAfterPublisherFailure() throws Exception {
+    var tracker = trusted();
+    var field = ChangedPageTracker.class.getDeclaredField("generationState");
+    field.setAccessible(true);
+    var stateLock = (ReentrantLock) field.get(tracker);
+    var forcing = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var requested = new CountDownLatch(1);
+    var pool = Executors.newFixedThreadPool(2);
+    try {
+      var older = pool.submit(() -> ChangedPageTrackerFile.save(path(), tracker, SAFE,
+          new RecordingFiles() {
+            @Override
+            void forceFile(FileChannel channel) throws IOException {
+              forcing.countDown();
+              await(release);
+              throw new IOException("older publisher failed");
+            }
+          }));
+      await(forcing);
+      stateLock.lock();
+      try {
+        var boundary = pool.submit(() -> {
+          requested.countDown();
+          return begin(tracker);
+        });
+        await(requested);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (!stateLock.hasQueuedThreads() && System.nanoTime() < deadline) {
+          Thread.onSpinWait();
+        }
+        assertTrue("begin must queue at the generation-state hold", stateLock.hasQueuedThreads());
+        release.countDown();
+        assertEquals(ChangedPageTrackerFile.SaveResult.FAILED_INVALIDATED,
+            older.get(10, TimeUnit.SECONDS));
+        stateLock.unlock();
+        var context = boundary.get(10, TimeUnit.SECONDS);
+        var state = capture(tracker);
+        assertFalse(context.trustedAtBoundary());
+        assertFalse(context.selectionEligible());
+        assertNull(context.lastCompletedIdentifier());
+        assertNotEquals(ID, context.trackerIdentifier());
+        assertEquals(state.trackerIdentifier(), context.trackerIdentifier());
+        assertEquals(state.sealed().trackerIdentifier(), context.trackerIdentifier());
+        assertEquals(state.sealed().identifier(), context.consumedIdentifier());
+        assertEquals(state.failureVersion(), state.sealed().failureVersion());
+      } finally {
+        if (stateLock.isHeldByCurrentThread()) {
+          stateLock.unlock();
+        }
+      }
+    } finally {
+      release.countDown();
+      pool.shutdownNow();
+      assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+    }
+  }
+
+  // Matching trusted partial reads publish the exported pair and retain post-boundary marks.
+  @Test
+  public void trustedPartialCompletionPreservesContinuityAndActiveMarks() throws Exception {
+    var tracker = trusted();
+    tracker.mark(1, 3);
+    assertEquals(ChangedPageTrackerFile.SaveResult.SAVED,
+        ChangedPageTrackerFile.save(path(), tracker, SAFE));
+    var context = begin(tracker);
+    assertTrue(context.selectionEligible());
+    tracker.mark(1, 4);
+    assertEquals(SAVED_CONTINUITY, complete(tracker, context,
+        new ChangedPageTrackerBackup.CompletionFacts(false, true), source(tracker),
+        new RecordingFiles()));
+    assertPair(tracker, context);
+    var loaded = ChangedPageTrackerFile.load(path()).tracker();
+    assertPair(loaded, context);
+    assertEquals(Set.of(4L), pages(capture(tracker).active()));
+    assertEquals(Set.of(4L), pages(capture(loaded).active()));
+  }
+
+  // Trusted local history cannot certify a partial read against a different backup chain head.
+  @Test
+  public void mismatchedHeadPartialCompletionCannotPublishContinuity() throws Exception {
+    var tracker = trusted();
+    ChangedPageTrackerFile.save(path(), tracker, SAFE);
+    var context = ChangedPageTrackerBackup.begin(tracker,
+        new ChangedPageTrackerBackup.Continuity(ID, new UUID(5, 6)), true);
+    assertTrue(context.trustedAtBoundary());
+    assertFalse(context.selectionEligible());
+    assertEquals(SAVED_UNTRUSTED, complete(tracker, context,
+        new ChangedPageTrackerBackup.CompletionFacts(false, true), source(tracker),
+        new RecordingFiles()));
+    assertFalse(tracker.isTrusted());
+    assertNull(capture(tracker).lastCompletedIdentifier());
+    var loaded = capture(ChangedPageTrackerFile.load(path()).tracker());
+    assertFalse(loaded.trusted());
+    assertNull(loaded.lastCompletedIdentifier());
+  }
+
+  // Completion shields an inherited interrupt while preserving it for the caller afterwards.
+  @Test
+  public void interruptedCallerKeepsContinuityAndInterruptFlag() throws Exception {
+    var tracker = trusted();
+    var context = begin(tracker);
+    try {
+      Thread.currentThread().interrupt();
+      assertEquals(SAVED_CONTINUITY,
+          complete(tracker, context, DURABLE, source(tracker), new RecordingFiles()));
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertPair(tracker, context);
+    } finally {
+      Thread.interrupted();
+    }
+    assertPair(ChangedPageTrackerFile.load(path()).tracker(), context);
   }
 
   // 6. Fresh bootstrap needs exactly one publication and stores the exact exported pair.
@@ -281,6 +400,59 @@ public class ChangedPageTrackerBackupTest {
       assertNull(capture(tracker).sealed());
       assertEquals(Set.of(3L, 4L), pages(capture(tracker).active()));
       assertNotNull(begin(tracker).sealHandle());
+    }
+  }
+
+  // Cleanup failure remains observable even when diagnostics throw. Each warning owns its cause.
+  @Test
+  public void unavailableCoverageReportsCleanupFailureWithoutSharingWarningCauses()
+      throws Exception {
+    var causes = new java.util.ArrayList<Throwable>();
+    for (int fault = 0; fault < 3; fault++) {
+      var tracker = trusted();
+      tracker.mark(1, 3);
+      ChangedPageTrackerFile.save(path(), tracker, SAFE);
+      var context = begin(tracker);
+      tracker.mark(1, 4);
+      int mode = fault;
+      var files = new RecordingFiles() {
+        @Override
+        void delete(Path target) throws IOException {
+          if (mode == 1) {
+            throw new IOException("delete failed");
+          }
+          if (mode == 2) {
+            throw new AssertionError("delete error");
+          }
+          super.delete(target);
+        }
+
+        @Override
+        void warn(String message, Throwable failure) {
+          if (message.startsWith("Backup completion coverage unavailable")) {
+            causes.add(failure);
+          }
+          throw new IllegalStateException("warning sink failed");
+        }
+      };
+      assertEquals(fault == 0 ? COVERAGE_UNAVAILABLE : COVERAGE_UNAVAILABLE_INVALIDATION_FAILED,
+          complete(tracker, context, DURABLE, unavailableSource(), files));
+      tracker.saveOrderLock().lock();
+      try {
+        assertEquals(fault != 0, tracker.trustedFileMayExist());
+      } finally {
+        tracker.saveOrderLock().unlock();
+      }
+      assertFalse(tracker.isTrusted());
+      assertNull(capture(tracker).sealed());
+      assertEquals(Set.of(3L, 4L), pages(capture(tracker).active()));
+      assertEquals(fault != 0, java.nio.file.Files.exists(path()));
+    }
+    assertEquals(3, causes.size());
+    assertNotSame(causes.get(0), causes.get(1));
+    assertNotSame(causes.get(1), causes.get(2));
+    for (var cause : causes) {
+      assertEquals(1, cause.getSuppressed().length);
     }
   }
 
@@ -544,7 +716,7 @@ public class ChangedPageTrackerBackupTest {
         var first = begin(tracker);
         tracker.saveOrderLock().lock();
         try {
-          tracker.stageCompletion(first.internalSeal(), true);
+          tracker.stageCompletion(first.internalSeal(), true, false);
           assertTrue(tracker.saveSucceeded(tracker.capture(), SAFE));
           tracker.clearCompletion();
         } finally {
