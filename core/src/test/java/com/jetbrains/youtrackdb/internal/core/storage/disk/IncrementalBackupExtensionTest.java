@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -574,6 +575,12 @@ public class IncrementalBackupExtensionTest {
         }
         Files.write(path, bytes);
         var reader = new CountingTailSupplier();
+        var fullStreamsOpened = new AtomicInteger();
+        // This lambda has no tail capability, so the single head needs one full inspection.
+        Function<String, InputStream> fullStreamSupplier = name -> {
+          fullStreamsOpened.incrementAndGet();
+          return openInput(name);
+        };
         if (scenario == 2 || scenario >= 4) {
           var before = unitContent();
           assertThrows(UnsupportedBackupException.class, () -> storage.backup(this::unitIterator,
@@ -583,7 +590,7 @@ public class IncrementalBackupExtensionTest {
           assertEquals(before, unitContent());
         } else {
           var appended = scenario == 3
-              ? storage.backup(this::unitIterator, this::openInput, this::openOutput,
+              ? storage.backup(this::unitIterator, fullStreamSupplier, this::openOutput,
                   name -> {
                     throw new AssertionError("no removal");
                   })
@@ -593,7 +600,12 @@ public class IncrementalBackupExtensionTest {
                   });
           Files.delete(backupPath.resolve(appended));
         }
-        assertEquals(scenario <= 2 ? 1 : 0, reader.fullStreamsOpened);
+        if (scenario == 3) {
+          assertEquals("the no-tail supplier must open the single v6 head exactly once", 1,
+              fullStreamsOpened.get());
+        } else {
+          assertEquals(scenario <= 2 ? 1 : 0, reader.fullStreamsOpened);
+        }
       }
       Files.write(path, sound);
     }
