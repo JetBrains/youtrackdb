@@ -182,7 +182,7 @@ public class DiskStorage extends AbstractStorage {
   static final String IBU_EXTENSION = ".ibu";
   /// The v3 tail is a 74-byte block at the end of the unit. The v4 tail prefixes this block
   /// with an 8-byte metadata checksum and a 4-byte force-barrier flag. The shared block stores
-  /// version 4 or 5 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
+  /// version 4, 5 or 6 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
   /// the full hash. The full hash covers every preceding byte, including ZIP, padding, checksum
   /// and flag. Zero padding places the 86-byte v4 tail inside one aligned 512-byte file sector.
   /// V6 adds a presence marker and two MSB-first UUIDs between the barrier and shared suffix.
@@ -265,10 +265,10 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>This build writes version 5 with the version 4 layout. It reads versions 3, 4, 5, and 6.
+   * <p>This build writes version 6 with absent continuity. It reads versions 3, 4, 5, and 6.
    * Versions 1 and 2 are unsupported.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 5;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 6;
   static final int PREVIOUS_BACKUP_FORMAT_VERSION = 4;
   static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
   // Legacy headers have shorter tails, with the database UUID immediately after the version.
@@ -1700,9 +1700,10 @@ public class DiskStorage extends AbstractStorage {
    * its own incomplete output joins the removable set. The walk then continues below the head,
    * because one unsupported older unit refuses the extension of the whole chain.
    *
-   * <p>With a tail read capability, a v4 or v5 head candidate with a valid metadata checksum and
-   * a present barrier needs only header admission. A v3 head candidate, a v4 or v5 candidate without a
-   * barrier, and a candidate with a failed metadata checksum need full inspection. Units below
+   * <p>With a tail read capability, a v4, v5 or v6 head candidate with a valid metadata checksum
+   * and a present barrier needs only header admission. A v3 head candidate needs full inspection.
+   * A v4, v5 or v6 candidate without a barrier also needs full inspection.
+   * A candidate with a failed metadata checksum needs full inspection. Units below
    * the head use header admission from the tail, except when a failed checksum needs full
    * inspection. Without the capability, head candidates receive full inspection and older
    * units receive {@link #inspectBackupUnitHeader} through a complete read.
@@ -1864,11 +1865,11 @@ public class DiskStorage extends AbstractStorage {
 
   /** Returns the minimum zero padding that places the complete tail in one aligned sector. */
   static int backupPadding(long payloadLength) {
-    if (IBU_V4_METADATA_SIZE > IBU_SECTOR_SIZE) {
+    if (IBU_V6_METADATA_SIZE > IBU_SECTOR_SIZE) {
       throw new IllegalStateException("Backup tail exceeds one sector");
     }
     var sectorOffset = (int) (payloadLength % IBU_SECTOR_SIZE);
-    return sectorOffset + IBU_V4_METADATA_SIZE <= IBU_SECTOR_SIZE
+    return sectorOffset + IBU_V6_METADATA_SIZE <= IBU_SECTOR_SIZE
         ? 0 : IBU_SECTOR_SIZE - sectorOffset;
   }
 
@@ -1881,10 +1882,16 @@ public class DiskStorage extends AbstractStorage {
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
       long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent)
       throws IOException {
-    var tailBytes = new ByteArrayOutputStream(IBU_V4_METADATA_SIZE);
+    var tailBytes = new ByteArrayOutputStream(IBU_V6_METADATA_SIZE);
     var dataOutputStream = new DataOutputStream(tailBytes);
     dataOutputStream.writeLong(0); // Filled after the fields covered by the metadata checksum.
     dataOutputStream.writeInt(barrierPresent ? BARRIER_PRESENT : BARRIER_ABSENT);
+    // No tracker history is consumed. Absent continuity has canonical zero UUID slots.
+    dataOutputStream.writeInt(CONTINUITY_ABSENT);
+    dataOutputStream.writeLong(0);
+    dataOutputStream.writeLong(0);
+    dataOutputStream.writeLong(0);
+    dataOutputStream.writeLong(0);
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
@@ -1910,10 +1917,10 @@ public class DiskStorage extends AbstractStorage {
     dataOutputStream.flush();
     var tail = tailBytes.toByteArray();
     var metadataChecksum = XX_HASH_64.hash(tail, Long.BYTES,
-        Integer.BYTES + IBU_METADATA_HASH_CODE_OFFSET, METADATA_HASH_SEED);
+        IBU_V6_METADATA_SIZE - 2 * Long.BYTES, METADATA_HASH_SEED);
     ByteBuffer.wrap(tail).putLong(metadataChecksum);
     xxHashStream.xxHash64.update(tail, 0, tail.length);
-    var completeTail = ByteBuffer.allocate(IBU_V4_METADATA_SIZE)
+    var completeTail = ByteBuffer.allocate(IBU_V6_METADATA_SIZE)
         .put(tail).putLong(xxHashStream.xxHash64.getValue()).array();
     // Exactly one downstream write publishes the entire sector-local tail.
     xxHashStream.write(completeTail);
