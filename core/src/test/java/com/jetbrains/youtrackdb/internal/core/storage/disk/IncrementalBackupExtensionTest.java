@@ -151,8 +151,8 @@ public class IncrementalBackupExtensionTest {
       var refusal =
           assertThrows(UnsupportedBackupException.class, () -> storage.backup(backupPath));
 
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 6"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 7"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertEquals("no existing file may change", contentBeforeBackup, unitContent());
     }
   }
@@ -405,7 +405,7 @@ public class IncrementalBackupExtensionTest {
    * covers it. The scenario replaces the full backup of one two-unit chain by an authentic
    * version 2 unit.
    *
-   * <p>The expected outcome has two parts. The refusal names version 2 and all three accepted
+   * <p>The expected outcome has two parts. The refusal names version 2 and all four accepted
    * versions. Every existing unit keeps its bytes.
    */
   @Test
@@ -424,7 +424,7 @@ public class IncrementalBackupExtensionTest {
           () -> storage.backup(backupPath));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertEquals(
           "the refused backup must keep every existing unit unchanged",
           contentBeforeBackup,
@@ -434,7 +434,7 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * A real version 1 unit below a supported head refuses extension without changing files.
-   * The refusal names version 1 and all three accepted versions.
+   * The refusal names version 1 and all four accepted versions.
    */
   @Test
   public void incrementalBackupRefusesAnAuthenticVersion1UnitBelowASupportedHead()
@@ -452,7 +452,7 @@ public class IncrementalBackupExtensionTest {
           () -> storage.backup(backupPath));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertEquals("the refused backup keeps every unit", original, unitContent());
     }
   }
@@ -508,6 +508,94 @@ public class IncrementalBackupExtensionTest {
       try (var restored = youTrackDB.open("mixedVersionRestore", ADMIN, PASSWORD)) {
         assertEquals(3, restored.query("select from " + RECORD_CLASS).stream().count());
       }
+    }
+  }
+
+  /** Mixed real ZIP units keep their bytes, admit different pairs and replay after v5 extension. */
+  @Test
+  public void mixedVersionThreeFourFiveSixChainUsesBoundedTailsAndRestores() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var full = storage.fullBackup(backupPath);
+      BackupUnitFiles.rewriteVersion4AsVersion3(backupPath.resolve(full));
+      addOneRecord(youTrackDB);
+      var v4 = storage.backup(backupPath);
+      rewriteVersionFiveAsVersionFour(v4, storage.getUuid());
+      addOneRecord(youTrackDB);
+      storage.backup(backupPath);
+      addOneRecord(youTrackDB);
+      var v6 = storage.backup(backupPath);
+      BackupUnitFiles.rewriteVersion5AsVersion6(backupPath.resolve(v6),
+          DiskStorage.BARRIER_PRESENT,
+          new DiskStorage.BackupContinuity(UUID.randomUUID(), UUID.randomUUID()));
+      var before = unitContent();
+      var reader = new CountingTailSupplier();
+      var appended = storage.backup(this::unitIterator, reader, this::openOutput,
+          name -> {
+            throw new AssertionError("no removal");
+          });
+      assertEquals(4 * 122, reader.fileBytesRead);
+      assertEquals(0, reader.fullStreamsOpened);
+      assertEquals(5, inspectUnit(appended, storage.getUuid()).metadata().backupFormatVersion());
+      var after = unitContent();
+      after.remove(appended);
+      assertEquals(before, after);
+      youTrackDB.internal.restore("mixedSixRestore", backupPath.toString(), null, null);
+      try (var restored = youTrackDB.open("mixedSixRestore", ADMIN, PASSWORD)) {
+        assertEquals(4, restored.query("select from " + RECORD_CLASS).stream().count());
+      }
+    }
+  }
+
+  /** V6 barrier and checksum fallbacks preserve files and open exactly the required streams. */
+  @Test
+  public void versionSixFallbacksAndMalformedMarkersNeverRemoveAmbiguousUnits() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var head = storage.fullBackup(backupPath);
+      var path = backupPath.resolve(head);
+      BackupUnitFiles.rewriteVersion5AsVersion6(path, DiskStorage.BARRIER_PRESENT, null);
+      var sound = Files.readAllBytes(path);
+      for (int scenario = 0; scenario < 6; scenario++) {
+        var bytes = sound.clone();
+        var tail = bytes.length - 122;
+        if (scenario < 2) {
+          ByteBuffer.wrap(bytes).putInt(tail + 8, scenario == 0 ? 0 : 123);
+          BackupUnitFiles.repairVersion6Hashes(bytes, true, true);
+        } else if (scenario == 2) {
+          bytes[tail] ^= 1;
+          BackupUnitFiles.repairVersion6Hashes(bytes, false, true);
+        } else if (scenario >= 4) {
+          ByteBuffer.wrap(bytes).putInt(tail + 12, 1);
+          BackupUnitFiles.repairVersion6Hashes(bytes, true, true);
+          if (scenario == 5) {
+            bytes[0] ^= 1;
+          }
+        }
+        Files.write(path, bytes);
+        var reader = new CountingTailSupplier();
+        if (scenario == 2 || scenario >= 4) {
+          var before = unitContent();
+          assertThrows(UnsupportedBackupException.class, () -> storage.backup(this::unitIterator,
+              reader, this::openOutput, name -> {
+                throw new AssertionError("no removal");
+              }));
+          assertEquals(before, unitContent());
+        } else {
+          var appended = scenario == 3
+              ? storage.backup(this::unitIterator, this::openInput, this::openOutput,
+                  name -> {
+                    throw new AssertionError("no removal");
+                  })
+              : storage.backup(this::unitIterator, reader, this::openOutput,
+                  name -> {
+                    throw new AssertionError("no removal");
+                  });
+          Files.delete(backupPath.resolve(appended));
+        }
+        assertEquals(scenario <= 2 ? 1 : 0, reader.fullStreamsOpened);
+      }
+      Files.write(path, sound);
     }
   }
 
@@ -804,7 +892,7 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** A v4 chain with a forced head reads only 86 bytes per unit from the file itself. */
+  /** A v4 chain with a forced head reads only 122 bytes per unit from the file itself. */
   @Test
   public void extensionReadsOnlyFileTailsForVersionFourChain() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -829,7 +917,7 @@ public class IncrementalBackupExtensionTest {
       after.remove(extension);
       assertEquals("extension must not rewrite any version 4 unit", before, after);
       assertEquals("all three units must be read through the positioned file channel",
-          3 * DiskStorage.IBU_V4_METADATA_SIZE, reader.fileBytesRead);
+          3 * 122, reader.fileBytesRead);
       assertEquals("a tail-only unit must not open its full input stream", 0,
           reader.fullStreamsOpened);
     }
@@ -850,7 +938,7 @@ public class IncrementalBackupExtensionTest {
           name -> {
             throw new AssertionError("no file should be removed");
           });
-      assertEquals(2 * DiskStorage.IBU_V4_METADATA_SIZE, reader.fileBytesRead);
+      assertEquals(2 * 122, reader.fileBytesRead);
       assertEquals("version 3 below the head must not open a full stream", 0,
           reader.fullStreamsOpened);
     }

@@ -29,18 +29,18 @@ public class BackupTailReadTest {
     try {
       var bytes = new byte[1024 * 1024];
       Arrays.fill(bytes, (byte) 3);
-      Arrays.fill(bytes, bytes.length - 86, bytes.length, (byte) 9);
+      Arrays.fill(bytes, bytes.length - 122, bytes.length, (byte) 9);
       Files.write(path, bytes);
       try (var channel = new CountingChannel(FileChannel.open(path, StandardOpenOption.READ))) {
-        assertArrayEquals(Arrays.copyOfRange(bytes, bytes.length - 86, bytes.length),
-            DiskStorage.readLocalBackupTail(channel, 86));
-        assertEquals("the channel, not the array size, measures file input", 86,
+        assertArrayEquals(Arrays.copyOfRange(bytes, bytes.length - 122, bytes.length),
+            DiskStorage.readLocalBackupTail(channel, 122));
+        assertEquals("the channel, not the array size, measures file input", 122,
             channel.bytesRead);
-        assertEquals(bytes.length - 86, channel.firstPosition);
+        assertEquals(bytes.length - 122, channel.firstPosition);
       }
       Files.write(path, new byte[] {1, 2, 3});
       try (var channel = new CountingChannel(FileChannel.open(path, StandardOpenOption.READ))) {
-        assertArrayEquals(new byte[] {1, 2, 3}, DiskStorage.readLocalBackupTail(channel, 86));
+        assertArrayEquals(new byte[] {1, 2, 3}, DiskStorage.readLocalBackupTail(channel, 122));
         assertEquals(3, channel.bytesRead);
         assertEquals(0, channel.firstPosition);
         assertArrayEquals(new byte[0], DiskStorage.readLocalBackupTail(channel, 0));
@@ -65,8 +65,8 @@ public class BackupTailReadTest {
       constructor.setAccessible(true);
       var supplier = (BackupTailReadCapability) constructor.newInstance(directory, "source");
       assertArrayEquals(new byte[] {3, 4}, supplier.readBackupTail("unit.ibu", 2));
-      assertArrayEquals(new byte[] {1, 2, 3, 4}, supplier.readBackupTail("unit.ibu", 86));
-      assertThrows(IOException.class, () -> supplier.readBackupTail("missing.ibu", 86));
+      assertArrayEquals(new byte[] {1, 2, 3, 4}, supplier.readBackupTail("unit.ibu", 122));
+      assertThrows(IOException.class, () -> supplier.readBackupTail("missing.ibu", 122));
     } finally {
       Files.deleteIfExists(directory.resolve("unit.ibu"));
       Files.deleteIfExists(directory);
@@ -81,7 +81,7 @@ public class BackupTailReadTest {
     try {
       var bytes = new byte[1024 * 1024];
       Arrays.fill(bytes, (byte) 3);
-      Arrays.fill(bytes, bytes.length - 86, bytes.length, (byte) 9);
+      Arrays.fill(bytes, bytes.length - 122, bytes.length, (byte) 9);
       Files.write(path, bytes);
       var channels = new ArrayList<CountingChannel>();
       var supplier = new DiskStorage.IBULocalFileInputStreamSupplier(directory, "source",
@@ -91,16 +91,16 @@ public class BackupTailReadTest {
             return channel;
           });
 
-      assertArrayEquals(Arrays.copyOfRange(bytes, bytes.length - 86, bytes.length),
-          supplier.readBackupTail("unit.ibu", 86));
+      assertArrayEquals(Arrays.copyOfRange(bytes, bytes.length - 122, bytes.length),
+          supplier.readBackupTail("unit.ibu", 122));
       assertEquals("the supplier must open exactly one file channel", 1, channels.size());
-      assertEquals("the supplier must read only the last 86 file bytes", 86,
+      assertEquals("the supplier must read only the last 122 file bytes", 122,
           channels.get(0).bytesRead);
-      assertEquals(bytes.length - 86, channels.get(0).firstPosition);
+      assertEquals(bytes.length - 122, channels.get(0).firstPosition);
       assertEquals(false, channels.get(0).isOpen());
 
       Files.write(path, new byte[] {1, 2, 3});
-      assertArrayEquals(new byte[] {1, 2, 3}, supplier.readBackupTail("unit.ibu", 86));
+      assertArrayEquals(new byte[] {1, 2, 3}, supplier.readBackupTail("unit.ibu", 122));
       assertEquals(2, channels.size());
       assertEquals("a short file needs only its three bytes", 3, channels.get(1).bytesRead);
       assertEquals(0, channels.get(1).firstPosition);
