@@ -1610,15 +1610,15 @@ public class WOWCacheNonDurableFileTrackingTest {
             first.start();
             assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS));
             second.start();
-            // Observe the monitor wait, not just a scheduling delay. Both paths already hold
-            // filesLock read when the second checkpoint reaches the shared backup mutex.
+            // Observe the lock wait, not just a scheduling delay. Both paths already hold
+            // filesLock read when the second checkpoint reaches the shared backup lock.
             final var deadline =
                 System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
-            while (second.getState() != Thread.State.BLOCKED && second.isAlive()
+            while (second.getState() != Thread.State.WAITING && second.isAlive()
                 && System.nanoTime() < deadline) {
               Thread.sleep(1);
             }
-            assertEquals(Thread.State.BLOCKED, second.getState());
+            assertEquals(Thread.State.WAITING, second.getState());
             release.countDown();
             first.join(10_000);
             second.join(10_000);
