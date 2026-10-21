@@ -1392,7 +1392,14 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeLong(validHash ? xxHash64.getValue() : xxHash64.getValue() + 1);
       dataOutputStream.flush();
 
-      return outputStream.toByteArray();
+      var unit = outputStream.toByteArray();
+      if (backupFormatVersion == BackupUnitFiles.VERSION_6) {
+        unit = BackupUnitFiles.version6Bytes(new byte[0], unit, 0, null);
+        if (!validHash) {
+          unit[unit.length - 1] ^= 1;
+        }
+      }
+      return unit;
     }
   }
 

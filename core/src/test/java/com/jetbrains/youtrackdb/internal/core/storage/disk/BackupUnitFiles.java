@@ -35,7 +35,7 @@ public final class BackupUnitFiles {
   /** The version with a metadata checksum and barrier flag. */
   public static final int VERSION_4 = 4;
 
-  /** The current version with the same header layout as version 4. */
+  /** The allocation-WAL format with the same header layout as version 4. */
   public static final int VERSION_5 = 5;
   public static final int PREVIOUS_BACKUP_FORMAT_VERSION = VERSION_3;
 
@@ -43,8 +43,8 @@ public final class BackupUnitFiles {
   public static final int OLD_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int LEGACY_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int FIRST_BACKUP_FORMAT_VERSION = 1;
-  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_5;
   public static final int VERSION_6 = 6;
+  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_6;
   public static final int FUTURE_BACKUP_FORMAT_VERSION = 7;
 
   /** The accepted creation completion evidence of this build. */
@@ -203,7 +203,15 @@ public final class BackupUnitFiles {
       dataOutputStream.writeLong(validHash ? xxHash64.getValue() : xxHash64.getValue() + 1);
       dataOutputStream.flush();
 
-      Files.write(directory.resolve(fileName), outputStream.toByteArray());
+      var unit = outputStream.toByteArray();
+      if (backupFormatVersion == VERSION_6) {
+        unit = version6Bytes(content, java.util.Arrays.copyOfRange(unit, content.length,
+            unit.length), DiskStorage.BARRIER_ABSENT, null);
+        if (!validHash) {
+          unit[unit.length - 1] ^= 1;
+        }
+      }
+      Files.write(directory.resolve(fileName), unit);
       return fileName;
     }
   }
@@ -244,12 +252,25 @@ public final class BackupUnitFiles {
     }
   }
 
-  /** Converts real v4/v5 ZIP output without changing payload or shared metadata fields. */
-  static void rewriteVersion5AsVersion6(Path path, int barrier,
+  /** Converts real supported ZIP output without changing payload or shared metadata fields. */
+  static void rewriteAsVersion6(Path path, int barrier,
       DiskStorage.BackupContinuity continuity) throws IOException {
     var unit = Files.readAllBytes(path);
+    Files.write(path, version6Bytes(zipPayload(unit),
+        java.util.Arrays.copyOfRange(unit, unit.length - 74, unit.length), barrier, continuity));
+  }
+
+  /** Finds the ZIP end using the explicit source version rather than the current writer size. */
+  private static byte[] zipPayload(byte[] unit) throws IOException {
+    var version = ByteBuffer.wrap(unit).getShort(unit.length - 74);
+    var size = switch (version) {
+      case 3 -> 74;
+      case 4, 5 -> 86;
+      case 6 -> 122;
+      default -> throw new IOException("Unsupported fixture source version " + version);
+    };
     var zipEnd = -1;
-    for (var i = unit.length - 86 - 22; i >= 0; i--) {
+    for (var i = unit.length - size - 22; i >= 0; i--) {
       if (unit[i] == 0x50 && unit[i + 1] == 0x4b
           && unit[i + 2] == 0x05 && unit[i + 3] == 0x06) {
         zipEnd = i + 22 + ((unit[i + 20] & 0xff) | (unit[i + 21] & 0xff) << 8);
@@ -259,22 +280,33 @@ public final class BackupUnitFiles {
     if (zipEnd < 0) {
       throw new IOException("Missing ZIP end in fixture");
     }
-    Files.write(path, version6Bytes(java.util.Arrays.copyOf(unit, zipEnd),
-        java.util.Arrays.copyOfRange(unit, unit.length - 74, unit.length), barrier, continuity));
+    return java.util.Arrays.copyOf(unit, zipEnd);
   }
 
-  /** Rewrites one real version 4 or 5 unit as a valid version 3 unit without changing its ZIP data. */
-  public static void rewriteVersion4AsVersion3(Path path) throws IOException {
+  /** Rewrites real supported ZIP output in an explicit historical layout. */
+  public static void rewriteAsVersion(Path path, int version) throws IOException {
+    if (version != 3 && version != 4 && version != 5) {
+      throw new IllegalArgumentException("Expected historical version 3, 4 or 5");
+    }
     var unit = Files.readAllBytes(path);
-    var sharedStart = unit.length - DiskStorage.IBU_V4_METADATA_SIZE;
-    var v3 = java.util.Arrays.copyOf(unit, unit.length - Long.BYTES - Integer.BYTES);
-    System.arraycopy(unit, sharedStart + Long.BYTES + Integer.BYTES, v3, sharedStart,
-        DiskStorage.IBU_V4_METADATA_SIZE - 2 * Long.BYTES - Integer.BYTES);
-    ByteBuffer.wrap(v3, sharedStart, Short.BYTES).putShort((short) VERSION_3);
-    var checksum = DiskStorage.XX_HASH_64.hash(v3, 0, v3.length - Long.BYTES,
-        DiskStorage.XX_HASH_SEED);
-    ByteBuffer.wrap(v3, v3.length - Long.BYTES, Long.BYTES).putLong(checksum);
-    Files.write(path, v3);
+    var payload = zipPayload(unit);
+    var size = version == 3 ? 74 : 86;
+    var offset = payload.length % 512;
+    var padding = version == 3 || offset + size <= 512 ? 0 : 512 - offset;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + size);
+    var tail = result.length - size;
+    System.arraycopy(unit, unit.length - 74, result, result.length - 74, 74);
+    var buffer = ByteBuffer.wrap(result);
+    buffer.putShort(result.length - 74, (short) version);
+    if (version != 3) {
+      // These fixtures model local forced output.
+      buffer.putInt(tail + 8, 0x42415252);
+      buffer.putLong(tail, DiskStorage.XX_HASH_64.hash(result, tail + 8, 70,
+          DiskStorage.METADATA_HASH_SEED));
+    }
+    buffer.putLong(result.length - 8, DiskStorage.XX_HASH_64.hash(result, 0,
+        result.length - 8, DiskStorage.XX_HASH_SEED));
+    Files.write(path, result);
   }
 
   /**
