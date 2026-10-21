@@ -58,6 +58,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -1562,6 +1563,9 @@ public class WOWCacheNonDurableFileTrackingTest {
           final var original = (WOWCache) storage.getWriteCache();
           original.pauseBackgroundFlush();
           final var cache = spy(original);
+          final var backupLockField = WOWCache.class.getDeclaredField("mapBackupLock");
+          backupLockField.setAccessible(true);
+          final var backupLock = (ReentrantLock) backupLockField.get(cache);
           final var originalWal = storage.getWALInstance();
           final var wal = mock(
               com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
@@ -1610,15 +1614,16 @@ public class WOWCacheNonDurableFileTrackingTest {
             first.start();
             assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS));
             second.start();
-            // Observe the lock wait, not just a scheduling delay. Both paths already hold
-            // filesLock read when the second checkpoint reaches the shared backup lock.
+            // Prove the second checkpoint is queued on the backup lock before publishing
+            // the failure. A thread state alone cannot identify which lock it awaits.
             final var deadline =
                 System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
-            while (second.getState() != Thread.State.WAITING && second.isAlive()
+            while (!backupLock.hasQueuedThread(second) && second.isAlive()
                 && System.nanoTime() < deadline) {
               Thread.sleep(1);
             }
-            assertEquals(Thread.State.WAITING, second.getState());
+            assertTrue("the second checkpoint must queue on the backup lock",
+                backupLock.hasQueuedThread(second));
             release.countDown();
             first.join(10_000);
             second.join(10_000);
