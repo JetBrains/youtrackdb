@@ -178,6 +178,41 @@ public class ResultInternalTest extends TestUtilsFixture {
     }
   }
 
+  /** Evidence records the read-time user and policy version, not the later alias-binding scope. */
+  @Test
+  public void checkedEvidenceRejectsUserAndPolicyChangesBeforeAndAfterBinding() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var checked = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+        true));
+    var row = new ResultInternal(session);
+    row.setMatchProperty("a", checked);
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    var user = session.getCurrentUser();
+    try {
+      session.setUser(null);
+      assertThat(row.getReusableRecord("a")).isNull();
+      // Binding an old source must not bless the old record under the new user.
+      row.setMatchProperty("b", checked);
+      assertThat(row.getReusableRecord("b")).isNull();
+    } finally {
+      session.setUser(user);
+    }
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    session.getSharedContext().getSecurity().incrementVersion(session);
+    assertThat(row.getReusableRecord("a")).isNull();
+    row.setMatchProperty("c", checked);
+    assertThat(row.getReusableRecord("c")).isNull();
+    var current = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+        true));
+    row.setMatchProperty("a", current);
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    row.removeProperty("a");
+    assertThat(row.getReusableRecord("a")).isNull();
+  }
+
   private RecordHook observeReads(List<DBRecord> reads) {
     RecordHook hook = new RecordHook() {
       @Override
