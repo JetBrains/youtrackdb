@@ -2,13 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
-import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
-import java.io.EOFException;
 import java.io.IOException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
@@ -17,7 +14,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import javax.annotation.Nullable;
 
 /**
  * V3 records: big-endian hash (8), payload length (4), id (4), logical name and disk name.
@@ -56,45 +52,6 @@ final class NameIdMapFile {
     StringSerializer.staticSerializeInByteBufferObject(entry.getFileSystemName(), record);
     record.putLong(0, checksum(record, HEADER_SIZE, (int) length));
     return record.flip();
-  }
-
-  /**
-   * Streams the open path: EOF ends the prefix silently, excessive lengths and bad hashes
-   * end it with an error log, and negative lengths or unparseable payloads fail the open.
-   */
-  @Nullable static NameFileIdEntry readNext(FileChannel channel, Path path, String storageName,
-      Object requester) throws IOException {
-    final var offset = channel.position();
-    final var header = ByteBuffer.allocate(HEADER_SIZE);
-    try {
-      IOUtils.readByteBuffer(header, channel);
-      final var length = header.getInt(LENGTH_OFFSET);
-      if (length < 0) {
-        // Runtime rejection keeps repeated storage opens on the map-validation path.
-        throw new StorageException(storageName,
-            "Negative record length " + length + " in name-id map " + path + " at byte " + offset);
-      }
-      if (length > MAX_RECORD_LENGTH) {
-        LogManager.instance().error(requester,
-            "Maximum record length in file registry can not exceed %d bytes. "
-                + "But actual record length %d.  Storage name : %s",
-            null, MAX_RECORD_LENGTH, storageName, length);
-        return null;
-      }
-      final var record = ByteBuffer.allocate(HEADER_SIZE + length);
-      record.put(header.array());
-      IOUtils.readByteBuffer(record.slice(HEADER_SIZE, length), channel);
-      record.clear();
-      if (checksum(record, HEADER_SIZE, length) != record.getLong(0)) {
-        LogManager.instance().error(requester,
-            "Hash of the file registry is broken. Storage name : %s", null, storageName);
-        return null;
-      }
-      // Streaming accepts unused payload bytes. Strict whole-copy validation belongs to scan.
-      return decode(record, 0);
-    } catch (EOFException ignored) {
-      return null;
-    }
   }
 
   /**
@@ -156,21 +113,10 @@ final class NameIdMapFile {
     final var payload = bytes.duplicate();
     payload.position(offset + HEADER_SIZE);
     final var id = payload.getInt();
-    final var name = decodeString(payload);
-    final var diskName = decodeString(payload);
+    // Only validated records from the retained scan buffer reach decoding.
+    final var name = StringSerializer.staticDeserializeFromByteBufferObject(payload);
+    final var diskName = StringSerializer.staticDeserializeFromByteBufferObject(payload);
     return new NameFileIdEntry(name, id, diskName);
-  }
-
-  private static String decodeString(ByteBuffer payload) {
-    final var count = payload.duplicate().getInt();
-    // Preserve serializer failures without allocating from an unchecked damaged string count.
-    if (count < 0) {
-      throw new NegativeArraySizeException(Integer.toString(count));
-    }
-    if (count > (payload.remaining() - Integer.BYTES) / Character.BYTES) {
-      throw new BufferUnderflowException();
-    }
-    return StringSerializer.staticDeserializeFromByteBufferObject(payload);
   }
 
   record Scan(ByteBuffer bytes, int validEnd, boolean intact) implements Iterable<NameFileIdEntry> {

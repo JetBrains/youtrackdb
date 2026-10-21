@@ -41,7 +41,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -563,7 +562,11 @@ public class DiskStorageBootstrapWiringTest {
       try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
         channels.when(() -> FileChannel.open(mapPath,
             StandardOpenOption.READ, StandardOpenOption.WRITE)).thenAnswer(invocation -> {
-              // Loading uses WRITE, READ. The append channel is opened with READ, WRITE.
+              // Repair and failed-open cleanup can also open this channel. Inject once,
+              // when WAL replay has already installed its first live registration.
+              if (failedAppend.get()) {
+                return invocation.callRealMethod();
+              }
               failedAppend.set(true);
               final var cache = observed.get().getWriteCache();
               assertTrue("the first unit must already be materializing its file",
@@ -597,25 +600,29 @@ public class DiskStorageBootstrapWiringTest {
   }
 
   /**
-   * A negative first or later V3 record length rejects both opens of the same storage object.
-   * Each rejection must report the path, offset and length, keep error state clear and preserve bytes.
+   * An unreadable map copy fails both opens of the same storage object without poisoning it.
+   * The failure preserves both copies and reports the original path and I/O cause.
    */
   @Test
-  public void negativeMapLengthsRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
+  public void mapReadFailuresRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
     try (var ignored = createDatabase()) {
       // Use a complete disk image so each open reaches the name-id map reader.
     }
     final var path = directory.resolve(DATABASE).resolve("name_id_map_v3.cm");
     final var original = Files.readAllBytes(path);
-    final var laterOffset = Long.BYTES + Integer.BYTES + ByteBuffer.wrap(original).getInt(8);
-    for (final var offset : new int[] {0, laterOffset}) {
-      // -1 marks the incomplete-rewrite guard in the first record.
-      final var length = offset == 0 ? -1 : 0xFFFFFFF0;
-      final var bytes = original.clone();
-      ByteBuffer.wrap(bytes).putInt(offset + Long.BYTES, length);
-      Files.write(path, bytes);
-      assertMapRejectedOnRepeatedOpen(Map.of(path, bytes),
-          "Negative record length " + length, path.toString(), "at byte " + offset);
+    final var backup = path.resolveSibling("name_id_map_v3_backup.cm");
+    final var backupBytes = Files.readAllBytes(backup);
+    try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(path, StandardOpenOption.WRITE,
+          StandardOpenOption.READ)).thenThrow(new IOException("map read rejected: " + path));
+      assertMapRejectedOnRepeatedOpen(Map.of(path, original, backup, backupBytes),
+          "Failed to initialize the file registry");
+    }
+    try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(path, StandardOpenOption.WRITE))
+          .thenThrow(new IOException("map repair force rejected: " + path));
+      assertMapRejectedOnRepeatedOpen(Map.of(path, original, backup, backupBytes),
+          "Failed to initialize the file registry");
     }
   }
 
