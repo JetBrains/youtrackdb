@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -1588,6 +1589,8 @@ public class AbstractStorageWALCutTest {
   }
 
   private CASDiskWriteAheadLog createWal() throws IOException {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     final var directory = folder.newFolder().toPath();
     return new CASDiskWriteAheadLog("force", directory, directory,
         ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null,
