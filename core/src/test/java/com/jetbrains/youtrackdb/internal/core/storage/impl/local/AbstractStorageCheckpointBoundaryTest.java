@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -276,6 +277,8 @@ public class AbstractStorageCheckpointBoundaryTest {
   }
 
   private static CASDiskWriteAheadLog createWal(Path directory) throws IOException {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     return new CASDiskWriteAheadLog("boundary", directory, directory,
         ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null,
         Integer.MAX_VALUE, Integer.MAX_VALUE, 20, true, Locale.US, -1,

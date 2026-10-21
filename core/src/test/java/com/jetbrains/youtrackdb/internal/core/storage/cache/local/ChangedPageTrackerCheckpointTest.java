@@ -27,6 +27,7 @@ import static org.mockito.Mockito.withSettings;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
@@ -662,6 +663,8 @@ public class ChangedPageTrackerCheckpointTest {
   }
 
   private static CASDiskWriteAheadLog createWal(Path directory) throws IOException {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     // Enable fsync so the real cutter exercises its channel-force path when closing segments.
     return new CASDiskWriteAheadLog("trackerCheckpoint", directory, directory,
         ContextConfiguration.WAL_DEFAULT_NAME, 100, 64, null, null, Integer.MAX_VALUE,

@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -74,6 +75,8 @@ public class WOWCacheChangedPageTrackingTest {
 
   @Before
   public void setUp() throws Exception {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     exclusiveAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
     fileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);

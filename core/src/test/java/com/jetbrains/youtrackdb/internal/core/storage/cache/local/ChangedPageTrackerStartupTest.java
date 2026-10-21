@@ -15,6 +15,7 @@ import static org.mockito.Mockito.spy;
 
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartMetadataRecord;
@@ -1762,6 +1763,8 @@ public class ChangedPageTrackerStartupTest {
   }
 
   private static CASDiskWriteAheadLog diskWal(Path directory) throws IOException {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     // Register production logical operations before both fixture writes and proof reopens.
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
     return new CASDiskWriteAheadLog("startup", directory, directory,

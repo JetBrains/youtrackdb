@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.EncryptionKeyAbsentException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CheckpointRequestListener;
@@ -122,6 +123,8 @@ public class CASDiskWriteAheadLogLifecycleTest {
 
   private CASDiskWriteAheadLog createWAL(String storageName, byte[] key, boolean filterWALFiles)
       throws IOException {
+    // Wait for concurrent engine startup to install the metrics registry used by the WAL.
+    YouTrackDBEnginesManager.startUp(false);
     return new CASDiskWriteAheadLog(
         storageName,
         testDirectory,
