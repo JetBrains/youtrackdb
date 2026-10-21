@@ -23,6 +23,96 @@ public class BackupFormatVersion4Test {
   @Rule
   public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
+  /** The frozen HEAD projection accepts 3/4/5 and refuses sound or damaged v6 without removal. */
+  @Test
+  public void frozenHeadReaderRefusesVersionSixBeforeApplyingQueuedRemovals() throws Exception {
+    var id = UUID.randomUUID();
+    var directory = temporaryFolder.newFolder().toPath();
+    var names = new java.util.ArrayList<String>();
+    for (int version : new int[] {3, 4, 5}) {
+      var name = BackupUnitFiles.writeUnit(directory, id, "db", version, false, version,
+          BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+      names.add(name);
+      assertEquals("SUPPORTED",
+          frozenHeadClassification(Files.readAllBytes(directory.resolve(name)),
+              name, id, true));
+    }
+    var sharedSource = Files.readAllBytes(directory.resolve(names.getLast()));
+    var v6 = BackupUnitFiles.version6Bytes(new byte[900],
+        Arrays.copyOfRange(sharedSource, sharedSource.length - 74, sharedSource.length),
+        DiskStorage.BARRIER_PRESENT, null);
+    var future = directory.resolve("v6.ibu");
+    Files.write(future, v6);
+    for (boolean damaged : new boolean[] {false, true}) {
+      var candidate = v6.clone();
+      if (damaged) {
+        candidate[0] ^= 1;
+      }
+      assertEquals(6, ByteBuffer.wrap(candidate).getShort(candidate.length - 74));
+      for (boolean full : new boolean[] {false, true}) {
+        assertEquals("UNCLASSIFIABLE", frozenHeadClassification(candidate, names.getLast(), id,
+            full));
+        var queued = new java.util.ArrayList<String>();
+        var incomplete = sharedSource.clone();
+        incomplete[0] ^= 1;
+        assertEquals("RECOGNIZED_INCOMPLETE",
+            frozenHeadClassification(incomplete, names.getLast(), id, true));
+        queued.add(names.getLast());
+        var removals = 0;
+        if (!frozenHeadClassification(candidate, names.getLast(), id, full)
+            .equals("UNCLASSIFIABLE")) {
+          for (var ignored : queued) {
+            removals++;
+          }
+        }
+        assertEquals(0, removals);
+        assertTrue(Files.exists(directory.resolve(names.getLast())));
+        org.junit.Assert.assertArrayEquals(v6, Files.readAllBytes(future));
+      }
+    }
+  }
+
+  // Frozen 3850a8f46c reader projection. It deliberately uses no production classifier or layout.
+  private static String frozenHeadClassification(byte[] unit, String name, UUID expected,
+      boolean full) {
+    var window = Arrays.copyOfRange(unit, Math.max(0, unit.length - 86), unit.length);
+    var version = ByteBuffer.wrap(window).getShort(window.length - 74);
+    var size = version == 4 || version == 5 ? 86 : 74;
+    var tail = Arrays.copyOfRange(window, window.length - size, window.length);
+    var shared = ByteBuffer.wrap(tail, tail.length - 74, 74).slice();
+    var supported = version == 3 || version == 4 || version == 5;
+    var database = new UUID(shared.getLong(10), shared.getLong(2));
+    var recognized = supported && expected.equals(database)
+        && shared.getInt(54) == BackupUnitFiles.supportedFeatureFormat()
+        && shared.getInt(58) == BackupUnitFiles.supportedLayoutVersion()
+        && shared.getInt(62) == BackupUnitFiles.COMPLETED_CREATION_EVIDENCE;
+    // Authentic shorter v1/v2 diagnostics precede the full-hash decision at HEAD.
+    if (!supported) {
+      for (int legacy : new int[] {2, 1}) {
+        var offset = legacy == 2 ? 12 : 20;
+        var bytes = ByteBuffer.wrap(tail);
+        if (bytes.getShort(offset) == legacy
+            && name.startsWith(new UUID(bytes.getLong(offset + 10), bytes.getLong(offset + 2))
+                + "-")) {
+          return "UNCLASSIFIABLE";
+        }
+      }
+    }
+    if (full && DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - 8,
+        DiskStorage.XX_HASH_SEED) != shared.getLong(66)) {
+      return recognized ? "RECOGNIZED_INCOMPLETE" : "UNCLASSIFIABLE";
+    }
+    if (version == 4 || version == 5) {
+      var bytes = ByteBuffer.wrap(tail);
+      if (bytes.getLong(0) != DiskStorage.XX_HASH_64.hash(tail, 8, 70,
+          DiskStorage.METADATA_HASH_SEED)) {
+        return "UNCLASSIFIABLE";
+      }
+    }
+    return supported && recognized ? "SUPPORTED" : "UNCLASSIFIABLE";
+  }
+
   /** Boundary positions need either zero padding or exactly the rest of one sector. */
   @Test
   public void paddingNeverLetsTailCrossASector() {

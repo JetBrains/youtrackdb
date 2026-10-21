@@ -1222,6 +1222,34 @@ public class ChangedPageTrackerStartupTest {
     }
   }
 
+  // An allocation-only record in an unfinished unit must mark its internal file/page on reopen.
+  // Saved history, coverage and continuity survive without recovery supplying a page update.
+  @Test
+  public void verifyReopenedDiskWalMarksAllocationOnlyPageAndPreservesSavedHistory()
+      throws Exception {
+    var directory = folder.newFolder().toPath();
+    LogSequenceNumber coverage;
+    try (var wal = diskWal(directory)) {
+      coverage = wal.log(new AtomicUnitStartRecord(true, 7));
+      wal.log(
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord(
+              129, EXTERNAL_ID, 7));
+    }
+    var pending = savedHistory(true, coverage);
+    try (var wal = diskWal(directory)) {
+      var files = new TestFileIds();
+      assertVerification(pending, ChangedPageTrackerStartup.verify(pending, wal,
+          ChangedPageTrackerStartup.ShutdownState.CLEAN, files),
+          ChangedPageTrackerStartup.Outcome.PROVED_HISTORY_TRUSTED,
+          ProofStatus.REACHED_END, null, withPages(7, 129));
+      assertEquals(List.of(EXTERNAL_ID), files.converted);
+      assertEquals(coverage, pending.coverageLsn());
+      assertEquals(coverage, pending.tracker().durableCoverageLsn());
+      assertEquals(TRACKER, capture(pending.tracker()).trackerIdentifier());
+      assertEquals(COMPLETED, capture(pending.tracker()).lastCompletedIdentifier());
+    }
+  }
+
   // Three pre-open segments need three bounded batches. The terminal batch still contributes
   // marks, while a flushed page appended after reopen stays outside the immutable proof extent.
   @Test

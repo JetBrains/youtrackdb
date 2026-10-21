@@ -44,7 +44,8 @@ public final class BackupUnitFiles {
   public static final int LEGACY_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int FIRST_BACKUP_FORMAT_VERSION = 1;
   public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_5;
-  public static final int FUTURE_BACKUP_FORMAT_VERSION = CURRENT_BACKUP_FORMAT_VERSION + 1;
+  public static final int VERSION_6 = 6;
+  public static final int FUTURE_BACKUP_FORMAT_VERSION = 7;
 
   /** The accepted creation completion evidence of this build. */
   public static final int COMPLETED_CREATION_EVIDENCE = DiskStorage.CREATION_COMPLETED_EVIDENCE;
@@ -205,6 +206,61 @@ public final class BackupUnitFiles {
       Files.write(directory.resolve(fileName), outputStream.toByteArray());
       return fileName;
     }
+  }
+
+  /** Builds a literal v6 fixture from payload and the unchanged 74-byte shared suffix. */
+  static byte[] version6Bytes(byte[] payload, byte[] shared, int barrier,
+      DiskStorage.BackupContinuity continuity) {
+    var offset = payload.length % 512;
+    var padding = offset + 122 <= 512 ? 0 : 512 - offset;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + 122);
+    var tail = result.length - 122;
+    var buffer = ByteBuffer.wrap(result);
+    buffer.position(tail + 8);
+    buffer.putInt(barrier).putInt(continuity == null ? 0 : 0x434F4E54);
+    if (continuity != null) {
+      buffer.putLong(continuity.trackerId().getMostSignificantBits());
+      buffer.putLong(continuity.trackerId().getLeastSignificantBits());
+      buffer.putLong(continuity.generationId().getMostSignificantBits());
+      buffer.putLong(continuity.generationId().getLeastSignificantBits());
+    }
+    System.arraycopy(shared, 0, result, tail + 48, 74);
+    buffer.putShort(tail + 48, (short) 6);
+    repairVersion6Hashes(result, true, true);
+    return result;
+  }
+
+  /** Repairs hashes independently so corruption tests do not mask the other check. */
+  static void repairVersion6Hashes(byte[] unit, boolean metadata, boolean content) {
+    var tail = unit.length - 122;
+    var buffer = ByteBuffer.wrap(unit);
+    if (metadata) {
+      buffer.putLong(tail, DiskStorage.XX_HASH_64.hash(unit, tail + 8, 106,
+          DiskStorage.METADATA_HASH_SEED));
+    }
+    if (content) {
+      buffer.putLong(unit.length - 8, DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - 8,
+          DiskStorage.XX_HASH_SEED));
+    }
+  }
+
+  /** Converts real v4/v5 ZIP output without changing payload or shared metadata fields. */
+  static void rewriteVersion5AsVersion6(Path path, int barrier,
+      DiskStorage.BackupContinuity continuity) throws IOException {
+    var unit = Files.readAllBytes(path);
+    var zipEnd = -1;
+    for (var i = unit.length - 86 - 22; i >= 0; i--) {
+      if (unit[i] == 0x50 && unit[i + 1] == 0x4b
+          && unit[i + 2] == 0x05 && unit[i + 3] == 0x06) {
+        zipEnd = i + 22 + ((unit[i + 20] & 0xff) | (unit[i + 21] & 0xff) << 8);
+        break;
+      }
+    }
+    if (zipEnd < 0) {
+      throw new IOException("Missing ZIP end in fixture");
+    }
+    Files.write(path, version6Bytes(java.util.Arrays.copyOf(unit, zipEnd),
+        java.util.Arrays.copyOfRange(unit, unit.length - 74, unit.length), barrier, continuity));
   }
 
   /** Rewrites one real version 4 or 5 unit as a valid version 3 unit without changing its ZIP data. */
