@@ -160,15 +160,21 @@ controls attribute work without changing the SDK sampling contract above.
 
 Set the following sampler inputs on the builder before `startSpan()` when available:
 `db.system.name`, `db.namespace`, `db.operation.name`, `db.collection.name`, `db.query.summary`,
-`error.type`, configured `server.address` and `server.port`, `db.youtrackdb.gremlin.path`,
-`db.youtrackdb.sql.invoked_via` and `db.youtrackdb.duration_semantics`.
-Resolve operation and collection independently across the whole call. Commit supplies the applicable subset with its known operation. These are existing attributes.
+`error.type`, available `db.response.status_code`, configured `server.address` and `server.port`,
+`youtrackdb.gremlin.path`, `youtrackdb.sql.invoked_via` and `youtrackdb.duration_semantics`.
+Resolve operation and collection independently across the whole call. Commit supplies the applicable subset with its known operation.
 Absent values stay absent. Reuse constants, captured provenance and memoized classification.
 This work is required even if the sampler drops the span. It lets a host sampler select by
 query identity, source, timing semantics or error. The split preserves the configured sampler
 and the SDK decision-handling contract. Only the listed builder attributes are guaranteed
 sampler inputs. Deferred attributes are unavailable during sampling. A host that needs equivalent
 information must supply independent inputs, such as parent Context values, before query execution.
+`db.response.status_code` uses the string form of `ErrorCode.getCode()` when the captured
+failure is a `CoreException` with a non-null `getErrorCode()` value. Never infer a code from
+message text. Only a minority of exception types set one. Completion details carry this optional
+fact alongside `error.type` for queries and failed commits. Late construction makes both facts
+available before `startSpan()`. Copy the optional code into buffered SQL snapshots without
+retaining the exception. Remote Gremlin `ResponseStatusCode` is outside this change.
 This design defines no general YTDB builder-customization hook. YTDB deliberately defers
 `db.query.text` despite the sem-conv builder-time recommendation. This avoids rendering text
 for non-recording spans. Samplers cannot inspect this attribute.
@@ -176,7 +182,15 @@ for non-recording spans. Samplers cannot inspect this attribute.
 After `startSpan()`, check `span.isRecording()` before reading or converting the remaining
 span-only values or calling their setters. This includes sanitized query text, opted-in
 parameters, explicit tracking ID, returned rows, structural and advisor flags, profile flags,
-cache outcome and custom attributes. Set error status only in this block. Do not require the
+cache outcome and custom attributes. The companion's vendor-attribute inventory documents
+keys, value types and absence rules. It is not a runtime allowlist for `getCustomAttrs()` or
+OTel export. Preserve documented value types and absence rules. Numeric custom values are
+exact span-only measurements and never metric dimensions. Custom listeners keep their
+access to details.
+`OPENTELEMETRY_QUERY_INCLUDE_RETURNED_ROWS` is a boolean with default `false`, captured at
+listener installation like the parameter opt-in. Only `true` enables the span attribute
+`db.response.returned_rows` when its count is present. It does not control returned-row
+histograms. Set error status only in this block. Do not require the
 sampled flag for enrichment. Host processors may consume `RECORD_ONLY` spans. Always call
 `end` in `finally`, even when the span does not record. Use this flow for direct SQL, Gremlin,
 commits and each buffered child when it is constructed. Predefine attribute keys at startup.
@@ -243,8 +257,10 @@ completion has passed its own query gates and becomes a candidate for retention.
 the values needed to build its span, then offers the snapshot to the buffer. Admission means
 storing the candidate in the traversal buffer. Neither acceptance nor admission guarantees span
 construction or export. The snapshot holds recorded real start and completion endpoints, unchanged listener duration, sanitized query text,
-name, error type, row count, classification and other configured attribute values. It copies
-parameter values only when the existing parameter opt-in is enabled. These copies are required
+name, error type, optional typed error code, classification and other configured attribute
+values. It copies row count for span enrichment only when the returned-rows opt-in is enabled.
+Histogram row recording already occurred independently of that opt-in. It copies parameter
+values only when the existing parameter opt-in is enabled. These copies are required
 snapshot work before the child's SDK decision. Set the documented sampler inputs on each child
 builder before `startSpan()`. Defer only the remaining span attributes, their SDK attribute-set
 construction and non-snapshot conversions until that child's own `isRecording()` check.
@@ -281,7 +297,7 @@ For a recording, sampled Gremlin parent, build each buffered child with
 real start and completion endpoint. Do not call `queryFinished` again, rerun its gates, claim another
 heartbeat slot or record its histograms twice. Each child builder still uses the configured SDK
 sampler. Emit children in buffer admission order, then end the Gremlin span in `finally` using
-its recorded real completion endpoint. EXACT active time is a separate `db.youtrackdb.active_time_nanos` attribute on recording query spans. Gates keep their unchanged active-time input.
+its recorded real completion endpoint. EXACT active time is a separate `youtrackdb.active_time_nanos` attribute on recording query spans. Gates keep their unchanged active-time input.
 
 `hook.onClose` seals and clears entries not detached by the listener in `finally` after dispatch.
 Listener cleanup owns detached entries. Both cleanup paths count unconsumed candidates once as
@@ -315,7 +331,7 @@ heartbeat evaluation on drain.
 - Conflicting rules (two rules match the same tag): first-wins by insertion order. Operators order rules from most-specific to most-general. Duplicate exact rules: the first one wins; subsequent rules log WARN at startup and are dropped.
 - The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules). The per-TX override is not subject to either constraint: the fire site reads `FrontendTransaction.getSlowQueryThresholdOverrideNanos()` per query and carries it on `QueryDetails`, so a transaction that calls `withSlowQueryThresholdMillis(...)` takes effect immediately without an SDK rebuild.
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
-- Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means the duration check accepts a hot-path completion with at least 100 ms of DB-side active work. The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag accepts a completion with at least 100 ms of wall-clock time. Acceptance does not guarantee span construction, recording or export. A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices on `db.youtrackdb.duration_semantics` to compare populations with the same gate measurement. Span and standard histogram durations always cover real elapsed time. Inside a Path B traversal, nested SQL inherits the outer Gremlin tag through `YTDBContextKeys.QUERY_TAG`. Both queries use the same resolution rules and retain their own captured values. A matching threshold rule gives equal thresholds. Otherwise equality requires an unchanged applicable TX fallback between capture points. A changed fallback applies to later queries, including nested SQL started later. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
+- Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means the duration check accepts a hot-path completion with at least 100 ms of DB-side active work. The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag accepts a completion with at least 100 ms of wall-clock time. Acceptance does not guarantee span construction, recording or export. A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices on `youtrackdb.duration_semantics` to compare populations with the same gate measurement. Span and standard histogram durations always cover real elapsed time. Inside a Path B traversal, nested SQL inherits the outer Gremlin tag through `YTDBContextKeys.QUERY_TAG`. Both queries use the same resolution rules and retain their own captured values. A matching threshold rule gives equal thresholds. Otherwise equality requires an unchanged applicable TX fallback between capture points. A changed fallback applies to later queries, including nested SQL started later. The resolved threshold may come from the query-tag rule, the per-TX override, or the global default (Table B in §"Query tagging and per-tag rule resolution"); the mode coupling applies identically whichever threshold tier won.
 - A child whose own gate accepts it can still be lost when its parent is rejected, the buffer is full or completion is late. The drop counter reports these losses. Parent retention is never forced by a child. Exporter or processor losses can still produce an incomplete backend trace.
 
 ### References
@@ -595,17 +611,31 @@ The bridge surfaces two layers: sem-conv DB metrics with names defined by the Op
 | `youtrackdb.cache.hit_ratio` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.CACHE_HIT_RATIO` (existing — `Ratio`, cache hits over reads, 60s window) |
 | `youtrackdb.disk.read_rate_bps` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.DISK_READ_RATE` (existing — `TimeRate`, bytes per second, 60s window) |
 | `youtrackdb.disk.write_rate_bps` | `cache` | `ObservableDoubleGauge` | `CoreMetrics.DISK_WRITE_RATE` (existing — `TimeRate`, bytes per second, 60s window) |
-| `youtrackdb.cache.page_reads_total` | `cache` | `ObservableLongCounter` | `CoreMetrics.PAGE_READ_COUNT` (new — `Counter`, monotonic page-read count populated by the disk-cache page-fault path) |
-| `youtrackdb.cache.evictions_total` | `cache` | `ObservableLongCounter` | `CoreMetrics.FILE_EVICTION_RATE` (existing — converted from rate to monotonic counter at OTel-bridge translation time) |
+| `youtrackdb.cache.page_reads` | `cache` | `ObservableLongCounter`, unit `{page}` | new cumulative monotonic page-read counter populated by the disk-cache page-fault path |
+| `youtrackdb.cache.evictions` | `cache` | `ObservableLongCounter`, unit `{page}` | new cumulative monotonic page-eviction counter. Page eviction events exist without a counter. `FILE_EVICTION_RATE` counts file-handle eviction and is not this source. |
 | `youtrackdb.wal.pending_bytes` | `wal` | `ObservableLongGauge` | `CoreMetrics.WAL_PENDING_BYTES` (new — `Gauge<Long>`, in-flight write-ahead log (WAL) backlog read at the WAL writer's `flushPending()` site) |
 | `youtrackdb.wal.flush_rate_bps` | `wal` | `ObservableDoubleGauge` | `CoreMetrics.WAL_FLUSH_RATE` (new — `TimeRate`, WAL flush bytes per second, 60s window) |
 | `youtrackdb.lock.contention_count` | `locks` | `ObservableLongCounter` | `CoreMetrics.LOCK_WAIT_COUNT` (new — `Counter`, monotonic wait-event count populated by `ReadWriteLock` wrappers in the storage layer) |
-| `youtrackdb.storage.size_bytes` | `storage` | `ObservableLongGauge` (per `database` attribute) | `CoreMetrics.DATABASE_SIZE_BYTES` (new — per-`MetricScope.Database` `Gauge<Long>` read from the storage layer's `getSizeOnDisk()`) |
+| `youtrackdb.storage.size_bytes` | `storage` | `ObservableLongGauge` (per `db.namespace` attribute) | `CoreMetrics.DATABASE_SIZE_BYTES` (new — per-`MetricScope.Database` `Gauge<Long>` read from the storage layer's `getSizeOnDisk()`) |
 | `youtrackdb.transaction.commit_rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_WRITE_RATE` (existing — `TimeRate`, write commits per second, 60s window) |
 | `youtrackdb.transaction.rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_RATE` (existing — `TimeRate`, all transactions per second, 60s window) |
 | `youtrackdb.transaction.rollback_rate` | `transactions` | `ObservableDoubleGauge` | `CoreMetrics.TRANSACTION_WRITE_ROLLBACK_RATE` (existing — `TimeRate`, write rollbacks per second, 60s window) |
 | `youtrackdb.transaction.active_count` | `transactions` | `ObservableLongGauge` | `CoreMetrics.ACTIVE_TX_COUNT` (existing — per-database `Gauge<Integer>`) |
 | `youtrackdb.transaction.oldest_age_seconds` | `transactions` | `ObservableLongGauge` | `CoreMetrics.OLDEST_TX_AGE` (existing — per-database `Gauge<Long>`) |
+
+D42 also reserves these high-level advisory metrics. Each may move to a follow-up change.
+Their engine sources remain open questions. No detailed engine design is specified here.
+
+| OTel metric name | Group | Meaning | Instrument and unit | Labels | Engine source question |
+|---|---|---|---|---|---|
+| `youtrackdb.cache.eviction_rate` | `cache` | page evictions per second over the reporting window | `ObservableDoubleGauge`, `{page}/s` | none, global page cache | page eviction events exist, but there is no cumulative counter. Which source and reporting window supply this rate? `FILE_EVICTION_RATE` is file-handle eviction. May move to a follow-up change. |
+| `youtrackdb.query.index_lookup_ratio` | `queries` | index lookups divided by index lookups plus full scans over the reporting window. Omit when the denominator is zero. | `ObservableDoubleGauge`, `1` | `db.namespace` | no profiler source exists today. Which engine observation sites and window supply the two populations? May move to a follow-up change. |
+| `youtrackdb.connection.pool_saturation` | `queries` | acquired slots divided by total configured capacity across embedded database pools for a database. Omit without a positive known capacity. | `ObservableDoubleGauge`, `1` | `db.namespace` | no saturation source exists today. Capacity exists only for the embedded database pool. Which source supplies occupancy and capacity together? May move to a follow-up change. |
+
+Counter names follow OTel naming guidance without a redundant total suffix. Both page counters
+need real cumulative monotonic sources. `TimeRate` exposes only a windowed rate and cannot be
+converted into either cumulative counter. Rate integration in the bridge is not a valid source.
+The page-eviction count and advisory eviction rate describe the same event population.
 
 Sem-conv stability matters for dashboard authors: `stable` metrics will keep their names and semantics in future spec revisions; `experimental` ones may rename or change attribute shapes between sem-conv versions. The bridge surfaces both, but a downstream dashboard that depends on experimental metrics needs to track the sem-conv changelog between v1.33.0 and whatever version YTDB pins next.
 
@@ -615,8 +645,8 @@ Embedded caller-facing work uses the two standard `db.client.*` instruments abov
 
 | Histogram and recording source | Complete sample attributes |
 |---|---|
-| `db.client.operation.duration` embedded or `youtrackdb.server.operation.duration` server, query listener, group `queries` | `db.system.name="youtrackdb"`, available `db.namespace`, eligible `db.operation.name` and `db.collection.name`, host tag or generated `db.query.summary` when available, `error.type` only on failure, configured `server.address` and integer `server.port` only in server mode, `db.youtrackdb.duration_semantics`, and exactly one query-source field: `db.youtrackdb.gremlin.path` for Gremlin or `db.youtrackdb.sql.invoked_via` for SQL |
-| `db.client.operation.duration` embedded or `youtrackdb.server.operation.duration` server, commit listener, group `transactions` | `db.system.name="youtrackdb"`, available `db.namespace`, `db.operation.name="commit"`, `error.type` only on failure, configured `server.address` and integer `server.port` only in server mode, `db.youtrackdb.duration_semantics="wall_clock"`. No collection, summary or query-source field. |
+| `db.client.operation.duration` embedded or `youtrackdb.server.operation.duration` server, query listener, group `queries` | `db.system.name="youtrackdb"`, available `db.namespace`, eligible `db.operation.name` and `db.collection.name`, host tag or generated `db.query.summary` when available, `error.type` and available string `db.response.status_code` only on failure, configured `server.address` and integer `server.port` only in server mode, `youtrackdb.duration_semantics`, and exactly one query-source field: `youtrackdb.gremlin.path` for Gremlin or `youtrackdb.sql.invoked_via` for SQL |
+| `db.client.operation.duration` embedded or `youtrackdb.server.operation.duration` server, commit listener, group `transactions` | `db.system.name="youtrackdb"`, available `db.namespace`, `db.operation.name="commit"`, `error.type` and available string `db.response.status_code` only on failure, configured `server.address` and integer `server.port` only in server mode, `youtrackdb.duration_semantics="wall_clock"`. No collection, summary or query-source field. |
 | `db.client.response.returned_rows` embedded or `youtrackdb.server.response.returned_rows` server, query listener, group `queries`, unit `{row}` | exactly the query-duration attribute list, including the same optional-value rules |
 
 These lists are closed. No query text, parameter, tracking ID, numeric active time, arbitrary
@@ -624,16 +654,18 @@ custom attribute or structural flag is a histogram dimension. The query summary 
 existing tag cardinality responsibility. Operation and collection use independent whole-call eligibility tests, as on spans.
 Omit only the attribute whose eligibility cannot be proved. Commit supplies its known operation
 under that same rule and has no collection. Query summary selection never changes the original tag used by resolvers. Generated summaries contain only recognized operations
-and static targets. No canonical response code, stored-procedure identity or network peer is
-available from these fire sites, so those optional dimensions are absent. Duration and row
+and static targets. The optional typed response code is a failure-only dimension next to
+`error.type` in both duration instruments and the shared query returned-row schema. It is absent
+on success and on failures without a typed code. Stored-procedure identity and network peer
+are unavailable from these fire sites, so those optional dimensions are absent. Duration and row
 histograms share dimensions but keep distinct instrument identities in the cache. Record one
 sample per completion even when trace gates or SDK sampling drop the span. Skip rows only when
 `getResultCount()` is empty. Use row advisory buckets
 `[1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]`.
 
 Elapsed duration always includes consumer idle time in both timing modes. The
-`db.youtrackdb.duration_semantics` field describes the unchanged listener measurement used by
-gates. EXACT spans expose that active measurement as `db.youtrackdb.active_time_nanos` only
+`youtrackdb.duration_semantics` field describes the unchanged listener measurement used by
+gates. EXACT spans expose that active measurement as `youtrackdb.active_time_nanos` only
 after the recording check. Reuse each captured real endpoint for metrics and spans. A custom
 producer without an endpoint uses one callback-entry timestamp. Clamp an endpoint before the
 start to the start once before metrics, snapshot retention or span building. Buffered SQL snapshots preserve both endpoints and active time.
@@ -644,6 +676,13 @@ instruments and that buckets match across deployments.
 Cover an operation without a collection, a collection without one operation, single and multiple
 collections, generated summaries and host tags, successful and failed queries and commits,
 both deployments, both timing modes, zero returned rows and missing counts.
+Cover typed-code failures, null-code failures and failures outside `CoreException` for queries
+and commits. Assert string codes on builders and metric samples, absent codes on success and
+untyped failures, and no message parsing. Cache tests distinguish absent and different codes.
+Toggle `OPENTELEMETRY_QUERY_INCLUDE_RETURNED_ROWS` with present and missing counts. Assert
+span opt-in behavior and identical histogram samples with the setting off and on.
+Assert profile, conditional cache-outcome and truncation attributes with their documented
+types and absence rules. Keep exact numeric custom values off every histogram schema.
 A consumer pause must increase span and histogram elapsed duration without changing EXACT
 active time or its threshold decision. Drain must preserve the recorded SQL endpoints and add
 no second metric sample.
@@ -674,7 +713,9 @@ A direct-mapped atomic cache sends each key to one slot by its hash. Atomic read
 safely publish immutable entries across threads. Compute the hash and compare sample components
 without allocating a tuple or map. Read the slot once and keep the entry in a local reference.
 A hit requires the same instrument reference and equality of every typed dimension component,
-including presence markers. Compare strings by value. Hash equality alone is never a hit.
+including presence markers. Include the optional typed response code in hashing and equality
+for each schema that carries it. Distinguish an absent code from a present code.
+Compare strings by value. Hash equality alone is never a hit.
 Reuse that local entry's `Attributes` so concurrent replacement cannot change this sample's set.
 On a miss, build the full correct set and an immutable entry outside shared state.
 Try one compare-and-set replacement against the entry just read. A collision replaces that one entry if the compare-and-set succeeds. A lost
@@ -724,14 +765,14 @@ public void removeRegistrationListener(Consumer<MetricRegistrationEvent> listene
 
 Implementation: `MetricsRegistry` holds a `CopyOnWriteArrayList<Consumer<MetricRegistrationEvent>>`. It checks listener presence before capturing an iteration snapshot. If that snapshot is empty, it stops event dispatch before allocating a registration event. Otherwise it fires the captured snapshot inside `MetricsGroup.init(...)` (the existing `computeIfAbsent` site) when a new metric is created. Later removal does not cancel callbacks captured for that event. The fire is synchronous on the registering thread. Listeners that need to do heavy work (registering an OTel observable callback is non-trivial) must schedule it onto their own executor. `OTelMetricsBridge` posts to its scheduled executor so the registration thread is not blocked. Each listener fire runs inside `try { listener.accept(event); } catch (Exception | LinkageError | AssertionError t) { LogManager.instance().warn(this, "metric-registration listener threw", t); }`, so a misconfigured listener logs at WARN and the database-open path completes — the API enforces exception isolation rather than relying on listener-side discipline.
 
-`forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk over `ConcurrentHashMap.entrySet()` is weakly consistent. The bridge subscribes before the walk, then sends both enumeration results and registration events through one serialized registration path. That path de-duplicates by source metric identity. A metric seen by both paths gets one callback. Enumeration and events both carry the database name. Metrics sharing an OTel name use a shared instrument with a `database` attribute on each database-scoped observation.
+`forEachMetric(...)` walks `globalMetrics.mGroup.metrics`, then iterates `perDatabaseMetrics.values()` walking each `DatabaseMetrics.mGroup.metrics`. The walk over `ConcurrentHashMap.entrySet()` is weakly consistent. The bridge subscribes before the walk, then sends both enumeration results and registration events through one serialized registration path. That path de-duplicates by source metric identity. A metric seen by both paths gets one callback. Enumeration and events both carry the database name. Metrics sharing an OTel name use a shared instrument with a `db.namespace` attribute on each database-scoped observation.
 
 ### Async instrument lifecycle
 
 `OTelMetricsBridge.start()` does three things at SDK init:
 
 1. Subscribe through `registry.addRegistrationListener(...)`. Each event posts a registration task to the bridge executor.
-2. Enumerate through `Profiler.getMetricsRegistry().forEachMetric(...)`. Send every result to the same executor. Keep an identity-keyed `Map<Metric<?>, AutoCloseable>` of callback handles. Register each source once, even when the walk and listener both see it. Reuse the instrument for a shared OTel name and attach the database attribute to observations. Each callback captures its source `Metric` reference. At collection time it first checks that its bridge registration is active. Only then does it read the value or prepare observation attributes.
+2. Enumerate through `Profiler.getMetricsRegistry().forEachMetric(...)`. Send every result to the same executor. Keep an identity-keyed `Map<Metric<?>, AutoCloseable>` of callback handles. Register each source once, even when the walk and listener both see it. Reuse the instrument for a shared OTel name and attach the `db.namespace` attribute to observations. Each callback captures its source `Metric` reference. At collection time it first checks that its bridge registration is active. Only then does it read the value or prepare observation attributes.
 3. Schedule a periodic task at `OPENTELEMETRY_METRICS_PERIOD_MILLIS`. The SDK's `PeriodicMetricReader` drives the actual export; the bridge's task re-reads YTDB-side time-windowed metrics (`TimeRate`, `Ratio`) via `getRate()`/`getRatio()` independently of the OTel reader. `Meter` flushes those windows internally every `flushRateTicks`; the task keeps the value the exporter sees fresh between polls.
 
 `OTelMetricsBridge.stop()` removes the listener and cancels the scheduled task. It prevents queued registrations from installing callbacks after stop. It closes each observable callback handle through `AutoCloseable.close()` and clears the identity map. Stopping a stopped bridge is a no-op. Synchronous histograms need no callback handle.
@@ -757,7 +798,7 @@ Operators wanting metrics on storage health but not query throughput configure `
 
 ### Edge cases / Gotchas
 
-- High-cardinality attributes: a `youtrackdb.storage.size_bytes` per-database gauge fans out one OTel data point per `database` attribute value at every collection cycle. Hosts with 10k+ databases see 10k+ data points per period; the exporter side has to absorb that. The bridge does NOT add per-class or per-RID attributes — `MetricScope.Class` profiler entries collapse to one OTel data point per (metric, database) pair. If per-class breakdown is needed downstream, the host configures a dedicated OTel exporter that views the raw profiler dump.
+- High-cardinality attributes: a `youtrackdb.storage.size_bytes` per-database gauge fans out one OTel data point per `db.namespace` attribute value at every collection cycle. Hosts with 10k+ databases see 10k+ data points per period; the exporter side has to absorb that. The bridge does NOT add per-class or per-RID attributes — `MetricScope.Class` profiler entries collapse to one OTel data point per (metric, `db.namespace`) pair. If per-class breakdown is needed downstream, the host configures a dedicated OTel exporter that views the raw profiler dump.
 - Bridge thread vs profiler-thread contention: the profiler's own collection threads (the `ScheduledExecutorService` passed to `Profiler` constructor) may be updating a `TimeRate` or `Ratio` while the bridge's callback reads through it. Both sides use lock-free reads on the metric primitives (`Gauge.value()` is a volatile read; `TimeRate.getRate()` snapshots an `AtomicReference`), so the contention surface is the `AtomicReference` CAS in `Meter`'s internal flush. Worst case: the bridge reads a sample one window behind reality. Acceptable for 10-second collection cadence.
 - Exporter back-pressure: OTel `PeriodicMetricReader` blocks the SDK's internal export thread when the configured exporter (OTLP, Prometheus) backs up. The bridge's scheduled task is independent of the reader — it advances time-windowed YTDB metrics regardless of exporter state — so back-pressure on the OTel side does not stall YTDB's in-JVM metric collection.
 - SDK swap during active metrics: when `setOpenTelemetry` swaps SDKs, the old `OTelMetricsBridge.stop()` runs before the new one's `start()`, so each source callback is registered against exactly one `SdkMeterProvider` at a time. The window between stop and start is small; any metric reader poll in that window sees zero data points (the SDK-side callbacks are unregistered).
@@ -802,7 +843,7 @@ YTDB adds only `OPENTELEMETRY_QUERY_TEXT_MAX_LENGTH` for query text. The facade 
 non-negative integer and captures it per OTel listener installation. The default is 4096
 Unicode code points per value. `0` omits query-text attributes. Apply it to every YTDB-produced
 query-text attribute, including `db.query.text`, scripts, complete passthrough text and the three
-possible `db.youtrackdb.gremlin.embedded_sql.N` values. Tags and classified summaries are
+possible `youtrackdb.gremlin.embedded_sql.N` values. Tags and classified summaries are
 identifiers rather than source text and keep their contracts. Parameters remain a separate opt-in.
 
 Sanitize the complete input through its source-specific sanitizer before taking a prefix.
@@ -813,7 +854,7 @@ Apply the query-text limit only to successfully sanitized output.
 For a positive limit, find the prefix end by code points and copy only that prefix. Do not split
 a UTF-16 surrogate pair and do not append an ellipsis. A value exactly at the limit is unchanged.
 At limit zero, resolve sanitized text only to determine whether a non-empty value was omitted.
-Attach and retain no text. Set one boolean `db.youtrackdb.query.text_truncated=true` if any
+Attach and retain no text. Set one boolean `youtrackdb.query.text_truncated=true` if any
 non-empty sanitized value was shortened or omitted. Otherwise omit the marker. Sanitizer failure
 is not truncation and does not by itself set the marker. The marker describes YTDB's own action,
 independent of further SDK or collector truncation.
