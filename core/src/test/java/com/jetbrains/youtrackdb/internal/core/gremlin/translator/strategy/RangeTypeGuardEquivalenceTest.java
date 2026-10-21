@@ -513,6 +513,27 @@ public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Infinity, precise decimal bounds, missing and null properties keep unfolded Gremlin rules.
+   * Folded start comparisons remain covered by foldedRootRange_keepsTheGraphStepComparatorsCrossTypeAnswer.
+   */
+  @Test
+  public void specialNumericValuesAndMissingPropertiesKeepTheirComparisonRules() {
+    seedOneValueOfEachType();
+    assertAgreesWithNative("decimal bound across all seven numeric types",
+        () -> typesRange(P.gt(new BigDecimal("27.5000000001"))),
+        List.of("t_decimal", "t_double", "t_long"));
+    addTypedVertex("t_pos_inf", Double.POSITIVE_INFINITY);
+    addTypedVertex("t_neg_inf", Float.NEGATIVE_INFINITY);
+    addTypedVertex("t_null", null);
+    typesHub.addEdge("holds", graph.addVertex(T.label, "Types", "tag", "t_absent"));
+    graph.tx().commit();
+    assertAgreesWithNative("positive infinity, null and absent properties",
+        () -> typesRange(P.gt(1000)), List.of("t_pos_inf"));
+    assertAgreesWithNative("infinite stored values stay in the numeric block",
+        () -> typesRange(P.lt(0)), List.of("t_neg_inf"));
+  }
+
+  /**
    * A literal whose class names no comparability block declines the whole traversal rather than
    * translating unguarded. {@code java.time.Instant} is the case in hand: TinkerPop types it as
    * unknown rather than as a date, and the SQL type accessor reports {@code null} for a stored one,
