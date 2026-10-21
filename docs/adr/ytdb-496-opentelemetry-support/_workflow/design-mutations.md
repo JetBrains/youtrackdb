@@ -2253,3 +2253,95 @@ and fail-closed unknown-node handling. No product behavior beyond those decision
 Only the three declared files enter the commit. Propagation and the PR update remain outside scope.
 
 **Iterations**: Sixth successful fix-round design batch. Eight file batches complete this action.
+
+## Mutation 101 — 2026-10-21 — content-edit (design.md)
+
+**Diff summary**: Track 99 corrects typed-error availability and gives the code the same late
+builder availability as error type. It renames the custom namespace from `db.youtrackdb.*` to
+`youtrackdb.*`, adds the default-false returned-rows span opt-in and updates the configuration
+count to 23. The closed custom inventory includes profile state, conditional cache outcome and
+text truncation. Exact numeric values remain span-only. OTel custom-map export uses the inventory
+allowlist. D42 retains its advisory metrics with explicit engine-source questions and possible
+follow-up delivery for three metrics. The rollback source uses its verified profiler name.
+Database-scoped observations use `db.namespace`.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+The final batch result is 0 blockers, 37 should-fix findings and 1 suggestion.
+Normalized findings add nothing to the baseline. `git diff --check` passes.
+
+**Cold-read**: The author fully read the changed text and surrounding attribute, configuration
+and advisory contracts. This is self-review. An independent cold-read is a later action.
+
+**Findings**: No custom attribute collides with a metric name. Limiting arbitrary custom-map
+export makes the closed inventory enforceable for OTel without restricting custom listeners.
+A first check found a new section-length suggestion. Compact paragraph layout clears it.
+
+**Iterations**: 2 of 3 (PASS).
+
+## Mutation 102 — 2026-10-21 — mechanics-edit (design-mechanics.md)
+
+**Diff summary**: Track 99 propagates the custom namespace and database label contracts.
+Typed error codes are optional string dimensions beside error type on failed query and commit
+durations in both deployments. Returned rows retain the shared query schema. Cache hashing and
+equality include code presence and value. Completion snapshots copy codes without exceptions.
+The returned-rows opt-in affects span enrichment only. The advisory inventory defines three
+high-level gauges with units, labels and unresolved source questions. Page counters require
+cumulative monotonic sources and use OTel names without a total suffix. A windowed rate cannot
+supply either counter. Regression requirements cover the changed attribute and metric contracts.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Result: 0 blockers, 37 should-fix findings and 1 suggestion. No new normalized findings.
+`git diff --check` passes.
+
+**Cold-read**: The author fully read all changed companion passages and compared them with the
+current design contracts. This is self-review. Independent cold-read remains a later action.
+
+**Findings**: No namespace collision remains. Index ratio and pool saturation have no existing
+profiler source. Page eviction has events but no cumulative counter. Embedded-pool capacity is
+the only known capacity source. All three advisory metrics may move to a follow-up change.
+
+**Iterations**: 1 of 3 (PASS).
+
+## Mutation 103 — 2026-10-21 — content-edit (design.md)
+
+**Diff summary**: The final Track 99 batch states the typed failure-code dimension and its cache
+presence/value rule in the high-level metrics section. It names the two cumulative page counters
+and distinguishes page eviction from file-handle eviction. The custom inventory describes its
+current namespace without change-history wording.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Result: 0 blockers, 37 should-fix findings and 1 suggestion. No new normalized findings.
+`git diff --check` passes. Acceptance checks find 23 configuration entries and 23 custom key
+templates with no metric collision. Active designs contain no old custom prefix, total-suffixed
+metric name, database label or small-integer cardinality claim. Stamps and H2 names are unchanged.
+The mutation log preserves entries 1–100 byte for byte.
+
+**Cold-read**: The author fully read the changed metrics text and cross-checked both current
+attribute contracts. This is self-review. The orchestrator owns the later independent cold-read.
+
+**Findings**: F1–F6 are consistent across the two design files. No additional risk is identified.
+No code, test, PR or implementation-plan file changes belong to this batch.
+
+**Iterations**: 1 of 3 (PASS).
+
+## Mutation 104 — 2026-10-21 — content-edit (design.md, design-mechanics.md)
+
+**Diff summary**: Track 99 fix round 1 removes the custom-key runtime allowlist and rejection
+requirements from both designs by user decision. The completed inventory documents keys,
+value types and absence rules without enforcing them at runtime. Exact numeric custom values
+remain span-only and never metric dimensions. Nested SQL snapshots copy row count only when
+`OPENTELEMETRY_QUERY_INCLUDE_RETURNED_ROWS` is enabled. Histogram recording stays independent.
+The user keeps typed error codes as builder-time sampler inputs under F1.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Result: 0 blockers, 37 should-fix findings and 1 suggestion. No new normalized findings.
+`git diff --check` passes. The mutation log preserves entries 1–103 byte for byte.
+
+**Cold-read**: The author read the changed passages and compared both attribute and snapshot
+contracts. This is self-review. The orchestrator owns any later independent cold-read.
+
+**Findings**: R1 and R2 are resolved. S1 is retained by user decision. Pre-track text describes
+inventory closure but contains no runtime custom-map rejection rule. No deferred work changes.
+Only the three declared design files belong to this fix round.
+
+**Iterations**: 1 of 3 (PASS).
