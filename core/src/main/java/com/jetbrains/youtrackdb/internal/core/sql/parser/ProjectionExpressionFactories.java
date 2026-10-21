@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalContextVariableSuffix;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchAliasModifier;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchedVariableModifier;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -193,10 +194,14 @@ public final class ProjectionExpressionFactories {
     for (var segment : segments) {
       requireNonBlank(segment, "segment");
       var modifier = segmentModifier(segment);
+      if (tail == first) {
+        modifier = aliasModifier(alias, modifier, "@rid".equalsIgnoreCase(segment));
+      }
       tail.next = modifier;
       tail = modifier;
     }
-    return internalVariable(InternalVariable.MATCHED, first);
+    return internalVariable(InternalVariable.MATCHED,
+        new MatchedVariableModifier(first.suffix, (MatchAliasModifier) first.next));
   }
 
   /**

@@ -21,21 +21,24 @@ public final class MatchAliasModifier extends SQLModifier {
 
   @Override
   public Object execute(Result row, Object value, CommandContext ctx) {
-    // An identity is already in the row. Reading it needs neither record contents nor a check.
-    if (identityOnly && value instanceof Identifiable identifiable) {
-      if (ctx.getSystemVariable(CommandContext.VAR_CURRENT) == null) {
-        ctx.setSystemVariable(CommandContext.VAR_CURRENT, row);
-      }
-      var identity = identifiable.getIdentity();
-      return next == null ? identity : next.execute(row, identity, ctx);
-    }
-    if (row instanceof ResultInternal internal
+    return executeWithEvidence(row, value, ctx, row);
+  }
+
+  Object executeWithEvidence(Result row, Object value, CommandContext ctx, Result evidenceRow) {
+    if (evidenceRow instanceof ResultInternal internal
         && internal.getBoundedToSession() != null
         && internal.getBoundedToSession() == ctx.getDatabaseSession()) {
       var record = internal.getReusableRecord(alias);
       // An alias may also resolve through a context variable. Never use evidence for another value.
       if (record != null && record.getIdentity().equals(value)) {
-        value = record;
+        if (ctx.getSystemVariable(CommandContext.VAR_CURRENT) == null) {
+          ctx.setSystemVariable(CommandContext.VAR_CURRENT, row);
+        }
+        // Keep Identifiable semantics, including context fallback and invalid property names.
+        // Without valid evidence, the ordinary path must still check dangling identities.
+        var result = identityOnly ? record.getIdentity()
+            : suffix.execute((Identifiable) record, ctx);
+        return next == null ? result : next.execute(row, result, ctx);
       }
     }
     return super.execute(row, value, ctx);
