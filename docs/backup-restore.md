@@ -25,6 +25,18 @@ continuity with zero identifier slots. These fields do not change restore admiss
 They do not enable selective page reads or consume tracker history. The force-barrier
 flag does not certify that the final flush or close succeeded.
 
+An output with a force capability can make preceding bytes and the file length durable.
+The writer flushes the payload and padding before the first force call.
+After writing and flushing the tail, it calls that capability a second time.
+Complete-unit durability requires both a successful second force and successful close.
+An output without this capability has no such durability guarantee.
+
+Local file output also forces the file during close.
+Local directory synchronization remains best effort.
+An input/output error during directory synchronization does not fail the backup.
+A successful local backup therefore does not strictly guarantee durable publication of
+its new file name.
+
 An incremental backup checks the chain before adding a unit. For version 4, 5, and 6 units, it checks
 metadata without reading the payload when the input supplier can read the tail. A newest unit
 with a valid metadata checksum and a present force-barrier flag needs only this check. A version
@@ -104,6 +116,11 @@ that it cannot validate. This includes version 3, 4, 5, and 6 units. Do not exte
 newer chain with such a build. Use a new, empty directory.
 
 ## Unreadable backup output needs an operator decision
+
+A failed backup call does not prove that its output is absent or unusable for restore.
+A final flush, force, or close failure can leave a complete unit.
+The writer keeps that output without rewriting its tail or automatically deleting it.
+Normal chain admission checks decide whether a later extension can use it.
 
 A crash during a backup write can leave output without a readable header. An incremental
 extension cannot classify that output. It preserves the file and refuses to extend the chain.
