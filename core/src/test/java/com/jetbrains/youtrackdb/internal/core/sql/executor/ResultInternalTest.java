@@ -19,6 +19,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkListImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
@@ -31,12 +33,14 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.query.BasicResultInternal;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedListResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedMapResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedSetResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkListResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkMapResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkSetResultImpl;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import java.math.BigDecimal;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -175,6 +179,81 @@ public class ResultInternalTest extends TestUtilsFixture {
       assertThat(row.getMatchedRecord("a")).isNull();
     } finally {
       session.rollback();
+    }
+  }
+
+  /** Evidence records the read-time user and policy version, not the later alias-binding scope. */
+  @Test
+  public void checkedEvidenceRejectsUserAndPolicyChangesBeforeAndAfterBinding() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var checked = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+        true));
+    var row = new ResultInternal(session);
+    row.setMatchProperty("a", checked);
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    var user = session.getCurrentUser();
+    try {
+      session.setUser(null);
+      assertThat(row.getReusableRecord("a")).isNull();
+      // Binding an old source must not bless the old record under the new user.
+      row.setMatchProperty("b", checked);
+      assertThat(row.getReusableRecord("b")).isNull();
+    } finally {
+      session.setUser(user);
+    }
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    session.getSharedContext().getSecurity().incrementVersion(session);
+    assertThat(row.getReusableRecord("a")).isNull();
+    row.setMatchProperty("c", checked);
+    assertThat(row.getReusableRecord("c")).isNull();
+    var current = ResultInternal.fromCheckedRecord(session, session.executeReadRecord(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(), null,
+        true));
+    row.setMatchProperty("a", current);
+    assertThat(row.getReusableRecord("a")).isSameAs(vertex);
+    row.removeProperty("a");
+    assertThat(row.getReusableRecord("a")).isNull();
+  }
+
+  /** Checked and bare-RID reads agree on absent, context-like, and invalid property names. */
+  @Test
+  public void aliasPropertyEvidencePreservesIdentifiableSemantics() {
+    session.begin();
+    var rid = session.newVertex("V").getIdentity();
+    session.commit();
+    session.begin();
+    var checked = new ResultInternal(session);
+    checked.setMatchProperty("a", ResultInternal.fromCheckedRecord(session,
+        session.loadVertex(rid)));
+    var bare = new ResultInternal(session);
+    bare.setProperty("a", rid);
+    var ctx = new BasicCommandContext(session);
+    ctx.setParent(new BasicCommandContext(session));
+    for (var key : List.of("missing", "root", "context", "current", "parent")) {
+      var direct = ProjectionExpressionFactories.aliasProperty("a", key);
+      var cross = ProjectionExpressionFactories.matchedVariable("a", key);
+      ctx.setSystemVariable(CommandContext.VAR_MATCHED, bare);
+      var expected = direct.execute(bare, ctx);
+      assertThat(cross.execute(bare, ctx)).isEqualTo(expected);
+      ctx.setSystemVariable(CommandContext.VAR_MATCHED, checked);
+      assertThat(direct.copy().execute(checked, ctx)).isEqualTo(expected);
+      assertThat(cross.copy().execute(bare, ctx)).isEqualTo(expected);
+    }
+    for (var row : List.of(bare, checked)) {
+      ctx.setSystemVariable(CommandContext.VAR_CURRENT, null);
+      ctx.setSystemVariable(CommandContext.VAR_MATCHED, row);
+      assertThat(ProjectionExpressionFactories.matchedVariable("a", "current").copy()
+          .execute((Result) null, ctx)).isNull();
+      assertThat((Object) ctx.getSystemVariable(CommandContext.VAR_CURRENT)).isNull();
+      var direct = ProjectionExpressionFactories.aliasProperty("a", "1abc");
+      var cross = ProjectionExpressionFactories.matchedVariable("a", "1abc");
+      ctx.setSystemVariable(CommandContext.VAR_MATCHED, row);
+      assertThatThrownBy(() -> direct.copy().execute(row, ctx))
+          .isInstanceOf(DatabaseException.class);
+      assertThatThrownBy(() -> cross.copy().execute(bare, ctx))
+          .isInstanceOf(DatabaseException.class);
     }
   }
 
