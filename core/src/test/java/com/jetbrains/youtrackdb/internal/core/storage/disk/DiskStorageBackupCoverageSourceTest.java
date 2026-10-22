@@ -130,11 +130,11 @@ public class DiskStorageBackupCoverageSourceTest {
     storage.install(wal, observedTable, cache);
     var entered = new CountDownLatch(1);
     var release = new CountDownLatch(1);
-    when(cache.getMinimalNotFlushedSegment()).thenAnswer(call -> {
+    doAnswer(call -> {
       entered.countDown();
       await(release);
       return null;
-    });
+    }).when(cache).getMinimalNotFlushedSegment();
     var pool = Executors.newSingleThreadExecutor();
     try {
       var result = pool.submit(this::sample);
@@ -286,7 +286,7 @@ public class DiskStorageBackupCoverageSourceTest {
       return null;
     });
     var failure = new AtomicReference<IllegalStateException>();
-    when(cache.getMinimalNotFlushedSegment()).thenAnswer(call -> {
+    doAnswer(call -> {
       waiting.countDown();
       try {
         return task.get(10, TimeUnit.SECONDS);
@@ -295,7 +295,7 @@ public class DiskStorageBackupCoverageSourceTest {
         failure.set(thrown);
         throw thrown;
       }
-    });
+    }).when(cache).getMinimalNotFlushedSegment();
     var tracker = new ChangedPageTracker();
     var context = ChangedPageTrackerBackup.begin(tracker, null, true);
     var sampler = new AtomicReference<Thread>();
@@ -344,8 +344,13 @@ public class DiskStorageBackupCoverageSourceTest {
       assertFalse(order(tracker).isLocked());
     } finally {
       release.countDown();
-      pool.shutdownNow();
-      assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+      try {
+        // Drain the helper normally before shutdown can interrupt its latch wait.
+        assertNull(task.get(10, TimeUnit.SECONDS));
+      } finally {
+        pool.shutdownNow();
+        assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+      }
     }
   }
 
@@ -356,16 +361,16 @@ public class DiskStorageBackupCoverageSourceTest {
     var context = ChangedPageTrackerBackup.begin(tracker, null, true);
     var entered = new CountDownLatch(1);
     var release = new CountDownLatch(1);
-    when(cache.getMinimalNotFlushedSegment()).thenAnswer(call -> {
+    doAnswer(call -> {
       assertFalse(order(tracker).isHeldByCurrentThread());
       entered.countDown();
       await(release);
       return null;
-    });
-    when(wal.preflightCut(17)).thenAnswer(call -> {
+    }).when(cache).getMinimalNotFlushedSegment();
+    doAnswer(call -> {
       assertTrue(order(tracker).isHeldByCurrentThread());
       return new CutPreflight(false, 17, new LogSequenceNumber(17, 32));
-    });
+    }).when(wal).preflightCut(17);
     var pool = Executors.newFixedThreadPool(2);
     try {
       var completion = pool.submit(() -> complete(tracker, context));
@@ -596,11 +601,11 @@ public class DiskStorageBackupCoverageSourceTest {
     var operations = new AtomicOperationsTable(100, 0);
     var entered = new CountDownLatch(1);
     var release = new CountDownLatch(1);
-    when(cache.getMinimalNotFlushedSegment()).thenAnswer(call -> {
+    doAnswer(call -> {
       entered.countDown();
       await(release);
       return null;
-    });
+    }).when(cache).getMinimalNotFlushedSegment();
     storage.install(observed, operations, cache);
     long anchor = realWal.activeSegment();
     var worker = Executors.newSingleThreadExecutor();
