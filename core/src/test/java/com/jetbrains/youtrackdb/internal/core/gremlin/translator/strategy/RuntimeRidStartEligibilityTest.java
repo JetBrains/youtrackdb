@@ -7,21 +7,34 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import java.util.List;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.ConstantTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.GValueConstantTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.GValue;
 import org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ByModulatorOptimizationStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies;
 import org.apache.tinkerpop.gremlin.structure.T;
+import org.apache.tinkerpop.gremlin.util.function.ConstantSupplier;
 import org.junit.Test;
 
 public class RuntimeRidStartEligibilityTest {
@@ -170,12 +183,12 @@ public class RuntimeRidStartEligibilityTest {
         __.V(A).out().out(), __.V(A).identity().as("extra").out());
   }
 
-  // Bare lookups, projections, target/start property filters, edge hops and multi-label hops stay out.
+  // Bare lookups, projections without a hop, property filters and edge output stay out.
   @Test
   public void missingHopAndOtherFiltersOrOutputsAreIneligible() {
     reject(__.V(A), __.V().hasId(A), __.V().out(), __.V(A).values("name"),
         __.V(A).has("name", "a").out(), __.V(A).out().has("name", "a"),
-        __.V(A).outE(), __.V(A).out("a", "b"), __.E(A).outV());
+        __.V(A).outE(), __.V(A).outE("a").values("name"), __.E(A).outV());
   }
 
   // Real map and predicate children are not root traversals. A synthesized root also needs rootWalk.
@@ -246,6 +259,250 @@ public class RuntimeRidStartEligibilityTest {
     when(live.copy()).thenReturn(new RecordId(25, -2));
     when(live.isPersistent()).thenReturn(true);
     assertThat(RuntimeRidStartEligibility.evaluate(__.V(live).out().asAdmin(), true)).isNull();
+  }
+
+  // Each new suffix and all labeled directions qualify, including written edge-count forms.
+  @Test
+  public void labeledStructuralFinalsAndMultiLabelHopsQualify() {
+    for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+      for (var labels : List.of(new String[] {"a"}, new String[] {"a", "b"})) {
+        for (int arm = 0; arm < 5; arm++) {
+          var hop = __.V(A).to(direction, labels);
+          var query = switch (arm) {
+            case 0 -> hop;
+            case 1 -> hop.values("name");
+            case 2 -> hop.limit(2);
+            case 3 -> hop.range(1, 3);
+            default -> hop.order().by("name");
+          };
+          var admin = query.asAdmin();
+          admin.setStrategies(new DefaultTraversalStrategies().addStrategies(
+              ByModulatorOptimizationStrategy.instance()));
+          admin.applyStrategies();
+          assertThat(RuntimeRidStartEligibility.evaluate(admin, true))
+              .as("%s labels %s final %s", direction, labels.length, arm).isNotNull();
+        }
+      }
+    }
+    for (var traversal : List.of(__.V(A).out("a", "b"), __.V(A).in("a", "b"),
+        __.V().hasId(A).both("a", "b"), __.V(A).out("a").count(),
+        __.V(A).outE("a").count(), __.V(A).inE("a", "b").count(),
+        __.V(A).bothE("a").count(), __.V(A).out("a").values("name"),
+        __.V(A).out("a").limit(0), __.V(A).out("a").range(1, 1),
+        __.V(A).out("a").range(1, 3))) {
+      assertThat(RuntimeRidStartEligibility.evaluate(postStrategy(traversal), true))
+          .as(traversal.toString()).isNotNull();
+    }
+  }
+
+  // A final operation is a single labeled-hop suffix, never an arbitrary terminal chain.
+  @Test
+  public void excludedTerminalPayloadsAndChainsStayLiteral() {
+    reject(__.V(A).out().count(), __.V(A).out().values("name"),
+        __.V(A).out().limit(1), __.V(A).out().order().by("name"),
+        __.V(A).out("a").properties("name"), __.V(A).out("a").values(),
+        __.V(A).out("a").values("name", "age"), __.V(A).out("a").skip(1),
+        __.V(A).out("a").range(0, Long.MAX_VALUE),
+        __.V(A).out("a").values("name").limit(1), __.V(A).out("a").limit(1).count(),
+        __.V(A).out("a").order().by("name").limit(1),
+        __.V(A).out("a").order().by("name").range(1, -1),
+        __.V(A).out("a").order().by("name").skip(1),
+        __.V(A).out("a").order().by("name").values("name"),
+        __.V(A).outE("a").has("weight", 1).count());
+  }
+
+  // Boxed null bounds and malformed finite bounds decline without unboxing or normalization.
+  @Test
+  public void nullAndInvalidRangeBoundsDeclineWithoutThrowing() {
+    for (Long[] bounds : new Long[][] {{null, 1L}, {0L, null}, {-1L, 1L}, {2L, 1L}}) {
+      var traversal = __.V(A).out("a").asAdmin();
+      var range = mock(RangeGlobalStep.class);
+      when(range.getLowRange()).thenReturn(bounds[0]);
+      when(range.getHighRange()).thenReturn(bounds[1]);
+      traversal.addStep(range);
+      assertThat(RuntimeRidStartEligibility.evaluate(traversal, true)).isNull();
+    }
+  }
+
+  // Explicit ProductiveBy installs a missing-key wrapper that must remain eligible.
+  @Test
+  public void propertyOrderAcceptsProductiveBypassAndRejectsUnsupportedKeys() {
+    for (var direction : List.of(Order.asc, Order.desc)) {
+      var traversal = __.V(A).out("a").order().by("name", direction).asAdmin();
+      traversal.setStrategies(new DefaultTraversalStrategies().addStrategies(
+          ByModulatorOptimizationStrategy.instance(), ProductiveByStrategy.instance()));
+      traversal.applyStrategies();
+      var order = (OrderGlobalStep<?, ?>) traversal.getSteps().getLast();
+      var key = (ValueTraversal<?, ?>) order.getComparators().getFirst().getValue0();
+      assertThat(key.getBypassTraversal()).isNotNull();
+      assertThat(RuntimeRidStartEligibility.evaluate(traversal, true)).isNotNull();
+    }
+    for (var traversal : List.of(__.V(A).out("a").order(),
+        __.V(A).out("a").order().by(T.id), __.V(A).out("a").order().by(T.label),
+        __.V(A).out("a").order().by("name", Order.shuffle),
+        __.V(A).out("a").order().by("name").by("age"),
+        __.V(A).out("a").order().by(__.out().count()),
+        __.V(A).out("a").order().by("name", java.util.Comparator.<String>reverseOrder()))) {
+      var admin = traversal.asAdmin();
+      admin.setStrategies(new DefaultTraversalStrategies().addStrategies(
+          ByModulatorOptimizationStrategy.instance()));
+      admin.applyStrategies();
+      assertThat(RuntimeRidStartEligibility.evaluate(admin, true)).isNull();
+    }
+  }
+
+  // Only ProductiveBy's exact two-child wrapper with a plain ConstantTraversal(null) qualifies.
+  @Test
+  public void productiveWrapperRequiresMatchingPlainPropertyAndNullFallback() {
+    var property = new ValueTraversal<>("name");
+    var customFallback = new ConstantTraversal<>(null);
+    customFallback.setBypassTraversal(__.<Object>constant(7).asAdmin());
+    // This lambda exposes ConstantStep(null) but returns 7. Step-based admission is unsound.
+    var disguisedFallback = new GValueConstantTraversal<Integer, Integer>(GValue.of(7));
+    disguisedFallback.setBypassTraversal(__.<Integer>constant(null).asAdmin());
+    assertThat(disguisedFallback.next()).isEqualTo(7);
+    var productiveBypass = __.start().asAdmin();
+    productiveBypass.addStep(
+        new org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep(
+            productiveBypass, property, new ConstantTraversal<>(null)));
+    var productiveQuery = __.V(A).out("a").order()
+        .by(new ValueTraversal("name", productiveBypass)).asAdmin();
+    productiveQuery.setStrategies(new DefaultTraversalStrategies().addStrategies(
+        ProductiveByStrategy.instance()));
+    assertThat(RuntimeRidStartEligibility.evaluate(productiveQuery, true)).isNotNull();
+    for (var children : List.of(
+        new Traversal.Admin[] {property},
+        new Traversal.Admin[] {property, __.constant(null).asAdmin(), __.constant(null).asAdmin()},
+        new Traversal.Admin[] {new ValueTraversal<>("other"), __.constant(null).asAdmin()},
+        new Traversal.Admin[] {new ValueTraversal("name", __.constant(7).asAdmin()),
+            __.constant(null).asAdmin()},
+        new Traversal.Admin[] {property, new ConstantTraversal<>(7)},
+        new Traversal.Admin[] {property, customFallback},
+        new Traversal.Admin[] {property, disguisedFallback},
+        new Traversal.Admin[] {property, __.constant(null).asAdmin()},
+        new Traversal.Admin[] {disguisedFallback, new ConstantTraversal<>(null)},
+        new Traversal.Admin[] {property, __.identity().asAdmin()},
+        new Traversal.Admin[] {property, __.constant(7).asAdmin()})) {
+      var bypass = __.start().asAdmin();
+      bypass.addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep(
+          bypass, children));
+      var query = __.V(A).out("a").order().by(new ValueTraversal("name", bypass)).asAdmin();
+      query.setStrategies(new DefaultTraversalStrategies().addStrategies(
+          ProductiveByStrategy.instance()));
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).as(query.toString()).isNull();
+    }
+  }
+
+  // A ValueTraversal bypass runs instead of the property lookup. Arbitrary children must decline.
+  @Test
+  public void customPropertyBypassesStayLiteral() {
+    for (var bypass : List.of(__.constant(7).asAdmin(),
+        __.coalesce(__.constant(7), __.constant(null)).asAdmin(),
+        __.coalesce(__.values("other"), __.constant(null)).asAdmin(),
+        __.coalesce(__.values("name"), __.constant(7)).asAdmin(),
+        __.coalesce(__.values("name"), __.constant(null)).identity().asAdmin())) {
+      var query = __.V(A).out("a").order().by(new ValueTraversal("name", bypass)).asAdmin();
+      query.setStrategies(new DefaultTraversalStrategies().addStrategies(
+          ProductiveByStrategy.instance()));
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).as(query.toString()).isNull();
+    }
+  }
+
+  // A RID key in the middle does not make a three-comparator order part of the grammar.
+  @Test
+  public void threeComparatorOrderStaysLiteralAfterStrategies() {
+    var query = __.V(A).out("a").order().by("name").by(T.id).by("age").asAdmin();
+    query.setStrategies(new DefaultTraversalStrategies().addStrategies(
+        ByModulatorOptimizationStrategy.instance()));
+    query.applyStrategies();
+    var order = (OrderGlobalStep<?, ?>) query.getSteps().getLast();
+    order.replaceLocalChild(order.getComparators().get(1).getValue0(),
+        new com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal());
+    assertThat(order.getComparators()).hasSize(3);
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+  }
+
+  // Every inherited RID-key bypass must decline, including productive and empty bypasses.
+  @Test
+  public void ridTieBreakRequiresPlainLambda() {
+    for (var bypass : List.of(__.identity().asAdmin(), __.inject(1).asAdmin(),
+        __.limit(0).asAdmin())) {
+      var rid = new RecordIdSortKeyTraversal();
+      var query = __.V(A).out("a").order().by(new ValueTraversal<>("name"))
+          .by(rid, Order.asc).asAdmin();
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+      rid.setBypassTraversal(bypass);
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).as(bypass.toString()).isNull();
+    }
+  }
+
+  // Count translation assumes the exact default seed supplier and sumLong reducer.
+  @Test
+  public void countRequiresDefaultSeedAndReducer() {
+    for (int mutation = 0; mutation < 3; mutation++) {
+      var query = __.V(A).out("a").count().asAdmin();
+      var count = (CountGlobalStep<?>) query.getEndStep();
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+      switch (mutation) {
+        case 0 -> count.setSeedSupplier(new ConstantSupplier<>(5L));
+        case 1 -> count.setSeedSupplier(() -> 0L);
+        default -> count.setReducingBiOperator((left, right) -> 42L);
+      }
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).as("count %s", mutation)
+          .isNull();
+    }
+  }
+
+  // Wrapper presence must follow the root configuration, including declared productive keys.
+  @Test
+  public void propertyWrapperMustMatchProductiveByConfiguration() {
+    for (var strategy : List.of(ProductiveByStrategy.instance(),
+        ProductiveByStrategy.build().productiveKeys("name").create())) {
+      for (var key : List.of("name", "age")) {
+        var query = __.V(A).out("a").order().by(key).asAdmin();
+        query.setStrategies(new DefaultTraversalStrategies().addStrategies(
+            ByModulatorOptimizationStrategy.instance(), strategy));
+        query.applyStrategies();
+        var value = (ValueTraversal) ((OrderGlobalStep<?, ?>) query.getSteps().getLast())
+            .getComparators().getFirst().getValue0();
+        boolean wrapped = strategy.getProductiveKeys().isEmpty()
+            || !strategy.getProductiveKeys().contains(key);
+        assertThat(value.getBypassTraversal() != null).isEqualTo(wrapped);
+        assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+        if (wrapped) {
+          value.setBypassTraversal(null);
+        } else {
+          var wrapper = __.start().asAdmin();
+          wrapper.addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep(
+              wrapper, new ValueTraversal<>(key), new ConstantTraversal<>(null)));
+          value.setBypassTraversal(wrapper);
+        }
+        assertThat(RuntimeRidStartEligibility.evaluate(query, true))
+            .as("key %s productive keys %s", key, strategy.getProductiveKeys()).isNull();
+      }
+    }
+    var query = __.V(A).out("a").order().by("name").asAdmin();
+    query.setStrategies(new DefaultTraversalStrategies().addStrategies(
+        ByModulatorOptimizationStrategy.instance(), ProductiveByStrategy.instance()));
+    query.applyStrategies();
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+    query.getStrategies().removeStrategies(ProductiveByStrategy.class);
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+  }
+
+  // Native filtering state and the translator's strategy-based interpretation must agree.
+  @Test
+  public void orderFilteringMustMatchStandardSemanticsStrategy() {
+    var query = __.V(A).out("a").order().by(new ValueTraversal<>("name")).asAdmin();
+    query.setStrategies(new DefaultTraversalStrategies());
+    var order = (OrderGlobalStep<?, ?>) query.getSteps().getLast();
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+    query.getStrategies().addStrategies(StandardOrderSemanticsStrategy.instance());
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+    order.enableFilteringUnproductiveTraversers();
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+    query.getStrategies().removeStrategies(StandardOrderSemanticsStrategy.class);
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
   }
 
   private static Traversal.Admin<?, ?> postStrategy(GraphTraversal<?, ?> traversal) {

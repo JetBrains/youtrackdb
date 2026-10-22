@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.DBRecord;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RecordHook;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
@@ -61,6 +63,305 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
         return entry;
       }
     };
+  }
+
+  /**
+   * Every structural arm plans once across distinct RID answers and both cache routes. Literal
+   * and native controls pin actual slice members, count multiplicities, absent values and order.
+   */
+  @Test
+  public void structuralFamiliesReuseTemplatesAcrossRids() {
+    db(graph).getMetadata().getSchema().getClass("V")
+        .createProperty("name",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING)
+        .createIndex(
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    graph.tx().commit();
+    var a = graph.addVertex(T.label, "StructuralStart");
+    var b = graph.addVertex(T.label, "StructuralStart");
+    var x = graph.addVertex(T.label, "StructuralTarget", "name", "tie");
+    var y = graph.addVertex(T.label, "StructuralTarget", "name", "tie");
+    var z = graph.addVertex(T.label, "StructuralTarget");
+    var n = graph.addVertex(T.label, "StructuralTarget", "name", null);
+    a.addEdge("structuralFirst", x);
+    a.addEdge("structuralFirst", x);
+    a.addEdge("structuralSecond", y);
+    a.addEdge("structuralSecond", z);
+    a.addEdge("structuralSecond", n);
+    b.addEdge("structuralFirst", y);
+    b.addEdge("structuralSecond", b);
+    // Distinct incoming answers and repeated links make direction and BOTH multiplicity visible.
+    z.addEdge("structuralFirst", a);
+    z.addEdge("structuralFirst", a);
+    y.addEdge("structuralSecond", a);
+    n.addEdge("structuralFirst", b);
+    b.addEdge("structuralFirst", b);
+    graph.tx().commit();
+    var session = db(graph);
+    var cache = GremlinPlanCache.instance(session);
+    var flag =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY;
+    var original = session.getConfiguration().getValueAsBoolean(flag);
+    var runs = new AtomicInteger();
+    var cappedOrder = new java.util.concurrent.atomic.AtomicBoolean(true);
+    cache.beforeUncachedPlanning = (input, context) -> {
+      runs.incrementAndGet();
+      if (cappedOrder.get()) {
+        assertThat(input.runtimeRidStarts()).isEmpty();
+      }
+      if (!input.runtimeRidStarts().isEmpty()) {
+        assertThat(input.runtimeRidStarts().values())
+            .allSatisfy(start -> assertThat(start.parameterSlot()).isZero());
+        assertThat(context.getInputParameters()).isNullOrEmpty();
+      }
+    };
+    try {
+      // The indexed finite-cap control proves the index is usable for the actual target alias V.
+      session.getConfiguration().setValue(flag, false);
+      for (var id : List.of(a.id(), b.id())) {
+        var cap = graph.traversal().V(id).out("structuralFirst")
+            .order().by("name").limit(1).asAdmin();
+        assertThat(RuntimeRidStartEligibility.evaluate(cap, true)).isNull();
+        cap.applyStrategies();
+        assertThat(((YTDBMatchPlanStep<?, ?>) cap.getStartStep()).getPlan().prettyPrint(0, 2))
+            .contains("INDEX ORDERED MATCH").doesNotContain("FETCH FROM RID PARAMETER");
+        assertThat(TranslatorEquivalenceSupport.sortedIds(cap.toList())).isEqualTo(
+            TranslatorEquivalenceSupport.sortedIds(graph.traversal()
+                .withoutStrategies(GremlinToMatchStrategy.class).V(id).out("structuralFirst")
+                .order().by("name").limit(1).toList()));
+      }
+      assertThat(runs.get()).isEqualTo(2);
+      cappedOrder.set(false);
+      for (boolean missingKeys : List.of(false, true)) {
+        session.getConfiguration().setValue(flag, missingKeys);
+        for (int arm = 0; arm < 41; arm++) {
+          // Additional direction/label combinations need one cross-RID hit, not every cache route.
+          if (arm >= 14 && arm < 39 && missingKeys) {
+            continue;
+          }
+          for (boolean hasId : arm < 14 || arm >= 39 ? List.of(false, true) : List.of(false)) {
+            cache.invalidate();
+            runs.set(0);
+            InternalExecutionPlan template = null;
+            for (int route = 0; route < (arm < 14 || arm >= 39 ? 3 : 2); route++) {
+              var id = route == 0 ? a.id() : b.id();
+              var source = graph.traversal().withStrategies(
+                  GremlinToMatchStrategy.withTranslationCache(route != 1));
+              // Explicit ProductiveBy exercises wrapped keys under both missing-key settings.
+              if (arm >= 39) {
+                source = source.withStrategies(
+                    org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy
+                        .instance());
+              }
+              if (arm == 13) {
+                source = source.withoutStrategies(
+                    com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy.class);
+              }
+              var query = structural(source, id, hasId, arm).asAdmin();
+              var hits = cache.getHits();
+              var translationHits = cache.getTranslationHits();
+              query.applyStrategies();
+              assertThat(query.getStartStep()).as("arm %s", arm)
+                  .isInstanceOf(YTDBMatchPlanStep.class);
+              var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+              if (template == null) {
+                template = boundary.getPlan();
+              }
+              assertThat(boundary.getPlan()).as("arm %s route %s", arm, route).isSameAs(template);
+              assertThat(runs.get()).as("warm planner runs arm %s", arm).isEqualTo(1);
+              assertThat(cache.getHits()).isEqualTo(hits + (route == 1 ? 1 : 0));
+              assertThat(cache.getTranslationHits())
+                  .isEqualTo(translationHits + (route == 2 ? 1 : 0));
+              var rows = query.toList();
+              assertThat(boundary.getPlan()).isNotSameAs(template);
+              assertThat(boundary.getPlan().getContext().getInputParameters())
+                  .isEqualTo(java.util.Map.of(0, id));
+              assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+              assertThat(template.prettyPrint(0, 2)).contains("FETCH FROM RID PARAMETER")
+                  .doesNotContain(a.id().toString(), b.id().toString(), "INDEX ORDERED");
+              var nativeSource = source.withoutStrategies(GremlinToMatchStrategy.class);
+              var nativeRows = structural(nativeSource, id, hasId, arm).toList();
+              cache.setRuntimeRidStartEnabled(false);
+              List<?> literalRows;
+              try {
+                literalRows = structural(source, id, hasId, arm).toList();
+              } finally {
+                cache.setRuntimeRidStartEnabled(true);
+              }
+              // Literal controls do real planning. Exclude only their observed attempt.
+              runs.decrementAndGet();
+              if ((arm >= 6 && arm <= 9) || arm == 13 || arm >= 39
+                  || (arm >= 14 && (arm - 14) % 5 == 4)) {
+                assertThat(rows).isEqualTo(nativeRows).isEqualTo(literalRows);
+              } else {
+                assertThat(TranslatorEquivalenceSupport.sortedIdsOrValues(rows))
+                    .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(nativeRows))
+                    .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(literalRows));
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      session.getConfiguration().setValue(flag, original);
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      structural(org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource g,
+          Object id, boolean hasId, int arm) {
+    var start = hasId ? g.V().hasId(id) : g.V(id);
+    var direction = org.apache.tinkerpop.gremlin.structure.Direction.OUT;
+    String[] labels = {"structuralFirst", "structuralSecond"};
+    if (arm >= 39) {
+      arm = arm == 39 ? 6 : 7;
+    } else if (arm >= 14) {
+      int combination = (arm - 14) / 5;
+      direction = switch (combination) {
+        case 0 -> org.apache.tinkerpop.gremlin.structure.Direction.OUT;
+        case 1, 2 -> org.apache.tinkerpop.gremlin.structure.Direction.IN;
+        default -> org.apache.tinkerpop.gremlin.structure.Direction.BOTH;
+      };
+      if (combination == 0 || combination == 1 || combination == 3) {
+        labels = new String[] {"structuralFirst"};
+      }
+      arm = switch ((arm - 14) % 5) {
+        case 0 -> 0;
+        case 1 -> 2;
+        case 2 -> 3;
+        case 3 -> 4;
+        default -> 6;
+      };
+    }
+    var hop = start.to(direction, labels);
+    return switch (arm) {
+      case 0 -> hop;
+      case 1 -> hop.count();
+      case 2 -> hop.values("name");
+      case 3 -> hop.limit(2);
+      case 4 -> hop.range(1, 3);
+      case 5 -> hop.range(1, 1);
+      case 6, 13 -> hop.order().by("name");
+      case 7 -> hop.order().by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+      case 8 -> hop.order().by("name").by(T.id);
+      case 9 -> hop.order().by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+          .by(T.id, org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+      // Replace the just-added vertex hop with its explicit edge-count counterpart.
+      case 10, 11, 12 -> {
+        hop.asAdmin().removeStep(hop.asAdmin().getSteps().size() - 1);
+        yield switch (arm) {
+          case 10 -> start.outE("structuralFirst", "structuralSecond").count();
+          case 11 -> start.inE("structuralFirst", "structuralSecond").count();
+          default -> start.bothE("structuralFirst", "structuralSecond").count();
+        };
+      }
+      default -> throw new AssertionError(arm);
+    };
+  }
+
+  /** Missing, wrong-class and deleted starts retain the scalar zero on a warm count template. */
+  @Test
+  public void countMissingAndDeletedStartsReturnExactlyOneZero() {
+    var a = graph.addVertex(T.label, "CountStart");
+    var empty = graph.addVertex(T.label, "CountStart");
+    var other = graph.addVertex(T.label, "CountOther");
+    a.addEdge("countLink", other);
+    a.addEdge("countLink", other);
+    graph.tx().commit();
+    var rid = (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) a.id();
+    var missing = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        rid.getCollectionId(), Long.MAX_VALUE);
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      for (boolean hasId : List.of(false, true)) {
+        cache.invalidate();
+        runs.set(0);
+        InternalExecutionPlan template = null;
+        for (var id : List.of(a.id(), empty.id(), missing, other.id())) {
+          var source = graph.traversal();
+          var query = (hasId ? source.V().hasId(id) : source.V(id))
+              .hasLabel("CountStart").out("countLink").count().asAdmin();
+          query.applyStrategies();
+          var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+          if (template == null) {
+            template = boundary.getPlan();
+          }
+          assertThat(boundary.getPlan()).isSameAs(template);
+          assertThat(query.toList()).containsExactly(id.equals(a.id()) ? 2L : 0L);
+          var nativeSource = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class);
+          assertThat((hasId ? nativeSource.V().hasId(id) : nativeSource.V(id))
+              .hasLabel("CountStart").out("countLink").count().toList())
+              .containsExactly(id.equals(a.id()) ? 2L : 0L);
+        }
+        assertThat(runs.get()).isEqualTo(1);
+      }
+      // Compare actual target READ events with the same RID, data and empty transaction cache.
+      // Count may materialize targets in both plans, but runtime must not add any target reads.
+      var target = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+          (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) other.id());
+      var targetLoads = new AtomicInteger();
+      RecordHook hook = new RecordHook() {
+        @Override
+        public void onUnregister() {
+        }
+
+        @Override
+        public void onTrigger(TYPE type, DBRecord record) {
+          if (type == TYPE.READ && target.equals(record.getIdentity())) {
+            targetLoads.incrementAndGet();
+          }
+        }
+      };
+      int runtimeLoads = 0;
+      List<?> runtimeRows = List.of();
+      for (boolean runtime : List.of(true, false)) {
+        graph.tx().commit();
+        var session = db(graph);
+        session.getLocalCache().clear();
+        assertThat(session.getLocalCache().findRecord(target)).isNull();
+        targetLoads.set(0);
+        cache.setRuntimeRidStartEnabled(runtime);
+        session.registerHook(hook);
+        try {
+          var rows = graph.traversal().V().hasId(a.id()).hasLabel("CountStart")
+              .out("countLink").count().toList();
+          assertThat(rows).containsExactly(2L);
+          if (runtime) {
+            runtimeRows = rows;
+            runtimeLoads = targetLoads.get();
+            assertThat(runs.get()).isEqualTo(1);
+          } else {
+            assertThat(rows).isEqualTo(runtimeRows);
+            assertThat(runtimeLoads).as("runtime target READs versus literal target READs")
+                .isLessThanOrEqualTo(targetLoads.get());
+          }
+        } finally {
+          session.unregisterHook(hook);
+          cache.setRuntimeRidStartEnabled(true);
+        }
+      }
+      cache.setRuntimeRidStartEnabled(false);
+      try {
+        assertThat(graph.traversal().V(missing).hasLabel("CountStart")
+            .out("countLink").count().toList()).containsExactly(0L);
+      } finally {
+        cache.setRuntimeRidStartEnabled(true);
+      }
+      var beforeDelete = runs.get();
+      graph.traversal().V(a.id()).drop().iterate();
+      assertThat(graph.traversal().V().hasId(a.id()).hasLabel("CountStart")
+          .out("countLink").count().toList()).containsExactly(0L);
+      graph.tx().commit();
+      assertThat(graph.traversal().V().hasId(a.id()).hasLabel("CountStart")
+          .out("countLink").count().toList()).containsExactly(0L);
+      assertThat(runs.get()).isEqualTo(beforeDelete);
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
   }
 
   /** Removal after a real builder return never makes the surviving shared template owned. */

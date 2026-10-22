@@ -190,6 +190,61 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     }
   }
 
+  /** Structural terminals add no slots. Extraction and walking keep the full immutable RID map. */
+  @Test
+  public void structuralFinalsKeepSlotZeroAndValueFreeShapes() {
+    graph.addVertex(T.label, "StructuralPerson");
+    graph.tx().commit();
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var db = tx.getDatabaseSession();
+    for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+      for (var labels : List.of(new String[] {"first"}, new String[] {"first", "second"})) {
+        for (int arm = 0; arm < 6; arm++) {
+          for (boolean hasId : List.of(false, true)) {
+            String previous = null;
+            for (var rid : List.of(new RecordId(25, 7), new RecordId(25, 8))) {
+              var start = hasId ? graph.traversal().V().hasId(rid) : graph.traversal().V(rid);
+              var hop = start.hasLabel("StructuralPerson").to(direction, labels);
+              var query = switch (arm) {
+                case 0 -> hop;
+                case 1 -> hop.count();
+                case 2 -> hop.values("name");
+                case 3 -> hop.limit(2);
+                case 4 -> hop.range(1, 3);
+                default -> hop.order().by("name");
+              };
+              var admin = query.asAdmin();
+              admin.setStrategies(
+                  new org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies()
+                      .addStrategies(
+                          org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ByModulatorOptimizationStrategy
+                              .instance()));
+              admin.applyStrategies();
+              var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+              assertThat(decision).isNotNull();
+              var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
+              var shape = GremlinStepWalker.extractShape(admin, db, false, nulls, true, decision);
+              var result = GremlinToMatchTranslator.translate(admin, false, nulls, true, decision);
+              assertThat(result).isNotNull();
+              assertThat(shape.complete()).isTrue();
+              assertThat(shape.bindings()).isEqualTo(Map.of(0, rid))
+                  .isEqualTo(result.inputParameters());
+              assertThat(shape.bindings().get(0)).isSameAs(decision.rid());
+              assertThat(result.inputs().runtimeRidStarts().get(BOUNDARY_ALIAS).parameterSlot())
+                  .isZero();
+              assertThat(shape.key()).doesNotContain(rid.toString());
+              if (previous != null) {
+                assertThat(shape.key()).isEqualTo(previous);
+              }
+              previous = shape.key();
+            }
+          }
+        }
+      }
+    }
+  }
+
   /** Container order cannot reorder the sole runtime slot, including separately retained steps. */
   @Test
   public void labelBeforeIdHasExactBindingParityForMergedAndSeparateContainers() {
