@@ -1651,7 +1651,8 @@ public class DiskStorage extends AbstractStorage {
           // The semantic identity comes from this open source database, and the read precedes
           // the content copy. The new unit therefore carries the identity of its own database.
           var semanticIdentity = currentBackupSemanticIdentity();
-          try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
+          var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile);
+          try {
             var xxHashStream = new XXHashOutputStream(fileStream);
             var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
             writeBackupPadding(xxHashStream);
@@ -1674,6 +1675,22 @@ public class DiskStorage extends AbstractStorage {
             if (fileStream instanceof BackupForceCapability forceCapability) {
               forceCapability.forceBackupData();
             }
+          } catch (IOException | RuntimeException | Error failure) {
+            // A caller-supplied stream can reuse its primary failure from close. Suppress only
+            // distinct failures so cleanup cannot replace the primary with self-suppression.
+            if (fileStream != null) {
+              try {
+                fileStream.close();
+              } catch (IOException | RuntimeException | Error closeFailure) {
+                if (failure != closeFailure) {
+                  failure.addSuppressed(closeFailure);
+                }
+              }
+            }
+            throw failure;
+          }
+          if (fileStream != null) {
+            fileStream.close();
           }
 
           LogManager.instance()

@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.disk;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -834,6 +835,128 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
+  /** A cached payload-copy error survives close unchanged and the failed unit stays retained. */
+  @Test
+  public void cachedPayloadFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("payload");
+  }
+
+  /** A cached padding error survives close unchanged without a success log or removal. */
+  @Test
+  public void cachedPaddingFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("padding");
+  }
+
+  /** A cached pre-tail flush error survives close unchanged and closes exactly once. */
+  @Test
+  public void cachedPayloadFlushFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("payloadFlush");
+  }
+
+  /** A cached first-force error survives close unchanged without publishing a tail. */
+  @Test
+  public void cachedFirstForceFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("force");
+  }
+
+  /** A cached tail-write error survives close unchanged without retrying the tail. */
+  @Test
+  public void cachedTailFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("tail");
+  }
+
+  /** A cached final-flush error survives close unchanged with the single tail retained. */
+  @Test
+  public void cachedTailFlushFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("tailFlush");
+  }
+
+  /** A cached second-force error maps to DatabaseException with no self-suppressed failure. */
+  @Test
+  public void cachedSecondForceFailureSurvivesClose() throws Exception {
+    assertCachedFailureSurvivesClose("secondForce");
+  }
+
+  /** A null supplier output preserves its null-pointer failure without attempting cleanup. */
+  @Test
+  public void nullOutputPreservesFailure() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      assertThrows(NullPointerException.class, () -> storage.backup(
+          () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> null, file -> {
+            throw new AssertionError("no removal");
+          }));
+    }
+  }
+
+  /** A cached runtime failure stays primary when close rethrows that same object. */
+  @Test
+  public void cachedRuntimeFailureSurvivesClose() throws Exception {
+    assertUncheckedFailureSurvivesClose(new IllegalStateException("cached runtime failure"));
+  }
+
+  /** A cached error stays primary when close rethrows that same object. */
+  @Test
+  public void cachedErrorSurvivesClose() throws Exception {
+    assertUncheckedFailureSurvivesClose(new AssertionError("cached error"));
+  }
+
+  private void assertUncheckedFailureSurvivesClose(Throwable primary) throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = org.mockito.Mockito.mock(OutputStream.class);
+      org.mockito.Mockito.doThrow(primary).when(output).write(
+          org.mockito.ArgumentMatchers.any(byte[].class), org.mockito.ArgumentMatchers.anyInt(),
+          org.mockito.ArgumentMatchers.anyInt());
+      org.mockito.Mockito.doThrow(primary).when(output).close();
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      withDiskStorageLogs(records, () -> assertSame(primary,
+          assertThrows(primary.getClass(), () -> storage.backup(
+              () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+              file -> output, file -> {
+                throw new AssertionError("no removal");
+              }))));
+      org.mockito.Mockito.verify(output, org.mockito.Mockito.times(1)).close();
+      assertEquals(0, primary.getSuppressed().length);
+      assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+    }
+  }
+
+  private void assertCachedFailureSurvivesClose(String phase) throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      output.failPhase = phase;
+      output.cachedFailure = new IOException("cached " + phase);
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      var retained = new HashMap<String, OutputStream>();
+      var removals = new AtomicInteger();
+      withDiskStorageLogs(records, () -> {
+        var failure = assertThrows(DatabaseException.class, () -> storage.backup(
+            () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+            file -> {
+              retained.put(file, output);
+              return output;
+            }, file -> {
+              removals.incrementAndGet();
+              retained.remove(file);
+            }));
+        assertSame(output.cachedFailure, failure.getCause());
+        assertEquals(0, output.cachedFailure.getSuppressed().length);
+      });
+      assertTrue("the selected phase must fail", output.faultReached);
+      assertEquals(1, output.closeCalls);
+      assertEquals(0, removals.get());
+      assertEquals(1, retained.size());
+      assertSame(output, retained.values().iterator().next());
+      assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+      assertEquals(List.of("tail", "tailFlush", "secondForce").contains(phase) ? 1 : 0,
+          output.tailRequests);
+      assertEquals(0, output.writesAfterTail);
+    }
+  }
+
   /** An unavailable directory still allows local close after its file force succeeds. */
   @Test
   public void localDirectoryForceIOExceptionDoesNotFailBackup() throws Exception {
@@ -1499,6 +1622,7 @@ public class IncrementalBackupExtensionTest {
     private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     private final List<String> events = new ArrayList<>();
     private String failPhase;
+    private IOException cachedFailure;
     private boolean faultReached;
     private boolean closed;
     private boolean paddingSeen;
@@ -1518,6 +1642,7 @@ public class IncrementalBackupExtensionTest {
 
     @Override
     public void write(int value) throws IOException {
+      failAt("payload");
       if (failFirstWrites > 0) {
         failFirstWrites--;
         throw new IOException("injected write " + ++injectedWriteCount);
@@ -1549,6 +1674,7 @@ public class IncrementalBackupExtensionTest {
         // The writer issues a padding request even when no padding bytes are needed.
         paddingSeen = true;
         events.add("padding");
+        failAt("padding");
       }
       for (var i = offset; i < offset + length; i++) {
         write(data[i]);
@@ -1574,6 +1700,9 @@ public class IncrementalBackupExtensionTest {
       closed = true;
       closeCalls++;
       events.add("close");
+      if (cachedFailure != null) {
+        throw cachedFailure;
+      }
       if (failClose) {
         throw new IOException("injected close");
       }
@@ -1583,6 +1712,9 @@ public class IncrementalBackupExtensionTest {
     private void failAt(String phase) throws IOException {
       if (phase.equals(failPhase)) {
         faultReached = true;
+        if (cachedFailure != null) {
+          throw cachedFailure;
+        }
         throw new IOException("injected " + phase);
       }
     }
