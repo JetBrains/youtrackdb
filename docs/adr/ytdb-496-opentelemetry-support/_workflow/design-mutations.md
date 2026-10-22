@@ -2345,3 +2345,28 @@ inventory closure but contains no runtime custom-map rejection rule. No deferred
 Only the three declared design files belong to this fix round.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 105 — 2026-10-22 — content-edit (design.md, design-mechanics.md)
+
+**Diff summary**: Track 100 labels every query scenario with its timing mode. Mostly rejected
+and emit-all fixtures gain EXACT arms for direct SQL, Path A and Path B. Scans gain LIGHTWEIGHT
+arms for the same three paths and the same 10,000 rows. Each mode uses the same candidate-off
+denominator and preserves all other fixture settings. Reports show EXACT and LIGHTWEIGHT side
+by side. Their throughput-loss gap has no budget of its own. Nine new estimates and alert
+budgets are proposals pending user confirmation. Existing accepted values remain unchanged.
+The accepted risk is nine added arms and more benchmark time per run.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Result: 0 blockers, 37 should-fix findings and 1 suggestion. Normalized findings match the
+pre-track baseline. `git diff --check` passes.
+
+**Cold-read**: The author fully read every changed passage and its neighbors. Both tables,
+scenario families, preambles and the companion budget list agree. This is self-review.
+
+**Findings**: One-layer SQL and Path A pay fewer paired clock reads than layered Path B.
+Short queries add few pairs. LIGHTWEIGHT scans avoid per-call clock reads. New budgets allow
+headroom above the proposed estimates. Concurrent-tag and log scenarios retain their contracts.
+Runner, repetition, confidence and CI rules remain unchanged. No benchmark code or workflow
+change belongs to this track. Numeric proposals need user confirmation before push and PR work.
+
+**Iterations**: 1 of 3 (PASS).

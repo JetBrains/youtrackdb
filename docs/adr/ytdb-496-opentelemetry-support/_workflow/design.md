@@ -1703,21 +1703,32 @@ Linked Data Benchmark Council (LDBC). An arm is one workload/configuration side 
 A fixture is the dataset, operation, setup and configuration used by a benchmark. Each pair runs
 the same query, result consumption, transaction pattern and thread count. The off arm has no
 telemetry listener or log hook. Enabled query arms include query histograms, their attribute cache and SDK
-self-metrics. Heartbeat stays disabled. LIGHTWEIGHT is the timing mode except in the EXACT arm.
+self-metrics. Heartbeat stays disabled. Tiny queries and scans each have LIGHTWEIGHT and EXACT
+arms for direct SQL, Path A and Path B. Concurrent tagged queries use LIGHTWEIGHT.
 The sampler records every accepted root and child, so sampling cannot hide instrumentation cost.
 
 The table defines alert limits as throughput loss: `100 * (1 - enabled_ops / off_ops)`.
 A positive value means fewer operations per second. Each SQL and Gremlin variant has its own
-off denominator. These are user-accepted engineering budgets, separate from the estimates below.
+off denominator. Existing engineering budgets remain user-accepted. New arm budgets are proposals
+pending user confirmation. Budgets are separate from the estimates below.
 
 | Scenario | Matched workload and enabled settings | Alert limit relative to off |
 |---|---|---|
-| OpenTelemetry off | No listener or hook, tiny SQL and Gremlin queries plus scans. Compare candidate-off with the base revision's off arm. | 1% |
-| Positive threshold, mostly rejected | Tiny SQL, Path A and Path B Gremlin. Threshold `100` ms, at least 99% successful completions rejected. Histograms remain enabled. | 10% |
-| Emit-all | Same tiny queries, threshold `0`. Path B includes one accepted SQL child per traversal. | 35% for SQL and Path A, 40% for Path B |
-| EXACT-mode scans | Fully consume 10,000 rows, threshold `0`, with direct SQL and Path A separately from layered Path B timing. | 30% for one timing layer, 45% for two |
-| Concurrent tagged queries | Mostly rejected Gremlin at 1 and 8 threads. Use repeated and distinct tags with 16 ordered exact, prefix and simple regex rules. | 15% at each thread count |
+| OpenTelemetry off | Timing mode not applicable. No listener or hook, tiny SQL and Gremlin queries plus scans. Compare candidate-off with the base revision's off arm. | 1% |
+| Positive threshold, mostly rejected, LIGHTWEIGHT | Tiny SQL, Path A and Path B Gremlin. Threshold `100` ms, at least 99% successful completions rejected. Histograms remain enabled. | 10% |
+| Positive threshold, mostly rejected, EXACT | Same direct SQL, Path A and Path B fixtures as LIGHTWEIGHT. | Proposed: 12% for SQL and Path A, 15% for Path B. Pending user confirmation. |
+| Emit-all, LIGHTWEIGHT | Same tiny queries, threshold `0`. Path B includes one accepted SQL child per traversal. | 35% for SQL and Path A, 40% for Path B |
+| Emit-all, EXACT | Same direct SQL, Path A and Path B fixtures as LIGHTWEIGHT. | Proposed: 38% for SQL and Path A, 45% for Path B. Pending user confirmation. |
+| Scans, LIGHTWEIGHT | Fully consume the same 10,000 rows as EXACT, threshold `0`, for direct SQL, Path A and Path B. | Proposed: 20% for SQL and Path A, 30% for Path B. Pending user confirmation. |
+| Scans, EXACT | Fully consume 10,000 rows, threshold `0`, with direct SQL and Path A separately from layered Path B timing. | 30% for one timing layer, 45% for two |
+| Concurrent tagged queries, LIGHTWEIGHT | Mostly rejected Gremlin at 1 and 8 threads. Use repeated and distinct tags with 16 ordered exact, prefix and simple regex rules. | 15% at each thread count |
 | Logs enabled | One admitted INFO record per operation through `LogManager`, fixed template and arguments, no exception. Compare with the identical SLF4J path without the OTel hook. | 50% |
+
+Each EXACT arm uses the same candidate-off denominator as its LIGHTWEIGHT arm. Only timing mode
+changes between them. Thresholds, rejection checks, SQL children, buffer size and histograms stay
+identical. Reports show LIGHTWEIGHT and EXACT side by side for each query path and workload.
+Report the throughput-loss gap between them. The gap has no budget of its own.
+Accepted risk: the gate grows by nine arms, which adds benchmark time per run.
 
 Use the existing comparison and nightly workflows, `ldbc-jmh-compare.yml` and
 `ldbc-jmh-nightly.yml`. Later benchmark code work must extend parsing, rendering, comparison,
@@ -1757,7 +1768,8 @@ order. The detailed repetition, noise rules and exporter controls live in the co
 ### Slowdown estimates
 
 **These are planning estimates, not measurements.** The ranges describe throughput loss under
-the stated assumptions for the matched scenarios above. The distinct-tag variant is unestimated.
+the stated assumptions for the matched scenarios above. Each query row names its timing mode.
+The distinct-tag variant is unestimated. New arm estimates are proposals pending user confirmation.
 Off is the denominator for enabled arms. The off row estimates the
 candidate's residual cost against the base revision with telemetry disabled. A 20% throughput
 loss corresponds to 25% more average time per operation at fixed serial work. These percentages
@@ -1765,13 +1777,21 @@ are not p99 predictions or promises for other hardware.
 
 | Scenario | Estimated throughput loss | Main assumption |
 |---|---|---|
-| OpenTelemetry off | 0–1% | Listener-first guards avoid telemetry Context, clocks and allocations. |
-| Positive threshold, mostly rejected | SQL 0.5–5%, Gremlin 0.5–8% | Warm 10–50 microsecond queries, at least 99% rejected, histograms enabled. Late parents avoid span construction. |
-| Emit-all | SQL 2–25%, Path A 3–30%, Path B 5–35% | Warm 10–50 microsecond queries, short text and at most one retained SQL child, healthy exporter. |
-| EXACT-mode scans | 2–25% with one timing layer, up to 40% with two | Baseline 0.5–5 microseconds per row. Clock reads occur on each `hasNext()` and `next()`. |
-| Concurrent tagged queries, repeated tags | 2–12% | One to eight threads, short tags and 16 simple rules, mostly rejected completions and reusable histogram dimensions. |
-| Concurrent tagged queries, distinct tags | Unestimated until measured | Report separately. Distinct inputs may prevent histogram cache reuse. The accepted 15% budget still applies independently. |
+| OpenTelemetry off, timing mode not applicable | 0–1% | Listener-first guards avoid telemetry Context, clocks and allocations. |
+| Positive threshold, mostly rejected, LIGHTWEIGHT | SQL 0.5–5%, Gremlin 0.5–8% | Warm 10–50 microsecond queries, at least 99% rejected, histograms enabled. Late parents avoid span construction. |
+| Positive threshold, mostly rejected, EXACT | Proposed estimate: SQL 0.5–6%, Path A 0.5–9%, Path B 0.5–10%. Pending user confirmation. | Same short queries with few rows. Paired clock reads add little work, with two timing layers on Path B. |
+| Emit-all, LIGHTWEIGHT | SQL 2–25%, Path A 3–30%, Path B 5–35% | Warm 10–50 microsecond queries, short text and at most one retained SQL child, healthy exporter. |
+| Emit-all, EXACT | Proposed estimate: SQL 2–27%, Path A 3–32%, Path B 5–38%. Pending user confirmation. | Same accepted spans and short results. Clock reads add one timing layer on SQL and Path A and two on Path B. |
+| Scans, LIGHTWEIGHT | Proposed estimate: SQL and Path A 1–15%, Path B 2–25%. Pending user confirmation. | Same 10,000 rows and 0.5–5 microseconds per row as EXACT. Coarse timing avoids per-call clock reads, but spans and histograms remain. |
+| Scans, EXACT | 2–25% with one timing layer, up to 40% with two | Baseline 0.5–5 microseconds per row. Clock reads occur on each `hasNext()` and `next()`. |
+| Concurrent tagged queries, repeated tags, LIGHTWEIGHT | 2–12% | One to eight threads, short tags and 16 simple rules, mostly rejected completions and reusable histogram dimensions. |
+| Concurrent tagged queries, distinct tags, LIGHTWEIGHT | Unestimated until measured | Report separately. Distinct inputs may prevent histogram cache reuse. The accepted 15% budget still applies independently. |
 | Logs enabled | 10–50% | Cheap 1–5 microsecond local logging path, short INFO records, no exception serialization or console I/O. |
+
+The proposed budgets allow modest headroom above the new estimated upper bounds. EXACT pays
+paired clock reads per delegated result call. Short results add few pairs. SQL and Path A have
+one timing layer. Path B with SQL children has two. LIGHTWEIGHT scans avoid that per-call cost.
+The side-by-side gap is diagnostic only. Each arm is budgeted only against its own off arm.
 
 Late Gremlin construction saves eager span work on rejected traversals. Listener-first guards
 protect the off path. Recording-only enrichment avoids span-only text and plan work after SDK
