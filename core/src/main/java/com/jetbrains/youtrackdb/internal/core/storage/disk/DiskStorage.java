@@ -372,8 +372,9 @@ public class DiskStorage extends AbstractStorage {
   /**
    * Dormant backup bridge. The caller holds storage state exclusion across completion, samples
    * outside tracker save order, and preflights inside it. Sibling sampling places in AbstractStorage
-   * are fuzzy checkpoint, full flush and WAL vacuum. A shared helper would edit vacuum and
-   * checkpoint code outside this track's scope. Those paths also own distinct flush protocols.
+   * are fuzzy checkpoint, full flush and WAL vacuum. Full flush syncs data files, fuzzy checkpoint
+   * flushes and appends a new segment, and WAL vacuum runs a flushTillSegment loop. A shared helper
+   * would couple these distinct flush protocols.
    */
   class DiskBackupCoverageSource implements ChangedPageTrackerBackup.CoverageSource {
 
