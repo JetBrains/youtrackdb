@@ -2949,18 +2949,23 @@ public final class WOWCache extends AbstractWriteCache
       deleteMapTemporaryFiles();
       final var copies = readMapCopies();
       final var source = copies.source();
-      final var kept = source == null || source.intact() ? source : source.salvage(range -> {
-        final var entry = range.unverifiedEntry();
-        if (entry == null) {
-          logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), name cannot be read",
-              copies.sourcePath(), range.start(), range.end());
-        } else {
-          logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), logical name '{}' and"
-              + " disk name '{}' not verified because the checksum failed",
-              copies.sourcePath(), range.start(), range.end(), entry.getName(),
-              entry.getFileSystemName());
-        }
-      });
+      final NameIdMapFile.Scan kept;
+      if (source == null || source.intact()) {
+        kept = source;
+      } else {
+        kept = source.salvage(range -> {
+          final var entry = range.unverifiedEntry();
+          if (entry == null) {
+            logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), name cannot be read",
+                copies.sourcePath(), range.start(), range.end());
+          } else {
+            logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), logical name '{}' and"
+                + " disk name '{}' not verified because the checksum failed",
+                copies.sourcePath(), range.start(), range.end(), entry.getName(),
+                entry.getFileSystemName());
+          }
+        });
+      }
       final var image = kept == null ? ByteBuffer.allocate(0) : kept.bytes();
       // Repair and force both copies before opening components can append new records.
       repairMapCopies(copies, image);
