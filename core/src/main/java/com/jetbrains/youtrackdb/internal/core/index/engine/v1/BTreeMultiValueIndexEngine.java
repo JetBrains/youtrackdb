@@ -482,6 +482,16 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
+  public Stream<RID> getNullKeyRids(boolean ascending, @Nonnull AtomicOperation atomicOperation) {
+    if (ascending) {
+      return get(null, atomicOperation);
+    }
+    // Resolve the version-free start on first pull, even if a writer replaces the highest RID.
+    return nullIndexesSnapshot.visibilityFilterValues(atomicOperation,
+        nullTree.iterateEntriesMinor(null, true, false, atomicOperation));
+  }
+
+  @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
       @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = svTree.firstKey(atomicOperation);
