@@ -15,12 +15,15 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.apache.commons.io.FileUtils;
@@ -67,7 +70,7 @@ public class WALRetentionAfterFailedPageWriteIT {
   private static final String MARKER = "committed-before-the-failed-page-write";
 
   /** Time budget for WAL completion to release operation-table ownership before the cut. */
-  private static final long PERSIST_WAIT_TIMEOUT_MS = 2_000;
+  private static final long PERSIST_WAIT_TIMEOUT_MS = 10_000;
 
   private Path buildDirectory;
   private Path reopenableBaseline;
@@ -379,17 +382,48 @@ public class WALRetentionAfterFailedPageWriteIT {
   }
 
   /**
-   * Waits until WAL completion releases operation-table ownership, or the time budget expires.
-   * Cache-owned protection remains independently visible after that ownership transfer.
+   * Waits until WAL completion releases operation-table ownership and fails if the time budget
+   * expires. Cache-owned protection remains independently visible after that ownership transfer.
+   *
+   * @throws AssertionError if operation-table ownership remains after the timeout
+   * @throws InterruptedException if the polling sleep is interrupted
    */
   private static void awaitOperationsPersisted(final AbstractStorage storage)
       throws InterruptedException {
-    var deadline = System.currentTimeMillis() + PERSIST_WAIT_TIMEOUT_MS;
-    while (System.currentTimeMillis() < deadline) {
-      if (storage.atomicOperationsTable.getSegmentEarliestNotPersistedOperation() < 0) {
-        return;
+    awaitOperationsPersisted(storage.atomicOperationsTable, PERSIST_WAIT_TIMEOUT_MS);
+  }
+
+  /**
+   * Polls the table using the system monotonic clock, reporting the last observed segment on timeout.
+   *
+   * @throws AssertionError if an unpersisted operation remains after {@code timeoutMs}
+   * @throws InterruptedException if the polling sleep is interrupted
+   */
+  static void awaitOperationsPersisted(final AtomicOperationsTable table, final long timeoutMs)
+      throws InterruptedException {
+    awaitOperationsPersisted(table, timeoutMs, System::nanoTime);
+  }
+
+  /**
+   * Polls the table using the supplied monotonic nanosecond clock for the deadline.
+   * The clock can be controlled in unit tests independently of thread scheduling.
+   *
+   * @throws AssertionError if an unpersisted operation remains after {@code timeoutMs}
+   * @throws InterruptedException if the polling sleep is interrupted
+   */
+  static void awaitOperationsPersisted(final AtomicOperationsTable table, final long timeoutMs,
+      final LongSupplier nanoClock) throws InterruptedException {
+    var deadline = nanoClock.getAsLong() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+    var lastSegment = table.getSegmentEarliestNotPersistedOperation();
+    while (lastSegment >= 0) {
+      // Subtract nanosecond clock values so the comparison also works across clock wraparound.
+      if (nanoClock.getAsLong() - deadline >= 0) {
+        throw new AssertionError("Timed out after " + timeoutMs
+            + " ms waiting for operations to persist: last observed "
+            + "getSegmentEarliestNotPersistedOperation() = " + lastSegment);
       }
       Thread.sleep(25);
+      lastSegment = table.getSegmentEarliestNotPersistedOperation();
     }
   }
 
