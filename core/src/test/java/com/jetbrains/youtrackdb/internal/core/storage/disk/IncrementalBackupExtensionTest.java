@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
@@ -705,7 +706,8 @@ public class IncrementalBackupExtensionTest {
   public void publicationPhaseFailuresReachCallerWithoutSuccessLog() throws Exception {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
-      for (var phase : List.of("payloadFlush", "force", "tail", "tailFlush", "close")) {
+      for (var phase : List.of("payloadFlush", "force", "tail", "tailFlush", "secondForce",
+          "close")) {
         var output = new RecordingOutput();
         output.failPhase = phase;
         var records = new CopyOnWriteArrayList<LogRecord>();
@@ -713,7 +715,7 @@ public class IncrementalBackupExtensionTest {
         var remaining = new ArrayList<String>();
         var removed = new ArrayList<String>();
         withDiskStorageLogs(records, () -> {
-          var failure = assertThrows(RuntimeException.class, () -> storage.backup(
+          var failure = assertThrows(DatabaseException.class, () -> storage.backup(
               () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
               file -> {
                 created.add(file);
@@ -732,20 +734,25 @@ public class IncrementalBackupExtensionTest {
         assertTrue("close must be attempted", output.closed);
         assertEquals(phase.equals("payloadFlush") || phase.equals("force") ? 0 : 1,
             output.tailRequests);
-        assertEquals(phase.equals("payloadFlush") ? 0 : 1, output.forceCalls);
+        assertEquals(phase.equals("payloadFlush") ? 0
+            : phase.equals("secondForce") || phase.equals("close") ? 2 : 1, output.forceCalls);
+        assertEquals("close must be attempted exactly once", 1, output.closeCalls);
         assertFalse("a failed backup must not log success", records.stream().anyMatch(
             record -> record.getMessage().contains("is completed")));
-        if (phase.equals("tailFlush") || phase.equals("close")) {
-          var unit = output.bytes.toByteArray();
-          assertEquals(6, ByteBuffer.wrap(unit).getShort(unit.length - 74));
-          assertEquals(DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - 8,
-              DiskStorage.XX_HASH_SEED), ByteBuffer.wrap(unit).getLong(unit.length - 8));
+        if (phase.equals("tailFlush") || phase.equals("secondForce") || phase.equals("close")) {
+          assertCanonicalVersionSix(output.bytes.toByteArray(), created.getFirst(),
+              storage.getUuid(), 0, true);
+          assertEquals("the retained tail must never be rewritten", 0, output.writesAfterTail);
+        }
+        if (phase.equals("secondForce") || phase.equals("close")) {
+          assertEquals(List.of("force", "tail", "flush", "force", "close"),
+              output.events.subList(output.events.indexOf("force"), output.events.size()));
         }
       }
     }
   }
 
-  /** A final local force failure reaches the caller and keeps the complete v6 output unit. */
+  /** The third local force fails during close after both explicit forces and retains the unit. */
   @Test
   public void localFinalForceFailureFailsBackupAfterTailPublication() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -753,7 +760,7 @@ public class IncrementalBackupExtensionTest {
       var channel = org.mockito.Mockito.mock(FileChannel.class);
       var forces = new AtomicInteger();
       org.mockito.Mockito.doAnswer(invocation -> {
-        if (forces.incrementAndGet() == 2) {
+        if (forces.incrementAndGet() == 3) {
           throw new IOException("injected final force");
         }
         return null;
@@ -781,13 +788,75 @@ public class IncrementalBackupExtensionTest {
       assertTrue("a final force failure must not invoke the remover", removed.isEmpty());
       assertEquals("one output unit must be created", 1, created.size());
       assertEquals("the complete output unit must remain", created, remaining);
-      assertEquals(2, forces.get());
+      assertEquals("two explicit forces plus the close-time force", 3, forces.get());
+      assertEquals("the local wrapper does not delegate capability calls", 0, delegate.forceCalls);
       assertTrue(delegate.closed);
       assertEquals(1, delegate.tailRequests);
       var unit = delegate.bytes.toByteArray();
       assertEquals(6, ByteBuffer.wrap(unit).getShort(unit.length - 74));
       assertEquals(DiskStorage.XX_HASH_64.hash(unit, 0, unit.length - 8,
           DiskStorage.XX_HASH_SEED), ByteBuffer.wrap(unit).getLong(unit.length - 8));
+    }
+  }
+
+  /** A second-force error stays primary when close also fails, with complete bytes retained. */
+  @Test
+  public void secondForceFailureKeepsCloseFailureSuppressed() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var output = new RecordingOutput();
+      output.failPhase = "secondForce";
+      output.failClose = true;
+      var records = new CopyOnWriteArrayList<LogRecord>();
+      var names = new ArrayList<String>();
+      var removals = new AtomicInteger();
+      withDiskStorageLogs(records, () -> {
+        var failure = assertThrows(DatabaseException.class, () -> storage.backup(
+            () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+            file -> {
+              names.add(file);
+              return output;
+            }, file -> removals.incrementAndGet()));
+        var primary = failure.getCause();
+        assertEquals("injected secondForce", primary.getMessage());
+        assertEquals(1, primary.getSuppressed().length);
+        assertEquals("injected close", primary.getSuppressed()[0].getMessage());
+      });
+      assertTrue(output.faultReached);
+      assertEquals(2, output.forceCalls);
+      assertEquals(1, output.closeCalls);
+      assertEquals(1, output.tailRequests);
+      assertEquals(0, output.writesAfterTail);
+      assertEquals(0, removals.get());
+      assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+      assertCanonicalVersionSix(output.bytes.toByteArray(), names.getFirst(),
+          storage.getUuid(), 0, true);
+    }
+  }
+
+  /** An unavailable directory still allows local close after its file force succeeds. */
+  @Test
+  public void localDirectoryForceIOExceptionDoesNotFailBackup() throws Exception {
+    try (var youTrackDB = openManager()) {
+      var storage = createSourceDatabase(youTrackDB);
+      var channel = org.mockito.Mockito.mock(FileChannel.class);
+      var delegate = new RecordingOutput();
+      var type = Class.forName(DiskStorage.class.getName() + "$LocalBackupOutputStream");
+      var constructor = type.getDeclaredConstructor(OutputStream.class, FileChannel.class,
+          Path.class);
+      constructor.setAccessible(true);
+      // Opening this nonexistent directory deterministically throws IOException on every platform.
+      var missingDirectory = backupPath.resolve("missing-directory");
+      assertFalse(Files.exists(missingDirectory));
+      var output = (OutputStream) constructor.newInstance(delegate, channel, missingDirectory);
+      var name = storage.backup(() -> List.<String>of().iterator(),
+          file -> InputStream.nullInputStream(), file -> output, file -> {
+            throw new AssertionError("no removal");
+          });
+      org.mockito.Mockito.verify(channel, org.mockito.Mockito.times(3)).force(true);
+      assertEquals(0, delegate.forceCalls);
+      assertEquals(1, delegate.closeCalls);
+      assertCanonicalVersionSix(delegate.bytes.toByteArray(), name, storage.getUuid(), 0, true);
     }
   }
 
@@ -876,7 +945,7 @@ public class IncrementalBackupExtensionTest {
     assertEquals("injected close error", forceFailure.getSuppressed()[0].getMessage());
   }
 
-  /** A forced output publishes a present barrier after a complete, flushed ZIP payload. */
+  /** A capable output forces the payload, publishes one tail, flushes, forces and then closes. */
   @Test
   public void forcedOutputPublishesOneTailRequest() throws Exception {
     try (var youTrackDB = openManager()) {
@@ -885,14 +954,17 @@ public class IncrementalBackupExtensionTest {
       var name = storage.backup(() -> List.<String>of().iterator(),
           file -> InputStream.nullInputStream(), file -> output, file -> {
           });
-      assertEquals(1, output.forceCalls);
+      assertEquals(2, output.forceCalls);
+      assertEquals(1, output.closeCalls);
       assertEquals(1, output.tailRequests);
       var forceIndex = output.events.indexOf("force");
       assertTrue("the ZIP must finish before the force", output.events.contains("zipComplete"));
       assertTrue(output.events.indexOf("zipComplete") < forceIndex - 1);
       assertEquals("flush", output.events.get(forceIndex - 1));
-      assertEquals("only the tail and its flush may follow the force",
-          List.of("force", "tail", "flush"),
+      assertTrue("padding must precede the payload flush",
+          output.events.indexOf("padding") < forceIndex - 1);
+      assertEquals("the complete tail must be flushed and forced before close",
+          List.of("force", "tail", "flush", "force", "close"),
           output.events.subList(forceIndex, output.events.size()));
       assertEquals("nothing may be written after the tail", 0, output.writesAfterTail);
       var unit = output.bytes.toByteArray();
@@ -1422,7 +1494,7 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
-  /** Records ZIP completion, flush, force, tail publication and any later writes. */
+  /** Records ZIP completion, padding, flush, explicit force, one tail write and close. */
   private static final class RecordingOutput extends OutputStream implements BackupForceCapability {
     private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     private final List<String> events = new ArrayList<>();
@@ -1431,6 +1503,8 @@ public class IncrementalBackupExtensionTest {
     private boolean closed;
     private boolean paddingSeen;
     private boolean failForce;
+    private boolean failClose;
+    private int closeCalls;
     private boolean failCentralDirectory;
     private boolean failedWrite;
     private int failFirstWrites;
@@ -1474,6 +1548,7 @@ public class IncrementalBackupExtensionTest {
       } else if (events.contains("zipComplete")) {
         // The writer issues a padding request even when no padding bytes are needed.
         paddingSeen = true;
+        events.add("padding");
       }
       for (var i = offset; i < offset + length; i++) {
         write(data[i]);
@@ -1497,6 +1572,11 @@ public class IncrementalBackupExtensionTest {
     @Override
     public void close() throws IOException {
       closed = true;
+      closeCalls++;
+      events.add("close");
+      if (failClose) {
+        throw new IOException("injected close");
+      }
       failAt("close");
     }
 
@@ -1511,7 +1591,7 @@ public class IncrementalBackupExtensionTest {
     public void forceBackupData() throws IOException {
       events.add("force");
       forceCalls++;
-      failAt("force");
+      failAt(forceCalls == 1 ? "force" : "secondForce");
       if (failForce) {
         throw new IOException("injected force error");
       }

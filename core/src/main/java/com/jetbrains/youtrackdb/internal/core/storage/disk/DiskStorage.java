@@ -1669,6 +1669,11 @@ public class DiskStorage extends AbstractStorage {
                 getIdGen().getLastId(), semanticIdentity, barrierPresent);
             // A custom supplier may publish writes only when flushed, rather than on close.
             xxHashStream.flush();
+            // The barrier flag covers only the payload. Force the complete unit after its tail
+            // is flushed. Successful close is still required before reporting backup success.
+            if (fileStream instanceof BackupForceCapability forceCapability) {
+              forceCapability.forceBackupData();
+            }
           }
 
           LogManager.instance()
