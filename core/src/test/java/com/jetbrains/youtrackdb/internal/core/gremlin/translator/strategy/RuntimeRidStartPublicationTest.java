@@ -99,10 +99,10 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
       case 4 -> g.V(a).hasLabel("NegativePerson", "V").out("negativeLink");
       case 5 -> g.V(a).has("name", "A").out("negativeLink");
       case 6 -> g.V(a).out("negativeLink").has("name", "B");
-      case 7 -> g.V(a).out("negativeLink").values("name");
+      case 7 -> g.V(a).out("negativeLink").values("name", "other");
       case 8 -> g.V(a).out("negativeLink").out("negativeLink");
       case 9 -> g.V(a).outE("negativeLink");
-      case 10 -> g.V(a).out("negativeLink", "E");
+      case 10 -> g.V(a).out("negativeLink").order().by("name").limit(1);
       case 11 -> g.V(a).barrier(1).as("kept").out("negativeLink");
       case 12 -> g.V(a).out("negativeLink").barrier(1).as("kept");
       case 13 -> g.V(a).union(__.out("negativeLink"), __.in("negativeLink")).count();
@@ -153,6 +153,82 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
     }
   }
 
+  /** Strategy normalization admits equivalent property/RID order but rejects reverse RID ties. */
+  @Test
+  public void normalizedOrderSpellingsKeepStructuralAdmission() {
+    var a = graph.addVertex(T.label, "OrderStart");
+    var b = graph.addVertex(T.label, "OrderStart", "name", "B");
+    a.addEdge("orderLink", b);
+    graph.tx().commit();
+    for (int arm = 0; arm < 10; arm++) {
+      var source = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class,
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy.class);
+      if (arm == 6) {
+        source = source.withoutStrategies(
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy.class);
+      }
+      if (arm == 7 || arm == 8) {
+        source = source.withStrategies(arm == 7
+            ? org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy
+                .instance()
+            : org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy
+                .build().productiveKeys("name").create());
+      } else if (arm == 9) {
+        source = source.withStrategies(
+            org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy
+                .instance());
+      }
+      var order = source.V(a.id()).out("orderLink").order();
+      switch (arm) {
+        case 0, 6, 7, 8, 9 -> order.by("name");
+        case 1 -> order.by("name").by(T.id);
+        case 2 -> order.by(__.values("name")).by(__.id());
+        case 3 -> order.by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+        case 4 -> order.by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+            .by(T.id, org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+        default -> order.by("name").by(T.id,
+            org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+      }
+      var admin = order.asAdmin();
+      admin.applyStrategies();
+      var result = RuntimeRidStartEligibility.evaluate(admin, true);
+      assertThat(result != null).as("normalized order arm %s: %s", arm, admin).isEqualTo(arm != 5);
+      var keys = ((org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep<?,
+          ?>) admin.getSteps().getLast()).getComparators();
+      assertThat(keys).hasSize(arm == 6 ? 1 : 2);
+    }
+  }
+
+  /** Three comparators stay literal and uncached on repeated runs through real strategies. */
+  @Test
+  public void threeComparatorOrderNeverPublishesRuntimeTemplate() {
+    var a = graph.addVertex(T.label, "ThreeKeyStart");
+    var b = graph.addVertex(T.label, "ThreeKeyTarget", "name", "B", "age", 1);
+    a.addEdge("threeKeyLink", b);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    cache.invalidate();
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      runs.incrementAndGet();
+      assertThat(input.runtimeRidStarts()).isEmpty();
+    };
+    try {
+      for (int attempt = 0; attempt < 2; attempt++) {
+        var hits = cache.getHits();
+        var translationHits = cache.getTranslationHits();
+        var query = graph.traversal().V(a.id()).out("threeKeyLink")
+            .order().by("name").by(T.id).by("age");
+        assertThat(query.toList()).containsExactly(b);
+        assertThat(runs.get()).isEqualTo(attempt + 1);
+        assertThat(cache.getHits()).isEqualTo(hits);
+        assertThat(cache.getTranslationHits()).isEqualTo(translationHits);
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
+  }
+
   /** Admin and reader use the same template, but each live copy checks its own row policy. */
   @Test
   public void readerAndAdminKeepRowPermissionsOnSharedRuntimeHits() throws Exception {
@@ -176,6 +252,18 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
     cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
     try (var reader = readerGraph()) {
       assertThat(GremlinPlanCache.instance(db(reader))).isSameAs(cache);
+      // Count uses the same row policy, but empty input must emit a scalar zero rather than no row.
+      var counted = graph.traversal().V(allowed.id()).out("securityLink").count().asAdmin();
+      counted.applyStrategies();
+      var countTemplate = ((YTDBMatchPlanStep<?, ?>) counted.getStartStep()).getPlan();
+      assertThat(counted.toList()).containsExactly(1L);
+      var deniedCount = reader.traversal().V(denied.id()).out("securityLink").count().asAdmin();
+      deniedCount.applyStrategies();
+      assertThat(((YTDBMatchPlanStep<?, ?>) deniedCount.getStartStep()).getPlan())
+          .isSameAs(countTemplate);
+      assertThat(deniedCount.toList()).containsExactly(0L);
+      assertThat(reader.traversal().withoutStrategies(GremlinToMatchStrategy.class)
+          .V(denied.id()).out("securityLink").count().toList()).containsExactly(0L);
       for (boolean readerFirst : List.of(false, true)) {
         cache.invalidate();
         runs.set(0);
