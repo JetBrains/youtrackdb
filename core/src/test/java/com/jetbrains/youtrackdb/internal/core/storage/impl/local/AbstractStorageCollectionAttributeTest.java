@@ -64,13 +64,22 @@ public class AbstractStorageCollectionAttributeTest {
     assertStrategy("content");
   }
 
-  /** A null attribute reports the switch failure through the atomic operation wrapper. */
+  /** A null attribute is rejected with a wrapped cause and leaves live and stored strategy intact. */
   @Test
   public void nullAttributeReportsFailureWithoutChangingConflictStrategy() {
     storage.setCollectionAttribute(collectionId, ATTRIBUTES.CONFLICTSTRATEGY, "version");
     final var failure = assertThrows(StorageException.class,
         () -> storage.setCollectionAttribute(collectionId, null, "content"));
-    assertEquals(NullPointerException.class, failure.getCause().getClass());
+    assertEquals(StorageException.class, failure.getClass());
+    assertEquals(IllegalArgumentException.class, failure.getCause().getClass());
+    assertEquals("Runtime change of attribute 'null' is not supported",
+        failure.getCause().getMessage());
+    assertStrategy("version");
+
+    session.close();
+    youTrackDB.close();
+    youTrackDB = openContext();
+    openSession();
     assertStrategy("version");
   }
 

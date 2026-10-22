@@ -3418,17 +3418,19 @@ public final class WOWCache extends AbstractWriteCache
   void appendNameIdEntry(final NameFileIdEntry nameFileIdEntry) throws IOException {
     checkNameIdMapAppendsAllowed();
     final var record = NameIdMapFile.encode(nameFileIdEntry, storageName);
-    try (final var channel = FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ,
+    appendMapCopy(nameIdMapHolderPath, record, callFsync);
+    // The checkpoint forces the backup before cutting the WAL needed to replay these appends.
+    appendMapCopy(storagePath.resolve(NAME_ID_MAP_V3_BACKUP), record, false);
+  }
+
+  private void appendMapCopy(final Path path, final ByteBuffer record, final boolean force)
+      throws IOException {
+    try (final var channel = FileChannel.open(path, StandardOpenOption.READ,
         StandardOpenOption.WRITE)) {
       IOUtils.writeByteBuffer(record.duplicate(), channel, channel.size());
-      if (callFsync) {
+      if (force) {
         channel.force(true);
       }
-    }
-    // The checkpoint forces the backup before cutting the WAL needed to replay these appends.
-    try (final var channel = FileChannel.open(storagePath.resolve(NAME_ID_MAP_V3_BACKUP),
-        StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-      IOUtils.writeByteBuffer(record.duplicate(), channel, channel.size());
     }
   }
 

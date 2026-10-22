@@ -8677,6 +8677,8 @@ public abstract class AbstractStorage
     final var stringValue = Optional.ofNullable(value).map(Object::toString).orElse(null);
     switch (attribute) {
       case CONFLICTSTRATEGY -> collection.setRecordConflictStrategy(stringValue);
+      case null, default -> throw new IllegalArgumentException(
+          "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
     ((CollectionBasedStorageConfiguration) configuration)
