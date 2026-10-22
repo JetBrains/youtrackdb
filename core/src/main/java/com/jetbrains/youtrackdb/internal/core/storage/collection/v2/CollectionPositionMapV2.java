@@ -192,11 +192,6 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     return "fileSize";
   }
 
-  void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
-    setName(newName);
-  }
-
   /**
    * Reads the logical page count (number of bucket pages in use) from the entry-point page.
    * This value does <em>not</em> include the entry-point page itself.

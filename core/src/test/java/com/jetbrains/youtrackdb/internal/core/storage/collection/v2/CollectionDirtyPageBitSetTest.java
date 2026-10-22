@@ -315,15 +315,6 @@ public class CollectionDirtyPageBitSetTest {
     verify(mockReadCache).closeFile(FILE_ID, false, mockWriteCache);
   }
 
-  // Verifies that rename() delegates to writeCache.renameFile() and updates the internal name.
-  // Targets mutants at CollectionDirtyPageBitSet lines 100-101.
-  @Test
-  public void renameDelegatesToWriteCacheAndUpdatesName() throws IOException {
-    bitSet.rename("newCollection");
-    verify(mockWriteCache).renameFile(FILE_ID, "newCollection" + EXTENSION);
-    assertThat(bitSet.getName()).isEqualTo("newCollection");
-  }
-
   // Verifies that ensureCapacity initialises new pages via init().
   // Targets mutant at CollectionDirtyPageBitSet line 199: "removed call to init".
   // After growth, gap pages must have all bits clear; if init() is skipped and the

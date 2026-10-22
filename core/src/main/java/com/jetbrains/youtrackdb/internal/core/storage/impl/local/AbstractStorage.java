@@ -8676,17 +8676,7 @@ public abstract class AbstractStorage
       final StorageCollection collection) {
     final var stringValue = Optional.ofNullable(value).map(Object::toString).orElse(null);
     switch (attribute) {
-      case NAME -> {
-        Objects.requireNonNull(stringValue);
-
-        final var oldName = collection.getName();
-        collection.setCollectionName(stringValue);
-        collectionMap.remove(oldName.toLowerCase(Locale.ROOT));
-        collectionMap.put(stringValue.toLowerCase(Locale.ROOT), collection);
-      }
       case CONFLICTSTRATEGY -> collection.setRecordConflictStrategy(stringValue);
-      default -> throw new IllegalArgumentException(
-          "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
     ((CollectionBasedStorageConfiguration) configuration)

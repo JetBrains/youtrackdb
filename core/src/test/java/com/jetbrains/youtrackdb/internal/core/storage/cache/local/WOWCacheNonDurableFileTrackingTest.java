@@ -345,23 +345,6 @@ public class WOWCacheNonDurableFileTrackingTest {
   }
 
   /**
-   * Verifies that renaming a non-durable file does not change its non-durable status, since
-   * the internal file ID (used as the registry key) is unchanged by renaming.
-   */
-  @Test
-  public void testRenameFilePreservesNonDurableStatus() throws IOException {
-    final var bookedId = wowCache.bookFileId("ndRename.tst");
-    final var fileId = wowCache.addFile("ndRename.tst", bookedId, true);
-    assertTrue(wowCache.isNonDurable(fileId));
-
-    wowCache.renameFile(fileId, "ndRenamed.tst");
-
-    assertTrue(
-        "Non-durable status must survive a rename (internal ID is unchanged)",
-        wowCache.isNonDurable(fileId));
-  }
-
-  /**
    * Verifies that if addFile(name, id, nonDurable=true) throws because the file name is
    * already registered, the non-durable registry remains unmodified.
    */
@@ -411,7 +394,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var registryPath = (Path) registryPathField.get(wowCache);
 
     final var channels = new ArrayList<FileChannel>();
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 2; i++) {
       channels.add(
           spy(
               FileChannel.open(
@@ -437,11 +420,10 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertNotNull("stub setup must open the registry channel", stubbingChannel[0]);
 
       final var fileId = wowCache.addFile("forceRegistry.tst");
-      wowCache.renameFile(fileId, "forceRegistryRenamed.tst");
       wowCache.deleteFile(fileId);
     }
 
-    assertEquals("add, rename twice, and delete must open four registry channels", 4,
+    assertEquals("add and delete must open two registry channels", 2,
         nextChannel.get());
     if (callFsync) {
       final var forceCount =
@@ -449,7 +431,7 @@ public class WOWCacheNonDurableFileTrackingTest {
               .flatMap(channel -> mockingDetails(channel).getInvocations().stream())
               .filter(invocation -> invocation.getMethod().getName().equals("force"))
               .count();
-      assertEquals("add, rename, and delete must each force their durable registry entry", 3,
+      assertEquals("add and delete must each force their durable registry entry", 2,
           forceCount);
     } else {
       for (final var channel : channels) {
@@ -960,7 +942,6 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertThrows(IOException.class,
         () -> wowCache.addFile("blockedExplicit.tst", 999_999L, true));
     assertThrows(IOException.class, () -> wowCache.deleteFile(survivor));
-    assertThrows(IOException.class, () -> wowCache.renameFile(survivor, "blockedRename.tst"));
     assertThrows(IOException.class, () -> wowCache.loadFile("blockedLoad.tst"));
     assertThrows(IOException.class, () -> wowCache.restoreFileById(booked));
     assertEquals(names, mapSnapshot("nameIdMap"));
@@ -968,7 +949,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(path));
     assertEquals(survivor, wowCache.loadFile("surviving.tst"));
     try (var paths = Files.list(storagePath)) {
-      assertFalse("stopped writers must not create or rename disk files",
+      assertFalse("stopped writers must not create disk files",
           paths.anyMatch(p -> p.getFileName().toString().startsWith("blocked")));
     }
     reopenCache();
@@ -989,7 +970,7 @@ public class WOWCacheNonDurableFileTrackingTest {
       final var entry = (NameFileIdEntry) invocation.getArgument(0);
       created.set(files.get(wowCache.externalFileId(entry.getFileId())));
       throw new IOException("injected unbooked append failure");
-    }).when(wowCache).appendNameIdEntry(any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }).when(wowCache).appendNameIdEntry(any());
     assertThrows(IOException.class, () -> wowCache.addFile("unbookedFailure.tst"));
     assertTrue(mapSnapshot("nameIdMap").isEmpty());
     assertTrue(mapSnapshot("idNameMap").isEmpty());
@@ -1087,8 +1068,6 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertThrows(IOException.class,
         () -> wowCache.addFile("registryDelete.tst", deleted, true));
     assertThrows(IOException.class, () -> wowCache.deleteFile(survivor));
-    assertThrows(IOException.class,
-        () -> wowCache.renameFile(survivor, "blockedRegistryRename.tst"));
     assertThrows(IOException.class, () -> wowCache.loadFile("registryDelete.tst"));
     assertThrows(IOException.class, () -> wowCache.restoreFileById(deleted));
     assertEquals(names, mapSnapshot("nameIdMap"));
@@ -1121,27 +1100,6 @@ public class WOWCacheNonDurableFileTrackingTest {
     reopenCache();
     assertEquals(-1, wowCache.fileIdByName("failedDelete.tst"));
     assertEquals(id, wowCache.addFile("failedDelete.tst"));
-  }
-
-  /** Either rename-record failure leaves memory and clean close describing the OS rename. */
-  @Test
-  public void renameAppendFailuresKeepPhysicalRenameInMemoryAndAtClose() throws Exception {
-    for (var append = 1; append <= 2; append++) {
-      final var oldName = "renameFailure" + append + ".tst";
-      final var newName = "renamedFailure" + append + ".tst";
-      final var id = wowCache.addFile(oldName);
-      final var path = storagePath.resolve(files.get(id).getName());
-      failAppend(append, () -> {
-      });
-      assertThrows(IOException.class, () -> wowCache.renameFile(id, newName));
-      assertFalse(Files.exists(path));
-      assertTrue(files.get(id).exists());
-      assertEquals(-1, wowCache.fileIdByName(oldName));
-      assertEquals(id, wowCache.fileIdByName(newName));
-      reopenCache();
-      assertEquals(-1, wowCache.fileIdByName(oldName));
-      assertEquals(id, wowCache.fileIdByName(newName));
-    }
   }
 
   /** Clean close writes an inconsistent positive entry with no container owner as deleted. */
@@ -1215,7 +1173,7 @@ public class WOWCacheNonDurableFileTrackingTest {
         throw new IOException("injected map append failure");
       }
       return invocation.callRealMethod();
-    }).when(wowCache).appendNameIdEntry(any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }).when(wowCache).appendNameIdEntry(any());
   }
 
   private java.util.Map<?, ?> mapSnapshot(String fieldName) throws Exception {
@@ -1535,26 +1493,6 @@ public class WOWCacheNonDurableFileTrackingTest {
       assertFalse(cut.get());
       wowCache.syncDataFiles(0);
     }
-  }
-
-  /** Backup force failure during rename keeps the completed physical rename and stops writers. */
-  @Test
-  public void renameBackupForceFailureLatchesAndRetainsPhysicalState() throws Exception {
-    wowCache.delete();
-    createNewCache(true);
-    final var id = wowCache.addFile("oldCopy.tst");
-    final var path = storagePath.resolve("name_id_map_v3_backup.cm");
-    try (var opens = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
-      opens.when(() -> FileChannel.open(path, StandardOpenOption.WRITE))
-          .thenThrow(new IOException("backup force open rejected"));
-      assertThrows(IOException.class, () -> wowCache.renameFile(id, "newCopy.tst"));
-    }
-    assertTrue(wowCache.isWalCuttingStopped());
-    assertEquals(-1, wowCache.fileIdByName("oldCopy.tst"));
-    assertEquals(id, wowCache.fileIdByName("newCopy.tst"));
-    assertTrue(files.get(id).exists());
-    reopenCache();
-    assertEquals(id, wowCache.fileIdByName("newCopy.tst"));
   }
 
   /** A missing backup fails its force without CREATE and keeps all WAL records available. */
@@ -3000,13 +2938,12 @@ public class WOWCacheNonDurableFileTrackingTest {
   public void runtimeAppendFailureStopsWritersAndPreservesCause() throws Exception {
     wowCache = spy(wowCache);
     final var injected = new IllegalStateException("append failed");
-    doThrow(injected).when(wowCache).appendNameIdEntry(any(),
-        org.mockito.ArgumentMatchers.anyBoolean());
+    doThrow(injected).when(wowCache).appendNameIdEntry(any());
     final var failure = assertThrows(IOException.class, () -> wowCache.addFile("runtimeFail.tst"));
     assertEquals(injected, failure.getCause());
     assertThrows(IOException.class, () -> wowCache.addFile("blockedRuntime.tst"));
     assertTrue(mapSnapshot("nameIdMap").isEmpty());
-    verify(wowCache).appendNameIdEntry(any(), org.mockito.ArgumentMatchers.anyBoolean());
+    verify(wowCache).appendNameIdEntry(any());
   }
 
   /** An Error from an append remains an Error rather than becoming a checked exception. */
@@ -3014,8 +2951,7 @@ public class WOWCacheNonDurableFileTrackingTest {
   public void appendErrorIsNotConvertedToIOException() throws Exception {
     wowCache = spy(wowCache);
     final var injected = new AssertionError("append error");
-    doThrow(injected).when(wowCache).appendNameIdEntry(any(),
-        org.mockito.ArgumentMatchers.anyBoolean());
+    doThrow(injected).when(wowCache).appendNameIdEntry(any());
     assertEquals(injected,
         assertThrows(AssertionError.class, () -> wowCache.addFile("errorFail.tst")));
     assertThrows(IOException.class, () -> wowCache.addFile("blockedError.tst"));
@@ -3209,18 +3145,35 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
   }
 
-  /** Rename's -1 tombstone must not remove a different file's positive ID or durability flag. */
+  /** A legacy -1 tombstone must not remove another file's positive ID or durability flag. */
   @Test
   public void crashReopenOfRenameTombstoneKeepsUnrelatedPositiveId() throws Exception {
     final var first = wowCache.externalFileId(1);
     wowCache.addFile("unrelatedOne.tst", first, true);
     final var renamed = wowCache.externalFileId(2);
-    wowCache.addFile("renameTwo.tst", renamed);
-    wowCache.renameFile(renamed, "renamedTwo.tst");
+    wowCache.addFile("renamedTwo.tst", renamed);
+    wowCache.pauseBackgroundFlush();
+
+    // Model a historical map image. The old logical name has a -1 deleted record followed
+    // by the live name for file 2. Neither record may displace unrelated live file 1.
+    final var firstRecord = NameIdMapFile.encode(
+        new NameFileIdEntry("unrelatedOne.tst", 1, files.get(first).getName()), storageName);
+    final var deletedRecord = NameIdMapFile.encode(
+        new NameFileIdEntry("renameTwo.tst", -1, "renameTwo_2.tst"), storageName);
+    final var liveRecord = NameIdMapFile.encode(
+        new NameFileIdEntry("renamedTwo.tst", 2, files.get(renamed).getName()), storageName);
+    final var image = ByteBuffer.allocate(
+        firstRecord.remaining() + deletedRecord.remaining() + liveRecord.remaining());
+    image.put(firstRecord).put(deletedRecord).put(liveRecord).flip();
+    for (final var mapName : java.util.List.of("name_id_map_v3.cm", "name_id_map_v3_backup.cm")) {
+      Files.write(storagePath.resolve(mapName), image.array());
+    }
+
     crashReopenCache();
     assertEquals("unrelatedOne.tst", wowCache.fileNameById(first));
     assertTrue(wowCache.isNonDurable(first));
     assertEquals(renamed, wowCache.fileIdByName("renamedTwo.tst"));
+    assertEquals(-1, wowCache.fileIdByName("renameTwo.tst"));
   }
 
   /** Release channels without whole-cache close, so reopening reads the original append log. */

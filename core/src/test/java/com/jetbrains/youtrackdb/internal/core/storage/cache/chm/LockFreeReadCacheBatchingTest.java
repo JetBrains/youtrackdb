@@ -2546,10 +2546,6 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public void renameFile(final long fileId, final String newFileName) {
-    }
-
-    @Override
     public long[] close() {
       closeCount.incrementAndGet();
       return new long[0];

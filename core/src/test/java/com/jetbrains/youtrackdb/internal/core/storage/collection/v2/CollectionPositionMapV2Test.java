@@ -195,14 +195,6 @@ public class CollectionPositionMapV2Test {
     verify(atomicOperation).deleteFile(FILE_ID);
   }
 
-  // Verifies that rename() updates both the write-cache file name and the component name.
-  @Test
-  public void renameUpdatesFileNameAndComponentName() throws IOException {
-    positionMap.rename("newCluster");
-    verify(mockWriteCache).renameFile(FILE_ID, "newCluster" + EXTENSION);
-    assertThat(positionMap.getName()).isEqualTo("newCluster");
-  }
-
   // Verifies that getFileId() returns the file ID assigned during create().
   @Test
   public void getFileIdReturnsAssignedId() {

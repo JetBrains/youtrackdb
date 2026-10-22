@@ -876,10 +876,6 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
-    public void renameFile(final long fileId, final String newFileName) {
-    }
-
-    @Override
     public long[] close() {
       return new long[0];
     }
