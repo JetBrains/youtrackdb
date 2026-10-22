@@ -434,13 +434,10 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public Stream<RawPair<Object, RID>> descStream(
       IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
-    final var lastKey = sbTree.lastKey(atomicOperation);
-    if (lastKey == null) {
-      return Stream.empty();
-    }
-
+    // Resolve the last entry on first pull. A captured physical key includes a version and
+    // can exclude its replacement if a writer commits before the cursor fetches its first batch.
     return indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation),
+        sbTree.iterateEntriesMinor(null, true, false, atomicOperation),
         BTreeSingleValueIndexEngine::extractKey)
         .filter(p -> p.first() != null);
   }
