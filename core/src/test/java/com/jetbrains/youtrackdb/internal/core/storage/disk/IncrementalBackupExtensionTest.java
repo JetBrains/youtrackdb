@@ -1068,15 +1068,56 @@ public class IncrementalBackupExtensionTest {
     assertEquals("injected close error", forceFailure.getSuppressed()[0].getMessage());
   }
 
-  /** A capable output forces the payload, publishes one tail, flushes, forces and then closes. */
+  /** The dormant owner leaves production generations, full payload and publication order unchanged. */
   @Test
   public void forcedOutputPublishesOneTailRequest() throws Exception {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
+      var trackerField = DiskStorage.class.getDeclaredField("changedPageTracker");
+      trackerField.setAccessible(true);
+      var tracker = trackerField.get(storage);
+      var stateFields = List.of("active", "sealed", "lastCompleted", "pendingResetId");
+      var before = new ArrayList<Object>();
+      for (var fieldName : stateFields) {
+        var field = tracker.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        before.add(field.get(tracker));
+      }
+      var realReads = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(realReads));
+      var readField = AbstractStorage.class.getDeclaredField("readCache");
+      readField.setAccessible(true);
+      var physicalSizes = new HashMap<Long, Long>();
+      var cache = storage.getWriteCache();
+      for (var fileId : cache.files().values()) {
+        var external = cache.externalFileId(cache.internalFileId(fileId));
+        physicalSizes.put(external, cache.physicalSizeForBackupSnapshot(external));
+      }
       var output = new RecordingOutput();
-      var name = storage.backup(() -> List.<String>of().iterator(),
-          file -> InputStream.nullInputStream(), file -> output, file -> {
-          });
+      String name;
+      readField.set(storage, reads);
+      try {
+        name = storage.backup(() -> List.<String>of().iterator(),
+            file -> InputStream.nullInputStream(), file -> output, file -> {
+            });
+      } finally {
+        readField.set(storage, realReads);
+      }
+      assertTrue("the fixture must contain physical pages", physicalSizes.values().stream()
+          .anyMatch(size -> size > 0));
+      for (var entry : physicalSizes.entrySet()) {
+        for (int page = 0; page < entry.getValue(); page++) {
+          org.mockito.Mockito.verify(reads).silentLoadForRead(entry.getKey(), page, cache, true);
+        }
+      }
+      for (int i = 0; i < stateFields.size(); i++) {
+        var field = tracker.getClass().getDeclaredField(stateFields.get(i));
+        field.setAccessible(true);
+        assertSame("production must not begin or finish a tracker boundary", before.get(i),
+            field.get(tracker));
+      }
       assertEquals(2, output.forceCalls);
       assertEquals(1, output.closeCalls);
       assertEquals(1, output.tailRequests);

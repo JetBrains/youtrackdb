@@ -120,6 +120,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -1716,7 +1717,7 @@ public class DiskStorage extends AbstractStorage {
                   ibuNextFile);
             }
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn,
-                getIdGen().getLastId(), semanticIdentity, barrierPresent);
+                getIdGen().getLastId(), semanticIdentity, barrierPresent, null);
             // A custom supplier may publish writes only when flushed, rather than on close.
             xxHashStream.flush();
             // The barrier flag covers only the payload. Force the complete unit after its tail
@@ -1951,18 +1952,22 @@ public class DiskStorage extends AbstractStorage {
 
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
-      long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent)
-      throws IOException {
+      long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent,
+      @Nullable BackupContinuity continuity) throws IOException {
     var tailBytes = new ByteArrayOutputStream(IBU_V6_METADATA_SIZE);
     var dataOutputStream = new DataOutputStream(tailBytes);
     dataOutputStream.writeLong(0); // Filled after the fields covered by the metadata checksum.
     dataOutputStream.writeInt(barrierPresent ? BARRIER_PRESENT : BARRIER_ABSENT);
-    // No tracker history is consumed. Absent continuity has canonical zero UUID slots.
-    dataOutputStream.writeInt(CONTINUITY_ABSENT);
-    dataOutputStream.writeLong(0);
-    dataOutputStream.writeLong(0);
-    dataOutputStream.writeLong(0);
-    dataOutputStream.writeLong(0);
+    // Present continuity is tracker-first and MSB-first. Absent slots are canonical zeros.
+    dataOutputStream.writeInt(continuity == null ? CONTINUITY_ABSENT : CONTINUITY_PRESENT);
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.trackerId().getMostSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.trackerId().getLeastSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.generationId().getMostSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.generationId().getLeastSignificantBits());
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
@@ -3502,6 +3507,129 @@ public class DiskStorage extends AbstractStorage {
       BackupSemanticIdentity semanticIdentity,
       @Nullable BackupContinuity continuity) {
 
+  }
+
+  /** Converts the admitted head without changing tracker-then-generation ordering. */
+  static ChangedPageTrackerBackup.Continuity toFacadeContinuity(BackupContinuity head) {
+    return new ChangedPageTrackerBackup.Continuity(head.trackerId(), head.generationId());
+  }
+
+  @Nullable static BackupContinuity pairFor(ChangedPageTrackerBackup.Context context) {
+    Objects.requireNonNull(context);
+    if (context.outcome() == ChangedPageTrackerBackup.BeginOutcome.PENDING_SEAL) {
+      return null;
+    }
+    var generation = context.durabilityCapable()
+        ? context.consumedIdentifier() : context.lastCompletedIdentifier();
+    return generation == null ? null
+        : new BackupContinuity(context.trackerIdentifier(), generation);
+  }
+
+  /** Single-threaded request authority. The caller owns output, writer pause and exclusion. */
+  static final class BackupRequestOwner {
+    enum State {
+      CREATED, BEGUN_NEW, BEGUN_PENDING, COMPLETED, ABANDONED, CLEANUP_FAILED
+    }
+
+    private final ChangedPageTracker tracker;
+    @Nullable private ChangedPageTrackerBackup.Context context;
+    private State state = State.CREATED;
+    private boolean cleanupAttempted;
+
+    BackupRequestOwner(ChangedPageTracker tracker) {
+      this.tracker = Objects.requireNonNull(tracker);
+    }
+
+    State state() {
+      return state;
+    }
+
+    ChangedPageTrackerBackup.Context begin(@Nullable BackupContinuity head, boolean capable) {
+      require(state == State.CREATED);
+      context = ChangedPageTrackerBackup.begin(tracker,
+          head == null ? null : toFacadeContinuity(head), capable);
+      state = context.outcome() == ChangedPageTrackerBackup.BeginOutcome.NEW_BOUNDARY
+          ? State.BEGUN_NEW : State.BEGUN_PENDING;
+      return context;
+    }
+
+    ChangedPageTrackerBackup.Status finish(Path path,
+        ChangedPageTrackerBackup.CompletionFacts facts,
+        ChangedPageTrackerBackup.CoverageSource source, Consumer<String> warningSink) {
+      require(state == State.BEGUN_NEW || state == State.BEGUN_PENDING);
+      ChangedPageTrackerBackup.Status status;
+      if (context.sealHandle() == null) {
+        status = ChangedPageTrackerBackup.Status.NO_BOUNDARY;
+        state = State.ABANDONED;
+      } else if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
+        status = abandonOnce(null);
+      } else {
+        try {
+          status = ChangedPageTrackerBackup.complete(tracker, context, path, facts, source);
+        } catch (RuntimeException | Error primary) {
+          abandonOnce(primary);
+          throw primary;
+        }
+        state = State.COMPLETED;
+      }
+      // A returned facade outcome is terminal before any diagnostic can reenter this owner.
+      try {
+        switch (status) {
+          case SAVED_CONTINUITY, MERGED_NOT_CONSUMED -> {
+          }
+          case NO_BOUNDARY ->
+              warningSink.accept("Backup has a pending seal. Continuity is absent.");
+          case SAVED_UNTRUSTED -> warningSink.accept("Backup completion saved untrusted history.");
+          case SAVE_FAILED_INVALIDATED ->
+              warningSink.accept("Backup completion save failed. History invalidated.");
+          case SAVE_FAILED_INVALIDATION_FAILED ->
+              warningSink.accept("Backup completion save and invalidation failed.");
+          case COVERAGE_UNAVAILABLE ->
+              warningSink.accept("Backup completion coverage unavailable. History invalidated.");
+          case COVERAGE_UNAVAILABLE_INVALIDATION_FAILED ->
+              warningSink.accept("Backup completion coverage and invalidation unavailable.");
+        }
+      } catch (RuntimeException | Error diagnosticFailure) {
+        // Diagnostics cannot revoke a returned result or acquire cleanup authority again.
+      }
+      return status;
+    }
+
+    void abort(@Nullable Throwable primary) {
+      if (context == null || cleanupAttempted || state == State.COMPLETED
+          || state == State.ABANDONED || state == State.CLEANUP_FAILED) {
+        return;
+      }
+      abandonOnce(primary);
+    }
+
+    private ChangedPageTrackerBackup.Status abandonOnce(@Nullable Throwable primary) {
+      cleanupAttempted = true;
+      try {
+        var status = ChangedPageTrackerBackup.abandon(tracker, context);
+        state = State.ABANDONED;
+        return status;
+      } catch (RuntimeException | Error cleanup) {
+        state = State.CLEANUP_FAILED;
+        if (primary == null) {
+          throw cleanup;
+        }
+        if (primary != cleanup) {
+          try {
+            primary.addSuppressed(cleanup);
+          } catch (RuntimeException | Error suppressionFailure) {
+            // Preserve the original failure even when suppression is unavailable.
+          }
+        }
+        return null;
+      }
+    }
+
+    private void require(boolean allowed) {
+      if (!allowed) {
+        throw new IllegalStateException("Backup request is " + state);
+      }
+    }
   }
 
   /** The optional immutable pair from an admitted unit, not live tracker authority. */
