@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -1300,26 +1301,96 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertEquals(3, wowCache.files().size());
   }
 
-  /** Two damaged copies keep the source prefix and repair both files before later appends. */
+  /** Two damaged copies salvage the suffix, repair both files, and permit append and reopen. */
   @Test
-  public void testV3ChecksumMismatchOpensOnlyValidPrefix() throws Exception {
+  public void testV3ChecksumMismatchSalvagesLaterRegistrations() throws Exception {
     final var path = writeClosedV3Map();
+    final var entries = readMapEntries();
     final var bytes = Files.readAllBytes(path);
     final var image = ByteBuffer.wrap(bytes);
-    final NameFileIdEntry first;
-    try (final var channel = FileChannel.open(path)) {
-      first = NameIdMapFile.scan(channel).iterator().next();
-    }
     final var offset = NameIdMapFile.HEADER_SIZE + image.getInt(8);
     image.putLong(offset, image.getLong(offset) ^ 1);
     Files.write(path, bytes);
-    Files.write(storagePath.resolve("name_id_map_v3_backup.cm"), bytes);
+    final var backup = storagePath.resolve("name_id_map_v3_backup.cm");
+    Files.write(backup, bytes);
     createNewCache();
-    assertEquals(java.util.Map.of(first.getName(), first.getFileId()), mapSnapshot("nameIdMap"));
-    org.junit.Assert.assertArrayEquals(java.util.Arrays.copyOf(bytes, offset),
-        Files.readAllBytes(path));
-    wowCache.addFile("afterRepair.tst");
-    assertEquals(2, readMapEntries().size());
+    final var kept = java.util.List.of(entries.getFirst(), entries.getLast());
+    for (final var entry : kept) {
+      assertEquals(entry.getFileId(),
+          wowCache.internalFileId(wowCache.fileIdByName(entry.getName())));
+    }
+    assertEquals(2, wowCache.files().size());
+    final var expected = mapImage(kept.toArray(NameFileIdEntry[]::new));
+    for (final var copy : java.util.List.of(path, backup)) {
+      org.junit.Assert.assertArrayEquals(expected, Files.readAllBytes(copy));
+      try (final var channel = FileChannel.open(copy)) {
+        assertTrue(NameIdMapFile.scan(channel).intact());
+      }
+    }
+    final var appended = wowCache.addFile("afterRepair.tst");
+    assertEquals(3, readMapEntries().size());
+    reopenCache();
+    assertEquals(appended, wowCache.fileIdByName("afterRepair.tst"));
+    assertEquals(3, wowCache.files().size());
+  }
+
+  /** Dropped ranges log bounded, unverified names or explain why names cannot be read. */
+  @Test
+  public void damagedSourceWarningsDescribeEveryDroppedRange() throws Exception {
+    wowCache.close();
+    final var entry = new NameFileIdEntry("rejected.tst", -7, "rejected_7.tst");
+    final var damaged = mapImage(entry);
+    damaged[0] ^= 1;
+    final var valid = mapImage(new NameFileIdEntry("kept.tst", -8, "kept_8.tst"));
+    final var bytes = ByteBuffer.allocate(damaged.length + valid.length + 3);
+    bytes.put(damaged).put(valid).put(new byte[] {1, 2, 3});
+    final var main = storagePath.resolve("name_id_map_v3.cm");
+    final var backup = storagePath.resolve("name_id_map_v3_backup.cm");
+    Files.write(main, bytes.array());
+    Files.write(backup, bytes.array());
+    try (final var logs = LogRecordCollector.attachTo(WOWCache.class)) {
+      createNewCache();
+      assertTrue(logs.warnedWithAll("Damaged name-id map", backup.toString(),
+          "[0, " + damaged.length + ")", entry.getName(), entry.getFileSystemName(),
+          "not verified", "checksum failed"));
+      assertTrue(logs.warnedWithAll("Damaged name-id map", backup.toString(),
+          "[" + (damaged.length + valid.length) + ", " + bytes.limit() + ")",
+          "name cannot be read"));
+      assertEquals(2, logs.messages().stream()
+          .filter(message -> message.startsWith("WARNING")
+              && message.contains("Damaged name-id map"))
+          .count());
+    }
+  }
+
+  /** Intact-source selection does not warn about damage found only in the discarded copy. */
+  @Test
+  public void intactSourceDoesNotEmitDamagedSourceWarning() throws Exception {
+    final var path = writeClosedV3Map();
+    final var bytes = Files.readAllBytes(path);
+    ByteBuffer.wrap(bytes).putInt(8, Integer.MAX_VALUE);
+    Files.write(path, bytes);
+    try (final var logs = LogRecordCollector.attachTo(WOWCache.class)) {
+      createNewCache();
+      assertFalse(logs.warnedWithAll("Damaged name-id map"));
+      assertEquals(3, wowCache.files().size());
+    }
+  }
+
+  /** Suffix records from the nonchosen copy never enter the repaired image or replay. */
+  @Test
+  public void salvageUsesOnlyChosenCopyAndReplaysLastRecordInFileOrder() throws Exception {
+    final var prefix = new NameFileIdEntry("prefix.tst", -7, "prefix_7.tst");
+    final var kept = new NameFileIdEntry("suffix.tst", -8, "suffix_8.tst");
+    final var later = new NameFileIdEntry("suffix.tst", -9, "suffix_9.tst");
+    final var other = new NameFileIdEntry("other.tst", -10, "other_10.tst");
+    final var main = ByteBuffer.allocate(mapImage(prefix, other).length + 3);
+    main.put(mapImage(prefix)).put(new byte[] {1, 2, 3}).put(mapImage(other));
+    final var backup = ByteBuffer.allocate(mapImage(prefix, kept, later).length + 3);
+    backup.put(mapImage(prefix)).put(new byte[] {4, 5, 6}).put(mapImage(kept, later));
+    assertMapSource(main.array(), backup.array(), mapImage(prefix, kept, later));
+    assertEquals(-9, mapSnapshot("nameIdMap").get("suffix.tst"));
+    assertFalse(mapSnapshot("nameIdMap").containsKey("other.tst"));
   }
 
   private Path writeClosedV3Map() throws Exception {
@@ -1382,8 +1453,9 @@ public class WOWCacheNonDurableFileTrackingTest {
           .forEach(entry -> expectedNames.put(entry.getName(), entry.getFileId()));
     }
     assertEquals(expectedNames, mapSnapshot("nameIdMap"));
+    final var keptRecordCount = readMapEntries().size();
     wowCache.addFile("appendedAfterRepair.tst");
-    assertEquals(expectedNames.size() + 1, readMapEntries().size());
+    assertEquals(keptRecordCount + 1, readMapEntries().size());
     org.junit.Assert.assertArrayEquals(Files.readAllBytes(mainPath),
         Files.readAllBytes(backupPath));
   }

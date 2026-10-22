@@ -17,9 +17,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorageMaintenanceFloorTest;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -81,7 +86,7 @@ public class NameIdMapFileTest {
         () -> NameIdMapFile.encode(new NameFileIdEntry(maximum.getName() + "x", 1, ""), "test"));
   }
 
-  /** Every possible truncation inside a record stops before that record, without salvage. */
+  /** Every truncation inside the last record keeps the complete prefix and drops the tail. */
   @Test
   public void truncationRetainsOnlyCompletePrefix() throws Exception {
     final var prefix = image(FIRST);
@@ -94,6 +99,11 @@ public class NameIdMapFileTest {
       assertFalse("cut " + cut, scan.intact());
       assertEquals(prefix.limit(), scan.validEnd());
       assertEquals(List.of(FIRST), entries(scan));
+      final var dropped = new ArrayList<NameIdMapFile.DroppedRange>();
+      assertEquals(List.of(FIRST), entries(scan.salvage(dropped::add)));
+      assertEquals(1, dropped.size());
+      assertEquals(prefix.limit(), dropped.getFirst().start());
+      assertEquals(bytes.limit(), dropped.getFirst().end());
     }
   }
 
@@ -145,7 +155,85 @@ public class NameIdMapFileTest {
     final var scan = scan(path);
     assertFalse(scan.intact());
     assertEquals(prefix.limit(), scan.validEnd());
-    assertEquals(List.of(FIRST), entries(scan));
+    final var dropped = new ArrayList<NameIdMapFile.DroppedRange>();
+    final var kept = scan.salvage(dropped::add);
+    assertEquals(List.of(FIRST, SECOND), entries(kept));
+    assertEquals(image(FIRST, SECOND), kept.bytes());
+    assertTrue(kept.intact());
+    assertEquals(1, dropped.size());
+    assertEquals(prefix.limit(), dropped.getFirst().start());
+    assertEquals(prefix.limit() + record.limit(), dropped.getFirst().end());
+  }
+
+  /** Torn lengths, torn payloads and header fragments resynchronize at the later real record. */
+  @Test
+  public void salvageFindsRecordsAfterTornStructures() throws Exception {
+    final var tornLength = image(FIRST);
+    tornLength.putInt(8, Integer.MAX_VALUE);
+    assertDamagedRecord(tornLength);
+    final var tornPayload = ByteBuffer.wrap(java.util.Arrays.copyOf(image(FIRST).array(), 21));
+    assertDamagedRecord(tornPayload);
+    assertDamagedRecord(ByteBuffer.wrap(new byte[] {1, 2, 3, 4, 5}));
+  }
+
+  /** Each separated damaged range is reported once and surviving records retain file order. */
+  @Test
+  public void salvageReportsMultipleRangesAndKeepsIntactScanUnchanged() throws Exception {
+    final var record = image(FIRST);
+    record.putLong(0, record.getLong(0) ^ 1);
+    final var tail = new byte[] {1, 2, 3};
+    final var bytes = ByteBuffer.allocate(record.limit() + image(SECOND, FIRST).limit() + 6);
+    bytes.put(record).put(image(SECOND)).put(tail).put(image(FIRST)).put(tail).flip();
+    final var source = scan(write(bytes));
+    final var dropped = new ArrayList<NameIdMapFile.DroppedRange>();
+    final var kept = source.salvage(dropped::add);
+    assertEquals(0, source.validEnd());
+    assertFalse(source.intact());
+    assertEquals(List.of(SECOND, FIRST), entries(kept));
+    assertEquals(3, dropped.size());
+    assertEquals(FIRST, dropped.getFirst().unverifiedEntry());
+    assertEquals(null, dropped.get(1).unverifiedEntry());
+    assertEquals(null, dropped.get(2).unverifiedEntry());
+    assertEquals(bytes.limit(), dropped.getLast().end());
+    assertTrue(kept == kept.salvage(range -> {
+      throw new AssertionError("intact scan must not report damage");
+    }));
+  }
+
+  /**
+   * A real process halt after a durable normal commit and torn map leaves recoverable suffix
+   * registrations. Open repairs both copies, preserves committed data, and a second open is clean.
+   */
+  @Test
+  public void abruptStopSalvagesTornMapAfterDurableCommit() throws Exception {
+    final var root = directory.newFolder().toPath();
+    final var offset = DiskStorageMaintenanceFloorTest.crashChild(root, "salvage");
+    final var main = root.resolve("maintenanceFloor/name_id_map_v3.cm");
+    final var backup = main.resolveSibling("name_id_map_v3_backup.cm");
+    assertFalse(scan(main).intact());
+    assertFalse(scan(backup).intact());
+    assertEquals(offset, scan(backup).validEnd());
+    for (var reopen = 0; reopen < 2; reopen++) {
+      try (final var logs = LogRecordCollector.attachTo(WOWCache.class);
+          final var manager = (YouTrackDBImpl) YourTracks.instance(root.toString());
+          final var session = manager.open("maintenanceFloor", "admin", "admin")) {
+        final var cache = ((AbstractStorage) session.getStorage()).getWriteCache();
+        assertTrue("the suffix registration must survive without WAL recreation",
+            cache.fileIdByName("salvaged.tst") >= 0);
+        assertEquals(-1, cache.fileIdByName("torn.tst"));
+        try (final var records = session.query("select count(*) as total from Work")) {
+          assertEquals(300L, ((Number) records.next().getProperty("total")).longValue());
+        }
+        assertTrue(scan(main).intact());
+        assertTrue(scan(backup).intact());
+        assertArrayEquals(Files.readAllBytes(main), Files.readAllBytes(backup));
+        assertEquals(reopen == 0, logs.warnedWithAll("Damaged name-id map", backup.toString(),
+            "[" + offset + ",", "name cannot be read"));
+        if (reopen == 1) {
+          assertFalse(logs.warnedWithAll("Damaged name-id map"));
+        }
+      }
+    }
   }
 
   /** Oversized copies fail before reading or allocating their contents. */

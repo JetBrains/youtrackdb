@@ -14,6 +14,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.function.Consumer;
 
 /**
  * V3 records: big-endian hash (8), payload length (4), id (4), logical name and disk name.
@@ -75,22 +76,30 @@ final class NameIdMapFile {
   }
 
   private static boolean validRecord(ByteBuffer bytes, int offset) {
+    final var end = structuredRecordEnd(bytes, offset);
+    return end >= 0
+        && checksum(bytes, offset + HEADER_SIZE, end - offset - HEADER_SIZE)
+            == bytes.getLong(offset);
+  }
+
+  /** Checks structure without allocating or hashing candidate payloads during resynchronization. */
+  private static int structuredRecordEnd(ByteBuffer bytes, int offset) {
     if (bytes.limit() - offset < HEADER_SIZE) {
-      return false;
+      return -1;
     }
     final var length = bytes.getInt(offset + LENGTH_OFFSET);
     final var payload = offset + HEADER_SIZE;
     if (length <= 0 || length > MAX_RECORD_LENGTH || length > bytes.limit() - payload) {
-      return false;
+      return -1;
     }
     final var end = payload + length;
     // Validate both counted strings before the serializer can allocate from their lengths.
     var next = skipString(bytes, payload + Integer.BYTES, end);
     if (next < 0) {
-      return false;
+      return -1;
     }
     next = skipString(bytes, next, end);
-    return next == end && checksum(bytes, payload, length) == bytes.getLong(offset);
+    return next == end ? end : -1;
   }
 
   private static int skipString(ByteBuffer bytes, int offset, int end) {
@@ -113,13 +122,56 @@ final class NameIdMapFile {
     final var payload = bytes.duplicate();
     payload.position(offset + HEADER_SIZE);
     final var id = payload.getInt();
-    // Only validated records from the retained scan buffer reach decoding.
+    // Callers bound both counted strings with structuredRecordEnd before decoding.
     final var name = StringSerializer.staticDeserializeFromByteBufferObject(payload);
     final var diskName = StringSerializer.staticDeserializeFromByteBufferObject(payload);
     return new NameFileIdEntry(name, id, diskName);
   }
 
+  /** Names from a rejected record describe unverified bytes, not a trusted registration. */
+  record DroppedRange(int start, int end, NameFileIdEntry unverifiedEntry) {
+  }
+
   record Scan(ByteBuffer bytes, int validEnd, boolean intact) implements Iterable<NameFileIdEntry> {
+
+    /**
+     * Keeps the prefix and later validated records as raw bytes in file order. The original scan
+     * stays unchanged because source selection must compare only the original valid prefixes.
+     */
+    Scan salvage(Consumer<DroppedRange> dropped) {
+      if (intact) {
+        return this;
+      }
+      final var image = ByteBuffer.allocate(bytes.limit());
+      image.put(bytes.slice(0, validEnd));
+      var start = validEnd;
+      // The record at validEnd is already known to be damaged.
+      var offset = validEnd + 1;
+      while (offset < bytes.limit()) {
+        if (!validRecord(bytes, offset)) {
+          offset++;
+          continue;
+        }
+        if (start < offset) {
+          reportDropped(dropped, start, offset);
+        }
+        final var end = offset + HEADER_SIZE + bytes.getInt(offset + LENGTH_OFFSET);
+        image.put(bytes.slice(offset, end - offset));
+        offset = end;
+        start = end;
+      }
+      if (start < bytes.limit()) {
+        reportDropped(dropped, start, bytes.limit());
+      }
+      image.flip();
+      return new Scan(image.asReadOnlyBuffer(), image.limit(), true);
+    }
+
+    private void reportDropped(Consumer<DroppedRange> dropped, int start, int end) {
+      // A rejected hash does not make unchecked serializer allocations safe.
+      final var entry = structuredRecordEnd(bytes, start) < 0 ? null : decode(bytes, start);
+      dropped.accept(new DroppedRange(start, end, entry));
+    }
 
     @Override
     public Iterator<NameFileIdEntry> iterator() {
