@@ -2949,15 +2949,22 @@ public final class WOWCache extends AbstractWriteCache
       deleteMapTemporaryFiles();
       final var copies = readMapCopies();
       final var source = copies.source();
-      if (source != null && !source.intact()) {
-        logger.warn("Damaged name-id map {}. Keeping valid prefix [0, {}) of {} bytes",
-            copies.sourcePath(), source.validEnd(), source.bytes().limit());
-      }
-      final var image = source == null ? ByteBuffer.allocate(0)
-          : source.bytes().slice(0, source.validEnd());
+      final var kept = source == null || source.intact() ? source : source.salvage(range -> {
+        final var entry = range.unverifiedEntry();
+        if (entry == null) {
+          logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), name cannot be read",
+              copies.sourcePath(), range.start(), range.end());
+        } else {
+          logger.warn("Damaged name-id map {}. Dropping bytes [{}, {}), logical name '{}' and"
+              + " disk name '{}' not verified because the checksum failed",
+              copies.sourcePath(), range.start(), range.end(), entry.getName(),
+              entry.getFileSystemName());
+        }
+      });
+      final var image = kept == null ? ByteBuffer.allocate(0) : kept.bytes();
       // Repair and force both copies before opening components can append new records.
       repairMapCopies(copies, image);
-      readNameIdMapV3(source == null ? List.of() : source);
+      readNameIdMapV3(kept == null ? List.of() : kept);
     } catch (IOException | RuntimeException | Error failure) {
       stopNameIdMapWrites(failure);
       throw failure;
