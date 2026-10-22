@@ -455,35 +455,8 @@ public class DirectMemoryOnlyDiskCacheTest {
   }
 
   // ---------------------------------------------------------------------------
-  // File operations — rename / delete
+  // File operations
   // ---------------------------------------------------------------------------
-
-  /**
-   * Verifies that {@code renameFile()} updates both the name-to-ID and ID-to-name maps so that
-   * the file is findable under its new name but not its old name.
-   */
-  @Test
-  public void testRenameFile() {
-    var fileId = cache.addFile("old.cf");
-    cache.renameFile(fileId, "new.cf");
-
-    assertTrue("File must exist under new name", cache.exists("new.cf"));
-    assertFalse("File must not exist under old name", cache.exists("old.cf"));
-    // fileIdByName returns the internal (lower 32-bit) ID.
-    var internalId = cache.internalFileId(fileId);
-    assertEquals(internalId, cache.fileIdByName("new.cf"));
-  }
-
-  /**
-   * Verifies that {@code renameFile()} is a no-op when the file ID is unknown — it must not throw
-   * and the maps must remain unchanged.
-   */
-  @Test
-  public void testRenameNonExistentFileIsNoOp() {
-    var unknownId = AbstractWriteCache.composeFileId(STORAGE_ID, 9999);
-    cache.renameFile(unknownId, "irrelevant.cf"); // must not throw
-    assertFalse(cache.exists("irrelevant.cf"));
-  }
 
   /**
    * Verifies that {@code shrinkFile(fileId, targetBytes)} is a no-op for the in-memory engine —

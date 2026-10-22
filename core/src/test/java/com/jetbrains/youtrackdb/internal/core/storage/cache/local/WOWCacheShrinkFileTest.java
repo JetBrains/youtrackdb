@@ -1099,7 +1099,7 @@ public class WOWCacheShrinkFileTest {
       //
       // The window is forced open explicitly rather than by assuming the work below outruns the
       // clock. That work is not cheap: allocateAndOptionallyDirty's addFile and the deleteFile
-      // after it each finish with writeNameIdEntry(..., sync = true), i.e. a real
+      // after it each finish with writeNameIdEntry(...), i.e. a real
       // nameIdMapHolder.force(true) fsync, plus a file create, a blank-page task and an unlink. On
       // an I/O-throttled runner that can cumulatively outlast the one-minute throttle interval, at
       // which point the second clamp legitimately emits and an assertion of 1 fails on correct

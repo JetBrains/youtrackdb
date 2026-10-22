@@ -933,7 +933,7 @@ public final class WOWCache extends AbstractWriteCache
         nameIdMap.put(fileName, fileId);
         idNameMap.put(fileId, fileName);
 
-        writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
+        writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()));
 
         return externalId;
       }
@@ -1134,7 +1134,7 @@ public final class WOWCache extends AbstractWriteCache
           registryAttempted = true;
           writeNonDurableRegistry();
         }
-        writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
+        writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()));
         return fileId;
       } catch (IOException | RuntimeException | Error | java.lang.InterruptedException failure) {
         restoreMapEntry(nameIdMap, fileName, existingFileId);
@@ -2192,7 +2192,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        writeNameIdEntry(new NameFileIdEntry(file.logicalName(), -intId, file.diskName()), true);
+        writeNameIdEntry(new NameFileIdEntry(file.logicalName(), -intId, file.diskName()));
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -2315,59 +2315,6 @@ public final class WOWCache extends AbstractWriteCache
     final var secondIntId = extractFileId(secondId);
 
     return firstIntId == secondIntId;
-  }
-
-  @Override
-  public void renameFile(long fileId, final String newFileName) throws IOException {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
-
-    filesLock.acquireWriteLock();
-    try {
-      checkForClose();
-      checkNameIdMapAppendsAllowed();
-
-      final var entry = files.acquire(fileId);
-
-      if (entry == null) {
-        return;
-      }
-
-      final String oldOsFileName;
-      final var newOsFileName = createInternalFileName(newFileName, intId);
-
-      try {
-        final var file = entry.get();
-        oldOsFileName = file.getName();
-
-        final var newFile = storagePath.resolve(newOsFileName);
-        file.renameTo(newFile);
-      } finally {
-        files.release(entry);
-      }
-
-      final var oldFileName = idNameMap.get(intId);
-
-      nameIdMap.remove(oldFileName);
-      nameIdMap.put(newFileName, intId);
-
-      idNameMap.put(intId, newFileName);
-
-      writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
-      writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
-      try {
-        forceMapCopy(storagePath.resolve(NAME_ID_MAP_V3_BACKUP));
-      } catch (IOException | RuntimeException | Error failure) {
-        stopNameIdMapWrites(failure);
-        throw failure;
-      }
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName, "Rename of file was interrupted"),
-          e, storageName);
-    } finally {
-      filesLock.releaseWriteLock();
-    }
   }
 
   private void stopFlush() {
@@ -3402,7 +3349,7 @@ public final class WOWCache extends AbstractWriteCache
         nameIdMap.put(nameFileIdEntry.getName(), nameFileIdEntry.getFileId());
         if (nameFileIdEntry.getFileId() < 0) {
           // Deleted IDs must not remain live in the inverse map or durability registry.
-          // Rename tombstones use -1, so only remove the matching logical name.
+          // A deleted record can share its absolute ID with a different live logical name.
           idNameMap.remove(-nameFileIdEntry.getFileId(), nameFileIdEntry.getName());
         }
         idNameMap.put(nameFileIdEntry.getFileId(), nameFileIdEntry.getName());
@@ -3451,11 +3398,11 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void writeNameIdEntry(final NameFileIdEntry nameFileIdEntry, final boolean sync)
+  private void writeNameIdEntry(final NameFileIdEntry nameFileIdEntry)
       throws IOException {
     checkNameIdMapAppendsAllowed();
     try {
-      appendNameIdEntry(nameFileIdEntry, sync);
+      appendNameIdEntry(nameFileIdEntry);
     } catch (RuntimeException failure) {
       stopNameIdMapWrites(failure);
       // WAL replay treats runtime exceptions as incomplete units. A registry failure must
@@ -3468,21 +3415,20 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   // Package-private seam. Rewrites deliberately bypass the guarded append path.
-  void appendNameIdEntry(final NameFileIdEntry nameFileIdEntry, final boolean sync)
-      throws IOException {
-    final var record = NameIdMapFile.encode(nameFileIdEntry, storageName);
-    appendMapCopy(nameIdMapHolderPath, record, sync);
-    appendMapCopy(storagePath.resolve(NAME_ID_MAP_V3_BACKUP), record, false);
-  }
-
-  private void appendMapCopy(Path path, ByteBuffer record, boolean sync) throws IOException {
+  void appendNameIdEntry(final NameFileIdEntry nameFileIdEntry) throws IOException {
     checkNameIdMapAppendsAllowed();
-    try (final var channel = FileChannel.open(path, StandardOpenOption.READ,
+    final var record = NameIdMapFile.encode(nameFileIdEntry, storageName);
+    try (final var channel = FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ,
         StandardOpenOption.WRITE)) {
       IOUtils.writeByteBuffer(record.duplicate(), channel, channel.size());
-      if (sync && callFsync) {
+      if (callFsync) {
         channel.force(true);
       }
+    }
+    // The checkpoint forces the backup before cutting the WAL needed to replay these appends.
+    try (final var channel = FileChannel.open(storagePath.resolve(NAME_ID_MAP_V3_BACKUP),
+        StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+      IOUtils.writeByteBuffer(record.duplicate(), channel, channel.size());
     }
   }
 

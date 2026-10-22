@@ -435,8 +435,6 @@ public interface WriteCache {
    */
   boolean shrinkFile(long fileId, long targetBytes) throws IOException;
 
-  void renameFile(long fileId, String newFileName) throws IOException;
-
   long[] close() throws IOException;
 
   void close(long fileId, boolean flush);
