@@ -104,15 +104,7 @@ public class WOWCacheTestIT {
       }
     }
 
-    var nameIdMapFile = storagePath.resolve("name_id_map.cm").toFile();
-    if (nameIdMapFile.exists()) {
-      Assert.assertTrue(nameIdMapFile.delete());
-    }
-
-    nameIdMapFile = storagePath.resolve("name_id_map_v2.cm").toFile();
-    if (nameIdMapFile.exists()) {
-      Assert.assertTrue(nameIdMapFile.delete());
-    }
+    Files.deleteIfExists(storagePath.resolve("name_id_map_v3.cm"));
   }
 
   @AfterClass

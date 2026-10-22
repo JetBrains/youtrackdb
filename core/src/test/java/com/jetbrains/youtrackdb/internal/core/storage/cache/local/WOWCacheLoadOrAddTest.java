@@ -1285,21 +1285,15 @@ public class WOWCacheLoadOrAddTest {
    * <p><b>Scenario.</b> {@code loadOrAdd}'s extend and gap-fill branches submit an
    * {@link EnsurePageIsValidInFileTask} to the commit executor and return without waiting for
    * it, so the stamp write is asynchronous with respect to the allocation. If the file is
-   * removed in the interval — {@code deleteFile}, or {@code replaceFileId}, which unregisters
-   * both ids from {@code files} while it rebinds them, or a backup restore — the queued task
-   * runs against a fileId that {@code files.acquire} no longer resolves and returns
+   * removed in the interval by {@code deleteFile} or a backup restore, the queued task runs
+   * against a fileId that {@code files.acquire} no longer resolves and returns
    * {@code null} for. This test drives that state deterministically: allocate and flush page 0
    * (so the file genuinely exists on disk), delete the file, then invoke
    * {@code writeValidPageInFile} directly, which is precisely what the queued task would do.
    *
-   * <p><b>Pre-fix failure mode.</b> There was no null check: the method dereferenced the null
-   * entry at {@code entry.get()} and threw {@link NullPointerException} out of the flush
-   * executor (and would then have called {@code files.release(null)} from the finally block).
-   * The fix logs at WARN and returns.
-   *
-   * <p><b>Assertions.</b> The call must not throw, and it must not resurrect the deleted file
-   * on disk — a stamp write here would recreate a file the storage believes is gone (or, on the
-   * {@code replaceFileId} path, write into a fileId that now belongs to another component).
+   * <p><b>Assertions.</b> The call must log at WARN and return without throwing. It must not
+   * resurrect the deleted file on disk. A stamp write here would recreate a file the storage
+   * believes is gone.
    */
   @Test
   public void writeValidPageInFileSkipsStampWhenFileWasAlreadyRemoved() throws IOException {
@@ -1321,8 +1315,7 @@ public class WOWCacheLoadOrAddTest {
     assertFalse("deleteFile must remove the file from disk", Files.exists(diskPath));
 
     // Stand-in for an EnsurePageIsValidInFileTask that was queued before the delete and runs
-    // after it. Pre-fix this threw NullPointerException from entry.get(); post-fix it logs a
-    // WARN and returns.
+    // after it. The task logs a WARN and returns when the file has no container entry.
     wowCache.writeValidPageInFile(intId, 0);
 
     assertFalse(

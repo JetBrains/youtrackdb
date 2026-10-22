@@ -108,6 +108,22 @@ public interface WriteCache {
 
   void syncDataFiles(long segmentId) throws IOException;
 
+  /** Whether a registry failure forbids WAL reclamation for this cache session. */
+  default boolean isWalCuttingStopped() {
+    return false;
+  }
+
+  /** Runs WAL removal only after the cache has made its file registry durable. */
+  default boolean executeCheckpoint(CheckpointAction cut) throws IOException {
+    cut.execute();
+    return true;
+  }
+
+  @FunctionalInterface
+  interface CheckpointAction {
+    void execute() throws IOException;
+  }
+
   void flushTillSegment(long segmentId);
 
   boolean exists(String fileName);
@@ -419,8 +435,6 @@ public interface WriteCache {
    */
   boolean shrinkFile(long fileId, long targetBytes) throws IOException;
 
-  void renameFile(long fileId, String newFileName) throws IOException;
-
   long[] close() throws IOException;
 
   void close(long fileId, boolean flush);
@@ -520,8 +534,6 @@ public interface WriteCache {
   void create() throws IOException;
 
   void open() throws IOException;
-
-  void replaceFileId(long fileId, long newFileId) throws IOException;
 
   /**
    * Deletes all non-durable files from both read and write caches during crash recovery.
