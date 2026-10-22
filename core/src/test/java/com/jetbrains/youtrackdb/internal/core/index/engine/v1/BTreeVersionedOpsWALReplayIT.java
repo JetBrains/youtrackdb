@@ -363,7 +363,9 @@ public class BTreeVersionedOpsWALReplayIT {
    * Crash with an uncommitted transaction: only committed data should survive.
    *
    * <p>TX1 commits 5 records. TX2 inserts 5 more but does NOT commit.
-   * The persisted baseline is empty. The open-storage copy captures both transactions.
+   * The persisted baseline is empty. The files are copied while TX2 is still active.
+   * TX2's inserts exist only in the memory of the source session.
+   * The copy never contains them.
    * After WAL replay, only TX1's records must be visible. TX2 checks transaction visibility,
    * not a crash inside an atomic WAL unit.
    */
