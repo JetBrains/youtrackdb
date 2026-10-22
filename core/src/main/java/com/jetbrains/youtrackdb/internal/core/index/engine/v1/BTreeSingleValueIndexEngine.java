@@ -419,15 +419,9 @@ public final class BTreeSingleValueIndexEngine
 
   @Override
   public Stream<RID> getNullKeyRids(boolean ascending, @Nonnull AtomicOperation atomicOperation) {
-    if (ascending) {
-      return get(null, atomicOperation);
-    }
-    // The null user-key prefix expands to version-free bounds, resolved on first pull.
-    var prefix = CompositeKey.asCompositeKey(null);
-    return indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        sbTree.iterateEntriesBetween(prefix, true, prefix, true, false, atomicOperation),
-        BTreeSingleValueIndexEngine::extractKey)
-        .filter(entry -> entry.first() == null).map(RawPair::second);
+    // A single-value null key has at most one visible RID, so its order is trivial.
+    // The point lookup also rejects incomplete composite keys without scanning their prefix.
+    return get(null, atomicOperation);
   }
 
   @Override

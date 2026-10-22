@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.tx;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -9,12 +10,18 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -158,7 +165,8 @@ public class SnapshotIsolationIndexesDirectionalNullTest extends SnapshotIsolati
   }
 
   @Test
-  public void exactBatchLastReplacementAndUnreadDeletionPreserveSnapshotAcrossPages() {
+  public void exactBatchLastReplacementAndUnreadDeletionPreserveSnapshotAcrossPages()
+      throws Exception {
     // UNIQUE has no ten-entry null batch. Its singleton replacement is covered above.
     if (indexType == INDEX_TYPE.UNIQUE) {
       return;
@@ -166,13 +174,18 @@ public class SnapshotIsolationIndexesDirectionalNullTest extends SnapshotIsolati
     try (var reader = openSession()) {
       reader.begin();
       var expected = ordered(visible, false);
-      try (var stream = reader.getIndex(INDEX).getNullKeyRids(reader, false)) {
+      try (var probe = new TreeProbe(reader, reader.getIndex(INDEX), "nullTree");
+          var stream = reader.getIndex(INDEX).getNullKeyRids(reader, false)) {
         var iterator = stream.iterator();
         var actual = new ArrayList<RID>();
         for (int i = 0; i < 10; i++) {
           actual.add(iterator.next());
         }
         assertEquals(expected.subList(0, 10), actual);
+        // Count raw tree cursor advances, before visibility filtering and any RID sorting.
+        // A collect-and-reverse implementation exhausts all 8192 entries on the first pull.
+        assertEquals(10, probe.advanced.get());
+        assertTrue(probe.advanced.get() < visible.size());
         var boundary = expected.get(9);
         for (int i = 0; i < 3; i++) {
           remove(boundary);
@@ -181,7 +194,9 @@ public class SnapshotIsolationIndexesDirectionalNullTest extends SnapshotIsolati
         // Change an unread entry too, then continue across the remaining leaf pages.
         var unread = expected.get(15);
         remove(unread);
+        assertEquals("writer commits must leave unread storage entries", 10, probe.advanced.get());
         iterator.forEachRemaining(actual::add);
+        assertTrue(probe.advanced.get() >= visible.size());
         assertEquals(expected, actual);
         var current = new ArrayList<>(visible);
         current.remove(unread);
@@ -235,6 +250,80 @@ public class SnapshotIsolationIndexesDirectionalNullTest extends SnapshotIsolati
       local.removeFirst();
       assertRead(reader, local, false);
       reader.rollback();
+    }
+  }
+
+  /** Composite UNIQUE indexes have no standalone null key, even with many (null, i) keys. */
+  @Test
+  public void compositeUniqueNullReadUsesPointLookupWithoutPrefixTraversal() throws Exception {
+    if (indexType != INDEX_TYPE.UNIQUE) {
+      return;
+    }
+    var schema = db.createVertexClass("CompositeNull");
+    schema.createProperty("a", PropertyType.INTEGER);
+    schema.createProperty("b", PropertyType.INTEGER);
+    schema.createIndex("CompositeNull_ab", INDEX_TYPE.UNIQUE, "a", "b");
+    db.begin();
+    var records = new ArrayList<RID>();
+    for (int i = 0; i < 100; i++) {
+      var record = db.newVertex("CompositeNull");
+      record.setProperty("a", null);
+      record.setProperty("b", i);
+      records.add(record.getIdentity());
+    }
+    db.commit();
+    db.begin();
+    var index = db.getIndex("CompositeNull_ab");
+    try (var probe = new TreeProbe(db, index, "sbTree")) {
+      for (boolean ascending : new boolean[] {true, false}) {
+        try (var nulls = index.getNullKeyRids(db, ascending);
+            var point = index.getRids(db, new CompositeKey(null, 50))) {
+          assertTrue(nulls.toList().isEmpty());
+          assertEquals(List.of(records.get(50)), point.toList());
+        }
+      }
+      assertEquals("null point reads must not acquire prefix cursors", 0, probe.scans.get());
+      assertEquals(0, probe.advanced.get());
+    }
+    db.commit();
+  }
+
+  /**
+   * Delegates to the real tree and counts raw stream advances for the reader atomic operation.
+   * Writer cursors use different operations and do not affect the reader budget. The field is
+   * restored before session teardown, and the delegate owns all mutable tree state.
+   */
+  private static final class TreeProbe implements AutoCloseable {
+    private final Object engine;
+    private final Field field;
+    private final Object original;
+    private final AtomicInteger advanced = new AtomicInteger();
+    private final AtomicInteger scans = new AtomicInteger();
+
+    private TreeProbe(DatabaseSessionEmbedded session, Index index, String fieldName)
+        throws Exception {
+      var storage = (AbstractStorage) session.getStorage();
+      engine = storage.getIndexEngine(index.getIndexId());
+      field = engine.getClass().getDeclaredField(fieldName);
+      field.setAccessible(true);
+      original = field.get(engine);
+      var readerOperation = session.getActiveTransaction().getAtomicOperation();
+      var counted = mock(CellBTreeSingleValue.class, invocation -> {
+        var arguments = invocation.getArguments();
+        var result = invocation.getMethod().invoke(original, arguments);
+        if (result instanceof Stream<?> stream
+            && java.util.Arrays.stream(arguments).anyMatch(arg -> arg == readerOperation)) {
+          scans.incrementAndGet();
+          return stream.peek(entry -> advanced.incrementAndGet());
+        }
+        return result;
+      });
+      field.set(engine, counted);
+    }
+
+    @Override
+    public void close() throws IllegalAccessException {
+      field.set(engine, original);
     }
   }
 

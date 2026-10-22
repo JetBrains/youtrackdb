@@ -440,7 +440,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     assertThat(results.getLast().getProperty("key") == null).isEqualTo(!nullsFirst);
   }
 
-  /** Both null-bound lookup fallbacks use scan direction before any residual query filtering. */
+  /** Scalar and Cartesian-expanded null bounds use scan direction before residual filtering. */
   @Test
   public void nullPointAndCollectionConversionFallbacksUseScanDirection() {
     var fixture = createIndexedClass();
@@ -458,6 +458,34 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
             ? java.util.Comparator.naturalOrder() : java.util.Comparator.reverseOrder()).toList();
         assertThat(results.stream().filter(r -> r.getProperty("key") == null)
             .map(r -> (RID) r.getProperty("rid")).toList()).containsExactlyElementsOf(expected);
+      }
+    }
+  }
+
+  /**
+   * A nested collection survives Cartesian expansion as one two-element INTEGER bound. Conversion
+   * cannot fit it into the one-field type array, so recovery must read its null element separately.
+   * Both directions preserve numeric RID order. Null placement flags do not reorder point lookups.
+   */
+  @Test
+  public void nestedCollectionConversionRecoveryUsesScanDirection() {
+    var fixture = createIndexedClass();
+    var nullRids = seedNullReturningRids(fixture.className, 33);
+    seed(fixture.className, 10);
+    for (boolean ascending : new boolean[] {true, false}) {
+      for (boolean nullsFirst : new boolean[] {true, false}) {
+        var bound = List.of(java.util.Arrays.asList(null, 10));
+        var condition = andBlockOf(binaryCondition("key", new SQLEqualsOperator(-1), bound));
+        var ctx = newContext();
+        var step = new FetchFromIndexStep(
+            new IndexSearchDescriptor(getIndex(fixture.indexName), condition), ascending,
+            nullsFirst, ctx, false);
+        var results = startAndDrain(step, ctx);
+        var expected = nullRids.stream().sorted(ascending
+            ? java.util.Comparator.naturalOrder() : java.util.Comparator.reverseOrder()).toList();
+        assertThat(results.stream().filter(r -> r.getProperty("key") == null)
+            .map(r -> (RID) r.getProperty("rid")).toList()).containsExactlyElementsOf(expected);
+        assertThat(keys(results)).hasSize(34).endsWith(10);
       }
     }
   }
