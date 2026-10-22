@@ -957,14 +957,17 @@ tag lengths, ordered rule expressions and match distribution with each fixture. 
 as fixture metadata.
 
 Use six scenario families:
-1. Off: no query or commit listener and no log hook. Run tiny queries and scans in candidate and
-   base revisions. A no-op SDK with registered listeners is not an off baseline.
-2. Mostly rejected: threshold `100` ms, heartbeat `0`, LIGHTWEIGHT, short successful queries.
-   Check that at least 99% of completions fail their own duration gate. Record histograms anyway.
-3. Emit-all: threshold `0`, LIGHTWEIGHT, short successful queries, with one accepted SQL child
-   per Path B traversal and no child on Path A. Keep the buffer at its default 128 entries.
-4. EXACT scans: 10,000 fully consumed rows. Measure direct SQL and Path A with one timing layer,
-   and Path B with both Gremlin and SQL timing. Threshold `0`, no consumer sleeps or `.profile()`.
+1. Off: timing mode not applicable. No query or commit listener and no log hook. Run tiny queries
+   and scans in candidate and base revisions. A no-op SDK with registered listeners is not off.
+2. Mostly rejected: threshold `100` ms, heartbeat `0`, short successful queries. Run LIGHTWEIGHT
+   and EXACT for direct SQL, Path A and Path B. Check that at least 99% of completions fail their
+   own duration gate in each arm. Record histograms anyway.
+3. Emit-all: threshold `0`, short successful queries. Run LIGHTWEIGHT and EXACT for direct SQL,
+   Path A and Path B. Each mode has one accepted SQL child per Path B traversal and no child on
+   Path A. Keep the buffer at its default 128 entries.
+4. Scans: 10,000 fully consumed rows in both LIGHTWEIGHT and EXACT. Run direct SQL and Path A
+   with one timing layer, and Path B with both Gremlin and SQL timing. Threshold `0`, no consumer
+   sleeps or `.profile()`.
 5. Concurrent tags: mostly rejected Gremlin at 1 and 8 threads. Configure 16 ordered rules
    containing exact, prefix and simple regex cases. Exercise early, late and no match. Use both
    32 repeated tags and a stream of distinct short tags. Set the global threshold fallback and
@@ -977,6 +980,14 @@ Use six scenario families:
 6. Logs: invoke `LogManager` once per operation with a fixed INFO template and arguments, no
    exception and message-body opt-in off. Use an admitting, non-noop SLF4J provider with a local
    discard sink. Run 1 and 8 threads. Off performs the same local log call without the OTel hook.
+
+Only timing mode differs between each workload's LIGHTWEIGHT and EXACT arms. Keep thresholds,
+rejection checks, SQL children, buffer size and histograms identical. EXACT uses paired
+`System.nanoTime()` reads per delegated `hasNext()` and `next()` call. Short queries with few
+rows add few pairs. SQL and Path A pay one timing layer. Path B with SQL children pays two.
+Each EXACT arm shares its LIGHTWEIGHT arm's candidate-off denominator. Reports show both modes
+side by side for each path and workload. Report their throughput-loss gap without a gap budget.
+Accepted risk: the gate grows by nine arms, which adds benchmark time per run.
 
 Each enabled query fixture enables metrics and the queries group. Keep the histogram dimension
 schema unchanged and report cache hit or collision pressure as fixture metadata. Warm the cache
@@ -1011,9 +1022,28 @@ profiles or merge data from different configurations into one score.
 
 Throughput loss is `100 * (1 - Qscenario / Qoff)`, where Q is operations per second. Candidate-off
 uses base-off as its denominator. All enabled scenarios use their own candidate-off fixture.
-The alert budgets are 1% for off, 10% for mostly rejected, 35% for emit-all SQL and Path A,
-40% for emit-all Path B, 30% for single-layer EXACT scans, 45% for layered EXACT scans,
-15% for concurrent tags and 50% for logs. Treat every thread count and query path independently.
+The accepted alert budgets are 1% for off, 10% for LIGHTWEIGHT mostly rejected, 35% for
+LIGHTWEIGHT emit-all SQL and Path A, 40% for LIGHTWEIGHT emit-all Path B, 30% for single-layer
+EXACT scans, 45% for layered EXACT scans, 15% for LIGHTWEIGHT concurrent tags and 50% for logs.
+New arm estimates and budgets below are proposals pending user confirmation. Estimates describe
+throughput loss, not measurements. Each budget allows modest headroom above the estimated upper
+bound. Short-query EXACT arms allow a small clock premium. LIGHTWEIGHT scans avoid per-call
+clock reads but retain spans and histograms.
+
+| New arm | Proposed throughput-loss estimate | Proposed alert budget relative to off |
+|---|---|---|
+| Mostly rejected, EXACT, SQL | 0.5–6% | 12% |
+| Mostly rejected, EXACT, Path A | 0.5–9% | 12% |
+| Mostly rejected, EXACT, Path B | 0.5–10% | 15% |
+| Emit-all, EXACT, SQL | 2–27% | 38% |
+| Emit-all, EXACT, Path A | 3–32% | 38% |
+| Emit-all, EXACT, Path B | 5–38% | 45% |
+| Scans, LIGHTWEIGHT, SQL | 1–15% | 20% |
+| Scans, LIGHTWEIGHT, Path A | 1–15% | 20% |
+| Scans, LIGHTWEIGHT, Path B | 2–25% | 30% |
+
+Treat every thread count and query path independently. Each arm is compared only with its own
+off arm. The EXACT-minus-LIGHTWEIGHT gap is reported, not budgeted.
 Do not average a regression away across scenarios. The collision-heavy and OTLP diagnostic
 variants report results without these budgets because they change the main assumptions.
 
@@ -1049,7 +1079,8 @@ benchmark code work. The PR comparison keeps its 5% base-versus-candidate thresh
 identical arms.
 
 Performance breaches are reporting-only in continuous integration (CI). They do not block
-merge. The user accepts these budgets, fixtures, runner and confidence rules. Inconclusive
+merge. Existing budgets, fixtures, runner and confidence rules remain user-accepted.
+New arm estimates and budgets remain pending user confirmation. Inconclusive
 evidence gets an explicit warning and a rerun recommendation. Execution and artifact-integrity
 failures keep the workflows' existing failure behavior. No benchmark code or workflow is added
 by this design edit. Measured reports must distinguish this policy from correctness tests.
