@@ -27,6 +27,10 @@ public class AtomicUnitStartMetadataRecord extends AtomicUnitStartRecord {
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     super.deserializeFromByteBuffer(buffer);
     var len = buffer.getInt();
+    // Reject corrupt nested lengths before allocating metadata.
+    if (len < 0 || len > buffer.remaining()) {
+      throw new IllegalArgumentException("Atomic metadata length exceeds WAL record content");
+    }
     this.metadata = new byte[len];
     buffer.get(this.metadata);
   }

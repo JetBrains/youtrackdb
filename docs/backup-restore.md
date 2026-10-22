@@ -14,23 +14,42 @@ replays the full backup and each following increment from the same database.
 
 Each unit carries a small **backup header** at its tail. The header records the database
 identifier as a universally unique identifier (UUID). It also records the unit position,
-covered log range, and full content hash code. This release writes format version 5. It reads
-format versions 3, 4, and 5. Versions 4 and 5 have a metadata checksum and a force-barrier flag. The
-flag states whether the writer made the payload durable before it wrote the tail.
+covered log range, and full content hash code. This release writes format version 6.
+It reads format versions 3, 4, 5, and 6. Versions 4, 5, and 6 have a metadata checksum
+and a force-barrier flag. The flag states whether the writer made the payload durable
+before it wrote the tail.
 
-An incremental backup checks the chain before adding a unit. For version 4 and 5 units, it checks
+Version 6 has a 122-byte tail with optional **continuity** fields. Continuity identifies
+tracker history with a tracker UUID and a generation UUID. New units record absent
+continuity with zero identifier slots. These fields do not change restore admission.
+They do not enable selective page reads or consume tracker history. The force-barrier
+flag does not certify that the final flush or close succeeded.
+
+An output with a force capability can make preceding bytes and the file length durable.
+The writer flushes the payload and padding before the first force call.
+After writing and flushing the tail, it calls that capability a second time.
+Complete-unit durability requires both a successful second force and successful close.
+An output without this capability has no such durability guarantee.
+
+Local file output also forces the file during close.
+Local directory synchronization remains best effort.
+An input/output error during directory synchronization does not fail the backup.
+A successful local backup therefore does not strictly guarantee durable publication of
+its new file name.
+
+An incremental backup checks the chain before adding a unit. For version 4, 5, and 6 units, it checks
 metadata without reading the payload when the input supplier can read the tail. A newest unit
 with a valid metadata checksum and a present force-barrier flag needs only this check. A version
-3 newest unit, a version 4 or 5 newest unit without the flag, and a unit with a failed metadata
+3 newest unit, a version 4, 5, or 6 newest unit without the flag, and a unit with a failed metadata
 checksum need a full content hash check.
 
 A unit below the chain head needs only header admission. With a tail-read supplier, the
-extension reads only its tail, including for a version 3 unit below a version 4 or 5 head.
+extension reads only its tail, including for a version 3 unit below a version 4, 5, or 6 head.
 Without tail reads, the supplier reads the complete unit, but admission still skips the
 full content hash check when the metadata is valid. An unreadable tail stops extension.
 
 A restore checks the full content hash of every unit and the metadata checksum of every
-version 4 or 5 unit. An extension does not detect payload damage in a unit admitted from its
+version 4, 5, or 6 unit. An extension does not detect payload damage in a unit admitted from its
 header alone. Restore detects such damage.
 
 ## Run a backup or restore
@@ -66,15 +85,18 @@ before the database becomes available.
 
 ## Older backups are unsupported
 
-This release reads backup format versions 3, 4, and 5. It writes version 5, which may contain
-a page-allocation WAL record that older releases cannot replay. Version 5 uses the version 4
-header layout and its checksum and force-barrier flag. An incremental backup can add version 5
-to a version 3 or 4 chain without rewriting older units.
+This release reads backup format versions 3, 4, 5, and 6. It writes version 6.
+Version 5 introduced a page-allocation write-ahead log (WAL) record that older releases
+cannot replay. Version 5 uses the version 4 header layout, metadata checksum, and
+force-barrier flag. Version 6 adds continuity fields to that header.
 
-An older release that reads format version 3 or 4 refuses a chain that this release extended.
-It refuses restore or extension before any target file changes. See the exception below for
-releases older than format version 3. Keep a copy of the old chain before upgrading if a downgrade
-may be needed.
+An incremental backup can append version 6 to supported version 3, 4, or 5 chains.
+It does not rewrite existing units. Restore accepts mixed version 3, 4, 5, and 6 chains.
+
+Readers limited to versions 3, 4, and 5 refuse version 6 restore and extension.
+They refuse before target replay or mutation and before removing source units.
+See the separate exception below for releases older than format version 3.
+Keep a copy of the old chain before upgrading if a downgrade may be needed.
 
 Versions 1 and 2 lack the database format and creation completion evidence. This release also
 refuses units with an unknown format version. A refusal leaves every source unit in place:
@@ -90,10 +112,15 @@ directory unchanged until the new chain is complete.
 A full backup replaces every unit for its database in the target directory, including
 units with an unknown format version. The new, empty directory protects the old chain from
 that overwrite behavior. A build older than format version 3 can remove a newest unit
-that it cannot validate. This includes version 3, 4, and 5 units. Do not extend a
+that it cannot validate. This includes version 3, 4, 5, and 6 units. Do not extend a
 newer chain with such a build. Use a new, empty directory.
 
 ## Unreadable backup output needs an operator decision
+
+A failed backup call does not prove that its output is absent or unusable for restore.
+A final flush, force, or close failure can leave a complete unit.
+The writer keeps that output without rewriting its tail or automatically deleting it.
+Normal chain admission checks decide whether a later extension can use it.
 
 A crash during a backup write can leave output without a readable header. An incremental
 extension cannot classify that output. It preserves the file and refuses to extend the chain.
@@ -105,9 +132,9 @@ the `ytdbIncrementalBackup` service again.
 You can instead create a full backup in a new, empty directory. This option leaves the existing
 chain unchanged.
 
-An incremental backup removes recognized incomplete version 3, 4, or 5 units above the chain
-head only after a full content hash check fails for each one. Removal starts only after the entire chain
-passes inspection. A failed metadata checksum alone never allows removal. An incremental
+An incremental backup removes recognized incomplete version 3, 4, 5, or 6 units above the chain
+head only after a full content hash check fails for each one.
+Removal starts only after the entire chain passes inspection. A failed metadata checksum alone never allows removal. An incremental
 extension never removes an unclassifiable file. It leaves unclassifiable output from a
 process or host crash for the operator. A full backup still replaces `.ibu` files with this
 database's UUID prefix in its target directory, even when their headers are unreadable.
@@ -119,7 +146,7 @@ A restore performs its checks in this order:
 1. It checks the database name, target directory, target existence, reserved prefixes, and
    expected database identifier. These checks do not read the backup source or change a file.
 2. It copies every selected unit into temporary files and checks the full content hash of each
-   unit. It also checks the metadata checksum of each version 4 or 5 unit and validates the chain.
+   unit. It also checks the metadata checksum of each version 4, 5, or 6 unit and validates the chain.
 3. It creates the target, replays only the temporary copies, performs final checks, and makes
    the database available.
 

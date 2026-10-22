@@ -595,6 +595,16 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   @Override
+  public void closeAfterFailedOpen() throws IOException {
+    synchronized (mutex) {
+      // Open can fail before channel assignment. Existing segments still belong to recovery.
+      if (currentFile != null) {
+        currentFile.close();
+      }
+    }
+  }
+
+  @Override
   public void close() throws IOException {
     synchronized (mutex) {
       currentFile.close();

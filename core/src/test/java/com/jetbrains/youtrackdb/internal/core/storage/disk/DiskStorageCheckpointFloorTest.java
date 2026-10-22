@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
@@ -10,10 +11,12 @@ import static org.mockito.Mockito.spy;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
 import java.io.IOException;
@@ -96,11 +99,11 @@ public class DiskStorageCheckpointFloorTest {
     }
   }
 
-  /** An older synch clear cannot leave the later close timestamp unprotected (CN-1). */
+  /** Forced close waits for an older synch clear and re-marks its close timestamp (CN-1). */
   @Test
   public void synchOverlappingForcedShutdownRecoversCloseTimestamp() throws Exception {
     var mark = crashChild("overlappingClear");
-    assertTrue("close work must re-mark after the overlapping clear", isDirty());
+    assertTrue("close work must re-mark after the earlier checkpoint clear", isDirty());
     try (var manager = manager(); var session = manager.open(DATABASE, ADMIN, ADMIN)) {
       assertTrue(((AbstractStorage) session.getStorage()).getIdGen().getLastId() > mark);
     }
@@ -201,6 +204,8 @@ public class DiskStorageCheckpointFloorTest {
         var recoveryBegin = storage.getWALInstance().begin();
         assertTrue("the WAL must hold recovery records", recoveryBegin != null);
         assertTrue("writes must require recovery", isDirty((DiskStorage) storage));
+        var sideFile = root.resolve(DATABASE).resolve(ChangedPageTrackerFile.FILE_NAME);
+        var savedTracker = Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null;
         var afterFloor = new AtomicInteger();
         hookedStorage = storage;
         storage.setCheckpointFloorActionForTesting(ignored -> afterFloor.incrementAndGet());
@@ -213,11 +218,49 @@ public class DiskStorageCheckpointFloorTest {
             recoveryBegin, storage.getWALInstance().begin());
         assertTrue("a failed floor save must not clear the indication",
             isDirty((DiskStorage) storage));
+        assertArrayEquals("a failed floor save must not publish new tracker coverage",
+            savedTracker, Files.exists(sideFile) ? Files.readAllBytes(sideFile) : null);
         var mark = storage.getIdGen().getLastId();
         storage.synch();
+        assertTrue("a removing checkpoint must publish tracker coverage",
+            Files.isRegularFile(sideFile));
         assertEquals("a later checkpoint must retry the save", 1, afterFloor.get());
         assertTrue(java.nio.ByteBuffer.wrap(
             ((DiskStorage) storage).readStartupMetadataForTesting()).getLong(13) >= mark);
+      }
+    }
+  }
+
+  /** A failed tracker invalidation keeps real shutdown open and dirty until a successful retry. */
+  @Test
+  public void trackerInvalidationFailureAllowsRealShutdownRetry() throws Exception {
+    try (var manager = manager()) {
+      manager.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+      try (var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+        var storage = (DiskStorage) session.getStorage();
+        var sideFile = root.resolve(DATABASE).resolve(ChangedPageTrackerFile.FILE_NAME);
+        Files.deleteIfExists(sideFile);
+        Files.createDirectory(sideFile);
+        var blocker = sideFile.resolve("blocker");
+        Files.writeString(blocker, "retain authority");
+        var begin = storage.getWALInstance().begin();
+        try {
+          var failure = assertThrows(StorageException.class, () -> storage.close(session, true));
+          assertTrue(failure.getCause().getMessage().contains("side-file invalidation failed"));
+          assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.OPEN,
+              storage.getStatus());
+          assertEquals(begin, storage.getWALInstance().begin());
+          assertTrue("failed tracker publication must preserve recovery", isDirty(storage));
+          storage.checkErrorState();
+        } finally {
+          Files.delete(blocker);
+          Files.delete(sideFile);
+        }
+        storage.close(session, true);
+        assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.CLOSED,
+            storage.getStatus());
+        assertTrue(Files.isRegularFile(sideFile));
+        assertFalse("successful final close can clear recovery independently", isDirty());
       }
     }
   }
@@ -374,6 +417,8 @@ public class DiskStorageCheckpointFloorTest {
       storage.setAfterShutdownRemarkActionForTesting(shutdownRemarked::countDown);
       storage.getAtomicOperationsManager().setBeforeTimestampActionForTesting(() -> {
         try {
+          assertEquals("the close timestamp must follow the shutdown re-mark", 0L,
+              shutdownRemarked.getCount());
           assertTrue("the close timestamp must follow a durable re-mark",
               isDirty((DiskStorage) storage));
         } catch (IOException failure) {
@@ -390,12 +435,15 @@ public class DiskStorageCheckpointFloorTest {
       });
       var shutdown = CompletableFuture.runAsync(() -> storage.close(session, true));
       try {
-        assertTrue("forced shutdown did not re-mark after its checkpoint",
-            shutdownRemarked.await(30, TimeUnit.SECONDS));
+        awaitForcedCloseReaderDrain(storage, shutdown);
+        assertEquals("forced close must not re-mark while synch is paused", 1L,
+            shutdownRemarked.getCount());
       } finally {
         releaseSynch.countDown();
       }
       synch.get(30, TimeUnit.SECONDS);
+      assertTrue("forced shutdown did not re-mark after its checkpoint",
+          shutdownRemarked.await(30, TimeUnit.SECONDS));
       shutdown.get(30, TimeUnit.SECONDS);
       throw new AssertionError("close-time crash hook was not reached");
     } else if (args[0].equals("forced")) {
@@ -485,6 +533,24 @@ public class DiskStorageCheckpointFloorTest {
     }
     writeMark(handshake, mark);
     Runtime.getRuntime().halt(0);
+  }
+
+  private static void awaitForcedCloseReaderDrain(
+      AbstractStorage storage, CompletableFuture<?> close) throws Exception {
+    Field field = AbstractStorage.class.getDeclaredField("stateLock");
+    field.setAccessible(true);
+    var stateLock = (ScalableRWLock) field.get(storage);
+    // The write bit is visible before reader drain, proving close reached lock acquisition.
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!stateLock.isWriteLocked() && !close.isDone() && System.nanoTime() < deadline) {
+      Thread.yield();
+    }
+    if (close.isDone()) {
+      close.get(10, TimeUnit.SECONDS);
+      throw new AssertionError("forced close completed while synch held read mode");
+    }
+    assertTrue("forced close must reach reader drain", stateLock.isWriteLocked());
+    assertFalse("forced close must wait for synch", close.isDone());
   }
 
   private static CompletableFuture<Void> writeOnce(AbstractStorage storage) {
