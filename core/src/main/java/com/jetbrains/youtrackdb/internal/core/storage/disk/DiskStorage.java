@@ -54,6 +54,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
@@ -367,6 +368,53 @@ public class DiskStorage extends AbstractStorage {
   private final ClosableLinkedContainer<Long, File> files;
   // Replaced under lifecycle exclusion. Checkpoint callers retain storage state exclusion.
   private volatile ChangedPageTracker changedPageTracker;
+
+  /**
+   * Dormant backup bridge. The caller holds storage state exclusion across completion, samples
+   * outside tracker save order, and preflights inside it. Sibling sampling places in AbstractStorage
+   * are fuzzy checkpoint, full flush and WAL vacuum. A shared helper would edit vacuum and
+   * checkpoint code outside this track's scope. Those paths also own distinct flush protocols.
+   */
+  class DiskBackupCoverageSource implements ChangedPageTrackerBackup.CoverageSource {
+
+    @Override
+    public long sampleBoundary() throws IOException {
+      final long anchor = writeAheadLog.activeSegment();
+      atomicOperationsTable.compactTable();
+      final long operation = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      // WOWCache waits on its executor. An inherited cancellation must not abort that wait.
+      boolean restoreInterrupt = Thread.interrupted();
+      final Long cache;
+      try {
+        cache = writeCache.getMinimalNotFlushedSegment();
+      } catch (IllegalStateException failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+          if (cause instanceof InterruptedException) {
+            restoreInterrupt = true;
+            break;
+          }
+        }
+        throw failure;
+      } finally {
+        if (restoreInterrupt) {
+          Thread.currentThread().interrupt();
+        }
+      }
+      long fixed = anchor;
+      if (operation >= 0) {
+        fixed = Math.min(fixed, operation);
+      }
+      if (cache != null) {
+        fixed = Math.min(fixed, cache);
+      }
+      return fixed;
+    }
+
+    @Override
+    public WriteAheadLog.CutPreflight preflightCut(long fixedBoundary) throws IOException {
+      return writeAheadLog.preflightCut(fixedBoundary);
+    }
+  }
 
   private Future<?> fuzzyCheckpointTask;
   private Future<?> recordsGcTask;
