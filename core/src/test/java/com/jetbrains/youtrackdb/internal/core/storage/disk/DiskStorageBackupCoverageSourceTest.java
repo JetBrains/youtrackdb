@@ -1,6 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -38,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.A
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -483,26 +483,40 @@ public class DiskStorageBackupCoverageSourceTest {
         records = realWal.next(records.getLast().getLsn(), 10000);
       }
       assertFalse("Real page changes must precede capture", updates.isEmpty());
-      // Retention and the unwritten newest segment both lower a requested cut boundary.
+      // Retention lowers a requested cut boundary regardless of background writer progress.
       var retained = realWal.end();
       realWal.addCutTillLimit(retained);
       realWal.appendNewSegment();
       assertTrue(realWal.activeSegment() > originalAnchor);
-      var before = realWal.nonActiveSegments();
+      realWal.flush();
+      // Physical inventory is stable after flush, unlike the writtenUpTo-filtered segment view.
+      var before = walInventory(root.resolve("coverage"));
+      assertTrue("Preflight must have older inventory available to cut", before.size() > 1);
       var clamped = source.preflightCut(realWal.activeSegment());
+      assertTrue(clamped.removesSegments());
       assertTrue(clamped.effectiveBoundary() <= retained.getSegment());
-      assertArrayEquals(before, realWal.nonActiveSegments());
+      assertEquals(before, walInventory(root.resolve("coverage")));
       realWal.log(new EmptyWALRecord());
       realWal.flush();
       // Now the writer is newer than the registered retention limit. Retention alone clamps it.
       assertEquals(retained.getSegment(),
           source.preflightCut(realWal.activeSegment()).effectiveBoundary());
       realWal.removeCutTillLimit(retained);
-      long writtenSegment = realWal.end().getSegment();
-      realWal.appendNewSegment();
-      // With retention removed, only the written boundary protects this unwritten segment.
-      assertEquals(writtenSegment,
-          source.preflightCut(realWal.activeSegment()).effectiveBoundary());
+      // Flush has drained earlier writes. Holding the writer lock keeps the next segment unwritten
+      // even if preflight is delayed, without changing the live WAL's scheduling configuration.
+      var writerLock = (ReentrantLock) field(CASDiskWriteAheadLog.class, realWal,
+          "recordsWriterLock");
+      assertTrue(writerLock.tryLock(10, TimeUnit.SECONDS));
+      try {
+        long writtenSegment = realWal.end().getSegment();
+        realWal.appendNewSegment();
+        assertTrue(realWal.activeSegment() > writtenSegment);
+        // With retention removed, only the written boundary protects this unwritten segment.
+        assertEquals(writtenSegment,
+            source.preflightCut(realWal.activeSegment()).effectiveBoundary());
+      } finally {
+        writerLock.unlock();
+      }
       realWal.log(new EmptyWALRecord());
       realWal.flush();
       long checkpointBoundary = realWal.activeSegment();
@@ -567,6 +581,13 @@ public class DiskStorageBackupCoverageSourceTest {
           task.cancel(false);
         }
       }
+    }
+  }
+
+  private static List<Path> walInventory(Path directory) throws IOException {
+    try (var files = Files.list(directory)) {
+      return files.filter(path -> path.getFileName().toString().endsWith(".wal"))
+          .sorted().toList();
     }
   }
 
