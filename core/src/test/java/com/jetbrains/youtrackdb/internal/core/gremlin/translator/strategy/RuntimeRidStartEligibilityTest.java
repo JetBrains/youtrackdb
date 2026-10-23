@@ -183,11 +183,11 @@ public class RuntimeRidStartEligibilityTest {
         __.V(A).out().out(), __.V(A).identity().as("extra").out());
   }
 
-  // Bare lookups, projections without a hop, property filters and edge output stay out.
+  // Bare lookups, projections without a hop, target-filtered unlabeled hops and edge output stay out.
   @Test
   public void missingHopAndOtherFiltersOrOutputsAreIneligible() {
     reject(__.V(A), __.V().hasId(A), __.V().out(), __.V(A).values("name"),
-        __.V(A).has("name", "a").out(), __.V(A).out().has("name", "a"),
+        __.V(A).has("name", P.gt("a")).out(), __.V(A).out().has("name", "a"),
         __.V(A).outE(), __.V(A).outE("a").values("name"), __.E(A).outV());
   }
 
@@ -503,6 +503,147 @@ public class RuntimeRidStartEligibilityTest {
     assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
     query.getStrategies().removeStrategies(StandardOrderSemanticsStrategy.class);
     assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+  }
+
+  // All exact immutable scalar classes and resolved variables qualify at their admitted phases.
+  @Test
+  public void scalarFiltersAndResolvedVariablesQualify() {
+    for (Object value : List.of("a", true, (byte) 1, (short) 2, 3, 4L, 5F, 6D,
+        new java.math.BigDecimal("7"))) {
+      for (Object operand : List.of(value, GValue.of("operand", value))) {
+        for (P<?> predicate : List.of(P.eq(operand), P.neq(operand))) {
+          assertThat(RuntimeRidStartEligibility.evaluate(
+              __.V(A).has("key", predicate).out().asAdmin(), true)).isNotNull();
+        }
+        for (P<?> predicate : List.of(P.eq(operand), P.neq(operand), P.lt(operand),
+            P.lte(operand), P.gt(operand), P.gte(operand), P.within(List.of(operand)),
+            P.without(List.of(operand)))) {
+          assertThat(RuntimeRidStartEligibility.evaluate(
+              __.V(A).out("a").has("key", predicate).asAdmin(), true)).isNotNull();
+        }
+      }
+    }
+    var variables = P.within(List.of(GValue.of("x", 1), "literal", GValue.of("x", 2),
+        GValue.of("y", true)));
+    assertThat(variables.getValue()).isEqualTo(List.of("literal", 2, true));
+    for (P<?> membership : List.of(variables, P.within(List.of(1, 1, "a")),
+        P.without(new java.util.LinkedHashSet<>(List.of(1, "a"))))) {
+      assertThat(RuntimeRidStartEligibility.evaluate(
+          __.V(A).out("a").has("key", membership).asAdmin(), true)).isNotNull();
+    }
+  }
+
+  // The phases accept conjunctions and exactly one filtered edge followed by its IN endpoint.
+  @Test
+  public void predicatePhasesAndEdgeFinalCombinationsQualify() {
+    for (int arm = 0; arm < 6; arm++) {
+      var hop = __.V().has("before", "a").hasLabel("Person").hasId(A)
+          .has("after", P.neq(false)).outE("a").has("edge", 1).inV()
+          .hasLabel("Person").has("key", P.within(1, "a", 1)).has("key", P.neq("b"));
+      var query = switch (arm) {
+        case 0 -> hop;
+        case 1 -> hop.count();
+        case 2 -> hop.values("name");
+        case 3 -> hop.limit(1);
+        case 4 -> hop.range(1, 2);
+        default -> hop.order().by(new ValueTraversal<>("name"));
+      };
+      assertThat(RuntimeRidStartEligibility.evaluate(query.asAdmin(), true)).isNotNull();
+    }
+    assertThat(RuntimeRidStartEligibility.evaluate(
+        __.V(A).has("key", 1).has("key", P.neq(2)).out().asAdmin(), true)).isNotNull();
+  }
+
+  // Separate post-strategy HasSteps obey the same phase and duplicate-label rules as merged ones.
+  @Test
+  public void separatePredicateStepsPreservePhaseRules() {
+    var query = __.V(A).out("a").asAdmin();
+    query.addStep(1, new HasStep<>(query, new HasContainer("start", P.neq(1))));
+    query.addStep(new HasStep<>(query, new HasContainer("target", P.gt(2))));
+    query.addStep(new HasStep<>(query, new HasContainer(T.label.getAccessor(), P.eq("Person"))));
+    query.addStep(new HasStep<>(query, new HasContainer("target", P.lt(3))));
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+    query.addStep(new HasStep<>(query, new HasContainer(T.label.getAccessor(), P.eq("Person"))));
+    assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+    var empty = __.V(A).out("a").asAdmin();
+    empty.addStep(new HasStep<>(empty));
+    assertThat(RuntimeRidStartEligibility.evaluate(empty, true)).isNull();
+  }
+
+  // Unsupported values stay literal even when nested inside nonempty membership operands.
+  @Test
+  public void unsupportedScalarAndMembershipValuesStayLiteral() {
+    for (Object value : java.util.Arrays.asList(null, new java.util.Date(),
+        java.math.BigInteger.ONE, new java.util.concurrent.atomic.AtomicInteger(1),
+        new Object(), List.of(1), java.util.Map.of("a", 1), A,
+        new java.math.BigDecimal("1") {
+        })) {
+      reject(__.V(A).has("key", P.eq(value)).out("a"),
+          __.V(A).out("a").has("key", P.eq(value)),
+          __.V(A).out("a").has("key", P.within(java.util.Arrays.asList(1, value))));
+    }
+    reject(__.V(A).has("key", P.gt(1)).out("a"),
+        __.V(A).has("key", P.within(1)).out("a"),
+        __.V(A).out("a").has("key", P.within(List.of())),
+        __.V(A).out("a").has("key", P.without(List.of())),
+        __.V(A).out("a").has("key", P.between(1, 3)),
+        __.V(A).out("a").has("key", P.eq(1).or(P.eq(2))),
+        __.V(A).out("a").has("key", org.apache.tinkerpop.gremlin.process.traversal.TextP
+            .startingWith("a")));
+  }
+
+  // Exact nested classes apply to ID and label as well as ordinary start, edge and target leaves.
+  @Test
+  public void predicateAndContainerSubclassesNeverQualify() {
+    for (String key : List.of(T.id.getAccessor(), T.label.getAccessor(), "key")) {
+      Object value = key.equals(T.id.getAccessor()) ? A
+          : key.equals(T.label.getAccessor()) ? "Person" : 1;
+      for (boolean predicateSubclass : List.of(false, true)) {
+        P<Object> predicate = predicateSubclass
+            ? new P<Object>(org.apache.tinkerpop.gremlin.process.traversal.Compare.eq, value) {
+            }
+            : P.eq(value);
+        HasContainer container = predicateSubclass ? new HasContainer(key, predicate)
+            : new HasContainer(key, predicate) {
+            };
+        var query = (key.equals(T.id.getAccessor()) ? __.V() : __.V(A)).out("a").asAdmin();
+        query.addStep(1, new HasStep<>(query, container));
+        assertThat(RuntimeRidStartEligibility.evaluate(query, true)).as(key).isNull();
+        if (!key.equals(T.id.getAccessor())) {
+          var target = __.V(A).out("a").asAdmin();
+          target.addStep(new HasStep<>(target, container));
+          assertThat(RuntimeRidStartEligibility.evaluate(target, true)).as(key).isNull();
+        }
+      }
+    }
+    var edge = __.V(A).outE("a").inV().asAdmin();
+    edge.addStep(2, new HasStep<>(edge, new HasContainer("key", P.eq(1)) {
+    }));
+    assertThat(RuntimeRidStartEligibility.evaluate(edge, true)).isNull();
+  }
+
+  // Each structural exclusion has a nearby admitted control in the phase and edge tests above.
+  @Test
+  public void predicateStructureExclusionsStayLiteral() {
+    reject(__.V(A).out("a").hasLabel("Person").hasLabel("Person"),
+        __.V(A).out("a").hasLabel("Person", "Other"),
+        __.V(A).out("a").hasId(B), __.V(A).out("a").hasId(B.toString()),
+        __.V(A).out().has("key", 1),
+        __.V(A).out().hasLabel("Person"), __.V(A).has("key", 1).out().count(),
+        __.V(A).inE("a").has("key", 1).outV(),
+        __.V(A).inE("a").has("key", 1).inV(),
+        __.V(A).bothE("a").has("key", 1).otherV(),
+        __.V(A).outE("a", "b").has("key", 1).inV(),
+        __.V(A).outE().has("key", 1).inV(),
+        __.V(A).outE("a").has("key", P.neq(1)).inV(),
+        __.V(A).outE("a").has("key", 1).has("other", 2).inV(),
+        __.V(A).outE("a").has("key", 1).outV(),
+        __.V(A).outE("a").has("key", 1).inV().out("b"),
+        __.V(A).outE("a").has("key", 1).inV().values("name").limit(1));
+    for (String key : List.of(" ", "~hidden", "@rid", "$private")) {
+      assertThat(RuntimeRidStartEligibility.evaluate(
+          __.V(A).out("a").has(key, 1).asAdmin(), true)).as(key).isNull();
+    }
   }
 
   private static Traversal.Admin<?, ?> postStrategy(GraphTraversal<?, ?> traversal) {

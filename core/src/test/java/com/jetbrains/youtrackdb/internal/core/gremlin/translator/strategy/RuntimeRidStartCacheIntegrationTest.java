@@ -209,6 +209,421 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Start, target and edge predicates rebind on both warm routes. Parallel links make duplicate
+   * loss visible. Missing, null and nonmatching properties distinguish neq and membership rules.
+   */
+  @Test
+  public void predicateFamiliesReuseBothCachesWithFreshValues() {
+    var a = graph.addVertex(T.label, "PredicateStart", "start", "first", "active", true);
+    var b = graph.addVertex(T.label, "PredicateStart", "start", "second", "active", true);
+    var x = graph.addVertex(T.label, "PredicateTarget", "value", 10, "name", "first");
+    var y = graph.addVertex(T.label, "PredicateTarget", "value", 20, "name", "second");
+    var missing = graph.addVertex(T.label, "PredicateTarget");
+    var presentNull = graph.addVertex(T.label, "PredicateTarget", "value", null);
+    for (var start : List.of(a, b)) {
+      start.addEdge("predicateLink", x, "edge", 10);
+      start.addEdge("predicateLink", x, "edge", 10);
+      start.addEdge("predicateLink", y, "edge", 20);
+      start.addEdge("predicateLink", missing, "edge", -1);
+      start.addEdge("predicateLink", presentNull, "edge", -1);
+    }
+    // Target edge has a deliberately opposite value. Filtering the endpoint would be wrong.
+    x.property("edge", 20);
+    y.property("edge", 10);
+    // Each edge arm has both matches, an edge-only match and a membership-only match.
+    // Distinct Integer operands expose swaps between all three parameter slots.
+    var edgeMatches = new java.util.ArrayList<Object>();
+    for (int value : List.of(10, 20)) {
+      // Cold and warm queries require different membership members to accept the repeated target.
+      var first =
+          graph.addVertex(T.label, "PredicateTarget", "value", value + (value == 10 ? 1 : 2),
+              "name", value == 10 ? "first" : "second", "edge", -1);
+      var edgeOnly = graph.addVertex(T.label, "PredicateTarget", "value", value + 3,
+          "name", "edge-only", "edge", -1);
+      var memberOnly =
+          graph.addVertex(T.label, "PredicateTarget", "value", value + (value == 10 ? 2 : 1),
+              "name", "member-only", "edge", -1);
+      edgeMatches.add(first.id());
+      for (var start : List.of(a, b)) {
+        start.addEdge("predicateFilteredLink", first, "edge", value + 100);
+        start.addEdge("predicateFilteredLink", first, "edge", value + 100);
+        start.addEdge("predicateFilteredLink", edgeOnly, "edge", value + 100);
+        start.addEdge("predicateFilteredLink", memberOnly, "edge", -1);
+      }
+    }
+    graph.tx().commit();
+    var session = db(graph);
+    var cache = GremlinPlanCache.instance(session);
+    var flag =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT;
+    var original = session.getConfiguration().getValueAsBoolean(flag);
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      for (boolean poly : List.of(false, true)) {
+        session.getConfiguration().setValue(flag, poly);
+        for (boolean hasId : List.of(false, true)) {
+          for (int arm = 0; arm < 16; arm++) {
+            cache.invalidate();
+            runs.set(0);
+            InternalExecutionPlan template = null;
+            List<?> cold = null;
+            for (int route = 0; route < 3; route++) {
+              var id = route == 0 ? a.id() : b.id();
+              int value = route == 0 ? 10 : 20;
+              var source = graph.traversal().withStrategies(
+                  GremlinToMatchStrategy.withTranslationCache(route != 1));
+              var query = predicateQuery(source, id, hasId, arm, value).asAdmin();
+              var hits = cache.getHits();
+              var translationHits = cache.getTranslationHits();
+              query.applyStrategies();
+              assertThat(query.getStartStep()).as("arm %s", arm)
+                  .isInstanceOf(YTDBMatchPlanStep.class);
+              var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+              if (template == null) {
+                template = boundary.getPlan();
+              }
+              assertThat(boundary.getPlan()).as("arm %s route %s", arm, route).isSameAs(template);
+              assertThat(runs.get()).isEqualTo(1);
+              assertThat(cache.getHits()).isEqualTo(hits + (route == 1 ? 1 : 0));
+              assertThat(cache.getTranslationHits())
+                  .isEqualTo(translationHits + (route == 2 ? 1 : 0));
+              var rows = query.toList();
+              if (arm >= 10) {
+                var match = edgeMatches.get(route == 0 ? 0 : 1).toString();
+                var name = route == 0 ? "first" : "second";
+                if (arm == 10) {
+                  assertThat(TranslatorEquivalenceSupport.sortedIds(rows))
+                      .as("edge and membership intersection route %s", route)
+                      .containsExactly(match, match);
+                } else if (arm == 11) {
+                  assertThat(rows).isEqualTo(List.of(2L));
+                } else if (arm == 12) {
+                  assertThat(TranslatorEquivalenceSupport.sortedStrings(rows))
+                      .containsExactly(name, name);
+                } else if (arm == 13 || arm == 14) {
+                  assertThat(TranslatorEquivalenceSupport.sortedIds(rows))
+                      .containsExactly(match);
+                } else {
+                  assertThat(rows.stream()
+                      .map(row -> ((org.apache.tinkerpop.gremlin.structure.Vertex) row).id()
+                          .toString())
+                      .toList())
+                      .containsExactly(match, match);
+                }
+              }
+              assertThat(boundary.getPlan()).isNotSameAs(template);
+              var expected = new java.util.LinkedHashMap<Object, Object>();
+              expected.put(0, hasId ? (value == 10 ? "first" : "second") : id);
+              expected.put(1, hasId ? id : (value == 10 ? "first" : "second"));
+              expected.put(2, false);
+              if (arm >= 10) {
+                expected.put(3, value + 100);
+                expected.put(4, value + 1);
+                expected.put(5, value + 2);
+              } else if (arm != 0 && arm != 9) {
+                expected.put(3, value);
+                if (arm == 7 || arm == 8) {
+                  expected.put(4, value);
+                  expected.put(5, "member" + value);
+                }
+              }
+              assertThat(boundary.getPlan().getContext().getInputParameters()).isEqualTo(expected);
+              assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+              assertThat(template.prettyPrint(0, 2)).contains("FETCH FROM RID PARAMETER")
+                  .doesNotContain(a.id().toString(), b.id().toString(), "first", "second");
+              var nativeRows = predicateQuery(
+                  source.withoutStrategies(GremlinToMatchStrategy.class), id, hasId, arm, value)
+                  .toList();
+              cache.setRuntimeRidStartEnabled(false);
+              List<?> literalRows;
+              try {
+                literalRows = predicateQuery(source, id, hasId, arm, value).toList();
+              } finally {
+                cache.setRuntimeRidStartEnabled(true);
+              }
+              runs.decrementAndGet();
+              if (arm >= 11) {
+                assertThat(rows).as("ordered or projected arm %s", arm)
+                    .isEqualTo(nativeRows).isEqualTo(literalRows);
+              } else {
+                assertThat(TranslatorEquivalenceSupport.sortedIdsOrValues(rows))
+                    .as("arm %s route %s", arm, route)
+                    .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(nativeRows))
+                    .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(literalRows));
+              }
+              if (route == 0) {
+                cold = rows;
+              } else if (arm == 1 || arm == 7 || arm == 10 || arm >= 12) {
+                assertThat(rows).as("different warm answer arm %s", arm).isNotEqualTo(cold);
+              }
+            }
+          }
+        }
+      }
+    } finally {
+      session.getConfiguration().setValue(flag, original);
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      predicateQuery(
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource source,
+          Object id, boolean hasId, int arm, int value) {
+    var start = hasId ? source.V().has("start", value == 10 ? "first" : "second").hasId(id)
+        : source.V(id).has("start", value == 10 ? "first" : "second");
+    start.has("active", org.apache.tinkerpop.gremlin.process.traversal.P.neq(false));
+    var hop = arm >= 10
+        ? start.outE("predicateFilteredLink").has("edge", value + 100).inV()
+        : start.out("predicateLink");
+    hop.hasLabel("PredicateTarget");
+    org.apache.tinkerpop.gremlin.process.traversal.P<?> p =
+        org.apache.tinkerpop.gremlin.process.traversal.P.eq(value);
+    if (arm >= 10) {
+      hop.has("value", org.apache.tinkerpop.gremlin.process.traversal.P.within(
+          value + 1, value + 2));
+    } else if (arm != 0 && arm != 9) {
+      p = switch (arm) {
+        case 2 -> org.apache.tinkerpop.gremlin.process.traversal.P.neq(value);
+        case 3 -> org.apache.tinkerpop.gremlin.process.traversal.P.lt(value);
+        case 4 -> org.apache.tinkerpop.gremlin.process.traversal.P.lte(value);
+        case 5 -> org.apache.tinkerpop.gremlin.process.traversal.P.gt(value);
+        case 6 -> org.apache.tinkerpop.gremlin.process.traversal.P.gte(value);
+        case 7 -> org.apache.tinkerpop.gremlin.process.traversal.P.within(
+            value, value, "member" + value);
+        case 8 -> org.apache.tinkerpop.gremlin.process.traversal.P.without(
+            value, value, "member" + value);
+        default -> p;
+      };
+      hop.has("value", p);
+    }
+    return switch (arm) {
+      case 9, 11 -> hop.count();
+      case 12 -> hop.values("name");
+      case 13 -> hop.limit(1);
+      case 14 -> hop.range(0, 1);
+      case 15 -> hop.order().by("name");
+      default -> hop;
+    };
+  }
+
+  /**
+   * Every exact scalar class survives runtime, literal and native execution with fresh bindings.
+   * Each start reaches matching and nonmatching targets, so equality must reject a candidate.
+   * The first two string properties compare the same predicate with and without a target index.
+   */
+  @Test
+  public void exactScalarClassesHaveBehavioralParityAcrossWarmRoutes() {
+    db(graph).getMetadata().getSchema().getClass("V")
+        .createProperty("scalar1",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING)
+        .createIndex(
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    graph.tx().commit();
+    var a = graph.addVertex(T.label, "ScalarPredicateStart");
+    var b = graph.addVertex(T.label, "ScalarPredicateStart");
+    var x = graph.addVertex(T.label, "ScalarPredicateTarget");
+    var y = graph.addVertex(T.label, "ScalarPredicateTarget");
+    Object[][] values = {{"first", "second"}, {"first", "second"}, {true, false},
+        {(byte) 1, (byte) 2},
+        {(short) 1, (short) 2}, {1, 2}, {1L, 2L}, {1F, 2F}, {1D, 2D},
+        {new java.math.BigDecimal("1"), new java.math.BigDecimal("2")}};
+    for (int i = 0; i < values.length; i++) {
+      x.property("scalar" + i, values[i][0]);
+      y.property("scalar" + i, values[i][1]);
+    }
+    a.addEdge("scalarPredicateLink", x);
+    a.addEdge("scalarPredicateLink", x);
+    a.addEdge("scalarPredicateLink", y);
+    b.addEdge("scalarPredicateLink", y);
+    b.addEdge("scalarPredicateLink", x);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      for (int i = 0; i < values.length; i++) {
+        cache.invalidate();
+        runs.set(0);
+        InternalExecutionPlan template = null;
+        for (int route = 0; route < 3; route++) {
+          var id = route == 0 ? a.id() : b.id();
+          var value = values[i][route == 0 ? 0 : 1];
+          var source = graph.traversal().withStrategies(
+              GremlinToMatchStrategy.withTranslationCache(route != 1));
+          var query = source.V(id).out("scalarPredicateLink").has("scalar" + i,
+              org.apache.tinkerpop.gremlin.process.traversal.P.eq(
+                  org.apache.tinkerpop.gremlin.process.traversal.step.GValue.of("value", value)))
+              .asAdmin();
+          var hits = cache.getHits();
+          var translationHits = cache.getTranslationHits();
+          query.applyStrategies();
+          var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+          if (template == null) {
+            template = boundary.getPlan();
+          }
+          assertThat(boundary.getPlan()).isSameAs(template);
+          assertThat(runs.get()).isEqualTo(1);
+          assertThat(cache.getHits()).isEqualTo(hits + (route == 1 ? 1 : 0));
+          assertThat(cache.getTranslationHits()).isEqualTo(translationHits + (route == 2 ? 1 : 0));
+          var rows = TranslatorEquivalenceSupport.sortedIds(query.toList());
+          assertThat(rows).hasSize(route == 0 ? 2 : 1);
+          if (route == 0) {
+            assertThat(rows).as("scalar %s cold matches only", i)
+                .containsExactly(x.id().toString(), x.id().toString());
+          } else {
+            assertThat(rows).as("scalar %s warm route %s matches only", i, route)
+                .containsExactly(y.id().toString());
+          }
+          assertThat(boundary.getPlan()).isNotSameAs(template);
+          assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+          assertThat(boundary.getPlan().getContext().getInputParameters())
+              .isEqualTo(java.util.Map.of(0, id, 1, value));
+          assertThat(rows).isEqualTo(TranslatorEquivalenceSupport.sortedIds(source
+              .withoutStrategies(GremlinToMatchStrategy.class).V(id).out("scalarPredicateLink")
+              .has("scalar" + i, value).toList()));
+          cache.setRuntimeRidStartEnabled(false);
+          try {
+            assertThat(rows).isEqualTo(TranslatorEquivalenceSupport.sortedIds(source.V(id)
+                .out("scalarPredicateLink").has("scalar" + i, value).toList()));
+          } finally {
+            cache.setRuntimeRidStartEnabled(true);
+          }
+          runs.decrementAndGet();
+        }
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  /** A loaded start filter observes transaction-local changes, mismatch, wrong class and deletion. */
+  @Test
+  public void startPredicatesRecheckCurrentRecordOnWarmCount() {
+    var a = graph.addVertex(T.label, "CurrentPredicateStart", "active", true);
+    var b = graph.addVertex(T.label, "CurrentPredicateStart", "active", true);
+    var other = graph.addVertex(T.label, "OtherPredicateStart", "active", true);
+    var target = graph.addVertex(T.label, "CurrentPredicateTarget");
+    a.addEdge("currentPredicateLink", target);
+    b.addEdge("currentPredicateLink", target);
+    other.addEdge("currentPredicateLink", target);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    cache.invalidate();
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      for (int arm = 0; arm < 6; arm++) {
+        Object id = arm == 0 ? a.id() : arm == 3 ? other.id()
+            : arm == 4 ? new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+                ((com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) a.id())
+                    .getCollectionId(),
+                Long.MAX_VALUE)
+                : b.id();
+        if (arm == 1) {
+          b.property("active", false);
+        } else if (arm == 2) {
+          b.property("active", true);
+        } else if (arm == 5) {
+          b.remove();
+        }
+        var query = graph.traversal().V(id).hasLabel("CurrentPredicateStart")
+            .has("active", true).out("currentPredicateLink").count().asAdmin();
+        query.applyStrategies();
+        assertThat(query.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        var rows = query.toList();
+        assertThat(rows).as("current record arm %s", arm)
+            .containsExactly(arm == 0 || arm == 2 ? 1L : 0L);
+        assertThat(runs.get()).isEqualTo(1);
+        cache.setRuntimeRidStartEnabled(false);
+        try {
+          assertThat(graph.traversal().V(id).hasLabel("CurrentPredicateStart")
+              .has("active", true).out("currentPredicateLink").count().toList()).isEqualTo(rows);
+        } finally {
+          cache.setRuntimeRidStartEnabled(true);
+        }
+        runs.decrementAndGet();
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  /**
+   * Label placement changes the translation key but not the two-property physical filter order.
+   * Non-polymorphic mode adds its slotless class predicate without disturbing either binding.
+   */
+  @Test
+  public void labelPlacementSharesPhysicalTemplateWithoutSwappingPropertyBindings() {
+    var a = graph.addVertex(T.label, "CrossKeyStart");
+    var b = graph.addVertex(T.label, "CrossKeyStart");
+    var x = graph.addVertex(T.label, "CrossKeyTarget", "a", 1, "b", "first");
+    var y = graph.addVertex(T.label, "CrossKeyTarget", "a", 2, "b", "second");
+    a.addEdge("crossKeyLink", x);
+    b.addEdge("crossKeyLink", y);
+    graph.tx().commit();
+    var session = db(graph);
+    var flag =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT;
+    var original = session.getConfiguration().getValueAsBoolean(flag);
+    session.getConfiguration().setValue(flag, false);
+    var cache = GremlinPlanCache.instance(session);
+    cache.invalidate();
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try {
+      InternalExecutionPlan template = null;
+      String key = null;
+      for (int route = 0; route < 3; route++) {
+        var id = route == 0 ? a.id() : b.id();
+        var hop = graph.traversal().V(id).out("crossKeyLink");
+        if (route == 0) {
+          hop.hasLabel("CrossKeyTarget").has("a", 1).has("b", "first");
+        } else {
+          hop.has("a", 2).hasLabel("CrossKeyTarget").has("b", "second");
+        }
+        var query = hop.asAdmin();
+        var decision = RuntimeRidStartEligibility.evaluate(query, true);
+        var shape = GremlinStepWalker.extractShape(query, session, false,
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .orderByNullsPlacements(query),
+            false, decision);
+        assertThat(shape.bindings()).isEqualTo(java.util.Map.of(0, id, 1, route == 0 ? 1 : 2,
+            2, route == 0 ? "first" : "second"));
+        if (key == null) {
+          key = shape.key();
+        } else {
+          assertThat(shape.key()).isNotEqualTo(key);
+        }
+        long hits = cache.getHits();
+        long translationHits = cache.getTranslationHits();
+        query.applyStrategies();
+        var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+        if (template == null) {
+          template = boundary.getPlan();
+        }
+        assertThat(boundary.getPlan()).isSameAs(template);
+        assertThat(runs.get()).isEqualTo(1);
+        assertThat(cache.getHits()).isEqualTo(hits + (route == 1 ? 1 : 0));
+        assertThat(cache.getTranslationHits()).isEqualTo(translationHits + (route == 2 ? 1 : 0));
+        assertThat(TranslatorEquivalenceSupport.sortedIds(query.toList()))
+            .containsExactly((route == 0 ? x.id() : y.id()).toString());
+        assertThat(boundary.getPlan()).isNotSameAs(template);
+        assertThat(boundary.getPlan().getContext().getInputParameters())
+            .isEqualTo(shape.bindings());
+        assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+      }
+    } finally {
+      session.getConfiguration().setValue(flag, original);
+      cache.beforeUncachedPlanning = null;
+    }
+  }
+
   private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
       structural(org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource g,
           Object id, boolean hasId, int arm) {

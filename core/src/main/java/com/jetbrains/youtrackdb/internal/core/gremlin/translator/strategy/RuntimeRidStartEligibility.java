@@ -4,10 +4,14 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdS
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import java.math.BigDecimal;
+import java.util.Collection;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
+import org.apache.tinkerpop.gremlin.process.traversal.Contains;
 import org.apache.tinkerpop.gremlin.process.traversal.Operator;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
@@ -20,6 +24,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalSte
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
@@ -28,6 +33,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContrac
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.util.function.ConstantSupplier;
@@ -74,7 +80,7 @@ final class RuntimeRidStartEligibility {
     boolean hasLabel = false;
     HasContainer idContainer = null;
     int i = 1;
-    // Only prefix filters qualify. Never skip a barrier or inspect filters beyond the hop.
+    // Start filters preserve container order, including property slots on either side of Has-ID.
     for (; i < steps.size() && steps.get(i).getClass() == HasStep.class; i++) {
       var containers = ((HasStep<?>) steps.get(i)).getHasContainers();
       if (containers.isEmpty()) {
@@ -82,22 +88,22 @@ final class RuntimeRidStartEligibility {
       }
       for (var container : containers) {
         var predicate = container.getPredicate();
-        if (predicate == null || predicate.getBiPredicate() != Compare.eq) {
+        if (!plainContainer(container)) {
           return null;
         }
         if (T.id.getAccessor().equals(container.getKey())) {
-          if (hasId) {
+          if (hasId || predicate.getBiPredicate() != Compare.eq) {
             return null;
           }
           hasId = true;
           rawId = predicate.getValue();
           idContainer = container;
         } else if (T.label.getAccessor().equals(container.getKey())) {
-          if (hasLabel || !(predicate.getValue() instanceof String label) || label.isBlank()) {
+          if (hasLabel || !labelEquality(container)) {
             return null;
           }
           hasLabel = true;
-        } else {
+        } else if (!propertyFilter(container, false)) {
           return null;
         }
       }
@@ -129,10 +135,53 @@ final class RuntimeRidStartEligibility {
         || !(step instanceof VertexStepContract<?> hop)) {
       return false;
     }
-    int remaining = steps.size() - index - 1;
+    int cursor = index + 1;
+    boolean edgeOutput = hop.returnsEdge();
+    if (edgeOutput && cursor < steps.size() && steps.get(cursor).getClass() == HasStep.class) {
+      // Only the edge-chain recogniser's exact OUT edge / one eq / IN vertex form qualifies.
+      if (step.getClass() != VertexStep.class || hop.getDirection() != Direction.OUT
+          || hop.getEdgeLabels().length != 1 || cursor + 1 >= steps.size()) {
+        return false;
+      }
+      var filters = ((HasStep<?>) steps.get(cursor)).getHasContainers();
+      var endpoint = steps.get(cursor + 1);
+      if (filters.size() != 1 || !plainContainer(filters.getFirst())
+          || filters.getFirst().getPredicate().getBiPredicate() != Compare.eq
+          || !propertyFilter(filters.getFirst(), false)
+          || endpoint.getClass() != EdgeVertexStep.class
+          || ((EdgeVertexStep) endpoint).getDirection() != Direction.IN) {
+        return false;
+      }
+      cursor += 2;
+      edgeOutput = false;
+    }
+    boolean targetLabel = false;
+    for (; cursor < steps.size() && steps.get(cursor).getClass() == HasStep.class; cursor++) {
+      if (edgeOutput || hop.getEdgeLabels().length == 0) {
+        return false;
+      }
+      var containers = ((HasStep<?>) steps.get(cursor)).getHasContainers();
+      if (containers.isEmpty()) {
+        return false;
+      }
+      for (var container : containers) {
+        if (!plainContainer(container)) {
+          return false;
+        }
+        if (T.label.getAccessor().equals(container.getKey())) {
+          if (targetLabel || !labelEquality(container)) {
+            return false;
+          }
+          targetLabel = true;
+        } else if (!propertyFilter(container, true)) {
+          return false;
+        }
+      }
+    }
+    int remaining = steps.size() - cursor;
     if (remaining == 0) {
-      // Preserve the baseline's unlabeled bare vertex hop.
-      return !hop.returnsEdge();
+      // Preserve the baseline's unlabeled bare vertex hop, including start filters.
+      return !edgeOutput;
     }
     if (remaining != 1 || hop.getEdgeLabels().length == 0) {
       return false;
@@ -145,7 +194,7 @@ final class RuntimeRidStartEligibility {
       return count.getSeedSupplier() instanceof ConstantSupplier<?> seed
           && Long.valueOf(0L).equals(seed.get()) && Operator.sumLong.equals(count.getBiOperator());
     }
-    if (hop.returnsEdge()) {
+    if (edgeOutput) {
       return false;
     }
     if (terminal.getClass() == PropertiesStep.class) {
@@ -162,6 +211,54 @@ final class RuntimeRidStartEligibility {
     }
     return terminal.getClass() == OrderGlobalStep.class
         && allowedOrder(root, (OrderGlobalStep<?, ?>) terminal);
+  }
+
+  /** Descriptive fields cannot stand in for overridden native predicate or container behavior. */
+  private static boolean plainContainer(HasContainer container) {
+    return container.getClass() == HasContainer.class && container.getPredicate() != null
+        && container.getPredicate().getClass() == P.class;
+  }
+
+  private static boolean labelEquality(HasContainer container) {
+    return container.getPredicate().getBiPredicate() == Compare.eq
+        && container.getPredicate().getValue() instanceof String label && !label.isBlank();
+  }
+
+  private static boolean propertyFilter(HasContainer container, boolean target) {
+    var key = container.getKey();
+    if (key == null || key.isBlank() || WalkerContext.isReservedHasKey(key)) {
+      return false;
+    }
+    var predicate = container.getPredicate();
+    var operator = predicate.getBiPredicate();
+    // Resolve GValue here just as extraction and translation do. Membership order and arity
+    // belong to this resolved collection, not the caller's written variable sequence.
+    var value = predicate.getValue();
+    if (operator == Compare.eq || operator == Compare.neq) {
+      return scalar(value);
+    }
+    if (!target) {
+      return false;
+    }
+    if (operator == Compare.lt || operator == Compare.lte || operator == Compare.gt
+        || operator == Compare.gte) {
+      return scalar(value);
+    }
+    if (operator == Contains.within || operator == Contains.without) {
+      return value instanceof Collection<?> members && !members.isEmpty()
+          && members.stream().allMatch(RuntimeRidStartEligibility::scalar);
+    }
+    return false;
+  }
+
+  private static boolean scalar(Object value) {
+    if (value == null) {
+      return false;
+    }
+    var type = value.getClass();
+    return type == String.class || type == Boolean.class || type == Byte.class
+        || type == Short.class || type == Integer.class || type == Long.class
+        || type == Float.class || type == Double.class || type == BigDecimal.class;
   }
 
   /** A lambda child must expose only the behavior read by the translator, without a bypass. */
