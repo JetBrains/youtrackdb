@@ -96,6 +96,17 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     assertOrder("select from " + CLASS + " where a >= 2 order by a", Map.of(), true, true);
   }
 
+  /** IN and parallel OR ranges do not gain complete property-and-RID certification. */
+  @Test
+  public void singlePropertyMultiRangeDoesNotCertifyOrder() {
+    var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
+    clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
+    assertOrder("select from " + CLASS + " where a in [1, 2] order by a desc",
+        Map.of(), false, false);
+    assertOrder("select from " + CLASS + " where a = 1 or a = 2 order by a desc",
+        Map.of(), false, false);
+  }
+
   /** A WHERE index on another field wins over an order-only index. */
   @Test
   public void chosenWhereIndexDoesNotReportAnotherIndexesOrder() {
@@ -129,9 +140,9 @@ public class SelectOrderReportTest extends TestUtilsFixture {
         .getSteps().stream().anyMatch(OrderByStep.class::isInstance));
   }
 
-  /** ASC moves nulls into its leading bucket; DESC does not promise RID ties for nulls. */
+  /** Both directions promise RID ties for a nullable property and either null placement. */
   @Test
-  public void descendingNullableKeyHasNoRidTieGuarantee() {
+  public void descendingNullableKeyHasRidTieGuarantee() {
     var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
     clazz.createIndex(CLASS + ".a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
     session.begin();
@@ -139,18 +150,18 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     session.newInstance(CLASS);
     session.commit();
     assertOrder("select from " + CLASS + " order by a asc", Map.of(), true, true);
-    assertOrder("select from " + CLASS + " order by a desc", Map.of(), true, false);
+    assertOrder("select from " + CLASS + " order by a desc", Map.of(), true, true);
     assertOrder("select from " + CLASS + " where a >= 2 order by a desc", Map.of(), true,
         true);
     assertOrder("select from " + CLASS + " order by a desc nulls first", Map.of(), true,
-        false);
+        true);
     try (var rows = session.query("select from " + CLASS + " order by a asc")) {
       Assert.assertEquals(Arrays.asList(null, 2),
           rows.stream().map(row -> (Integer) row.getProperty("a")).toList());
     }
   }
 
-  /** NOT NULL allows an absent property, so single and composite scans cannot promise DESC RID. */
+  /** Missing keys retain single-property RID order but do not certify composite DESC ties. */
   @Test
   public void optionalNotNullPropertiesDoNotExcludeMissingIndexKeys() {
     for (var unique : List.of(false, true)) {
@@ -180,23 +191,23 @@ public class SelectOrderReportTest extends TestUtilsFixture {
             inserted.setProperty("p", 2);
           }
           var order = composite ? "a desc, p desc" : "p desc";
-          assertOrder("select from " + cls + " order by " + order, Map.of(), true, false);
+          assertOrder("select from " + cls + " order by " + order, Map.of(), true, !composite);
           var requested = request("select from " + cls + " order by " + order, true, Map.of());
           Assert.assertTrue(requested.getOrderReport().fullOrderCovered());
-          Assert.assertFalse(requested.getOrderReport().ridOrderWithinEqualKeys());
+          Assert.assertEquals(!composite, requested.getOrderReport().ridOrderWithinEqualKeys());
           session.rollback();
         }
       }
     }
   }
 
-  /** Constraints added after insertion do not remove existing missing null index keys. */
+  /** Existing missing keys retain their RID guarantee after constraints change. */
   @Test
   public void constraintsAddedAfterInsertDoNotProveDescendingRidOrder() {
     assertUncheckedNullKeysDoNotProveDescendingRidOrder(false);
   }
 
-  /** Disabled validation permits missing null index keys despite both schema constraints. */
+  /** Missing keys with disabled validation retain single-property RID order. */
   @Test
   public void disabledValidationDoesNotProveDescendingRidOrder() {
     assertUncheckedNullKeysDoNotProveDescendingRidOrder(true);
@@ -228,15 +239,15 @@ public class SelectOrderReportTest extends TestUtilsFixture {
         session.newInstance(CLASS).setProperty("a", 2);
       }
       var sql = "select from " + CLASS + " order by a desc";
-      assertOrder(sql, Map.of(), true, false);
+      assertOrder(sql, Map.of(), true, true);
       var requested = request(sql, true, Map.of());
       Assert.assertTrue(requested.getOrderReport().fullOrderCovered());
-      Assert.assertFalse(requested.getOrderReport().ridOrderWithinEqualKeys());
+      Assert.assertTrue(requested.getOrderReport().ridOrderWithinEqualKeys());
       session.rollback();
     }
   }
 
-  /** Parameter equality stays conservative in the report, and a null binding returns no rows. */
+  /** Parameter equality reports RID order, and a null binding returns no rows. */
   @Test
   public void nullEqualityParameterDoesNotProveDescendingRidOrder() {
     var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
@@ -254,10 +265,10 @@ public class SelectOrderReportTest extends TestUtilsFixture {
         session.newInstance(CLASS);
       }
       params.put("x", 1);
-      assertOrder(sql, params, true, false);
+      assertOrder(sql, params, true, true);
       params.put("x", null);
-      assertOrder(sql, params, true, false);
-      Assert.assertFalse(request(sql, true, params).getOrderReport().ridOrderWithinEqualKeys());
+      assertOrder(sql, params, true, true);
+      Assert.assertTrue(request(sql, true, params).getOrderReport().ridOrderWithinEqualKeys());
       try (var rows = session.query(sql + ", @rid desc", params)) {
         Assert.assertTrue("Equality rejects a null operand", rows.stream().toList().isEmpty());
       }
@@ -265,7 +276,7 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     }
   }
 
-  /** Both planners use one conservative predicate proof, with no parameter-bound equality. */
+  /** Composite certification uses conservative predicate evidence without parameter equality. */
   @Test
   public void sharedNullExclusionProofAcceptsOnlyNullRejectingConditions() {
     var clazz = createClass(PropertyType.INTEGER, PropertyType.INTEGER);
@@ -278,7 +289,7 @@ public class SelectOrderReportTest extends TestUtilsFixture {
           .getBaseExpression();
       Assert.assertTrue(filter,
           SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, List.of("a"), condition));
-      // Exercise real evaluation on both explicit-null and absent values before widening MATCH.
+      // Check predicate evidence against explicit-null and absent values.
       var context = newContext();
       context.setInputParameters(Map.of("x", 1));
       for (var present : List.of(false, true)) {
@@ -431,10 +442,10 @@ public class SelectOrderReportTest extends TestUtilsFixture {
     Assert.assertEquals(0, plan(desc, Map.of()).getSteps().stream()
         .filter(OrderByStep.class::isInstance).count());
     assertOrder("select from " + CLASS + " where a is defined order by a desc",
-        Map.of(), true, false);
+        Map.of(), true, true);
   }
 
-  /** Not-equal keeps null scores, so DESC index scans cannot promise RID tie order. */
+  /** Not-equal keeps null scores while the scan still promises DESC RID ties. */
   @Test
   public void descendingNotEqualFilterDoesNotProveRidOrderForNullKeys() {
     var clazz = session.getMetadata().getSchema().createClass(CLASS);
@@ -452,7 +463,7 @@ public class SelectOrderReportTest extends TestUtilsFixture {
           + " 5 order by score desc";
       var report = request(sql, true, Map.of()).getOrderReport();
       Assert.assertTrue(sql, report.fullOrderCovered());
-      Assert.assertFalse(sql, report.ridOrderWithinEqualKeys());
+      Assert.assertTrue(sql, report.ridOrderWithinEqualKeys());
     }
   }
 

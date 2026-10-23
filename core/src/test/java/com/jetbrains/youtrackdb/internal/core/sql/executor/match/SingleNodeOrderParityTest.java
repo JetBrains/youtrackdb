@@ -77,7 +77,7 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
-  /** DESC RID pass-through needs predicate evidence even with constrained keys. Pending rows sort. */
+  /** Single-property DESC scans pass through in clean transactions. Pending rows still sort. */
   @Test
   public void descendingNonNullShapesPassThroughOnlyInCleanTransactions() {
     for (var type : AGREEMENT_TYPES) {
@@ -94,9 +94,9 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
-  /** Missing NOT NULL keys keep the DESC RID sort for both index kinds and composite keys. */
+  /** Missing keys allow single-property DESC pass-through, but pending and composite rows sort. */
   @Test
-  public void missingOptionalNotNullKeysSortDescendingRidInCleanAndPendingTransactions() {
+  public void missingOptionalNotNullKeysPassThroughOnlyForCleanSinglePropertyScans() {
     for (var unique : List.of(false, true)) {
       for (var composite : List.of(false, true)) {
         var cls = "MissingMatch" + unique + composite;
@@ -122,10 +122,14 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
           }
           assertTransaction(pending);
           assertThat(plan(query, Map.of())).contains("FETCH FROM INDEX", "+ ORDER BY");
-          assertSqlOracle(select(cls, ""), query, Map.of(), true);
+          if (composite) {
+            assertSqlOracle(select(cls, ""), query, Map.of(), true);
+          } else {
+            assertSinglePropertyDescendingPath(cls, query, pending);
+          }
           graph.tx().rollback();
         }
-        if (!unique) {
+        if (!unique && composite) {
           graph.tx().readWrite();
           // A three-row result exceeds this cap only if the retained step really sorts.
           underLowCap(() -> assertThatThrownBy(() -> ids(query, Map.of()))
@@ -136,19 +140,20 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
     }
   }
 
-  /** Constraints added after insertion keep the DESC RID sort for existing missing keys. */
+  /** Existing missing keys allow clean DESC pass-through after constraints are added. */
   @Test
-  public void constraintsAddedAfterInsertKeepDescendingRidSort() {
-    assertUncheckedNullKeysKeepDescendingRidSort(false);
+  public void constraintsAddedAfterInsertAllowCleanDescendingRidPassThrough() {
+    assertUncheckedNullKeysAllowCleanDescendingRidPassThrough(false);
   }
 
-  /** Disabled validation keeps the DESC RID sort despite MANDATORY and NOT NULL flags. */
+  /** Keys inserted without validation allow clean DESC pass-through, while pending rows sort. */
   @Test
-  public void disabledValidationKeepsDescendingRidSort() {
-    assertUncheckedNullKeysKeepDescendingRidSort(true);
+  public void disabledValidationAllowsCleanDescendingRidPassThrough() {
+    assertUncheckedNullKeysAllowCleanDescendingRidPassThrough(true);
   }
 
-  private void assertUncheckedNullKeysKeepDescendingRidSort(boolean disableValidation) {
+  private void
+      assertUncheckedNullKeysAllowCleanDescendingRidPassThrough(boolean disableValidation) {
     var cls = "UncheckedMatch" + disableValidation;
     var schema = db().createVertexClass(cls);
     var property = schema.createProperty("p", PropertyType.INTEGER);
@@ -178,15 +183,29 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
       }
       assertTransaction(pending);
       assertThat(plan(query, Map.of())).contains("FETCH FROM INDEX", "+ ORDER BY");
-      assertSqlOracle(select(cls, ""), query, Map.of(), true);
+      assertSinglePropertyDescendingPath(cls, query, pending);
       graph.tx().rollback();
     }
-    graph.tx().readWrite();
-    assertTransaction(false);
-    // Three committed rows must exceed the cap when the step actually sorts.
-    underLowCap(() -> assertThatThrownBy(() -> ids(query, Map.of()))
-        .hasMessageContaining("in-heap ORDER BY"));
-    graph.tx().rollback();
+  }
+
+  private void assertSinglePropertyDescendingPath(String cls, String query, boolean pending) {
+    // The oracle scans the class, filters in memory, and fully sorts with numeric RID comparison.
+    var expected = sqlOracle(select(cls, ""), query, Map.of());
+    assertThat(ids(query, Map.of())).isEqualTo(expected);
+    var page = query + " SKIP 1 LIMIT 2";
+    var expectedPage = expected.stream().skip(1).limit(2).toList();
+    if (pending) {
+      assertThat(ids(page, Map.of())).isEqualTo(expectedPage);
+      // Pending records disable pass-through even when the committed index order is certified.
+      underLowCap(() -> assertThatThrownBy(() -> ids(query, Map.of()))
+          .hasMessageContaining("in-heap ORDER BY"));
+    } else {
+      // More than two committed rows would exceed the cap if ORDER BY sorted in memory.
+      underLowCap(() -> {
+        assertThat(ids(query, Map.of())).isEqualTo(expected);
+        assertThat(ids(page, Map.of())).isEqualTo(expectedPage);
+      });
+    }
   }
 
   /** LIKE rejects null and missing values, so clean RID scans pass through and pending rows sort. */
@@ -318,13 +337,13 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
       if (pending) {
         assertThat(ids(ridQuery, params)).isEqualTo(expected);
         assertThat(db().getTransactionInternal().getEntryCount()).as(ridQuery).isPositive();
-      } else if (accepted && (!desc || shape == Shape.RANGE || shape == Shape.PRESENCE)) {
+      } else if (accepted && (!desc || singlePropertyShape(shape))) {
         underLowCap(() -> assertThat(ids(ridQuery, params)).isEqualTo(expected));
       } else {
         assertThat(ids(ridQuery, params)).isEqualTo(expected);
       }
       assertReport(select + " ORDER BY " + order, params, accepted,
-          accepted && (!desc || shape == Shape.RANGE || shape == Shape.PRESENCE));
+          accepted && (!desc || singlePropertyShape(shape)));
 
       // Gremlin has(p) tests property presence, including an explicitly stored null.
       // Its SQL control uses IS DEFINED rather than SQL's non-null presence filter.
@@ -341,7 +360,7 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
       if (pending) {
         assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s pending Gremlin", cls, shape).isEqualTo(oracle);
-      } else if (accepted && (!desc || shape == Shape.RANGE)) {
+      } else if (accepted && (!desc || singlePropertyShape(shape))) {
         underLowCap(() -> assertThat(
             traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s clean Gremlin", cls, shape).isEqualTo(oracle));
@@ -350,8 +369,8 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
         assertThat(traversal.toList().stream().map(v -> v.id().toString()).toList())
             .as("%s %s clean Gremlin", cls, shape).isEqualTo(oracle);
       }
-      if (desc && !pending && shape != Shape.RANGE) {
-        // No schema flag supplies a proof. IS DEFINED also retains nulls in Gremlin.
+      if (desc && !pending && !singlePropertyShape(shape)) {
+        // Composite scans and IN lists still lack the complete descending RID guarantee.
         // Run expected errors only in clean transactions, then reopen the snapshot.
         if (shape != Shape.PRESENCE) {
           underLowCap(() -> assertThatThrownBy(() -> ids(ridQuery, params))
@@ -363,6 +382,11 @@ public class SingleNodeOrderParityTest extends GraphBaseTest {
         graph.tx().readWrite();
       }
     }
+  }
+
+  private boolean singlePropertyShape(Shape shape) {
+    return shape == Shape.SINGLE || shape == Shape.RANGE || shape == Shape.FILTER
+        || shape == Shape.PRESENCE;
   }
 
   private void assertReport(String query, Map<Object, Object> params,

@@ -1,9 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -138,30 +136,24 @@ final class SingleNodeIndexOrder {
     }
     var selectOrderBy = ProjectionExpressionFactories.orderBy(translated);
     var ridEligible = ridTieBreak && acceptsRidTieBreak(
-        last, alias, className, selectOrderBy, aliasFilters.get(alias), returnItems, returnAliases,
-        returnDistinct, returnElements, returnPaths, returnPatterns, returnPathElements, context);
+        last, alias, selectOrderBy, returnItems, returnAliases,
+        returnDistinct, returnElements, returnPaths, returnPatterns, returnPathElements);
     return new Candidate(alias, selectOrderBy, ridTieBreak, matchOrderPreserved, ridEligible);
   }
 
   private static boolean acceptsRidTieBreak(
       SQLOrderByItem ridItem,
       String alias,
-      String className,
       SQLOrderBy propertyOrder,
-      @Nullable SQLWhereClause aliasFilter,
       @Nullable List<SQLExpression> returnItems,
       @Nullable List<SQLIdentifier> returnAliases,
       boolean returnDistinct,
       boolean returnElements,
       boolean returnPaths,
       boolean returnPatterns,
-      boolean returnPathElements,
-      CommandContext context) {
+      boolean returnPathElements) {
     var orderAsc = !SQLOrderByItem.DESC.equals(propertyOrder.getItems().getFirst().getType());
     if (!propertyOrder.ordersSameDirection() || !isRecordIdItemOf(ridItem, alias, orderAsc)) {
-      return false;
-    }
-    if (!orderAsc && !nullKeysExcluded(className, propertyOrder, aliasFilter, context)) {
       return false;
     }
     if (returnDistinct
@@ -173,15 +165,6 @@ final class SingleNodeIndexOrder {
       return false;
     }
     return true;
-  }
-
-  private static boolean nullKeysExcluded(
-      String className, SQLOrderBy order, @Nullable SQLWhereClause filter, CommandContext context) {
-    var session = (DatabaseSessionEmbedded) context.getDatabaseSession();
-    var clazz = session.getMetadata().getImmutableSchemaSnapshot().getClassInternal(className);
-    // Require the same per-key predicate proof as SELECT. Schema flags do not certify stored keys.
-    return SelectExecutionPlanner.orderedFieldsExcludeNulls(clazz, order.getProperties(),
-        filter == null ? null : filter.getBaseExpression());
   }
 
   private static boolean isRecordIdItemOf(SQLOrderByItem item, String alias, boolean orderAsc) {

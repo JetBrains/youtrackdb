@@ -2,6 +2,29 @@
 
 Queries the database in a declarative manner, using pattern matching.
 
+## Single-node ordered pages
+
+A single-node MATCH can stream an indexed property and a same-direction record identifier (RID) tie-break.
+The index must cover that one property and include missing and null values.
+The query must return the matched record without changing its shape.
+For example:
+
+```sql
+MATCH {class: Message, as: m, where: (status = 'done')} RETURN m
+ORDER BY m.created DESC NULLS LAST, m.@rid DESC SKIP 10 LIMIT 5
+```
+
+Nulls can appear first or last, with RIDs in the requested direction inside each equal-key group.
+Filters run before SKIP and LIMIT count matching records.
+The scan stops after enough matches, with bounded look-ahead.
+Sparse filters and deep SKIP values can require many reads.
+Too few matches can require reading the whole index.
+
+Each execution checks for pending record changes, including when it reuses a plan.
+Pending changes require a full-input sort instead of index-order pass-through.
+This guarantee does not extend to graph hops or remove explicit RID sorts from plain SELECT queries.
+Composite indexes, mixed directions, computed keys, and incompatible comparison rules retain their separate restrictions.
+
 ## Ordered scan cost configuration
 
 The `ORDER BY` clause can preserve result order through a compatible index. This avoids loading
