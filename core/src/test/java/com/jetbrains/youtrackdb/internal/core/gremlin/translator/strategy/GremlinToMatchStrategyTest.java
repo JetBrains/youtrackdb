@@ -47,8 +47,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
-import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -215,18 +213,19 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     }
   }
 
-  /** Fixture-only wider input proves retry rebuilds every ordinary binding, not just the RID term. */
+  /** Real eligibility with a nonzero RID slot proves literal retry rebuilds all property slots. */
   @Test
   public void runtimeRetryRegeneratesCompleteMixedBindingMap() {
     setKillSwitch(true);
-    var admin = graph.traversal().V().hasId("#25:7").has("name", "A").out("knows").asAdmin();
+    var admin = graph.traversal().V().has("before", true).hasId("#25:7")
+        .has("name", "A").out("knows").has("target", P.within(10, 20)).asAdmin();
     var translations = new ArrayList<GremlinToMatchTranslator.TranslationResult>();
     GremlinToMatchStrategy.TraversalTranslator translator = traversal -> {
       var decision = translations.isEmpty()
-          ? new RuntimeRidStartEligibility.EligibleStart((GraphStep<?, ?>) traversal.getStartStep(),
-              ((HasStep<?>) traversal.getSteps().get(1)).getHasContainers().getFirst(),
-              new RecordId(25, 7))
-          : null;
+          ? RuntimeRidStartEligibility.evaluate(traversal, true) : null;
+      if (translations.isEmpty()) {
+        assertThat(decision).isNotNull();
+      }
       var result = GremlinToMatchTranslator.translate(traversal,
           com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
               .orderIncludesMissingKey(traversal),
@@ -250,12 +249,14 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
       new GremlinToMatchStrategy(translator).apply(admin);
       assertThat(translations).hasSize(2);
       assertThat(translations.getFirst().inputParameters())
-          .isEqualTo(Map.of(0, new RecordId(25, 7), 1, "A"));
-      assertThat(translations.get(1).inputParameters()).isEqualTo(Map.of(0, "A"));
-      assertThat(maps).containsExactly(Map.of(1, "A"), Map.of(0, "A"));
+          .isEqualTo(Map.of(0, true, 1, new RecordId(25, 7), 2, "A", 3, 10, 4, 20));
+      assertThat(translations.get(1).inputParameters())
+          .isEqualTo(Map.of(0, true, 1, "A", 2, 10, 3, 20));
+      assertThat(maps).containsExactly(Map.of(0, true, 2, "A", 3, 10, 4, 20),
+          Map.of(0, true, 1, "A", 2, 10, 3, 20));
       assertThat(admin.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
       assertThat(((YTDBMatchPlanStep<?, ?>) admin.getStartStep()).getPlan().getContext()
-          .getInputParameters()).isEqualTo(Map.of(0, "A"));
+          .getInputParameters()).isEqualTo(Map.of(0, true, 1, "A", 2, 10, 3, 20));
     } finally {
       cache.beforeUncachedPlanning = null;
     }

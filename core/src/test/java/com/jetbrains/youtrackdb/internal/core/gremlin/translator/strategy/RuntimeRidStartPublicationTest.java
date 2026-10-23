@@ -97,8 +97,8 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
       case 2 -> g.V(a).hasId(b).out("negativeLink");
       case 3 -> g.V(a).out("negativeLink").hasId(b);
       case 4 -> g.V(a).hasLabel("NegativePerson", "V").out("negativeLink");
-      case 5 -> g.V(a).has("name", "A").out("negativeLink");
-      case 6 -> g.V(a).out("negativeLink").has("name", "B");
+      case 5 -> g.V(a).has("name", P.within("A")).out("negativeLink");
+      case 6 -> g.V(a).out().has("name", "B");
       case 7 -> g.V(a).out("negativeLink").values("name", "other");
       case 8 -> g.V(a).out("negativeLink").out("negativeLink");
       case 9 -> g.V(a).outE("negativeLink");
@@ -345,6 +345,120 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
         reader.tx().rollback();
       } finally {
         cache.beforeUncachedPlanning = null;
+      }
+    }
+  }
+
+  /** Property and row policies use the current session on cold and both warm cache routes. */
+  @Test
+  public void predicateHitsKeepCurrentPropertyAndRowPolicies() {
+    var allowed = graph.addVertex(T.label, "PredicateSecurityStart", "name", "allowed",
+        "secret", "visible");
+    var denied = graph.addVertex(T.label, "PredicateSecurityStart", "name", "denied",
+        "secret", "visible");
+    var target = graph.addVertex(T.label, "PredicateSecurityTarget", "value", 1);
+    allowed.addEdge("predicateSecurityLink", target);
+    denied.addEdge("predicateSecurityLink", target);
+    graph.tx().commit();
+    var admin = db(graph);
+    admin.getMetadata().getSchema().getClass("PredicateSecurityStart").createProperty("secret",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+    var security = admin.getSharedContext().getSecurity();
+    var row = security.createSecurityPolicy(admin, "predicateRowRead");
+    row.setActive(true);
+    row.setReadRule("name = 'allowed'");
+    security.saveSecurityPolicy(admin, row);
+    security.setSecurityPolicy(admin, security.getRole(admin, "reader"),
+        "database.class.PredicateSecurityStart", row);
+    var property = security.createSecurityPolicy(admin, "predicatePropertyRead");
+    property.setActive(true);
+    property.setReadRule("false");
+    security.saveSecurityPolicy(admin, property);
+    security.setSecurityPolicy(admin, security.getRole(admin, "reader"),
+        "database.class.PredicateSecurityStart.secret", property);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
+    try (var reader = readerGraph()) {
+      assertThat(GremlinPlanCache.instance(db(reader))).isSameAs(cache);
+      for (boolean readerFirst : List.of(false, true)) {
+        cache.invalidate();
+        runs.set(0);
+        InternalExecutionPlan template = null;
+        for (var current : readerFirst ? List.of(reader, graph) : List.of(graph, reader)) {
+          for (int route = 0; route < 3; route++) {
+            var id = route == 0 ? allowed.id() : denied.id();
+            var source = current.traversal().withStrategies(
+                GremlinToMatchStrategy.withTranslationCache(route != 1));
+            var query = source.V(id).has("secret", "visible").out("predicateSecurityLink")
+                .has("value", 1).count().asAdmin();
+            query.applyStrategies();
+            var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+            if (template == null) {
+              template = boundary.getPlan();
+            }
+            assertThat(boundary.getPlan()).isSameAs(template);
+            assertThat(runs.get()).isEqualTo(1);
+            var rows = query.toList();
+            assertThat(rows).containsExactly(current == reader ? 0L : 1L);
+            assertThat(boundary.getPlan().getContext().getDatabaseSession()).isSameAs(db(current));
+            assertThat(boundary.getPlan().getContext().getInputParameters())
+                .isEqualTo(Map.of(0, id, 1, "visible", 2, 1));
+            cache.setRuntimeRidStartEnabled(false);
+            try {
+              assertThat(source.V(id).has("secret", "visible").out("predicateSecurityLink")
+                  .has("value", 1).count().toList()).isEqualTo(rows);
+            } finally {
+              cache.setRuntimeRidStartEnabled(true);
+            }
+            runs.decrementAndGet();
+          }
+        }
+      }
+      reader.tx().rollback();
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  /** Predicate keys retain operator, member type order, label and filter-position distinctions. */
+  @Test
+  public void predicateShapeKeysSeparateOnlyStructuralChanges() {
+    graph.addVertex(T.label, "PredicateKeyTarget");
+    graph.tx().commit();
+    var session = db(graph);
+    String first = null;
+    for (int arm = 0; arm < 8; arm++) {
+      var id = new RecordId(25, arm == 1 ? 8 : 7);
+      var start = graph.traversal().V(id);
+      if (arm == 7) {
+        start.has("value", 1);
+      }
+      var query = start.out(arm == 6 ? "other" : "predicateKeyLink")
+          .hasLabel("PredicateKeyTarget").has("value", switch (arm) {
+            case 1 -> P.within(2, "second");
+            case 2 -> P.without(1, "first");
+            case 3 -> P.within(1, "first", 2);
+            case 4 -> P.within("first", 1);
+            default -> P.within(1, "first");
+          });
+      if (arm == 5) {
+        query.limit(1);
+      }
+      var admin = query.asAdmin();
+      var decision = RuntimeRidStartEligibility.evaluate(admin, true);
+      assertThat(decision).isNotNull();
+      var shape = GremlinStepWalker.extractShape(admin, session, false,
+          YTDBStrategyUtil.orderByNullsPlacements(admin), true, decision);
+      assertThat(shape.complete()).isTrue();
+      if (first == null) {
+        first = shape.key();
+      } else if (arm == 1) {
+        assertThat(shape.key()).isEqualTo(first);
+      } else {
+        assertThat(shape.key()).as("structural variant %s", arm).isNotEqualTo(first);
       }
     }
   }

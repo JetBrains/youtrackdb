@@ -277,6 +277,82 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     }
   }
 
+  /** Every phase preserves full slot order, including resolved variables and a nonzero RID slot. */
+  @Test
+  public void predicatePhasesHaveExactRuntimeAndLiteralBindingMaps() {
+    graph.addVertex(T.label, "PredicatePerson");
+    graph.tx().commit();
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var db = tx.getDatabaseSession();
+    for (boolean poly : List.of(false, true)) {
+      for (boolean hasId : List.of(false, true)) {
+        for (boolean edge : List.of(false, true)) {
+          String previous = null;
+          for (int value = 1; value <= 2; value++) {
+            var rid = new RecordId(25, value);
+            var start = hasId ? graph.traversal().V().has("before", "value" + value)
+                .hasLabel("PredicatePerson").hasId(rid)
+                : graph.traversal().V(rid).has("before", "value" + value)
+                    .hasLabel("PredicatePerson");
+            start.has("after", P.neq(value));
+            // The edge operand differs from every resolved membership operand.
+            var hop = edge ? start.outE("predicateLink").has("edge", value + 100).inV()
+                : start.out("predicateLink");
+            var membership = P.within(List.of(
+                org.apache.tinkerpop.gremlin.process.traversal.step.GValue.of("x", value),
+                "member" + value,
+                org.apache.tinkerpop.gremlin.process.traversal.step.GValue.of("x", value + 1),
+                org.apache.tinkerpop.gremlin.process.traversal.step.GValue.of("y", true)));
+            var query = hop.hasLabel("PredicatePerson").has("members", membership)
+                .has("last", P.gte(value)).asAdmin();
+            var decision = RuntimeRidStartEligibility.evaluate(query, true);
+            assertThat(decision).isNotNull();
+            var nulls = YTDBStrategyUtil.orderByNullsPlacements(query);
+            var shape = GremlinStepWalker.extractShape(query, db, false, nulls, poly, decision);
+            var runtime = GremlinToMatchTranslator.translate(query, false, nulls, poly, decision);
+            var literal = GremlinToMatchTranslator.translate(query, false, nulls, poly, null);
+            var expected = new java.util.LinkedHashMap<Object, Object>();
+            expected.put(0, hasId ? "value" + value : rid);
+            expected.put(1, hasId ? rid : "value" + value);
+            expected.put(2, value);
+            int slot = 3;
+            if (edge) {
+              expected.put(slot++, value + 100);
+            }
+            expected.put(slot++, "member" + value);
+            expected.put(slot++, value + 1);
+            expected.put(slot++, true);
+            expected.put(slot, value);
+            assertThat(shape.complete()).isTrue();
+            assertThat(runtime).isNotNull();
+            assertThat(literal).isNotNull();
+            assertThat(shape.bindings()).isEqualTo(expected).isEqualTo(runtime.inputParameters());
+            int ridSlot = hasId ? 1 : 0;
+            assertThat(runtime.inputs().runtimeRidStarts().get(BOUNDARY_ALIAS).parameterSlot())
+                .isEqualTo(ridSlot);
+            assertThat(shape.bindings().get(ridSlot)).isSameAs(decision.rid());
+            var withoutRid = new java.util.LinkedHashMap<Object, Object>();
+            for (int i = 0; i < expected.size(); i++) {
+              if (i != ridSlot) {
+                withoutRid.put(withoutRid.size(), expected.get(i));
+              }
+            }
+            assertThat(literal.inputParameters()).isEqualTo(withoutRid);
+            assertThat(GremlinToMatchStrategy.matchingLayout(
+                shape.hasContributions(), runtime.hasContributions())).isTrue();
+            assertThat(shape.key()).doesNotContain(rid.toString(), "value" + value,
+                "member" + value);
+            if (previous != null) {
+              assertThat(shape.key()).isEqualTo(previous);
+            }
+            previous = shape.key();
+          }
+        }
+      }
+    }
+  }
+
   /** Literal ID and zero-slot predicates leave ordinary and multi-slot operands in exact order. */
   @Test
   public void ineligibleMixedContainersHaveCompleteBindingParity() {
