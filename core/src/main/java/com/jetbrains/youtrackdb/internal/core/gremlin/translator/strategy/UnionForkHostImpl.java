@@ -95,7 +95,7 @@ final class UnionForkHostImpl implements UnionForkHost {
     // TinkerPop's comparator to answer. See GremlinStepWalker.walk(Traversal.Admin, int).
     return GremlinStepWalker.production()
         .walk(forked, prefix.size(), ctx.orderIncludesMissingKey(), orderByNullsPlacements,
-            ctx.polymorphic());
+            ctx.polymorphic(), false, null);
   }
 
   @Override

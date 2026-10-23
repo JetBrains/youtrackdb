@@ -71,12 +71,14 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
         generation);
     assertMisses(cache, db);
-    // Fresh builds replace stale entries without post-insert cleanup.
-    var fresh = cache.putInternal("physical", plan, db, cache.getGeneration());
+    // Fresh builds publish current entries after stale publications remove their own holders.
+    cache.putInternal("physical", plan, db, cache.getGeneration());
+    var fresh = cache.peekStored("physical");
     var decline = new GremlinTranslationTemplate.Decline();
     cache.putTranslationInternal("translation", decline, db, cache.getGeneration());
     assertThat(cache.templateInternal("physical", db)).isSameAs(fresh);
-    assertThat(cache.getTranslationInternal("translation", db)).isSameAs(decline);
+    assertThat(cache.getTranslationInternal("translation", db, cache.getGeneration()))
+        .isSameAs(decline);
   }
 
   /** A delayed old publisher cannot replace either newer entry with the same key. */
@@ -87,13 +89,15 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var old = cache.getGeneration();
     var plan = plan(db);
     cache.invalidate();
-    var fresh = cache.putInternal("physical", plan, db, cache.getGeneration());
+    cache.putInternal("physical", plan, db, cache.getGeneration());
+    var fresh = cache.peekStored("physical");
     var decline = new GremlinTranslationTemplate.Decline();
     cache.putTranslationInternal("translation", decline, db, cache.getGeneration());
-    assertThat(cache.putInternal("physical", plan, db, old)).isNull();
+    cache.putInternal("physical", plan, db, old);
     cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db, old);
     assertThat(cache.peekStored("physical")).isSameAs(fresh);
-    assertThat(cache.getTranslationInternal("translation", db)).isSameAs(decline);
+    assertThat(cache.getTranslationInternal("translation", db, cache.getGeneration()))
+        .isSameAs(decline);
   }
 
   /** Real index invalidation makes an injected late decline miss and the next walk replace it. */
@@ -116,12 +120,12 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     db = graphSession();
     assertThat(cache.getGeneration()).isGreaterThan(old);
     cache.putTranslationInternal(key, new GremlinTranslationTemplate.Decline(), db, old);
-    assertThat(cache.getTranslationInternal(key, db)).isNull();
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
     var traversal = graph.traversal().V().hasLabel("Person").has("name", "Alice").asAdmin();
     GremlinToMatchStrategy.instance().apply(traversal);
     assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
     assertThat(traversal.toList()).hasSize(1);
-    assertThat(cache.getTranslationInternal(key, db))
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration()))
         .isInstanceOf(GremlinTranslationTemplate.Translate.class);
   }
 
@@ -150,12 +154,12 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     traversal.addStep(1, has);
     new GremlinToMatchStrategy(GremlinToMatchTranslator::translate, (s, translation, scope) -> {
       assertThat(scope.generation).isEqualTo(before);
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true).apply(traversal);
     assertThat(reads.get()).isGreaterThanOrEqualTo(2);
     assertThat(cache.getGeneration()).isGreaterThan(before);
     assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
-    assertThat(cache.getTranslationInternal(key, db)).isNull();
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
   }
 
   /** Invalidation inside the walker stamps both late publications with the original generation. */
@@ -170,12 +174,12 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       cache.invalidate();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.apply(traversal);
     assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
     var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
     var privatePlan = boundary.getPlan();
-    assertThat(cache.getTranslationInternal(key, db)).isNull();
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
     assertThat(traversal.toList()).hasSize(1);
     assertThat(boundary.getPlan()).isSameAs(privatePlan);
   }
@@ -191,18 +195,18 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var key = GremlinStepWalker.extractShape(traversal, db).key();
     var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
         (s, translation, scope) -> {
-          var template = GremlinToMatchStrategy.buildPlan(s, translation, scope);
-          assertThat(scope.isShared(template)).isTrue();
+          var template = GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
+          assertThat(template.sharedPlanTemplate).isTrue();
           cache.invalidate();
           return template;
         }, true);
     strategy.apply(traversal);
     assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
-    assertThat(cache.getTranslationInternal(key, db)).isNull();
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
     assertThat(traversal.toList()).hasSize(1);
   }
 
-  /** A g0 walk can use a g1 physical hit but its translation entry must still retain g0. */
+  /** Decision 22 rejects a newer physical holder and keeps the old walk private after DDL. */
   @Test
   public void oldWalkUsingAnotherSessionsFreshPhysicalEntryKeepsItsOwnStamp() {
     graph.addVertex(T.label, "Person", "name", "Alice");
@@ -211,23 +215,79 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(db);
     var traversal = graph.traversal().V().has("name", "Alice").asAdmin();
     var key = GremlinStepWalker.extractShape(traversal, db).key();
+    var fresh = new AtomicReference<GremlinPlanCache.Entry<InternalExecutionPlan>>();
+    var physicalKey = new AtomicReference<String>();
     var strategy = new GremlinToMatchStrategy(t -> {
       var translation = GremlinToMatchTranslator.translate(t);
+      physicalKey
+          .set(GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping()));
       cache.invalidate();
       try (var other = openDatabase()) {
         other.activateOnCurrentThread();
-        GremlinToMatchStrategy.buildPlan(other, translation,
-            new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true));
+        fresh.set(GremlinToMatchStrategy.buildPlanEntry(other, translation,
+            new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true)));
       } finally {
         db.activateOnCurrentThread();
       }
       return translation;
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     var hits = cache.getHits();
     strategy.apply(traversal);
-    assertThat(cache.getHits()).isEqualTo(hits + 1);
-    assertThat(cache.getTranslationInternal(key, db)).isNull();
+    // Approved captured-generation policy trades cross-generation reuse for a private rebuild.
+    assertThat(cache.getHits()).isEqualTo(hits);
+    var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+    var privatePlan = boundary.getPlan();
+    assertThat(privatePlan).isNotSameAs(fresh.get().value);
+    assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
     assertThat(traversal.toList()).hasSize(1);
+    assertThat(boundary.getPlan()).isSameAs(privatePlan);
+    assertThat(cache.peekEntry(physicalKey.get(), cache.getGeneration())).isSameAs(fresh.get());
+  }
+
+  /** A newer shared holder cannot publish a translation for bindings captured before invalidation. */
+  @Test
+  public void newerSharedHolderCannotPublishTranslationForOlderWalk() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    var nativeRows = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class)
+        .V().has("name", "Alice").toList();
+    assertThat(nativeRows).hasSize(1);
+    var db = enabledSession();
+    var cache = GremlinPlanCache.instance(db);
+    cache.invalidate();
+    var captured = cache.getGeneration();
+    var traversal = graph.traversal().V().has("name", "Alice").asAdmin();
+    var key = GremlinStepWalker.extractShape(traversal, db).key();
+    var builder = mock(GremlinToMatchStrategy.MatchPlanBuilder.class);
+    when(builder.buildPlanEntry(any(), any(), any())).thenAnswer(invocation -> {
+      GremlinToMatchStrategy.CacheScope scope = invocation.getArgument(2);
+      assertThat(scope.eligible).isTrue();
+      assertThat(scope.generation).isEqualTo(captured);
+      cache.invalidate();
+      GremlinToMatchTranslator.TranslationResult translation = invocation.getArgument(1);
+      var newer = GremlinToMatchStrategy.buildPlanEntry(db, translation,
+          new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true));
+      assertThat(newer.generation).isGreaterThan(scope.generation);
+      var fingerprint = GremlinPlanFingerprint.fingerprint(translation.inputs(),
+          translation.shaping());
+      assertThat(cache.peekEntry(fingerprint, cache.getGeneration())).isSameAs(newer);
+      return newer;
+    });
+    var publications = new AtomicInteger();
+    // Stale stores remove themselves, so a cache miss alone cannot detect a publication attempt.
+    cache.afterTranslationPublication = publications::incrementAndGet;
+    try {
+      new GremlinToMatchStrategy(GremlinToMatchTranslator::translate, builder, true)
+          .apply(traversal);
+      assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(traversal.toList()).containsExactlyElementsOf(nativeRows);
+      assertThat(publications.get()).isZero();
+      assertThat(cache.containsTranslation(key)).isFalse();
+      assertThat(cache.getTranslationInternal(key, db, cache.getGeneration())).isNull();
+    } finally {
+      cache.afterTranslationPublication = null;
+    }
   }
 
   /** A fixture private plan sharing a physical key does not become a lazy shared boundary. */
@@ -240,12 +300,13 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var translation = GremlinToMatchTranslator.translate(
         graph.traversal().V().has("name", "Alice").asAdmin());
     var scope = new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true);
-    var shared = GremlinToMatchStrategy.buildPlan(db, translation, scope);
-    assertThat(scope.isShared(shared)).isTrue();
-    var privatePlan = shared.copy(new BasicCommandContext(db));
+    var shared = GremlinToMatchStrategy.buildPlanEntry(db, translation, scope);
+    assertThat(shared.sharedPlanTemplate).isTrue();
+    var privatePlan = shared.value.copy(new BasicCommandContext(db));
     var traversal = graph.traversal().V().has("name", "Alice").asAdmin();
     var key = GremlinStepWalker.extractShape(traversal, db).key();
-    new GremlinToMatchStrategy(t -> translation, (s, tr, access) -> privatePlan, true)
+    new GremlinToMatchStrategy(t -> translation,
+        (s, tr, access) -> GremlinPlanCache.Entry.owned(privatePlan, access.generation), true)
         .apply(traversal);
     assertThat(cache.containsTranslation(key)).isFalse();
     var boundary = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
@@ -268,7 +329,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     try {
       assertThat(cache.templateInternal("physical", db)).isNull();
       assertThat(cache.getGeneration()).isGreaterThan(generation);
-      assertThat(cache.getTranslationInternal("translation", db)).isNull();
+      assertThat(cache.getTranslationInternal("translation", db, cache.getGeneration())).isNull();
     } finally {
       db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
     }
@@ -280,21 +341,21 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var db = graphSession();
     var disabled = new GremlinPlanCache(0);
     var plan = plan(db);
-    assertThat(disabled.putInternal("p", plan, db, 0)).isNull();
+    disabled.putInternal("p", plan, db, 0);
     assertThat(disabled.templateInternal("p", db)).isNull();
     disabled.putTranslationInternal("t", new GremlinTranslationTemplate.Decline(), db, 0);
-    assertThat(disabled.getTranslationInternal("t", db)).isNull();
+    assertThat(disabled.getTranslationInternal("t", db, disabled.getGeneration())).isNull();
     assertThat(disabled.containsTranslation("t")).isFalse();
     assertThat(disabled.getMisses()).isZero();
     var cache = new GremlinPlanCache(8);
-    assertThat(cache.putInternal(null, plan, db, 0)).isNull();
+    cache.putInternal(null, plan, db, 0);
+    assertThat(cache.size()).isZero();
     assertThat(cache.templateInternal(null, db)).isNull();
-    assertThat(cache.getTranslationInternal(null, db)).isNull();
+    assertThat(cache.getTranslationInternal(null, db, cache.getGeneration())).isNull();
     cache.putTranslationInternal(null, new GremlinTranslationTemplate.Decline(), db, 0);
     var refused = mock(InternalExecutionPlan.class);
-    assertThat(cache.putInternal("refused", refused, db, 0)).isNull();
-    assertThat(GremlinPlanCache.put(null, plan, db, 0)).isNull();
-    assertThat(GremlinPlanCache.put("p", plan, null, 0)).isNull();
+    cache.putInternal("refused", refused, db, 0);
+    assertThat(cache.peekStored("refused")).isNull();
     assertThat(GremlinPlanCache.template(null, db)).isNull();
     assertThat(GremlinPlanCache.template("p", null)).isNull();
     assertThat(GremlinPlanCache.get(null, new BasicCommandContext(db), db)).isNull();
@@ -312,7 +373,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     assertThat(cache.templateInternal("physical", db)).isNull();
     assertThat(cache.getInternal("physical", new BasicCommandContext(db), db)).isNull();
     assertThat(cache.containsTranslation("translation")).isFalse();
-    assertThat(cache.getTranslationInternal("translation", db)).isNull();
+    assertThat(cache.getTranslationInternal("translation", db, cache.getGeneration())).isNull();
   }
 
   private static InternalExecutionPlan plan(DatabaseSessionEmbedded db) {

@@ -434,9 +434,21 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
+    return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphic, null);
+  }
+
+  /** Null selects literal encoding. The caller owns the one eligibility/snapshot decision. */
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal,
+      DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     return GremlinShapeExtractor.extract(
         PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session,
-        orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic, runtimeRidStart);
   }
 
   /**
@@ -502,6 +514,19 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphicSetting, true, null);
+  }
+
+  /** Explicit decisions. Non-root walks stay literal regardless of supplied provenance. */
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal,
+      int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting,
+      boolean rootWalk,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -555,6 +580,7 @@ final class GremlinStepWalker {
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     ctx.setWalkedTraversal(traversal);
+    ctx.runtimeRidStart = rootWalk ? runtimeRidStart : null;
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
     ctx.setProductiveByKeys(
@@ -1450,9 +1476,19 @@ final class GremlinStepWalker {
     // null/false defaults (matchExpressions and detached checks normalise to empty lists in the
     // compact constructor). The builder names each field so a future track adding one cannot silently
     // transpose a positional argument.
+    Map<String, RuntimeRidStart> runtimeStarts = Map.of();
+    if (ctx.runtimeRidStart != null) {
+      if (ctx.runtimeStartAlias == null || ctx.runtimeStartSlot < 0 || ctx.ridBearing()) {
+        throw new IllegalStateException("Runtime RID start binding is incomplete");
+      }
+      runtimeStarts = Map.of(ctx.runtimeStartAlias,
+          new RuntimeRidStart(ctx.runtimeStartAlias,
+              ir.aliasClasses().get(ctx.runtimeStartAlias), ctx.runtimeStartSlot));
+    }
     var inputs =
         MatchPlanInputs.builder(ir.pattern())
             .aliasClasses(ir.aliasClasses())
+            .runtimeRidStarts(runtimeStarts)
             .aliasFilters(finalAliasFilters)
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
@@ -1472,6 +1508,14 @@ final class GremlinStepWalker {
             .skip(ctx.skip)
             .build();
 
+    // Fail closed even if descriptor assembly drifts: a registered binding cannot become a scan.
+    if (ctx.runtimeStartAlias != null
+        && (inputs.runtimeRidStarts().size() != 1
+            || !inputs.runtimeRidStarts().containsKey(ctx.runtimeStartAlias)
+            || inputs.runtimeRidStarts().get(ctx.runtimeStartAlias).parameterSlot()
+                != ctx.runtimeStartSlot)) {
+      throw new IllegalStateException("Runtime RID start descriptor is missing or mismatched");
+    }
     Map<Object, Object> inputParameters = new LinkedHashMap<>(ctx.inputParameters.size());
     ctx.inputParameters.forEach(inputParameters::put);
     return GremlinToMatchTranslator.TranslationResult.singlePlan(
