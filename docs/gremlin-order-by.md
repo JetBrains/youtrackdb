@@ -181,6 +181,10 @@ The traversal must return the matched vertex without changing its shape.
 The default record identifier (RID) tie-break follows the property direction, including within the null group.
 Nulls can appear first or last without changing that tie-break.
 
+Early stop requires the planner to prove the full property and RID order of the chosen index scan.
+Lookups over several ranges keep the full-input sort.
+These include `P.within(...)` lists of allowed values and `OR` alternatives.
+
 Filters run before `skip()` and `limit()` count matching vertices.
 Execution stops after enough matches, with bounded look-ahead.
 Sparse filters and deep `skip()` values can require many index reads.

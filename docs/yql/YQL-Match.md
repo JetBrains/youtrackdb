@@ -15,6 +15,10 @@ ORDER BY m.created DESC NULLS LAST, m.@rid DESC SKIP 10 LIMIT 5
 ```
 
 Nulls can appear first or last, with RIDs in the requested direction inside each equal-key group.
+
+Early stop requires the planner to prove the full property and RID order of the chosen index scan.
+Lookups over several ranges, such as `IN` lists or `OR` alternatives, keep the full-input sort.
+
 Filters run before SKIP and LIMIT count matching records.
 The scan stops after enough matches, with bounded look-ahead.
 Sparse filters and deep SKIP values can require many reads.
