@@ -13,6 +13,9 @@ public interface V1IndexEngine extends BaseIndexEngine {
 
   Stream<RID> get(Object key, @Nonnull AtomicOperation atomicOperation);
 
+  /** Reads null-key entries lazily in the requested RID direction. */
+  Stream<RID> getNullKeyRids(boolean ascending, @Nonnull AtomicOperation atomicOperation);
+
   @Override
   default int getEngineAPIVersion() {
     return API_VERSION;

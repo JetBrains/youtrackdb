@@ -234,8 +234,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   /**
    * Gremlin with RID tie-break translates to MATCH, keeps {@code .@rid} in the order clause, and
    * still opens the timestamp index (class fetch is gone). Full vertex id sequence matches the
-   * DESC index oracle on this fixture (no null keys). MATCH keeps OrderByStep because null keys
-   * remain eligible in the index ({@code orderFullyCovered=false}).
+   * DESC reference on this fixture. MATCH retains OrderByStep for runtime transaction checks.
    */
   @Test
   public void gremlinWithRidTieBreak_usesIndex() {
@@ -244,7 +243,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
     assertThat(planText).contains(".@rid DESC");
     assertIndexValuesScan(planText, "IndexedItem_timestamp");
     assertThat(planText)
-        .as("DESC+@rid with null keys still indexable must keep MATCH OrderByStep:\n%s", planText)
+        .as("RID queries retain the runtime-guarded MATCH OrderByStep:\n%s", planText)
         .contains("+ ORDER BY");
     assertThat(gremlinOrderedIds(graph.traversal()))
         .isEqualTo(expectedIndexedItemRids(false));
@@ -424,8 +423,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * A non-indexed name filter preserves SELECT's score index order. DESC nullable RID ties still
-   * require the MATCH sort. The filtered rows match the score and RID oracle.
+   * A non-indexed name filter preserves SELECT's complete score and RID order.
+   * MATCH retains its runtime-guarded sort step and returns the filtered reference sequence.
    */
   @Test
   public void bareMatch_withWhereOnOtherProperty_keepsMatchOrderBy() {
@@ -640,10 +639,8 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
   }
 
   /**
-   * DESC + {@code @rid} with null keys still in the index: open the score index for the primary
-   * stream, keep MATCH OrderByStep ({@code orderFullyCovered=false}) because the null-key group is
-   * stored outside the sorted tree and always walks RID ascending. Result must match the full
-   * DESC+RID oracle, including RID order inside the null group.
+   * DESC plus RID uses direction-aware null keys and retains the runtime-guarded sort step.
+   * The complete sequence includes descending RID ties inside the null group.
    */
   @Test
   public void bareMatchDescWithRid_nullKeyGroupKeepsMatchOrderBy() {
@@ -660,7 +657,7 @@ public class SingleNodeIndexOrderTest extends GraphBaseTest {
         .contains("FETCH FROM INDEX VALUES DESC Scored_score")
         .doesNotContain("FETCH FROM CLASS Scored");
     assertThat(planText)
-        .as("null-key RID group is not DESC-native — MATCH must keep OrderByStep:\n%s", planText)
+        .as("MATCH must retain its runtime-guarded OrderByStep:\n%s", planText)
         .contains("+ ORDER BY");
 
     var actual = new ArrayList<String>();

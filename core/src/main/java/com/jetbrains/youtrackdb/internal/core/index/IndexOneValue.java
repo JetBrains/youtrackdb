@@ -80,6 +80,11 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
+    return getRidsIgnoreTx(session, key, true);
+  }
+
+  private Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key,
+      boolean ascending) {
     key = getCollatingValue(key);
 
     acquireSharedLock();
@@ -98,7 +103,7 @@ public abstract class IndexOneValue extends IndexAbstract {
           var transaction = session.getActiveTransaction();
           stream =
               storage.getIndexValues(current.engineIdentifier(), current.engineReference(), key,
-                  transaction.getAtomicOperation());
+                  transaction.getAtomicOperation(), ascending);
           stream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -119,9 +124,18 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Override
   public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
+    return getRids(session, key, true);
+  }
+
+  @Override
+  public Stream<RID> getNullKeyRids(DatabaseSessionEmbedded session, boolean ascending) {
+    return getRids(session, null, ascending);
+  }
+
+  private Stream<RID> getRids(DatabaseSessionEmbedded session, Object key, boolean ascending) {
     key = getCollatingValue(key);
 
-    var stream = getRidsIgnoreTx(session, key);
+    var stream = getRidsIgnoreTx(session, key, ascending);
 
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
