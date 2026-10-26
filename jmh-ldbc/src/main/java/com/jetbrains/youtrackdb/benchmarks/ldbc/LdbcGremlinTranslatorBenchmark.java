@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -338,6 +340,10 @@ public class LdbcGremlinTranslatorBenchmark {
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(flagBeforeTrial);
     }
 
+    long[] bulkingIds(GremlinTraversalShapes.BulkingForm form) {
+      return form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? messageIds : personIds;
+    }
+
     long personId(long idx) {
       return personIds[(int) (idx % personIds.length)];
     }
@@ -371,6 +377,50 @@ public class LdbcGremlinTranslatorBenchmark {
     Date ic9MaxDate(long idx) {
       return ic2MaxDate(idx);
     }
+  }
+
+  /** Only the G6 benchmark pays for this per-form, per-parameter validation before timing. */
+  @State(Scope.Benchmark)
+  public static class BulkingParameters {
+
+    @Param({"DUPLICATE", "ONE_ROW", "UNIQUE", "MOSTLY_UNIQUE"})
+    public GremlinTraversalShapes.BulkingForm form;
+
+    private long[] ids;
+
+    @Setup(Level.Trial)
+    public void setUp(LdbcBenchmarkState state, TranslatorArm arm) {
+      ids = arm.bulkingIds(form);
+      if (ids == null || ids.length == 0) {
+        throw new IllegalStateException("G6 " + form + ": empty parameter feed");
+      }
+      var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+      try {
+        // Check translation even for a native timed arm, then restore its installed flag.
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+        state.traversal.executeInTx(t -> {
+          var nativeSource = t.withoutStrategies(GremlinToMatchStrategy.class);
+          for (long id : Arrays.stream(ids).distinct().toArray()) {
+            GremlinTraversalShapes.checkBulkingForm(form, id,
+                form.traversal(t, id).asAdmin(), form.traversal(nativeSource, id).asAdmin());
+          }
+        });
+      } finally {
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(flag);
+      }
+    }
+
+    long id(long index) {
+      return ids[(int) (index % ids.length)];
+    }
+  }
+
+  /** LDBC: none. Exact two-hop valueMap forms, with the existing translator-on/off fork axis. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingValueMap(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingParameters parameters) {
+    var id = parameters.id(state.nextIndex());
+    return state.traversal.computeInTx(t -> parameters.form.traversal(t, id).toList());
   }
 
   // ---------------------------------------------------------------------------------------------
