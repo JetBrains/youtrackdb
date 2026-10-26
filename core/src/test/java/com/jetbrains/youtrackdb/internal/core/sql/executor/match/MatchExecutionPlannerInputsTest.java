@@ -3,6 +3,16 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -10,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
@@ -46,7 +57,7 @@ import org.junit.Test;
  * because the planner exposes no accessors for them; this is a test-only access pattern
  * that avoids expanding the public API surface.
  */
-public class MatchExecutionPlannerInputsTest {
+public class MatchExecutionPlannerInputsTest extends DbTestBase {
 
   /**
    * Verifies the compact constructor normalises every nullable collection input to an empty
@@ -438,6 +449,273 @@ public class MatchExecutionPlannerInputsTest {
         .notMatchExpressions(List.of(not)).existsMatchExpressions(List.of(exists)).build());
     assertThat(planner.collectDownstreamAliases(List.of(new SQLExpression(-1)),
         null, null, null, java.util.Set.of("a", "b", "c"))).contains("b", "c");
+  }
+
+  /** Direct repeated aliases deduplicate after NOT checks and before any projection evaluation. */
+  @Test
+  public void identityDistinctPrecedesProjectionAndRetainsCheckedRows() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    var statement = (SQLMatchStatement) SQLEngine.parse(
+        "MATCH {class:V, as:a}, NOT {as:a}.out(){as:b} RETURN DISTINCT a as x, a as y",
+        session);
+    var plan = new MatchExecutionPlanner(statement).createExecutionPlan(ctx, false, false);
+    var steps = plan.getSteps();
+    assertThat(steps.get(steps.size() - 3)).isInstanceOf(FilterNotMatchPatternStep.class);
+    var distinct = (DistinctExecutionStep) steps.get(steps.size() - 2);
+    assertThat(distinct.prettyPrint(0, 2)).contains("BY IDENTITY (a)");
+    var projection = (ProjectionCalculationStep) steps.getLast();
+    var reads = new int[1];
+    var row = new ResultInternal(session) {
+      @Override
+      public <T> T getProperty(String name) {
+        reads[0]++;
+        return super.getProperty(name);
+      }
+    };
+    row.setMatchProperty("a", ResultInternal.fromCheckedRecord(session,
+        session.executeReadRecord(
+            (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) vertex.getIdentity(),
+            null, true)));
+    distinct.setPrevious(new AbstractExecutionStep(ctx, false) {
+      @Override
+      public ExecutionStep copy(com.jetbrains.youtrackdb.internal.core.command.CommandContext c) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public ExecutionStream internalStart(
+          com.jetbrains.youtrackdb.internal.core.command.CommandContext c) {
+        return ExecutionStream.resultIterator(List.<Result>of(row, row, row).iterator());
+      }
+    });
+    // Binding retention reads the row during setup. Count only projection-time reads.
+    reads[0] = 0;
+    var stream = projection.start(ctx);
+    try {
+      var projected = (ResultInternal) stream.next(ctx);
+      assertThat(projected.getVertex("x")).isSameAs(vertex);
+      assertThat(projected.getVertex("y")).isSameAs(vertex);
+      assertThat(projected.getMatchedRecord("x")).isSameAs(row.getMatchedRecord("a"));
+      assertThat(stream.hasNext(ctx)).isFalse();
+      assertThat(reads[0]).as("two alias projections for one survivor, not three rows")
+          .isEqualTo(2);
+    } finally {
+      stream.close(ctx);
+      session.rollback();
+    }
+  }
+
+  /** Non-direct keys and clause boundaries keep projected DISTINCT in its existing position. */
+  @Test
+  public void identityDistinctDeclinesUnprovedReturnShapes() {
+    session.begin();
+    session.newVertex("V");
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    try {
+      for (var suffix : List.of("a", "DISTINCT a.name", "DISTINCT a.toString()",
+          "DISTINCT a, b", "DISTINCT a:{@rid}", "DISTINCT count(a)",
+          "DISTINCT a GROUP BY a", "DISTINCT a UNWIND a", "DISTINCT a ORDER BY a",
+          "DISTINCT a SKIP 1", "DISTINCT a LIMIT 1", "DISTINCT missing")) {
+        var statement = (SQLMatchStatement) SQLEngine.parse(
+            "MATCH {class:V, as:a}.out(){as:b} RETURN " + suffix, session);
+        var plan = new MatchExecutionPlanner(statement).createExecutionPlan(ctx, false, false);
+        assertThat(plan.prettyPrint(0, 2)).as(suffix).doesNotContain("BY IDENTITY");
+      }
+      var optional = (SQLMatchStatement) SQLEngine.parse(
+          "MATCH {class:V, as:a}.out(){as:b, optional:true} RETURN DISTINCT b", session);
+      assertThat(new MatchExecutionPlanner(optional).createExecutionPlan(ctx, false, false)
+          .prettyPrint(0, 2)).doesNotContain("BY IDENTITY");
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Primitive and equal-content embedded field values retain projection-based equality. */
+  @Test
+  public void identityDistinctDeclinesFieldBindingsAndPreservesProjectedResults() {
+    session.createVertexClass("IdentitySource");
+    session.begin();
+    for (var tags : List.of(List.of("a", "b", "a"), List.of("a"))) {
+      var vertex = session.newVertex("IdentitySource");
+      vertex.<String>getOrCreateEmbeddedList("tags").addAll(tags);
+      var embedded = session.newEmbeddedEntity();
+      embedded.setProperty("city", "same");
+      vertex.setProperty("emb", embedded);
+    }
+    session.commit();
+    session.begin();
+    try {
+      assertProjectedDistinctMatchesControl(
+          "MATCH {class:IdentitySource, as:p}.tags{as:t} RETURN DISTINCT t", 2);
+      assertProjectedDistinctMatchesControl(
+          "MATCH {class:IdentitySource, as:p}.emb{as:e} RETURN DISTINCT e", 1);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Metadata may overwrite the returned node or a different node already present in the row. */
+  @Test
+  public void identityDistinctDeclinesMetadataCollisionsAnywhereInPattern() {
+    session.begin();
+    session.newVertex("V");
+    session.commit();
+    session.begin();
+    try {
+      for (var metadata : List.of("depthAlias", "pathAlias")) {
+        for (var alias : List.of("a", "b")) {
+          assertProjectedDistinctMatchesControl(
+              "MATCH {class:V, as:a}.out(){as:b, while:($depth < 1), "
+                  + metadata + ":" + alias + "} RETURN DISTINCT " + alias,
+              1);
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Custom methods and compound paths have no link-only proof, even for a direct RETURN. */
+  @Test
+  public void identityDistinctDeclinesCustomAndCompoundPaths() {
+    session.begin();
+    session.newVertex("V");
+    var ctx = new BasicCommandContext(session);
+    try {
+      for (var path : List.of(".toString(){as:b}", ".(out().out()){as:b}")) {
+        var statement = (SQLMatchStatement) SQLEngine.parse(
+            "MATCH {class:V, as:a}" + path + " RETURN DISTINCT b", session);
+        assertThat(new MatchExecutionPlanner(statement).createExecutionPlan(ctx, false, false)
+            .prettyPrint(0, 2)).as(path).doesNotContain("BY IDENTITY");
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Pre-built field edges keep projected equality even without the positive expression list. */
+  @Test
+  public void identityDistinctDeclinesPrebuiltFieldPatternAndPreservesResults() {
+    session.createVertexClass("IdentityInputSource");
+    session.begin();
+    for (var tags : List.of(List.of("a", "b", "a"), List.of("a"))) {
+      session.newVertex("IdentityInputSource").<String>getOrCreateEmbeddedList("tags")
+          .addAll(tags);
+    }
+    session.commit();
+    session.begin();
+    try {
+      assertPrebuiltDistinctMatchesControl(
+          "MATCH {class:IdentityInputSource, as:p}.tags{as:t} RETURN DISTINCT t", false, 2);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Pre-built graph edges still deduplicate shared targets by identity before projection. */
+  @Test
+  public void identityDistinctEngagesForPrebuiltGraphPatternAndPreservesResults() {
+    session.createVertexClass("IdentityInputSource");
+    session.begin();
+    var first = session.newVertex("IdentityInputSource");
+    var second = session.newVertex("IdentityInputSource");
+    var target = session.newVertex("V");
+    var other = session.newVertex("V");
+    first.addEdge(target, "E");
+    second.addEdge(target, "E");
+    second.addEdge(other, "E");
+    session.commit();
+    session.begin();
+    try {
+      assertPrebuiltDistinctMatchesControl(
+          "MATCH {class:IdentityInputSource, as:p}.out(){as:t} RETURN DISTINCT t", true, 2);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Pre-built traversal metadata cannot replace an identity key with a depth or path value. */
+  @Test
+  public void identityDistinctDeclinesPrebuiltMetadataCollisionsAndPreservesResults() {
+    session.createVertexClass("IdentityInputSource");
+    session.begin();
+    session.newVertex("IdentityInputSource");
+    session.commit();
+    session.begin();
+    try {
+      for (var metadata : List.of("depthAlias", "pathAlias")) {
+        for (var alias : List.of("p", "t")) {
+          assertPrebuiltDistinctMatchesControl(
+              "MATCH {class:IdentityInputSource, as:p}.out(){as:t, while:($depth < 1), "
+                  + metadata + ":" + alias + "} RETURN DISTINCT " + alias,
+              false, 1);
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private void assertPrebuiltDistinctMatchesControl(
+      String query, boolean identity, int expectedSize) {
+    var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+    var pattern = new Pattern();
+    statement.getMatchExpressions().forEach(pattern::addExpression);
+    var inputs = MatchPlanInputs.builder(pattern)
+        .aliasClasses(Map.of("p", "IdentityInputSource"))
+        .returnItems(statement.getReturnItems())
+        .returnAliases(statement.getReturnAliases())
+        .returnNestedProjections(statement.getReturnNestedProjections())
+        .returnDistinct(true)
+        .build();
+    assertThat(inputs.matchExpressions()).isEmpty();
+    var ctx = new BasicCommandContext(session);
+    var plan = new MatchExecutionPlanner(inputs).createExecutionPlan(ctx, false, false);
+    var steps = plan.getSteps();
+    assertThat(steps).filteredOn(DistinctExecutionStep.class::isInstance).hasSize(1);
+    if (identity) {
+      assertThat(steps.get(steps.size() - 2)).isInstanceOf(DistinctExecutionStep.class);
+      assertThat(steps.getLast()).isInstanceOf(ProjectionCalculationStep.class);
+      assertThat(plan.prettyPrint(0, 2)).contains("BY IDENTITY (t)");
+    } else {
+      assertThat(steps.getLast()).isInstanceOf(DistinctExecutionStep.class);
+      assertThat(plan.prettyPrint(0, 2)).doesNotContain("BY IDENTITY");
+    }
+    var actual = new ArrayList<Map<String, Object>>();
+    var stream = plan.start();
+    try {
+      while (stream.hasNext(ctx)) {
+        actual.add(stream.next(ctx).toMap());
+      }
+    } finally {
+      stream.close(ctx);
+    }
+    try (var control = session.query(query + " SKIP 0")) {
+      var expected = control.stream().map(Result::toMap).toList();
+      assertThat(expected).as("ordinary projected DISTINCT control").hasSize(expectedSize);
+      assertThat(actual).as(query).containsExactlyElementsOf(expected);
+    }
+  }
+
+  private void assertProjectedDistinctMatchesControl(String query, int expectedSize) {
+    var ctx = new BasicCommandContext(session);
+    var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
+    var steps = new MatchExecutionPlanner(statement).createExecutionPlan(ctx, false, false)
+        .getSteps();
+    assertThat(steps).filteredOn(DistinctExecutionStep.class::isInstance).hasSize(1);
+    assertThat(steps.getLast()).isInstanceOf(DistinctExecutionStep.class);
+    assertThat(((DistinctExecutionStep) steps.getLast()).prettyPrint(0, 2))
+        .doesNotContain("BY IDENTITY");
+    try (var control = session.query(query + " SKIP 0"); var actual = session.query(query)) {
+      var expected = control.stream().map(Result::toMap).toList();
+      assertThat(expected).as("old projection-then-DISTINCT control").hasSize(expectedSize);
+      assertThat(actual.stream().map(Result::toMap).toList()).as(query)
+          .containsExactlyElementsOf(expected);
+    }
   }
 
   // ──────────────────────────────────── Test helpers ────────────────────────────────────
