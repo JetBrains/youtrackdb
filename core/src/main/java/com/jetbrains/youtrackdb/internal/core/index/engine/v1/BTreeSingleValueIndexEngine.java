@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngin
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -38,8 +39,8 @@ import javax.annotation.Nullable;
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
 
-  private static final String DATA_FILE_EXTENSION = ".cbt";
-  private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
+  private static final String DATA_FILE_EXTENSION = StorageFileNames.INDEX_DATA_EXTENSION;
+  private static final String NULL_BUCKET_FILE_EXTENSION = StorageFileNames.INDEX_NULL_EXTENSION;
 
   private final CellBTreeSingleValue<CompositeKey> sbTree;
   private final IndexesSnapshot indexesSnapshot;

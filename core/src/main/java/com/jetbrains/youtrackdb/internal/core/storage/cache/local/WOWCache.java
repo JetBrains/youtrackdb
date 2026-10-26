@@ -48,6 +48,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.SecurityException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
@@ -177,7 +178,7 @@ public final class WOWCache extends AbstractWriteCache
   /**
    * Extension for the file which contains mapping between file name and file id
    */
-  private static final String NAME_ID_MAP_EXTENSION = ".cm";
+  private static final String NAME_ID_MAP_EXTENSION = StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Name for file which contains first version of binary format
@@ -2937,7 +2938,8 @@ public final class WOWCache extends AbstractWriteCache
   private void deleteMapTemporaryFiles() throws IOException {
     Files.deleteIfExists(storagePath.resolve(NAME_ID_MAP_V3_T));
     Files.deleteIfExists(storagePath.resolve(NAME_ID_MAP_V2_BACKUP));
-    try (final var temporaryFiles = Files.newDirectoryStream(storagePath, "name_id_map_*.tmp")) {
+    try (final var temporaryFiles = Files.newDirectoryStream(storagePath,
+        StorageFileNames.MAP_TEMP_GLOB)) {
       for (final var path : temporaryFiles) {
         Files.deleteIfExists(path);
       }

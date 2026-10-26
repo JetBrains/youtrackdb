@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -235,7 +236,8 @@ final class NameIdMapFile {
   /** Publishes a complete missing copy. A failed pre-move write cannot expose a partial copy. */
   static void create(Path path, ByteBuffer image, boolean callFsync, Object requester)
       throws IOException {
-    final var temporary = Files.createTempFile(path.getParent(), "name_id_map_", ".tmp");
+    final var temporary = Files.createTempFile(path.getParent(),
+        StorageFileNames.MAP_TEMP_PREFIX, StorageFileNames.TEMP_SUFFIX);
     try {
       try (final var channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
         IOUtils.writeByteBuffer(image.slice(0, image.limit()), channel, 0);

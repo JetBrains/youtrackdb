@@ -115,6 +115,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
@@ -4523,9 +4524,7 @@ public abstract class AbstractStorage
    * shape are never mistaken for engine files.
    */
   private static boolean isIndexEngineFileExtension(final String extension) {
-    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
-        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
-        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
+    return StorageFileNames.isIndexEngineFileExtension(extension);
   }
 
   /**
