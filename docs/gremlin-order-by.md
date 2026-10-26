@@ -173,6 +173,28 @@ value. The shipped values are `FIRST` for ascending order and `LAST` for descend
 The parameters change only the framework comparators `Order.asc` and `Order.desc`.
 A caller-supplied comparator keeps its own null handling. `Order.shuffle` is also unchanged.
 
+## Single-node index order
+
+A translated traversal without graph hops can stream its complete order from a single-property index.
+The index must include missing and null property values and use the query comparison rules.
+The traversal must return the matched vertex without changing its shape.
+The default record identifier (RID) tie-break follows the property direction, including within the null group.
+Nulls can appear first or last without changing that tie-break.
+
+Early stop requires the planner to prove the full property and RID order of the chosen index scan.
+Lookups over several ranges keep the full-input sort.
+These include `P.within(...)` lists of allowed values and `OR` alternatives.
+
+Filters run before `skip()` and `limit()` count matching vertices.
+Execution stops after enough matches, with bounded look-ahead.
+Sparse filters and deep `skip()` values can require many index reads.
+Too few matches can require reading the whole index.
+
+Each execution checks for pending record changes in its transaction, including when it reuses a plan.
+Pending changes select a full-input sort instead of index-order pass-through.
+This guarantee does not cover graph hops or remove explicit RID sorts from plain SELECT queries.
+Composite indexes, mixed directions, computed keys, and incompatible comparison rules retain their separate restrictions.
+
 ## Known limitation
 
 One shape loses rows under the including default. The limitation stands in the version that

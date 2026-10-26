@@ -3341,7 +3341,8 @@ public class SelectExecutionPlanner {
     info.orderApplied = true;
     info.ridOrderWithinEqualKeys =
         bestTrailingFields == 0
-            && (!SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
+            && (bestIndex.getDefinition().getProperties().size() == 1
+                || !SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
                 || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
                     info.whereClause == null ? null : info.whereClause.getBaseExpression()));
     return true;
@@ -3771,13 +3772,14 @@ public class SelectExecutionPlanner {
     coveredFields.addAll(orderBy.getProperties());
     return coveredFields.size() == definition.getProperties().size()
         && coveredFields.containsAll(definition.getProperties())
-        && (!SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
+        && (definition.getProperties().size() == 1
+            || !SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
             || orderedFieldsExcludeNulls(clazz, orderBy.getProperties(), keyCondition));
   }
 
   /**
-   * Shared SELECT and single-node MATCH proof that every ordered key excludes nulls.
-   * A descending scan cannot promise RID order in a nullable index-key bucket.
+   * Conservative proof that every ordered composite key excludes nulls.
+   * Single-property scans supply direction-aware RID order in their separate null bucket.
    * Schema constraints do not prove this for existing records or disabled validation.
    */
   public static boolean orderedFieldsExcludeNulls(

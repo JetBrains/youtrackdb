@@ -243,6 +243,12 @@ public interface Index extends Comparable<Index> {
 
   Stream<RID> getRids(DatabaseSessionEmbedded session, final Object key);
 
+  /**
+   * Reads stored null-key entries in scan-direction RID order. Transaction-local overlays retain
+   * their ordinary semantics and do not promise RID order.
+   */
+  Stream<RID> getNullKeyRids(DatabaseSessionEmbedded session, boolean ascending);
+
   Stream<RawPair<Object, RID>> stream(DatabaseSessionEmbedded session);
 
   Stream<RawPair<Object, RID>> descStream(DatabaseSessionEmbedded session);
