@@ -10,6 +10,8 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.List;
+import java.util.Map;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.junit.Test;
@@ -76,33 +78,55 @@ public class LdbcGremlinBenchmarkWiringTest {
         LIVE_DATE, LdbcGremlinTranslatorBenchmark.OrderedLimitIc2Workload.maxDate(arm, 7));
   }
 
-  /** JMH exposes all four forms and the real benchmark consumes its checked feed on either arm. */
+  /** Four method identities expose fixed forms with translatorEnabled as their only JMH param. */
   @Test
-  public void bulkingBenchmarkUsesAllDeclaredFormsAndCheckedIds() throws Exception {
-    var method = LdbcGremlinTranslatorBenchmark.class.getMethod("gremlin_bulkingValueMap",
-        LdbcBenchmarkState.class, LdbcGremlinTranslatorBenchmark.TranslatorArm.class,
-        LdbcGremlinTranslatorBenchmark.BulkingParameters.class);
-    assertNotNull(method.getAnnotation(Benchmark.class));
-    var forms = LdbcGremlinTranslatorBenchmark.BulkingParameters.class.getField("form")
-        .getAnnotation(Param.class).value();
-    assertEquals(
-        Arrays.stream(GremlinTraversalShapes.BulkingForm.values()).map(Enum::name).toList(),
-        Arrays.asList(forms));
+  public void bulkingBenchmarksDeclareFixedFormsWithoutAdditionalParams() throws Exception {
+    assertEquals(List.of("true", "false"), Arrays.asList(
+        LdbcGremlinTranslatorBenchmark.TranslatorArm.class.getField("translatorEnabled")
+            .getAnnotation(Param.class).value()));
     for (var form : GremlinTraversalShapes.BulkingForm.values()) {
-      var parameters = new LdbcGremlinTranslatorBenchmark.BulkingParameters() {
-        @Override
-        long id(long index) {
-          return 22;
+      var parameters = bulkingParameters(form);
+      assertEquals(form, parameters.form);
+      var method = LdbcGremlinTranslatorBenchmark.class.getMethod(bulkingMethodName(form),
+          LdbcBenchmarkState.class, LdbcGremlinTranslatorBenchmark.TranslatorArm.class,
+          parameters.getClass());
+      assertNotNull(method.getAnnotation(Benchmark.class));
+      for (Class<?> type = parameters.getClass(); type != null; type = type.getSuperclass()) {
+        for (var field : type.getDeclaredFields()) {
+          assertFalse(field.isAnnotationPresent(Param.class));
         }
-      };
-      parameters.form = form;
-      for (boolean enabled : new boolean[] {true, false}) {
-        var arm = new StubArm();
-        arm.translatorEnabled = enabled;
-        assertTrue(new LdbcGremlinTranslatorBenchmark()
-            .gremlin_bulkingValueMap(new StubState(), arm, parameters).isEmpty());
       }
     }
+  }
+
+  static LdbcGremlinTranslatorBenchmark.BulkingParameters bulkingParameters(
+      GremlinTraversalShapes.BulkingForm form) {
+    return switch (form) {
+      case DUPLICATE -> new LdbcGremlinTranslatorBenchmark.BulkingDuplicateParameters();
+      case ONE_ROW -> new LdbcGremlinTranslatorBenchmark.BulkingOneRowParameters();
+      case UNIQUE -> new LdbcGremlinTranslatorBenchmark.BulkingUniqueParameters();
+      case MOSTLY_UNIQUE -> new LdbcGremlinTranslatorBenchmark.BulkingMostlyUniqueParameters();
+    };
+  }
+
+  private static String bulkingMethodName(GremlinTraversalShapes.BulkingForm form) {
+    return switch (form) {
+      case DUPLICATE -> "gremlin_bulkingDuplicate";
+      case ONE_ROW -> "gremlin_bulkingOneRow";
+      case UNIQUE -> "gremlin_bulkingUnique";
+      case MOSTLY_UNIQUE -> "gremlin_bulkingMostlyUnique";
+    };
+  }
+
+  @SuppressWarnings("unchecked")
+  static List<Map<Object, Object>> invokeBulkingBenchmark(GremlinTraversalShapes.BulkingForm form,
+      LdbcBenchmarkState state, LdbcGremlinTranslatorBenchmark.TranslatorArm arm,
+      LdbcGremlinTranslatorBenchmark.BulkingParameters parameters) throws Exception {
+    var method = LdbcGremlinTranslatorBenchmark.class.getMethod(bulkingMethodName(form),
+        LdbcBenchmarkState.class, LdbcGremlinTranslatorBenchmark.TranslatorArm.class,
+        parameters.getClass());
+    return (List<Map<Object, Object>>) method.invoke(
+        new LdbcGremlinTranslatorBenchmark(), state, arm, parameters);
   }
 
   /** Every form rejects an empty feed. Duplicate, singleton, and unique cases enforce their names. */
@@ -130,8 +154,7 @@ public class LdbcGremlinBenchmarkWiringTest {
           return ids;
         }
       };
-      var parameters = new LdbcGremlinTranslatorBenchmark.BulkingParameters();
-      parameters.form = GremlinTraversalShapes.BulkingForm.DUPLICATE;
+      var parameters = new LdbcGremlinTranslatorBenchmark.BulkingDuplicateParameters();
       assertTrue(assertThrows(IllegalStateException.class,
           () -> parameters.setUp(new StubState(), arm)).getMessage()
           .contains("empty parameter feed"));

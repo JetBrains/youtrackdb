@@ -379,14 +379,16 @@ public class LdbcGremlinTranslatorBenchmark {
     }
   }
 
-  /** Only the G6 benchmark pays for this per-form, per-parameter validation before timing. */
+  /** Each G6 benchmark validates only its own fixed form and parameter feed before timing. */
   @State(Scope.Benchmark)
-  public static class BulkingParameters {
+  public abstract static class BulkingParameters {
 
-    @Param({"DUPLICATE", "ONE_ROW", "UNIQUE", "MOSTLY_UNIQUE"})
-    public GremlinTraversalShapes.BulkingForm form;
-
+    final GremlinTraversalShapes.BulkingForm form;
     private long[] ids;
+
+    BulkingParameters(GremlinTraversalShapes.BulkingForm form) {
+      this.form = form;
+    }
 
     @Setup(Level.Trial)
     public void setUp(LdbcBenchmarkState state, TranslatorArm arm) {
@@ -413,14 +415,72 @@ public class LdbcGremlinTranslatorBenchmark {
     long id(long index) {
       return ids[(int) (index % ids.length)];
     }
+
+    List<Map<Object, Object>> run(LdbcBenchmarkState state) {
+      var id = id(state.nextIndex());
+      return state.traversal.computeInTx(t -> form.traversal(t, id).toList());
+    }
   }
 
-  /** LDBC: none. Exact two-hop valueMap forms, with the existing translator-on/off fork axis. */
+  // Separate states isolate preflight failures and keep translatorEnabled as the only JMH param.
+  @State(Scope.Benchmark)
+  public static class BulkingDuplicateParameters extends BulkingParameters {
+
+    public BulkingDuplicateParameters() {
+      super(GremlinTraversalShapes.BulkingForm.DUPLICATE);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingOneRowParameters extends BulkingParameters {
+
+    public BulkingOneRowParameters() {
+      super(GremlinTraversalShapes.BulkingForm.ONE_ROW);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingUniqueParameters extends BulkingParameters {
+
+    public BulkingUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.UNIQUE);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingMostlyUniqueParameters extends BulkingParameters {
+
+    public BulkingMostlyUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.MOSTLY_UNIQUE);
+    }
+  }
+
+  /** LDBC: none. Duplicate two-hop KNOWS endpoints before valueMap. */
   @Benchmark
-  public List<Map<Object, Object>> gremlin_bulkingValueMap(
-      LdbcBenchmarkState state, TranslatorArm arm, BulkingParameters parameters) {
-    var id = parameters.id(state.nextIndex());
-    return state.traversal.computeInTx(t -> parameters.form.traversal(t, id).toList());
+  public List<Map<Object, Object>> gremlin_bulkingDuplicate(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingDuplicateParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. One message-author-location row before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingOneRow(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingOneRowParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Unique friend-message endpoints before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingUniqueParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Mostly unique liked-message authors before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingMostlyUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingMostlyUniqueParameters parameters) {
+    return parameters.run(state);
   }
 
   // ---------------------------------------------------------------------------------------------

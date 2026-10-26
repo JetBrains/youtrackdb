@@ -780,7 +780,7 @@ public class LdbcGremlinShapeTranslationTest {
    * 64-slot pool wraparound. Row counts alone cannot identify the selected query or parameter.
    */
   @Test
-  public void bulkingTrialSetupAndBenchmarkRunOnBothArms() {
+  public void bulkingTrialSetupAndBenchmarkRunOnBothArms() throws Exception {
     var state = new LdbcBenchmarkState() {
       @Override
       public long isPersonId(long index) {
@@ -809,8 +809,7 @@ public class LdbcGremlinShapeTranslationTest {
       try {
         arm.setUp(state);
         for (var form : GremlinTraversalShapes.BulkingForm.values()) {
-          var parameters = new LdbcGremlinTranslatorBenchmark.BulkingParameters();
-          parameters.form = form;
+          var parameters = LdbcGremlinBenchmarkWiringTest.bulkingParameters(form);
           parameters.setUp(state, arm);
           assertEquals(enabled,
               GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean());
@@ -826,8 +825,8 @@ public class LdbcGremlinShapeTranslationTest {
           // 66 calls cross the real pool boundary and revisit both parameters after wraparound.
           for (int invocation = 0; invocation < 66; invocation++) {
             long id = invocation % 2 == 0 ? firstId : secondId;
-            var rows = new LdbcGremlinTranslatorBenchmark()
-                .gremlin_bulkingValueMap(state, arm, parameters);
+            var rows = LdbcGremlinBenchmarkWiringTest.invokeBulkingBenchmark(
+                form, state, arm, parameters);
             assertEquals(form + ": arm=" + enabled + ", invocation=" + invocation + ", id=" + id,
                 expectedBulkingResults(form, id), render(rows, Comparison.AS_MULTISET));
           }
@@ -838,26 +837,44 @@ public class LdbcGremlinShapeTranslationTest {
     }
   }
 
-  /** A later invalid parameter aborts trial setup and restores the native timed arm flag. */
+  /** A bad duplicate feed restores the flag and leaves the other methods free to set up and run. */
   @Test
-  public void bulkingTrialChecksEveryParameterAndRestoresFlagOnFailure() {
+  public void bulkingTrialFailureRestoresFlagAndDoesNotBlockOtherForms() throws Exception {
     var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
-    var state = new LdbcBenchmarkState();
+    var state = new LdbcBenchmarkState() {
+      @Override
+      public long nextIndex() {
+        return 0;
+      }
+    };
     state.traversal = g;
     var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm() {
       @Override
       long[] bulkingIds(GremlinTraversalShapes.BulkingForm form) {
-        return new long[] {FRANK, ALICE};
+        return form == GremlinTraversalShapes.BulkingForm.ONE_ROW
+            ? new long[] {POST} : new long[] {FRANK, ALICE};
       }
     };
-    var parameters = new LdbcGremlinTranslatorBenchmark.BulkingParameters();
-    parameters.form = GremlinTraversalShapes.BulkingForm.DUPLICATE;
+    var parameters = new LdbcGremlinTranslatorBenchmark.BulkingDuplicateParameters();
     try {
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(false);
       assertTrue(assertThrows(IllegalStateException.class, () -> parameters.setUp(state, arm))
-          .getMessage().contains("parameter 1: invalid feed, rows=3, distinct elements=3"));
+          .getMessage()
+          .contains("DUPLICATE parameter 1: invalid feed, rows=3, distinct elements=3"));
       assertEquals(false,
           GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean());
+      for (var form : List.of(GremlinTraversalShapes.BulkingForm.ONE_ROW,
+          GremlinTraversalShapes.BulkingForm.UNIQUE,
+          GremlinTraversalShapes.BulkingForm.MOSTLY_UNIQUE)) {
+        var other = LdbcGremlinBenchmarkWiringTest.bulkingParameters(form);
+        other.setUp(state, arm);
+        assertEquals(false,
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean());
+        var rows = LdbcGremlinBenchmarkWiringTest.invokeBulkingBenchmark(form, state, arm, other);
+        assertEquals(form.toString(), expectedBulkingResults(form,
+            form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? POST : FRANK),
+            render(rows, Comparison.AS_MULTISET));
+      }
     } finally {
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
     }
