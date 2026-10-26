@@ -217,9 +217,8 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
    * Expected: the shortcut is refused outright — no index-ordered step at all — while the control
    * sort over the default-collate property still takes it.
    *
-   * <p>The index stores the folded key alone, so {@code Ada} and {@code ada} share one key and come
-   * back in identifier order, while the comparison separates them by the raw values. No scan of that
-   * index reproduces the comparison, with one sort item or two.
+   * <p>Case variants such as {@code Ada} and {@code ada} tie in both the folded index and the
+   * ci comparison. Edge-hop support for this collation is deferred to YTDB-1459.
    */
   @Test
   public void declaredCaseInsensitiveProperty_refusesTheShortcut() {

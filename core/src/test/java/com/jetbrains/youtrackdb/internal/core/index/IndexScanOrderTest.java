@@ -189,7 +189,6 @@ public class IndexScanOrderTest extends DbTestBase {
   /** Pending SELECT DESC keeps its clean index plan and matches the independent row reference. */
   @Test
   public void pendingSelectDescendingKeepsPlanAndMatchesFixture() {
-    assumeFalse(caseInsensitive);
     assertPendingSelect("SELECT FROM " + CLASS_NAME + " ORDER BY p DESC", row -> true);
   }
 

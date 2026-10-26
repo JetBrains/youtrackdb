@@ -190,12 +190,9 @@ public final class IndexOrderedPlanner {
       List<EdgeTraversal> sortedEdges,
       CommandContext context,
       Map<String, Long> estimatedRootEntries) {
-    // 1. ORDER BY must have at least one item, and that item must compare the way the index
-    //    compares its keys: with the default collation. A stated COLLATE clause and a collation the
-    //    property declares are both refused, because the index stores the collated key alone. Under
-    //    the case-insensitive collation, for instance, "Ada" and "ada" share one stored key, so the
-    //    scan hands that group back in identifier order while the comparison separates it by the
-    //    raw values — a sequence no scan of that index reproduces.
+    // 1. Edge-hop index ordering supports only the default collation. Explicit COLLATE remains
+    //    unsupported, and declared ci support for this path is deferred to YTDB-1459.
+    //    Under ci, case variants such as "Ada" and "ada" tie in both the index and ORDER BY.
     if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
       return null;
     }

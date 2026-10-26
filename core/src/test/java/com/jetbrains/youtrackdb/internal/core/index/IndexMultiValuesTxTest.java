@@ -57,6 +57,250 @@ public class IndexMultiValuesTxTest extends DbTestBase {
     session.commit();
   }
 
+  /** Remove followed by re-add must not make the committed RID appear twice on any read path. */
+  @Test
+  public void removeAndReadd_hasSingleOwnerAndMatchesCommit() {
+    assertOverlayChanges(List.of(OPERATION.REMOVE, OPERATION.PUT), false, 2);
+  }
+
+  /** A PUT alone also transfers ownership of an already committed RID to the TX stream. */
+  @Test
+  public void putCommittedRid_hasSingleOwnerAndMatchesCommit() {
+    assertOverlayChanges(List.of(OPERATION.PUT), false, 2);
+  }
+
+  /** Repeated PUTs and a partial cancellation must still emit each RID exactly once. */
+  @Test
+  public void repeatedPutsWithPartialCancellation_matchCommit() {
+    assertOverlayChanges(List.of(OPERATION.PUT, OPERATION.PUT, OPERATION.REMOVE), false, 2);
+  }
+
+  /** Removing a committed RID without re-adding it leaves only its peer under the key. */
+  @Test
+  public void removeOnly_hidesCommittedRidAndMatchesCommit() {
+    assertOverlayChanges(List.of(OPERATION.REMOVE), false, 1);
+  }
+
+  /** A RID committed under another key must be visible once when added to this key. */
+  @Test
+  public void putNewRid_preservesCommittedPeersAndMatchesCommit() {
+    assertOverlayChanges(List.of(OPERATION.PUT), true, 3);
+  }
+
+  /** Whole-key removal discards both peers, then a PUT restores only the chosen RID. */
+  @Test
+  public void removeWholeKeyThenPut_returnsOnlyReaddedRid() {
+    assertOverlayChanges(List.of(OPERATION.REMOVE, OPERATION.PUT), false, 1, true);
+  }
+
+  private void assertOverlayChanges(List<OPERATION> operations, boolean newRid, int count) {
+    assertOverlayChanges(operations, newRid, count, false);
+  }
+
+  private void assertOverlayChanges(List<OPERATION> operations, boolean newRid, int count,
+      boolean removeWholeKey) {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    List<RID> original;
+    try (var stream = index.getRids(session, "alpha")) {
+      original = stream.sorted().toList();
+    }
+    RID changed;
+    try (var stream = index.getRids(session, newRid ? "beta" : "alpha")) {
+      changed = stream.sorted().toList().get(newRid ? 0 : 1);
+    }
+    session.rollback();
+
+    var expected = new ArrayList<>(original);
+    if (removeWholeKey) {
+      expected.clear();
+    } else if (operations.equals(List.of(OPERATION.REMOVE))) {
+      expected.remove(changed);
+    }
+    if (!operations.equals(List.of(OPERATION.REMOVE)) && !expected.contains(changed)) {
+      expected.add(changed);
+    }
+    assertEquals(count, expected.size());
+
+    // Run the same changes twice to check rollback isolation and then commit equivalence.
+    // The overlay accepts a synthetic whole-key REMOVE, but the multi-value storage engine
+    // requires a RID on removal. Exercise that read state without sending it to commit.
+    for (boolean commit : removeWholeKey ? List.of(false) : List.of(false, true)) {
+      session.begin();
+      for (var operation : operations) {
+        session.getTransactionInternal().addIndexEntry(index, IDX_NAME, operation, "alpha",
+            removeWholeKey && operation == OPERATION.REMOVE ? null : changed);
+      }
+      assertAlphaReadPaths(index, expected);
+      if (commit) {
+        session.commit();
+      } else {
+        session.rollback();
+      }
+      session.begin();
+      assertAlphaReadPaths(index, commit ? expected : original);
+      session.rollback();
+    }
+  }
+
+  private void assertAlphaReadPaths(Index index, List<RID> expected) {
+    try (var stream = index.getRids(session, "alpha")) {
+      assertSameRids(expected, stream);
+    }
+    for (boolean asc : List.of(true, false)) {
+      try (var stream = asc ? index.stream(session) : index.descStream(session)) {
+        assertSameRids(expected, stream.filter(p -> "alpha".equals(p.first()))
+            .map(RawPair::second));
+      }
+      try (var stream = index.streamEntries(session, List.of("alpha"), asc)) {
+        assertSameRids(expected, stream.map(RawPair::second));
+      }
+      try (var stream = index.streamEntriesBetween(session, "alpha", true, "alpha", true, asc)) {
+        assertSameRids(expected, stream.map(RawPair::second));
+      }
+      try (var stream = index.streamEntriesMajor(session, "alpha", true, asc)) {
+        assertSameRids(expected, stream.filter(p -> "alpha".equals(p.first()))
+            .map(RawPair::second));
+      }
+      try (var stream = index.streamEntriesMinor(session, "alpha", true, asc)) {
+        assertSameRids(expected, stream.map(RawPair::second));
+      }
+    }
+    assertEquals("size must count each pair once", 3 + expected.size(), index.size(session));
+  }
+
+  private void assertSameRids(List<RID> expected, Stream<RID> actual) {
+    // Lists retain multiplicity. A set comparison would hide the regression.
+    assertEquals(expected.stream().sorted().toList(), actual.sorted().toList());
+  }
+
+  /**
+   * Only-from and only-to ranges must include re-added and TX-only keys on the requested
+   * side, exclude keys on the other side, and honor inclusivity in both scan directions.
+   */
+  @Test
+  public void oneBoundRanges_selectCorrectChangedKeysAndMatchCommit() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    List<RID> alpha;
+    RID beta;
+    List<RID> gamma;
+    try (var stream = index.getRids(session, "alpha")) {
+      alpha = stream.sorted().toList();
+    }
+    try (var stream = index.getRids(session, "beta")) {
+      beta = stream.toList().getFirst();
+    }
+    try (var stream = index.getRids(session, "gamma")) {
+      gamma = stream.sorted().toList();
+    }
+    for (var pair : List.of(new RawPair<>("alpha", alpha.getLast()),
+        new RawPair<>("gamma", gamma.getLast()))) {
+      index.remove(session.getTransactionInternal(), pair.first(), pair.second());
+      index.put(session.getTransactionInternal(), pair.first(), pair.second());
+    }
+    index.put(session.getTransactionInternal(), "aardvark", beta);
+    index.put(session.getTransactionInternal(), "zeta", beta);
+    var txRows = rangeSnapshots(index, alpha, beta, gamma);
+    session.commit();
+    session.begin();
+    assertEquals(txRows, rangeSnapshots(index, alpha, beta, gamma));
+    session.rollback();
+  }
+
+  private List<List<String>> rangeSnapshots(Index index, List<RID> alpha, RID beta,
+      List<RID> gamma) {
+    var snapshots = new ArrayList<List<String>>();
+    for (boolean asc : List.of(true, false)) {
+      for (boolean inclusive : List.of(true, false)) {
+        for (boolean onlyFrom : List.of(true, false)) {
+          var expected = new ArrayList<RID>(onlyFrom ? gamma : alpha);
+          expected.add(beta); // TX-only zeta or aardvark.
+          if (inclusive) {
+            expected.add(beta); // Committed beta exactly at the bound.
+          }
+          try (var stream = index.streamEntriesBetween(session,
+              onlyFrom ? "beta" : null, inclusive, onlyFrom ? null : "beta", inclusive, asc)) {
+            var rows = stream.toList();
+            assertSameRids(expected, rows.stream().map(RawPair::second));
+            var keys = rows.stream().map(p -> (String) p.first()).toList();
+            var ordered = keys.stream().sorted(asc ? java.util.Comparator.naturalOrder()
+                : java.util.Comparator.reverseOrder()).toList();
+            assertEquals("range key order", ordered, keys);
+            snapshots.add(rows.stream().map(p -> p.first() + ":" + p.second()).sorted().toList());
+          }
+        }
+      }
+    }
+    return snapshots;
+  }
+
+  /** Null-key lookup and requested-key streams must not duplicate a re-added committed RID. */
+  @Test
+  public void nullKeyReadd_matchesCommit() {
+    assertSpecialKeyReadd(false);
+  }
+
+  /** Composite-key full and bounded scans must not duplicate a re-added committed RID. */
+  @Test
+  public void compositeKeyReadd_matchesCommit() {
+    assertSpecialKeyReadd(true);
+  }
+
+  private void assertSpecialKeyReadd(boolean composite) {
+    var cls = session.createClass("SpecialOverlay");
+    cls.createProperty("first", PropertyType.STRING);
+    cls.createProperty("second", PropertyType.STRING);
+    String name = "SpecialOverlay.key";
+    cls.createIndex(name, SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        composite ? new String[] {"first", "second"} : new String[] {"first"});
+    session.begin();
+    for (int i = 0; i < 2; i++) {
+      var entity = session.newEntity("SpecialOverlay");
+      if (composite) {
+        entity.setProperty("first", "alpha");
+        entity.setProperty("second", "beta");
+      }
+    }
+    session.commit();
+    Object key = composite ? new CompositeKey(List.of("alpha", "beta")) : null;
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(name);
+    List<RID> expected;
+    try (var stream = index.getRids(session, key)) {
+      expected = stream.sorted().toList();
+    }
+    assertEquals(2, expected.size());
+    var rid = expected.getLast();
+    index.remove(session.getTransactionInternal(), key, rid);
+    index.put(session.getTransactionInternal(), key, rid);
+    assertSpecialKeyReadPaths(index, key, expected);
+    session.commit();
+    session.begin();
+    assertSpecialKeyReadPaths(index, key, expected);
+    session.rollback();
+  }
+
+  private void assertSpecialKeyReadPaths(Index index, Object key, List<RID> expected) {
+    try (var stream = index.getRids(session, key)) {
+      assertSameRids(expected, stream);
+    }
+    for (boolean asc : List.of(true, false)) {
+      try (var stream =
+          index.streamEntries(session, java.util.Collections.singletonList(key), asc)) {
+        assertSameRids(expected, stream.map(RawPair::second));
+      }
+      if (key != null) {
+        try (var stream = index.streamEntriesBetween(session, key, true, key, true, asc)) {
+          assertSameRids(expected, stream.map(RawPair::second));
+        }
+        try (var stream = asc ? index.stream(session) : index.descStream(session)) {
+          assertSameRids(expected, stream.map(RawPair::second));
+        }
+      }
+    }
+  }
+
   /** A stale NOTUNIQUE engine identifier recovers only through the descriptor owner. */
   @Test
   public void getRids_staleEngineIdentifier_recoversByDescriptorOwner() {
