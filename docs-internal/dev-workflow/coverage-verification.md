@@ -19,11 +19,6 @@ with execution data.
 A report covers that module's own classes. Tests in other modules do not count toward
 `gremlin-test` coverage. It follows the same rule as every other module.
 
-These modules run unit tests in every pull request build.
-Surefire excludes `IT*`, `*IT`, `*ITCase`, and `*IntegrateTest` classes.
-Failsafe includes the same four patterns in the integration job.
-A developer machine never runs those integration tests.
-
 ## The run
 
 The **coverage set** is the modules containing changed Java files.
@@ -241,16 +236,12 @@ CI measures coverage in one leg of `.github/workflows/maven-pipeline.yml` (`test
 JDK 21): a full-reactor `./mvnw clean package -P docker-images,coverage` with
 `-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci`, whose reports a separate
 `coverage-gate` job feeds to this script against `origin/<PR base branch>` on non-draft PRs.
-The pull request build runs the whole unit suite.
-It therefore measures modules outside the local coverage set.
+CI measures modules outside the local coverage set.
 It covers disk-storage paths rather than in-memory ones and reports a number even when tests fail.
 CI is authoritative. The local run predicts its coverage result for the measured modules.
-Do not substitute the CI command locally. A developer machine runs tests only in the test-gate set.
-The Maven pipeline skips draft pull requests.
+Do not substitute the CI command locally. For test scope and pipeline run conditions, read
+`docs-internal/dev-workflow/track-development.md` § Verification integration.
 The separate `coverage-gate-tests.yml` workflow runs Python script unit tests on pull requests
 when `.github/scripts/**` or that workflow changes, including drafts. It also runs on matching
 pushes to `develop` and `main`. The workflow fails if it discovers no tests or any test fails.
 These tests validate the gate, not Java coverage data.
-For build-relevant changes, the whole Java unit suite runs at the ready-for-review flip.
-A manual workflow run also runs the whole unit suite. Markdown-only changes skip the build.
-Integration tests follow the rules in `track-development.md`.

@@ -2,7 +2,8 @@
 
 Hands-on engineering rules for worker threads — build commands, code style, testing, committing,
 web tools, and codebase navigation (may already be injected automatically by the slate extension).
-Planning, verification-scope, and PR rules live in `docs-internal/agents/orchestrator-guidelines.md`.
+Before choosing verification scope or committing, read
+`docs-internal/dev-workflow/track-development.md`.
 
 ## Build Commands
 
@@ -10,28 +11,14 @@ Planning, verification-scope, and PR rules live in `docs-internal/agents/orchest
 # Full build (skip tests for speed)
 ./mvnw clean package -DskipTests
 
-# The pull request build runs the whole unit suite.
-# A developer machine runs only the test-gate set: modules containing changed files.
-
-# Disk-mode test scope follows `docs-internal/dev-workflow/track-development.md`.
-
-# A developer machine never runs integration tests. The pull request pipeline runs them.
-# Integration-test scope follows `docs-internal/dev-workflow/track-development.md`.
-
-# Test every module containing changed files, and no other module.
-# This example assumes changed files in both core and server.
+# Test-gate scope: docs-internal/dev-workflow/track-development.md.
+# Example for a test-gate set containing core and server:
 ./mvnw -pl core,server clean test
-
-# Mid-track compile gate: build the full reactor from the working tree.
-# package creates shaded artifacts and compiles test sources.
-# -DskipTests skips execution, not compilation. Do not use -Dmaven.test.skip=true.
-# This gate runs no unit tests or integration tests.
-./mvnw package -DskipTests
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images -DskipTests
 
-# Run targeted disk-mode tests for changed production code and changed tests
+# Targeted disk-mode command. Select tests under track-development.md.
 ./mvnw -pl core clean test \
   -Dtest='ChangedProductionTest,ChangedTest' -Dyoutrackdb.test.env=ci
 
@@ -92,11 +79,9 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - A code change carries tests for its new or changed behavior.
 - A bug fix carries a regression test unless one already exists.
 - Prefer existing test classes when they fit the change. Create a new class only when none fits.
-- New or changed code targets 85 percent line coverage and 70 percent branch coverage.
-- Every reactor module follows the same coverage rule, including the copied TinkerPop modules.
-  Their unit tests run in every pull request build.
 
-Coverage details live in `docs-internal/dev-workflow/coverage-verification.md`.
+Before measuring coverage, read `docs-internal/dev-workflow/coverage-verification.md`
+for thresholds and the mandatory procedure. Use `.github/scripts/coverage-gate.py`, not hand arithmetic.
 
 ### Test Execution
 
@@ -104,13 +89,8 @@ Never run two Maven invocations concurrently in one worktree. Database locking a
 failures make concurrent runs unsafe. Wait for running Maven work before starting another
 invocation.
 
-This rule covers unit, integration, and coverage runs. Separate worktrees may run
-Maven concurrently. Mid-track tests remain optional. Concurrent runs can also report false
-failures.
-
-A developer machine never runs integration tests. The pull request pipeline runs integration
-tests for changed IT modules. Develop runs the full suite after merge. Follow
-`docs-internal/dev-workflow/track-development.md` for integration-gate scope and exceptions.
+This rule covers all Maven invocations, including unit, integration, and coverage runs.
+Separate worktrees may run Maven concurrently.
 
 ### Test Modules at a Glance
 - **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
@@ -118,28 +98,11 @@ tests for changed IT modules. Develop runs the full suite after merge. Follow
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.
 
-### Coverage Verification
-
-Always use `coverage-gate.py`, not hand arithmetic. Before running it, read
-`docs-internal/dev-workflow/coverage-verification.md` for the mandatory procedure.
-
 ## Committing
 
-- Before a mid-track commit, follow
-  `docs-internal/dev-workflow/track-development.md` § Verification integration. Report every
-  gate command and outcome.
-- Ask the user whether the change has a YTDB issue before naming its branch. Reuse an applicable
-  prior answer. An issue number is optional. With an issue, start the branch name with the
-  issue ID in the form `YTDB-<number>`, as in `YTDB-123-short-name`. CI adds the issue prefix
-  to the PR title. Without an issue, CI leaves the title unchanged. Individual commit
-  subjects do not need an issue number.
-- Use the track-numbered titles in `track-workflow.md` § Track intention block and implementer
-  response. Implementation and fix bodies use exactly two parts: `Intent` and `Deviation delta`.
-  Leave the deviation part empty when there is no approved deviation. See `blast-radius.md`
-  § Commit discipline for drift and boundaries. Before user review, the orchestrator creates
-  a distinct cumulative implementation commit for each code track under `track-workflow.md`
-  § Delivery and termination. Its body carries the high-level and low-level designs when a
-  high-level design exists.
+Before naming a branch or committing, read `docs-internal/dev-workflow/track-development.md`
+for branch conventions, verification gates, and the landing-red exception.
+Report every gate command and outcome.
 
 ## Web Tools
 
@@ -170,7 +133,6 @@ Details live in `.claude/docs/web-tools.md` — read it before your first web ca
 4. **Public API vs Internal**: Only classes in `com.jetbrains.youtrackdb.api` are public API. Everything under `internal` is implementation detail
 5. **SPI pattern**: Engines, indexes, collations, SQL functions are loaded via `META-INF/services` (Java ServiceLoader)
 6. **Custom TinkerPop fork**: The project uses its own fork of TinkerPop under `io.youtrackdb` group ID — don't confuse with upstream `org.apache.tinkerpop`
-7. **Test infrastructure**: Core tests use JUnit 4; the `tests` module uses JUnit 5 (Jupiter) with JUnit Platform Suite for ordered execution
-8. **The `lucene` module is excluded from the build** — it exists only as reference code for future reimplementation
+7. **The `lucene` module is excluded from the build** — it exists only as reference code for future reimplementation
 
 The JaCoCo+`assert` coverage trap and the Gremlin annotation-processor build details are in `.claude/docs/architecture.md`.

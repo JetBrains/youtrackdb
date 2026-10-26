@@ -151,7 +151,7 @@ coding agent and strongly recommend you use it too. Our
 Slate, a new agentic orchestration architecture from a Random Labs
 technical report. An orchestrator plans while worker threads execute.
 Proved focus areas determine which design and review gates apply.
-The user approves the applicable gates before implementation.
+The orchestrator judges risks and track splits. The user approves required designs.
 The extension is pinned in our pi settings, so a clone uses the version we do.
 Our own coding, test, and verification policy layers on top — see
 [docs-internal](docs-internal/README.md).
