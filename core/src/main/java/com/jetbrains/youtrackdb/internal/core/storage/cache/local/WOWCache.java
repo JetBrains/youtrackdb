@@ -176,21 +176,18 @@ public final class WOWCache extends AbstractWriteCache
       ThreadLocal.withInitial(WOWCache::getCipherInstance);
 
   /**
-   * Extension for the file which contains mapping between file name and file id
-   */
-  private static final String NAME_ID_MAP_EXTENSION = StorageFileNames.NAME_ID_MAP_EXTENSION;
-
-  /**
    * Name for file which contains first version of binary format
    */
-  private static final String NAME_ID_MAP_V1 = "name_id_map" + NAME_ID_MAP_EXTENSION;
+  private static final String NAME_ID_MAP_V1 =
+      "name_id_map" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Name for file which contains second version of binary format. Second version of format contains
    * not only file name which is used in write cache but also file name which is used in file system
    * so those two names may be different which allows usage of case sensitive file names.
    */
-  private static final String NAME_ID_MAP_V2 = "name_id_map_v2" + NAME_ID_MAP_EXTENSION;
+  private static final String NAME_ID_MAP_V2 =
+      "name_id_map_v2" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Name for file which contains third version of binary format. Third version of format contains
@@ -199,17 +196,19 @@ public final class WOWCache extends AbstractWriteCache
    * information is wrapped by XX_HASH code which followed by content length, so any damaged records
    * are filtered out during loading of storage.
    */
-  private static final String NAME_ID_MAP_V3 = "name_id_map_v3" + NAME_ID_MAP_EXTENSION;
+  private static final String NAME_ID_MAP_V3 =
+      "name_id_map_v3" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /** Leftover initial-map staging file removed during open and drop. */
-  private static final String NAME_ID_MAP_V3_T = "name_id_map_v3_t" + NAME_ID_MAP_EXTENSION;
+  private static final String NAME_ID_MAP_V3_T =
+      "name_id_map_v3_t" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /** Leftover compaction staging file removed during open and drop. */
   private static final String NAME_ID_MAP_V2_BACKUP =
-      "name_id_map_v2_backup" + NAME_ID_MAP_EXTENSION;
+      "name_id_map_v2_backup" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   private static final String NAME_ID_MAP_V3_BACKUP =
-      "name_id_map_v3_backup" + NAME_ID_MAP_EXTENSION;
+      "name_id_map_v3_backup" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Maximum length of the row in file registry
@@ -221,13 +220,14 @@ public final class WOWCache extends AbstractWriteCache
   /**
    * Main copy of the registry for persisting non-durable file IDs.
    */
-  private static final String NON_DURABLE_FILES = "non_durable_files" + NAME_ID_MAP_EXTENSION;
+  private static final String NON_DURABLE_FILES =
+      "non_durable_files" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Backup copy of the non-durable registry, used when the main copy is damaged or missing.
    */
   private static final String NON_DURABLE_FILES_SHADOW =
-      "non_durable_files_shadow" + NAME_ID_MAP_EXTENSION;
+      "non_durable_files_shadow" + StorageFileNames.NAME_ID_MAP_EXTENSION;
 
   /**
    * Binary format version for the non-durable files side file. Format:
@@ -3167,7 +3167,8 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void createNonDurableRegistryCopy(Path path, ByteBuffer buffer) throws IOException {
-    final var initialPath = Files.createTempFile(storagePath, "registry_", NAME_ID_MAP_EXTENSION);
+    final var initialPath =
+        Files.createTempFile(storagePath, "registry_", StorageFileNames.NAME_ID_MAP_EXTENSION);
     try {
       // Initialize a valid empty registry off-path. Publish the selected snapshot, not an empty
       // main copy that could hide the only non-empty backup copy after interrupted initialization.

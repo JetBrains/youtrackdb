@@ -39,9 +39,6 @@ import javax.annotation.Nullable;
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
 
-  private static final String DATA_FILE_EXTENSION = StorageFileNames.INDEX_DATA_EXTENSION;
-  private static final String NULL_BUCKET_FILE_EXTENSION = StorageFileNames.INDEX_NULL_EXTENSION;
-
   private final CellBTreeSingleValue<CompositeKey> sbTree;
   private final IndexesSnapshot indexesSnapshot;
   private final String name;
@@ -93,7 +90,8 @@ public final class BTreeSingleValueIndexEngine
       this.sbTree =
           new BTree<>(
               AbstractStorage.indexEngineFileStem(fileBaseId),
-              DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+              StorageFileNames.INDEX_DATA_EXTENSION, StorageFileNames.INDEX_NULL_EXTENSION,
+              storage);
       this.sbTree.setEngineId(id);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
       this.sbTree.setDisplayName(name);

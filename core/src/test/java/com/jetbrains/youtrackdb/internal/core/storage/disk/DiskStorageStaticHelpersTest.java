@@ -193,7 +193,7 @@ public class DiskStorageStaticHelpersTest {
 
   /**
    * Verifies that deleteFilesFromDisc removes files whose extensions are in the
-   * ALL_FILE_EXTENSIONS array and leaves files with unrecognised extensions in place.
+   * StorageFileNames.DROP_FILE_EXTENSIONS and leaves files with unrecognised extensions in place.
    */
   @Test
   public void testDeleteFilesFromDiscDeletesKnownExtensionsAndLeavesUnknownExtensions()

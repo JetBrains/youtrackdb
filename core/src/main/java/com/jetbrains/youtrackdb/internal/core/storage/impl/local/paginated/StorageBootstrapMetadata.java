@@ -34,7 +34,6 @@ public final class StorageBootstrapMetadata {
 
   static final String LOCK_FILE_NAME = "storage-bootstrap"
       + StorageFileNames.BOOTSTRAP_LOCK_EXTENSION;
-  static final String NORMAL_DATABASE_LOCK_FILE_NAME = StorageFileNames.DIRTY_FILE_NAME;
   static final List<String> AUTHORITY_FILE_NAMES = List.of(
       "storage-bootstrap-0" + StorageFileNames.BOOTSTRAP_EXTENSION,
       "storage-bootstrap-1" + StorageFileNames.BOOTSTRAP_EXTENSION,
@@ -428,7 +427,7 @@ public final class StorageBootstrapMetadata {
    */
   private void deleteContentUnderNormalDatabaseLock(final ContentDeletion contentDeletion)
       throws IOException {
-    final var normalLockPath = directory.resolve(NORMAL_DATABASE_LOCK_FILE_NAME);
+    final var normalLockPath = directory.resolve(StorageFileNames.DIRTY_FILE_NAME);
     final FileChannel normalLockChannel;
     try {
       normalLockChannel =

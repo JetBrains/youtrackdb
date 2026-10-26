@@ -292,11 +292,7 @@ public class DiskStorage extends AbstractStorage {
 
   protected static final long IV_SEED = 234120934;
 
-  private static final String IV_EXT = StorageFileNames.IV_EXTENSION;
-  protected static final String IV_NAME = "data" + IV_EXT;
-
-  private static final String[] ALL_FILE_EXTENSIONS =
-      StorageFileNames.DROP_FILE_EXTENSIONS.toArray(String[]::new);
+  protected static final String IV_NAME = "data" + StorageFileNames.IV_EXTENSION;
 
   private static final int ONE_KB = 1024;
 
@@ -934,7 +930,7 @@ public class DiskStorage extends AbstractStorage {
     }
     // Keep YTDB-1443's parent fallback on its existing suffix set. New cleanup rules apply only
     // inside the storage directory, not to neighboring databases or unrelated parent files.
-    final var extensions = storageDirectory ? Arrays.asList(ALL_FILE_EXTENSIONS)
+    final var extensions = storageDirectory ? StorageFileNames.DROP_FILE_EXTENSIONS
         : StorageFileNames.PARENT_DROP_FILE_EXTENSIONS;
 
     // RETRIES

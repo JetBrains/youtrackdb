@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException.Reason;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -1377,7 +1378,7 @@ public class StorageBootstrapMetadataTest {
     creator.beginRestoreFromBirth(creator.createBirth(STORAGE, LINEAGE_ONE));
     final var normalLockFile =
         Files.writeString(
-            directory.resolve(StorageBootstrapMetadata.NORMAL_DATABASE_LOCK_FILE_NAME),
+            directory.resolve(StorageFileNames.DIRTY_FILE_NAME),
             "dirty-metadata");
     final var contentFile = Files.writeString(directory.resolve("content.pcl"), "payload");
     final var authorityBeforeRefusal = authorityBytes();
@@ -1429,7 +1430,7 @@ public class StorageBootstrapMetadataTest {
     creator.beginRestoreFromBirth(creator.createBirth(STORAGE, LINEAGE_ONE));
     final var normalLockFile =
         Files.writeString(
-            directory.resolve(StorageBootstrapMetadata.NORMAL_DATABASE_LOCK_FILE_NAME),
+            directory.resolve(StorageFileNames.DIRTY_FILE_NAME),
             "dirty-metadata");
     final var contentFile = Files.writeString(directory.resolve("content.pcl"), "payload");
     final var authorityBeforeRefusal = authorityBytes();
@@ -1479,7 +1480,7 @@ public class StorageBootstrapMetadataTest {
     creator.beginRestoreFromBirth(creator.createBirth(STORAGE, LINEAGE_ONE));
     final var unavailableLockPath =
         Files.createDirectory(
-            directory.resolve(StorageBootstrapMetadata.NORMAL_DATABASE_LOCK_FILE_NAME));
+            directory.resolve(StorageFileNames.DIRTY_FILE_NAME));
     final var authorityBeforeRefusal = authorityBytes();
     final var deletionRan = new AtomicBoolean(false);
 
@@ -1506,7 +1507,7 @@ public class StorageBootstrapMetadataTest {
     creator.beginRestoreFromBirth(creator.createBirth(STORAGE, LINEAGE_ONE));
     final var normalLockFile =
         Files.writeString(
-            directory.resolve(StorageBootstrapMetadata.NORMAL_DATABASE_LOCK_FILE_NAME),
+            directory.resolve(StorageFileNames.DIRTY_FILE_NAME),
             "dirty-metadata");
     final var contentFile = Files.writeString(directory.resolve("content.pcl"), "payload");
     final var deletionFailure = new IOException("content deletion failed");
@@ -1561,7 +1562,7 @@ public class StorageBootstrapMetadataTest {
     assertThat(deletionCount.get()).isEqualTo(2);
     assertThat(
         Files.exists(
-            directory.resolve(StorageBootstrapMetadata.NORMAL_DATABASE_LOCK_FILE_NAME)))
+            directory.resolve(StorageFileNames.DIRTY_FILE_NAME)))
         .isFalse();
     assertThat(Files.exists(directory.resolve(StorageBootstrapMetadata.LOCK_FILE_NAME))).isTrue();
   }

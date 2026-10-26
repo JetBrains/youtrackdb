@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.disk;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
@@ -19,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,10 +26,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 /**
- * Verifies that the DiskStorage known file extensions array includes all
+ * Verifies that {@link StorageFileNames#DROP_FILE_EXTENSIONS} includes all
  * required extensions, including the histogram stats file extension.
  *
- * <p>The {@code ALL_FILE_EXTENSIONS} array controls which files are deleted
+ * <p>The {@code StorageFileNames.DROP_FILE_EXTENSIONS} suffix set controls which files are deleted
  * during {@code DiskStorage.drop()} and storage cleanup. Missing extensions
  * cause stale files to remain on disk after database deletion.
  */
@@ -50,9 +48,8 @@ public class DiskStorageFileExtensionsTest {
     assertEquals(existing, new HashSet<>(StorageFileNames.PARENT_DROP_FILE_EXTENSIONS));
     var expected = new HashSet<>(existing);
     expected.addAll(Set.of(".dpb", ".fcm", ".dcm"));
-    assertEquals(expected, new HashSet<>(getAllFileExtensions()));
-    assertEquals(expected.size(), getAllFileExtensions().size());
     assertEquals(expected, new HashSet<>(StorageFileNames.DROP_FILE_EXTENSIONS));
+    assertEquals(expected.size(), StorageFileNames.DROP_FILE_EXTENSIONS.size());
   }
 
   /**
@@ -178,61 +175,44 @@ public class DiskStorageFileExtensionsTest {
 
   /**
    * Verifies that the histogram stats extension (.ixs) is registered in
-   * DiskStorage's ALL_FILE_EXTENSIONS array. Without this entry, .ixs files
+   * StorageFileNames.DROP_FILE_EXTENSIONS. Without this entry, .ixs files
    * would not be cleaned up during database deletion, leaving stale histogram
    * data files on disk.
    */
   @Test
   public void allFileExtensions_containsIxsExtension() {
-    var extensions = getAllFileExtensions();
+    var extensions = StorageFileNames.DROP_FILE_EXTENSIONS;
     assertTrue(
-        "ALL_FILE_EXTENSIONS must contain the histogram stats extension '"
+        "StorageFileNames.DROP_FILE_EXTENSIONS must contain the histogram stats extension '"
             + IndexHistogramManager.IXS_EXTENSION + "'",
         extensions.contains(IndexHistogramManager.IXS_EXTENSION));
   }
 
   /**
    * Verifies that the B-tree null-bucket extension (.nbt) is registered in
-   * DiskStorage's ALL_FILE_EXTENSIONS array, so drop removes null-bucket files
+   * StorageFileNames.DROP_FILE_EXTENSIONS, so drop removes null-bucket files
    * and can delete the storage directory.
    */
   @Test
   public void allFileExtensions_containsNullBucketExtension() {
-    var extensions = getAllFileExtensions();
+    var extensions = StorageFileNames.DROP_FILE_EXTENSIONS;
     assertTrue(
-        "ALL_FILE_EXTENSIONS must contain the B-tree null-bucket extension '"
+        "StorageFileNames.DROP_FILE_EXTENSIONS must contain the B-tree null-bucket extension '"
             + BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION + "'",
         extensions.contains(BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION));
   }
 
   /**
-   * Verifies that all entries in the extensions array are non-null and
-   * start with a dot, guarding against accidental corruption of the
-   * constant array.
+   * Verifies that all entries in StorageFileNames.DROP_FILE_EXTENSIONS are non-null and
+   * start with a dot, guarding against accidental corruption of the suffix set.
    */
   @Test
   public void allFileExtensions_allEntriesAreValidExtensions() {
-    var extensions = getAllFileExtensions();
+    var extensions = StorageFileNames.DROP_FILE_EXTENSIONS;
     for (var ext : extensions) {
       assertTrue(
           "Each file extension must start with '.', but found: " + ext,
           ext != null && ext.startsWith("."));
-    }
-  }
-
-  /**
-   * Reads the private static ALL_FILE_EXTENSIONS field from DiskStorage
-   * via reflection.
-   */
-  private static List<String> getAllFileExtensions() {
-    try {
-      var field = DiskStorage.class.getDeclaredField("ALL_FILE_EXTENSIONS");
-      field.setAccessible(true);
-      var extensions = (String[]) field.get(null);
-      return Arrays.asList(extensions);
-    } catch (ReflectiveOperationException e) {
-      fail("Could not access DiskStorage.ALL_FILE_EXTENSIONS: " + e.getMessage());
-      return List.of(); // unreachable
     }
   }
 }
