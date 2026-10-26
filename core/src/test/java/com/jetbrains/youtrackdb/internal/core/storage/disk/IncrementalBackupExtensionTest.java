@@ -81,6 +81,35 @@ public class IncrementalBackupExtensionTest {
   }
 
   /**
+   * A valid unit from another database stays unclassifiable and reports its stored UUID.
+   * The independent UUID literal has distinct halves so a swapped diagnostic cannot pass.
+   */
+  @Test
+  public void otherDatabaseWarningPrintsTheStoredUuidInItsOriginalOrder() throws Exception {
+    var storedId = UUID.fromString("01234567-89ab-cdef-fedc-ba9876543210");
+    var expectedId = UUID.fromString("11111111-2222-3333-4444-555555555555");
+    var unit = BackupUnitFiles.writeSupportedUnit(backupPath, storedId, SOURCE, 0, true);
+    var records = new CopyOnWriteArrayList<LogRecord>();
+
+    withDiskStorageLogs(records, () -> {
+      var inspection = inspectUnit(unit, expectedId);
+      assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+          inspection.classification());
+      org.junit.Assert.assertNull(inspection.metadata());
+    });
+
+    var warnings = records.stream()
+        .filter(record -> record.getLevel().intValue() >= Level.WARNING.intValue())
+        .filter(record -> record.getMessage().contains("stored in metadata"))
+        .toList();
+    assertEquals("the identity mismatch must produce one warning", 1, warnings.size());
+    assertTrue(warnings.getFirst().getMessage(),
+        warnings.getFirst().getMessage().contains("stored in metadata " + storedId));
+    assertTrue(warnings.getFirst().getMessage(),
+        warnings.getFirst().getMessage().contains("the database identifier " + expectedId));
+  }
+
+  /**
    * One incremental backup extends a chain of supported units.
    *
    * <p>The scenario takes one full backup and then two incremental backups of the same database.
@@ -531,6 +560,9 @@ public class IncrementalBackupExtensionTest {
       BackupUnitFiles.rewriteAsVersion(backupPath.resolve(v5), 5);
       addOneRecord(youTrackDB);
       var v6 = storage.backup(backupPath);
+      var livePair = literalContinuity(Files.readAllBytes(backupPath.resolve(v6)));
+      assertNotNull("real capable output carries a newly consumed pair", livePair);
+      assertEquals(livePair.generationId(), trackerField(tracker(storage), "lastCompleted"));
       BackupUnitFiles.rewriteAsVersion6(backupPath.resolve(v6),
           DiskStorage.BARRIER_PRESENT,
           new DiskStorage.BackupContinuity(UUID.randomUUID(), UUID.randomUUID()));
@@ -543,6 +575,9 @@ public class IncrementalBackupExtensionTest {
       assertEquals(4 * 122, reader.fileBytesRead);
       assertEquals(0, reader.fullStreamsOpened);
       assertEquals(6, inspectUnit(appended, storage.getUuid()).metadata().backupFormatVersion());
+      assertEquals(
+          "plain extension retains the actual previous completion despite a mismatched head",
+          livePair, literalContinuity(Files.readAllBytes(backupPath.resolve(appended))));
       var after = unitContent();
       after.remove(appended);
       assertEquals(before, after);
@@ -1068,21 +1103,1682 @@ public class IncrementalBackupExtensionTest {
     assertEquals("injected close error", forceFailure.getSuppressed()[0].getMessage());
   }
 
-  /** The dormant owner leaves production generations, full payload and publication order unchanged. */
+  /**
+   * Real supplier completion uses current WAL preflight and preserves every fallback warning.
+   * Filesystem obstructions distinguish save failure from failed invalidation. Invalidating at
+   * close distinguishes saved-untrusted history from a trusted full-read bootstrap.
+   */
+  @Test
+  public void supplierCompletionUsesBridgeAndReportsExactFallbackStatus() throws Exception {
+    String[][] cases = {
+        {"SAVED_CONTINUITY", ""},
+        {"SAVED_UNTRUSTED", "Backup completion saved untrusted history."},
+        {"SAVE_FAILED_INVALIDATED", "Backup completion save failed. History invalidated."},
+        {"SAVE_FAILED_INVALIDATION_FAILED", "Backup completion save and invalidation failed."},
+        {"COVERAGE_UNAVAILABLE", "Backup completion coverage unavailable. History invalidated."},
+        {"COVERAGE_UNAVAILABLE_INVALIDATION_FAILED",
+            "Backup completion coverage and invalidation unavailable."}
+    };
+    for (var row : cases) {
+      var casePath = databasesPath.resolve(row[0]);
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(casePath.toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        var orderMethod = tracker.getClass().getDeclaredMethod("saveOrderLock");
+        orderMethod.setAccessible(true);
+        var order = (java.util.concurrent.locks.ReentrantLock) orderMethod.invoke(tracker);
+        var realWal = storage.getWALInstance();
+        var wal = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realWal));
+        var coverage = new java.util.concurrent.atomic.AtomicReference<
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight>();
+        var preflights = new AtomicInteger();
+        var callerThread = Thread.currentThread();
+        var outputClosed = new java.util.concurrent.atomic.AtomicBoolean();
+        org.mockito.Mockito.doAnswer(call -> {
+          // Ordinary WAL maintenance can also preflight. Fault and count only this request's
+          // post-close completion on the backup thread, not concurrent checkpoint work.
+          if (Thread.currentThread() != callerThread || !outputClosed.get()) {
+            return realWal.preflightCut(call.getArgument(0));
+          }
+          preflights.incrementAndGet();
+          if (row[0].startsWith("COVERAGE_UNAVAILABLE")) {
+            return null;
+          }
+          var result = realWal.preflightCut(call.getArgument(0));
+          coverage.set(result);
+          return result;
+        }).when(wal).preflightCut(org.mockito.ArgumentMatchers.anyLong());
+        var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+        walField.setAccessible(true);
+        var sideFile = casePath.resolve(SOURCE).resolve("changed-pages.cpt");
+        var temporary = sideFile.resolveSibling("changed-pages.cpt.tmp");
+        var output = new RecordingOutput();
+        output.onClose = () -> {
+          // Retain save order from close through the byte oracle. The production completion
+          // reenters it on this thread. A later checkpoint cannot replace the observed header.
+          order.lock();
+          try {
+            if (row[0].equals("SAVED_UNTRUSTED")) {
+              var invalidate = tracker.getClass().getDeclaredMethod("invalidate");
+              invalidate.setAccessible(true);
+              invalidate.invoke(tracker);
+            }
+            if (row[0].startsWith("SAVE_FAILED")) {
+              Files.createDirectories(temporary);
+              Files.writeString(temporary.resolve("obstruction"), "owned test obstruction");
+            }
+            if (row[0].endsWith("INVALIDATION_FAILED")) {
+              Files.deleteIfExists(sideFile);
+              Files.createDirectories(sideFile);
+              Files.writeString(sideFile.resolve("obstruction"), "owned test obstruction");
+            }
+            outputClosed.set(true);
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+        };
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        walField.set(storage, wal);
+        try {
+          withDiskStorageLogs(records, () -> storage.backup(
+              () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+              file -> output, file -> {
+                throw new AssertionError("no removal");
+              }));
+          assertEquals(row[0], 1, preflights.get());
+          assertEquals(2, output.forceCalls);
+          assertEquals(1, output.closeCalls);
+          assertNotNull(literalContinuity(output.bytes.toByteArray()));
+          org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+          assertEquals(row[0], row[0].equals("SAVED_CONTINUITY"), tracker.isTrusted());
+          var warnings = records.stream().filter(record -> record.getLevel() == Level.WARNING)
+              .map(LogRecord::getMessage).toList();
+          assertEquals(row[0], row[1].isEmpty() ? List.of()
+              : List.of("youtrackdb:" + SOURCE + " [" + SOURCE + "] " + row[1]), warnings);
+          assertTrue(records.stream()
+              .anyMatch(record -> record.getMessage().contains("is completed. Backup unit file")));
+          if (row[0].equals("SAVED_CONTINUITY")) {
+            var pair = literalContinuity(output.bytes.toByteArray());
+            assertSavedPair(sideFile, pair);
+            assertNotNull(coverage.get());
+            var header = ByteBuffer.wrap(Files.readAllBytes(sideFile));
+            // The exact live preflight LSN must reach the persisted header, not a guessed anchor.
+            assertEquals(coverage.get().coverageLsn().getSegment(), header.getLong(9));
+            assertEquals(coverage.get().coverageLsn().getPosition(), header.getInt(17));
+          }
+        } finally {
+          walField.set(storage, realWal);
+          try {
+            // Remove only the obstructions this case created, before ordinary manager shutdown.
+            for (var path : List.of(temporary, sideFile)) {
+              if (Files.isDirectory(path)) {
+                Files.delete(path.resolve("obstruction"));
+                Files.delete(path);
+              }
+            }
+          } finally {
+            if (order.isHeldByCurrentThread()) {
+              order.unlock();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Q-f on fresh history cannot bootstrap completion. A subsequent capable unit can. */
+  @Test
+  public void plainFreshOutputMergesAndLaterCapableOutputBootstraps() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var tracker = tracker(storage);
+      var plain = new ByteArrayOutputStream();
+      var name = storage.backup(() -> List.<String>of().iterator(),
+          file -> InputStream.nullInputStream(), file -> plain, file -> {
+          });
+      var unit = plain.toByteArray();
+      org.junit.Assert.assertNull(literalContinuity(unit));
+      assertCanonicalVersionSix(unit, name, storage.getUuid(), 0, false);
+      org.junit.Assert.assertNull(trackerField(tracker, "lastCompleted"));
+      org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+      var capable = new RecordingOutput();
+      storage.backup(() -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> capable, file -> {
+          });
+      var pair = literalContinuity(capable.bytes.toByteArray());
+      assertNotNull(pair);
+      assertEquals(pair.generationId(), trackerField(tracker, "lastCompleted"));
+    }
+  }
+
+  /** Q-f carries the previous pair, saves no completion, and preserves pre/post-boundary marks. */
+  @Test
+  public void plainOutputKeepsPreviousCompletionAndBothGenerationsOfMarks() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var full = storage.fullBackup(backupPath);
+      var previous = literalContinuity(Files.readAllBytes(backupPath.resolve(full)));
+      var tracker = tracker(storage);
+      var sideFile = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+      addOneRecord(manager);
+      var orderMethod = tracker.getClass().getDeclaredMethod("saveOrderLock");
+      orderMethod.setAccessible(true);
+      var order = (java.util.concurrent.locks.ReentrantLock) orderMethod.invoke(tracker);
+      var plain = new ByteArrayOutputStream();
+      String name;
+      order.lock();
+      try {
+        // Ordinary checkpoints can save pending marks. Exclude them while checking that Q-f itself
+        // does not publish a completion file, including under the slower instrumented runner.
+        var saved = Files.readAllBytes(sideFile);
+        var mark = tracker.getClass().getDeclaredMethod("mark", int.class, long.class);
+        mark.setAccessible(true);
+        mark.invoke(tracker, 123456, 111L);
+        var postBoundary = new java.util.concurrent.atomic.AtomicBoolean();
+        OutputStream output = new java.io.FilterOutputStream(plain) {
+          @Override
+          public void write(byte[] bytes, int offset, int length) throws IOException {
+            if (postBoundary.compareAndSet(false, true)) {
+              try {
+                assertNotNull(trackerField(tracker, "sealed"));
+                mark.invoke(tracker, 123456, 222L);
+              } catch (Exception failure) {
+                throw new AssertionError(failure);
+              }
+            }
+            out.write(bytes, offset, length);
+          }
+        };
+        name = storage.backup(this::unitIterator, this::openInput, file -> output,
+            file -> {
+              throw new AssertionError("no removal");
+            });
+        assertTrue(postBoundary.get());
+        assertEquals(previous, literalContinuity(plain.toByteArray()));
+        assertEquals(previous.generationId(), trackerField(tracker, "lastCompleted"));
+        org.junit.Assert.assertArrayEquals(saved, Files.readAllBytes(sideFile));
+        org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+        var active = trackerField(tracker, "active");
+        var candidates = active.getClass().getDeclaredMethod("forEachCandidate", int.class,
+            java.util.function.LongConsumer.class);
+        candidates.setAccessible(true);
+        var pages = new ArrayList<Long>();
+        candidates.invoke(active, 123456, (java.util.function.LongConsumer) pages::add);
+        assertEquals(List.of(111L, 222L), pages);
+      } finally {
+        order.unlock();
+      }
+      Files.write(backupPath.resolve(name), plain.toByteArray());
+      addOneRecord(manager);
+      storage.backup(backupPath);
+      manager.internal.restore("plainPreviousRestore", backupPath.toString(), null, null);
+      try (var restored = manager.open("plainPreviousRestore", ADMIN, PASSWORD)) {
+        assertEquals(3, restored.query("select from " + RECORD_CLASS).stream().count());
+      }
+    }
+  }
+
+  /**
+   * Owner construction runs before lock acquisition. A constructor failure leaves exclusion free,
+   * never reaches the suppliers, and permits a later real backup.
+   */
+  @Test
+  public void failedOwnerConstructionLeavesBackupExclusionFree() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var constructions = new AtomicInteger();
+      try (var ignored = org.mockito.Mockito.mockConstruction(DiskStorage.BackupRequestOwner.class,
+          (owner, context) -> {
+            assertBackupUnlocked(storage);
+            constructions.incrementAndGet();
+            throw new OutOfMemoryError("owner allocation");
+          })) {
+        assertThrows(org.mockito.exceptions.base.MockitoException.class, () -> storage.backup(
+            () -> {
+              throw new AssertionError("construction failure must precede suppliers");
+            }, file -> InputStream.nullInputStream(), file -> new RecordingOutput(), file -> {
+              throw new AssertionError("no removal");
+            }));
+        assertEquals(1, constructions.get());
+        assertBackupUnlocked(storage);
+      }
+      assertNotNull(storage.backup(
+          () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> new RecordingOutput(), file -> {
+            throw new AssertionError("no removal");
+          }));
+      assertBackupUnlocked(storage);
+    }
+  }
+
+  /** Begin failure after WAL retention registration removes retention without inventing ownership. */
+  @Test
+  public void failedBeginReleasesRetentionAndBackupExclusion() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var tracker = tracker(storage);
+      var primary = new OutOfMemoryError("boundary allocation");
+      var reached = new AtomicInteger();
+      var oldObserver = replaceTrackerObserver(tracker, (method, args) -> {
+        if (method.equals("beforeBoundaryAllocation")) {
+          reached.incrementAndGet();
+          throw primary;
+        }
+      });
+      var realWal = storage.getWALInstance();
+      var wal = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+          org.mockito.AdditionalAnswers.delegatesTo(realWal));
+      var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+      walField.setAccessible(true);
+      var output = new RecordingOutput();
+      walField.set(storage, wal);
+      try {
+        assertSame(primary, assertThrows(OutOfMemoryError.class, () -> storage.backup(
+            () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+            file -> output, file -> {
+              throw new AssertionError("no removal");
+            })));
+        assertEquals(1, reached.get());
+        var retained = org.mockito.ArgumentCaptor.forClass(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber.class);
+        var sequence = org.mockito.Mockito.inOrder(wal);
+        sequence.verify(wal).addCutTillLimit(retained.capture());
+        sequence.verify(wal).removeCutTillLimit(retained.getValue());
+        assertFalse(tracker.isTrusted());
+        org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+        assertEquals(1, output.closeCalls);
+        assertBackupUnlocked(storage);
+      } finally {
+        walField.set(storage, realWal);
+        restoreTrackerObserver(tracker, oldObserver);
+      }
+      // A real retry must acquire exclusion and establish its own context.
+      storage.backup(() -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+          file -> new RecordingOutput(), file -> {
+          });
+    }
+  }
+
+  /** Non-save completion errors preserve identity before and after staging and clean up only once. */
+  @Test
+  public void exceptionalCallerCompletionReleasesExclusionWithoutInventingSuccess()
+      throws Exception {
+    for (boolean staged : new boolean[] {false, true}) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("completion-" + staged).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        var primary = new AssertionError("completion " + staged);
+        var reached = new AtomicInteger();
+        var closed = new java.util.concurrent.atomic.AtomicBoolean();
+        var caller = Thread.currentThread();
+        var oldObserver = replaceTrackerObserver(tracker, (method, args) -> {
+          if (staged && closed.get() && Thread.currentThread() == caller
+              && method.equals("beforeCompletionCapture")) {
+            reached.incrementAndGet();
+            throw primary;
+          }
+        });
+        var realWal = storage.getWALInstance();
+        var wal = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realWal));
+        org.mockito.Mockito.doAnswer(call -> {
+          if (!staged && closed.get() && Thread.currentThread() == caller) {
+            reached.incrementAndGet();
+            throw primary;
+          }
+          return realWal.preflightCut(call.getArgument(0));
+        }).when(wal).preflightCut(org.mockito.ArgumentMatchers.anyLong());
+        var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+        walField.setAccessible(true);
+        var output = new RecordingOutput();
+        output.onClose = () -> closed.set(true);
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        walField.set(storage, wal);
+        try {
+          withDiskStorageLogs(records, () -> assertSame(primary,
+              assertThrows(AssertionError.class, () -> storage.backup(
+                  () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+                  file -> output, file -> {
+                    throw new AssertionError("no removal");
+                  }))));
+          assertEquals(1, reached.get());
+          assertEquals(1, output.closeCalls);
+          org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+          // Staging has detached the seal. The one stale cleanup is secondary, not retried.
+          assertEquals(staged ? 1 : 0, primary.getSuppressed().length);
+          if (staged) {
+            assertTrue(primary.getSuppressed()[0] instanceof IllegalStateException);
+            assertFalse(tracker.isTrusted());
+          }
+          assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+          assertBackupUnlocked(storage);
+        } finally {
+          walField.set(storage, realWal);
+          restoreTrackerObserver(tracker, oldObserver);
+        }
+      }
+    }
+  }
+
+  /** Body failure keeps merge failure secondary, releases exclusion and leaves unresolved work pending. */
+  @Test
+  public void callerBodyFailureMakesOneCleanupAttemptWithIdentitySafeSuppression()
+      throws Exception {
+    for (boolean same : new boolean[] {false, true}) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("cleanup-" + same).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        markTracker(tracker, 123456, 111L);
+        markTracker(tracker, 234567, 222L);
+        var primary = new AssertionError("body");
+        var cleanup = same ? primary : new OutOfMemoryError("merge allocation");
+        var armed = new java.util.concurrent.atomic.AtomicBoolean();
+        var attempts = new AtomicInteger();
+        var oldObserver = replaceTrackerObserver(tracker, (method, args) -> {
+          if (armed.get() && method.equals("beforeAllocation")
+              && args[0].toString().equals("FILE")) {
+            // Let the first file merge. The second allocation fails with the seal still present.
+            if (attempts.incrementAndGet() >= 2) {
+              throw cleanup;
+            }
+          }
+        });
+        var output = new RecordingOutput();
+        output.onFirstWrite = () -> {
+          armed.set(true);
+          throw primary;
+        };
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        try {
+          withDiskStorageLogs(records, () -> assertSame(primary,
+              assertThrows(AssertionError.class, () -> storage.backup(
+                  () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+                  file -> output, file -> {
+                    throw new AssertionError("no removal");
+                  }))));
+          assertEquals(2, attempts.get());
+          assertEquals(same ? 0 : 1, primary.getSuppressed().length);
+          if (!same) {
+            assertSame(cleanup, primary.getSuppressed()[0]);
+          }
+          assertEquals(1, output.closeCalls);
+          assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+          assertBackupUnlocked(storage);
+          var seal = trackerField(tracker, "sealed");
+          assertNotNull(seal);
+          var pending =
+              com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+                  .begin(tracker, null, true);
+          assertEquals(
+              com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.BeginOutcome.PENDING_SEAL,
+              pending.outcome());
+          assertSame(seal, trackerField(tracker, "sealed"));
+          armed.set(false);
+          // Later real requests cannot repair or replace the earlier partial merge.
+          for (boolean capable : new boolean[] {false, true}) {
+            var later = new RecordingOutput();
+            var plain = new ByteArrayOutputStream();
+            var realReads = storage.getReadCache();
+            var reads = org.mockito.Mockito.mock(
+                com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+                org.mockito.AdditionalAnswers.delegatesTo(realReads));
+            var readField = AbstractStorage.class.getDeclaredField("readCache");
+            readField.setAccessible(true);
+            readField.set(storage, reads);
+            try {
+              storage.backup(() -> List.<String>of().iterator(),
+                  file -> InputStream.nullInputStream(), file -> capable ? later : plain,
+                  file -> {
+                    throw new AssertionError("no removal");
+                  });
+              var bytes = capable ? later.bytes.toByteArray() : plain.toByteArray();
+              org.junit.Assert.assertNull(literalContinuity(bytes));
+              org.junit.Assert.assertArrayEquals(new byte[36], java.util.Arrays.copyOfRange(
+                  bytes, bytes.length - 110, bytes.length - 74));
+              assertSame(seal, trackerField(tracker, "sealed"));
+              assertFalse(tracker.isTrusted());
+              var cache = storage.getWriteCache();
+              int reached = 0;
+              for (var id : cache.files().values()) {
+                var external = cache.externalFileId(cache.internalFileId(id));
+                var size = cache.physicalSizeForBackupSnapshot(external);
+                for (int page = 0; page < size; page++) {
+                  org.mockito.Mockito.verify(reads).silentLoadForRead(external, page, cache, true);
+                  reached++;
+                }
+              }
+              assertTrue(reached > 0);
+            } finally {
+              readField.set(storage, realReads);
+            }
+          }
+          var restarted = saveAndMergeLoadedTracker(tracker);
+          org.junit.Assert.assertNull(trackerField(restarted, "sealed"));
+          assertEquals(List.of(111L), trackerCandidates(restarted, "active", 123456));
+          assertEquals(List.of(222L), trackerCandidates(restarted, "active", 234567));
+          markTracker(tracker, 345678, 333L);
+          saveTrackerAt(tracker,
+              databasesPath.resolve("cleanup-" + same).resolve(SOURCE).resolve("changed-pages.cpt"),
+              storage.getWALInstance().begin());
+        } finally {
+          armed.set(false);
+          restoreTrackerObserver(tracker, oldObserver);
+        }
+      }
+      // The first manager and its caches are fully stopped before real startup owns this image.
+      var image = databasesPath.resolve("cleanup-" + same);
+      var saved = Files.readAllBytes(image.resolve(SOURCE).resolve("changed-pages.cpt"));
+      assertTrue("real startup must receive a saved pending seal", (saved[8] & 4) != 0);
+      try (var reopened = (YouTrackDBImpl) YourTracks.instance(image.toString());
+          var session = reopened.open(SOURCE, ADMIN, PASSWORD)) {
+        var loaded = tracker((AbstractStorage) session.getStorage());
+        org.junit.Assert.assertNull("startup reaches mergeLoadedSealed",
+            trackerField(loaded, "sealed"));
+        assertEquals(List.of(111L), trackerCandidates(loaded, "active", 123456));
+        assertEquals(List.of(222L), trackerCandidates(loaded, "active", 234567));
+        assertEquals(List.of(333L), trackerCandidates(loaded, "active", 345678));
+      }
+    }
+  }
+
+  /** Readable capable and Q-f failed units are retained unchanged and extended without tail repair. */
+  @Test
+  public void failedCapableUnitsMergeMarksAndExtendWithoutRewritingTheirTail() throws Exception {
+    for (var phase : List.of("tailFlush", "secondForce", "close", "plainClose")) {
+      var casePath = databasesPath.resolve(phase);
+      var units = Files.createDirectories(root.resolve("units-" + phase));
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(casePath.toString())) {
+        var storage = createSourceDatabase(manager);
+        var full = storage.fullBackup(units);
+        var previous = literalContinuity(Files.readAllBytes(units.resolve(full)));
+        var tracker = tracker(storage);
+        addOneRecord(manager);
+        markTracker(tracker, 123456, 111L);
+        var output = new RecordingOutput();
+        boolean plain = phase.equals("plainClose");
+        output.failPhase = plain ? "close" : phase;
+        var marked = new java.util.concurrent.atomic.AtomicBoolean();
+        output.onFirstWrite = () -> {
+          if (marked.compareAndSet(false, true)) {
+            try {
+              markTracker(tracker, 123456, 222L);
+              addOneRecord(manager);
+            } catch (Exception failure) {
+              throw new AssertionError(failure);
+            }
+          }
+        };
+        var retainedName = new ArrayList<String>();
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        withDiskStorageLogs(records, () -> assertThrows(DatabaseException.class,
+            () -> storage.backup(() -> List.of(full).iterator(), file -> {
+              try {
+                return Files.newInputStream(units.resolve(file));
+              } catch (IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
+              }
+            }, file -> {
+              retainedName.add(file);
+              // Hide the force capability for the retained Q-f close-failure row.
+              return plain ? new java.io.FilterOutputStream(output) {
+                @Override
+                public void close() throws IOException {
+                  out.close();
+                }
+              } : output;
+            }, file -> {
+              throw new AssertionError("no removal");
+            })));
+        assertTrue(output.faultReached);
+        assertTrue(marked.get());
+        assertEquals(1, output.closeCalls);
+        assertEquals(0, output.writesAfterTail);
+        assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+        assertEquals(previous.generationId(), trackerField(tracker, "lastCompleted"));
+        org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+        assertEquals(List.of(111L, 222L), trackerCandidates(tracker, "active", 123456));
+        assertBackupUnlocked(storage);
+        var retained = output.bytes.toByteArray();
+        var failedPair = literalContinuity(retained);
+        assertNotNull(failedPair);
+        if (plain) {
+          assertEquals(previous, failedPair);
+        } else {
+          assertFalse(previous.equals(failedPair));
+        }
+        var admission =
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+                .begin(tracker, DiskStorage.toFacadeContinuity(failedPair),
+                    true);
+        assertEquals(plain, admission.selectionEligible());
+        com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+            .abandon(tracker, admission);
+        var failedPath = units.resolve(retainedName.getFirst());
+        Files.write(failedPath, retained);
+        var next = storage.backup(units);
+        var nextPair = literalContinuity(Files.readAllBytes(units.resolve(next)));
+        assertFalse(failedPair.generationId().equals(nextPair.generationId()));
+        org.junit.Assert.assertArrayEquals(retained, Files.readAllBytes(failedPath));
+        manager.internal.restore("retryRestore", units.toString(), null, null);
+        try (var restored = manager.open("retryRestore", ADMIN, PASSWORD)) {
+          assertEquals(3, restored.query("select from " + RECORD_CLASS).stream().count());
+        }
+      }
+    }
+  }
+
+  /** Pending caller requests read all pages, warn exactly and never act on the earlier seal. */
+  @Test
+  public void pendingCallerOutputsHaveNoContinuityOrAuthorityForEitherCapability()
+      throws Exception {
+    for (boolean capable : new boolean[] {false, true}) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("pending-" + capable).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        markTracker(tracker, 123456, 111L);
+        var earlier =
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+                .begin(tracker, null, true);
+        var sealed = trackerField(tracker, "sealed");
+        var active = trackerField(tracker, "active");
+        var capableOutput = new RecordingOutput();
+        var plainOutput = new ByteArrayOutputStream();
+        var realReads = storage.getReadCache();
+        var reads = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realReads));
+        var readField = AbstractStorage.class.getDeclaredField("readCache");
+        readField.setAccessible(true);
+        readField.set(storage, reads);
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        try {
+          withDiskStorageLogs(records, () -> storage.backup(
+              () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+              file -> capable ? capableOutput : plainOutput, file -> {
+                throw new AssertionError("no removal");
+              }));
+          var unit = capable ? capableOutput.bytes.toByteArray() : plainOutput.toByteArray();
+          org.junit.Assert.assertNull(literalContinuity(unit));
+          org.junit.Assert.assertArrayEquals(new byte[36], java.util.Arrays.copyOfRange(
+              unit, unit.length - 122 + 12, unit.length - 122 + 48));
+          assertSame(sealed, trackerField(tracker, "sealed"));
+          assertSame(active, trackerField(tracker, "active"));
+          assertFalse(tracker.isTrusted());
+          var warnings = records.stream().filter(r -> r.getLevel() == Level.WARNING)
+              .map(LogRecord::getMessage).toList();
+          assertEquals(List.of("youtrackdb:" + SOURCE + " [" + SOURCE
+              + "] Backup has a pending seal. Continuity is absent."), warnings);
+          var cache = storage.getWriteCache();
+          int reached = 0;
+          for (var id : cache.files().values()) {
+            var external = cache.externalFileId(cache.internalFileId(id));
+            var size = cache.physicalSizeForBackupSnapshot(external);
+            for (int page = 0; page < size; page++) {
+              org.mockito.Mockito.verify(reads).silentLoadForRead(external, page, cache, true);
+              reached++;
+            }
+          }
+          assertTrue(reached > 0);
+          assertBackupUnlocked(storage);
+        } finally {
+          readField.set(storage, realReads);
+          com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+              .abandon(tracker, earlier);
+        }
+      }
+    }
+  }
+
+  /** Group 2: the admitted writer drains into sealed, and a resumed writer marks only active. */
+  @Test
+  public void writersStraddleTheRealBackupPause() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var tracker = tracker(storage);
+      var operations = storage.getAtomicOperationsManager();
+      var entered = new java.util.concurrent.CountDownLatch(1);
+      var releaseBefore = new java.util.concurrent.CountDownLatch(1);
+      var frozen = new java.util.concurrent.CountDownLatch(1);
+      var boundary = new java.util.concurrent.CountDownLatch(1);
+      var releaseBoundary = new java.util.concurrent.CountDownLatch(1);
+      var after = new java.util.concurrent.CountDownLatch(1);
+      var afterEntered = new java.util.concurrent.CountDownLatch(1);
+      var releaseAfter = new java.util.concurrent.CountDownLatch(1);
+      var afterThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+      var executor = java.util.concurrent.Executors.newFixedThreadPool(3);
+      var tasks = new ArrayList<java.util.concurrent.Future<?>>();
+      var previous = replaceTrackerObserver(tracker, (method, args) -> {
+        if (method.equals("beforeBoundaryAllocation") && args[0].toString().equals("CONTEXT")) {
+          boundary.countDown();
+          awaitBackupLatch(releaseBoundary);
+        }
+      });
+      try {
+        tasks.add(executor.submit(() -> {
+          operations.executeInsideAtomicOperation(op -> {
+            entered.countDown();
+            awaitBackupLatch(releaseBefore);
+            markTracker(tracker, 123456, 111L);
+          });
+          return null;
+        }));
+        assertTrue(entered.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        operations.setFreezeRegisteredActionForTesting(frozen::countDown);
+        var output = new RecordingOutput();
+        output.onFirstWrite = () -> {
+          // Copying starts after unfreeze. Keep completion away from the generation oracle.
+          awaitBackupLatch(after);
+          try {
+            var seal = trackerField(tracker, "sealed");
+            var pages = seal.getClass().getDeclaredMethod("pages");
+            pages.setAccessible(true);
+            assertEquals(List.of(111L), generationCandidates(pages.invoke(seal), 123456));
+            assertEquals(List.of(), trackerCandidates(tracker, "active", 123456));
+            assertEquals(List.of(), generationCandidates(pages.invoke(seal), 234567));
+            assertEquals(List.of(222L), trackerCandidates(tracker, "active", 234567));
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+        };
+        tasks.add(executor.submit(() -> storage.backup(() -> List.<String>of().iterator(),
+            file -> InputStream.nullInputStream(), file -> output, file -> {
+            })));
+        assertTrue(frozen.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("begin must wait for the admitted writer", 1L, boundary.getCount());
+        releaseBefore.countDown();
+        assertTrue(boundary.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        var afterStarted = new java.util.concurrent.CountDownLatch(1);
+        tasks.add(executor.submit(() -> {
+          afterThread.set(Thread.currentThread());
+          afterStarted.countDown();
+          operations.executeInsideAtomicOperation(op -> {
+            afterEntered.countDown();
+            awaitBackupLatch(releaseAfter);
+            markTracker(tracker, 234567, 222L);
+            after.countDown();
+          });
+          return null;
+        }));
+        assertTrue(afterStarted.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        Object blocker;
+        do {
+          blocker = java.util.concurrent.locks.LockSupport.getBlocker(afterThread.get());
+          if (blocker != null && blocker.getClass().getSimpleName().equals("OperationsFreezer")) {
+            break;
+          }
+          Thread.sleep(1);
+        } while (System.nanoTime() < deadline);
+        assertNotNull("second writer must reach the actual freezer", blocker);
+        assertEquals("OperationsFreezer", blocker.getClass().getSimpleName());
+        assertEquals("the second writer cannot pass the pause", 1L, afterEntered.getCount());
+        releaseBoundary.countDown();
+        assertTrue(afterEntered.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        releaseAfter.countDown();
+        for (var task : tasks) {
+          task.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        }
+      } finally {
+        releaseBefore.countDown();
+        releaseBoundary.countDown();
+        releaseAfter.countDown();
+        after.countDown();
+        try {
+          for (var task : tasks) {
+            task.get(30, java.util.concurrent.TimeUnit.SECONDS);
+          }
+        } finally {
+          operations.clearTestActions();
+          restoreTrackerObserver(tracker, previous);
+          executor.shutdownNow();
+          assertTrue(executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+        }
+      }
+    }
+  }
+
+  /** Group 2 / CN2: begin completes while an older side-file force owns save order. */
+  @Test
+  public void beginDoesNotWaitForAnOlderSideFileForce() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var tracker = tracker(storage);
+      var forcing = new java.util.concurrent.CountDownLatch(1);
+      var releaseForce = new java.util.concurrent.CountDownLatch(1);
+      var copying = new java.util.concurrent.CountDownLatch(1);
+      var releaseCopy = new java.util.concurrent.CountDownLatch(1);
+      var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+      var type = Class.forName(
+          "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile$FileOperations");
+      var target = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+      var coverage = storage.getWALInstance().begin();
+      var older = executor.submit(() -> {
+        try (var mocked = org.mockito.Mockito.mockConstruction(type,
+            org.mockito.Mockito.withSettings().defaultAnswer(call -> {
+              var result = call.callRealMethod();
+              if (call.getMethod().getName().equals("forceFile")) {
+                forcing.countDown();
+                awaitBackupLatch(releaseForce);
+              }
+              return result;
+            }))) {
+          var codec = Class.forName(
+              "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile");
+          var save = codec.getDeclaredMethod("save", Path.class, tracker.getClass(),
+              coverage.getClass());
+          save.setAccessible(true);
+          // Begin can invalidate this older capture. Its save result is not the begin oracle.
+          return save.invoke(null, target, tracker, coverage);
+        }
+      });
+      java.util.concurrent.Future<?> backup = null;
+      try {
+        assertTrue(forcing.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        var output = new RecordingOutput();
+        output.onFirstWrite = () -> {
+          try {
+            assertNotNull(trackerField(tracker, "sealed"));
+            assertEquals("older force is still blocked", 1L, releaseForce.getCount());
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+          copying.countDown();
+          awaitBackupLatch(releaseCopy);
+        };
+        backup = executor.submit(() -> storage.backup(() -> List.<String>of().iterator(),
+            file -> InputStream.nullInputStream(), file -> output, file -> {
+            }));
+        assertTrue("begin and unfreeze must precede release of the older force",
+            copying.await(30, java.util.concurrent.TimeUnit.SECONDS));
+      } finally {
+        releaseForce.countDown();
+        releaseCopy.countDown();
+        try {
+          older.get(30, java.util.concurrent.TimeUnit.SECONDS);
+          if (backup != null) {
+            backup.get(30, java.util.concurrent.TimeUnit.SECONDS);
+          }
+        } finally {
+          executor.shutdownNow();
+          assertTrue(executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+        }
+      }
+    }
+  }
+
+  /** Group 8: failed caller invalidation authorizes no later cut until removal is durable. */
+  @Test
+  public void failedCallerInvalidationCannotAuthorizeALaterWalCut() throws Exception {
+    try (var manager = crashManager(databasesPath)) {
+      var storage = createSourceDatabase(manager);
+      var tracker = tracker(storage);
+      var orderMethod = tracker.getClass().getDeclaredMethod("saveOrderLock");
+      orderMethod.setAccessible(true);
+      var order = (java.util.concurrent.locks.ReentrantLock) orderMethod.invoke(tracker);
+      var realWal = storage.getWALInstance();
+      for (int i = 0; i < 3; i++) {
+        realWal.appendNewSegment();
+        addOneRecord(manager);
+      }
+      realWal.flush();
+      var wal = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+          org.mockito.AdditionalAnswers.delegatesTo(realWal));
+      var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+      walField.setAccessible(true);
+      var side = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+      var temporary = side.resolveSibling("changed-pages.cpt.tmp");
+      var writerField = realWal.getClass().getDeclaredField("recordsWriterLock");
+      writerField.setAccessible(true);
+      var writer = (java.util.concurrent.locks.ReentrantLock) writerField.get(realWal);
+      var forcedInvalidation = new AtomicInteger();
+      var cuts = new AtomicInteger();
+      org.mockito.Mockito.doAnswer(call -> {
+        cuts.incrementAndGet();
+        assertTrue("durable invalidation must precede the cut", forcedInvalidation.get() > 0);
+        assertTrue("invalidation must remove or empty the side file",
+            !Files.exists(side) || Files.size(side) == 0);
+        return realWal.cutAllSegmentsSmallerThan(call.getArgument(0));
+      }).when(wal).cutAllSegmentsSmallerThan(org.mockito.ArgumentMatchers.anyLong());
+      var output = new RecordingOutput();
+      output.onClose = () -> {
+        order.lock();
+        try {
+          Files.createDirectories(temporary);
+          Files.writeString(temporary.resolve("obstruction"), "save blocker");
+          Files.deleteIfExists(side);
+          Files.createDirectory(side);
+          Files.writeString(side.resolve("obstruction"), "invalidation blocker");
+        } catch (IOException failure) {
+          throw new AssertionError(failure);
+        }
+      };
+      walField.set(storage, wal);
+      try {
+        var records = new CopyOnWriteArrayList<LogRecord>();
+        withDiskStorageLogs(records, () -> storage.backup(() -> List.<String>of().iterator(),
+            file -> InputStream.nullInputStream(), file -> output, file -> {
+            }));
+        assertTrue(records.stream().anyMatch(r -> r.getMessage()
+            .endsWith("Backup completion save and invalidation failed.")));
+        // Backup rotation can still publish a new physical WAL file asynchronously. Drain it
+        // before the inventory oracle, then exclude the writer across both coordinator calls.
+        // Never flush while holding recordsWriterLock.
+        realWal.flush();
+        assertTrue(writer.tryLock(30, java.util.concurrent.TimeUnit.SECONDS));
+        var boundary = realWal.activeSegment();
+        assertTrue("fixture must predict real removal",
+            realWal.preflightCut(boundary).removesSegments());
+        var inventory = physicalWalInventory();
+        assertThrows(IOException.class,
+            () -> ((DiskStorage) storage).checkpointChangedPages(boundary));
+        assertEquals(0, cuts.get());
+        assertEquals(inventory, physicalWalInventory());
+        Files.delete(side.resolve("obstruction"));
+        Files.delete(side);
+        var type = Class.forName(
+            "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile$FileOperations");
+        try (var mocked = org.mockito.Mockito.mockConstruction(type,
+            org.mockito.Mockito.withSettings().defaultAnswer(call -> {
+              var result = call.callRealMethod();
+              var method = call.getMethod().getName();
+              // Portable deletion forces the folder. Windows publishes an empty tombstone or
+              // forces the existing file empty when native replacement is unavailable.
+              if ((method.equals("forceFolder") || method.equals("windowsMove")
+                  || method.equals("truncateAndForce"))
+                  && (!Files.exists(side) || Files.size(side) == 0)) {
+                forcedInvalidation.incrementAndGet();
+              }
+              return result;
+            }))) {
+          var result = ((DiskStorage) storage).checkpointChangedPages(boundary);
+          assertEquals("INVALIDATED", result.outcome().toString());
+          assertTrue(result.segmentsRemoved());
+          assertEquals(1, cuts.get());
+          assertTrue(forcedInvalidation.get() > 0);
+          assertTrue(physicalWalInventory().size() < inventory.size());
+        }
+      } finally {
+        if (writer.isHeldByCurrentThread()) {
+          writer.unlock();
+        }
+        walField.set(storage, realWal);
+        for (var path : List.of(temporary, side)) {
+          if (Files.isDirectory(path)) {
+            Files.deleteIfExists(path.resolve("obstruction"));
+            Files.delete(path);
+          }
+        }
+        if (order.isHeldByCurrentThread()) {
+          order.unlock();
+        }
+      }
+    }
+  }
+
+  /** T37-DU1: finish failures preserve identity, one cleanup and pending ownership at the caller. */
+  @Test
+  public void callerFinishMergeFailuresReleaseExclusionAndKeepPendingOwnership() throws Exception {
+    for (String mode : List.of("plain", "nonDurable", "coverage")) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("finish-" + mode).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        markTracker(tracker, 123456, 111L);
+        markTracker(tracker, 234567, 222L);
+        var primary = new OutOfMemoryError("finish merge");
+        var cleanup = new OutOfMemoryError("finish cleanup");
+        var armed = new java.util.concurrent.atomic.AtomicBoolean();
+        var attempts = new AtomicInteger();
+        var previous = replaceTrackerObserver(tracker, (method, args) -> {
+          if (armed.get() && method.equals("beforeAllocation")
+              && args[0].toString().equals("FILE")) {
+            int count = attempts.incrementAndGet();
+            if (count >= 2) {
+              throw count == 2 ? primary : cleanup;
+            }
+          }
+        });
+        var realWal = storage.getWALInstance();
+        var wal = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realWal));
+        org.mockito.Mockito.doAnswer(call -> mode.equals("coverage") && armed.get()
+            ? null : realWal.preflightCut(call.getArgument(0)))
+            .when(wal).preflightCut(org.mockito.ArgumentMatchers.anyLong());
+        var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+        walField.setAccessible(true);
+        walField.set(storage, wal);
+        var output = new RecordingOutput();
+        output.onClose = () -> armed.set(true);
+        var factsType =
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.CompletionFacts.class;
+        // The supplier creates (true, true) only. Intercept that one caller-created record to
+        // exercise non-durable facts without adding an unreachable production switch.
+        try (var facts = org.mockito.Mockito.mockConstruction(factsType, (mock, context) -> {
+          org.mockito.Mockito.doReturn(!mode.equals("nonDurable")).when(mock).completeUnitDurable();
+          org.mockito.Mockito.doReturn(true).when(mock).fullRead();
+        })) {
+          var records = new CopyOnWriteArrayList<LogRecord>();
+          withDiskStorageLogs(records, () -> assertSame(primary,
+              assertThrows(OutOfMemoryError.class, () -> storage.backup(
+                  () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+                  file -> mode.equals("plain") ? new java.io.FilterOutputStream(output) {
+                    @Override
+                    public void close() throws IOException {
+                      out.close();
+                    }
+                  } : output, file -> {
+                  }))));
+          assertEquals(1, facts.constructed().size());
+          assertEquals(mode.equals("coverage") ? 3 : 2, attempts.get());
+          assertEquals(mode.equals("coverage") ? 1 : 0, primary.getSuppressed().length);
+          if (mode.equals("coverage")) {
+            assertSame(cleanup, primary.getSuppressed()[0]);
+          }
+          assertEquals(1, output.closeCalls);
+          assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+          assertBackupUnlocked(storage);
+          var seal = trackerField(tracker, "sealed");
+          assertNotNull(seal);
+          org.junit.Assert.assertNull(trackerField(tracker, "lastCompleted"));
+          armed.set(false);
+          var later = new RecordingOutput();
+          storage.backup(() -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+              file -> later, file -> {
+              });
+          org.junit.Assert.assertNull(literalContinuity(later.bytes.toByteArray()));
+          assertSame(seal, trackerField(tracker, "sealed"));
+          var loaded = saveAndMergeLoadedTracker(tracker);
+          assertEquals(List.of(111L), trackerCandidates(loaded, "active", 123456));
+          assertEquals(List.of(222L), trackerCandidates(loaded, "active", 234567));
+          markTracker(tracker, 345678, 333L);
+          saveTrackerAt(tracker, databasesPath.resolve("finish-" + mode).resolve(SOURCE)
+              .resolve("changed-pages.cpt"), realWal.begin());
+        } finally {
+          armed.set(false);
+          walField.set(storage, realWal);
+          restoreTrackerObserver(tracker, previous);
+        }
+      }
+      // A fresh manager runs real startup only after the first cache has stopped.
+      var image = databasesPath.resolve("finish-" + mode);
+      assertTrue(
+          (Files.readAllBytes(image.resolve(SOURCE).resolve("changed-pages.cpt"))[8] & 4) != 0);
+      try (var reopened = (YouTrackDBImpl) YourTracks.instance(image.toString());
+          var session = reopened.open(SOURCE, ADMIN, PASSWORD)) {
+        var loaded = tracker((AbstractStorage) session.getStorage());
+        org.junit.Assert.assertNull(trackerField(loaded, "sealed"));
+        org.junit.Assert.assertNull(trackerField(loaded, "lastCompleted"));
+        assertEquals(List.of(111L), trackerCandidates(loaded, "active", 123456));
+        assertEquals(List.of(222L), trackerCandidates(loaded, "active", 234567));
+        assertEquals(List.of(333L), trackerCandidates(loaded, "active", 345678));
+      }
+    }
+  }
+
+  private List<String> physicalWalInventory() throws IOException {
+    try (var paths = Files.walk(databasesPath.resolve(SOURCE))) {
+      return paths.filter(p -> p.getFileName().toString().endsWith(".wal"))
+          .map(p -> p.getFileName().toString()).sorted().toList();
+    }
+  }
+
+  private static void awaitBackupLatch(java.util.concurrent.CountDownLatch latch) {
+    try {
+      assertTrue(latch.await(30, java.util.concurrent.TimeUnit.SECONDS));
+    } catch (InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(failure);
+    }
+  }
+
+  private static List<Long> generationCandidates(Object generation, int file) throws Exception {
+    var method = generation.getClass().getDeclaredMethod("forEachCandidate", int.class,
+        java.util.function.LongConsumer.class);
+    method.setAccessible(true);
+    var pages = new ArrayList<Long>();
+    method.invoke(generation, file, (java.util.function.LongConsumer) pages::add);
+    return pages;
+  }
+
+  /** A second request cannot begin while the first completion or Q-f merge waits in save order. */
+  @Test
+  public void backupExclusionCoversCompletionAndMergeWaits() throws Exception {
+    for (boolean capable : new boolean[] {false, true}) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("exclusion-" + capable).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        var orderMethod = tracker.getClass().getDeclaredMethod("saveOrderLock");
+        orderMethod.setAccessible(true);
+        var order = (java.util.concurrent.locks.ReentrantLock) orderMethod.invoke(tracker);
+        var closed = new java.util.concurrent.CountDownLatch(1);
+        var continueClose = new java.util.concurrent.CountDownLatch(1);
+        var backupThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        var output = new RecordingOutput();
+        output.onClose = () -> {
+          closed.countDown();
+          try {
+            assertTrue(continueClose.await(30, java.util.concurrent.TimeUnit.SECONDS));
+          } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(failure);
+          }
+        };
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var task = executor.submit(() -> {
+          backupThread.set(Thread.currentThread());
+          return storage.backup(() -> List.<String>of().iterator(),
+              file -> InputStream.nullInputStream(), file -> capable ? output
+                  : new java.io.FilterOutputStream(output) {
+                    @Override
+                    public void close() throws IOException {
+                      out.close();
+                    }
+                  },
+              file -> {
+                throw new AssertionError("no removal");
+              });
+        });
+        try {
+          assertTrue(closed.await(30, java.util.concurrent.TimeUnit.SECONDS));
+          order.lock();
+          try {
+            continueClose.countDown();
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+            while (!order.hasQueuedThread(backupThread.get()) && System.nanoTime() < deadline) {
+              Thread.sleep(1);
+            }
+            assertTrue("the terminal operation must reach save order",
+                order.hasQueuedThread(backupThread.get()));
+            assertThrows(
+                com.jetbrains.youtrackdb.internal.core.exception.BackupInProgressException.class,
+                () -> storage.backup(() -> List.<String>of().iterator(),
+                    file -> InputStream.nullInputStream(), file -> {
+                      throw new AssertionError("a second output must not be constructed");
+                    }, file -> {
+                      throw new AssertionError("no removal");
+                    }));
+            assertNotNull(trackerField(tracker, "sealed"));
+          } finally {
+            order.unlock();
+          }
+          assertNotNull(task.get(30, java.util.concurrent.TimeUnit.SECONDS));
+          org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+          assertBackupUnlocked(storage);
+        } finally {
+          continueClose.countDown();
+          try {
+            task.get(30, java.util.concurrent.TimeUnit.SECONDS);
+          } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+          }
+        }
+      }
+    }
+  }
+
+  /** Independent side-file force observation follows both output forces and the one explicit close. */
+  @Test
+  public void completionSideFileForceFollowsTheCompleteOutputBarrier() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var output = new RecordingOutput();
+      var sideForces = new AtomicInteger();
+      var moves = new AtomicInteger();
+      var windowsMoves = new AtomicInteger();
+      var windows = new java.util.concurrent.atomic.AtomicBoolean();
+      var folders = new AtomicInteger();
+      var type = Class.forName(
+          "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile$FileOperations");
+      var settings = org.mockito.Mockito.withSettings().defaultAnswer(call -> {
+        switch (call.getMethod().getName()) {
+          case "forceFile" -> {
+            assertEquals("side publication requires the complete-unit force", 2, output.forceCalls);
+            assertEquals("side publication requires successful explicit close", 1,
+                output.closeCalls);
+            assertTrue(output.closed);
+            sideForces.incrementAndGet();
+          }
+          case "windows" -> {
+            var result = (boolean) call.callRealMethod();
+            windows.set(result);
+            return result;
+          }
+          case "windowsMove" -> {
+            assertEquals(1, sideForces.get());
+            assertEquals(0, moves.get());
+            assertEquals(0, folders.get());
+            windowsMoves.incrementAndGet();
+          }
+          case "move" -> {
+            // The overload delegates to the varargs overload. Count the physical move only.
+            if (call.getRawArguments().length == 3) {
+              assertEquals(1, sideForces.get());
+              moves.incrementAndGet();
+            }
+          }
+          case "forceFolder" -> {
+            assertEquals(1, moves.get());
+            folders.incrementAndGet();
+          }
+          default -> {
+          }
+        }
+        return call.callRealMethod();
+      });
+      // Construction interception is thread-local. Ordinary checkpoint forces are not counted.
+      try (var observed = org.mockito.Mockito.mockConstruction(type, settings)) {
+        storage.backup(() -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+            file -> output, file -> {
+              throw new AssertionError("no removal");
+            });
+        assertFalse(observed.constructed().isEmpty());
+        assertEquals(1, sideForces.get());
+        assertEquals(windows.get() ? 1 : 0, windowsMoves.get());
+        assertEquals(windows.get() ? 0 : 1, moves.get());
+        assertEquals(windows.get() ? 0 : 1, folders.get());
+        assertEquals(literalContinuity(output.bytes.toByteArray()).generationId(),
+            trackerField(tracker(storage), "lastCompleted"));
+      }
+    }
+  }
+
+  /** Throwing warning delivery cannot undo completion, and publication restores inherited interrupt. */
+  @Test
+  public void callerWarningFailuresAndInheritedInterruptKeepTerminalOwnership() throws Exception {
+    for (boolean distrust : new boolean[] {false, true}) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("diagnostic-" + distrust).toString())) {
+        var storage = createSourceDatabase(manager);
+        var tracker = tracker(storage);
+        var publication = new AtomicInteger();
+        var interruptedAtPublication = new java.util.concurrent.atomic.AtomicBoolean();
+        var caller = Thread.currentThread();
+        var oldObserver = replaceTrackerObserver(tracker, (method, args) -> {
+          if (Thread.currentThread() == caller && method.equals("beforeCompletionCapture")) {
+            publication.incrementAndGet();
+            interruptedAtPublication.set(Thread.currentThread().isInterrupted());
+          }
+        });
+        var output = new RecordingOutput();
+        output.onClose = () -> {
+          if (distrust) {
+            try {
+              var invalidate = tracker.getClass().getDeclaredMethod("invalidate");
+              invalidate.setAccessible(true);
+              invalidate.invoke(tracker);
+            } catch (Exception failure) {
+              throw new AssertionError(failure);
+            }
+          }
+          Thread.currentThread().interrupt();
+        };
+        var warnings = new AtomicInteger();
+        var records = new CopyOnWriteArrayList<LogRecord>() {
+          @Override
+          public boolean add(LogRecord record) {
+            if (record.getLevel() == Level.WARNING) {
+              warnings.incrementAndGet();
+              throw new AssertionError("diagnostic delivery");
+            }
+            return super.add(record);
+          }
+        };
+        try {
+          withDiskStorageLogs(records, () -> storage.backup(
+              () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
+              file -> output, file -> {
+                throw new AssertionError("no removal");
+              }));
+          assertTrue(Thread.currentThread().isInterrupted());
+          assertTrue(interruptedAtPublication.get());
+          assertEquals(1, publication.get());
+          assertEquals(distrust ? 1 : 0, warnings.get());
+          assertEquals(1, output.closeCalls);
+          assertEquals(2, output.forceCalls);
+          org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+          assertEquals(!distrust, tracker.isTrusted());
+          assertTrue(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
+          assertBackupUnlocked(storage);
+        } finally {
+          Thread.interrupted();
+          restoreTrackerObserver(tracker, oldObserver);
+        }
+      }
+    }
+  }
+
+  /**
+   * Group 10: a halt after successful completion preserves the exact pair and active marks.
+   * This proves restart reconstruction and the publication boundary, not force placement.
+   */
+  @Test
+  public void crashAfterCompletionSavePreservesPairAndActiveMarks() throws Exception {
+    assertCrashRestart("published");
+  }
+
+  /**
+   * Group 11: output closed, completion not saved. Startup cannot infer completion from the tail.
+   * This proves restart reconstruction and the pre-publication boundary, not force placement.
+   */
+  @Test
+  public void crashAfterOutputCloseDoesNotInventCompletion() throws Exception {
+    assertCrashRestart("closed");
+  }
+
+  /**
+   * Group 12: a checkpoint during copying saves pending and active marks for real startup merge.
+   * This proves restart reconstruction and pending-seal publication, not force placement.
+   */
+  @Test
+  public void crashWithSavedPendingSealMergesBothGenerations() throws Exception {
+    assertCrashRestart("pending");
+  }
+
+  private void assertCrashRestart(String mode) throws Exception {
+    var handshake = root.resolve("reached");
+    // Reuse the bounded, output-draining JVM pattern from DiskStorageBootstrapWiringTest.
+    var process = new ProcessBuilder(
+        Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+        "-Xmx512m", "-Dstorage.diskCache.bufferSize=64",
+        "-cp",
+        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+        getClass().getName(), mode, root.toString(), handshake.toString())
+        .redirectErrorStream(true).start();
+    var drained = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+      try {
+        return new String(process.getInputStream().readAllBytes(),
+            java.nio.charset.StandardCharsets.UTF_8);
+      } catch (IOException failure) {
+        throw new java.io.UncheckedIOException(failure);
+      }
+    });
+    try {
+      assertTrue("crash child timed out",
+          process.waitFor(90, java.util.concurrent.TimeUnit.SECONDS));
+      assertEquals(drained.get(10, java.util.concurrent.TimeUnit.SECONDS), 0, process.exitValue());
+      assertEquals("positive reached-site handshake", mode, Files.readString(handshake));
+    } finally {
+      if (process.isAlive()) {
+        process.destroyForcibly();
+      }
+      assertTrue(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+      drained.get(10, java.util.concurrent.TimeUnit.SECONDS);
+    }
+    var sideFile = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+    var savedBytes = Files.readAllBytes(sideFile);
+    // Inspect the saved image before any startup checkpoint can replace it.
+    assertEquals("pending flag at the observed boundary", mode.equals("pending"),
+        (savedBytes[8] & 4) != 0);
+    DiskStorage.BackupContinuity exported = null;
+    if (!mode.equals("pending")) {
+      exported = literalContinuity(Files.readAllBytes(backupPath.resolve(unitNames().getFirst())));
+      assertNotNull(exported);
+      if (mode.equals("published")) {
+        assertSavedPair(sideFile, exported);
+      }
+    }
+    try (var manager = crashManager(databasesPath);
+        var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+      var storage = (AbstractStorage) session.getStorage();
+      var tracker = tracker(storage);
+      org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+      if (!mode.equals("closed")) {
+        assertTrue("saved active mark survives real startup",
+            trackerCandidates(tracker, "active", 123456).contains(222L));
+      }
+      if (mode.equals("published")) {
+        assertTrue("real WAL startup proof must preserve trust", tracker.isTrusted());
+        assertEquals(exported.trackerId(), trackerField(tracker, "trackerId"));
+        assertEquals(exported.generationId(), trackerField(tracker, "lastCompleted"));
+      } else {
+        org.junit.Assert.assertNull("no saved completion may be inferred from backup output",
+            trackerField(tracker, "lastCompleted"));
+        if (mode.equals("pending")) {
+          assertTrue("saved sealed mark survives startup merge",
+              trackerCandidates(tracker, "active", 123456).contains(111L));
+        }
+        storage.synch();
+        org.junit.Assert.assertNull("an unrelated checkpoint cannot consume the backup ID",
+            trackerField(tracker, "lastCompleted"));
+      }
+      if (mode.equals("published")) {
+        assertTrue("post-close active mark survives publication and startup",
+            trackerCandidates(tracker, "active", 123456).contains(333L));
+      }
+      var expectedRecords = mode.equals("published") ? 3L : 2L;
+      try (var result = session.query("select count(*) as count from " + RECORD_CLASS)) {
+        assertEquals(expectedRecords, ((Number) result.next().getProperty("count")).longValue());
+      }
+      if (mode.equals("pending")) {
+        // Incomplete copying output stays untouched and cannot be admitted as a chain head.
+        backupPath = Files.createDirectory(root.resolve("restart-backup"));
+      }
+      var next = storage.backup(backupPath);
+      var nextPair = literalContinuity(Files.readAllBytes(backupPath.resolve(next)));
+      assertNotNull(nextPair);
+      var consumed = UUID.fromString(Files.readString(root.resolve("consumed")));
+      assertFalse("restart must consume a fresh ID", consumed.equals(nextPair.generationId()));
+      manager.internal.restore("crashRestore", backupPath.toString(), null, null);
+      try (var restored = manager.open("crashRestore", ADMIN, PASSWORD);
+          var result = restored.query("select count(*) as count from " + RECORD_CLASS)) {
+        assertEquals(expectedRecords, ((Number) result.next().getProperty("count")).longValue());
+      }
+      if (mode.equals("closed")) {
+        // The independently restored closed unit contains the record copied before the halt.
+        var retained = Files.createDirectory(root.resolve("closed-unit"));
+        Files.copy(backupPath.resolve(unitNames().getFirst()),
+            retained.resolve(unitNames().getFirst()));
+        manager.internal.restore("closedRestore", retained.toString(), null, null);
+        try (var restored = manager.open("closedRestore", ADMIN, PASSWORD);
+            var result = restored.query("select count(*) as count from " + RECORD_CLASS)) {
+          assertEquals(2L, ((Number) result.next().getProperty("count")).longValue());
+        }
+      }
+    }
+  }
+
+  private static YouTrackDBImpl crashManager(Path path) {
+    var config = new org.apache.commons.configuration2.BaseConfiguration();
+    config.setProperty(
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT.getKey(),
+        false);
+    config.setProperty(
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.STORAGE_CALL_FSYNC.getKey(), true);
+    return (YouTrackDBImpl) YourTracks.instance(path.toString(), config);
+  }
+
+  /** Runs only in the child JVM. Every reached-site exit deliberately skips manager shutdown. */
+  public static void main(String[] args) throws Exception {
+    var fixture = new IncrementalBackupExtensionTest();
+    var mode = args[0];
+    fixture.root = Path.of(args[1]);
+    fixture.databasesPath = fixture.root.resolve("databases");
+    fixture.backupPath = fixture.root.resolve("backup");
+    var handshake = Path.of(args[2]);
+    var manager = crashManager(fixture.databasesPath);
+    var storage = fixture.createSourceDatabase(manager);
+    var tracker = tracker(storage);
+    var wal = storage.getWALInstance();
+    // Leave older segments available for the pending checkpoint's real bounded cut.
+    wal.appendNewSegment();
+    storage.synch();
+    wal.appendNewSegment();
+    markTracker(tracker, 123456, 111L);
+    var realReads = storage.getReadCache();
+    var reads = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+        org.mockito.AdditionalAnswers.delegatesTo(realReads));
+    var firstRead = new java.util.concurrent.atomic.AtomicBoolean();
+    var outputClosed = new java.util.concurrent.atomic.AtomicBoolean();
+    replaceTrackerObserver(tracker, (method, arguments) -> {
+      if (mode.equals("closed") && method.equals("beforeCompletionCapture")) {
+        try {
+          assertTrue("explicit close must have returned before the save site", outputClosed.get());
+          org.junit.Assert.assertNull(trackerField(tracker, "lastCompleted"));
+          haltAt(handshake, mode);
+        } catch (Exception failure) {
+          throw new AssertionError(failure);
+        }
+      }
+    });
+    org.mockito.Mockito.doAnswer(invocation -> {
+      if (firstRead.compareAndSet(false, true)) {
+        assertNotNull("copying must follow begin", trackerField(tracker, "sealed"));
+        var seal = trackerField(tracker, "sealed");
+        var id = seal.getClass().getDeclaredField("identifier");
+        id.setAccessible(true);
+        Files.writeString(fixture.root.resolve("consumed"), id.get(seal).toString());
+        fixture.addOneRecord(manager);
+        markTracker(tracker, 123456, 222L);
+        wal.flush();
+        if (mode.equals("pending")) {
+          storage.synch();
+          var saved = Files.readAllBytes(
+              fixture.databasesPath.resolve(SOURCE).resolve("changed-pages.cpt"));
+          assertTrue("ordinary checkpoint must save the pending seal", (saved[8] & 4) != 0);
+          haltAt(handshake, mode);
+        }
+      }
+      return invocation.getMethod().invoke(realReads, invocation.getArguments());
+    }).when(reads).silentLoadForRead(org.mockito.ArgumentMatchers.anyLong(),
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.eq(true));
+    var readField = AbstractStorage.class.getDeclaredField("readCache");
+    readField.setAccessible(true);
+    readField.set(storage, reads);
+    var records = new CopyOnWriteArrayList<LogRecord>() {
+      @Override
+      public boolean add(LogRecord record) {
+        if (mode.equals("published") && record.getMessage().contains("is completed. Backup unit")) {
+          try {
+            assertTrue(firstRead.get());
+            haltAt(handshake, mode);
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+        }
+        return super.add(record);
+      }
+    };
+    fixture.withDiskStorageLogs(records, () -> storage.backup(
+        () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(), name -> {
+          try {
+            return new CrashOutput(fixture.backupPath.resolve(name), () -> {
+              assertTrue(firstRead.get());
+              if (mode.equals("published")) {
+                try {
+                  fixture.addOneRecord(manager);
+                  markTracker(tracker, 123456, 333L);
+                  wal.flush();
+                } catch (Exception failure) {
+                  throw new AssertionError(failure);
+                }
+              }
+              outputClosed.set(true);
+            });
+          } catch (IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+          }
+        }, name -> {
+          throw new AssertionError("fresh backup must not remove a unit");
+        }));
+    throw new AssertionError("child did not reach " + mode);
+  }
+
+  private static void haltAt(Path handshake, String mode) throws Exception {
+    Files.writeString(handshake, mode, StandardOpenOption.CREATE_NEW);
+    try (var channel = FileChannel.open(handshake, StandardOpenOption.WRITE)) {
+      channel.force(true);
+    }
+    Runtime.getRuntime().halt(0);
+  }
+
+  /** Real file output with the same explicit force capability as a local backup unit. */
+  private static final class CrashOutput extends OutputStream implements BackupForceCapability {
+    private final FileChannel channel;
+    private final OutputStream stream;
+    private final Runnable afterClose;
+
+    private CrashOutput(Path path, Runnable afterClose) throws IOException {
+      channel = FileChannel.open(path, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+      stream = java.nio.channels.Channels.newOutputStream(channel);
+      this.afterClose = afterClose;
+    }
+
+    @Override
+    public void write(int value) throws IOException {
+      stream.write(value);
+    }
+
+    @Override
+    public void write(byte[] bytes, int offset, int length) throws IOException {
+      stream.write(bytes, offset, length);
+    }
+
+    @Override
+    public void forceBackupData() throws IOException {
+      channel.force(true);
+    }
+
+    @Override
+    public void close() throws IOException {
+      stream.close();
+      afterClose.run();
+    }
+  }
+
+  private static void saveTrackerAt(Object tracker, Path target,
+      com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber coverage)
+      throws Exception {
+    var codec = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile");
+    var save = codec.getDeclaredMethod("save", Path.class, tracker.getClass(), coverage.getClass());
+    save.setAccessible(true);
+    assertEquals("SAVED", save.invoke(null, target, tracker, coverage).toString());
+  }
+
+  private Object saveAndMergeLoadedTracker(Object tracker) throws Exception {
+    var codec = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile");
+    var trackerType = tracker.getClass();
+    var lsnType =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber.class;
+    var save = codec.getDeclaredMethod("save", Path.class, trackerType, lsnType);
+    save.setAccessible(true);
+    var target = Files.createTempDirectory(root, "partial-merge-").resolve("history");
+    assertEquals("SAVED", save.invoke(null, target, tracker,
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber(
+            17, 32))
+        .toString());
+    var load = codec.getDeclaredMethod("load", Path.class);
+    load.setAccessible(true);
+    var loaded = load.invoke(null, target);
+    var accessor = loaded.getClass().getDeclaredMethod("tracker");
+    accessor.setAccessible(true);
+    var restarted = accessor.invoke(loaded);
+    assertNotNull(trackerField(restarted, "sealed"));
+    var merge = trackerType.getDeclaredMethod("mergeLoadedSealed");
+    merge.setAccessible(true);
+    merge.invoke(restarted);
+    return restarted;
+  }
+
+  private static void assertBackupUnlocked(AbstractStorage storage) throws Exception {
+    var field = AbstractStorage.class.getDeclaredField("backupLock");
+    field.setAccessible(true);
+    assertFalse(((java.util.concurrent.locks.ReentrantLock) field.get(storage)).isLocked());
+  }
+
+  private static void markTracker(Object tracker, int file, long page) throws Exception {
+    var method = tracker.getClass().getDeclaredMethod("mark", int.class, long.class);
+    method.setAccessible(true);
+    method.invoke(tracker, file, page);
+  }
+
+  private static List<Long> trackerCandidates(Object tracker, String generation, int file)
+      throws Exception {
+    var active = trackerField(tracker, generation);
+    var method = active.getClass().getDeclaredMethod("forEachCandidate", int.class,
+        java.util.function.LongConsumer.class);
+    method.setAccessible(true);
+    var pages = new ArrayList<Long>();
+    method.invoke(active, file, (java.util.function.LongConsumer) pages::add);
+    return pages;
+  }
+
+  private interface TrackerObservation {
+    void visit(String method, Object[] args);
+  }
+
+  private static Object replaceTrackerObserver(Object tracker, TrackerObservation observation)
+      throws Exception {
+    var field = tracker.getClass().getDeclaredField("allocations");
+    field.setAccessible(true);
+    var previous = field.get(tracker);
+    var type = field.getType();
+    field.set(tracker, java.lang.reflect.Proxy.newProxyInstance(type.getClassLoader(),
+        new Class<?>[] {type}, (proxy, method, args) -> {
+          observation.visit(method.getName(), args);
+          return null;
+        }));
+    return previous;
+  }
+
+  private static void restoreTrackerObserver(Object tracker, Object previous) throws Exception {
+    var field = tracker.getClass().getDeclaredField("allocations");
+    field.setAccessible(true);
+    field.set(tracker, previous);
+  }
+
+  /** All admitted head cases reach every physical page, including a matching current pair. */
+  @Test
+  public void everyHeadCaseStillReadsEveryPhysicalPage() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var full = storage.fullBackup(backupPath);
+      for (var head : List.of("matching", "mismatched", "historical", "missing")) {
+        var bytes = Files.readAllBytes(backupPath.resolve(full));
+        if (head.equals("mismatched")) {
+          BackupUnitFiles.rewriteAsVersion6(backupPath.resolve(full), DiskStorage.BARRIER_PRESENT,
+              new DiskStorage.BackupContinuity(UUID.randomUUID(), UUID.randomUUID()));
+        } else if (head.equals("historical")) {
+          BackupUnitFiles.rewriteAsVersion(backupPath.resolve(full), 3);
+        }
+        var real = storage.getReadCache();
+        var reads = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(real));
+        var field = AbstractStorage.class.getDeclaredField("readCache");
+        field.setAccessible(true);
+        field.set(storage, reads);
+        try {
+          var output = new RecordingOutput();
+          storage.backup(head.equals("missing") ? () -> List.<String>of().iterator()
+              : this::unitIterator, this::openInput, file -> output, file -> {
+              });
+          var cache = storage.getWriteCache();
+          int reached = 0;
+          for (var id : cache.files().values()) {
+            var external = cache.externalFileId(cache.internalFileId(id));
+            var size = cache.physicalSizeForBackupSnapshot(external);
+            for (int page = 0; page < size; page++) {
+              org.mockito.Mockito.verify(reads).silentLoadForRead(external, page, cache, true);
+              reached++;
+            }
+          }
+          assertTrue(head, reached > 0);
+        } finally {
+          field.set(storage, real);
+          Files.write(backupPath.resolve(full), bytes);
+        }
+        // Later cases deliberately admit stale or absent history. None may select pages.
+      }
+    }
+  }
+
+  /** Fresh capable output reads every page and publishes its exact pair only after close. */
   @Test
   public void forcedOutputPublishesOneTailRequest() throws Exception {
     try (var youTrackDB = openManager()) {
       var storage = createSourceDatabase(youTrackDB);
-      var trackerField = DiskStorage.class.getDeclaredField("changedPageTracker");
-      trackerField.setAccessible(true);
-      var tracker = trackerField.get(storage);
-      var stateFields = List.of("active", "sealed", "lastCompleted", "pendingResetId");
-      var before = new ArrayList<Object>();
-      for (var fieldName : stateFields) {
-        var field = tracker.getClass().getDeclaredField(fieldName);
-        field.setAccessible(true);
-        before.add(field.get(tracker));
-      }
+      var tracker = tracker(storage);
+      org.junit.Assert.assertNull(trackerField(tracker, "lastCompleted"));
+      var sideFile = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+      var cacheTracker = storage.getWriteCache().getClass().getDeclaredField("changedPageTracker");
+      cacheTracker.setAccessible(true);
+      assertSame("the caller and WOWCache must share the same tracker", tracker,
+          cacheTracker.get(storage.getWriteCache()));
       var realReads = storage.getReadCache();
       var reads = org.mockito.Mockito.mock(
           com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
@@ -1096,15 +2792,45 @@ public class IncrementalBackupExtensionTest {
         physicalSizes.put(external, cache.physicalSizeForBackupSnapshot(external));
       }
       var output = new RecordingOutput();
-      String name;
+      output.onClose = () -> {
+        try {
+          org.junit.Assert.assertNull("completion must wait for explicit close",
+              trackerField(tracker, "lastCompleted"));
+          assertNotNull(trackerField(tracker, "sealed"));
+        } catch (Exception failure) {
+          throw new AssertionError(failure);
+        }
+      };
+      var successObserved = new java.util.concurrent.atomic.AtomicBoolean();
+      var created = new ArrayList<String>();
+      var records = new CopyOnWriteArrayList<LogRecord>() {
+        @Override
+        public boolean add(LogRecord record) {
+          if (record.getMessage().contains("is completed. Backup unit file")) {
+            assertEquals("close must precede success reporting", 1, output.closeCalls);
+            var pair = literalContinuity(output.bytes.toByteArray());
+            try {
+              assertEquals(pair.generationId(), trackerField(tracker, "lastCompleted"));
+              assertSavedPair(sideFile, pair);
+            } catch (Exception failure) {
+              throw new AssertionError(failure);
+            }
+            successObserved.set(true);
+          }
+          return super.add(record);
+        }
+      };
       readField.set(storage, reads);
       try {
-        name = storage.backup(() -> List.<String>of().iterator(),
+        withDiskStorageLogs(records, () -> created.add(storage.backup(
+            () -> List.<String>of().iterator(),
             file -> InputStream.nullInputStream(), file -> output, file -> {
-            });
+            })));
       } finally {
         readField.set(storage, realReads);
       }
+      assertTrue("the success log must observe published completion", successObserved.get());
+      var name = created.getFirst();
       assertTrue("the fixture must contain physical pages", physicalSizes.values().stream()
           .anyMatch(size -> size > 0));
       for (var entry : physicalSizes.entrySet()) {
@@ -1112,12 +2838,12 @@ public class IncrementalBackupExtensionTest {
           org.mockito.Mockito.verify(reads).silentLoadForRead(entry.getKey(), page, cache, true);
         }
       }
-      for (int i = 0; i < stateFields.size(); i++) {
-        var field = tracker.getClass().getDeclaredField(stateFields.get(i));
-        field.setAccessible(true);
-        assertSame("production must not begin or finish a tracker boundary", before.get(i),
-            field.get(tracker));
-      }
+      var pair = literalContinuity(output.bytes.toByteArray());
+      assertNotNull("capable bootstrap exports its consumed boundary", pair);
+      assertEquals(pair.generationId(), trackerField(tracker, "lastCompleted"));
+      org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+      assertTrue(tracker.isTrusted());
+      assertSavedPair(sideFile, pair);
       assertEquals(2, output.forceCalls);
       assertEquals(1, output.closeCalls);
       assertEquals(1, output.tailRequests);
@@ -1139,6 +2865,50 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
+  private static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker
+      tracker(AbstractStorage storage) throws Exception {
+    var field = DiskStorage.class.getDeclaredField("changedPageTracker");
+    field.setAccessible(true);
+    return (com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker) field
+        .get(storage);
+  }
+
+  private static Object trackerField(Object tracker, String name) throws Exception {
+    var field = tracker.getClass().getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(tracker);
+  }
+
+  /** Decode literal v6 slots without the production decoder, including the absent zero control. */
+  private static DiskStorage.BackupContinuity literalContinuity(byte[] unit) {
+    var tail = unit.length - 122;
+    var bytes = ByteBuffer.wrap(unit);
+    int marker = bytes.getInt(tail + 12);
+    if (marker == 0) {
+      for (int offset = 16; offset < 48; offset++) {
+        assertEquals("absent UUID slots must be zero", 0, unit[tail + offset]);
+      }
+      return null;
+    }
+    assertEquals(0x434F4E54, marker);
+    return new DiskStorage.BackupContinuity(
+        new UUID(bytes.getLong(tail + 16), bytes.getLong(tail + 24)),
+        new UUID(bytes.getLong(tail + 32), bytes.getLong(tail + 40)));
+  }
+
+  /** The side-file header is big endian: magic, version, flags, LSN, tracker and completion. */
+  private static void assertSavedPair(Path sideFile, DiskStorage.BackupContinuity pair)
+      throws IOException {
+    var bytes = ByteBuffer.wrap(Files.readAllBytes(sideFile));
+    assertEquals(0x59544350, bytes.getInt());
+    assertEquals(1, bytes.getInt());
+    assertEquals("trusted completion with no pending seal", 3, bytes.get());
+    bytes.getLong();
+    bytes.getInt();
+    assertEquals(pair.trackerId(), new UUID(bytes.getLong(), bytes.getLong()));
+    assertEquals(pair.generationId(), new UUID(bytes.getLong(), bytes.getLong()));
+  }
+
   /** Checks literal offsets independently of the production layout helpers. */
   private static void assertCanonicalVersionSix(byte[] unit, String name, UUID id,
       int sequence, boolean forced) throws IOException {
@@ -1147,17 +2917,14 @@ public class IncrementalBackupExtensionTest {
     assertEquals(6, bytes.getShort(tail + 48));
     assertEquals(6, bytes.getShort(unit.length - 74));
     assertEquals(forced ? 0x42415252 : 0, bytes.getInt(tail + 8));
-    assertEquals(0, bytes.getInt(tail + 12));
-    for (var offset = 16; offset < 48; offset++) {
-      assertEquals("absent UUID slots must be zero", 0, unit[tail + offset]);
-    }
+    var literalPair = literalContinuity(unit);
     assertEquals(id.getLeastSignificantBits(), bytes.getLong(tail + 50));
     assertEquals(id.getMostSignificantBits(), bytes.getLong(tail + 58));
     assertEquals(sequence, bytes.getInt(tail + 66));
     var metadata = DiskStorage.inspectBackupUnit(name, SOURCE, id,
         new ByteArrayInputStream(unit), null).metadata();
     assertNotNull(metadata);
-    org.junit.Assert.assertNull(metadata.continuity());
+    assertEquals(literalPair, metadata.continuity());
     assertEquals(sequence == 0 ? -1 : metadata.startLsn().getSegment(),
         bytes.getLong(tail + 70));
     assertEquals(sequence == 0 ? -1 : metadata.startLsn().getPosition(),
@@ -1662,6 +3429,11 @@ public class IncrementalBackupExtensionTest {
   private static final class RecordingOutput extends OutputStream implements BackupForceCapability {
     private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     private final List<String> events = new ArrayList<>();
+    private Runnable onClose = () -> {
+    };
+    private Runnable onFirstWrite = () -> {
+    };
+    private boolean firstWriteObserved;
     private String failPhase;
     private IOException cachedFailure;
     private boolean faultReached;
@@ -1683,6 +3455,10 @@ public class IncrementalBackupExtensionTest {
 
     @Override
     public void write(int value) throws IOException {
+      if (!firstWriteObserved) {
+        firstWriteObserved = true;
+        onFirstWrite.run();
+      }
       failAt("payload");
       if (failFirstWrites > 0) {
         failFirstWrites--;
@@ -1748,6 +3524,7 @@ public class IncrementalBackupExtensionTest {
         throw new IOException("injected close");
       }
       failAt("close");
+      onClose.run();
     }
 
     private void failAt(String phase) throws IOException {

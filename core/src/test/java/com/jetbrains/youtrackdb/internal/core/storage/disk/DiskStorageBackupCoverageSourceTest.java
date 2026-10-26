@@ -422,15 +422,15 @@ public class DiskStorageBackupCoverageSourceTest {
       var path = root.resolve("coverage").resolve(ChangedPageTrackerFile.FILE_NAME);
       var writingSession = session;
       writingSession.executeInTx(tx -> writingSession.command("create class CoveragePage"));
-      // Supplier backup remains dormant: baseline output has no continuity and consumes no seal.
-      var context = ChangedPageTrackerBackup.begin(tracker, null, true);
-      var seal = field(ChangedPageTracker.class, tracker, "sealed");
+      // Plain supplier output merges its own boundary without establishing continuity.
+      // Start the adapter boundary afterwards so this fixture has no earlier pending request.
       var output = new java.io.ByteArrayOutputStream();
       var unit = actual.fullBackup(java.util.Collections::emptyIterator, name -> output,
           name -> {
             throw new AssertionError("No old output");
           });
-      assertSame(seal, field(ChangedPageTracker.class, tracker, "sealed"));
+      assertNull(field(ChangedPageTracker.class, tracker, "sealed"));
+      var context = ChangedPageTrackerBackup.begin(tracker, null, true);
       var metadata = DiskStorage.inspectBackupUnit(unit, "coverage", actual.getUuid(),
           new java.io.ByteArrayInputStream(output.toByteArray()), null).metadata();
       assertNotNull(metadata);

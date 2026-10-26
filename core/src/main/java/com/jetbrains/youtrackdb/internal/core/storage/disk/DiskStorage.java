@@ -267,7 +267,7 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>This build writes version 6 with absent continuity. It reads versions 3, 4, 5, and 6.
+   * <p>This build writes version 6 with optional tracker continuity. It reads versions 3, 4, 5, and 6.
    * Versions 1 and 2 are unsupported.
    */
   static final int CURRENT_BACKUP_FORMAT_VERSION = 6;
@@ -371,7 +371,7 @@ public class DiskStorage extends AbstractStorage {
   private volatile ChangedPageTracker changedPageTracker;
 
   /**
-   * Dormant backup bridge. The caller holds storage state exclusion across completion, samples
+   * Backup completion bridge. The caller holds storage state exclusion across completion, samples
    * outside tracker save order, and preflights inside it. Sibling sampling places in AbstractStorage
    * are fuzzy checkpoint, full flush and WAL vacuum. Fuzzy checkpoint syncs data files before
    * checkpointChangedPages. Full flush flushes WAL, appends a new segment and flushes the cache.
@@ -1663,6 +1663,7 @@ public class DiskStorage extends AbstractStorage {
     try {
       checkOpennessAndMigration();
 
+      var owner = new BackupRequestOwner(changedPageTracker);
       if (backupLock.tryLock()) {
         try {
           var uuid = getUuid();
@@ -1704,7 +1705,9 @@ public class DiskStorage extends AbstractStorage {
           var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile);
           try {
             var xxHashStream = new XXHashOutputStream(fileStream);
-            var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
+            var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn, owner,
+                backupMetadata == null ? null : backupMetadata.continuity(),
+                fileStream instanceof BackupForceCapability);
             writeBackupPadding(xxHashStream);
             xxHashStream.flush();
             var barrierPresent = false;
@@ -1717,7 +1720,7 @@ public class DiskStorage extends AbstractStorage {
                   ibuNextFile);
             }
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn,
-                getIdGen().getLastId(), semanticIdentity, barrierPresent, null);
+                getIdGen().getLastId(), semanticIdentity, barrierPresent, pairFor(owner.context));
             // A custom supplier may publish writes only when flushed, rather than on close.
             xxHashStream.flush();
             // The barrier flag covers only the payload. Force the complete unit after its tail
@@ -1743,10 +1746,19 @@ public class DiskStorage extends AbstractStorage {
             fileStream.close();
           }
 
+          // Explicit close succeeded, as did both forces when the output supports them.
+          // The owner abandons non-capable output through the Context capability check.
+          // Keep state and backup exclusion through completion publication or merge-back.
+          owner.finish(changedPageSideFile(),
+              new ChangedPageTrackerBackup.CompletionFacts(true, true),
+              new DiskBackupCoverageSource(), message -> LogManager.instance().warn(this, message));
           LogManager.instance()
               .info(this,
                   "Backup of database '%s' is completed. Backup unit file %s was created.",
                   name, ibuNextFile);
+        } catch (IOException | RuntimeException | Error primary) {
+          owner.abort(primary);
+          throw primary;
         } finally {
           backupLock.unlock();
         }
@@ -2287,7 +2299,7 @@ public class DiskStorage extends AbstractStorage {
     if (dbUUID != null) {
       if (dbUUID.getLeastSignificantBits() != metadataUUIDLowerBits
           || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
-        var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
+        var storedUUID = new UUID(metadataUUIDHigherBits, metadataUUIDLowerBits);
         LogManager.instance()
             .warn(DiskStorage.class, storageName,
                 "Database identifier (UUID) of the file %s stored in metadata %s does not match "
@@ -2454,35 +2466,41 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private LogSequenceNumber storeBackupDataToStream(OutputStream stream,
-      LogSequenceNumber fromLsn)
+      LogSequenceNumber fromLsn, BackupRequestOwner owner, @Nullable BackupContinuity head,
+      boolean capable)
       throws IOException {
     final var zipOutputStream = new ZipOutputStream(stream,
         Charset.forName(configuration.getCharset()));
     LogSequenceNumber backupLastLsn;
     try {
       final long startSegment;
-      final LogSequenceNumber freezeLsn;
-      // A TRANSIENT self-quiesce (the backup segment cut): bounded by the cut body, so schema
-      // commits may park behind it exactly like data commits.
-      final var newSegmentFreezeId =
-          atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+      LogSequenceNumber freezeLsn = null;
+      boolean retentionAdded = false;
+      // Retention cleanup covers WAL setup and begin as well as copying. Begin may throw
+      // after retention registration, before the request can publish a Context.
       try {
-        final var startLsn = writeAheadLog.end();
-        if (startLsn != null) {
-          freezeLsn = startLsn;
-        } else {
-          freezeLsn = new LogSequenceNumber(0, 0);
+        // A TRANSIENT self-quiesce (the backup segment cut): bounded by the cut body, so schema
+        // commits may park behind it exactly like data commits.
+        final var newSegmentFreezeId =
+            atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+        try {
+          final var startLsn = writeAheadLog.end();
+          if (startLsn != null) {
+            freezeLsn = startLsn;
+          } else {
+            freezeLsn = new LogSequenceNumber(0, 0);
+          }
+
+          writeAheadLog.addCutTillLimit(freezeLsn);
+          retentionAdded = true;
+
+          writeAheadLog.appendNewSegment();
+          startSegment = writeAheadLog.activeSegment();
+          owner.begin(head, capable);
+        } finally {
+          atomicOperationsManager.unfreezeWriteOperations(newSegmentFreezeId);
         }
 
-        writeAheadLog.addCutTillLimit(freezeLsn);
-
-        writeAheadLog.appendNewSegment();
-        startSegment = writeAheadLog.activeSegment();
-      } finally {
-        atomicOperationsManager.unfreezeWriteOperations(newSegmentFreezeId);
-      }
-
-      try {
         backupIv(zipOutputStream);
 
         final var encryptionIv = new byte[16];
@@ -2516,7 +2534,9 @@ public class DiskStorage extends AbstractStorage {
 
         backupLastLsn = lastLsn;
       } finally {
-        writeAheadLog.removeCutTillLimit(freezeLsn);
+        if (retentionAdded) {
+          writeAheadLog.removeCutTillLimit(freezeLsn);
+        }
       }
     } catch (IOException | RuntimeException | Error failure) {
       try {
@@ -3562,6 +3582,8 @@ public class DiskStorage extends AbstractStorage {
         status = ChangedPageTrackerBackup.Status.NO_BOUNDARY;
         state = State.ABANDONED;
       } else if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
+        // Keep this abandon condition aligned with ChangedPageTrackerBackup.complete.
+        // Unconfirmed output merges its seal and cannot publish a new completion.
         status = abandonOnce(null);
       } else {
         try {
@@ -3574,20 +3596,19 @@ public class DiskStorage extends AbstractStorage {
       }
       // A returned facade outcome is terminal before any diagnostic can reenter this owner.
       try {
-        switch (status) {
-          case SAVED_CONTINUITY, MERGED_NOT_CONSUMED -> {
-          }
-          case NO_BOUNDARY ->
-              warningSink.accept("Backup has a pending seal. Continuity is absent.");
-          case SAVED_UNTRUSTED -> warningSink.accept("Backup completion saved untrusted history.");
-          case SAVE_FAILED_INVALIDATED ->
-              warningSink.accept("Backup completion save failed. History invalidated.");
-          case SAVE_FAILED_INVALIDATION_FAILED ->
-              warningSink.accept("Backup completion save and invalidation failed.");
+        String warning = switch (status) {
+          case SAVED_CONTINUITY, MERGED_NOT_CONSUMED -> null;
+          case NO_BOUNDARY -> "Backup has a pending seal. Continuity is absent.";
+          case SAVED_UNTRUSTED -> "Backup completion saved untrusted history.";
+          case SAVE_FAILED_INVALIDATED -> "Backup completion save failed. History invalidated.";
+          case SAVE_FAILED_INVALIDATION_FAILED -> "Backup completion save and invalidation failed.";
           case COVERAGE_UNAVAILABLE ->
-              warningSink.accept("Backup completion coverage unavailable. History invalidated.");
+              "Backup completion coverage unavailable. History invalidated.";
           case COVERAGE_UNAVAILABLE_INVALIDATION_FAILED ->
-              warningSink.accept("Backup completion coverage and invalidation unavailable.");
+              "Backup completion coverage and invalidation unavailable.";
+        };
+        if (warning != null) {
+          warningSink.accept(warning);
         }
       } catch (RuntimeException | Error diagnosticFailure) {
         // Diagnostics cannot revoke a returned result or acquire cleanup authority again.

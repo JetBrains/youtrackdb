@@ -143,6 +143,7 @@ public final class ChangedPageTrackerBackup {
     if (handle == null) {
       return Status.NO_BOUNDARY;
     }
+    // Keep this abandon condition aligned with DiskStorage.BackupRequestOwner.finish.
     if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
       return abandon(tracker, context);
     }

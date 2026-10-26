@@ -31,7 +31,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** Direct dormant-owner tests use the real facade without creating a production backup request. */
+/** Direct owner tests use the real facade without creating a production backup request. */
 public class BackupRequestOwnerTest {
   private static final UUID TRACKER = new UUID(0x1020304050607080L, 0x1122334455667788L);
   private static final UUID PREVIOUS = new UUID(0x2132435465768798L, 0x31425364758697a8L);
@@ -324,7 +324,7 @@ public class BackupRequestOwnerTest {
 
   /** Real tail decode and shared head conversion match saved and Q-f history, not capable aborts. */
   @Test
-  public void dormantRoundTripPreservesEligibilityRules() throws Exception {
+  public void contextRoundTripPreservesEligibilityRules() throws Exception {
     for (int mode = 0; mode < 3; mode++) {
       var tracker = trusted();
       var owner = new DiskStorage.BackupRequestOwner(tracker);
@@ -349,6 +349,98 @@ public class BackupRequestOwnerTest {
       assertEquals(mode != 2, next.begin(metadata.continuity(), true).selectionEligible());
       next.abort(null);
     }
+  }
+
+  /**
+   * Finish, not abort, owns failed Q-f, non-durable and coverage-unavailable merges. A partial
+   * union remains pending, is captured with both generations and merges without loss on reload.
+   */
+  @Test
+  public void failedFinishMergePersistsBothGenerationsAndNeverRetriesCleanup() throws Exception {
+    for (int mode = 0; mode < 3; mode++) {
+      var armed = new AtomicBoolean();
+      var allocations = new AtomicLong();
+      var primary = new OutOfMemoryError("partial finish merge");
+      var tracker = observed((method, args) -> {
+        if (armed.get() && method.equals("beforeAllocation") && args[0].toString().equals("FILE")
+            && allocations.incrementAndGet() >= 2) {
+          throw primary;
+        }
+      });
+      var mark = ChangedPageTracker.class.getDeclaredMethod("mark", int.class, long.class);
+      mark.setAccessible(true);
+      mark.invoke(tracker, 1, 11L);
+      mark.invoke(tracker, 2, 22L);
+      var owner = new DiskStorage.BackupRequestOwner(tracker);
+      var context = owner.begin(null, mode != 0);
+      var seal = field(tracker, "sealed");
+      mark.invoke(tracker, 3, 33L);
+      armed.set(true);
+      int selected = mode;
+      assertSame(primary, assertThrows(OutOfMemoryError.class,
+          () -> owner.finish(path(), selected == 1
+              ? new ChangedPageTrackerBackup.CompletionFacts(true, false) : DURABLE,
+              selected == 2 ? unavailable() : source(), message -> {
+                throw new AssertionError("no returned status");
+              })));
+      assertEquals(DiskStorage.BackupRequestOwner.State.CLEANUP_FAILED, owner.state());
+      assertSame(seal, field(tracker, "sealed"));
+      assertFalse(tracker.isTrusted());
+      assertEquals(0, primary.getSuppressed().length);
+      // Coverage complete attempts the merge, then the owner makes its one cleanup attempt.
+      assertEquals(mode == 2 ? 3 : 2, allocations.get());
+      long before = allocations.get();
+      owner.abort(primary);
+      assertEquals(before, allocations.get());
+      assertEquals(1, candidates(tracker, "active", 1).size()
+          + candidates(tracker, "active", 2).size());
+      var pending = new DiskStorage.BackupRequestOwner(tracker);
+      var pendingContext = pending.begin(null, true);
+      assertEquals(ChangedPageTrackerBackup.BeginOutcome.PENDING_SEAL, pendingContext.outcome());
+      assertNull(DiskStorage.pairFor(pendingContext));
+      assertSame(seal, field(tracker, "sealed"));
+      pending.abort(null);
+      // Use the real codec's save path, which captures active plus the still-published seal.
+      armed.set(false);
+      var codec = Class.forName(
+          "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile");
+      var save = codec.getDeclaredMethod("save", Path.class, ChangedPageTracker.class,
+          LogSequenceNumber.class);
+      save.setAccessible(true);
+      var target = folder.newFolder().toPath().resolve("history");
+      assertEquals("SAVED", save.invoke(null, target, tracker,
+          new LogSequenceNumber(17, 32)).toString());
+      var load = codec.getDeclaredMethod("load", Path.class);
+      load.setAccessible(true);
+      var loaded = load.invoke(null, target);
+      var accessor = loaded.getClass().getDeclaredMethod("tracker");
+      accessor.setAccessible(true);
+      var restarted = (ChangedPageTracker) accessor.invoke(loaded);
+      assertNotNull(field(restarted, "sealed"));
+      var merge = ChangedPageTracker.class.getDeclaredMethod("mergeLoadedSealed");
+      merge.setAccessible(true);
+      merge.invoke(restarted);
+      assertNull(field(restarted, "sealed"));
+      assertEquals(java.util.List.of(11L), candidates(restarted, "active", 1));
+      assertEquals(java.util.List.of(22L), candidates(restarted, "active", 2));
+      assertEquals(java.util.List.of(33L), candidates(restarted, "active", 3));
+      assertFalse(context.consumedIdentifier().equals(field(restarted, "lastCompleted")));
+      var next = new DiskStorage.BackupRequestOwner(restarted);
+      assertEquals(ChangedPageTrackerBackup.BeginOutcome.NEW_BOUNDARY,
+          next.begin(null, true).outcome());
+      next.abort(null);
+    }
+  }
+
+  private static java.util.List<Long> candidates(ChangedPageTracker tracker, String generation,
+      int file) throws Exception {
+    var pages = new ArrayList<Long>();
+    var current = field(tracker, generation);
+    var method = current.getClass().getDeclaredMethod("forEachCandidate", int.class,
+        java.util.function.LongConsumer.class);
+    method.setAccessible(true);
+    method.invoke(current, file, (java.util.function.LongConsumer) pages::add);
+    return pages;
   }
 
   private Path path() {

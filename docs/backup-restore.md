@@ -20,10 +20,29 @@ and a force-barrier flag. The flag states whether the writer made the payload du
 before it wrote the tail.
 
 Version 6 has a 122-byte tail with optional **continuity** fields. Continuity identifies
-tracker history with a tracker UUID and a generation UUID. New units record absent
-continuity with zero identifier slots. These fields do not change restore admission.
-They do not enable selective page reads or consume tracker history. The force-barrier
-flag does not certify that the final flush or close succeeded.
+tracker history with a tracker UUID and a generation UUID.
+The changed-page tracker records which pages changed.
+A generation groups those tracked changes.
+
+An output with a force capability records the generation selected for consumption.
+The tracker consumes that generation only after output and tracker completion are durable.
+An unfinished earlier generation makes either kind of output record absent continuity.
+Absent continuity uses zero identifier slots.
+
+The metadata checksum protects the continuity fields.
+The full content hash also protects them.
+These fields do not change restore admission.
+
+A matching pair alone does not prove that tracker history is safe to use after startup.
+
+Page copying reads all current pages while the changed-page tracker records and consumes
+history. It does not use selective page reads. Reading all pages does not mean replacing
+the backup chain. An incremental backup still appends a unit.
+
+Custom output without a force capability records the previous completed continuity pair,
+or absent continuity when no pair exists. The tracker merges the pending generation back
+into active history instead of consuming it. The force-barrier flag does not certify that
+the final flush or close succeeded.
 
 An output with a force capability can make preceding bytes and the file length durable.
 The writer flushes the payload and padding before the first force call.
@@ -119,8 +138,12 @@ newer chain with such a build. Use a new, empty directory.
 
 A failed backup call does not prove that its output is absent or unusable for restore.
 A final flush, force, or close failure can leave a complete unit.
-The writer keeps that output without rewriting its tail or automatically deleting it.
+The writer keeps that output. It does not rewrite its tail or automatically delete it.
+Tracker completion stays unchanged when output publication fails.
 Normal chain admission checks decide whether a later extension can use it.
+A later extension can admit a unit whose backup call failed.
+That admission does not prove its durability.
+Retrying does not automatically force the old unit.
 
 A crash during a backup write can leave output without a readable header. An incremental
 extension cannot classify that output. It preserves the file and refuses to extend the chain.
@@ -138,6 +161,13 @@ Removal starts only after the entire chain passes inspection. A failed metadata 
 extension never removes an unclassifiable file. It leaves unclassifiable output from a
 process or host crash for the operator. A full backup still replaces `.ibu` files with this
 database's UUID prefix in its target directory, even when their headers are unreadable.
+
+## Tracker completion warnings
+
+A backup can succeed with a warning when tracker completion cannot be saved.
+The tracker keeps history unavailable for trusted use until it can prove that history is safe.
+A later backup reads all pages. A failed attempt to invalidate tracker history never permits
+removal of WAL files.
 
 ## Restore admission runs before every target change
 
