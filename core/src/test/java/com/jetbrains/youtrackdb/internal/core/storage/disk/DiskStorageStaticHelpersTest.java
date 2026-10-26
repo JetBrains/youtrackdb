@@ -9,6 +9,7 @@ import static org.junit.Assume.assumeNoException;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +35,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 /**
  * Unit tests for {@link DiskStorage} static helpers that can be exercised without a
@@ -364,6 +366,127 @@ public class DiskStorageStaticHelpersTest {
     assertEquals(FileVisitResult.CONTINUE,
         visitor.postVisitDirectory(sibling, new AccessDeniedException(sibling.toString())));
     assertFalse("A prior failure must not prevent sibling deletion", Files.exists(sibling));
+  }
+
+  /** Unreadable link targets do not prevent leaf deletion, at either infrastructure root or below. */
+  @Test
+  public void unreadableLinkTargetsAreDeletedAsLeavesAtRootAndNestedPaths() throws IOException {
+    for (var folder : StorageFileNames.INFRASTRUCTURE_DIRECTORIES) {
+      for (var nested : List.of(false, true)) {
+        for (var symbolicLink : List.of(false, true)) {
+          for (var failure : List.of(new NoSuchFileException("target"),
+              new AccessDeniedException("target"))) {
+            // Empty directories model link entries without requiring platform link privileges.
+            var root = Files.createDirectories(testDir.resolve(folder));
+            var entry = nested ? Files.createDirectory(root.resolve("nested")) : root;
+            var attributes = mock(BasicFileAttributes.class);
+            when(attributes.isDirectory()).thenReturn(true);
+            when(attributes.isSymbolicLink()).thenReturn(symbolicLink);
+            when(attributes.isOther()).thenReturn(!symbolicLink);
+            try (var files = failDirectoryOpen(entry, failure)) {
+              files.when(() -> Files.readAttributes(entry, BasicFileAttributes.class,
+                  LinkOption.NOFOLLOW_LINKS)).thenReturn(attributes);
+              DiskStorage.deleteFilesFromDisc("closed", 1, 0, testDir.toString());
+              files.verify(() -> Files.deleteIfExists(entry), times(1));
+            }
+            assertFalse("The link entry and its empty parent must be removed", Files.exists(root));
+          }
+        }
+      }
+    }
+  }
+
+  /** An ordinary unlistable directory fails drop, but other storage files still get deleted. */
+  @Test
+  public void unlistableOrdinaryDirectoriesFailDropButAllowSiblingDeletion() throws IOException {
+    for (var nested : List.of(false, true)) {
+      for (var failure : List.of(new NoSuchFileException("target"),
+          new AccessDeniedException("target"))) {
+        var root = Files.createDirectories(testDir.resolve("orphans"));
+        var entry = nested ? Files.createDirectory(root.resolve("nested")) : root;
+        var sibling = Files.createFile(testDir.resolve("sibling.dpb"));
+        try (var files = failDirectoryOpen(entry, failure)) {
+          assertThrows(StorageException.class,
+              () -> DiskStorage.deleteFilesFromDisc("closed", 2, 0, testDir.toString()));
+          files.verify(() -> Files.deleteIfExists(entry), never());
+        }
+        assertTrue("An ordinary directory must not be treated as a link", Files.exists(entry));
+        assertFalse("Walk failures must not stop sibling cleanup", Files.exists(sibling));
+        Files.delete(entry);
+        Files.deleteIfExists(root);
+      }
+    }
+  }
+
+  /** A failed visit succeeds when its entry really vanished, including at the walk root. */
+  @Test
+  public void missingWalkEntriesSucceedWhenEntryItselfIsGone() throws IOException {
+    for (var nested : List.of(false, true)) {
+      var root = Files.createDirectories(testDir.resolve("orphans"));
+      var entry = nested ? Files.createDirectory(root.resolve("nested")) : root;
+      try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+        files.when(() -> Files.readAttributes(entry, BasicFileAttributes.class,
+            LinkOption.NOFOLLOW_LINKS)).thenAnswer(call -> {
+              Files.deleteIfExists(entry);
+              throw new NoSuchFileException(entry.toString());
+            });
+        DiskStorage.deleteFilesFromDisc("closed", 1, 0, testDir.toString());
+        files.verify(() -> Files.exists(entry, LinkOption.NOFOLLOW_LINKS), times(1));
+      }
+      assertFalse("A truly missing entry must not fail drop", Files.exists(testDir));
+    }
+  }
+
+  /** Attribute-read failures must not hide an entry that still exists without following links. */
+  @Test
+  public void failedAttributeReadsDoNotHideEntriesThatStillExist() throws IOException {
+    for (var failure : List.of(new NoSuchFileException("entry"),
+        new AccessDeniedException("entry"))) {
+      var entry = Files.createDirectories(testDir.resolve("orphans"));
+      var sibling = Files.createFile(testDir.resolve("sibling.dpb"));
+      try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+        files.when(() -> Files.readAttributes(entry, BasicFileAttributes.class,
+            LinkOption.NOFOLLOW_LINKS)).thenThrow(failure);
+        assertThrows(StorageException.class,
+            () -> DiskStorage.deleteFilesFromDisc("closed", 2, 0, testDir.toString()));
+        files.verify(() -> Files.deleteIfExists(entry), never());
+      }
+      assertTrue(Files.exists(entry, LinkOption.NOFOLLOW_LINKS));
+      assertFalse("Attribute failures must not stop sibling cleanup", Files.exists(sibling));
+    }
+  }
+
+  /** Failed leaf deletion keeps the retry error and never enters an unreadable link's target. */
+  @Test
+  public void unreadableLinkDeleteFailuresReachDropRetriesAndAllowSiblingCleanup()
+      throws IOException {
+    var entry = Files.createDirectories(testDir.resolve("orphans"));
+    var child = Files.createFile(entry.resolve("keep"));
+    var sibling = Files.createFile(testDir.resolve("sibling.dpb"));
+    var attributes = mock(BasicFileAttributes.class);
+    when(attributes.isDirectory()).thenReturn(true);
+    when(attributes.isOther()).thenReturn(true);
+    try (var files = failDirectoryOpen(entry, new AccessDeniedException("target"))) {
+      files.when(() -> Files.readAttributes(entry, BasicFileAttributes.class,
+          LinkOption.NOFOLLOW_LINKS)).thenReturn(attributes);
+      assertThrows(StorageException.class,
+          () -> DiskStorage.deleteFilesFromDisc("closed", 2, 0, testDir.toString()));
+      files.verify(() -> Files.deleteIfExists(entry), times(2));
+    }
+    assertTrue("The target must not be visited even after a failed delete", Files.exists(child));
+    assertFalse("A failed link delete must not stop sibling cleanup", Files.exists(sibling));
+  }
+
+  private static MockedStatic<Files> failDirectoryOpen(Path entry, IOException failure) {
+    // Fail stream opening rather than the callback, so the real walker selects visitFileFailed.
+    // Delegate other calls directly to avoid opening a real stream during Mockito stubbing.
+    return mockStatic(Files.class, call -> {
+      if (call.getMethod().getName().equals("newDirectoryStream")
+          && entry.equals(call.getArgument(0))) {
+        throw failure;
+      }
+      return call.callRealMethod();
+    });
   }
 
   /** Parent fallback retains exactly its old suffix scope and cannot delete sibling folders. */

@@ -1032,9 +1032,22 @@ public class DiskStorage extends AbstractStorage {
 
     @Override
     public FileVisitResult visitFileFailed(Path file, IOException failure) {
-      // An external deletion or an earlier partial drop can remove an entry before this visit.
-      if (!(failure instanceof NoSuchFileException)) {
-        deleted = false;
+      // The walker opens directory streams before preVisitDirectory. An unreadable link target
+      // can therefore reach this callback even though the link entry itself can still be deleted.
+      try {
+        final var attributes = Files.readAttributes(file, BasicFileAttributes.class,
+            LinkOption.NOFOLLOW_LINKS);
+        if (attributes.isSymbolicLink() || attributes.isOther()) {
+          deleted &= deleteDropEntry(file);
+        } else {
+          deleted = false;
+        }
+      } catch (IOException attributeFailure) {
+        // A missing target is not a missing entry. Tolerate only a missing entry itself.
+        if (!(failure instanceof NoSuchFileException)
+            || Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+          deleted = false;
+        }
       }
       return FileVisitResult.CONTINUE;
     }
