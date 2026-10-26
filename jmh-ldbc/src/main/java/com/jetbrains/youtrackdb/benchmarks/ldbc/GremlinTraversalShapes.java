@@ -5,11 +5,14 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -1080,6 +1083,73 @@ public final class GremlinTraversalShapes {
         .out(HAS_CREATOR_LABEL)
         .optional(__.out(KNOWS_LABEL))
         .values("firstName");
+  }
+
+  /** Exact two-hop valueMap forms for the G6 measurement gate. No form adds a barrier itself. */
+  public enum BulkingForm {
+    DUPLICATE, ONE_ROW, UNIQUE, MOSTLY_UNIQUE;
+
+    public YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource g, long id) {
+      return switch (this) {
+        case DUPLICATE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).out(KNOWS_LABEL).valueMap("id", "firstName", "lastName");
+        case ONE_ROW -> g.V().hasLabel(MESSAGE_LABEL).has("id", id)
+            .out(HAS_CREATOR_LABEL).out(IS_LOCATED_IN_LABEL).valueMap("name");
+        case UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).in(HAS_CREATOR_LABEL).valueMap("id", "creationDate", "length");
+        case MOSTLY_UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(LIKES_LABEL).out(HAS_CREATOR_LABEL).valueMap("id", "firstName", "lastName");
+      };
+    }
+
+    /** Rejects empty feeds and feeds that do not exercise the named duplicate or control case. */
+    void requireCounts(long id, int rows, int distinct) {
+      boolean valid = rows > 0 && switch (this) {
+        case DUPLICATE -> distinct < rows;
+        case ONE_ROW -> rows == 1;
+        case UNIQUE -> distinct == rows;
+        case MOSTLY_UNIQUE -> true;
+      };
+      if (!valid) {
+        throw new IllegalStateException(
+            "G6 " + this + " parameter " + id + ": invalid feed, rows=" + rows
+                + ", distinct elements=" + distinct);
+      }
+    }
+  }
+
+  /** Requires a native bulking barrier immediately before the actual valueMap, not another hop. */
+  static void requireNativeValueMapBarrier(String shape, Traversal.Admin<?, ?> nativeTraversal) {
+    requireNotTranslated(shape, nativeTraversal);
+    var projection = nativeTraversal.getEndStep();
+    if (!(projection instanceof PropertyMapStep)
+        || !(projection.getPreviousStep() instanceof NoOpBarrierStep)) {
+      throw new IllegalStateException(
+          "G6 " + shape + ": no native barrier before valueMap. Steps: "
+              + nativeTraversal.getSteps());
+    }
+  }
+
+  /** Checks the measured pipelines, then counts element identities before map construction. */
+  static void checkBulkingForm(BulkingForm form, long id,
+      Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal) {
+    translated.applyStrategies();
+    requireTranslated("G6 " + form, translated);
+    // Clone before strategies lock the walk and drop only valueMap. Counting maps would conflate
+    // different elements with equal properties and could hide a defective duplicate feed.
+    var elements = nativeTraversal.clone();
+    elements.removeStep(elements.getSteps().size() - 1);
+    nativeTraversal.applyStrategies();
+    requireNativeValueMapBarrier(form.toString(), nativeTraversal);
+    var identities = new HashSet<Object>();
+    var rows = elements.toList();
+    for (var row : rows) {
+      identities.add(((Vertex) row).id());
+    }
+    form.requireCounts(id, rows.size(), identities.size());
+    System.out.println("G6 " + form + " parameter " + id + ": MATCH, native barrier, rows="
+        + rows.size() + ", distinct elements=" + identities.size());
   }
 
   // ---------------------------------------------------------------------------------------------
