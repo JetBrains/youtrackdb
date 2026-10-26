@@ -25,7 +25,7 @@
     <commons.io.version>2.8.0</commons.io.version>
     <cucumber.version>7.34.9</cucumber.version>
     <exp4j.version>0.4.8</exp4j.version>
-    <groovy.version>4.0.32</groovy.version>
+    <groovy.version>4.0.33</groovy.version>
     <guice.version>4.2.3</guice.version>
     <java.tuples.version>1.2</java.tuples.version>
     <javapoet.version>1.13.0</javapoet.version>
