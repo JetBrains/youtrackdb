@@ -2370,3 +2370,32 @@ Runner, repetition, confidence and CI rules remain unchanged. No benchmark code 
 change belongs to this track. Numeric proposals need user confirmation before push and PR work.
 
 **Iterations**: 1 of 3 (PASS).
+
+## Mutation 106 — 2026-10-26 — content-edit (design.md, design-mechanics.md)
+
+**Diff summary**: Track 101 records Option A and Goal 1. Track 3 (G1: Listener detail
+contracts) adds the core compile dependency on `opentelemetry-context`, managed by the existing
+OpenTelemetry BOM at 1.66.0. Context and its transitive common library total about 54 KiB.
+They remain ordinary transitive dependencies outside embedded shading and relocation. Core
+gets no SDK or exporter. The neutral-carrier alternative needs new hook signatures and adapter
+state with no user benefit. The standard server distribution and server Docker image include
+the integration module and its runtime dependencies. Telemetry stays disabled by default.
+Forecast Track 102 (G8: Server distribution packaging) depends on Tracks 48–49 and covers
+assembly, Dockerfile packaging, size growth, licence notices and default-inactive verification.
+Embedded users add the optional module themselves. Track 100 proposals remain unchanged.
+
+**Mechanical checks** (target=both, scope=whole-doc): PASS with baseline debt.
+Before and after: 0 blockers, 37 should-fix findings and 1 suggestion. Normalized finding sets
+match exactly. Stamps, H2 names and JMH proposal sections remain unchanged. `git diff --check`
+passes. Earlier mutation entries remain byte-identical.
+
+**Cold-read** (scope: bounded): The author read the changed passages and their neighbors,
+including Overview and Core Concepts, and compared dependency, packaging and activation
+contracts across both designs. This is self-review, not an independent cold-read.
+
+**Findings**: No new finding remains. Moving the packaging forecast into Workflow keeps the
+SDK lifecycle section below the length-warning threshold. The bundled plugin is discovered
+but activates no SDK, exporter, listener, log appender or metrics bridge with the default flag.
+Product implementation belongs to Tracks 3 and 102. PR description and push work stay deferred.
+
+**Iterations**: 2 of 3 (PASS).

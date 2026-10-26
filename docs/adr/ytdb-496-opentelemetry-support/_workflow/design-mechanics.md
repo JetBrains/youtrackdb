@@ -152,6 +152,25 @@ These methods require `opentelemetry-api` 1.57 or later. Discovery does not call
 or cast the global wrapper to `OpenTelemetrySdk`. The explicit setter takes priority.
 A registered global remains host-owned even when it is no-op.
 
+Track 3 (G1: Listener detail contracts) adds the `core` compile dependency on
+`io.opentelemetry:opentelemetry-context`, managed by the existing OpenTelemetry BOM at 1.66.0.
+Its transitive `opentelemetry-common` brings the combined JAR size to about 54 KiB.
+`QueryDetails.getParentContext()`, `InstrumentedSqlResultSet.capturedContext` and
+`YTDBContextKeys` use OpenTelemetry Context types directly, including
+`io.opentelemetry.context.Context`. This adds no SDK or exporter to core. Track 3 excludes
+both Context and common artifacts from embedded shading and relocation. They remain ordinary
+transitive dependencies to avoid duplicate classes with a host application's OpenTelemetry.
+A YTDB-owned neutral carrier is rejected because new hook signatures and adapter state for
+Path B tag inheritance and cross-thread parent capture provide no user benefit.
+
+Goal 1 includes `youtrackdb-opentelemetry` and its runtime dependencies in the standard server
+distribution and server Docker image. Forecast Track 102 (G8: Server distribution packaging)
+depends on group 8 activation work in Tracks 48–49. It covers server assembly and Dockerfile
+packaging, distribution size growth measurement, licence notices for added libraries and
+verification that the plugin stays inactive at the default `OPENTELEMETRY_ENABLED=false`.
+Only `OPENTELEMETRY_ENABLED=true` activates telemetry. Embedded users add the optional module
+themselves. Embedded integration bundling and telemetry enabled by default are non-goals.
+
 ### Span attribute work
 
 A recording span is a span for which `span.isRecording()` returns true. Both `RECORD_ONLY`
