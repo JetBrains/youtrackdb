@@ -627,19 +627,29 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     var putCounter = 1;
+    var txPutCounter = 0;
     for (var entry : changesPerKey.getEntriesAsList()) {
       if (entry.getOperation() == OPERATION.PUT && entry.getValue().equals(backendValue)) {
         putCounter++;
+        txPutCounter++;
       } else if (entry.getOperation() == OPERATION.REMOVE) {
         if (entry.getValue() == null) {
           putCounter = 0;
-        } else if (entry.getValue().equals(backendValue) && putCounter > 0) {
-          putCounter--;
+          txPutCounter = 0;
+        } else if (entry.getValue().equals(backendValue)) {
+          if (putCounter > 0) {
+            putCounter--;
+          }
+          if (txPutCounter > 0) {
+            txPutCounter--;
+          }
         }
       }
     }
 
-    if (putCounter <= 0) {
+    // Replay from zero as calculateTxValue does. A surviving TX addition owns this pair,
+    // even when replay from the committed value also leaves it visible.
+    if (putCounter <= 0 || txPutCounter > 0) {
       return null;
     }
 

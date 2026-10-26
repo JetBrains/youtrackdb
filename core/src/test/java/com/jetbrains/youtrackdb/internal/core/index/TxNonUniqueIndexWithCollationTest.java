@@ -23,9 +23,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -55,6 +58,39 @@ public class TxNonUniqueIndexWithCollationTest extends DbTestBase {
     user = session.newEntity("user");
     user.setProperty("name", "abz");
     session.commit();
+  }
+
+  /** A case-only update by RID must preserve exact multiplicity before and after commit. */
+  @Test
+  public void caseOnlyUpdate_returnsEachRidOnceOnEveryReadPath() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("user.name");
+    List<RID> expected;
+    try (var stream = index.getRids(session, "aby")) {
+      expected = stream.sorted().toList();
+    }
+    session.execute("update " + expected.getLast() + " set name='ABY'").close();
+    for (boolean committed : List.of(false, true)) {
+      if (committed) {
+        session.commit();
+        session.begin();
+      }
+      try (var stream = index.getRids(session, "AbY")) {
+        assertEquals(expected, stream.sorted().toList());
+      }
+      for (boolean asc : List.of(true, false)) {
+        try (var stream = asc ? index.stream(session) : index.descStream(session)) {
+          assertEquals(expected, stream.filter(p -> "aby".equals(p.first()))
+              .map(RawPair::second).sorted()
+              .toList());
+        }
+        try (var result = session.query("select from user where name='aBy' order by name "
+            + (asc ? "asc" : "desc"))) {
+          assertEquals(expected, result.stream().map(r -> r.getIdentity()).sorted().toList());
+        }
+      }
+    }
+    session.rollback();
   }
 
   @Test
