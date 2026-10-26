@@ -3,12 +3,15 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
+import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeCollate;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -3271,8 +3274,7 @@ public class SelectExecutionPlanner {
       if (indexFields.size() < orderItemCount) {
         continue;
       }
-      if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())
-          || !IndexOrderedPlanner.isDefaultCollate(idx.getDefinition().getCollate())) {
+      if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())) {
         continue;
       }
       var indexFound = true;
@@ -3280,7 +3282,8 @@ public class SelectExecutionPlanner {
       for (var i = 0; i < orderItemCount; i++) {
         var orderItem = info.orderBy.getItems().get(i);
         if (orderItem.getCollate() != null
-            || !IndexOrderedPlanner.isDefaultCollate(orderItem.getDeclaredCollate())) {
+            || !sortOnlyCollationsMatch(idx.getDefinition().getCollate(), i,
+                orderItem.getDeclaredCollate())) {
           indexFound = false;
           break;
         }
@@ -3345,6 +3348,26 @@ public class SelectExecutionPlanner {
                 || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
                     info.whereClause == null ? null : info.whereClause.getBaseExpression()));
     return true;
+  }
+
+  /**
+   * Only built-in default and ci comparators have a known equivalence with index key order.
+   * Check ordered components only. Trailing components cannot change the ordered prefix, but
+   * prevent the caller from claiming RID order within an equal-prefix group.
+   */
+  private static boolean sortOnlyCollationsMatch(
+      Collate indexCollate, int component, @Nullable Collate declaredCollate) {
+    if (indexCollate instanceof CompositeCollate composite) {
+      indexCollate = composite.getCollates().get(component);
+    }
+    var indexDefault = indexCollate == null || indexCollate.getClass() == DefaultCollate.class;
+    var declaredDefault =
+        declaredCollate == null || declaredCollate.getClass() == DefaultCollate.class;
+    if (indexDefault && declaredDefault) {
+      return true;
+    }
+    return indexCollate != null && indexCollate.getClass() == CaseInsensitiveCollate.class
+        && declaredCollate != null && declaredCollate.getClass() == CaseInsensitiveCollate.class;
   }
 
   /**
