@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.stream.Streams;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -38,12 +37,9 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -149,18 +145,8 @@ public abstract class IndexOneValue extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
-    final List<Object> sortedKeys = new ArrayList<>(keys);
-    // Stored keys use the index collation. Sort requests in that same key space.
-    sortedKeys.replaceAll(this::getCollatingValue);
-    final Comparator<Object> comparator;
-
-    if (ascSortOrder) {
-      comparator = DefaultComparator.INSTANCE;
-    } else {
-      comparator = Collections.reverseOrder(DefaultComparator.INSTANCE);
-    }
-
-    sortedKeys.sort(comparator);
+    final var sortedKeys =
+        RequestedIndexKeys.distinctSorted(keys, this::getCollatingValue, ascSortOrder);
 
     var transaction = session.getActiveTransaction();
     var stream =
@@ -212,8 +198,8 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     final var txStream =
-        keys.stream()
-            .map((key) -> calculateTxIndexEntry(getCollatingValue(key), null, indexChanges))
+        sortedKeys.stream()
+            .map((key) -> calculateTxIndexEntryCollated(key, null, indexChanges))
             .filter(Objects::nonNull)
             .sorted(keyComparator);
 
@@ -222,7 +208,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder), session);
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder, true), session);
   }
 
   @Override
@@ -564,7 +550,11 @@ public abstract class IndexOneValue extends IndexAbstract {
 
   @Nullable public RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, final FrontendTransactionIndexChanges indexChanges) {
-    key = getCollatingValue(key);
+    return calculateTxIndexEntryCollated(getCollatingValue(key), backendValue, indexChanges);
+  }
+
+  @Nullable private RawPair<Object, RID> calculateTxIndexEntryCollated(
+      Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
     var result = backendValue;
     final var changesPerKey = indexChanges.getChangesPerKey(key);
     if (changesPerKey.isEmpty()) {
@@ -595,6 +585,14 @@ public abstract class IndexOneValue extends IndexAbstract {
       Stream<RawPair<Object, RID>> txStream,
       Stream<RawPair<Object, RID>> backedStream,
       boolean ascSortOrder) {
+    return mergeTxAndBackedStreams(indexChanges, txStream, backedStream, ascSortOrder, false);
+  }
+
+  private Stream<RawPair<Object, RID>> mergeTxAndBackedStreams(
+      FrontendTransactionIndexChanges indexChanges,
+      Stream<RawPair<Object, RID>> txStream,
+      Stream<RawPair<Object, RID>> backedStream,
+      boolean ascSortOrder, boolean keysCollated) {
     Comparator<RawPair<Object, RID>> comparator;
     if (ascSortOrder) {
       comparator = AscComparator.INSTANCE;
@@ -606,8 +604,10 @@ public abstract class IndexOneValue extends IndexAbstract {
         txStream,
         backedStream
             .map(
-                (entry) -> calculateTxIndexEntry(
-                    getCollatingValue(entry.first()), entry.second(), indexChanges))
+                (entry) -> keysCollated
+                    ? calculateTxIndexEntryCollated(entry.first(), entry.second(), indexChanges)
+                    : calculateTxIndexEntry(
+                        getCollatingValue(entry.first()), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         comparator);
   }
