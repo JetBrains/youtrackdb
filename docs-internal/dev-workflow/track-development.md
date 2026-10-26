@@ -1,36 +1,38 @@
 # Track-Based Development: YTDB Deltas
 
-The generic workflow ships with the `ytdb-slate` npm package. Read `track-workflow.md` and
-`pr-publishing.md` for that protocol.
-
-This document carries only YTDB-specific deltas. Draft pull request publishing is enabled in
+This document carries YTDB-specific workflow rules. Draft pull request publishing is enabled in
 `.pi/slate.json`.
 
 ## Base branch
 
-The repository's default development branch is `develop`, not `main`.
-A one-level change targets it. Nested-level bases follow `recursive-workflow.md`
-§ Level publishing and retained history. Code ranges follow its
-§ Identifiers, code ranges, and design markers.
+The default development branch is `develop`, not `main`.
+The `main` branch delivers artifacts. It receives nightly automatic merges from `develop`
+after all unit and integration tests pass.
 
 ## Branch, title, and template conventions
 
 - Before naming a branch, ask the user whether this change has a YTDB issue. Reuse an
   applicable prior answer. An issue number is optional. With an issue, start the branch name
-  with the issue ID in the form `YTDB-<number>`, as in `YTDB-123-short-name`. CI adds the
-  issue prefix to the PR title. Without an issue, CI leaves the title unchanged. Other title
-  rules live in `docs-internal/agents/orchestrator-guidelines.md` § Git Conventions.
+  with `YTDB-<number>`, as in `YTDB-123-short-name`. CI adds the issue prefix to the PR title.
+  Without an issue, CI leaves the title unchanged. Individual commit subjects need no issue number.
+- For multiple issues, list all issue IDs in the title, separated by commas and wrapped in
+  square brackets: `[YTDB-123, YTDB-456] <summary>`.
+- CI forbids merge commits through `.github/workflows/block-merge-commits.yml`.
+  Each pull request merges as one squashed commit.
+- Use `--force-with-lease`, never `--force`, for force pushes.
 - The PR description uses `.github/pull_request_template.md`.
-  This template instantiates the rules in `pr-publishing.md`.
-  YTDB per-push synchronization makes the package measurements recur.
-- The template has no Open questions subsection, so open questions carried over from the
-  research log live in Risks & accepted trade-offs — which is also where the flip checklist
-  wants each remaining one resolved, or its user-approved deferral recorded.
+- Add `[no-test-number-check]` to the PR title only for intentional test refactorings that
+  restructure or consolidate tests without reducing coverage. This skips the test count gate.
 
 ## Peer review
 
 The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
-Slate loads it through `reviewPerspectivesPath`.
+
+## Rebase conflict resolution
+
+When a rebase produces conflicts in prose-heavy files, reread every resolved file from start
+to end before continuing. Check the whole document, not just conflict hunks. Unchanged
+paragraphs can refer to rules renamed or removed on the other side.
 
 ## Verification integration
 
@@ -217,7 +219,7 @@ full verification runs:
    If the integration-gate set remains uncertain, record the searches and results in the thread report. The
    orchestrator then chooses the verification path.
 3. **The coverage gate** over the changed lines, at the thresholds owned by
-   orchestrator-guidelines § Test Policy. **Read
+   `docs-internal/dev-workflow/coverage-verification.md` § Shared coverage rule. **Read
    `docs-internal/dev-workflow/coverage-verification.md` and follow it before producing the
    number.** A coverage result produced without that procedure is not a gate result and must
    not be reported as one: its report-set assertion is what separates a measured pass from a
@@ -298,28 +300,19 @@ an allowlist of safe paths, so build-affecting non-source files (module POMs, `.
 formatter configuration) are covered by construction. If you cannot show that the only thing
 that changed was prose, re-run.
 
-**Approval reopening.** Every track package reaches the user. A code track requires blocking
-acceptance only when it proves a DESIGN-TRIGGERING focus area. Every design track requires
-explicit blocking whole-subtree acceptance under `recursive-workflow.md` § Whole-subtree
-acceptance. A merge supplies neither acceptance. Final change acceptance always blocks.
-User-requested fixes use separate commits and a dedicated range gate. Present commits that land
-after a required user approval before the closing event. Neither a marker commit nor a
-ready-for-review flip certifies unseen work.
-
 ### Deferred test authorship
 
-When test work becomes substantial, the orchestrator may propose a separate test track. The
-new track needs its own eleven-line risk record and applicable user approval before work starts.
-The test track lands before review of the affected behavior. Test work cannot move to a
-follow-up issue or pull request. The coverage gate has no bypass for that debt.
+A separate test track must land before review of the affected behavior. Test work cannot move
+to a follow-up issue or pull request. The coverage gate has no bypass for that debt.
 
 ### Committing, and landing red
 
-Never commit over a red result you actually observed. **Landing red is the one carve-out**, and
-not one the agent may take on its own: it requires explicit user approval, recorded in the PR's
-Risks & accepted trade-offs, naming the failing tests and the track that will fix them. The
-track may then close over precisely the named red result; any red result not named there still
-blocks the commit.
+Supply the intended commit message when dispatching a commit task.
+
+Never commit over a red result you actually observed. Landing red is the only exception.
+It requires explicit user approval in the owning research log and delivery package.
+Name the failing tests and the track that will fix them. The track may close over only that
+named red result. Any other observed red result still blocks the commit.
 
 ### After the flip
 
@@ -333,8 +326,3 @@ while it is being implemented.
 
 Run the single closest test class mid-track when a proved focus area warrants it. This can
 catch a failure early. No gate depends on it.
-
-## Package and feedback references
-
-Read `delivery-packages.md` from the installed `ytdb-slate` package before preparing a track
-or change package. Read `user-notes.md` at its feedback and note-accounting triggers.

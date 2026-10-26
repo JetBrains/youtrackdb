@@ -5,12 +5,6 @@ The repository does not need machine-local model overrides to enable routing.
 
 ## Model routing
 
-Slate uses logical models. A logical model is a provider-free name that selects a configured
-physical model and fixed effort. The `router.models` value is an object with optional `include`,
-`add`, `replace`, and `exclude` lists. An omitted `include` starts with the six shipped models.
-An explicit empty `include` starts with no ordinary models. See `model-routing.md` in the
-installed `ytdb-slate` package for the full configuration rules.
-
 Check that the repository configuration parses and uses the new object form:
 
 ```bash
@@ -36,10 +30,8 @@ repository file only. It does not validate merged home settings or model credent
 
 ## Notifications
 
-ytdb-slate 0.14.0 enables terminal, native and bell notifications by default. Push is off by
-default. The project keeps these defaults. Turn channels off in your home Slate settings,
-normally `~/.pi/agent/slate.json`. See the installed package's `configuration.md`
-§ Notifications for channel settings and delivery limits.
+The project keeps the package notification defaults. Set personal channel preferences in
+`~/.pi/agent/slate.json`.
 
 ## YouTrack access for worker threads
 

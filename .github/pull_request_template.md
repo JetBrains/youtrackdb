@@ -1,3 +1,12 @@
+<!-- Fill only Why and What changed. All other commented text is for reference only. -->
+
+## Why
+<!-- Explain why the change is needed. -->
+
+## What changed
+<!-- Describe the planned change in a draft and the delivered result at completion. -->
+
+<!--
 Manual comparison benchmark support:
 
 A pull request head is its captured commit.
@@ -15,57 +24,50 @@ An attestation is a signed statement that identifies the trusted validator.
 - Full pull request runs publish signed completion in a pull request comment.
 - Performance regressions remain informational for human review.
 - Automatic core Java enforcement and `[no-benchmarks]` support remain deferred.
+-->
 
-#### Integration test run conditions:
+<!-- Integration test run conditions: docs-internal/dev-workflow/track-development.md. -->
 
-- Integration tests do not run for a draft pull request or when every changed file is a Markdown file.
-- A pull request runs integration tests only when a changed file ends in `.java` and belongs to a reactor module with integration test source files.
-- The pull request runs the full integration suite in each matching module, not in modules that depend on it.
-- A Java change outside the reactor or in a module without integration tests does not start the integration job.
-- If the changed-file list is unknown, the pull request runs the full integration suite.
-- Manual runs stay full. Develop runs the full integration suite after the merge.
-- A merge queue orders approved pull requests for merging.
-- A merge group temporarily combines changes GitHub tests before a merge queue writes them to the target branch.
-- Merge groups do not rerun integration tests because the pull request ran them for its changed modules. Develop runs the full suite after merge.
-- The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first line of the head commit message.
-- The `[no-it-tests]` marker has no effect in the pull request title.
-- The marker comparison respects letter case and works only for a pull request from the same repository.
-- A fork workflow waits when its pull request author or event actor is an external contributor.
-- JetBrains organisation members are not external contributors, including when they open pull requests from personal forks.
-- Changing the repository approval setting can remove this control.
-- The pull request page shows **Awaiting approval** until a maintainer with write access approves a waiting workflow run.
-- Every new push starts another workflow run, and GitHub evaluates approval for that run.
-- Fork gate failures provide details in the job log because fork workflows cannot write pull request comments.
-
+<!--
 #### Motivation:
 
 Explain WHY this change was made — the problem, context, and trade-offs.
 Not a restatement of the diff. This section is **MANDATORY**.
+-->
 
+<!--
 #### Planned changes:
-<!-- Required for each level pull request. State this level's scope when creating the draft.
+Required for each level pull request. State this level's scope when creating the draft.
 Update it as work progresses. Before the PR becomes ready for review, match this level's result.
 Use a high design level and the main domain entities. Do not include file paths or method
 signatures. Include only subsections with content: Current state, What changes, How,
 Key decisions, Out of scope, Risks & accepted trade-offs, Ignored findings,
 Delivery accounting, and Verification approach. See the ytdb-slate package's
-pr-publishing.md and docs-internal/dev-workflow/track-development.md. -->
+pr-publishing.md and docs-internal/dev-workflow/track-development.md.
 
+-->
+
+<!--
 ##### Ignored findings:
-<!-- List each ignored finding with its identifier, location, and one-line summary.
-Remove this subsection if no finding was ignored. -->
+List each ignored finding with its identifier, location, and one-line summary.
+Remove this subsection if no finding was ignored.
 
+-->
+
+<!--
 ##### Delivery accounting:
-<!-- Before each package for this level, copy its required conclusions from all owning
+Before each package for this level, copy its required conclusions from all owning
 accounting sources: root and design-track logs and authoritative designs, code-track reports,
 review-fix evidence, and their read-only source chains.
-See the ytdb-slate package's delivery-packages.md § Durable accounting. -->
+See the ytdb-slate package's delivery-packages.md § Durable accounting.
+-->
 
+<!--
 #### Tracks:
-<!-- Use the table for a level with several code tracks. This display index does not define
+Use the table for a level with several code tracks. This display index does not define
 track boundaries. Write "N/A (single-track)" for a level with one code track.
-Remove this whole section before the PR becomes ready for review. -->
+Remove this whole section before the PR becomes ready for review.
 
 | # | Track | Scope | Status |
 |---|-------|-------|--------|
-
+-->
