@@ -16,7 +16,9 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -154,6 +156,17 @@ public class DiskStorageFileExtensionsTest {
     }
     for (var extension : List.of(".pcl", ".mbt", ".cd", ".unknown")) {
       assertFalse(StorageFileNames.isIndexEngineFileExtension(extension));
+    }
+  }
+
+  /** Drop and WOWCache must agree on all map temporary names, including an empty wildcard. */
+  @Test
+  public void mapTemporaryHelperMatchesTheWowCacheGlob() {
+    var matcher = FileSystems.getDefault().getPathMatcher("glob:" + StorageFileNames.MAP_TEMP_GLOB);
+    for (var name : List.of("name_id_map_.tmp", "name_id_map_123.tmp", "name_id_map_v3_t.tmp",
+        "name_id_map_.tmp.tmp", "unrelated.tmp", "other_name_id_map_123.tmp",
+        "name_id_map_123.tmp.extra", "name_id_map_123", "name_id_map.cm")) {
+      assertEquals(name, matcher.matches(Path.of(name)), StorageFileNames.isMapTemporaryFile(name));
     }
   }
 

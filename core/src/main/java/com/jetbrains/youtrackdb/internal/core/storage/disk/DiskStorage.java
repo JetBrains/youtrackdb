@@ -998,40 +998,56 @@ public class DiskStorage extends AbstractStorage {
             + ". Database files seem locked");
   }
 
-  /** Walk without FOLLOW_LINKS, including when the folder root itself is a symbolic link. */
+  /** Delete infrastructure without entering symbolic links or Windows reparse points. */
   private static boolean deleteInfrastructureDirectory(Path directory) {
-    final var deleted = new boolean[] {true};
+    final var visitor = new InfrastructureDirectoryDeleter();
     try {
-      Files.walkFileTree(directory, new SimpleFileVisitor<>() {
-        @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
-          deleted[0] &= deleteDropEntry(file);
-          return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFileFailed(Path file, IOException failure) {
-          // Retention or another cleanup can remove an entry after the walk discovers it.
-          if (!(failure instanceof NoSuchFileException)) {
-            deleted[0] = false;
-          }
-          return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult postVisitDirectory(Path dir, IOException failure) {
-          if (failure != null && !(failure instanceof NoSuchFileException)) {
-            deleted[0] = false;
-          }
-          // Do not short circuit after a failure. Other entries must still get a delete attempt.
-          deleted[0] &= deleteDropEntry(dir);
-          return FileVisitResult.CONTINUE;
-        }
-      });
+      Files.walkFileTree(directory, visitor);
     } catch (IOException failure) {
       return false;
     }
-    return deleted[0];
+    return visitor.deleted;
+  }
+
+  static final class InfrastructureDirectoryDeleter extends SimpleFileVisitor<Path> {
+
+    private boolean deleted = true;
+
+    @Override
+    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+      // Windows junctions report directory and other, but not symbolic link. Delete the entry
+      // itself and skip its target, including when the infrastructure root is a reparse point.
+      if (attributes.isSymbolicLink() || attributes.isOther()) {
+        deleted &= deleteDropEntry(dir);
+        return FileVisitResult.SKIP_SUBTREE;
+      }
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+      deleted &= deleteDropEntry(file);
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFileFailed(Path file, IOException failure) {
+      // An external deletion or an earlier partial drop can remove an entry before this visit.
+      if (!(failure instanceof NoSuchFileException)) {
+        deleted = false;
+      }
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult postVisitDirectory(Path dir, IOException failure) {
+      if (failure != null && !(failure instanceof NoSuchFileException)) {
+        deleted = false;
+      }
+      // Do not short circuit after a failure. Other entries must still get a delete attempt.
+      deleted &= deleteDropEntry(dir);
+      return FileVisitResult.CONTINUE;
+    }
   }
 
   private static boolean deleteDropEntry(Path entry) {
