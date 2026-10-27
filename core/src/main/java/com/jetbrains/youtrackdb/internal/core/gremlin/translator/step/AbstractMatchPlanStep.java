@@ -29,6 +29,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Edge;
@@ -219,6 +220,10 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
   // dry, not the underlying stream.
   private Iterator<Object> shapedPayloads;
 
+  /** Private to this arming. Cached shaping stores only the capacity, never buffered rows. */
+  private ElementBulkingWindow bulkingWindow;
+  private long mapConstructions;
+
   // The graph resolved for the current arming; used to wrap projected vertices.
   private YTDBGraphInternal armingGraph;
 
@@ -332,6 +337,24 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.edgeMapKeySet = Set.copyOf(shaping.edgeMapKeys());
   }
 
+  /** The proved pre-map barrier capacity, or zero for the ungrouped boundary. */
+  public int getPropertyMapBulkingCapacity() {
+    return shaping.propertyMapBulkingCapacity();
+  }
+
+  /** Grouped result-map allocations since reset. The ungrouped path does not count maps. */
+  public long mapConstructions() {
+    return mapConstructions;
+  }
+
+  @Override
+  public Set<TraverserRequirement> getRequirements() {
+    // Locking recomputes requirements after replacing the native steps. Without BULK the
+    // object-only generator discards multiplicity even when generate receives a larger value.
+    return shaping.propertyMapBulkingCapacity() > 0
+        ? Set.of(TraverserRequirement.OBJECT, TraverserRequirement.BULK) : super.getRequirements();
+  }
+
   /** The alias the step uses to look up the matched element in each row. */
   public String getBoundaryAlias() {
     return boundaryAlias;
@@ -399,6 +422,22 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
       }
     }
     try {
+      if (shaping.propertyMapBulkingCapacity() > 0) {
+        if (bulkingWindow == null) {
+          bulkingWindow = new ElementBulkingWindow(openStream, planContext(), boundaryAlias,
+              shaping.propertyMapBulkingCapacity());
+        }
+        if (bulkingWindow.hasNext()) {
+          var row = bulkingWindow.nextRow();
+          long bulk = bulkingWindow.bulk();
+          mapConstructions++;
+          return getTraversal().getTraverserGenerator().generate(projectOrSkip(row),
+              (Step) this, bulk);
+        }
+        state = State.DRAINED;
+        releaseStream();
+        throw FastNoSuchElementException.instance();
+      }
       if (shapedPayloads == null) {
         // Build the shared list-shaping stage on first pull of this arming — inside the try because
         // the group-barrier source drains the stream eagerly, and a drain failure must release the
@@ -698,6 +737,7 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     // Drop the shaped iterator with the stream it read from — a re-arm rebuilds it against the fresh
     // stream, so a stale iterator must never outlive its source.
     shapedPayloads = null;
+    bulkingWindow = null;
     if (stream != null) {
       stream.close(planContext());
     }
@@ -788,6 +828,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     super.reset();
     // The emitted map belongs to the consumer. A shallow clone may share this iterator.
     shapedPayloads = null;
+    bulkingWindow = null;
+    mapConstructions = 0;
     entityColumnResolutions = 0;
     if (state == State.OPEN || state == State.DRAINED) {
       state = State.REARMED;
@@ -844,6 +886,8 @@ public abstract class AbstractMatchPlanStep<S, E extends Element> extends Abstra
     this.openStream = null;
     this.armingGraph = null;
     this.shapedPayloads = null;
+    this.bulkingWindow = null;
+    this.mapConstructions = 0;
     this.rowEntityCache = new HashMap<>();
     this.entityColumnResolutions = 0;
     this.state = State.NEW;

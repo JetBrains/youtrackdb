@@ -1,14 +1,17 @@
 package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeNotNull;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -834,6 +837,154 @@ public class LdbcGremlinShapeTranslationTest {
       } finally {
         arm.restoreFlag();
       }
+    }
+  }
+
+  /** Wider trial states preflight every binding and run all three exact queries on both arms. */
+  @Test
+  public void widerBulkingTrialAndBodiesUseCuratedFeedsOnBothArms() throws Exception {
+    // Isolated roots expose the duplicate form's return-to-root filter on both frozen bindings.
+    // They cannot change the expected multisets of the legacy forms on FRANK and GRACE.
+    long first = 9001;
+    long second = 9002;
+    g.executeInTx(t -> {
+      insertPerson(t, first, "WideOne");
+      insertPerson(t, second, "WideTwo");
+      for (long root : new long[] {first, second}) {
+        createKnows(t, root, BOB, POST_AT);
+        createKnows(t, root, ERIN, POST_AT);
+        createKnows(t, root, CAROL, POST_AT);
+        // The duplicate form can return to its root, so omitting where changes results.
+        createKnows(t, BOB, root, POST_AT);
+      }
+    });
+    var state = new LdbcBenchmarkState() {
+      @Override
+      public long isPersonId(long index) {
+        return index % 2 == 0 ? first : second;
+      }
+
+      @Override
+      public long isMessageId(long index) {
+        return index % 2 == 0 ? POST : SECOND_POST;
+      }
+
+      @Override
+      public long ic2PersonId(long index) {
+        return first;
+      }
+
+      @Override
+      public long ic9PersonId(long index) {
+        return first;
+      }
+    };
+    state.traversal = g;
+    try {
+      for (boolean enabled : new boolean[] {true, false}) {
+        var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+        arm.translatorEnabled = enabled;
+        try {
+          arm.setUp(state);
+          for (var form : LdbcGremlinBenchmarkWiringTest.widerBulkingForms()) {
+            var parameters = LdbcGremlinBenchmarkWiringTest.widerBulkingParameters(form);
+            parameters.setUp(state, arm);
+            assertEquals(enabled,
+                GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean());
+            boolean message = form == GremlinTraversalShapes.BulkingForm.ONE_ROW;
+            assertEquals(message ? POST : first, parameters.id(0));
+            assertEquals(message ? SECOND_POST : second, parameters.id(63));
+            assertEquals(parameters.id(0), parameters.id(64));
+            for (int invocation = 0; invocation < 66; invocation++) {
+              long id = parameters.id(invocation);
+              var nativeRows = g.computeInTx(t -> form.traversal(
+                  t.withoutStrategies(GremlinToMatchStrategy.class), id, true).toList());
+              var actual = LdbcGremlinBenchmarkWiringTest.invokeBulkingBenchmark(
+                  form, state, arm, parameters);
+              assertEquals(form + ": arm=" + enabled + ", id=" + id,
+                  render(nativeRows, Comparison.AS_MULTISET),
+                  render(actual, Comparison.AS_MULTISET));
+              if (form == GremlinTraversalShapes.BulkingForm.DUPLICATE) {
+                assertFalse(form + ": measured body must exclude its root " + id,
+                    actual.stream().anyMatch(row -> List.of(id).equals(row.get("id"))));
+                var unfiltered = g.computeInTx(t -> form.traversal(
+                    t.withoutStrategies(GremlinToMatchStrategy.class), id, false).toList());
+                assertTrue(form + ": fixture must expose a return to root " + id,
+                    unfiltered.stream().anyMatch(row -> List.of(id).equals(row.get("id"))));
+                assertTrue(unfiltered.size() > actual.size());
+              }
+            }
+          }
+        } finally {
+          arm.restoreFlag();
+        }
+      }
+    } finally {
+      g.executeInTx(t -> {
+        t.V().hasLabel("Person").has("id",
+            org.apache.tinkerpop.gremlin.process.traversal.P.within(first, second)).drop()
+            .iterate();
+      });
+    }
+  }
+
+  /**
+   * Full wider preflight must reject a translated, sack-refused capacity-zero boundary even when
+   * each native form has valid retraction, barrier placement and its named row pattern.
+   */
+  @Test
+  public void widerFullPreflightRejectsTranslatedBoundaryWithZeroCapacity() throws Exception {
+    // This regression requires G6. The same benchmark module also compiles on the Track 6 core.
+    var accessor = java.util.Arrays.stream(AbstractMatchPlanStep.class.getMethods())
+        .filter(method -> method.getName().equals("getPropertyMapBulkingCapacity"))
+        .findFirst().orElse(null);
+    assumeNotNull(accessor);
+    var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+    try {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+      g.executeInTx(t -> {
+        var nativeSource = t.withoutStrategies(GremlinToMatchStrategy.class);
+        for (var form : LdbcGremlinBenchmarkWiringTest.widerBulkingForms()) {
+          long id = form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? POST : FRANK;
+          // Prove this native fixture passes every preflight check with an admitted boundary.
+          GremlinTraversalShapes.checkBulkingForm(form, id,
+              form.traversal(t, id, true).asAdmin(),
+              form.traversal(nativeSource, id, true).asAdmin(), true);
+          var translated = form.traversal(t.withSack(1), id, true).asAdmin();
+          var error = assertThrows(IllegalStateException.class,
+              () -> GremlinTraversalShapes.checkBulkingForm(form, id, translated,
+                  form.traversal(nativeSource, id, true).asAdmin(), true));
+          GremlinTraversalShapes.requireTranslated("sack-refused boundary", translated);
+          assertEquals(0, ((Number) accessor.invoke(translated.getStartStep())).intValue());
+          assertTrue(error.getMessage(),
+              error.getMessage().contains("core capacity must be positive"));
+        }
+      });
+    } finally {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
+    }
+  }
+
+  /** A wider preflight cannot accept labels added after where retracts its incoming path. */
+  @Test
+  public void widerPreflightRejectsUnretractedNativeLabels() {
+    var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+    try {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+      g.executeInTx(t -> {
+        var source = t.withoutStrategies(GremlinToMatchStrategy.class);
+        for (var form : LdbcGremlinBenchmarkWiringTest.widerBulkingForms()) {
+          long id = form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? POST : FRANK;
+          var nativeWalk = form.traversal(source, id, true).asAdmin();
+          nativeWalk.getSteps().get(nativeWalk.getSteps().size() - 2).addLabel("b");
+          assertTrue(assertThrows(IllegalStateException.class,
+              () -> GremlinTraversalShapes.checkBulkingForm(form, id,
+                  form.traversal(t, id, true).asAdmin(), nativeWalk, true))
+              .getMessage().contains("no native empty-path retraction"));
+        }
+      });
+    } finally {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
     }
   }
 

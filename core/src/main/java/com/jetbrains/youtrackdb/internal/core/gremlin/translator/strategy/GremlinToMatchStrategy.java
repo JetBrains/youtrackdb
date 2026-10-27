@@ -417,7 +417,9 @@ public final class GremlinToMatchStrategy
       if (cached instanceof GremlinTranslationTemplate.Translate translate) {
         var boundShaping = extraction.bindings().size() == translate.bindingCount()
             && matchingLayout(extraction.hasContributions(), translate.hasContributions())
-                ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
+            && extraction.propertyMapBulkingCapacity()
+                == translate.shaping().propertyMapBulkingCapacity()
+                    ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
         if (boundShaping != null) {
           spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
           metrics.recordSuccess();
@@ -613,6 +615,8 @@ public final class GremlinToMatchStrategy
         && copyOnOpen && extraction.complete() && absenceAgrees) {
       boolean bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
           && matchingLayout(extraction.hasContributions(), translation.hasContributions())
+          && extraction.propertyMapBulkingCapacity()
+              == translation.shaping().propertyMapBulkingCapacity()
           && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null;
       if (!bindingsAgree) {
         agreementFailure.accept("Cold translation binding agreement failed");
