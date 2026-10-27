@@ -328,11 +328,12 @@ public class DiskStorageBackupCoverageSourceTest {
       await(waiting);
       // Observe the actual Future.get wait, not just entry to the collaborator.
       long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-      while (sampler.get().getState() != Thread.State.TIMED_WAITING
+      Thread.State observed;
+      while ((observed = sampler.get().getState()) != Thread.State.TIMED_WAITING
           && !result.isDone() && System.nanoTime() < deadline) {
         Thread.onSpinWait();
       }
-      assertEquals(Thread.State.TIMED_WAITING, sampler.get().getState());
+      assertEquals(Thread.State.TIMED_WAITING, observed);
       if (!inherited) {
         sampler.get().interrupt();
       }
