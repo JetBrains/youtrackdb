@@ -1002,29 +1002,21 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // not(hop) inside another connective. A not(hop) becomes a detached anti-join
-  // that the planner applies conjunctively over the whole match, so the shape is
-  // translatable exactly where its surroundings are a conjunction. These cases pin
-  // both directions: the disjunction must decline, and the conjunctive spellings
-  // must keep translating. The failure mode on this surface is UNDER-emission —
+  // not(hop) inside another connective. OR scopes the negative probe within its arm.
+  // Conjunctive spellings retain flat anti-joins. Both paths must preserve scope.
+  // The failure mode on this surface is UNDER-emission —
   // a leaked anti-join drops rows that passed a sibling arm — so each case names
   // the row the fixture supplies for the leak to lose.
   // ---------------------------------------------------------------------------
 
   /**
-   * {@code g.V().or(__.not(__.out("a")).has("name", "x"), __.has("age", 30))} declines and returns
-   * native's {@code [x, y]}.
+   * A scoped NOT arm and a filter arm translate and return native's {@code [x, y]}.
    *
-   * <p>The arm's anti-join has only one destination — the plan's top-level {@code
-   * notMatchExpressions} sink, which the planner applies over the whole match. Composing the arm's
-   * remaining operand into the OR and letting the anti-join travel there reads the query as
-   * {@code (no out-a) AND (name = x OR age = 30)}, which drops {@code y}: {@code y} has an
-   * {@code a} edge and passes only on the second arm. The arm has no hop of its own — the hop is
-   * inside the {@code not} — so the OR cannot see it through the edge-bearing check and has to read
-   * the captured anti-join.
+   * <p>The first arm conjoins its negative probe and name predicate. The second arm independently
+   * keeps {@code y}, which has an {@code a} edge and would fail a global anti-join.
    */
   @Test
-  public void orArmWithEdgeBearingNot_declinesAndMatchesNative() {
+  public void orArmWithEdgeBearingNot_translatesAndMatchesNative() {
     seedAntiJoinDisjunction();
     Supplier<GraphTraversal<?, ?>> traversal =
         () -> graph.traversal().V()
@@ -1038,7 +1030,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         .as("native reads the disjunction arm-wise: x passes the first arm, y the second")
         .containsExactly("x", "y");
     assertEquivalent(
-        "g.V().or(not(out(a)).has(name, x), has(age, 30))", Recognition.DECLINED, traversal);
+        "g.V().or(not(out(a)).has(name, x), has(age, 30))", Recognition.RECOGNIZED, traversal);
   }
 
   /**
@@ -1047,9 +1039,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * connective's commit path, which is conjunctive and therefore agrees with how the planner reads
    * the sink.
    *
-   * <p>Paired with the OR case above on purpose. The decline there is scoped to the disjunction, and
-   * a gate that declined every {@code not(hop)} inside a connective would take this shape — plus the
-   * one below — down with it while fixing nothing.
+   * <p>Paired with the OR case to prove that conjunctive spellings keep their flat-check path.
    *
    * <p>The barrier keeps the case honest. {@code InlineFilterStrategy} unwraps a plain
    * {@code and(not(out(a)), has(age, 1))} into a bare {@code NotStep} plus a {@code HasStep}, which

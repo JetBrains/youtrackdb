@@ -87,6 +87,11 @@ final class AndStepRecogniser implements StepRecogniser {
 
   @Override
   public boolean contributeShape(Step<?, ?> step, GremlinShapeEncoder encoder) {
-    return step instanceof AndStep<?>;
+    if (!(step instanceof AndStep<?> connective)) {
+      return false;
+    }
+    // Prefix traversal operands with their arity so sibling and nested children cannot collide.
+    encoder.appendToken("children", Integer.toString(connective.getLocalChildren().size()));
+    return true;
   }
 }

@@ -349,13 +349,13 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
     }
   }
 
-  /** OR and NOT cannot forward the child's conjunctive check to the whole plan. */
+  /** OR scopes the exists child while plain NOT of wrapped exists stays unsupported. */
   @Test
-  public void disjunctionAndNegationOfExists_decline() {
+  public void disjunctionOfExists_translatesButWrappedNegationDeclines() {
     var origin = graph.addVertex(T.label, "Article", "name", "A");
     origin.addEdge("a", graph.addVertex(T.label, "Target", "name", "B"));
     graph.tx().commit();
-    equivalent("or with exists child", Recognition.DECLINED,
+    equivalent("or with exists child", Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Article")
             .or(__.where(__.out("a")), __.has("name", "A")));
     equivalent("not with exists child", Recognition.DECLINED,

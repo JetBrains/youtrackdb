@@ -24,7 +24,7 @@ import org.junit.Test;
 /**
  * Unit tests for {@link OrStepRecogniser}. Each test drives the recogniser through a {@link
  * StepStreamCursor} over a strategised traversal with a registry-bearing {@link WalkerContext}. OR
- * requires all children to be pure-filter; edge-bearing children decline the whole step.
+ * keeps pure-filter children in WHERE and captures hop-bearing arms in a scoped tree.
  */
 public class OrStepRecogniserTest extends GraphBaseTest {
 
@@ -52,14 +52,19 @@ public class OrStepRecogniserTest extends GraphBaseTest {
     assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
     var rendered = renderBoundaryFilter(ctx);
     assertThat(rendered).contains("age").contains("OR");
+    assertThat(ctx.booleanCheck()).isNull();
+    var translation = GremlinStepWalker.production().walk(
+        graph.traversal().V().or(__.has("age", 30), __.has("age", 40)).asAdmin());
+    assertThat(translation).isNotNull();
+    assertThat(GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping()))
+        .doesNotContain(";B:");
   }
 
   /**
-   * {@code or(out(a), has(age))} declines: the first child is edge-bearing and OR cannot absorb pattern
-   * fragments in Phase 1.
+   * A hop and a boundary filter become scoped leaves without a mandatory age predicate.
    */
   @Test
-  public void edgeBearingChild_declinesWholeOrStep() {
+  public void edgeBearingChild_capturesScopedTree() {
     var admin =
         graph.traversal().V().or(__.out("a"), __.has("age", P.eq(30))).asAdmin();
     var ctx = contextWithRegistry(true, null);
@@ -67,7 +72,9 @@ public class OrStepRecogniserTest extends GraphBaseTest {
 
     var outcome = OrStepRecogniser.INSTANCE.recognize(cursor, ctx);
 
-    assertThat(outcome).isEqualTo(Outcome.DECLINE);
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.booleanCheck()).isNotNull();
+    assertThat(ctx.existsMatchExpressions).isEmpty();
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }
 

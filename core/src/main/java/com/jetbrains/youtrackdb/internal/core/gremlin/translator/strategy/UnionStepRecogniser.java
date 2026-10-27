@@ -103,7 +103,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     }
     // Union is only recognised after a vertex prefix has pinned the boundary. Start-position
     // g.union(...) never pins one, so decline here as well as at the strategy's vertex-start gate.
-    if (ctx.boundaryAlias() == null || ctx.hasExistsMatchExpressions()) {
+    if (ctx.boundaryAlias() == null || ctx.hasExistsMatchExpressions()
+        || ctx.booleanCheck() != null) {
       return Outcome.DECLINE;
     }
     var host = ctx.unionForkHost();

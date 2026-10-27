@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -32,7 +33,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * recogniser (a later track) drives one adapter per child through {@link RecognitionContext#walkChild},
  * inspects the captured classification, and commits the captured state to its own context in the way
  * its connective requires (AND merges pure-filter clauses and detached exists checks, OR composes
- * pure-filter booleans, NOT detaches edge fragments).
+ * scoped boolean operands, NOT detaches edge fragments).
  *
  * <h2>Why a delegating capture context, not a fresh one</h2>
  *
@@ -70,7 +71,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * __.has("age", 30))} then answered {@code (no out-a) AND (name = x OR age = 30)} instead of the
  * disjunction the user wrote, dropping every row that passed only the second arm. Capturing it lets
  * each connective decide: AND and the positive filters forward detached checks (they are conjunctive, so the
- * plan-level sink is the right destination), OR and an enclosing NOT decline.
+ * plan-level sink is the right destination). OR keeps checks inside each arm. An enclosing NOT
+ * declines captured checks.
  *
  * <p>Three contributions still write straight through to the parent, deliberately: {@link
  * #bindParam}, {@link #markRidBearing}, and the two alias minters. All three are walk-global rather
@@ -100,7 +102,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * </ul>
  *
  * The distinction drives every combinator: AND detaches edge-bearing children as exists checks,
- * OR declines any edge-bearing child, and NOT routes edge-bearing children to an anti-join pattern. Keying it
+ * OR scopes edge-bearing children as probes, and NOT routes them to an anti-join pattern. Keying it
  * on the edge/hop contribution (not on any {@code addNode}) is what keeps an all-pure-filter {@code
  * or(hasLabel, hasLabel)} translatable and a {@code not(hasLabel)} on the {@code WHERE NOT} path.
  */
@@ -140,6 +142,25 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   /** Detached positive checks stay local until a conjunctive enclosing filter forwards them. */
   private final List<SQLMatchExpression> capturedExistsExpressions = new ArrayList<>();
+
+  @Nullable private MatchBooleanCheck booleanCheck;
+
+  @Override
+  public void addBooleanCheck(MatchBooleanCheck check) {
+    booleanCheck = booleanCheck == null ? check
+        : new MatchBooleanCheck.And(List.of(booleanCheck, check));
+  }
+
+  @Override
+  public MatchBooleanCheck booleanCheck() {
+    return booleanCheck;
+  }
+
+  @Override
+  public boolean hasCapturedChecks() {
+    return !capturedNotExpressions.isEmpty() || !capturedExistsExpressions.isEmpty()
+        || booleanCheck != null;
+  }
 
   /** Whether the child contributed an edge/hop ({@link #addEdge} or {@link #addEdgeAsNode}).
    *  {@code false} marks a pure-filter child; {@code true} an edge-bearing one. A bare {@link

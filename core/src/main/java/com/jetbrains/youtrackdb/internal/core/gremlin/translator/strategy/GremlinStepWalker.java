@@ -730,6 +730,16 @@ final class GremlinStepWalker {
               LIST_SHAPING_DRAIN_RECOGNISERS)) {
         return false;
       }
+      // A tree in a detached child cannot be pushed through a later hop or check.
+      if (ctx instanceof SubTraversalPredicateAdapter && ctx.booleanCheck() != null
+          && (recogniser == VertexStepRecogniser.INSTANCE
+              || recogniser == AndStepRecogniser.INSTANCE
+              || recogniser == OrStepRecogniser.INSTANCE
+              || recogniser == NotStepRecogniser.INSTANCE
+              || recogniser == WhereTraversalStepRecogniser.INSTANCE
+              || recogniser == TraversalFilterStepRecogniser.INSTANCE)) {
+        return false;
+      }
       int positionBefore = cursor.position();
       // Read beside positionBefore for the invariant checked after the call: a recogniser the gate
       // admitted behind a captured stage contributes through appendListShapingOp and never replaces
@@ -741,8 +751,9 @@ final class GremlinStepWalker {
       List<ListShapingOp> opsBefore = ctx.listShapingOps();
       // An already captured exists check runs after the entire positive MATCH pattern. Refuse a
       // subsequent positive hop rather than repeating that check for each new path.
-      int edgesBefore = ctx instanceof WalkerContext walker && walker.hasExistsMatchExpressions()
-          ? walker.patternBuilder.edgeCount() : -1;
+      int edgesBefore = ctx instanceof WalkerContext walker
+          && (walker.hasExistsMatchExpressions() || walker.booleanCheck() != null)
+              ? walker.patternBuilder.edgeCount() : -1;
       Outcome outcome = recogniser.recognize(cursor, ctx);
       if (edgesBefore >= 0 && ctx instanceof WalkerContext walker
           && walker.patternBuilder.edgeCount() > edgesBefore) {
@@ -1270,10 +1281,13 @@ final class GremlinStepWalker {
     // before one cannot be committed as a filter. An unconstrained pure-filter child such as
     // values(k).count() has no such contribution and can still translate as a tautological check.
     // Preserve partial captures on a failed dispatch for callers inspecting the capture boundary.
+    if (adapter.hasEdges() && adapter.booleanCheck() != null) {
+      adapter.markOutcome(Outcome.DECLINE);
+      return adapter;
+    }
     boolean constrained = adapter.hasEdges() || !adapter.capturedAliasFilters().isEmpty()
         || !adapter.capturedPattern().registeredAliasClasses().isEmpty()
-        || !adapter.capturedNotExpressions().isEmpty()
-        || !adapter.capturedExistsExpressions().isEmpty();
+        || adapter.hasCapturedChecks();
     if (constrained) {
       for (var step : steps) {
         if (step instanceof CountGlobalStep<?> || step instanceof GroupStep<?, ?, ?>
@@ -1457,6 +1471,7 @@ final class GremlinStepWalker {
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
             .existsMatchExpressions(List.copyOf(ctx.existsMatchExpressions))
+            .booleanCheck(ctx.booleanCheck())
             // RETURN $paths is an existing pass-through of MATCH rows. Direct counting needs
             // the checked alias record, not the SELECT pre/aggregate/post projection pipeline.
             .returnItems(ctx.shaping().propertyGroupCount() == null ? ctx.returnItems : List.of())

@@ -293,6 +293,11 @@ final class GremlinShapeExtractor {
         // A child-local hasLabel can narrow it. A hop resets it to V.
         for (var child : parent.getLocalChildren()) {
           visit(child.asAdmin(), boundaryClass);
+          if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.ConnectiveStep<
+              ?>) {
+            // Arity alone does not locate a boundary between multi-step sibling operands.
+            encoder.appendToken("armEnd");
+          }
         }
         for (var child : parent.getGlobalChildren()) {
           visit(child.asAdmin(), boundaryClass);

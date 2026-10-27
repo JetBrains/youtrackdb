@@ -59,7 +59,7 @@ public class DetachedChildGrammarEquivalenceTest extends GraphBaseTest {
         new Position("filter", (g, c) -> g.filter(c), true),
         new Position("not", (g, c) -> g.not(c), true),
         new Position("and", (g, c) -> g.and(c, __.has("name")), true),
-        new Position("or", (g, c) -> g.or(c, __.has("name", "zzz")), false),
+        new Position("or", (g, c) -> g.or(c, __.has("name", "zzz")), true),
         new Position("nested", (g, c) -> g.where(__.where(c)), true),
         new Position("deep", (g, c) -> g.where(__.where(__.where(c))), true),
         new Position("not-nested", (g, c) -> g.not(__.where(c)), false),
