@@ -304,6 +304,9 @@ final class GremlinPlanFingerprint {
         .append(shaping.elementMapTokens() ? '1' : '0')
         .append(shaping.emitGroupEntries() ? '1' : '0')
         .append(shaping.emptyBarrier() ? '1' : '0');
+    if (shaping.propertyMapBulkingCapacity() > 0) {
+      sb.append(";PMB:").append(shaping.propertyMapBulkingCapacity());
+    }
     var counting = shaping.propertyGroupCount();
     if (counting != null) {
       // Other shapes retain their established fingerprint, including pinned cache contracts.

@@ -384,10 +384,16 @@ public class LdbcGremlinTranslatorBenchmark {
   public abstract static class BulkingParameters {
 
     final GremlinTraversalShapes.BulkingForm form;
+    final boolean crossLabel;
     private long[] ids;
 
     BulkingParameters(GremlinTraversalShapes.BulkingForm form) {
+      this(form, false);
+    }
+
+    BulkingParameters(GremlinTraversalShapes.BulkingForm form, boolean crossLabel) {
       this.form = form;
+      this.crossLabel = crossLabel;
     }
 
     @Setup(Level.Trial)
@@ -404,7 +410,8 @@ public class LdbcGremlinTranslatorBenchmark {
           var nativeSource = t.withoutStrategies(GremlinToMatchStrategy.class);
           for (long id : Arrays.stream(ids).distinct().toArray()) {
             GremlinTraversalShapes.checkBulkingForm(form, id,
-                form.traversal(t, id).asAdmin(), form.traversal(nativeSource, id).asAdmin());
+                form.traversal(t, id, crossLabel).asAdmin(),
+                form.traversal(nativeSource, id, crossLabel).asAdmin(), crossLabel);
           }
         });
       } finally {
@@ -418,7 +425,7 @@ public class LdbcGremlinTranslatorBenchmark {
 
     List<Map<Object, Object>> run(LdbcBenchmarkState state) {
       var id = id(state.nextIndex());
-      return state.traversal.computeInTx(t -> form.traversal(t, id).toList());
+      return state.traversal.computeInTx(t -> form.traversal(t, id, crossLabel).toList());
     }
   }
 
@@ -453,6 +460,51 @@ public class LdbcGremlinTranslatorBenchmark {
     public BulkingMostlyUniqueParameters() {
       super(GremlinTraversalShapes.BulkingForm.MOSTLY_UNIQUE);
     }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereDuplicateParameters extends BulkingParameters {
+
+    public BulkingWhereDuplicateParameters() {
+      super(GremlinTraversalShapes.BulkingForm.DUPLICATE, true);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereOneRowParameters extends BulkingParameters {
+
+    public BulkingWhereOneRowParameters() {
+      super(GremlinTraversalShapes.BulkingForm.ONE_ROW, true);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereUniqueParameters extends BulkingParameters {
+
+    public BulkingWhereUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.UNIQUE, true);
+    }
+  }
+
+  /** LDBC: none. Duplicate friends-of-friends, excluding the labelled root. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereDuplicate(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereDuplicateParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. One message-author-location row with a cross-label predicate. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereOneRow(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereOneRowParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Unique friend messages with a cross-label predicate. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereUniqueParameters parameters) {
+    return parameters.run(state);
   }
 
   /** LDBC: none. Duplicate two-hop KNOWS endpoints before valueMap. */
