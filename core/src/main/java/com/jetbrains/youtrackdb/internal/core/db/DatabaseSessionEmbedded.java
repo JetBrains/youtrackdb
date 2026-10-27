@@ -4938,8 +4938,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     checkOpenness();
 
-    if (currentTx.getStatus() == TXSTATUS.ROLLBACKING) {
-      throw new RollbackException("Transaction is rolling back");
+    if (currentTx.getStatus() == TXSTATUS.ROLLBACKING
+        || currentTx.getStatus() == TXSTATUS.ROLLED_BACK) {
+      throw new RollbackException(
+          "Given transaction was rolled back, and thus cannot be committed.");
     }
 
     if (!currentTx.isActive()) {
@@ -4988,7 +4990,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // WAKE UP ROLLBACK LISTENERS
       try {
         // ROLLBACK TX AT DB LEVEL
-        if (currentTx.isActive()) {
+        if (currentTx.isActive()
+            && currentTx.getStatus() != TXSTATUS.ROLLBACKING
+            && currentTx.getStatus() != TXSTATUS.ROLLED_BACK) {
           currentTx.rollbackInternal();
         }
       } catch (Exception re) {
