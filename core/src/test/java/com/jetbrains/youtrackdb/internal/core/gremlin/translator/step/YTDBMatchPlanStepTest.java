@@ -2912,6 +2912,196 @@ public class YTDBMatchPlanStepTest {
     verify(plan, never()).start();
   }
 
+  /** Reset, close/reset and a mid-window clone each create a fresh identity window. */
+  @Test
+  public void propertyMapBulkingRearmsAndClonesWithoutSharingBufferedGroups() {
+    var a = bulkingRow(1);
+    var b = bulkingRow(2);
+    when(plan.start()).thenAnswer(call -> ExecutionStream.resultIterator(
+        List.of(a, b, a).iterator()));
+    var copy = stubPlanCopyDelivering(a, b, a);
+    when(copy.start()).thenAnswer(call -> ExecutionStream.resultIterator(
+        List.of(a, b, a).iterator()));
+    var original = shapedStep("v", BoundaryOutputType.MAP, bulkingShaping());
+    assertThat(original.processNextStart().bulk()).isEqualTo(2);
+    var clone = original.clone();
+    clone.setTraversal(traversal);
+    assertThat(clone.processNextStart().bulk()).isEqualTo(2);
+    assertThat(original.processNextStart().bulk()).isEqualTo(1);
+    assertThat(clone.processNextStart().bulk()).isEqualTo(1);
+    original.reset();
+    assertThat(original.mapConstructions()).isZero();
+    assertThat(original.processNextStart().bulk()).isEqualTo(2);
+    original.close();
+    original.reset();
+    assertThat(original.processNextStart().bulk()).isEqualTo(2);
+    original.close();
+    clone.close();
+  }
+
+  /** Singleton windows discard their row and count on reset and do not share them with a clone. */
+  @Test
+  public void singletonPropertyMapBulkingResetAndCloneOwnRowsAndCounts() {
+    var a = bulkingRow(1);
+    var b = bulkingRow(2);
+    var c = bulkingRow(3);
+    when(plan.start()).thenReturn(
+        ExecutionStream.resultIterator(List.of(a, a).iterator()),
+        ExecutionStream.resultIterator(List.of(c).iterator()));
+    var copy = stubPlanCopyDelivering(b, b, b);
+    var original = shapedStep("v", BoundaryOutputType.MAP, bulkingShaping());
+    Traverser.Admin<?> first = original.processNextStart();
+    assertThat(first.get()).isEqualTo(Map.of("marker", 1));
+    assertThat(first.bulk()).isEqualTo(2);
+    var clone = original.clone();
+    clone.setTraversal(traversal);
+    original.reset();
+    assertThat(original.mapConstructions()).isZero();
+    Traverser.Admin<?> restarted = original.processNextStart();
+    assertThat(restarted.get()).isEqualTo(Map.of("marker", 3));
+    assertThat(restarted.bulk()).isEqualTo(1);
+    Traverser.Admin<?> cloned = clone.processNextStart();
+    assertThat(cloned.get()).isEqualTo(Map.of("marker", 2));
+    assertThat(cloned.bulk()).isEqualTo(3);
+    assertThatExceptionOfType(NoSuchElementException.class)
+        .isThrownBy(original::processNextStart);
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(clone::processNextStart);
+    original.close();
+    clone.close();
+    verify(copy).close();
+    verify(plan).close();
+  }
+
+  /** Reset drops a buffered singleton, and cloning a boundary with that singleton cannot copy it. */
+  @Test
+  public void pendingSingletonIsDiscardedOnResetAndNotInheritedByClone() throws Exception {
+    var a = bulkingRow(1);
+    var b = bulkingRow(2);
+    var c = bulkingRow(3);
+    when(plan.start()).thenReturn(
+        ExecutionStream.resultIterator(List.of(a, a).iterator()),
+        ExecutionStream.resultIterator(List.of(c).iterator()));
+    stubPlanCopyDelivering(b);
+    var original = shapedStep("v", BoundaryOutputType.MAP,
+        bulkingShaping().withPropertyMapBulkingCapacity(1));
+    assertThat(original.processNextStart().bulk()).isEqualTo(1);
+    var field = AbstractMatchPlanStep.class.getDeclaredField("bulkingWindow");
+    field.setAccessible(true);
+    // Buffer the next capacity-one group without emitting it, as an iterator lookahead does.
+    assertThat(((ElementBulkingWindow) field.get(original)).hasNext()).isTrue();
+    var clone = original.clone();
+    clone.setTraversal(traversal);
+    assertThat(field.get(clone)).isNull();
+    original.reset();
+    assertThat(field.get(original)).isNull();
+    Traverser.Admin<?> restarted = original.processNextStart();
+    assertThat(restarted.get()).isEqualTo(Map.of("marker", 3));
+    assertThat(restarted.bulk()).isEqualTo(1);
+    Traverser.Admin<?> cloned = clone.processNextStart();
+    assertThat(cloned.get()).isEqualTo(Map.of("marker", 2));
+    assertThat(cloned.bulk()).isEqualTo(1);
+    original.close();
+    clone.close();
+  }
+
+  /** Concurrent copies of one shared cached plan must retain only their own rows and bulk. */
+  @Test
+  public void propertyMapBulkingConcurrentCachedCopiesOwnWindows() throws Exception {
+    var identities = new AtomicInteger();
+    var overlap = new CyclicBarrier(2);
+    when(plan.copy(any())).thenAnswer(call -> {
+      var context = (CommandContext) call.getArgument(0);
+      var copy = mock(InternalExecutionPlan.class);
+      var row = bulkingRow(identities.incrementAndGet());
+      when(copy.getContext()).thenReturn(context);
+      when(copy.start()).thenAnswer(ignored -> {
+        overlap.await();
+        return ExecutionStream.resultIterator(List.of(row, row).iterator());
+      });
+      return copy;
+    });
+    var template = new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v",
+        BoundaryOutputType.MAP, Map.of(), bulkingShaping(), true);
+    var a = template.clone();
+    var b = template.clone();
+    a.setTraversal(traversal);
+    b.setTraversal(traversal);
+    var results = new CopyOnWriteArrayList<Traverser.Admin<?>>();
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    var threads = List.of(a, b).stream().map(step -> new Thread(() -> {
+      try {
+        results.add(step.processNextStart());
+        assertThatExceptionOfType(NoSuchElementException.class)
+            .isThrownBy(step::processNextStart);
+        step.close();
+      } catch (Throwable failure) {
+        errors.add(failure);
+      }
+    })).toList();
+    threads.forEach(Thread::start);
+    for (var thread : threads) {
+      thread.join(5_000);
+      assertThat(thread.isAlive()).isFalse();
+    }
+    assertThat(errors).isEmpty();
+    assertThat(results).hasSize(2).allSatisfy(t -> assertThat(t.bulk()).isEqualTo(2));
+    assertThat(results.getFirst().get()).isNotEqualTo(results.getLast().get());
+    verify(plan, never()).start();
+  }
+
+  /** Duplicate-heavy, unique and mostly-unique feeds build maps only once per bounded group. */
+  @Test
+  public void propertyMapBulkingCountsMapsAtAndAboveNativeCapacity() {
+    for (int distinct : List.of(1, 2499, 2500, 2501)) {
+      var rows = new ArrayList<Result>();
+      var first = bulkingRow(0);
+      rows.add(first);
+      rows.add(first);
+      for (int i = 1; i < distinct; i++) {
+        rows.add(bulkingRow(i));
+      }
+      when(plan.start()).thenAnswer(call -> ExecutionStream.resultIterator(rows.iterator()));
+      var step = shapedStep("v", BoundaryOutputType.MAP, bulkingShaping());
+      long totalBulk = 0;
+      for (int i = 0; i < distinct; i++) {
+        Traverser.Admin<?> traverser = step.processNextStart();
+        assertThat(traverser.get()).isEqualTo(Map.of("marker", i));
+        assertThat(traverser.bulk()).isEqualTo(i == 0 ? 2 : 1);
+        totalBulk += traverser.bulk();
+      }
+      assertThat(totalBulk).isEqualTo(distinct + 1);
+      assertThat(step.mapConstructions()).isEqualTo(distinct);
+      assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+      step.close();
+    }
+  }
+
+  /** A row-read failure during a window drain closes resources and reaches the caller. */
+  @Test
+  public void propertyMapBulkingFailureReleasesExecution() {
+    var failure = new IllegalStateException("bulking read failed");
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenThrow(failure);
+    var step = shapedStep("v", BoundaryOutputType.MAP, bulkingShaping());
+    assertThatExceptionOfType(IllegalStateException.class).isThrownBy(step::processNextStart)
+        .isSameAs(failure);
+    verify(stream).close(ctx);
+    verify(plan).close();
+  }
+
+  private static ResultShaping bulkingShaping() {
+    return ResultShaping.NONE.withMapEmitColumnOrder(List.of("marker"))
+        .withPropertyMapBulkingCapacity(2500);
+  }
+
+  private static Result bulkingRow(int id) {
+    var row = mock(Result.class);
+    when(row.getProperty("v"))
+        .thenReturn(new com.jetbrains.youtrackdb.internal.core.id.RecordId(10, id));
+    when(row.getProperty("marker")).thenReturn(id);
+    return row;
+  }
+
   private YTDBMatchPlanStep<Object, Vertex> elementStep(String alias) {
     return new YTDBMatchPlanStep<>(
         traversal, Vertex.class, plan, alias, BoundaryOutputType.ELEMENT);

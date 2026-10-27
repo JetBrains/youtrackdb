@@ -82,6 +82,10 @@ final class GremlinShapeExtractor {
     extractor.appendStrategyFlags(
         traversal, orderIncludesMissingKey, polymorphic);
     extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS);
+    int bulkingCapacity = PropertyMapBulkingAdmission.capacity(traversal);
+    if (bulkingCapacity > 0) {
+      extractor.encoder.appendToken("pmb", Integer.toString(bulkingCapacity));
+    }
     // The verdict reads only encoded step structure. Absent tokens cannot equal real facts.
     if (extractor.possibleOrderedExpand) {
       var facts = TraverserMergeFacts.from(traversal);
@@ -94,12 +98,13 @@ final class GremlinShapeExtractor {
     }
     return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
         extractor.encoder.complete(), extractor.encoder.hasContributions(),
-        List.copyOf(extractor.nativeOperands), !extractor.possibleOrderedExpand);
+        List.copyOf(extractor.nativeOperands), !extractor.possibleOrderedExpand, bulkingCapacity);
   }
 
   record Extraction(@Nonnull String key, @Nonnull Map<Object, Object> bindings, boolean complete,
       @Nonnull java.util.List<HasBindingContext.Contribution> hasContributions,
-      @Nonnull java.util.List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent) {
+      @Nonnull java.util.List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent,
+      int propertyMapBulkingCapacity) {
   }
 
   private boolean possibleOrderedExpand;

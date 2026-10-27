@@ -6,8 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -80,6 +83,67 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         "g.V().values(foo)",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().values("foo"));
+  }
+
+  /** Element dedup retains equal-property identities and absent/null maps, unlike map dedup. */
+  @Test
+  public void identityDedupBeforeValueMapPreservesPresenceAndMultiplicity() {
+    var source = graph.addVertex(T.label, "Source");
+    var equal1 = graph.addVertex(T.label, "Target", "foo", "same");
+    var equal2 = graph.addVertex(T.label, "Target", "foo", "same");
+    var absent = graph.addVertex(T.label, "Target");
+    var withNull = graph.addVertex(T.label, "Target");
+    withNull.property("foo", null);
+    for (var target : List.of(equal1, equal2, absent, withNull, equal1, absent, withNull)) {
+      source.addEdge("reaches", target);
+    }
+    graph.tx().commit();
+    assertEquivalent("element dedup before map", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Source").out("reaches").dedup().valueMap("foo"));
+    assertEquivalent("map dedup after projection", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Source").out("reaches").valueMap("foo").dedup());
+    assertIdentityDistinctBeforeProjection(
+        () -> graph.traversal().V().hasLabel("Source").out("reaches").dedup().valueMap("foo"));
+    withTranslatorOn(() -> {
+      assertThat(graph.traversal().V().hasLabel("Source").out("reaches")
+          .dedup().valueMap("foo").toList()).hasSize(4);
+      assertThat(graph.traversal().V().hasLabel("Source").out("reaches")
+          .valueMap("foo").dedup().toList()).hasSize(3);
+    });
+    assertEquivalent("empty dedup input", Recognition.RECOGNIZED, Cardinality.MAY_BE_EMPTY,
+        () -> graph.traversal().V().hasLabel("Source").out("noSuchEdge")
+            .dedup().valueMap("foo"));
+    session.begin();
+    try (var rows = session.query("SELECT DISTINCT foo FROM Target")) {
+      assertThat(rows.stream().toList()).hasSize(2);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Pins identity-mode engagement, not just equivalent rows from a projected DISTINCT plan. */
+  private void assertIdentityDistinctBeforeProjection(Supplier<GraphTraversal<?, ?>> supplier) {
+    withTranslatorOn(() -> {
+      try (var traversal = supplier.get()) {
+        var admin = traversal.asAdmin();
+        admin.applyStrategies();
+        var boundaries = admin.getSteps().stream()
+            .filter(YTDBMatchPlanStep.class::isInstance).toList();
+        assertThat(boundaries).hasSize(1);
+        var steps = ((YTDBMatchPlanStep<?, ?>) boundaries.getFirst()).getPlan().getSteps();
+        var distinct = steps.stream().filter(DistinctExecutionStep.class::isInstance).toList();
+        assertThat(distinct).as("one identity DISTINCT and no later projected DISTINCT")
+            .hasSize(1);
+        assertThat(((DistinctExecutionStep) distinct.getFirst()).prettyPrint(0, 2))
+            .contains("BY IDENTITY");
+        var projection = steps.stream().filter(ProjectionCalculationStep.class::isInstance)
+            .findFirst().orElseThrow();
+        assertThat(steps.indexOf(distinct.getFirst())).as("identity DISTINCT before projection")
+            .isLessThan(steps.indexOf(projection));
+      } catch (Exception e) {
+        throw new AssertionError("Cannot inspect or close the translated traversal", e);
+      }
+    });
   }
 
   /** Multi-key {@code values(k1, k2)} flat-maps property values in key order. */
@@ -2061,6 +2125,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
             .dedup().select("t"));
 
+    assertIdentityDistinctBeforeProjection(
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .dedup().select("t"));
     assertThat(graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
         .dedup().select("t").toList())
         .as("both hop rows reach the same target, so the dedup leaves one")
@@ -2087,6 +2154,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
             .dedup().select("t").by("name"));
 
+    assertIdentityDistinctBeforeProjection(
+        () -> graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
+            .dedup().select("t").by("name"));
     assertThat(graph.traversal().V().hasLabel("Person").as("p").out("knows").as("t")
         .dedup().select("t").by("name").toList())
         .as("one name per distinct target")
@@ -2108,6 +2178,9 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").out("knows").as("t", "u")
             .dedup().select("t", "u"));
 
+    assertIdentityDistinctBeforeProjection(
+        () -> graph.traversal().V().hasLabel("Person").out("knows").as("t", "u")
+            .dedup().select("t", "u"));
     assertThat(graph.traversal().V().hasLabel("Person").out("knows").as("t", "u")
         .dedup().select("t", "u").toList())
         .as("both labels name the deduped target, so the two-entry map is emitted once")
