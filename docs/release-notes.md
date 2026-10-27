@@ -5,6 +5,19 @@ between your current version and your target version.
 
 ## Unreleased
 
+### Gremlin property ordering shares the MATCH class rule
+
+Gremlin `order().by(key)` uses the label class or the common ancestor of several labels.
+Without a label filter, a supported hop uses the edge LINK schema to choose the collation class.
+Label filters take precedence over LINK declarations.
+
+**Who is affected.** Queries whose resolved class declares a different collation from the
+previous fallback can return records in a different order. This applies to native and translated
+Gremlin execution. A following `range` or `limit` can return different records.
+The change can select a declared collation or restore default comparison.
+Aliases reached through `select` keep the hierarchy fallback.
+Hand-written MATCH and GQL queries keep their class rules and ordering.
+
 ### Storage format 25 requires export and import
 
 Storage format 25 persists link-collection allocation state. The state prevents identifier reuse after an empty live collection survives a restart.

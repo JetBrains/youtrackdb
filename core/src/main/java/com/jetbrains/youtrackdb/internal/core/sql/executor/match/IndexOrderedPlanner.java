@@ -119,6 +119,7 @@ public final class IndexOrderedPlanner {
   private final boolean returnPaths;
   private final boolean returnPatterns;
   private final boolean returnPathElements;
+  private final boolean translatedGremlin;
 
   IndexOrderedPlanner(
       @Nullable Pattern pattern,
@@ -134,7 +135,8 @@ public final class IndexOrderedPlanner {
       boolean returnElements,
       boolean returnPaths,
       boolean returnPatterns,
-      boolean returnPathElements) {
+      boolean returnPathElements,
+      boolean translatedGremlin) {
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
     this.aliasFilters = aliasFilters;
@@ -149,6 +151,7 @@ public final class IndexOrderedPlanner {
     this.returnPaths = returnPaths;
     this.returnPatterns = returnPatterns;
     this.returnPathElements = returnPathElements;
+    this.translatedGremlin = translatedGremlin;
   }
 
   /**
@@ -197,7 +200,8 @@ public final class IndexOrderedPlanner {
       return null;
     }
     var orderItem = orderBy.getItems().getFirst();
-    if (orderItem.getCollate() != null || !isDefaultCollate(orderItem.getDeclaredCollate())) {
+    if (orderItem.getCollate() != null
+        || (!translatedGremlin && !isDefaultCollate(orderItem.getDeclaredCollate()))) {
       return null;
     }
 
@@ -329,7 +333,9 @@ public final class IndexOrderedPlanner {
         aliasClasses.put(targetAlias, inferred);
       }
     }
-    if (targetClassName == null) {
+    // Translated Gremlin uses LINK inference for prefetch and later cost estimates even when
+    // declared collation prevents an ordered scan. SQL MATCH returns before inference above.
+    if (!isDefaultCollate(orderItem.getDeclaredCollate()) || targetClassName == null) {
       return null;
     }
     var sourceClassName = aliasClasses.get(sourceAlias);

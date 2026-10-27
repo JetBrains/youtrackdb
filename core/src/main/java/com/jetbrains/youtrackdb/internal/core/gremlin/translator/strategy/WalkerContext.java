@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.OrderClassResolver;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -154,6 +155,9 @@ final class WalkerContext implements RecognitionContext {
 
   /** {@code ORDER BY} clause for {@code order()} terminators. */
   @Nullable SQLOrderBy orderBy;
+
+  // Separate metadata for comparison only. Pattern classes and plan fingerprints do not read it.
+  final Map<String, List<String>> orderCollationClasses = new LinkedHashMap<>();
 
   /**
    * Alias the captured {@code ORDER BY} was keyed on, or {@code null} when none is captured. A hop
@@ -686,48 +690,7 @@ final class WalkerContext implements RecognitionContext {
 
   static String leastCommonVertexAncestor(List<String> classNames,
       java.util.function.Function<String, SchemaClass> resolve) {
-    if (classNames == null || classNames.isEmpty()) {
-      return null;
-    }
-    var current = resolve.apply(classNames.getFirst());
-    if (current == null || !current.isVertexType()) {
-      return null;
-    }
-    for (int i = 1; i < classNames.size(); i++) {
-      var other = resolve.apply(classNames.get(i));
-      if (other == null || !other.isVertexType()) {
-        return null;
-      }
-      current = leastCommonAncestor(current, other);
-      if (current == null) {
-        return VERTEX_ROOT_CLASS;
-      }
-    }
-    return current.getName();
-  }
-
-  /**
-   * Most specific common ancestor of {@code a} and {@code b}, or {@code null} when they only share
-   * the implicit {@code V} root (caller maps that to {@link #VERTEX_ROOT_CLASS}).
-   */
-  private static @Nullable SchemaClass leastCommonAncestor(SchemaClass a, SchemaClass b) {
-    if (a.equals(b) || b.isSubClassOf(a)) {
-      return a;
-    }
-    if (a.isSubClassOf(b)) {
-      return b;
-    }
-    SchemaClass best = null;
-    for (var ancestor : a.getAllSuperClasses()) {
-      if (!ancestor.isVertexType() || !b.isSubClassOf(ancestor)) {
-        continue;
-      }
-      // Prefer the more specific ancestor when several supers of {@code a} also cover {@code b}.
-      if (best == null || ancestor.isSubClassOf(best)) {
-        best = ancestor;
-      }
-    }
-    return best;
+    return OrderClassResolver.labelClass(classNames, resolve);
   }
 
   @Override

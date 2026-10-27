@@ -10,8 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.OrderClassResolver;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
@@ -345,6 +347,9 @@ public class MatchExecutionPlanner {
    */
   private boolean promoteFilterRidsOnBuild = false;
 
+  // Only translator inputs enable ORDER BY-specific LINK inference in index-order detection.
+  private boolean translatedGremlin = false;
+
   /**
    * Aliases whose class was inferred from edge LINK schema rather than
    * explicitly declared. Inferred aliases must NOT outcompete explicit
@@ -556,12 +561,14 @@ public class MatchExecutionPlanner {
     // class inference into chained edges) and aliasFilters (for NOT-IN anti-join detection),
     // so without copies a second invocation would observe mutated state from the first.
     this.aliasClasses = new HashMap<>(inputs.aliasClasses());
+    this.orderCollationClasses = Map.copyOf(inputs.orderCollationClasses());
     this.aliasFilters = new HashMap<>(inputs.aliasFilters());
     // aliasPinnedRids starts empty and mutable; buildPatterns promotes the pre-built @rid /
     // @rid IN filters into it on this additive path (see promoteFilterRidsOnBuild), so RID-pinned
     // sources take the same fast path as the SQL path.
     this.aliasPinnedRids = new LinkedHashMap<>();
     this.promoteFilterRidsOnBuild = true;
+    this.translatedGremlin = true;
     // Shallow copies of the AST lists. Translator-built front-ends produce fresh AST
     // elements that are not shared with anyone else, so element-level deep copy (as the
     // (SQLMatchStatement) ctor does) is unnecessary; the list-level copy guards against
@@ -725,6 +732,7 @@ public class MatchExecutionPlanner {
       probeEdges = getTopologicalSortedSchedule(
           estimatedRootEntries, pattern, aliasClasses, aliasFilters,
           context.getDatabaseSession());
+      observeRootPlanning(estimatedRootEntries, aliasesToPrefetch, probeEdges);
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
       // Edge-free root: delegate property ordering to SELECT (IndexOrderedPlanner needs a hop).
@@ -1014,6 +1022,9 @@ public class MatchExecutionPlanner {
    * class the declaration comes from. An alias with no class constraint, or an item that is not one
    * plain property, takes the default collation.
    */
+  // Gremlin comparison metadata is independent of class filters and planner cost inputs.
+  private Map<String, List<String>> orderCollationClasses = Map.of();
+
   private void resolveOrderByCollations(CommandContext context) {
     if (orderBy == null || aliasClasses == null || aliasClasses.isEmpty()) {
       return;
@@ -1032,11 +1043,23 @@ public class MatchExecutionPlanner {
           returnNestedProjections.get(i)));
     }
     var projection = new SQLProjection(projectionItems, returnDistinct);
-    OrderByCollationResolver.resolveOnAliasClasses(
+    OrderByCollationResolver.resolveOnAliasClassSets(
         orderBy,
         alias -> {
+          var comparisonClasses = orderCollationClasses.get(alias);
+          if (comparisonClasses != null) {
+            return comparisonClasses.stream().map(schema::getClass)
+                .filter(java.util.Objects::nonNull).toList();
+          }
           var className = aliasClasses.get(alias);
-          return className == null ? null : schema.getClass(className);
+          var clazz = className == null ? null : schema.getClass(className);
+          if (clazz == null) {
+            return List.of();
+          }
+          var hierarchy = new ArrayList<SchemaClass>();
+          hierarchy.add(clazz);
+          hierarchy.addAll(clazz.getAllSubclasses());
+          return hierarchy;
         },
         projection);
   }
@@ -4191,8 +4214,8 @@ public class MatchExecutionPlanner {
    * {@code in}/{@code out} LINK schema.
    *
    * <p>{@code inV} reads the edge's {@code in} linked vertex class (target
-   * side); {@code outV} reads {@code out} (source side); {@code bothV} cannot
-   * be resolved from schema alone and returns {@code null}.
+   * side); {@code outV} reads {@code out} (source side). SQL cost inference
+   * conservatively leaves {@code bothV} unknown and returns {@code null}.
    *
    * <p>Shared by {@link #resolveChainedTarget} (precedence-2 fallback during
    * cost-fold class inference) and the {@code inV}/{@code outV} branch of
@@ -4224,7 +4247,7 @@ public class MatchExecutionPlanner {
     } else if ("outV".equalsIgnoreCase(vertexStepName)) {
       prop = "out";
     } else {
-      // bothV or any unrecognized step: cannot disambiguate from schema
+      // SQL cost inference leaves bothV and unrecognized steps unknown.
       return null;
     }
     return lookupLinkedVertexClass(edgeClassName, prop, session);
@@ -6972,59 +6995,14 @@ public class MatchExecutionPlanner {
   @Nullable static String inferClassFromEdgeSchema(
       @Nullable SQLMethodCall method, @Nullable String currentEdgeClass,
       CommandContext context) {
-    if (method == null) {
+    // SQL estimates keep bothV unknown. Symmetric endpoint inference belongs only to ordering.
+    if (method == null || "bothV".equalsIgnoreCase(method.getMethodNameString())) {
       return null;
     }
-    var dirName = method.getMethodNameString();
-    if (dirName == null) {
-      return null;
-    }
-    dirName = dirName.toLowerCase(Locale.ROOT);
-
-    // outE('X') / inE('X') / bothE('X'): the edge class itself is the alias class
-    if ("oute".equals(dirName) || "ine".equals(dirName) || "bothe".equals(dirName)) {
-      return extractEdgeClassName(method);
-    }
-
-    // inV() / outV(): look up the linked vertex class from the preceding edge.
-    // Delegates to the shared helper so this branch stays in lock-step with
-    // resolveChainedTarget's precedence-2 fallback (both resolve a vertex
-    // step against an edge schema; centralising avoids divergent logic).
-    if ("inv".equals(dirName) || "outv".equals(dirName)) {
-      return linkedVertexClassForVertexStep(
-          dirName, currentEdgeClass, context.getDatabaseSession());
-    }
-
-    // out('X') / in('X') / both('X'): infer the target vertex class from the
-    // edge LINK schema
-    if (!"in".equals(dirName) && !"out".equals(dirName)
-        && !"both".equals(dirName)) {
-      return null;
-    }
-
-    var edgeClassName = extractEdgeClassName(method);
-    if (edgeClassName == null) {
-      return null;
-    }
-
-    // both('X'): infer only when both endpoints resolve to the same vertex
-    // class. For symmetric edges (e.g. KNOWS: in=Person, out=Person) this
-    // returns Person; for heterogeneous edges (e.g. HAS_CREATOR: in=Post,
-    // out=Person) it returns null, because a single alias cannot safely
-    // represent both endpoint classes and an index lookup on the alias
-    // could miss records of the other class.
-    if ("both".equals(dirName)) {
-      var inClass = lookupLinkedVertexClass(edgeClassName, "in", context.getDatabaseSession());
-      var outClass = lookupLinkedVertexClass(edgeClassName, "out", context.getDatabaseSession());
-      if (inClass != null && inClass.equals(outClass)) {
-        return inClass;
-      }
-      return null;
-    }
-
-    // out('X') targets the "in" side; in('X') targets the "out" side
-    var targetPropName = "out".equals(dirName) ? "in" : "out";
-    return lookupLinkedVertexClass(edgeClassName, targetPropName, context.getDatabaseSession());
+    var session = context.getDatabaseSession();
+    return OrderClassResolver.inferHopClass(
+        method.getMethodNameString(), extractEdgeClassName(method), currentEdgeClass,
+        (edge, endpoint) -> edge == null ? null : lookupLinkedVertexClass(edge, endpoint, session));
   }
 
   /**
@@ -7195,6 +7173,11 @@ public class MatchExecutionPlanner {
     }
   }
 
+  /** Observation point for package-local tests of the actual pre-detection planner inputs. */
+  void observeRootPlanning(Map<String, Long> estimates, Set<String> prefetch,
+      List<EdgeTraversal> schedule) {
+  }
+
   /**
    * Thin adapter that constructs {@link IndexOrderedPlanner} from this planner's
    * state and runs detection. Kept as a separate method so the planner
@@ -7208,7 +7191,7 @@ public class MatchExecutionPlanner {
     return new IndexOrderedPlanner(
         pattern, aliasClasses, aliasFilters, aliasPinnedRids,
         orderBy, skip, limit, returnItems, returnAliases, returnDistinct,
-        returnElements, returnPaths, returnPatterns, returnPathElements)
+        returnElements, returnPaths, returnPatterns, returnPathElements, translatedGremlin)
         .detect(sortedEdges, context, estimatedRootEntries);
   }
 
