@@ -59,6 +59,74 @@ public class IndexOneValueTxTest extends DbTestBase {
     session.commit();
   }
 
+  /** The final RID remove cancels only the PUT after the barrier, in reads and at commit. */
+  @Test
+  public void wholeKeyRemovalThenPutAndRemoveStaysAbsentAfterCommit() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var rid = (RID) index.get(session, "alpha");
+    var tx = session.getActiveTransaction();
+    index.put(tx, "alpha", rid);
+    index.remove(tx, "alpha");
+    index.put(tx, "alpha", rid);
+    index.remove(tx, "alpha", rid);
+
+    assertWholeKeyRemovalReads(index, List.of());
+    assertNull(index.get(session, "alpha"));
+    session.commit();
+
+    session.begin();
+    assertWholeKeyRemovalReads(index, List.of());
+    assertNull(index.get(session, "alpha"));
+    session.rollback();
+  }
+
+  /** Removing an old RID after the barrier must not hide a different RID added after it. */
+  @Test
+  public void wholeKeyRemovalThenDifferentPutKeepsReplacementAfterCommit() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    var rid = (RID) index.get(session, "alpha");
+    var replacement = (RID) index.get(session, "beta");
+    var tx = session.getActiveTransaction();
+    index.put(tx, "alpha", rid);
+    index.remove(tx, "alpha");
+    index.put(tx, "alpha", replacement);
+    index.remove(tx, "alpha", rid);
+
+    assertWholeKeyRemovalReads(index, List.of(replacement));
+    assertEquals(replacement, index.get(session, "alpha"));
+    session.commit();
+
+    session.begin();
+    assertWholeKeyRemovalReads(index, List.of(replacement));
+    assertEquals(replacement, index.get(session, "alpha"));
+    session.rollback();
+  }
+
+  private void assertWholeKeyRemovalReads(Index index, List<RID> expected) {
+    try (var rids = index.getRids(session, "alpha")) {
+      assertEquals(expected, rids.toList());
+    }
+    for (var ascending : List.of(true, false)) {
+      try (var entries = index.streamEntries(session, List.of("alpha"), ascending)) {
+        assertEquals(expected, entries.map(RawPair::second).toList());
+      }
+      try (var entries =
+          index.streamEntriesBetween(session, "alpha", true, "alpha", true, ascending)) {
+        assertEquals(expected, entries.map(RawPair::second).toList());
+      }
+    }
+    try (var entries = index.stream(session)) {
+      assertEquals(expected, entries.filter(entry -> "alpha".equals(entry.first()))
+          .map(RawPair::second).toList());
+    }
+    try (var entries = index.descStream(session)) {
+      assertEquals(expected, entries.filter(entry -> "alpha".equals(entry.first()))
+          .map(RawPair::second).toList());
+    }
+  }
+
   /** A stale UNIQUE engine identifier recovers only through the descriptor owner. */
   @Test
   public void getRids_staleEngineIdentifier_recoversByDescriptorOwner() {
