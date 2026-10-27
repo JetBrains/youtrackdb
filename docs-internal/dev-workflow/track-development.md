@@ -17,8 +17,8 @@ after all unit and integration tests pass.
   Without an issue, CI leaves the title unchanged. Individual commit subjects need no issue number.
 - For multiple issues, list all issue IDs in the title, separated by commas and wrapped in
   square brackets: `[YTDB-123, YTDB-456] <summary>`.
-- CI forbids merge commits through `.github/workflows/block-merge-commits.yml`.
-  Each pull request merges as one squashed commit.
+- Pull requests merge into `develop` with a merge commit. Branches may contain merge commits,
+  for example a merge of `develop`. No CI check rejects them.
 - Use `--force-with-lease`, never `--force`, for force pushes.
 - The PR description uses `.github/pull_request_template.md`.
 - Add `[no-test-number-check]` to the PR title only for intentional test refactorings that
@@ -28,9 +28,12 @@ after all unit and integration tests pass.
 
 The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
 
-## Rebase conflict resolution
+## Merge and rebase conflict resolution
 
-When a rebase produces conflicts in prose-heavy files, reread every resolved file from start
+Follow the pinned Slate package's `docs/track-workflow.md` § Delivery history and accounting
+for branch updates and reviewed-history protection, and `docs/pr-publishing.md` for publishing.
+
+When a merge or rebase produces conflicts in prose-heavy files, reread every resolved file from start
 to end before continuing. Check the whole document, not just conflict hunks. Unchanged
 paragraphs can refer to rules renamed or removed on the other side.
 
@@ -41,11 +44,12 @@ the verification sets are computed, which gate runs when, and when a gate must b
 coverage measurement procedure — how to produce a coverage number, and how to tell a real pass
 from a vacuous one — is in `docs-internal/dev-workflow/coverage-verification.md`.
 
-Intermediate code-track commits do not reach `develop` individually. The pull request for the
-whole change merges as one squashed commit. Running unit tests and coverage checks on every
-commit adds delay without protecting a separately merged result. The compile gate runs on every
-applicable commit. The unit-test and coverage gate runs before each code track's agent code review.
-Re-run it before the closing event when anything but prose lands after it.
+Intermediate code-track commits reach `develop` history through the pull request's merge commit.
+The compile gate runs on every applicable commit. The unit-test and coverage gate runs before
+each code track's agent code review, so each reviewed track has a tested boundary without running
+those gates on every intermediate commit. Re-run it before the closing event when anything but
+prose lands after it. `git bisect` can stop on a branch commit that passed only the compile gate.
+Do not assume that every commit in `develop` history passed unit tests and coverage checks.
 
 ### Mid-track commit gate
 

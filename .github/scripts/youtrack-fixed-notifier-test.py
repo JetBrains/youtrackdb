@@ -16,7 +16,9 @@ import contextlib
 import importlib.util
 import os
 import pathlib
+import subprocess
 import sys
+import tempfile
 import urllib.request
 
 _MODULE_PATH = pathlib.Path(__file__).with_name("youtrack-fixed-notifier.py")
@@ -170,7 +172,7 @@ def test_extract_issue_ids_boundaries():
     # '_' is a word character too, so the trailing boundary also rejects this.
     check("no match with trailing underscore",
           notifier.extract_issue_ids(["YTDB-5_x: x"]) == [])
-    # An empty range (e.g. only merge commits, all filtered out) yields no IDs.
+    # An empty range yields no IDs.
     check("empty input", notifier.extract_issue_ids([]) == [])
     # A bare 'YTDB-' with no number must not match (the digit group is required).
     check("no digits after prefix",
@@ -216,6 +218,135 @@ def test_is_ancestor():
           notifier.is_ancestor("HEAD", "HEAD", _REPO_DIR) is True)
     check("unknown sha is not an ancestor",
           notifier.is_ancestor("0" * 40, "HEAD", _REPO_DIR) is False)
+
+
+# --- get_commit_titles (real temporary Git histories) ---------------------
+
+
+class GitHistory:
+    """Build isolated histories with real file commits and no external hooks."""
+
+    def __init__(self, root):
+        self.root = pathlib.Path(root)
+        self.sequence = 0
+        self.git("init", "--initial-branch=develop")
+        self.git("config", "user.name", "Notifier Test")
+        self.git("config", "user.email", "notifier@example.invalid")
+        self.commit("Initial history")
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
+            cwd=self.root, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+    def commit(self, title, body=None):
+        self.sequence += 1
+        # Unique files keep branch/base merges conflict-free.
+        (self.root / f"change-{self.sequence}").write_text(title + "\n")
+        self.git("add", ".")
+        args = ["commit", "-m", title]
+        if body is not None:
+            args.extend(["-m", body])
+        self.git(*args)
+        return self.git("rev-parse", "HEAD")
+
+    def merge(self, branch, title, body=None):
+        args = ["merge", "--no-ff", branch, "-m", title]
+        if body is not None:
+            args.extend(["-m", body])
+        self.git(*args)
+        return self.git("rev-parse", "HEAD")
+
+    def titles(self, start, end="HEAD"):
+        return notifier.get_commit_titles(start, end, str(self.root))
+
+
+def test_range_old_squash_history():
+    """A one-parent range keeps squash titles and exact issue IDs, excludes
+    its start commit and later body references, and skips revert titles."""
+    with tempfile.TemporaryDirectory(prefix="notifier-history-") as root:
+        history = GitHistory(root)
+        start = history.commit("YTDB-100: already deployed")
+        history.commit("[YTDB-101, ytdb-102] squash fix", "Details mention YTDB-900")
+        history.commit("Maintenance without an issue")
+        history.commit('Revert "YTDB-103: undone fix"')
+        history.commit("YTDB-101: follow-up (#123)")
+        check("squash range exact issues",
+              set(notifier.extract_issue_ids(history.titles(start)))
+              == {"YTDB-101", "YTDB-102"})
+        check("empty Git range", history.titles("HEAD") == [])
+
+
+def test_range_merge_subject_forms_and_nested_base_merge():
+    """PR titles in either subject form supply IDs exactly once. A branch
+    containing a merge of develop, branch-only issues, and later body issues
+    cannot leak IDs into the deployed first-parent range."""
+    with tempfile.TemporaryDirectory(prefix="notifier-history-") as root:
+        history = GitHistory(root)
+        start = history.git("rev-parse", "HEAD")
+        history.git("checkout", "-b", "title-pr")
+        history.commit("YTDB-901: branch implementation")
+        history.commit("Branch work without an issue")
+        history.git("checkout", "develop")
+        history.commit("YTDB-104: old squash on moved base")
+        history.git("checkout", "title-pr")
+        history.merge("develop", "Merge develop into title-pr")
+        history.commit("YTDB-902: after base update")
+        history.git("checkout", "develop")
+        first_merge = history.merge(
+            "title-pr", "[YTDB-105, YTDB-106] PR title", "Details mention YTDB-903"
+        )
+        history.git("checkout", "-b", "YTDB-904-default-pr")
+        history.commit("YTDB-905: another branch-only issue")
+        history.commit("More work without an issue")
+        history.git("checkout", "develop")
+        history.merge(
+            "YTDB-904-default-pr",
+            "Merge pull request #42 from owner/YTDB-904-default-pr",
+            "[YTDB-107] Default-form PR title\n\nDetails mention YTDB-906",
+        )
+        titles = history.titles(start)
+        check("both merge forms and nested base merge exact issues",
+              set(notifier.extract_issue_ids(titles))
+              == {"YTDB-104", "YTDB-105", "YTDB-106", "YTDB-107"})
+        check("one title per first-parent commit", len(titles) == 3)
+        check("range after first merge excludes earlier PRs",
+              set(notifier.extract_issue_ids(history.titles(first_merge))) == {"YTDB-107"})
+
+
+def test_range_grouped_queue_and_revert_prs():
+    """Several PR merges in one deployment range all count. Revert PRs in
+    both message forms, titleless default merges, and issue-free PRs contribute
+    no IDs, including IDs in source branch names and later body lines."""
+    with tempfile.TemporaryDirectory(prefix="notifier-history-") as root:
+        history = GitHistory(root)
+        start = history.git("rev-parse", "HEAD")
+        # Prepare independent PR heads before any of them land, like a queue.
+        for number in range(6):
+            history.git("checkout", "-b", f"pr-{number}", start)
+            history.commit(f"YTDB-{910 + number}: internal branch work")
+            history.commit("Issue-free internal work")
+        history.git("checkout", "develop")
+        history.merge("pr-0", "YTDB-108: queued title-form PR")
+        history.merge(
+            "pr-1", "Merge pull request #51 from owner/YTDB-920-branch",
+            "YTDB-109: queued default-form PR\n\nDetails mention YTDB-921",
+        )
+        history.merge("pr-2", 'Revert "YTDB-110: title-form PR"')
+        history.merge(
+            "pr-3", "Merge pull request #53 from owner/YTDB-922-revert",
+            'revert "YTDB-111: default-form PR"\n\nDetails mention YTDB-923',
+        )
+        history.merge("pr-4", "Merge pull request #54 from owner/YTDB-924-no-title")
+        history.merge(
+            "pr-5", "Merge pull request #55 from owner/YTDB-925-no-issue",
+            "Maintenance PR\n\nDetails mention YTDB-926",
+        )
+        titles = history.titles(start)
+        check("grouped queue exact issues, both revert forms skipped",
+              set(notifier.extract_issue_ids(titles)) == {"YTDB-108", "YTDB-109"})
+        check("queue has five nonempty PR titles", len(titles) == 5)
 
 
 # --- get_issue_state (the real parser, via a canned _request) --------------

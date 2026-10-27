@@ -1049,7 +1049,6 @@ jobs:
   # GATE JOB: CI STATUS
   # Reports success when every required test branch passes or has a permitted skip.
   # This workflow contributes `CI Status` to branch protection.
-  # The Block Merge Commits workflow contributes `check-merges`.
   # ------------------------------------------------------------------
   ci-status:
     name: CI Status
