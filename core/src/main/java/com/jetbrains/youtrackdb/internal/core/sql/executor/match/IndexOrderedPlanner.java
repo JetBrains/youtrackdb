@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexOrderCollations;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -172,12 +173,11 @@ public final class IndexOrderedPlanner {
    *   <li>The ORDER BY field resolves (through RETURN projection aliases) to
    *       {@code <alias>.<property>} where {@code <alias>} is a pattern alias</li>
    *   <li>The alias is the target of a simple (non-WHILE) edge in the schedule</li>
-   *   <li>An index exists on the target alias's class for that property, it carries the default
-   *       collate, its definition holds a single value rather than a collection, and it does not
+   *   <li>An index exists on the target alias's class for that property, its built-in collation
+   *       matches ORDER BY, it holds a single value rather than a collection, and it does not
    *       ignore null values — so the scan sequence equals the comparison sequence and keeps
    *       key-less rows</li>
-   *   <li>The ORDER BY item compares with the default collation too, stating none of its own and
-   *       declaring none in the schema</li>
+   *   <li>The ORDER BY item states no explicit COLLATE</li>
    *   <li>The edge traversal method is directional ({@code in()} or {@code out()},
    *       not {@code both()})</li>
    * </ol>
@@ -190,14 +190,12 @@ public final class IndexOrderedPlanner {
       List<EdgeTraversal> sortedEdges,
       CommandContext context,
       Map<String, Long> estimatedRootEntries) {
-    // 1. Edge-hop index ordering supports only the default collation. Explicit COLLATE remains
-    //    unsupported, and declared ci support for this path is deferred to YTDB-1459.
-    //    Under ci, case variants such as "Ada" and "ada" tie in both the index and ORDER BY.
+    // 1. Explicit COLLATE is unsupported. Resolved collation compatibility is checked below.
     if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
       return null;
     }
     var orderItem = orderBy.getItems().getFirst();
-    if (orderItem.getCollate() != null || !isDefaultCollate(orderItem.getDeclaredCollate())) {
+    if (orderItem.getCollate() != null) {
       return null;
     }
 
@@ -354,26 +352,19 @@ public final class IndexOrderedPlanner {
         continue;
       }
       var props = idx.getDefinition().getProperties();
-      // Single-field index matching the ORDER BY property
-      if (props.size() == 1 && props.iterator().next().equals(propertyName)) {
+      // A single-field index must scan in the sequence the ORDER BY comparison describes.
+      // Class narrowing above must not replace the resolved comparison with the narrowed
+      // property's schema collation. Multi-value definitions order elements rather than rows.
+      // Keep looking after a refusal because another index on this property may be compatible.
+      if (props.size() == 1 && props.iterator().next().equals(propertyName)
+          && IndexOrderCollations.matches(
+              idx.getDefinition().getCollate(), 0, orderItem.getDeclaredCollate())
+          && !isMultiValueDefinition(idx.getDefinition())) {
         matchedIndex = idx;
         break;
       }
     }
     if (matchedIndex == null) {
-      return null;
-    }
-    // 8a. The index must scan in the sequence the ORDER BY comparison describes.
-    //     Two definitions break that:
-    //     - A collate of its own. CREATE INDEX ... (name COLLATE ci) states one independently of the
-    //       property, so the sort item can resolve to the default collation while the stored keys
-    //       are folded. The scan order is then not the comparison order at all.
-    //     - A multi-value definition (a list, a set, a map, a link bag). It reports one property but
-    //       writes one entry per element, so the scan sequence is an element sequence and not a row
-    //       sequence, and one row comes back once per element.
-    var matchedDefinition = matchedIndex.getDefinition();
-    if (!isDefaultCollate(matchedDefinition.getCollate())
-        || isMultiValueDefinition(matchedDefinition)) {
       return null;
     }
 
@@ -476,6 +467,10 @@ public final class IndexOrderedPlanner {
     comparisonItem.setRecordAttr(propertyName);
     comparisonItem.setType(orderItem.getType());
     comparisonItem.setNullOrdering(orderItem.getNullOrdering());
+    // LOAD_SORT also claims pre-sorted output, so it must use the outer ORDER BY comparison.
+    comparisonItem.setDeclaredCollate(orderItem.getDeclaredCollate());
+    comparisonItem.setGremlinToMatchTranslatorProduced(
+        orderItem.isGremlinToMatchTranslatorProduced());
     // Read the placement through the session's plan-build scope, so this frozen pair is the pair the
     // plan cache stamps on the finished plan.
     var nullsPlacement = context.getDatabaseSession().getPlanNullPlacements().resolve();
@@ -567,8 +562,8 @@ public final class IndexOrderedPlanner {
    *   <li>The item direction equals the scan direction, because equal keys come back in scan
    *       direction and the mirrored appended item is the only one that describes them.
    *   <li>The primary item is the indexed property itself. Its comparison rule and the index key
-   *       comparison are both the default collation, which {@link #detect} has already established
-   *       for the whole candidate.
+   *       comparison use matching supported built-in collations (default/default or ci/ci), which
+   *       {@link #detect} has already established for the whole candidate.
    *   <li>A descending scan reaches no null key. Null keys live outside the sorted tree and are
    *       concatenated ascending at whichever end the direction asks for, so an ascending scan
    *       delivers that group exactly as the sort wants it while a descending scan would hand it
@@ -601,7 +596,7 @@ public final class IndexOrderedPlanner {
       return false;
     }
     // The primary item must be the indexed property itself. Its collation and the index collate are
-    // both pinned to the default one by detect, so no collation is re-checked here.
+    // matching supported built-ins as established by detect, so no collation is re-checked here.
     if (!propertyName.equals(indexedPropertyName(matchedIndex))) {
       return false;
     }
