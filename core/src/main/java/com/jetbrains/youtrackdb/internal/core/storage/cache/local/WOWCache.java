@@ -2149,6 +2149,256 @@ public final class WOWCache extends AbstractWriteCache
     return loadOrAddGapFillBranchInvocations.sum();
   }
 
+  /**
+   * Quarantines registered files without deleting their bytes. There is no production caller.
+   *
+   * <p>The caller must hold the storage state write lock and exclude all active access to the
+   * candidates. This method holds filesLock for write through cache removal, executor tasks and
+   * persistence. Executor tasks must never acquire filesLock or call locking public cache methods.
+   *
+   * @return the new quarantine directory, or null when the candidate set is empty
+   */
+  @Nullable public Path quarantineFiles(final java.util.Set<Long> fileIds,
+      final ReadCache readCache) throws IOException {
+    final boolean[] interrupted = {Thread.interrupted()};
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      checkNameIdMapAppendsAllowed();
+      if (fileIds.isEmpty()) {
+        return null;
+      }
+      final var internalIds = new IntOpenHashSet();
+      final var externalIds = new java.util.HashSet<Long>();
+      for (final long fileId : fileIds) {
+        final int internalId = extractFileId(fileId);
+        if (!idNameMap.containsKey(internalId) || internalId <= 0) {
+          throw new IOException("Not a registered file: " + fileId);
+        }
+        internalIds.add(internalId);
+        externalIds.add(composeFileId(id, internalId));
+      }
+      final var directory = createQuarantineDirectory();
+      readCache.clearFiles(externalIds, this);
+      awaitQuarantineTask(commitExecutor().submit(() -> {
+        purgeQuarantinePages(internalIds);
+        return null;
+      }), interrupted);
+
+      final var deleted = new ArrayList<NameFileIdEntry>();
+      final var previousNonDurable = nonDurableFileIds;
+      for (final int internalId : internalIds) {
+        final var record = awaitQuarantineTask(
+            commitExecutor().submit(() -> moveQuarantineFile(internalId, directory)), interrupted);
+        if (record != null) {
+          deleted.add(record);
+        }
+      }
+
+      // Caller interrupts cannot close channels used by the executor's persistence task.
+      awaitQuarantineTask(commitExecutor().submit(() -> {
+        syncQuarantineDirectory(storagePath);
+        syncQuarantineDirectory(directory.getParent());
+        syncQuarantineDirectory(directory);
+        if (previousNonDurable != nonDurableFileIds) {
+          try {
+            writeNonDurableRegistry();
+          } catch (IOException | RuntimeException | Error failure) {
+            stopNameIdMapWrites(failure);
+            throw failure;
+          }
+        }
+        appendDeletedEntries(deleted);
+        return null;
+      }), interrupted);
+      return directory;
+    } catch (IOException | RuntimeException | Error failure) {
+      logger.warn("File quarantine failed for storage {}", storagePath, failure);
+      throw failure;
+    } finally {
+      filesLock.releaseWriteLock();
+      if (interrupted[0]) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  <T> T awaitQuarantineTask(final Future<T> future, final boolean[] interrupted)
+      throws IOException {
+    while (true) {
+      try {
+        return future.get();
+      } catch (InterruptedException ignored) {
+        interrupted[0] = true;
+      } catch (ExecutionException failure) {
+        final var cause = failure.getCause();
+        if (cause instanceof IOException io) {
+          throw io;
+        }
+        if (cause instanceof Error error) {
+          throw error;
+        }
+        throw new IOException("Quarantine task failed", cause);
+      } finally {
+        // A completed future may return without consuming a pending interrupt.
+        if (Thread.interrupted()) {
+          interrupted[0] = true;
+        }
+      }
+    }
+  }
+
+  Path createQuarantineDirectory() throws IOException {
+    final var parent = storagePath.resolve("orphans");
+    Files.createDirectories(parent);
+    while (true) {
+      final var target = parent.resolve(quarantineFolderName());
+      try {
+        return Files.createDirectory(target);
+      } catch (java.nio.file.FileAlreadyExistsException collision) {
+        // A new random suffix is required even when the timestamp has not advanced.
+      }
+    }
+  }
+
+  String quarantineFolderName() {
+    return java.time.format.DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmssSSS'Z'")
+        .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now())
+        + "-" + java.util.UUID.randomUUID().toString().replace("-", "");
+  }
+
+  void syncQuarantineDirectory(final Path directory) throws IOException {
+    if (!IOUtils.isOsWindows()) {
+      try (final var channel = FileChannel.open(directory, StandardOpenOption.READ)) {
+        channel.force(true);
+      }
+    }
+  }
+
+  // The freshly created private directory and the state lock exclude competing target writers.
+  void renameQuarantineFile(final Path source, final Path target) throws IOException {
+    if (Files.exists(target, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+      throw new java.nio.file.FileAlreadyExistsException(target.toString());
+    }
+    Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+  }
+
+  NameFileIdEntry moveQuarantineFile(final int internalId, final Path directory)
+      throws IOException {
+    final long externalId = composeFileId(id, internalId);
+    final var file = files.get(externalId);
+    final var logicalName = idNameMap.get(internalId);
+    final var diskName = file.getName();
+    final var target = directory.resolve(diskName);
+    if (!files.close(externalId)) {
+      throw new IOException("Cannot close quarantine candidate " + externalId);
+    }
+    try {
+      renameQuarantineFile(storagePath.resolve(diskName), target);
+    } catch (IOException renameFailure) {
+      try {
+        // Reopen through the container so its open-count and entry state remain consistent.
+        final var restored = files.acquire(externalId);
+        if (restored == null) {
+          throw new IOException("Missing container entry for " + externalId);
+        }
+        files.release(restored);
+      } catch (Exception restoreFailure) {
+        restoreFailure.addSuppressed(renameFailure);
+        throw new IOException("Cannot restore quarantine candidate " + externalId, restoreFailure);
+      }
+      logger.warn("Cannot quarantine logical={}, disk={}, id={}, target={}",
+          logicalName, diskName, externalId, target, renameFailure);
+      return null;
+    }
+    files.remove(externalId);
+    idNameMap.remove(internalId);
+    nameIdMap.put(logicalName, -internalId);
+    idNameMap.put(-internalId, logicalName);
+    if (nonDurableFileIds.contains(internalId)) {
+      final var updated = new IntOpenHashSet(nonDurableFileIds);
+      updated.remove(internalId);
+      nonDurableFileIds = updated;
+    }
+    logger.warn("Quarantined logical={}, disk={}, id={}, target={}",
+        logicalName, diskName, externalId, target);
+    return new NameFileIdEntry(logicalName, -internalId, diskName);
+  }
+
+  void purgeQuarantinePages(final IntOpenHashSet internalIds) {
+    // One write-cache scan. No candidate can gain new references under the state write lock.
+    final var iterator = writeCachePages.entrySet().iterator();
+    while (iterator.hasNext()) {
+      final var entry = iterator.next();
+      final var key = entry.getKey();
+      if (!internalIds.contains(key.fileId)) {
+        continue;
+      }
+      final var pointer = entry.getValue();
+      final var groupLock = lockManager.acquireExclusiveLock(key);
+      try {
+        final long stamp = pointer.acquireExclusiveLock();
+        try {
+          pointer.setWritersListener(null);
+          removeExclusiveWritePage(key);
+          writeCacheSize.decrementAndGet();
+          removeFromDirtyPages(key);
+        } finally {
+          pointer.releaseExclusiveLock(stamp);
+        }
+        pointer.decrementWritersReferrer();
+        iterator.remove();
+      } finally {
+        groupLock.unlock();
+      }
+    }
+    for (final var key : exclusiveWritePages) {
+      if (internalIds.contains(key.fileId) && !writeCachePages.containsKey(key)) {
+        removeExclusiveWritePage(key);
+      }
+    }
+    final var externalIds = new java.util.HashSet<Long>();
+    for (final int internalId : internalIds) {
+      externalIds.add(composeFileId(id, internalId));
+    }
+    pageWriteTracker.discardPages(externalIds);
+  }
+
+  void appendDeletedEntries(final List<NameFileIdEntry> entries) throws IOException {
+    checkNameIdMapAppendsAllowed();
+    if (entries.isEmpty()) {
+      return;
+    }
+    try {
+      final var records = new ArrayList<ByteBuffer>(entries.size());
+      for (final var entry : entries) {
+        records.add(NameIdMapFile.encode(entry, storageName));
+      }
+      appendMapBatch(nameIdMapHolderPath, records, true);
+      appendMapBatch(storagePath.resolve(NAME_ID_MAP_V3_BACKUP), records, false);
+    } catch (RuntimeException failure) {
+      stopNameIdMapWrites(failure);
+      throw new IOException("Failed to append deleted file records", failure);
+    } catch (IOException | Error failure) {
+      stopNameIdMapWrites(failure);
+      throw failure;
+    }
+  }
+
+  void appendMapBatch(final Path path, final List<ByteBuffer> records, final boolean force)
+      throws IOException {
+    try (final var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+      long position = channel.size();
+      for (final var record : records) {
+        IOUtils.writeByteBuffer(record.duplicate(), channel, position);
+        position += record.remaining();
+      }
+      if (force) {
+        channel.force(true);
+      }
+    }
+  }
+
   @Override
   public void deleteFile(final long fileId) throws IOException {
     final var intId = extractFileId(fileId);

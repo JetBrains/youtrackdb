@@ -130,6 +130,14 @@ public interface ReadCache {
 
   void deleteFile(long fileId, WriteCache writeCache) throws IOException;
 
+  /**
+   * Clears pages for the supplied external file ids in one sweep.
+   * The caller must exclude all access to these files with the storage state write lock.
+   */
+  default void clearFiles(java.util.Set<Long> fileIds, WriteCache writeCache) {
+    throw new UnsupportedOperationException("File-set cache removal is not supported");
+  }
+
   void deleteStorage(WriteCache writeCache) throws IOException;
 
   /**

@@ -7,10 +7,28 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import java.util.Set;
 import org.junit.Test;
 
 /** Tests success-based recovery protection for copied and failed page writes. */
 public class PageWriteTrackerTest {
+
+  /** Bulk discard removes every candidate incarnation and keeps unrelated recovery requirements. */
+  @Test
+  public void bulkDiscardKeepsNonCandidateRequirements() {
+    final var tracker = new PageWriteTracker();
+    tracker.pageCopyStarted(pointer(7, 0), new LogSequenceNumber(1, 10));
+    tracker.pageCopyStarted(pointer(7, 1), new LogSequenceNumber(1, 20));
+    tracker.pageCopyStarted(pointer(8, 0), new LogSequenceNumber(1, 30));
+    final var retainedLsn = new LogSequenceNumber(2, 10);
+    final var retained = tracker.pageCopyStarted(pointer(9, 0), retainedLsn);
+
+    tracker.discardPages(Set.of(7L, 8L));
+
+    assertEquals(retainedLsn, tracker.earliestNotWrittenLsn());
+    tracker.pageWriteCompleted(retained);
+    assertNull(tracker.earliestNotWrittenLsn());
+  }
 
   /** A failed copy remains protected until a later copy of the same page succeeds. */
   @Test
