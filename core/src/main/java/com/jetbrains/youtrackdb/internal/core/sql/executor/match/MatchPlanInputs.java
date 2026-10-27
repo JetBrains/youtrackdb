@@ -44,6 +44,7 @@ import javax.annotation.Nonnull;
 public record MatchPlanInputs(
     @Nonnull Pattern pattern,
     Map<String, String> aliasClasses,
+    Map<String, List<String>> orderCollationClasses,
     Map<String, SQLWhereClause> aliasFilters,
     List<SQLMatchExpression> matchExpressions,
     List<SQLMatchExpression> notMatchExpressions,
@@ -70,6 +71,7 @@ public record MatchPlanInputs(
   public MatchPlanInputs {
     Objects.requireNonNull(pattern, "pattern must not be null");
     aliasClasses = aliasClasses == null ? Map.of() : aliasClasses;
+    orderCollationClasses = orderCollationClasses == null ? Map.of() : orderCollationClasses;
     aliasFilters = aliasFilters == null ? Map.of() : aliasFilters;
     matchExpressions = matchExpressions == null ? List.of() : matchExpressions;
     notMatchExpressions = notMatchExpressions == null ? List.of() : notMatchExpressions;
@@ -100,7 +102,8 @@ public record MatchPlanInputs(
   /** Copies all inputs so projection-only rewrites cannot lose detached checks. */
   public Builder toBuilder() {
     return new Builder(pattern)
-        .aliasClasses(aliasClasses).aliasFilters(aliasFilters)
+        .aliasClasses(aliasClasses).orderCollationClasses(orderCollationClasses)
+        .aliasFilters(aliasFilters)
         .matchExpressions(matchExpressions).notMatchExpressions(notMatchExpressions)
         .existsMatchExpressions(existsMatchExpressions).booleanCheck(booleanCheck)
         .returnItems(returnItems).returnAliases(returnAliases)
@@ -131,6 +134,7 @@ public record MatchPlanInputs(
 
     private final Pattern pattern;
     private Map<String, String> aliasClasses;
+    private Map<String, List<String>> orderCollationClasses;
     private Map<String, SQLWhereClause> aliasFilters;
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
@@ -156,6 +160,12 @@ public record MatchPlanInputs(
 
     public Builder aliasClasses(Map<String, String> aliasClasses) {
       this.aliasClasses = aliasClasses;
+      return this;
+    }
+
+    /** Class choices for Gremlin ORDER BY only. These do not constrain pattern aliases. */
+    public Builder orderCollationClasses(Map<String, List<String>> classes) {
+      this.orderCollationClasses = classes;
       return this;
     }
 
@@ -254,6 +264,7 @@ public record MatchPlanInputs(
       return new MatchPlanInputs(
           pattern,
           aliasClasses,
+          orderCollationClasses,
           aliasFilters,
           matchExpressions,
           notMatchExpressions,

@@ -327,6 +327,7 @@ public final class IndexOrderedPlanner {
         aliasClasses.put(targetAlias, inferred);
       }
     }
+    // LINK inference supplies prefetch and later cost inputs before index collation matching.
     if (targetClassName == null) {
       return null;
     }

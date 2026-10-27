@@ -1467,6 +1467,7 @@ final class GremlinStepWalker {
     var inputs =
         MatchPlanInputs.builder(ir.pattern())
             .aliasClasses(ir.aliasClasses())
+            .orderCollationClasses(ctx.orderCollationClasses)
             .aliasFilters(finalAliasFilters)
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))

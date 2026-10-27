@@ -28,6 +28,21 @@ import org.junit.Test;
  */
 public class GremlinPlanFingerprintTest {
 
+  /** Alias and hierarchy iteration order cannot split equivalent comparison contracts. */
+  @Test
+  public void comparisonClasses_useDeterministicAliasAndClassOrder() {
+    var first = new java.util.LinkedHashMap<String, List<String>>();
+    first.put("b", List.of("Child", "Parent"));
+    first.put("a", List.of("Other"));
+    var second = new java.util.LinkedHashMap<String, List<String>>();
+    second.put("a", List.of("Other"));
+    second.put("b", List.of("Parent", "Child"));
+    var left = MatchPlanInputs.builder(new Pattern()).orderCollationClasses(first).build();
+    var right = MatchPlanInputs.builder(new Pattern()).orderCollationClasses(second).build();
+    assertThat(GremlinPlanFingerprint.fingerprint(left, ResultShaping.NONE))
+        .isEqualTo(GremlinPlanFingerprint.fingerprint(right, ResultShaping.NONE));
+  }
+
   /**
    * Nested projections are carried in {@link MatchPlanInputs#returnNestedProjections()} and affect
    * the planner's output shaping. Two MATCH inputs that differ only in the nested projection must
