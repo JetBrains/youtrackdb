@@ -14,9 +14,6 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
@@ -76,7 +73,7 @@ public class LinkCollectionsBTreeManagerSharedAllocatorCrashRecoveryIT {
                 .createBTree(collectionId, operation, session));
         assertEquals(-1L, pointer.linkBagId());
         storage.getWALInstance().flush();
-        copyDirtyStorage(sourcePath, recoveredPath);
+        WalTestUtils.copyDirtyStorage(sourcePath, recoveredPath);
       });
     }
 
@@ -90,27 +87,6 @@ public class LinkCollectionsBTreeManagerSharedAllocatorCrashRecoveryIT {
           operation -> session.getBTreeCollectionManager()
               .createBTree(collectionId, operation, session));
       assertEquals(-2L, pointer.linkBagId());
-    }
-  }
-
-  private static void copyDirtyStorage(Path source, Path target) throws IOException {
-    FileUtils.deleteDirectory(target.toFile());
-    Files.createDirectory(target);
-
-    try (var files = Files.list(source)) {
-      for (var sourceFile : files.toList()) {
-        var fileName = sourceFile.getFileName().toString();
-        if (fileName.equals("dirty.fl") || fileName.equals("dirty.flb")) {
-          continue;
-        }
-        try {
-          Files.copy(sourceFile, target.resolve(fileName));
-        } catch (NoSuchFileException missingFile) {
-          if (!fileName.endsWith(".dwl")) {
-            throw missingFile;
-          }
-        }
-      }
     }
   }
 }
