@@ -503,7 +503,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         assertThat(extraction.nativeOperands()).hasSize(2);
         assertThat(extraction.hasContributions().get(1).slots()).isEmpty();
         var missing = new GremlinShapeExtractor.Extraction(extraction.key(), extraction.bindings(),
-            true, extraction.hasContributions(), List.of(), false);
+            true, extraction.hasContributions(), List.of(), false, 0);
         assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), missing)).isNull();
         assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), extraction)).isNotNull();
         assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(runNativeHop(shape));
