@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mark YouTrack issues fixed for the commits in a deployed range.
 
-Walks the commit titles in a git range (typically "since the last
+Walks the first-parent titles in a git range (typically "since the last
 successful deploy" .. "the commit this run deployed"), extracts every
 YTDB issue reference, and for each referenced issue:
 
@@ -18,7 +18,9 @@ Issue references are matched as `YTDB-<n>` (case-insensitive) anywhere in
 a commit title, which covers all the shapes the repo produces:
 `YTDB-123: ...`, `[YTDB-123] ...`, and the comma-separated pair
 `YTDB-123, YTDB-456: ...`. Duplicate references across the range are
-processed once. A commit whose subject begins with `revert ` (matched
+processed once. For a GitHub default merge subject, the PR title is read
+from the first body line instead. Branch commits and later body lines do not
+supply issue references. A PR title that begins with `revert ` (matched
 case-insensitively) is skipped: reverting a change undoes it, so it must not
 re-mark the reverted issue as fixed (git and GitHub produce the canonical
 `Revert "<subject>"` form; the case-insensitive match also catches a
@@ -131,15 +133,31 @@ def is_ancestor(from_sha, to_sha, repo_dir):
 
 
 def get_commit_titles(from_sha, to_sha, repo_dir):
-    """Return the subject line of every non-merge commit in from..to."""
+    """Return one PR title per first-parent commit in from..to.
+
+    A GitHub default merge message puts the PR title on the first body line.
+    Its subject names the source branch, which must not supply issue IDs.
+    """
     result = subprocess.run(
-        ["git", "log", f"{from_sha}..{to_sha}", "--no-merges", "--format=%s"],
+        ["git", "log", f"{from_sha}..{to_sha}", "--first-parent",
+         "-z", "--format=%s%x00%b"],
         cwd=repo_dir,
         check=True,
         capture_output=True,
         text=True,
     )
-    return [line for line in result.stdout.splitlines() if line.strip()]
+    # NUL separates subjects, bodies and commits without treating body lines
+    # as extra titles. Git commit messages cannot contain NUL bytes.
+    fields = result.stdout.split("\0")
+    titles = []
+    for subject, body in zip(fields[::2], fields[1::2]):
+        if re.fullmatch(r"Merge pull request #\d+ from \S+/\S+", subject):
+            title = body.splitlines()[0] if body else ""
+        else:
+            title = subject
+        if title.strip():
+            titles.append(title)
+    return titles
 
 
 class YouTrackError(Exception):
