@@ -45,8 +45,11 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       subclass-expanded under polymorphic mode). Disjoint trees under {@code V} keep the {@code V}
  *       root and the IN filter alone. Two conflicting {@code ~label} containers decline (one MATCH
  *       node has one class);
- *   <li>a {@code ~id} container ({@code T.id} accessor) contributes an {@code @rid IN [...]} filter
- *       via the record-attribute builder shared with {@link StartStepRecogniser}. {@code hasId} is set
+ *   <li>an eligible root {@code ~id} container ({@code T.id} accessor) binds its RID as parameter
+ *       slot zero. It adds no {@code @rid IN} filter and does not call {@code markRidBearing}.
+ *       Its runtime-start plan may be cached. Other {@code ~id} containers contribute an
+ *       {@code @rid IN [...]} filter via the builder shared with {@link StartStepRecogniser}.
+ *       {@code hasId} is set
  *       membership, so a repeated id ({@code hasId(a, a)}) does <em>not</em> decline (unlike {@code
  *       g.V(ids)} seek semantics) — it calls {@link StartStepRecogniser#toRecordIds} without the
  *       duplicate decline;
@@ -303,6 +306,12 @@ final class HasStepRecogniser implements StepRecogniser {
         continue;
       }
       if (ID_KEY.equals(key)) {
+        var runtimeStart = ctx.runtimeRidStart();
+        if (!deferred && runtimeStart != null && runtimeStart.idContainer() == container) {
+          // Ordinary recognition has validated the current alias before preparing contributions.
+          ctx.bindRuntimeRidStart(ctx.boundaryAlias());
+          continue;
+        }
         ctx.markRidBearing();
         cacheSafe = false;
         var ridExpr = translateHasId(container);
@@ -679,7 +688,15 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       if (ID_KEY.equals(key)) {
         encoder.appendToken("id");
-        encoder.appendPredicate(container.getPredicate(), true);
+        var runtimeStart = encoder.runtimeRidStart();
+        if (runtimeStart != null && runtimeStart.idContainer() == container) {
+          // Eligibility admits only equality. Keep its operator, but never encode the live value.
+          encoder.appendToken("bi", Compare.eq.getClass().getName());
+          encoder.appendToken(String.valueOf(Compare.eq));
+          encoder.appendRuntimeRidStart();
+        } else {
+          encoder.appendPredicate(container.getPredicate(), true);
+        }
         continue;
       }
       encoder.appendToken(key == null ? "" : key);

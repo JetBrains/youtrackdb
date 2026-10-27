@@ -5,57 +5,62 @@ import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import org.junit.Test;
 
-/** Direct tests of lazy shared-plan tracking and identity-based ownership. */
+/** Captured cache permission is separate from immutable physical-plan ownership provenance. */
 public class GremlinCacheScopeTest {
 
-  /** Creating a scope and checking an unrecorded plan must not allocate the identity set. */
+  /** Scope generation and permission remain fixed independently of a private fixture holder. */
   @Test
-  public void ownershipCheckBeforeRecordingDoesNotAllocate() {
+  public void scopeRetainsCapturedGenerationAndPermission() {
     var scope = new GremlinToMatchStrategy.CacheScope(7, true);
-    var plan = mock(InternalExecutionPlan.class);
-    assertThat(scope.hasSharedPlanSet()).isFalse();
-    assertThat(scope.isShared(plan)).isFalse();
-    assertThat(scope.hasSharedPlanSet()).isFalse();
+    var owned = GremlinPlanCache.Entry.owned(mock(InternalExecutionPlan.class), scope.generation);
+    assertThat(scope.generation).isEqualTo(7);
+    assertThat(scope.eligible).isTrue();
+    assertThat(owned.generation).isEqualTo(7);
+    assertThat(owned.sharedPlanTemplate).isFalse();
   }
 
-  /** Recording creates the set, retains exact templates, and excludes an equal private copy. */
+  /** Value-equal private copies never inherit a publication's provenance, even after eviction. */
   @Test
-  public void recordedTemplatesAreSharedButTheirCopiesArePrivate() {
-    var scope = new GremlinToMatchStrategy.CacheScope(7, true);
+  public void publishedHolderStaysSharedAndEqualPrivateCopyStaysOwned() {
+    var db = mock(DatabaseSessionEmbedded.class);
+    var cache = new GremlinPlanCache(8);
     var template = new ValueEqualPlan(new BasicCommandContext(), "template");
-    assertThat(scope.shared(template)).isSameAs(template);
-    assertThat(scope.hasSharedPlanSet()).isTrue();
-    assertThat(scope.isShared(template)).isTrue();
-    var privateCopy = template.copy(new BasicCommandContext());
-    assertThat(privateCopy).isNotSameAs(template).isEqualTo(template);
-    assertThat(template).isEqualTo(privateCopy);
-    assertThat(privateCopy.hashCode()).isEqualTo(template.hashCode());
-    assertThat(scope.isShared(privateCopy)).isFalse();
-    var otherTemplate = new ValueEqualPlan(new BasicCommandContext(), "other");
-    assertThat(scope.shared(otherTemplate)).isSameAs(otherTemplate);
-    assertThat(scope.isShared(template)).isTrue();
-    assertThat(scope.isShared(otherTemplate)).isTrue();
+    var generation = cache.getGeneration();
+    cache.putInternal("key", template, db, generation);
+    var shared = cache.peekEntry("key", generation);
+    assertThat(shared).isNotNull();
+    assertThat(shared.sharedPlanTemplate).isTrue();
+    var privateCopy = shared.value.copy(new BasicCommandContext());
+    assertThat(privateCopy).isNotSameAs(shared.value).isEqualTo(shared.value);
+    assertThat(shared.value).isEqualTo(privateCopy);
+    assertThat(privateCopy.hashCode()).isEqualTo(shared.value.hashCode());
+    var owned = GremlinPlanCache.Entry.owned(privateCopy, generation);
+    assertThat(owned.sharedPlanTemplate).isFalse();
+    cache.invalidate();
+    assertThat(cache.peekEntry("key", generation)).isNull();
+    assertThat(shared.sharedPlanTemplate).isTrue();
+    assertThat(owned.sharedPlanTemplate).isFalse();
   }
 
-  /** An ineligible scope must deny shared ownership both before and after an explicit record. */
+  /** Denying cache access does not change ownership of a separately returned private fixture. */
   @Test
-  public void ineligibleScopeNeverReportsSharedOwnership() {
+  public void ineligibleScopeKeepsPermissionSeparateFromOwnership() {
     var scope = new GremlinToMatchStrategy.CacheScope(7, false);
     var plan = mock(InternalExecutionPlan.class);
-    assertThat(scope.isShared(plan)).isFalse();
-    assertThat(scope.hasSharedPlanSet()).isFalse();
-    assertThat(scope.shared(plan)).isSameAs(plan);
-    assertThat(scope.hasSharedPlanSet()).isTrue();
-    assertThat(scope.isShared(plan)).isFalse();
+    var owned = GremlinPlanCache.Entry.owned(plan, scope.generation);
+    assertThat(scope.eligible).isFalse();
+    assertThat(scope.generation).isEqualTo(7);
+    assertThat(owned.value).isSameAs(plan);
+    assertThat(owned.sharedPlanTemplate).isFalse();
   }
 
-  /** Real plans with value equality distinguish identity tracking from equality-based sets. */
+  /** Real plans with value equality make accidental equality-based sharing observable. */
   private static final class ValueEqualPlan extends SelectExecutionPlan {
-
     private final String key;
 
     private ValueEqualPlan(CommandContext ctx, String key) {
@@ -66,6 +71,11 @@ public class GremlinCacheScopeTest {
     @Override
     public InternalExecutionPlan copy(CommandContext ctx) {
       return new ValueEqualPlan(ctx, key);
+    }
+
+    @Override
+    public void close() {
+      // This equality-only fixture has no execution steps or resources to release.
     }
 
     @Override

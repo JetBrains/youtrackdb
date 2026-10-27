@@ -1,8 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStart;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStartTestFactory;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -58,7 +62,7 @@ public class MatchExecutionPlannerInputsTest {
     var inputs =
         new MatchPlanInputs(
             new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
-            null, null, false, false, false, false, false);
+            null, null, false, false, false, false, false, null);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
@@ -67,6 +71,7 @@ public class MatchExecutionPlannerInputsTest {
     assertThat(inputs.returnItems()).isEmpty();
     assertThat(inputs.returnAliases()).isEmpty();
     assertThat(inputs.returnNestedProjections()).isEmpty();
+    assertThat(inputs.runtimeRidStarts()).isEmpty();
   }
 
   /**
@@ -117,7 +122,8 @@ public class MatchExecutionPlannerInputsTest {
             /* returnElements */ false,
             /* returnPaths */ false,
             /* returnPatterns */ false,
-            /* returnPathElements */ false);
+            /* returnPathElements */ false,
+            /* runtimeRidStarts */ null);
 
     assertThat(inputs.returnItems()).hasSize(3);
     assertThat(inputs.returnAliases()).hasSize(3);
@@ -234,6 +240,102 @@ public class MatchExecutionPlannerInputsTest {
     // check only) could not catch.
     assertThat(planner.returnNestedProjections).containsExactly(proj1, proj2);
     assertThat(getAliasFilters(planner)).hasSize(1);
+  }
+
+  /** Runtime starts are immutable, copied on construction and included in record equality. */
+  @Test
+  public void runtimeStarts_areImmutableAndPartOfEquality() {
+    var pattern = new Pattern();
+    var descriptor = RuntimeRidStartTestFactory.create("a", "Person", 0);
+    var caller = new HashMap<String,
+        com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.RuntimeRidStart>();
+    caller.put("a", descriptor);
+    var inputs = MatchPlanInputs.builder(pattern).runtimeRidStarts(caller).build();
+    caller.clear();
+    assertThat(inputs.runtimeRidStarts()).containsEntry("a", descriptor);
+    assertThatExceptionOfType(UnsupportedOperationException.class)
+        .isThrownBy(() -> inputs.runtimeRidStarts().clear());
+    assertThat(inputs).isEqualTo(MatchPlanInputs.builder(pattern)
+        .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "Person", 0)))
+        .build());
+    assertThat(inputs).isNotEqualTo(MatchPlanInputs.builder(pattern).build());
+    // Each field must participate in record equality even when both maps have one entry.
+    assertThat(inputs).as("different slot").isNotEqualTo(MatchPlanInputs.builder(pattern)
+        .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "Person", 1)))
+        .build());
+    assertThat(inputs).as("different class").isNotEqualTo(MatchPlanInputs.builder(pattern)
+        .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "V", 0)))
+        .build());
+    assertThat(inputs).as("different alias with matching key")
+        .isNotEqualTo(MatchPlanInputs.builder(pattern)
+            .runtimeRidStarts(Map.of("b", RuntimeRidStartTestFactory.create("b", "Person", 0)))
+            .build());
+  }
+
+  /** Null map entries and inconsistent aliases fail when constructing the input. */
+  @Test
+  public void runtimeStarts_rejectInvalidMapEntries() {
+    assertThatNullPointerException()
+        .isThrownBy(() -> MatchPlanInputs.builder(new Pattern())
+            .runtimeRidStarts(java.util.Collections.singletonMap("a", null)).build())
+        .withMessageContaining("descriptor");
+    assertThatNullPointerException()
+        .isThrownBy(() -> MatchPlanInputs.builder(new Pattern())
+            .runtimeRidStarts(java.util.Collections.singletonMap(null,
+                RuntimeRidStartTestFactory.create("a", "V", 0)))
+            .build())
+        .withMessageContaining("map alias");
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> MatchPlanInputs.builder(new Pattern())
+            .runtimeRidStarts(Map.of("b", RuntimeRidStartTestFactory.create("a", "V", 0)))
+            .build())
+        .withMessageContaining("does not match");
+  }
+
+  /** A matching alias and class retain the descriptor and its parameter slot in the planner. */
+  @Test
+  public void plannerCtor_runtimeStart_acceptedForMatchingPatternAliasAndClass() {
+    var pattern = new Pattern();
+    var node = new PatternNode();
+    node.alias = "a";
+    pattern.aliasToNode.put("a", node);
+    var descriptor = RuntimeRidStartTestFactory.create("a", "V", 3);
+    var input = MatchPlanInputs.builder(pattern)
+        .aliasClasses(Map.of("a", "V"))
+        .runtimeRidStarts(Map.of("a", descriptor))
+        .build();
+    Map<String, RuntimeRidStart> retained =
+        readField(new MatchExecutionPlanner(input), "runtimeRidStarts");
+    assertThat(retained).containsExactly(Map.entry("a", descriptor));
+  }
+
+  /** More than one source, a missing alias, or a class mismatch cannot honor the descriptor. */
+  @Test
+  public void plannerCtor_runtimeStart_rejectsInvalidSource() {
+    var pattern = new Pattern();
+    var node = new PatternNode();
+    node.alias = "a";
+    pattern.aliasToNode.put("a", node);
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "V", "b", "V"))
+            .runtimeRidStarts(Map.of(
+                "a", RuntimeRidStartTestFactory.create("a", "V", 0),
+                "b", RuntimeRidStartTestFactory.create("b", "V", 1)))
+            .build()))
+        .withMessageContaining("only one");
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("b", "V"))
+            .runtimeRidStarts(Map.of("b", RuntimeRidStartTestFactory.create("b", "V", 0)))
+            .build()))
+        .withMessageContaining("not in the pattern");
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> new MatchExecutionPlanner(MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "Person"))
+            .runtimeRidStarts(Map.of("a", RuntimeRidStartTestFactory.create("a", "V", 0)))
+            .build()))
+        .withMessageContaining("class differs");
   }
 
   // ─────────────── Planner ctor — defensive-copy independence (3 maps) ──────────────────
