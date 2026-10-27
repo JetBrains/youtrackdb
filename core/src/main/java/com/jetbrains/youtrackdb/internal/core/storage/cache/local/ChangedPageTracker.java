@@ -456,6 +456,17 @@ public final class ChangedPageTracker {
     return pendingResetId;
   }
 
+  /** Capture once so file removal cannot change an in-progress candidate stream. */
+  @Nullable FileBitmap candidateBitmap(SealedGeneration boundary, int fileId) {
+    checkFileId(fileId);
+    generationState.lock();
+    try {
+      return sealed == boundary ? boundary.pages().files.get(fileId) : null;
+    } finally {
+      generationState.unlock();
+    }
+  }
+
   void validateBoundary(SealedGeneration boundary) {
     requireSaveOrder();
     generationState.lock();
@@ -876,6 +887,13 @@ public final class ChangedPageTracker {
       segments = new RadixTree(allocations);
     }
 
+    void forEachCandidate(long upperBound, ChangedPageTrackerBackup.CandidateConsumer consumer)
+        throws IOException {
+      if (upperBound > 0) {
+        RadixTree.candidates(segments.root.get(), 0, upperBound, consumer);
+      }
+    }
+
     private void or(long wordIndex, long bits) {
       if (!identity.valid) {
         return;
@@ -1022,6 +1040,45 @@ public final class ChangedPageTracker {
         node = child;
       }
       return node.slots;
+    }
+
+    /**
+     * At most six radix frames cover every nonnegative long page index. The captured sealed
+     * bitmap is immutable even if its file identity is invalidated during the callback.
+     */
+    private static void candidates(Node node, long prefix, long upperBound,
+        ChangedPageTrackerBackup.CandidateConsumer consumer) throws IOException {
+      for (int index = 0; index < 256; index++) {
+        long key = prefix | ((long) index << node.shift);
+        if (key > ((upperBound - 1) >>> 15)) {
+          return;
+        }
+        var value = node.slots.get(index);
+        if (value == null) {
+          continue;
+        }
+        if (node.shift > 0) {
+          candidates((Node) value, key, upperBound, consumer);
+          continue;
+        }
+        var segment = (long[]) value;
+        long base = key << 15;
+        for (int word = 0; word < SEGMENT_WORDS; word++) {
+          long pageBase = base + ((long) word << 6);
+          if (pageBase >= upperBound) {
+            return;
+          }
+          long remaining = (long) WORD.getVolatile(segment, word);
+          while (remaining != 0) {
+            long page = pageBase + Long.numberOfTrailingZeros(remaining);
+            if (page >= upperBound) {
+              return;
+            }
+            consumer.accept(page);
+            remaining &= remaining - 1;
+          }
+        }
+      }
     }
 
     private void visit(EntryConsumer consumer) {

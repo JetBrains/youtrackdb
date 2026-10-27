@@ -39,6 +39,12 @@ public final class ChangedPageTrackerBackup {
     NEW_BOUNDARY, PENDING_SEAL
   }
 
+  /** Primitive page callback. An I/O failure stops streaming and propagates unchanged. */
+  @FunctionalInterface
+  public interface CandidateConsumer {
+    void accept(long pageIndex) throws IOException;
+  }
+
   /** One immutable snapshot, including eligibility and output capability as separate facts. */
   public static final class Context {
     @Nullable private final SealHandle handle;
@@ -91,6 +97,27 @@ public final class ChangedPageTrackerBackup {
 
     public BeginOutcome outcome() {
       return handle == null ? BeginOutcome.PENDING_SEAL : BeginOutcome.NEW_BOUNDARY;
+    }
+
+    /**
+     * Streams only this request's still-owned sealed file marks, in ascending duplicate-free
+     * order, strictly below upperBound. Nonpositive bounds and invalid, foreign or stale handles
+     * expose nothing. File IDs are tracker-internal IDs. This is not a trust or eligibility check.
+     *
+     * <p>One bitmap capture defines the stream: concurrent deletion or reset after capture does
+     * not truncate it. No lock spans consumer calls. Scratch space is constant and no object is
+     * allocated per candidate. The request owner must keep its boundary until streaming ends.
+     */
+    public void forEachCandidate(@Nullable SealHandle requestedHandle, int fileId, long upperBound,
+        CandidateConsumer consumer) throws IOException {
+      Objects.requireNonNull(consumer);
+      if (handle == null || requestedHandle != handle || upperBound <= 0) {
+        return;
+      }
+      var bitmap = handle.owner.candidateBitmap(handle.seal, fileId);
+      if (bitmap != null) {
+        bitmap.forEachCandidate(upperBound, consumer);
+      }
     }
 
     @Nullable ChangedPageTracker.SealedGeneration internalSeal() {
