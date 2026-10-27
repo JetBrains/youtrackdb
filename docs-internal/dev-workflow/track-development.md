@@ -41,10 +41,10 @@ the verification sets are computed, which gate runs when, and when a gate must b
 coverage measurement procedure — how to produce a coverage number, and how to tell a real pass
 from a vacuous one — is in `docs-internal/dev-workflow/coverage-verification.md`.
 
-Intermediate code-track commits do not reach `develop` individually. Each level pull request
-merges as one squashed commit. Running unit tests and coverage checks on every commit adds
-delay without protecting a separately merged result. The compile gate runs on every applicable
-commit. The unit-test and coverage gate runs before each code track's agent code review.
+Intermediate code-track commits do not reach `develop` individually. The pull request for the
+whole change merges as one squashed commit. Running unit tests and coverage checks on every
+commit adds delay without protecting a separately merged result. The compile gate runs on every
+applicable commit. The unit-test and coverage gate runs before each code track's agent code review.
 Re-run it before the closing event when anything but prose lands after it.
 
 ### Mid-track commit gate
@@ -282,17 +282,14 @@ Gating only at the track's closing event would have reviewers reviewing unverifi
 only before the review would let review-fix commits land unverified. Both holes are closed by
 this pre-review placement plus the re-run rule below.
 
-**This applies regardless of proved focus areas, including single-track changes.** A
-single-track change has no marker commit. It still runs the gate before any required agent
-code review.
+**This gate applies regardless of proved focus areas, including single-track changes.**
 
 ### Re-running the gate before the track's closing event
 
-Every code track has a **closing event**. Draft publishing uses one pull request per level
-with code tracks. A multi-track change closes each code track at its marker commit, with or
-without draft publishing. A single-track change with a draft pull request closes at the
-ready-for-review flip. Without draft publishing, a single-track change closes at final
-acceptance. This boundary gives each code track a verification trigger.
+Every code track has a **closing event**. A multi-track change closes each code track at its
+marker commit, with or without draft publishing. A single-track change with a draft pull request
+closes at the ready-for-review flip. Without draft publishing, a single-track change closes at
+final acceptance. This boundary gives each code track a verification trigger.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
