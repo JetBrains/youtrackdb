@@ -123,6 +123,14 @@ public class GremlinPlanFingerprintTest {
         .returnNestedProjections(statement.getReturnNestedProjections())
         .build();
 
+    var tree = new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Or(
+        List.of(
+            new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Probe(
+                statement.getNotMatchExpressions().getFirst())));
+    inputs = inputs.toBuilder().booleanCheck(tree).build();
+    assertThat(PostConcatSupport.rewriteToCountStar(inputs).booleanCheck()).isSameAs(tree);
+    assertThat(UnionStepRecogniser.rewriteReturnAlias(inputs, "a", "b").booleanCheck())
+        .isSameAs(tree);
     assertThat(PostConcatSupport.rewriteToCountStar(inputs).existsMatchExpressions())
         .hasSize(1);
     assertThat(UnionStepRecogniser.rewriteReturnAlias(inputs, "a", "b")

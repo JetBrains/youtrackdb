@@ -274,6 +274,8 @@ public class MatchExecutionPlanner {
   /** Detached positive patterns that keep each incoming row with at least one matching path. */
   protected List<SQLMatchExpression> existsMatchExpressions;
 
+  private MatchBooleanCheck booleanCheck;
+
   /** Expressions to evaluate in the `RETURN` clause. */
   protected List<SQLExpression> returnItems;
 
@@ -569,6 +571,7 @@ public class MatchExecutionPlanner {
     this.matchExpressions = new ArrayList<>(inputs.matchExpressions());
     this.notMatchExpressions = new ArrayList<>(inputs.notMatchExpressions());
     this.existsMatchExpressions = new ArrayList<>(inputs.existsMatchExpressions());
+    this.booleanCheck = inputs.booleanCheck();
     this.returnItems = new ArrayList<>(inputs.returnItems());
     this.returnAliases = new ArrayList<>(inputs.returnAliases());
     this.returnNestedProjections = new ArrayList<>(inputs.returnNestedProjections());
@@ -766,7 +769,7 @@ public class MatchExecutionPlanner {
     // Estimate the positive output before any detached check filters it. Collect each component
     // from its actual schedule, without repeating scheduling just for the cost guards.
     List<OptionalLong> outerEstimates = notMatchExpressions.isEmpty()
-        && existsMatchExpressions.isEmpty() ? null : new ArrayList<>();
+        && existsMatchExpressions.isEmpty() && booleanCheck == null ? null : new ArrayList<>();
     // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
       // Multiple disjoint sub-patterns → Cartesian product of their independent results
@@ -799,7 +802,7 @@ public class MatchExecutionPlanner {
     boolean endpointTxWasActive = session.isTxActive();
     try {
       KnownEndpointExistsStep.checkpoint("plan");
-      endpointAccess = subPatterns.size() == 1
+      endpointAccess = booleanCheck == null && subPatterns.size() == 1
           ? KnownEndpointExistsAccess.find(result, pattern, existsMatchExpressions,
               aliasClasses, aliasFilters, context)
           : null;
@@ -819,6 +822,11 @@ public class MatchExecutionPlanner {
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
         aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
         new DetachedSlice(requiredRows, false), enableProfiling);
+
+    if (booleanCheck != null) {
+      result.chain(buildBooleanCheck(booleanCheck, context,
+          multiplyOuterEstimates(outerEstimates), enableProfiling));
+    }
 
     if (endpointAccess != null) {
       endpointTxWasActive = session.isTxActive();
@@ -1110,7 +1118,7 @@ public class MatchExecutionPlanner {
    */
   private boolean tryHardwiredMatchCount(
       SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
-    if (!isCountStarReturn()) {
+    if (booleanCheck != null || !isCountStarReturn()) {
       return false;
     }
     if (returnDistinct
@@ -1255,6 +1263,52 @@ public class MatchExecutionPlanner {
         result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
       }
     }
+  }
+
+  FilterBooleanMatchStep buildBooleanCheck(MatchBooleanCheck check,
+      CommandContext context, OptionalLong outerRows, boolean profiling) {
+    var children = new ArrayList<FilterBooleanMatchStep>();
+    var kind = FilterBooleanMatchStep.Kind.PROBE;
+    String alias = null;
+    SQLWhereClause condition = null;
+    List<AbstractExecutionStep> steps = List.of();
+    HashJoinMatchStep hash = null;
+    if (check instanceof MatchBooleanCheck.And and) {
+      kind = FilterBooleanMatchStep.Kind.AND;
+      for (var child : and.children()) {
+        children.add(buildBooleanCheck(child, context, outerRows, profiling));
+      }
+    } else if (check instanceof MatchBooleanCheck.Or or) {
+      kind = FilterBooleanMatchStep.Kind.OR;
+      for (var child : or.children()) {
+        children.add(buildBooleanCheck(child, context, outerRows, profiling));
+      }
+    } else if (check instanceof MatchBooleanCheck.Not not) {
+      kind = FilterBooleanMatchStep.Kind.NOT;
+      children.add(buildBooleanCheck(not.child(), context, outerRows, profiling));
+    } else if (check instanceof MatchBooleanCheck.Filter filter) {
+      kind = FilterBooleanMatchStep.Kind.FILTER;
+      alias = filter.alias();
+      condition = filter.condition().copy();
+    } else if (check instanceof MatchBooleanCheck.Probe probe) {
+      var exp = probe.expression().copy();
+      steps = buildDetachedPatternSteps(exp, pattern, "BOOLEAN", context, profiling);
+      var walk = estimateDetachedWalkCost(exp, aliasClasses, context);
+      var reads = DetachedCheckReadSet.describe(exp, pattern);
+      // Tree leaves share flat-check eligibility and cost rules, but require independent reads,
+      // known estimates and an unsliced input before building eagerly.
+      if (limit == null && skip == null && outerRows.isPresent() && walk.isPresent()
+          && reads.independent()
+          && canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern,
+              outerRows)) {
+        var build = buildNotPatternPlan(exp, steps, aliasClasses, aliasFilters, aliasPinnedRids,
+            context, profiling);
+        hash = new HashJoinMatchStep(context, build, findSharedAliases(exp, pattern),
+            JoinMode.SEMI_JOIN, steps, profiling);
+      }
+    }
+    return new FilterBooleanMatchStep(context, profiling, kind, children, alias, condition,
+        steps, hash);
   }
 
   /** Validates a detached check and builds its linear MATCH traversal chain. */
@@ -1568,7 +1622,8 @@ public class MatchExecutionPlanner {
   }
 
   OptionalLong detachedRequiredRows(CommandContext context) {
-    if (limit == null || notMatchExpressions.size() + existsMatchExpressions.size() != 1
+    if (booleanCheck != null || limit == null
+        || notMatchExpressions.size() + existsMatchExpressions.size() != 1
         || detachedReturnNeedsFullInput(context)) {
       return OptionalLong.empty();
     }
@@ -1799,6 +1854,11 @@ public class MatchExecutionPlanner {
     }
     for (var check : existsMatchExpressions) {
       collectCheckAliases(check, allPatternAliases, referenced, compiled);
+    }
+
+    if (booleanCheck != null) {
+      // Correlated conditions may read any positive binding. Retain them conservatively.
+      referenced.addAll(allPatternAliases);
     }
 
     // Scan RETURN expressions
