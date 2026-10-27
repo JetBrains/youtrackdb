@@ -127,6 +127,17 @@ public final class OrderByCollationResolver {
       @Nullable SQLOrderBy orderBy,
       Function<String, SchemaClass> aliasClassResolver,
       @Nullable SQLProjection projection) {
+    resolveOnAliasClassSets(orderBy, alias -> {
+      var clazz = aliasClassResolver.apply(alias);
+      return clazz == null ? java.util.List.of() : hierarchy(clazz);
+    }, projection);
+  }
+
+  /** Resolves comparison-only class sets without changing MATCH pattern constraints. */
+  public static void resolveOnAliasClassSets(
+      @Nullable SQLOrderBy orderBy,
+      Function<String, Collection<SchemaClass>> aliasClassResolver,
+      @Nullable SQLProjection projection) {
     if (orderBy == null || orderBy.getItems() == null) {
       return;
     }
@@ -142,7 +153,8 @@ public final class OrderByCollationResolver {
       }
       var aliasClass =
           propertyName == null || alias == null ? null : aliasClassResolver.apply(alias);
-      item.setDeclaredCollate(declaredCollation(aliasClass, propertyName));
+      item.setDeclaredCollate(aliasClass == null ? null
+          : declaredCollation(aliasClass, propertyName));
     }
   }
 
@@ -182,10 +194,14 @@ public final class OrderByCollationResolver {
     if (schemaClass == null || propertyName == null) {
       return null;
     }
+    return declaredCollation(hierarchy(schemaClass), propertyName);
+  }
+
+  private static Collection<SchemaClass> hierarchy(SchemaClass schemaClass) {
     var hierarchy = new ArrayList<SchemaClass>();
     hierarchy.add(schemaClass);
     hierarchy.addAll(schemaClass.getAllSubclasses());
-    return declaredCollation(hierarchy, propertyName);
+    return hierarchy;
   }
 
   /**

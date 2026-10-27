@@ -58,7 +58,7 @@ public class MatchExecutionPlannerInputsTest {
     var inputs =
         new MatchPlanInputs(
             new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
-            null, null, false, false, false, false, false);
+            null, null, null, false, false, false, false, false);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
@@ -101,6 +101,7 @@ public class MatchExecutionPlannerInputsTest {
         new MatchPlanInputs(
             new Pattern(),
             /* aliasClasses */ null,
+            /* orderCollationClasses */ null,
             /* aliasFilters */ null,
             /* matchExpressions */ null,
             /* notMatchExpressions */ null,

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.Gremli
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.CollatedSortKeyTraversal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.OrderClassResolver;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolver;
@@ -209,7 +210,7 @@ public final class YTDBOrderCollationStrategy
    * the sort and the step that produced the elements names them; with none, the root hierarchy of
    * that producing step does, which is the class the translator leaves such a node on.
    */
-  private static List<SchemaClass> orderedClasses(Schema schema, Step<?, ?> orderStep) {
+  public static List<SchemaClass> orderedClasses(Schema schema, Step<?, ?> orderStep) {
     var labels = new LinkedHashSet<String>();
     var producer = walkToProducer(orderStep.getPreviousStep(), labels);
     if (producer == null) {
@@ -222,8 +223,21 @@ public final class YTDBOrderCollationStrategy
       addHierarchy(schema, labels.iterator().next(), classes);
       return classes;
     }
-    // Multi-label hasLabel is translated as a class membership filter on the generic source class.
-    // Keep the native path on that same source hierarchy instead of pretending it has one class.
+    if (!labels.isEmpty()) {
+      var labelClass = OrderClassResolver.labelClass(List.copyOf(labels), schema::getClass);
+      if (labelClass != null) {
+        List<SchemaClass> classes = new ArrayList<>();
+        addHierarchy(schema, labelClass, classes);
+        return classes;
+      }
+    } else {
+      var inferred = inferProducerClass(schema, producer);
+      if (inferred != null) {
+        List<SchemaClass> classes = new ArrayList<>();
+        addHierarchy(schema, inferred, classes);
+        return classes;
+      }
+    }
     return rootHierarchy(schema, producer);
   }
 
@@ -332,6 +346,29 @@ public final class YTDBOrderCollationStrategy
       return classes;
     }
     return graphClasses(schema);
+  }
+
+  /** Resolve only the immediate property source. Earlier vertex labels cannot survive a hop. */
+  @Nullable private static String inferProducerClass(Schema schema, Step<?, ?> producer) {
+    if (producer instanceof VertexStep<?> hop) {
+      var labels = hop.getEdgeLabels();
+      var label = labels.length == 1 ? labels[0] : null;
+      var method = hop.getDirection().name().toLowerCase(java.util.Locale.ROOT)
+          + (hop.returnsEdge() ? "e" : "");
+      return OrderClassResolver.inferHopClass(schema, method, label, null);
+    }
+    if (producer instanceof EdgeVertexStep || producer instanceof EdgeOtherVertexStep) {
+      var edge = walkToProducer(producer.getPreviousStep(), new LinkedHashSet<>());
+      if (edge instanceof VertexStep<?> hop && hop.returnsEdge()) {
+        var labels = hop.getEdgeLabels();
+        var label = labels.length == 1 ? labels[0] : null;
+        var direction = producer instanceof EdgeVertexStep endpoint
+            ? endpoint.getDirection() : hop.getDirection().opposite();
+        return OrderClassResolver.inferHopClass(schema,
+            direction.name().toLowerCase(java.util.Locale.ROOT) + "v", null, label);
+      }
+    }
+    return null;
   }
 
   private static String rootName(boolean vertex) {

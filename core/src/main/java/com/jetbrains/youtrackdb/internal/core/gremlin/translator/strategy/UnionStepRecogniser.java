@@ -316,6 +316,7 @@ final class UnionStepRecogniser implements StepRecogniser {
       List<SQLNestedProjection> nested) {
     return MatchPlanInputs.builder(inputs.pattern())
         .aliasClasses(inputs.aliasClasses())
+        .orderCollationClasses(inputs.orderCollationClasses())
         .aliasFilters(inputs.aliasFilters())
         .matchExpressions(inputs.matchExpressions())
         .notMatchExpressions(inputs.notMatchExpressions())

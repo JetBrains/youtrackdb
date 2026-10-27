@@ -101,10 +101,10 @@ public final class CollatedSortKeyTraversal<S> extends AbstractLambdaTraversal<S
       // ValueTraversal does with the same row.
       key = collate(map.get(propertyKey));
     } else {
-      throw new IllegalStateException(
-          "The by(\"" + propertyKey + "\") modulator can only be applied to a traverser that is an"
-              + " Element or a Map - it is being applied to [" + value + "] a "
-              + (value == null ? "null" : value.getClass().getSimpleName()) + " class instead");
+      throw new IllegalStateException(String.format(
+          "The by(\"%s\") modulator can only be applied to a traverser that is an Element or a Map"
+              + " - it is being applied to [%s] a %s class instead",
+          propertyKey, value, value.getClass().getSimpleName()));
     }
   }
 
