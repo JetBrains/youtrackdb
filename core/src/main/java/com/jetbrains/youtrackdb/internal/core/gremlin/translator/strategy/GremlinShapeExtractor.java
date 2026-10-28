@@ -291,8 +291,13 @@ final class GremlinShapeExtractor {
       if (step instanceof TraversalParent parent) {
         // All children inherit the current boundary class, including union arms.
         // A child-local hasLabel can narrow it. A hop resets it to V.
+        // Delimit every child and encode its role. T counts only nontransparent steps, so it
+        // cannot locate trailing barriers or their labels relative to the enclosing traversal.
+        // This also covers lambda modulators and unregistered TraversalParent implementations.
         for (var child : parent.getLocalChildren()) {
+          encoder.appendToken("localChild");
           visit(child.asAdmin(), boundaryClass);
+          encoder.appendToken("childEnd");
           if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.ConnectiveStep<
               ?>) {
             // Arity alone does not locate a boundary between multi-step sibling operands.
@@ -300,7 +305,9 @@ final class GremlinShapeExtractor {
           }
         }
         for (var child : parent.getGlobalChildren()) {
+          encoder.appendToken("globalChild");
           visit(child.asAdmin(), boundaryClass);
+          encoder.appendToken("childEnd");
         }
       }
     }

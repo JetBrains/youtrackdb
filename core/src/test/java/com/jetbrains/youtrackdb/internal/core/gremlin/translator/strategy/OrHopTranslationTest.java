@@ -305,8 +305,10 @@ public class OrHopTranslationTest extends GraphBaseTest {
       assertThat(ka.complete()).isTrue();
       assertThat(kb.complete()).isTrue();
       assertThat(ka.key()).isNotEqualTo(kb.key());
-      assertThat(ka.key().replaceAll("children:1:[0-9]+|6:armEnd", ""))
-          .isEqualTo(kb.key().replaceAll("children:1:[0-9]+|6:armEnd", ""));
+      // Removing all child delimiters reconstructs the ambiguous, unscoped representation.
+      var childTokens = "children:1:[0-9]+|6:armEnd|10:localChild|11:globalChild|8:childEnd";
+      assertThat(ka.key().replaceAll(childTokens, ""))
+          .isEqualTo(kb.key().replaceAll(childTokens, ""));
     });
     support.withTranslator(true, () -> {
       var cache = GremlinPlanCache.instance(graphSession());
