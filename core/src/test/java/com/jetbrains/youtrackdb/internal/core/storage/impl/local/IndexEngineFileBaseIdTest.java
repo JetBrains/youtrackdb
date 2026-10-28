@@ -778,9 +778,9 @@ public class IndexEngineFileBaseIdTest {
   /**
    * Dropping the database removes the engine's whole five-file family from disk —
    * {@code .cbt}+{@code .nbt} for the main tree, the {@code $null} variants of both for the
-   * multi-value null tree, and the {@code .ixs} histogram. The {@code .nbt} extension was
-   * missing from {@code DiskStorage.ALL_FILE_EXTENSIONS}, so null-bucket files used to leak and
-   * kept the database directory from being deleted.
+   * multi-value null tree, and the {@code .ixs} histogram.
+   * {@code StorageFileNames.DROP_FILE_EXTENSIONS} includes every family extension, so drop
+   * removes the null-bucket files and can delete the storage directory.
    */
   @Test
   public void databaseDropRemovesWholeEngineFileFamily() throws Exception {

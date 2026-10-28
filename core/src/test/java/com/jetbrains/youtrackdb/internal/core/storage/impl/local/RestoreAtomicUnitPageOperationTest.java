@@ -583,6 +583,38 @@ public class RestoreAtomicUnitPageOperationTest {
     verify(readCache).releaseFromWrite(page, writeCache, true);
   }
 
+  /**
+   * A checked registry failure must fail WAL replay, not return a partially restored storage.
+   * Both completed units remain available for a retry. The retry must apply the later unit too.
+   */
+  @Test
+  public void registryIoFailureFailsReplayInsteadOfSilentlyDroppingLaterUnits() throws Exception {
+    setField(storage, "idGen", new AtomicOperationIdGen());
+    var wal = mock(WriteAheadLog.class);
+    var position = new LogSequenceNumber(1, 1);
+    var firstEnd = new AtomicUnitEndRecord(1, false, null);
+    firstEnd.setLsn(new LogSequenceNumber(1, 3));
+    var secondEnd = new AtomicUnitEndRecord(2, false, null);
+    secondEnd.setLsn(new LogSequenceNumber(1, 6));
+    when(wal.read(position, 1_000)).thenReturn(List.of(
+        new AtomicUnitStartRecord(false, 1),
+        new FileCreatedWALRecord(1, "firstReplay.dat", CREATED_EXTERNAL_ID), firstEnd,
+        new AtomicUnitStartRecord(false, 2),
+        new FileCreatedWALRecord(2, "laterReplay.dat", DURABLE_EXTERNAL_ID), secondEnd));
+    when(wal.next(secondEnd.getLsn(), 1_000)).thenReturn(List.of());
+    var failure = new IOException("File registry appends stopped after a failed write");
+    when(readCache.addFile("firstReplay.dat", CREATED_EXTERNAL_ID, writeCache))
+        .thenThrow(failure).thenReturn(CREATED_EXTERNAL_ID);
+
+    assertEquals(failure,
+        assertThrows(IOException.class, () -> storage.restoreFrom(wal, position)));
+    verify(readCache, never()).addFile("laterReplay.dat", DURABLE_EXTERNAL_ID, writeCache);
+    verify(wal, never()).next(any(), eq(1_000));
+
+    assertEquals(secondEnd.getLsn(), storage.restoreFrom(wal, position));
+    verify(readCache).addFile("laterReplay.dat", DURABLE_EXTERNAL_ID, writeCache);
+  }
+
   /** Failure during declared-page loading cannot leak provenance into the next unit. */
   @Test
   public void failedUnitClearsDeclaredContext() throws Exception {

@@ -115,6 +115,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.RecordMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
@@ -1063,6 +1064,13 @@ public abstract class AbstractStorage
 
       } catch (final Throwable e) {
         try {
+          // Open can fail after maintenance tasks start but before the storage becomes OPEN.
+          preCloseSteps();
+        } catch (final Exception ee) {
+          e.addSuppressed(ee);
+        }
+
+        try {
           if (writeCache != null) {
             readCache.closeStorage(writeCache);
           }
@@ -1085,6 +1093,11 @@ public abstract class AbstractStorage
         }
 
         status = STATUS.CLOSED;
+        if (e instanceof IOException && writeCache != null && writeCache.isWalCuttingStopped()) {
+          throw BaseException.wrapException(
+              new StorageException(name, "File registry write failed during storage open"), e,
+              name);
+        }
         throw e;
       }
     } catch (final RuntimeException ee) {
@@ -4511,9 +4524,7 @@ public abstract class AbstractStorage
    * shape are never mistaken for engine files.
    */
   private static boolean isIndexEngineFileExtension(final String extension) {
-    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
-        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
-        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
+    return StorageFileNames.isIndexEngineFileExtension(extension);
   }
 
   /**
@@ -7278,7 +7289,8 @@ public abstract class AbstractStorage
   @SuppressWarnings("FutureReturnValueIgnored")
   public final void requestCheckpoint() {
     try {
-      if (!walVacuumInProgress.get() && walVacuumInProgress.compareAndSet(false, true)) {
+      if (writeCache != null && !writeCache.isWalCuttingStopped()
+          && !walVacuumInProgress.get() && walVacuumInProgress.compareAndSet(false, true)) {
         YouTrackDBEnginesManager.instance().getFuzzyCheckpointExecutor()
             .submit(new WALVacuum(this));
       }
@@ -7562,6 +7574,9 @@ public abstract class AbstractStorage
       // Runs before the WAL checkpoint so that the flushed pages are
       // included in writeCache.syncDataFiles().
       flushDirtyHistograms();
+      if (writeCache.isWalCuttingStopped()) {
+        return;
+      }
 
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
@@ -7607,6 +7622,9 @@ public abstract class AbstractStorage
           beforeRead.run();
         }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
+        if (writeCache.isWalCuttingStopped()) {
+          return;
+        }
         saveMaintenanceFloorBeforeWalRemoval();
         writeCache.syncDataFiles(fuzzySegment);
 
@@ -7829,18 +7847,21 @@ public abstract class AbstractStorage
         floorAction.accept(this);
       }
 
-      if (protectedSegment >= 0) {
-        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
-        // Unresolved recovery requirements keep the dirty marker for the next open.
-        LogManager.instance()
-            .warn(
-                this,
-                "Storage %s keeps write ahead log starting from protected segment %d",
-                (Throwable) null, name, protectedSegment);
-      } else {
-        writeAheadLog.cutTill(lastLSN);
-        clearStorageDirty();
-      }
+      final var checkpointSegment = protectedSegment;
+      // The cache holds filesLock read then its backup mutex through force and cut. This
+      // shares failure publication with maintenance checkpoints, including forced shutdown.
+      writeCache.executeCheckpoint(() -> {
+        if (checkpointSegment >= 0) {
+          writeAheadLog.cutAllSegmentsSmallerThan(checkpointSegment);
+          // Unresolved recovery requirements keep the dirty marker for the next open.
+          LogManager.instance().warn(this,
+              "Storage %s keeps write ahead log starting from protected segment %d",
+              (Throwable) null, name, checkpointSegment);
+        } else {
+          writeAheadLog.cutTill(lastLSN);
+          clearStorageDirty();
+        }
+      });
 
     } catch (final IOException ioe) {
       throw BaseException.wrapException(
@@ -8206,8 +8227,16 @@ public abstract class AbstractStorage
 
         flushDirtyHistograms();
         flushAllData();
+        if (writeCache.isWalCuttingStopped()) {
+          throw new StorageException(name, "File registry writes stopped during recovery");
+        }
       } catch (final Exception e) {
         LogManager.instance().error(this, "Exception during storage data restore", e);
+        if (writeCache.isWalCuttingStopped()) {
+          // Do not let a checked map failure poison repeated opens of this storage object.
+          throw BaseException.wrapException(
+              new StorageException(name, "File registry write failed during recovery"), e, name);
+        }
         throw e;
       }
 
@@ -8656,16 +8685,8 @@ public abstract class AbstractStorage
       final StorageCollection collection) {
     final var stringValue = Optional.ofNullable(value).map(Object::toString).orElse(null);
     switch (attribute) {
-      case NAME -> {
-        Objects.requireNonNull(stringValue);
-
-        final var oldName = collection.getName();
-        collection.setCollectionName(stringValue);
-        collectionMap.remove(oldName.toLowerCase(Locale.ROOT));
-        collectionMap.put(stringValue.toLowerCase(Locale.ROOT), collection);
-      }
       case CONFLICTSTRATEGY -> collection.setRecordConflictStrategy(stringValue);
-      default -> throw new IllegalArgumentException(
+      case null, default -> throw new IllegalArgumentException(
           "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
@@ -8851,7 +8872,8 @@ public abstract class AbstractStorage
             cacheCloseFailure.addSuppressed(metadataFailure);
           }
         } else {
-          postCloseSteps(false, isInError(), idGen.getLastId());
+          postCloseSteps(false, isInError() || writeCache.isWalCuttingStopped(),
+              idGen.getLastId());
         }
 
         migration = new CountDownLatch(1);
@@ -10149,7 +10171,7 @@ public abstract class AbstractStorage
     stateLock.readLock().lock();
     try {
 
-      if (status == STATUS.CLOSED) {
+      if (status == STATUS.CLOSED || writeCache.isWalCuttingStopped()) {
         return;
       }
 
@@ -10169,6 +10191,9 @@ public abstract class AbstractStorage
       var previousCacheSegment = writeCache.getMinimalNotFlushedSegment();
       long minDirtySegment;
       do {
+        if (writeCache.isWalCuttingStopped()) {
+          return;
+        }
         writeCache.flushTillSegment(flushTillSegmentId);
 
         // Take the active segment before the cache boundary. New changes published between
@@ -10206,6 +10231,9 @@ public abstract class AbstractStorage
       final var beforeRead = beforeMaintenanceFloorReadTestAction.getAndSet(null);
       if (beforeRead != null) {
         beforeRead.run();
+      }
+      if (writeCache.isWalCuttingStopped()) {
+        return;
       }
       saveMaintenanceFloorBeforeWalRemoval();
       writeCache.syncDataFiles(minDirtySegment);

@@ -51,6 +51,8 @@ public class AbstractStorageWALCutTest {
     storage = mock(AbstractStorage.class, CALLS_REAL_METHODS);
     writeAheadLog = mock(WriteAheadLog.class);
     writeCache = mock(WriteCache.class);
+    // This fixture tests storage cut boundaries with an accepting registry barrier.
+    org.mockito.Mockito.doCallRealMethod().when(writeCache).executeCheckpoint(any());
     atomicOperationsTable = mock(AtomicOperationsTable.class);
     checkpointLsn = new LogSequenceNumber(20, 1);
 
@@ -178,6 +180,19 @@ public class AbstractStorageWALCutTest {
     floorCutThenClear.verify(storage).saveCheckpointFloor(0L);
     floorCutThenClear.verify(writeAheadLog).cutTill(checkpointLsn);
     floorCutThenClear.verify(storage).clearStorageDirty();
+  }
+
+  /** A refused registry barrier is not a full checkpoint and cannot clear recovery evidence. */
+  @Test
+  public void stoppedRegistryPreventsCutAndDirtyMarkerClear() throws Exception {
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    org.mockito.Mockito.doReturn(false).when(writeCache).executeCheckpoint(any());
+
+    storage.flushAllData();
+
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+    verify(storage, never()).clearStorageDirty();
   }
 
   /** A failed cache flush prevents both WAL deletion branches and dirty-marker cleanup. */

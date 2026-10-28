@@ -146,6 +146,7 @@ public class LostFileCreationWALRecoveryTest {
           // and hide a missing pending-create consult. Restore every baseline page to exclude
           // already-flushed effects of the later transaction. No double-write log is retained.
           Files.write(copy.resolve(NAME_ID_MAP), baselineMap);
+          Files.write(copy.resolve("name_id_map_v3_backup.cm"), baselineMap);
           for (var nativeName : newFiles.values()) {
             Files.deleteIfExists(copy.resolve(nativeName));
             assertFalse(Files.exists(copy.resolve(nativeName)));
@@ -154,6 +155,8 @@ public class LostFileCreationWALRecoveryTest {
             Files.write(copy.resolve(entry.getKey()), entry.getValue());
           }
           assertArrayEquals(baselineMap, Files.readAllBytes(copy.resolve(NAME_ID_MAP)));
+          assertArrayEquals(baselineMap,
+              Files.readAllBytes(copy.resolve("name_id_map_v3_backup.cm")));
         });
       }
     }

@@ -38,7 +38,7 @@ public final class BTreeMultiValueIndexEngine
     implements MultiValueIndexEngine, BTreeIndexEngine {
 
   public static final String DATA_FILE_EXTENSION = ".cbt";
-  // Public so DiskStorage.ALL_FILE_EXTENSIONS can register it: a drop must sweep the null-bucket
+  // Public so StorageFileNames can register it: a drop must sweep the null-bucket
   // files of both trees, or they leak on disk after database deletion.
   public static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
   public static final String M_CONTAINER_EXTENSION = ".mbt";

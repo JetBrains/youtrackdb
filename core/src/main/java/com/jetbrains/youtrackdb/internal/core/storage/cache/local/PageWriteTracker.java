@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.IdentityHashMap;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /** Tracks recovery requirements transferred from dirty pages into page-write attempts. */
@@ -52,6 +53,11 @@ final class PageWriteTracker {
         .keySet()
         .removeIf(
             pointer -> pointer.getFileId() == fileId && pointer.getPageIndex() >= minPageIndex);
+  }
+
+  /** Drops all candidate requirements in one scan, while retaining other files' protection. */
+  void discardPages(final Set<Long> fileIds) {
+    requirements.keySet().removeIf(pointer -> fileIds.contains(pointer.getFileId()));
   }
 
   /** Returns the earliest copied or failed page requirement. */

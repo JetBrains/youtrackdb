@@ -30,7 +30,7 @@ import javax.annotation.Nonnull;
 public interface StorageCollection {
 
   enum ATTRIBUTES {
-    NAME, CONFLICTSTRATEGY,
+    CONFLICTSTRATEGY,
   }
 
   void configure(int iId, String iCollectionName) throws IOException;
@@ -46,8 +46,6 @@ public interface StorageCollection {
   void close(boolean flush) throws IOException;
 
   void delete(@Nonnull AtomicOperation atomicOperation) throws IOException;
-
-  void setCollectionName(String name);
 
   void setRecordConflictStrategy(String conflictStrategy);
 

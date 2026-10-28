@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException.Reason;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -31,11 +32,12 @@ import net.jpountz.xxhash.XXHashFactory;
 /** Persists the redundant, format-neutral authority for a disk storage. */
 public final class StorageBootstrapMetadata {
 
-  static final String LOCK_FILE_NAME = "storage-bootstrap.bsml";
-  static final String NORMAL_DATABASE_LOCK_FILE_NAME = "dirty.fl";
-  static final List<String> AUTHORITY_FILE_NAMES =
-      List.of(
-          "storage-bootstrap-0.bsm", "storage-bootstrap-1.bsm", "storage-bootstrap-2.bsm");
+  static final String LOCK_FILE_NAME = "storage-bootstrap"
+      + StorageFileNames.BOOTSTRAP_LOCK_EXTENSION;
+  static final List<String> AUTHORITY_FILE_NAMES = List.of(
+      "storage-bootstrap-0" + StorageFileNames.BOOTSTRAP_EXTENSION,
+      "storage-bootstrap-1" + StorageFileNames.BOOTSTRAP_EXTENSION,
+      "storage-bootstrap-2" + StorageFileNames.BOOTSTRAP_EXTENSION);
 
   private static final long MAGIC = 0x5954444242534D31L;
   private static final int ENCODING_VERSION = 1;
@@ -131,7 +133,8 @@ public final class StorageBootstrapMetadata {
     this.authorityPaths =
         AUTHORITY_FILE_NAMES.stream().map(directory::resolve).toList();
     this.temporaryPaths =
-        authorityPaths.stream().map(path -> path.resolveSibling(path.getFileName() + ".tmp"))
+        authorityPaths.stream()
+            .map(path -> path.resolveSibling(path.getFileName() + StorageFileNames.TEMP_SUFFIX))
             .toList();
     this.lockPath = directory.resolve(LOCK_FILE_NAME);
   }
@@ -424,7 +427,7 @@ public final class StorageBootstrapMetadata {
    */
   private void deleteContentUnderNormalDatabaseLock(final ContentDeletion contentDeletion)
       throws IOException {
-    final var normalLockPath = directory.resolve(NORMAL_DATABASE_LOCK_FILE_NAME);
+    final var normalLockPath = directory.resolve(StorageFileNames.DIRTY_FILE_NAME);
     final FileChannel normalLockChannel;
     try {
       normalLockChannel =
@@ -1130,7 +1133,8 @@ public final class StorageBootstrapMetadata {
       return true;
     }
     for (var authorityName : AUTHORITY_FILE_NAMES) {
-      if (fileName.equals(authorityName) || fileName.equals(authorityName + ".tmp")) {
+      if (fileName.equals(authorityName)
+          || fileName.equals(authorityName + StorageFileNames.TEMP_SUFFIX)) {
         return true;
       }
     }

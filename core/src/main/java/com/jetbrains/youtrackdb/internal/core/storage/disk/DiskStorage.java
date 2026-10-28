@@ -49,16 +49,13 @@ import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupExcepti
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
-import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -77,7 +74,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -93,12 +89,14 @@ import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.Charset;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.InvalidAlgorithmParameterException;
@@ -294,42 +292,7 @@ public class DiskStorage extends AbstractStorage {
 
   protected static final long IV_SEED = 234120934;
 
-  private static final String IV_EXT = ".iv";
-  protected static final String IV_NAME = "data" + IV_EXT;
-
-  private static final String[] ALL_FILE_EXTENSIONS = {
-      ".cm",
-      ".ocf",
-      ".pls",
-      ".pcl",
-      ".oda",
-      ".odh",
-      ".otx",
-      ".ocs",
-      ".oef",
-      ".oem",
-      ".oet",
-      ".fl",
-      ".flb",
-      IV_EXT,
-      CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION,
-      CASDiskWriteAheadLog.MASTER_RECORD_EXTENSION,
-      CollectionPositionMap.DEF_EXTENSION,
-      LinkCollectionsBTreeManagerShared.FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.MAP_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
-      IndexHistogramManager.IXS_EXTENSION,
-      DoubleWriteLogGL.EXTENSION,
-      FreeSpaceMap.DEF_EXTENSION,
-      ".bsm",
-      ".bsm.tmp",
-      ".bsml"
-  };
+  protected static final String IV_NAME = "data" + StorageFileNames.IV_EXTENSION;
 
   private static final int ONE_KB = 1024;
 
@@ -380,7 +343,8 @@ public class DiskStorage extends AbstractStorage {
 
     startupMetadata =
         new StorageStartupMetadata(
-            storagePath.resolve("dirty.fl"), storagePath.resolve("dirty.flb"));
+            storagePath.resolve(StorageFileNames.DIRTY_FILE_NAME),
+            storagePath.resolve(StorageFileNames.DIRTY_BACKUP_NAME));
     final var openAction = OPEN_INDICATION_TEST_ACTION.get();
     // Another storage must not consume the observer while test classes open disks in parallel.
     if (openAction != null && storagePath.equals(openAction.storagePath())
@@ -810,7 +774,7 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected java.io.File createWalTempDirectory() {
     final var walDirectory =
-        new java.io.File(storagePath.toFile(), "walIncrementalBackupRestoreDirectory");
+        new java.io.File(storagePath.toFile(), StorageFileNames.WAL_RESTORE_DIRECTORY);
 
     if (walDirectory.exists()) {
       FileUtils.deleteRecursively(walDirectory);
@@ -960,9 +924,14 @@ public class DiskStorage extends AbstractStorage {
   public static void deleteFilesFromDisc(
       final String name, final int maxRetries, final int waitTime, final String databaseDirectory) {
     var dbDir = new java.io.File(databaseDirectory);
-    if (!dbDir.exists() || !dbDir.isDirectory()) {
+    final var storageDirectory = dbDir.exists() && dbDir.isDirectory();
+    if (!storageDirectory) {
       dbDir = dbDir.getParentFile();
     }
+    // Keep YTDB-1443's parent fallback on its existing suffix set. New cleanup rules apply only
+    // inside the storage directory, not to neighboring databases or unrelated parent files.
+    final var extensions = storageDirectory ? StorageFileNames.DROP_FILE_EXTENSIONS
+        : StorageFileNames.PARENT_DROP_FILE_EXTENSIONS;
 
     // RETRIES
     for (var i = 0; i < maxRetries; ++i) {
@@ -976,13 +945,16 @@ public class DiskStorage extends AbstractStorage {
 
         // TRY TO DELETE ALL THE FILES
         for (final var f : storageFiles) {
-          // DELETE ONLY THE SUPPORTED FILES
-          for (final var ext : ALL_FILE_EXTENSIONS) {
-            if (f.getPath().endsWith(ext)) {
-              if (!f.delete()) {
-                notDeletedFiles++;
-              }
-              break;
+          final var fileName = f.getName();
+          if (storageDirectory
+              && StorageFileNames.INFRASTRUCTURE_DIRECTORIES.contains(fileName)) {
+            if (!deleteInfrastructureDirectory(f.toPath())) {
+              notDeletedFiles++;
+            }
+          } else if (extensions.stream().anyMatch(fileName::endsWith)
+              || (storageDirectory && StorageFileNames.isMapTemporaryFile(fileName))) {
+            if (!deleteDropEntry(f.toPath())) {
+              notDeletedFiles++;
             }
           }
         }
@@ -1020,6 +992,80 @@ public class DiskStorage extends AbstractStorage {
             + "' located in: "
             + dbDir
             + ". Database files seem locked");
+  }
+
+  /** Delete infrastructure without entering symbolic links or Windows reparse points. */
+  private static boolean deleteInfrastructureDirectory(Path directory) {
+    final var visitor = new InfrastructureDirectoryDeleter();
+    try {
+      Files.walkFileTree(directory, visitor);
+    } catch (IOException failure) {
+      return false;
+    }
+    return visitor.deleted;
+  }
+
+  static final class InfrastructureDirectoryDeleter extends SimpleFileVisitor<Path> {
+
+    private boolean deleted = true;
+
+    @Override
+    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+      // Windows junctions report directory and other, but not symbolic link. Delete the entry
+      // itself and skip its target, including when the infrastructure root is a reparse point.
+      if (attributes.isSymbolicLink() || attributes.isOther()) {
+        deleted &= deleteDropEntry(dir);
+        return FileVisitResult.SKIP_SUBTREE;
+      }
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+      deleted &= deleteDropEntry(file);
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult visitFileFailed(Path file, IOException failure) {
+      // The walker opens directory streams before preVisitDirectory. An unreadable link target
+      // can therefore reach this callback even though the link entry itself can still be deleted.
+      try {
+        final var attributes = Files.readAttributes(file, BasicFileAttributes.class,
+            LinkOption.NOFOLLOW_LINKS);
+        if (attributes.isSymbolicLink() || attributes.isOther()) {
+          deleted &= deleteDropEntry(file);
+        } else {
+          deleted = false;
+        }
+      } catch (IOException attributeFailure) {
+        // A missing target is not a missing entry. Tolerate only a missing entry itself.
+        if (!(failure instanceof NoSuchFileException)
+            || Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
+          deleted = false;
+        }
+      }
+      return FileVisitResult.CONTINUE;
+    }
+
+    @Override
+    public FileVisitResult postVisitDirectory(Path dir, IOException failure) {
+      if (failure != null && !(failure instanceof NoSuchFileException)) {
+        deleted = false;
+      }
+      // Do not short circuit after a failure. Other entries must still get a delete attempt.
+      deleted &= deleteDropEntry(dir);
+      return FileVisitResult.CONTINUE;
+    }
+  }
+
+  private static boolean deleteDropEntry(Path entry) {
+    try {
+      Files.deleteIfExists(entry);
+      return true;
+    } catch (IOException failure) {
+      return false;
+    }
   }
 
   /** Installs a one-shot failure before the checkpoint writes the startup metadata floor. */
@@ -1270,11 +1316,11 @@ public class DiskStorage extends AbstractStorage {
             callFsync,
             context.getIoExecutor());
 
+    // Failed-open cleanup must also reach a cache whose registry initialization fails.
+    writeCache = wowCache;
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
-
-    writeCache = wowCache;
   }
 
   static boolean warnIfFsyncDisabled(final boolean callFsync) {
@@ -1302,8 +1348,8 @@ public class DiskStorage extends AbstractStorage {
                 // visible instead of reporting a missing storage.
                 if (fileName.equals("database.ocf")
                     || (fileName.startsWith("config") && fileName.endsWith(".bd"))
-                    || fileName.startsWith("dirty.fl")
-                    || fileName.startsWith("dirty.flb")
+                    || fileName.startsWith(StorageFileNames.DIRTY_FILE_NAME)
+                    || fileName.startsWith(StorageFileNames.DIRTY_BACKUP_NAME)
                     || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)) {
                   exists[0] = true;
                 }
