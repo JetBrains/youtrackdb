@@ -68,6 +68,23 @@ public class BackupRequestOwnerTest {
     assertThrows(NullPointerException.class, () -> DiskStorage.pairFor(null));
   }
 
+  /** Both owner and facade allow trusted durable selection to consume without fullRead gating. */
+  @Test
+  public void selectedDurableCompletionConsumesTheOwnedBoundary() throws Exception {
+    var tracker = trusted();
+    var owner = new DiskStorage.BackupRequestOwner(tracker);
+    var context = owner.begin(new DiskStorage.BackupContinuity(TRACKER, PREVIOUS), true);
+    assertTrue(context.selectionEligible());
+    assertEquals(ChangedPageTrackerBackup.Status.SAVED_CONTINUITY,
+        owner.finish(path(), new ChangedPageTrackerBackup.CompletionFacts(false, true), source(),
+            message -> {
+              throw new AssertionError(message);
+            }));
+    assertEquals(DiskStorage.BackupRequestOwner.State.COMPLETED, owner.state());
+    assertNull(field(tracker, "sealed"));
+    assertTrue(tracker.isTrusted());
+  }
+
   /** Pending requests have no authority, no third generation and no continuity for either output. */
   @Test
   public void pendingRequestsWarnAndLeaveTheEarlierSealUntouched() throws Exception {

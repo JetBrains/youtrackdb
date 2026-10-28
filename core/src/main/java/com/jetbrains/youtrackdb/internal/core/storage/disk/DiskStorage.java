@@ -1750,7 +1750,7 @@ public class DiskStorage extends AbstractStorage {
           // The owner abandons non-capable output through the Context capability check.
           // Keep state and backup exclusion through completion publication or merge-back.
           owner.finish(changedPageSideFile(),
-              new ChangedPageTrackerBackup.CompletionFacts(true, true),
+              new ChangedPageTrackerBackup.CompletionFacts(!owner.selectedRead, true),
               new DiskBackupCoverageSource(), message -> LogManager.instance().warn(this, message));
           LogManager.instance()
               .info(this,
@@ -2524,7 +2524,13 @@ public class DiskStorage extends AbstractStorage {
               "Invalid length of the encryption key, provided size is " + aesKey.length);
         }
 
-        var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey);
+        var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey, owner);
+        // Page copying has finished at this check. Later trust loss cannot change the pages copied.
+        // Completion rechecks live trust and the failure version, so lost history makes the next
+        // unit read all pages.
+        if (owner.selectedRead && !owner.context.isOwnedBoundaryTrusted()) {
+          throw new IOException("Changed-page tracker trust lost during selected backup");
+        }
         final var lastWALLsn =
             copyWALToBackup(zipOutputStream, startSegment);
 
@@ -2638,12 +2644,15 @@ public class DiskStorage extends AbstractStorage {
       final LogSequenceNumber changeLsn,
       final ZipOutputStream stream,
       final byte[] encryptionIv,
-      final byte[] aesKey)
+      final byte[] aesKey, BackupRequestOwner owner)
       throws IOException {
-    var lastLsn = changeLsn;
-
     final var files = writeCache.files();
-    final var pageSize = writeCache.pageSize();
+    final var context = owner.context;
+    // Inventory precedes the fixed mode choice. An empty candidate stream cannot prove trust.
+    owner.selectedRead = context.selectionEligible() && context.sealHandle() != null
+        && context.isOwnedBoundaryTrusted();
+    final var lastLsn = new LogSequenceNumber[] {changeLsn};
+    final var data = new byte[writeCache.pageSize() + LongSerializer.LONG_SIZE];
 
     for (var entry : files.entrySet()) {
       final var fileName = entry.getKey();
@@ -2660,48 +2669,60 @@ public class DiskStorage extends AbstractStorage {
       LongSerializer.serializeLiteral(fileId, binaryFileId, 0);
       stream.write(binaryFileId, 0, binaryFileId.length);
 
-      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var cacheEntry =
-            readCache.silentLoadForRead(fileId, pageIndex, writeCache, true);
-        long sharedStamp = cacheEntry.acquireSharedLock();
-        try {
-          var cachePointer = cacheEntry.getCachePointer();
-          assert cachePointer != null;
-
-          var cachePointerBuffer = cachePointer.getBuffer();
-          assert cachePointerBuffer != null;
-
-          final var pageLsn =
-              DurablePage.getLogSequenceNumberFromPage(cachePointerBuffer);
-
-          if (changeLsn == null || pageLsn.compareTo(changeLsn) > 0) {
-
-            final var data = new byte[pageSize + LongSerializer.LONG_SIZE];
-            LongSerializer.serializeNative(pageIndex, data, 0);
-            DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
-                pageSize);
-
-            if (aesKey != null) {
-              doEncryptionDecryption(
-                  Cipher.ENCRYPT_MODE, aesKey, fileId, pageIndex, data, encryptionIv);
-            }
-
-            stream.write(data);
-
-            if (lastLsn == null || pageLsn.compareTo(lastLsn) > 0) {
-              lastLsn = pageLsn;
-            }
-          }
-        } finally {
-          cacheEntry.releaseSharedLock(sharedStamp);
-          readCache.releaseFromRead(cacheEntry);
+      if (owner.selectedRead && !writeCache.isNonDurable(fileId)) {
+        final long compositeId = fileId;
+        context.forEachCandidate(context.sealHandle(), writeCache.internalFileId(fileId),
+            filledUpTo, pageIndex -> copyBackupPage(compositeId, pageIndex, changeLsn, stream,
+                encryptionIv, aesKey, data, lastLsn));
+      } else {
+        for (long pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+          copyBackupPage(fileId, pageIndex, changeLsn, stream, encryptionIv, aesKey, data, lastLsn);
         }
       }
 
       stream.closeEntry();
     }
 
-    return lastLsn;
+    return lastLsn[0];
+  }
+
+  /** The read cache has an int address boundary. Never let a long backup counter wrap there. */
+  static int backupPageIndex(long pageIndex) throws IOException {
+    if (pageIndex < 0 || pageIndex > Integer.MAX_VALUE) {
+      throw new IOException("Backup page index outside read-cache range: " + pageIndex);
+    }
+    return (int) pageIndex;
+  }
+
+  private void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
+      ZipOutputStream stream, byte[] encryptionIv, byte[] aesKey, byte[] data,
+      LogSequenceNumber[] lastLsn) throws IOException {
+    final var cacheEntry =
+        readCache.silentLoadForRead(fileId, backupPageIndex(pageIndex), writeCache, true);
+    long sharedStamp = cacheEntry.acquireSharedLock();
+    try {
+      var cachePointer = cacheEntry.getCachePointer();
+      assert cachePointer != null;
+      var cachePointerBuffer = cachePointer.getBuffer();
+      assert cachePointerBuffer != null;
+      final var pageLsn = DurablePage.getLogSequenceNumberFromPage(cachePointerBuffer);
+      if (changeLsn == null || pageLsn.compareTo(changeLsn) > 0) {
+        LongSerializer.serializeNative(pageIndex, data, 0);
+        DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
+            writeCache.pageSize());
+        if (aesKey != null) {
+          doEncryptionDecryption(
+              Cipher.ENCRYPT_MODE, aesKey, fileId, pageIndex, data, encryptionIv);
+        }
+        stream.write(data);
+        if (lastLsn[0] == null || pageLsn.compareTo(lastLsn[0]) > 0) {
+          lastLsn[0] = pageLsn;
+        }
+      }
+    } finally {
+      cacheEntry.releaseSharedLock(sharedStamp);
+      readCache.releaseFromRead(cacheEntry);
+    }
   }
 
   @Override
@@ -3555,6 +3576,7 @@ public class DiskStorage extends AbstractStorage {
     @Nullable private ChangedPageTrackerBackup.Context context;
     private State state = State.CREATED;
     private boolean cleanupAttempted;
+    private boolean selectedRead;
 
     BackupRequestOwner(ChangedPageTracker tracker) {
       this.tracker = Objects.requireNonNull(tracker);
@@ -3584,6 +3606,8 @@ public class DiskStorage extends AbstractStorage {
       } else if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
         // Keep this abandon condition aligned with ChangedPageTrackerBackup.complete.
         // Unconfirmed output merges its seal and cannot publish a new completion.
+        // Selected durable output needs no fullRead gating. The facade checks eligible live
+        // history at completion before it can publish trusted continuity.
         status = abandonOnce(null);
       } else {
         try {

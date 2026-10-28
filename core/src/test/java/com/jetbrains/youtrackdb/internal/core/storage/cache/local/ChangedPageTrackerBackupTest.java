@@ -72,6 +72,27 @@ public class ChangedPageTrackerBackupTest {
     assertTrue(context.trustedAtBoundary());
   }
 
+  /** Live authority ends on failure, merge, pending begin and replacement by a later boundary. */
+  @Test
+  public void ownedBoundaryTrustRequiresUnchangedFailureVersionAndOwnership() {
+    var tracker = trusted();
+    var context = begin(tracker);
+    assertTrue(context.isOwnedBoundaryTrusted());
+    tracker.invalidate();
+    assertFalse(context.isOwnedBoundaryTrusted());
+    ChangedPageTrackerBackup.abandon(tracker, context);
+    assertFalse(context.isOwnedBoundaryTrusted());
+    var later = begin(tracker);
+    assertFalse(later.isOwnedBoundaryTrusted());
+    assertFalse(ChangedPageTrackerBackup.begin(tracker, pair(), true).isOwnedBoundaryTrusted());
+
+    var clean = trusted();
+    var old = begin(clean);
+    ChangedPageTrackerBackup.abandon(clean, old);
+    assertFalse(old.isOwnedBoundaryTrusted());
+    assertTrue(begin(clean).isOwnedBoundaryTrusted());
+  }
+
   // 2. Both UUIDs and trusted completed history are mandatory. A missing head is not a match.
   @Test
   public void eligibilityRequiresBothIdentifiersAndTrustedCompletion() {

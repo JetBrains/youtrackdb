@@ -187,57 +187,80 @@ public class ChangedPageTrackerCandidateTest {
 
   @Test
   public void scratchAllocationDoesNotGrowWithCandidateCountOrIndexRange() throws Exception {
-    // Measure allocated bytes, not timing. Reuse the consumer and keep oracle work outside
-    // measurement. Dense and sparse high-index streams must both fit a fixed per-stream budget.
-    var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
-    assertTrue(bean.isThreadAllocatedMemorySupported());
-    boolean previouslyEnabled = bean.isThreadAllocatedMemoryEnabled();
+    // A clean child excludes agent allocations from the traversal scratch measurement.
+    var process = new ProcessBuilder(System.getProperty("java.home") + "/bin/java", "-Xmx128m",
+        "-XX:-DoEscapeAnalysis", "-cp",
+        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+        CandidateAllocationProbe.class.getName()).redirectErrorStream(true).start();
     try {
-      bean.setThreadAllocatedMemoryEnabled(true);
-      var tracker = new ChangedPageTracker();
-      int denseCount = 100_000;
-      for (int segment = 0; segment < 4; segment++) {
-        tracker.mark(1, (long) segment << 15);
-      }
-      for (int page = 0; page < denseCount; page++) {
-        tracker.mark(2, page);
-      }
-      for (int segment = 0; segment < 512; segment++) {
-        tracker.mark(3, (long) segment << 15);
-        // Separate leaf nodes and intermediate branches across a wide long-index range.
-        tracker.mark(4, (long) segment << 47);
-      }
-      var context = ChangedPageTrackerBackup.begin(tracker, null, true);
-      var counter = new Counter();
-      for (int warmup = 0; warmup < 200; warmup++) {
-        for (int file = 1; file <= 4; file++) {
-          context.forEachCandidate(context.sealHandle(), file, Long.MAX_VALUE, counter);
-        }
-      }
-      long thread = Thread.currentThread().threadId();
-      long baselineAllocation = 0;
-      long[] expectedCounts = {4, denseCount, 512, 512};
-      for (int file = 1; file <= 4; file++) {
-        counter.count = 0;
-        long before = bean.getThreadAllocatedBytes(thread);
-        for (int stream = 0; stream < 200; stream++) {
-          context.forEachCandidate(context.sealHandle(), file, Long.MAX_VALUE, counter);
-        }
-        long allocated = bean.getThreadAllocatedBytes(thread) - before;
-        assertEquals(200L * expectedCounts[file - 1], counter.count);
-        // Allow fixed agent overhead, but not growth with candidates, segments or radix nodes.
-        // Across 200 streams, 32 bytes per extra segment or node exceeds the 64 KiB slack.
-        assertTrue("Stream scratch exceeded fixed 512 KiB budget for file " + file + ": "
-            + allocated, allocated <= 524288);
-        if (file == 1) {
-          baselineAllocation = allocated;
-        } else {
-          assertTrue("Stream allocation grew with file shape " + file + ": " + allocated,
-              allocated <= baselineAllocation + 65536);
-        }
-      }
+      assertTrue("Allocation probe did not finish", process.waitFor(30, TimeUnit.SECONDS));
+      var output = new String(process.getInputStream().readAllBytes(),
+          java.nio.charset.StandardCharsets.UTF_8);
+      assertEquals(output, 0, process.exitValue());
+      assertTrue("Probe did not finish its measurements: " + output,
+          output.contains("candidate allocation complete"));
     } finally {
-      bean.setThreadAllocatedMemoryEnabled(previouslyEnabled);
+      process.destroyForcibly();
+      assertTrue(process.waitFor(10, TimeUnit.SECONDS));
+    }
+  }
+
+  public static final class CandidateAllocationProbe {
+
+    public static void main(String[] args) throws Exception {
+      // Measure allocated bytes, not timing. Reuse the consumer and keep oracle work outside
+      // measurement. Dense and sparse high-index streams must both fit a fixed per-stream budget.
+      var bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+      assertTrue(bean.isThreadAllocatedMemorySupported());
+      boolean previouslyEnabled = bean.isThreadAllocatedMemoryEnabled();
+      try {
+        bean.setThreadAllocatedMemoryEnabled(true);
+        var tracker = new ChangedPageTracker();
+        int denseCount = 100_000;
+        for (int segment = 0; segment < 4; segment++) {
+          tracker.mark(1, (long) segment << 15);
+        }
+        for (int page = 0; page < denseCount; page++) {
+          tracker.mark(2, page);
+        }
+        for (int segment = 0; segment < 512; segment++) {
+          tracker.mark(3, (long) segment << 15);
+          // Separate leaf nodes and intermediate branches across a wide long-index range.
+          tracker.mark(4, (long) segment << 47);
+        }
+        var context = ChangedPageTrackerBackup.begin(tracker, null, true);
+        var counter = new Counter();
+        for (int warmup = 0; warmup < 200; warmup++) {
+          for (int file = 1; file <= 4; file++) {
+            context.forEachCandidate(context.sealHandle(), file, Long.MAX_VALUE, counter);
+          }
+        }
+        long thread = Thread.currentThread().threadId();
+        long baselineAllocation = 0;
+        long[] expectedCounts = {4, denseCount, 512, 512};
+        for (int file = 1; file <= 4; file++) {
+          counter.count = 0;
+          long before = bean.getThreadAllocatedBytes(thread);
+          for (int stream = 0; stream < 200; stream++) {
+            context.forEachCandidate(context.sealHandle(), file, Long.MAX_VALUE, counter);
+          }
+          long allocated = bean.getThreadAllocatedBytes(thread) - before;
+          assertEquals(200L * expectedCounts[file - 1], counter.count);
+          // Allow fixed traversal overhead, but not growth with candidates, segments or radix nodes.
+          // Across 200 streams, 32 bytes per extra segment or node exceeds the 64 KiB slack.
+          assertTrue("Stream scratch exceeded fixed 512 KiB budget for file " + file + ": "
+              + allocated, allocated <= 524288);
+          if (file == 1) {
+            baselineAllocation = allocated;
+          } else {
+            assertTrue("Stream allocation grew with file shape " + file + ": " + allocated,
+                allocated <= baselineAllocation + 65536);
+          }
+        }
+      } finally {
+        bean.setThreadAllocatedMemoryEnabled(previouslyEnabled);
+      }
+      System.out.println("candidate allocation complete");
     }
   }
 

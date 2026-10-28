@@ -964,6 +964,8 @@ public class IncrementalBackupExtensionTest {
       var output = new RecordingOutput();
       output.failPhase = phase;
       output.cachedFailure = new IOException("cached " + phase);
+      var tracker = tracker(storage);
+      markTracker(tracker, 123456, 111L);
       var records = new CopyOnWriteArrayList<LogRecord>();
       var retained = new HashMap<String, OutputStream>();
       var removals = new AtomicInteger();
@@ -985,6 +987,9 @@ public class IncrementalBackupExtensionTest {
       assertEquals(0, removals.get());
       assertEquals(1, retained.size());
       assertSame(output, retained.values().iterator().next());
+      assertEquals(List.of(111L), trackerCandidates(tracker, "active", 123456));
+      org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+      assertBackupUnlocked(storage);
       assertFalse(records.stream().anyMatch(r -> r.getMessage().contains("is completed")));
       assertEquals(List.of("tail", "tailFlush", "secondForce").contains(phase) ? 1 : 0,
           output.tailRequests);
@@ -1258,7 +1263,12 @@ public class IncrementalBackupExtensionTest {
   public void plainOutputKeepsPreviousCompletionAndBothGenerationsOfMarks() throws Exception {
     try (var manager = openManager()) {
       var storage = createSourceDatabase(manager);
+      long evidence = storage.getWriteCache().addFile("plain.tst");
+      for (int page = 0; page < 64; page++) {
+        writeEvidencePage(storage, evidence, page, page);
+      }
       var full = storage.fullBackup(backupPath);
+      writeEvidencePage(storage, evidence, 7, 7007);
       var previous = literalContinuity(Files.readAllBytes(backupPath.resolve(full)));
       var tracker = tracker(storage);
       var sideFile = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
@@ -1291,10 +1301,25 @@ public class IncrementalBackupExtensionTest {
             out.write(bytes, offset, length);
           }
         };
-        name = storage.backup(this::unitIterator, this::openInput, file -> output,
-            file -> {
-              throw new AssertionError("no removal");
-            });
+        var realReads = storage.getReadCache();
+        var reads = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realReads));
+        var readField = AbstractStorage.class.getDeclaredField("readCache");
+        readField.setAccessible(true);
+        readField.set(storage, reads);
+        try {
+          name = storage.backup(this::unitIterator, this::openInput, file -> output,
+              file -> {
+                throw new AssertionError("no removal");
+              });
+          for (int page = 0; page < 64; page++) {
+            org.mockito.Mockito.verify(reads, org.mockito.Mockito.times(page == 7 ? 1 : 0))
+                .silentLoadForRead(evidence, page, storage.getWriteCache(), true);
+          }
+        } finally {
+          readField.set(storage, realReads);
+        }
         assertTrue(postBoundary.get());
         assertEquals(previous, literalContinuity(plain.toByteArray()));
         assertEquals(previous.generationId(), trackerField(tracker, "lastCompleted"));
@@ -1595,7 +1620,12 @@ public class IncrementalBackupExtensionTest {
       var units = Files.createDirectories(root.resolve("units-" + phase));
       try (var manager = (YouTrackDBImpl) YourTracks.instance(casePath.toString())) {
         var storage = createSourceDatabase(manager);
+        long evidence = storage.getWriteCache().addFile("retained.tst");
+        for (int page = 0; page < 64; page++) {
+          writeEvidencePage(storage, evidence, page, page);
+        }
         var full = storage.fullBackup(units);
+        writeEvidencePage(storage, evidence, 7, 7007);
         var previous = literalContinuity(Files.readAllBytes(units.resolve(full)));
         var tracker = tracker(storage);
         addOneRecord(manager);
@@ -1608,6 +1638,7 @@ public class IncrementalBackupExtensionTest {
           if (marked.compareAndSet(false, true)) {
             try {
               markTracker(tracker, 123456, 222L);
+              writeEvidencePage(storage, evidence, 33, 3333);
               addOneRecord(manager);
             } catch (Exception failure) {
               throw new AssertionError(failure);
@@ -1661,7 +1692,8 @@ public class IncrementalBackupExtensionTest {
             .abandon(tracker, admission);
         var failedPath = units.resolve(retainedName.getFirst());
         Files.write(failedPath, retained);
-        var next = storage.backup(units);
+        var next = measuredEvidenceBackup(storage, units, evidence, 64,
+            plain ? List.of(7L, 33L) : java.util.stream.LongStream.range(0, 64).boxed().toList());
         var nextPair = literalContinuity(Files.readAllBytes(units.resolve(next)));
         assertFalse(failedPair.generationId().equals(nextPair.generationId()));
         org.junit.Assert.assertArrayEquals(retained, Files.readAllBytes(failedPath));
@@ -2060,7 +2092,7 @@ public class IncrementalBackupExtensionTest {
         output.onClose = () -> armed.set(true);
         var factsType =
             com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.CompletionFacts.class;
-        // The supplier creates (true, true) only. Intercept that one caller-created record to
+        // This boundary-ineligible supplier reports (true, true). Intercept its record to
         // exercise non-durable facts without adding an unreachable production switch.
         try (var facts = org.mockito.Mockito.mockConstruction(factsType, (mock, context) -> {
           org.mockito.Mockito.doReturn(!mode.equals("nonDurable")).when(mock).completeUnitDurable();
@@ -2415,6 +2447,10 @@ public class IncrementalBackupExtensionTest {
       assertTrue(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
       drained.get(10, java.util.concurrent.TimeUnit.SECONDS);
     }
+    if (mode.equals("closed")) {
+      assertClosedRestartAfterEarlierCompletion();
+      return;
+    }
     var sideFile = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
     var savedBytes = Files.readAllBytes(sideFile);
     // Inspect the saved image before any startup checkpoint can replace it.
@@ -2433,10 +2469,8 @@ public class IncrementalBackupExtensionTest {
       var storage = (AbstractStorage) session.getStorage();
       var tracker = tracker(storage);
       org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
-      if (!mode.equals("closed")) {
-        assertTrue("saved active mark survives real startup",
-            trackerCandidates(tracker, "active", 123456).contains(222L));
-      }
+      assertTrue("saved active mark survives real startup",
+          trackerCandidates(tracker, "active", 123456).contains(222L));
       if (mode.equals("published")) {
         assertTrue("real WAL startup proof must preserve trust", tracker.isTrusted());
         assertEquals(exported.trackerId(), trackerField(tracker, "trackerId"));
@@ -2474,17 +2508,94 @@ public class IncrementalBackupExtensionTest {
           var result = restored.query("select count(*) as count from " + RECORD_CLASS)) {
         assertEquals(expectedRecords, ((Number) result.next().getProperty("count")).longValue());
       }
-      if (mode.equals("closed")) {
-        // The independently restored closed unit contains the record copied before the halt.
-        var retained = Files.createDirectory(root.resolve("closed-unit"));
-        Files.copy(backupPath.resolve(unitNames().getFirst()),
-            retained.resolve(unitNames().getFirst()));
-        manager.internal.restore("closedRestore", retained.toString(), null, null);
-        try (var restored = manager.open("closedRestore", ADMIN, PASSWORD);
-            var result = restored.query("select count(*) as count from " + RECORD_CLASS)) {
-          assertEquals(2L, ((Number) result.next().getProperty("count")).longValue());
+    }
+  }
+
+  /**
+   * A checkpoint while the later selected unit is pending preserves the earlier completion and
+   * both generations. Real startup proof must merge them without trusting the closed newer head.
+   */
+  private void assertClosedRestartAfterEarlierCompletion() throws Exception {
+    var names = unitNames();
+    assertEquals(2, names.size());
+    var earlier = literalContinuity(Files.readAllBytes(backupPath.resolve(names.getFirst())));
+    var later = literalContinuity(Files.readAllBytes(backupPath.resolve(names.getLast())));
+    assertNotNull(earlier);
+    assertNotNull(later);
+    assertFalse(earlier.equals(later));
+    var side = databasesPath.resolve(SOURCE).resolve("changed-pages.cpt");
+    assertSavedPair(side, earlier, 7);
+    assertTrue("copy checkpoint must retain pending marks",
+        (Files.readAllBytes(side)[8] & 4) != 0);
+    var earlierChain = Files.createDirectory(root.resolve("earlier-chain"));
+    Files.copy(backupPath.resolve(names.getFirst()), earlierChain.resolve(names.getFirst()));
+    try (var manager = crashManager(databasesPath);
+        var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+      var storage = (AbstractStorage) session.getStorage();
+      var tracker = tracker(storage);
+      assertTrue("real startup coverage proof must authorize earlier history", tracker.isTrusted());
+      assertEquals(earlier.trackerId(), trackerField(tracker, "trackerId"));
+      assertEquals(earlier.generationId(), trackerField(tracker, "lastCompleted"));
+      org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+      assertEquals("pre-boundary and active marks must survive real startup",
+          List.of(111L, 222L), trackerCandidates(tracker, "active", 123456));
+      long file = storage.getWriteCache().fileIdByName("closed.tst");
+      assertEquals(List.of(7L),
+          trackerCandidates(tracker, "active", storage.getWriteCache().internalFileId(file)));
+      measuredEvidenceBackup(storage, earlierChain, file, 128, List.of(7L));
+      manager.internal.restore("earlierCrashRestore", earlierChain.toString(), null, null);
+      try (var restored = manager.open("earlierCrashRestore", ADMIN, PASSWORD);
+          var rows = restored.query("select count(*) as count from " + RECORD_CLASS)) {
+        assertEquals(4L, ((Number) rows.next().getProperty("count")).longValue());
+        var restoredStorage = (AbstractStorage) restored.getStorage();
+        var cache = restoredStorage.getWriteCache();
+        var entry = restoredStorage.getReadCache().silentLoadForRead(
+            cache.fileIdByName("closed.tst"), 7, cache, true);
+        try {
+          assertEquals(7007, entry.getCachePointer().getBuffer().getInt(64));
+        } finally {
+          restoredStorage.getReadCache().releaseFromRead(entry);
         }
       }
+      // The closed unit itself remains restorable, independently of the new earlier-head extension.
+      manager.internal.restore("closedRestore", backupPath.toString(), null, null);
+      try (var restored = manager.open("closedRestore", ADMIN, PASSWORD);
+          var rows = restored.query("select count(*) as count from " + RECORD_CLASS)) {
+        assertEquals(4L, ((Number) rows.next().getProperty("count")).longValue());
+      }
+      // Keep the retained newer head separate. Its pair never became saved completion.
+      measuredEvidenceBackup(storage, backupPath, file, 128,
+          java.util.stream.LongStream.range(0, 128).boxed().toList());
+    }
+  }
+
+  /** Counts every reached evidence-file load, including unexpected duplicate and out-of-bound loads. */
+  private String measuredEvidenceBackup(AbstractStorage storage, Path chain, long file, int bound,
+      List<Long> expected) throws Exception {
+    var real = storage.getReadCache();
+    var reached = new ArrayList<Long>();
+    var reads = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+        org.mockito.AdditionalAnswers.delegatesTo(real));
+    org.mockito.Mockito.doAnswer(call -> {
+      int page = call.getArgument(1);
+      if ((long) call.getArgument(0) == file) {
+        assertTrue("evidence load must stay in sampled bounds", page >= 0 && page < bound);
+        reached.add((long) page);
+      }
+      return call.getMethod().invoke(real, call.getArguments());
+    }).when(reads).silentLoadForRead(org.mockito.ArgumentMatchers.anyLong(),
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.anyBoolean());
+    var field = AbstractStorage.class.getDeclaredField("readCache");
+    field.setAccessible(true);
+    field.set(storage, reads);
+    try {
+      var name = storage.backup(chain);
+      assertEquals("exact evidence-file selected or full loads", expected, reached);
+      return name;
+    } finally {
+      field.set(storage, real);
     }
   }
 
@@ -2509,6 +2620,15 @@ public class IncrementalBackupExtensionTest {
     var manager = crashManager(fixture.databasesPath);
     var storage = fixture.createSourceDatabase(manager);
     var tracker = tracker(storage);
+    if (mode.equals("closed")) {
+      long evidence = storage.getWriteCache().addFile("closed.tst");
+      for (int page = 0; page < 128; page++) {
+        writeEvidencePage(storage, evidence, page, page);
+      }
+      storage.fullBackup(fixture.backupPath);
+      fixture.addOneRecord(manager);
+      writeEvidencePage(storage, evidence, 7, 7007);
+    }
     var wal = storage.getWALInstance();
     // Leave older segments available for the pending checkpoint's real bounded cut.
     wal.appendNewSegment();
@@ -2525,6 +2645,7 @@ public class IncrementalBackupExtensionTest {
       if (mode.equals("closed") && method.equals("beforeCompletionCapture")) {
         try {
           assertTrue("explicit close must have returned before the save site", outputClosed.get());
+          // Completion is staged in memory, but no replacement side file is published yet.
           org.junit.Assert.assertNull(trackerField(tracker, "lastCompleted"));
           haltAt(handshake, mode);
         } catch (Exception failure) {
@@ -2542,12 +2663,18 @@ public class IncrementalBackupExtensionTest {
         fixture.addOneRecord(manager);
         markTracker(tracker, 123456, 222L);
         wal.flush();
-        if (mode.equals("pending")) {
+        if (mode.equals("pending") || mode.equals("closed")) {
           storage.synch();
           var saved = Files.readAllBytes(
               fixture.databasesPath.resolve(SOURCE).resolve("changed-pages.cpt"));
           assertTrue("ordinary checkpoint must save the pending seal", (saved[8] & 4) != 0);
-          haltAt(handshake, mode);
+          if (mode.equals("pending")) {
+            haltAt(handshake, mode);
+          }
+          // A full checkpoint can clear the dirty flag. Commit again so this halt exercises
+          // the real unclean-startup proof policy rather than clean-shutdown validation.
+          fixture.addOneRecord(manager);
+          wal.flush();
         }
       }
       return invocation.getMethod().invoke(realReads, invocation.getArguments());
@@ -2572,7 +2699,7 @@ public class IncrementalBackupExtensionTest {
       }
     };
     fixture.withDiskStorageLogs(records, () -> storage.backup(
-        () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(), name -> {
+        fixture::unitIterator, fixture::openInput, name -> {
           try {
             return new CrashOutput(fixture.backupPath.resolve(name), () -> {
               assertTrue(firstRead.get());
@@ -2721,20 +2848,32 @@ public class IncrementalBackupExtensionTest {
     field.set(tracker, previous);
   }
 
-  /** All admitted head cases reach every physical page, including a matching current pair. */
+  /** Matching history selects measured marks. Every other admitted head reads physical bounds. */
   @Test
-  public void everyHeadCaseStillReadsEveryPhysicalPage() throws Exception {
+  public void everyHeadCaseUsesItsMeasuredReadMode() throws Exception {
     try (var manager = openManager()) {
       var storage = createSourceDatabase(manager);
       var full = storage.fullBackup(backupPath);
-      for (var head : List.of("matching", "mismatched", "historical", "missing")) {
+      var pair = literalContinuity(Files.readAllBytes(backupPath.resolve(full)));
+      for (var head : List.of("matching", "qfOlder", "trackerMismatch", "generationMismatch",
+          "mismatched", "historical", "missing", "untrusted")) {
         var bytes = Files.readAllBytes(backupPath.resolve(full));
         if (head.equals("mismatched")) {
           BackupUnitFiles.rewriteAsVersion6(backupPath.resolve(full), DiskStorage.BARRIER_PRESENT,
               new DiskStorage.BackupContinuity(UUID.randomUUID(), UUID.randomUUID()));
+        } else if (head.equals("trackerMismatch") || head.equals("generationMismatch")) {
+          BackupUnitFiles.rewriteAsVersion6(backupPath.resolve(full), DiskStorage.BARRIER_PRESENT,
+              new DiskStorage.BackupContinuity(
+                  head.equals("trackerMismatch") ? UUID.randomUUID() : pair.trackerId(),
+                  head.equals("generationMismatch") ? UUID.randomUUID() : pair.generationId()));
         } else if (head.equals("historical")) {
           BackupUnitFiles.rewriteAsVersion(backupPath.resolve(full), 3);
+        } else if (head.equals("untrusted")) {
+          var invalidate = tracker(storage).getClass().getDeclaredMethod("invalidate");
+          invalidate.setAccessible(true);
+          invalidate.invoke(tracker(storage));
         }
+        boolean selected = head.equals("matching") || head.equals("qfOlder");
         var real = storage.getReadCache();
         var reads = org.mockito.Mockito.mock(
             com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
@@ -2745,7 +2884,9 @@ public class IncrementalBackupExtensionTest {
         try {
           var output = new RecordingOutput();
           storage.backup(head.equals("missing") ? () -> List.<String>of().iterator()
-              : this::unitIterator, this::openInput, file -> output, file -> {
+              : this::unitIterator, this::openInput,
+              file -> new java.io.FilterOutputStream(output) {
+              }, file -> {
               });
           var cache = storage.getWriteCache();
           int reached = 0;
@@ -2753,7 +2894,9 @@ public class IncrementalBackupExtensionTest {
             var external = cache.externalFileId(cache.internalFileId(id));
             var size = cache.physicalSizeForBackupSnapshot(external);
             for (int page = 0; page < size; page++) {
-              org.mockito.Mockito.verify(reads).silentLoadForRead(external, page, cache, true);
+              org.mockito.Mockito.verify(reads, org.mockito.Mockito.times(
+                  selected ? 0 : 1))
+                  .silentLoadForRead(external, page, cache, true);
               reached++;
             }
           }
@@ -2762,8 +2905,818 @@ public class IncrementalBackupExtensionTest {
           field.set(storage, real);
           Files.write(backupPath.resolve(full), bytes);
         }
-        // Later cases deliberately admit stale or absent history. None may select pages.
+        // Q-f keeps the pair. The older full head still matches after that completion.
+        // All mismatching, absent and untrusted cases must reach every sampled physical page.
       }
+    }
+  }
+
+  /**
+   * Real durable bootstrap enables measured selected reads. Inventory-time trust loss falls back,
+   * while post-selection loss (including an empty stream) fails before WAL copy and metadata.
+   * Non-durable files retain the full walk. Completion facts record the fixed mode exactly.
+   */
+  @Test
+  public void selectedCallerUsesFixedModeAndBothTrustChecks() throws Exception {
+    for (var mode : List.of("selected", "ineligible", "before", "after", "empty", "nonDurable",
+        "overflow")) {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(
+          databasesPath.resolve("selection-" + mode).toString())) {
+        var storage = createSourceDatabase(manager);
+        var full = storage.fullBackup(backupPath);
+        var tracker = tracker(storage);
+        assertTrue(tracker.isTrusted());
+        var realCache = storage.getWriteCache();
+        var inventory = realCache.files();
+        var id = inventory.values().stream()
+            .filter(value -> realCache.physicalSizeForBackupSnapshot(value) > 0)
+            .findFirst().orElseThrow();
+        long external = realCache.externalFileId(realCache.internalFileId(id));
+        long marked = mode.equals("overflow") ? (long) Integer.MAX_VALUE + 1 : 0;
+        if (!mode.equals("empty") && !mode.equals("nonDurable")) {
+          markTracker(tracker, realCache.internalFileId(external), marked);
+        }
+        if (mode.equals("ineligible")) {
+          BackupUnitFiles.rewriteAsVersion6(backupPath.resolve(full), DiskStorage.BARRIER_PRESENT,
+              new DiskStorage.BackupContinuity(UUID.randomUUID(), UUID.randomUUID()));
+        }
+        var cache = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realCache));
+        var invalidate = tracker.getClass().getDeclaredMethod("invalidate");
+        invalidate.setAccessible(true);
+        org.mockito.Mockito.doAnswer(call -> {
+          var snapshot = realCache.files();
+          if (mode.equals("before")) {
+            invalidate.invoke(tracker);
+          }
+          return snapshot;
+        }).when(cache).files();
+        var invalidated = new java.util.concurrent.atomic.AtomicBoolean();
+        org.mockito.Mockito.doAnswer(call -> {
+          long fileId = call.getArgument(0);
+          if ((mode.equals("after") || mode.equals("empty"))
+              && invalidated.compareAndSet(false, true)) {
+            invalidate.invoke(tracker);
+          }
+          return mode.equals("overflow") && fileId == external ? marked + 1
+              : realCache.physicalSizeForBackupSnapshot(fileId);
+        }).when(cache).physicalSizeForBackupSnapshot(org.mockito.ArgumentMatchers.anyLong());
+        if (mode.equals("nonDurable")) {
+          org.mockito.Mockito.doReturn(true).when(cache).isNonDurable(external);
+        }
+        var realReads = storage.getReadCache();
+        var reads = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realReads));
+        var realWal = storage.getWALInstance();
+        var wal = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+            org.mockito.AdditionalAnswers.delegatesTo(realWal));
+        var cacheField = AbstractStorage.class.getDeclaredField("writeCache");
+        var readField = AbstractStorage.class.getDeclaredField("readCache");
+        var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+        for (var field : List.of(cacheField, readField, walField)) {
+          field.setAccessible(true);
+        }
+        cacheField.set(storage, cache);
+        readField.set(storage, reads);
+        walField.set(storage, wal);
+        var factsArgs = new ArrayList<List<?>>();
+        var output = new RecordingOutput();
+        boolean fullRead = mode.equals("before") || mode.equals("ineligible");
+        boolean fails = mode.equals("after") || mode.equals("empty") || mode.equals("overflow");
+        var factsType =
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.CompletionFacts.class;
+        try (var facts = org.mockito.Mockito.mockConstruction(factsType, (mock, construction) -> {
+          factsArgs.add(List.copyOf(construction.arguments()));
+          org.mockito.Mockito.when(mock.fullRead()).thenReturn(fullRead);
+          org.mockito.Mockito.when(mock.completeUnitDurable()).thenReturn(true);
+        })) {
+          java.util.concurrent.Callable<String> backup = () -> storage.backup(this::unitIterator,
+              this::openInput, file -> output, file -> {
+                throw new AssertionError("no removal");
+              });
+          if (fails) {
+            var reported = assertThrows(DatabaseException.class, backup::call);
+            assertTrue(reported.getCause() instanceof IOException);
+            var failure = reported.getCause();
+            assertTrue(failure.getMessage(), failure.getMessage().contains(
+                mode.equals("overflow") ? "Backup page index outside read-cache range"
+                    : "trust lost"));
+            assertEquals(0, output.tailRequests);
+            assertTrue(factsArgs.isEmpty());
+            org.mockito.Mockito.verify(wal, org.mockito.Mockito.never())
+                .nonActiveSegments(org.mockito.ArgumentMatchers.anyLong());
+            org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+            if (!mode.equals("empty")) {
+              assertTrue(trackerCandidates(tracker, "active", realCache.internalFileId(external))
+                  .contains(marked));
+            }
+          } else {
+            try {
+              backup.call();
+            } catch (Exception failure) {
+              throw new AssertionError(mode + " must complete with its fixed read mode", failure);
+            }
+            assertEquals(mode, List.of(List.of(fullRead, true)), factsArgs);
+            // A failure after the boundary also prevents completion from trusting that boundary.
+            assertEquals(mode, !mode.equals("before"), tracker.isTrusted());
+            assertEquals(1, output.tailRequests);
+          }
+          int physical = 0;
+          for (var file : inventory.values()) {
+            long composite = realCache.externalFileId(realCache.internalFileId(file));
+            long bound = realCache.physicalSizeForBackupSnapshot(composite);
+            for (int page = 0; page < bound; page++) {
+              boolean expected = fullRead || (!mode.equals("empty") && composite == external
+                  && (page == 0 || mode.equals("nonDurable")));
+              if (mode.equals("overflow")) {
+                expected = false;
+              }
+              org.mockito.Mockito.verify(reads, org.mockito.Mockito.times(expected ? 1 : 0))
+                  .silentLoadForRead(composite, page, cache, true);
+              physical++;
+            }
+          }
+          assertTrue(physical > 1);
+        } finally {
+          cacheField.set(storage, realCache);
+          readField.set(storage, realReads);
+          walField.set(storage, realWal);
+          Files.deleteIfExists(backupPath.resolve(full));
+        }
+      }
+    }
+  }
+
+  /**
+   * A real completed full backup leaves 128 independent pages untouched. Two new pages and one
+   * conservative old-LSN mark produce three loads but only two copied pages. Empty and unmarked
+   * files remain inventory entries. Restore checks both the independent bytes and logical records.
+   */
+  @Test
+  public void selectedSubsetSeparatesCandidatesLoadsCopiesAndRestoredState() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var cache = storage.getWriteCache();
+      long file = cache.addFile("subset.tst");
+      long empty = cache.addFile("empty.tst");
+      long removed = cache.addFile("removed.tst");
+      long truncated = cache.addFile("truncated.tst");
+      writeEvidencePage(storage, truncated, 7, 77);
+      for (int page = 0; page < 128; page++) {
+        writeEvidencePage(storage, file, page, page);
+      }
+      storage.fullBackup(backupPath);
+      addOneRecord(manager);
+      writeEvidencePage(storage, file, 7, 7007);
+      writeEvidencePage(storage, file, 93, 9093);
+      storage.getReadCache().deleteFile(removed, cache);
+      storage.getReadCache().shrinkFile(truncated, 0, cache);
+      writeEvidencePage(storage, truncated, 3, 33);
+      var tracker = tracker(storage);
+      markTracker(tracker, cache.internalFileId(file), 11);
+      // An out-of-bounds conservative bit must never reach the read cache.
+      markTracker(tracker, cache.internalFileId(file), 128);
+      markTracker(tracker, cache.internalFileId(removed), 99);
+      markTracker(tracker, cache.internalFileId(truncated), 7);
+      assertEquals(List.of(7L, 11L, 93L, 128L),
+          trackerCandidates(tracker, "active", cache.internalFileId(file)));
+      assertTrue(trackerCandidates(tracker, "active", cache.internalFileId(empty)).isEmpty());
+      var real = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(real));
+      org.mockito.Mockito.doAnswer(call -> {
+        long id = call.getArgument(0);
+        int page = call.getArgument(1);
+        assertTrue("deleted file must never be loaded", id != removed);
+        assertTrue("subset load must stay below sampled bound 128", id != file || page < 128);
+        assertTrue("truncated load must stay below sampled bound 4",
+            id != truncated || page < 4);
+        return real.silentLoadForRead(id, page, call.getArgument(2), call.getArgument(3));
+      }).when(reads).silentLoadForRead(org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(),
+          org.mockito.ArgumentMatchers.anyBoolean());
+      var field = AbstractStorage.class.getDeclaredField("readCache");
+      field.setAccessible(true);
+      field.set(storage, reads);
+      String increment;
+      var visits = new ArrayList<Long>();
+      var facade =
+          com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.class;
+      try (var bridge = org.mockito.Mockito.mockStatic(facade,
+          org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        bridge.when(
+            () -> com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup
+                .begin(org.mockito.ArgumentMatchers.any(),
+                    org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean()))
+            .thenAnswer(call -> {
+              var context =
+                  (com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.Context) call
+                      .callRealMethod();
+              var observed = org.mockito.Mockito.spy(context);
+              org.mockito.Mockito.doAnswer(stream -> {
+                com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.CandidateConsumer consumer =
+                    stream.getArgument(3);
+                int id = stream.getArgument(1);
+                context.forEachCandidate(stream.getArgument(0), id, stream.getArgument(2),
+                    page -> {
+                      if (id == cache.internalFileId(file)) {
+                        assertTrue("candidate must stay below sampled bound 128", page < 128);
+                        visits.add(page);
+                      }
+                      consumer.accept(page);
+                    });
+                return null;
+              }).when(observed).forEachCandidate(org.mockito.ArgumentMatchers.any(),
+                  org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyLong(),
+                  org.mockito.ArgumentMatchers.any());
+              return observed;
+            });
+        increment = storage.backup(backupPath);
+      } finally {
+        field.set(storage, real);
+      }
+      assertEquals("caller candidate visits precede the independent load and copy oracles",
+          List.of(7L, 11L, 93L), visits);
+      for (int page = 0; page <= 128; page++) {
+        org.mockito.Mockito.verify(reads, org.mockito.Mockito.times(
+            page == 7 || page == 11 || page == 93 ? 1 : 0))
+            .silentLoadForRead(file, page, cache, true);
+      }
+      var entries = backupEntries(Files.readAllBytes(backupPath.resolve(increment)));
+      assertEquals(8, entries.get("empty.tst").length);
+      assertFalse(entries.containsKey("removed.tst"));
+      assertTrue(entries.containsKey("subset.tst"));
+      assertEquals(8 + 8 + cache.pageSize(), entries.get("truncated.tst").length);
+      org.mockito.Mockito.verify(reads, org.mockito.Mockito.never())
+          .silentLoadForRead(truncated, 7, cache, true);
+      var copied = entries.get("subset.tst");
+      assertEquals(8 + 2 * (8 + cache.pageSize()), copied.length);
+      var serializer =
+          com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.INSTANCE;
+      assertEquals(7, serializer.deserializeNative(copied, 8));
+      assertEquals(93,
+          serializer.deserializeNative(copied, 8 + 8 + cache.pageSize()));
+      manager.internal.restore("subsetRestore", backupPath.toString(), null, null);
+      try (var session = manager.open("subsetRestore", ADMIN, PASSWORD)) {
+        assertEquals(2, session.query("select from " + RECORD_CLASS).stream().count());
+      }
+      var restored = ((YouTrackDBInternalEmbedded) manager.internal).getStorage("subsetRestore");
+      var restoredCache = restored.getWriteCache();
+      long restoredFile = restoredCache.fileIdByName("subset.tst");
+      for (int page = 0; page < 128; page++) {
+        var entry = restored.getReadCache().silentLoadForRead(restoredFile, page,
+            restoredCache, true);
+        long stamp = entry.acquireSharedLock();
+        try {
+          assertEquals(page == 7 ? 7007 : page == 93 ? 9093 : page,
+              entry.getCachePointer().getBuffer().getInt(64));
+        } finally {
+          entry.releaseSharedLock(stamp);
+          restored.getReadCache().releaseFromRead(entry);
+        }
+      }
+    }
+  }
+
+  /**
+   * Same-ID rename changes only the current inventory name. Stale marks cannot create entries
+   * or loads outside that inventory and its sampled bound.
+   */
+  @Test
+  public void renamedInventorySelectsOnlyValidCandidatesWithoutGhosts() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var cache = storage.getWriteCache();
+      long file = cache.addFile("original.tst");
+      writeEvidencePage(storage, file, 0, 10);
+      var full = storage.fullBackup(backupPath);
+      cache.renameFile(file, "renamed.tst");
+      markTracker(tracker(storage), cache.internalFileId(file), 0);
+      markTracker(tracker(storage), cache.internalFileId(file), 1);
+      var real = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(real));
+      var field = AbstractStorage.class.getDeclaredField("readCache");
+      field.setAccessible(true);
+      field.set(storage, reads);
+      String increment;
+      try {
+        increment = storage.backup(backupPath);
+      } finally {
+        field.set(storage, real);
+      }
+      var before = backupEntries(Files.readAllBytes(backupPath.resolve(full)));
+      var after = backupEntries(Files.readAllBytes(backupPath.resolve(increment)));
+      assertFalse(after.containsKey("original.tst"));
+      assertTrue(after.containsKey("renamed.tst"));
+      org.junit.Assert.assertArrayEquals(
+          java.util.Arrays.copyOf(before.get("original.tst"), 8),
+          java.util.Arrays.copyOf(after.get("renamed.tst"), 8));
+      org.mockito.Mockito.verify(reads).silentLoadForRead(file, 0, cache, true);
+      org.mockito.Mockito.verify(reads, org.mockito.Mockito.never())
+          .silentLoadForRead(file, 1, cache, true);
+      // Restore of a same-ID rename across units is a known pre-existing limitation outside this test.
+    }
+  }
+
+  /** A writer extends after the sampled bound. Only WAL restores the excluded new page. */
+  @Test
+  public void extensionAfterSampleRestoresThroughWalWithoutLoadingNewPage() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var cache = storage.getWriteCache();
+      String fileName;
+      try (var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+        int collection;
+        try (var rows = session.query("select from " + RECORD_CLASS)) {
+          collection = rows.next().asEntity().getIdentity().getCollectionId();
+        }
+        fileName = storage.getCollectionNameById(collection) + ".pcl";
+      }
+      long file = cache.fileIdByName(fileName);
+      long sampledBound = cache.physicalSizeForBackupSnapshot(file);
+      var bytes = new byte[512 * 1024];
+      new java.util.Random(42).nextBytes(bytes);
+      var payload = java.util.Base64.getEncoder().encodeToString(bytes);
+      long evidence = cache.addFile("lifecycle.tst");
+      for (int page = 0; page < 128; page++) {
+        writeEvidencePage(storage, evidence, page, page);
+      }
+      storage.fullBackup(backupPath);
+      writeEvidencePage(storage, evidence, 7, 7007);
+      var realReads = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(realReads));
+      var proxy = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(cache));
+      var reached = new java.util.concurrent.atomic.AtomicBoolean();
+      var writer = java.util.concurrent.Executors.newSingleThreadExecutor();
+      org.mockito.Mockito.doAnswer(call -> {
+        long id = call.getArgument(0);
+        long bound = cache.physicalSizeForBackupSnapshot(id);
+        if (id == file && reached.compareAndSet(false, true)) {
+          assertEquals(sampledBound, bound);
+          var seal = trackerField(tracker(storage), "sealed");
+          var pages = seal.getClass().getDeclaredMethod("pages");
+          pages.setAccessible(true);
+          assertEquals(List.of(7L), generationCandidates(pages.invoke(seal),
+              cache.internalFileId(evidence)));
+          writer.submit(() -> {
+            try (var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+              session.begin();
+              session.command("update " + RECORD_CLASS + " set value = ?", payload);
+              session.commit();
+            }
+            return null;
+          }).get(30, java.util.concurrent.TimeUnit.SECONDS);
+          assertTrue("writer must physically extend the sampled file",
+              cache.physicalSizeForBackupSnapshot(file) > bound);
+          assertFalse("resumed commits must mark active",
+              trackerCandidates(tracker(storage), "active", cache.internalFileId(file)).isEmpty());
+        }
+        return bound;
+      }).when(proxy).physicalSizeForBackupSnapshot(org.mockito.ArgumentMatchers.anyLong());
+      var cacheField = AbstractStorage.class.getDeclaredField("writeCache");
+      var readField = AbstractStorage.class.getDeclaredField("readCache");
+      cacheField.setAccessible(true);
+      readField.setAccessible(true);
+      cacheField.set(storage, proxy);
+      readField.set(storage, reads);
+      String increment;
+      try {
+        increment = storage.backup(backupPath);
+      } finally {
+        cacheField.set(storage, cache);
+        readField.set(storage, realReads);
+        writer.shutdownNow();
+        assertTrue(writer.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+      }
+      assertTrue("extension must follow the real physical sample", reached.get());
+      for (long page = sampledBound; page < cache.physicalSizeForBackupSnapshot(file); page++) {
+        org.mockito.Mockito.verify(reads, org.mockito.Mockito.never())
+            .silentLoadForRead(file, (int) page, proxy, true);
+      }
+      assertEquals("new pages are absent from the page stream", 8,
+          backupEntries(Files.readAllBytes(backupPath.resolve(increment))).get(fileName).length);
+      org.mockito.Mockito.verify(reads).silentLoadForRead(evidence, 7, proxy, true);
+      org.mockito.Mockito.verify(reads, org.mockito.Mockito.never())
+          .silentLoadForRead(evidence, 93, proxy, true);
+      manager.internal.restore("growthRestore", backupPath.toString(), null, null);
+      try (var session = manager.open("growthRestore", ADMIN, PASSWORD)) {
+        var values = session.query("select value from " + RECORD_CLASS).stream()
+            .map(result -> result.<String>getProperty("value")).toList();
+        assertEquals(1, values.size());
+        assertTrue("WAL must restore the record on excluded extension pages",
+            values.contains(payload));
+      }
+      writeEvidencePage(storage, evidence, 93, 9093);
+      measuredEvidenceBackup(storage, backupPath, evidence, 128, List.of(93L));
+    }
+  }
+
+  /** Real alternative-chain and older-head pairs must fall back at every sampled address. */
+  @Test
+  public void realOtherChainAndOlderHeadMismatchReadEveryPhysicalPage() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var older = storage.fullBackup(backupPath);
+      var otherPath = Files.createDirectories(root.resolve("other-chain"));
+      var other = storage.fullBackup(otherPath);
+      var oldPair = literalContinuity(Files.readAllBytes(backupPath.resolve(older)));
+      var otherPair = literalContinuity(Files.readAllBytes(otherPath.resolve(other)));
+      assertFalse(oldPair.generationId().equals(otherPair.generationId()));
+      for (boolean otherChain : new boolean[] {false, true}) {
+        var selectedPath = otherChain ? otherPath : backupPath;
+        // Advance the saved pair beyond either independently retained head.
+        storage.fullBackup(Files.createDirectories(root.resolve("advance-" + otherChain)));
+        var real = storage.getReadCache();
+        var reads = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(real));
+        var field = AbstractStorage.class.getDeclaredField("readCache");
+        field.setAccessible(true);
+        field.set(storage, reads);
+        try {
+          storage.backup(selectedPath);
+        } finally {
+          field.set(storage, real);
+        }
+        int reached = 0;
+        var cache = storage.getWriteCache();
+        for (long file : cache.files().values()) {
+          for (int page = 0; page < cache.physicalSizeForBackupSnapshot(file); page++) {
+            org.mockito.Mockito.verify(reads).silentLoadForRead(file, page, cache, true);
+            reached++;
+          }
+        }
+        assertTrue("real mismatching head must reach physical bounds", reached > 0);
+      }
+    }
+  }
+
+  /**
+   * Unknown durable content adopted after unfreeze but before inventory forces the entire request
+   * full. Its page LSN lies after the head and before this unit's end, so restore needs that copy.
+   */
+  @Test
+  public void adoptionBeforeInventoryReadsAllPagesAndRestoresAdoptedContent() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var head = storage.fullBackup(backupPath);
+      var headEnd = inspectUnit(head, storage.getUuid()).metadata().endLsn();
+      addOneRecord(manager);
+      var adoptedLsn = storage.getWALInstance().end();
+      assertTrue("adopted page must follow the head", adoptedLsn.compareTo(headEnd) > 0);
+      var cache = storage.getWriteCache();
+      long file = cache.addFile("adopted.tst");
+      writeEvidencePage(storage, file, 0, 5678);
+      cache.flush();
+      var physical = databasesPath.resolve(SOURCE)
+          .resolve("adopted_" + cache.internalFileId(file) + ".tst");
+      byte[] saved = Files.readAllBytes(physical);
+      storage.getReadCache().deleteFile(file, cache);
+      Files.write(physical, saved);
+      var proxy = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(cache));
+      var adopted = new java.util.concurrent.atomic.AtomicBoolean();
+      org.mockito.Mockito.doAnswer(call -> {
+        if (adopted.compareAndSet(false, true)) {
+          assertEquals(file, cache.loadFile("adopted.tst"));
+        }
+        return cache.files();
+      }).when(proxy).files();
+      var realReads = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(realReads));
+      var cacheField = AbstractStorage.class.getDeclaredField("writeCache");
+      var readField = AbstractStorage.class.getDeclaredField("readCache");
+      cacheField.setAccessible(true);
+      readField.setAccessible(true);
+      cacheField.set(storage, proxy);
+      readField.set(storage, reads);
+      var arguments = new ArrayList<List<?>>();
+      var factsType =
+          com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup.CompletionFacts.class;
+      try (var facts = org.mockito.Mockito.mockConstruction(factsType, (mock, context) -> {
+        arguments.add(List.copyOf(context.arguments()));
+        org.mockito.Mockito.when(mock.fullRead()).thenReturn(true);
+        org.mockito.Mockito.when(mock.completeUnitDurable()).thenReturn(true);
+      })) {
+        String increment;
+        try {
+          increment = storage.backup(backupPath);
+        } catch (Exception failure) {
+          throw new AssertionError("adoption before inventory must complete in full mode", failure);
+        }
+        var end = inspectUnit(increment, storage.getUuid()).metadata().endLsn();
+        assertTrue("unit end must cover adopted page LSN", adoptedLsn.compareTo(end) <= 0);
+        assertTrue(adopted.get());
+        assertEquals(List.of(List.of(true, true)), arguments);
+        for (var id : cache.files().values()) {
+          for (int page = 0; page < cache.physicalSizeForBackupSnapshot(id); page++) {
+            org.mockito.Mockito.verify(reads).silentLoadForRead(id, page, proxy, true);
+          }
+        }
+      } finally {
+        cacheField.set(storage, cache);
+        readField.set(storage, realReads);
+      }
+      manager.internal.restore("adoptedRestore", backupPath.toString(), null, null);
+      var restored = ((YouTrackDBInternalEmbedded) manager.internal).getStorage("adoptedRestore");
+      var restoredCache = restored.getWriteCache();
+      var entry = restored.getReadCache().silentLoadForRead(
+          restoredCache.fileIdByName("adopted.tst"), 0, restoredCache, true);
+      long stamp = entry.acquireSharedLock();
+      try {
+        assertEquals(5678, entry.getCachePointer().getBuffer().getInt(64));
+      } finally {
+        entry.releaseSharedLock(stamp);
+        restored.getReadCache().releaseFromRead(entry);
+      }
+    }
+  }
+
+  /**
+   * Non-durable writes have no marks but still load every page. An unchanged old LSN filters their
+   * changed bytes out, so restore retains the earlier bytes. This asserts the existing limitation.
+   */
+  @Test
+  public void nonDurableFullWalkDoesNotRepairOldLsnRestoreLimitation() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      var cache = storage.getWriteCache();
+      long file = cache.addFile("volatile.tst", cache.bookFileId("volatile.tst"), true);
+      for (int page = 0; page < 4; page++) {
+        writeEvidencePage(storage, file, page, 10);
+      }
+      storage.fullBackup(backupPath);
+      var oldLsn = storage.getWALInstance().end();
+      for (int page = 0; page < 4; page++) {
+        var entry = storage.getReadCache().loadOrAddForWrite(file, page, cache, false, null);
+        try {
+          entry.getCachePointer().getBuffer().putInt(64, 20);
+        } finally {
+          storage.getReadCache().releaseFromWrite(entry, cache, true);
+        }
+      }
+      assertEquals(oldLsn, storage.getWALInstance().end());
+      assertTrue(
+          trackerCandidates(tracker(storage), "active", cache.internalFileId(file)).isEmpty());
+      var real = storage.getReadCache();
+      var reads = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(real));
+      var field = AbstractStorage.class.getDeclaredField("readCache");
+      field.setAccessible(true);
+      field.set(storage, reads);
+      String increment;
+      try {
+        increment = storage.backup(backupPath);
+      } finally {
+        field.set(storage, real);
+      }
+      for (int page = 0; page < 4; page++) {
+        org.mockito.Mockito.verify(reads).silentLoadForRead(file, page, cache, true);
+      }
+      assertEquals(8,
+          backupEntries(Files.readAllBytes(backupPath.resolve(increment)))
+              .get("volatile.tst").length);
+      manager.internal.restore("nonDurableRestore", backupPath.toString(), null, null);
+      var restored =
+          ((YouTrackDBInternalEmbedded) manager.internal).getStorage("nonDurableRestore");
+      var restoredCache = restored.getWriteCache();
+      for (int page = 0; page < 4; page++) {
+        var entry = restored.getReadCache().silentLoadForRead(
+            restoredCache.fileIdByName("volatile.tst"), page, restoredCache, true);
+        long stamp = entry.acquireSharedLock();
+        try {
+          assertEquals(10, entry.getCachePointer().getBuffer().getInt(64));
+        } finally {
+          entry.releaseSharedLock(stamp);
+          restored.getReadCache().releaseFromRead(entry);
+        }
+      }
+    }
+  }
+
+  /** Write independent fixture bytes through the real cache and stamp the current real WAL end. */
+  private static void writeEvidencePage(AbstractStorage storage, long file, int page, int value)
+      throws Exception {
+    var cache = storage.getWriteCache();
+    var lsn = storage.getWALInstance().end();
+    var entry = storage.getReadCache().loadOrAddForWrite(file, page, cache, false, lsn);
+    try {
+      var buffer = entry.getCachePointer().getBuffer();
+      buffer.putInt(64, value);
+      com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage
+          .setLogSequenceNumberForPage(buffer, lsn);
+    } finally {
+      storage.getReadCache().releaseFromWrite(entry, cache, true);
+    }
+  }
+
+  /** Decode ZIP entries independently of the backup page selection path. */
+  private static Map<String, byte[]> backupEntries(byte[] unit) throws IOException {
+    var entries = new HashMap<String, byte[]>();
+    try (var zip = new java.util.zip.ZipInputStream(new ByteArrayInputStream(unit))) {
+      java.util.zip.ZipEntry entry;
+      while ((entry = zip.getNextEntry()) != null) {
+        entries.put(entry.getName(), zip.readAllBytes());
+      }
+    }
+    return entries;
+  }
+
+  /**
+   * Tombstone adoption after selection revokes trust even when no candidate is streamed. Both
+   * capable and custom outputs retain a tail-less unit. Admission refuses it until the operator
+   * explicitly removes it. Adoption after the inventory snapshot is absent from the unit, as in
+   * the current full-read path. This pre-existing limitation is not repaired here.
+   */
+  @Test
+  public void reboundContentFailsBeforeWalAndTailEvenWithoutCandidates() throws Exception {
+    for (boolean capable : new boolean[] {true, false}) {
+      for (boolean marked : new boolean[] {false, true}) {
+        try (var manager = (YouTrackDBImpl) YourTracks.instance(
+            databasesPath.resolve("rebind-" + capable + "-" + marked).toString())) {
+          var storage = createSourceDatabase(manager);
+          var cache = storage.getWriteCache();
+          long file = cache.addFile("rebound.tst");
+          writeEvidencePage(storage, file, 0, 42);
+          cache.flush();
+          var physical = databasesPath.resolve("rebind-" + capable + "-" + marked)
+              .resolve(SOURCE).resolve("rebound_" + cache.internalFileId(file) + ".tst");
+          byte[] saved = Files.readAllBytes(physical);
+          var full = storage.fullBackup(backupPath);
+          var tracker = tracker(storage);
+          if (marked) {
+            markTracker(tracker, cache.internalFileId(file), 0);
+            markTracker(tracker, 123456, 99);
+          }
+          if (!marked) {
+            for (long id : cache.files().values()) {
+              assertTrue("zero-candidate request must begin without any marks",
+                  trackerCandidates(tracker, "active", cache.internalFileId(id)).isEmpty());
+            }
+          }
+          var proxy = org.mockito.Mockito.mock(
+              com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+              org.mockito.AdditionalAnswers.delegatesTo(cache));
+          var reached = new java.util.concurrent.atomic.AtomicBoolean();
+          org.mockito.Mockito.doAnswer(call -> {
+            long id = call.getArgument(0);
+            long bound = cache.physicalSizeForBackupSnapshot(id);
+            if (id == file && reached.compareAndSet(false, true)) {
+              storage.getReadCache().deleteFile(file, cache);
+              Files.write(physical, saved);
+              assertEquals(file, cache.loadFile("rebound.tst"));
+            }
+            return bound;
+          }).when(proxy).physicalSizeForBackupSnapshot(org.mockito.ArgumentMatchers.anyLong());
+          var realWal = storage.getWALInstance();
+          var wal = org.mockito.Mockito.mock(
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+              org.mockito.AdditionalAnswers.delegatesTo(realWal));
+          var cacheField = AbstractStorage.class.getDeclaredField("writeCache");
+          var walField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+          cacheField.setAccessible(true);
+          walField.setAccessible(true);
+          cacheField.set(storage, proxy);
+          walField.set(storage, wal);
+          var output = new RecordingOutput();
+          var names = new ArrayList<String>();
+          try {
+            var failure = assertThrows(DatabaseException.class, () -> storage.backup(
+                this::unitIterator, this::openInput, name -> {
+                  names.add(name);
+                  return capable ? output : new java.io.FilterOutputStream(output) {
+                  };
+                }, name -> {
+                  throw new AssertionError("no automatic removal");
+                }));
+            assertTrue(failure.getCause().getMessage().contains("trust lost"));
+            assertTrue(reached.get());
+            assertEquals(0, output.tailRequests);
+            org.mockito.Mockito.verify(wal, org.mockito.Mockito.never())
+                .nonActiveSegments(org.mockito.ArgumentMatchers.anyLong());
+            org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+            if (marked) {
+              assertEquals(List.of(99L), trackerCandidates(tracker, "active", 123456));
+            }
+          } finally {
+            cacheField.set(storage, cache);
+            walField.set(storage, realWal);
+          }
+          var failed = backupPath.resolve(names.getFirst());
+          Files.write(failed, output.bytes.toByteArray());
+          var before = unitContent();
+          assertThrows(DatabaseException.class, () -> storage.backup(backupPath));
+          assertThrows(UnsupportedBackupException.class, () -> manager.internal.restore(
+              "refusedRebind", backupPath.toString(), null, null));
+          assertEquals(before, unitContent());
+          // Explicit operator resolution of the ambiguous output, not automatic chain repair.
+          Files.delete(failed);
+          storage.backup(backupPath);
+          for (var name : unitNames()) {
+            Files.delete(backupPath.resolve(name));
+          }
+          assertFalse(Files.exists(backupPath.resolve(full)));
+        }
+      }
+    }
+  }
+
+  /** Allocation failure after selection fails before the tail and requires operator resolution. */
+  @Test
+  public void markAllocationFailureBetweenChecksRetainsUntailedOutput() throws Exception {
+    try (var manager = openManager()) {
+      var storage = createSourceDatabase(manager);
+      storage.fullBackup(backupPath);
+      var tracker = tracker(storage);
+      markTracker(tracker, 123456, 99);
+      var cache = storage.getWriteCache();
+      var proxy = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+          org.mockito.AdditionalAnswers.delegatesTo(cache));
+      var reached = new java.util.concurrent.atomic.AtomicBoolean();
+      var primary = new OutOfMemoryError("injected mark allocation");
+      var armed = new java.util.concurrent.atomic.AtomicBoolean(true);
+      var previous = replaceTrackerObserver(tracker, (method, args) -> {
+        if (method.equals("beforeAllocation") && args[0].toString().equals("FILE")
+            && armed.compareAndSet(true, false)) {
+          throw primary;
+        }
+      });
+      org.mockito.Mockito.doAnswer(call -> {
+        long bound = cache.physicalSizeForBackupSnapshot(call.getArgument(0));
+        if (reached.compareAndSet(false, true)) {
+          var failure = assertThrows(java.lang.reflect.InvocationTargetException.class,
+              () -> markTracker(tracker, 234567, 33));
+          assertSame(primary, failure.getCause());
+          restoreTrackerObserver(tracker, previous);
+        }
+        return bound;
+      }).when(proxy).physicalSizeForBackupSnapshot(org.mockito.ArgumentMatchers.anyLong());
+      var field = AbstractStorage.class.getDeclaredField("writeCache");
+      field.setAccessible(true);
+      field.set(storage, proxy);
+      var output = new RecordingOutput();
+      var names = new ArrayList<String>();
+      try {
+        var failure = assertThrows(DatabaseException.class, () -> storage.backup(
+            this::unitIterator, this::openInput, name -> {
+              names.add(name);
+              return output;
+            }, name -> {
+              throw new AssertionError("no automatic removal");
+            }));
+        assertTrue(failure.getCause().getMessage().contains("trust lost"));
+        assertTrue(reached.get());
+        assertEquals(0, output.tailRequests);
+        org.junit.Assert.assertNull(trackerField(tracker, "sealed"));
+        assertEquals(List.of(99L), trackerCandidates(tracker, "active", 123456));
+      } finally {
+        field.set(storage, cache);
+        restoreTrackerObserver(tracker, previous);
+      }
+      var failed = backupPath.resolve(names.getFirst());
+      Files.write(failed, output.bytes.toByteArray());
+      var before = unitContent();
+      assertThrows(DatabaseException.class, () -> storage.backup(backupPath));
+      assertThrows(UnsupportedBackupException.class, () -> manager.internal.restore(
+          "refusedAllocation", backupPath.toString(), null, null));
+      assertEquals(before, unitContent());
+      Files.delete(failed);
+      storage.backup(backupPath);
+    }
+  }
+
+  /** Opt-in burst evidence has no timing threshold and runs only in a separate child. */
+  @Test
+  public void firstMarkBurstPerformanceEvidence() throws Exception {
+    com.jetbrains.youtrackdb.internal.core.storage.cache.local.TrackerPerformanceProbe
+        .launchStartup(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.local.TrackerPerformanceProbe.class,
+            List.of("firstMarkBurst"), "firstMarkNs", "firstMarkBytes", "commitNs", "share",
+            "classificationNs", "interceptionExtraNs", "interceptionExtraBytes");
+  }
+
+  /** Wide full-walk indices stay valid at MAX_VALUE and fail clearly at the next long value. */
+  @Test
+  public void backupReadCacheNarrowingNeverWraps() throws Exception {
+    assertEquals(Integer.MAX_VALUE, DiskStorage.backupPageIndex(Integer.MAX_VALUE));
+    for (long index : new long[] {-1, (long) Integer.MAX_VALUE + 1, Long.MAX_VALUE}) {
+      var failure = assertThrows(IOException.class, () -> DiskStorage.backupPageIndex(index));
+      assertTrue(failure.getMessage().contains(Long.toString(index)));
     }
   }
 
@@ -2899,10 +3852,15 @@ public class IncrementalBackupExtensionTest {
   /** The side-file header is big endian: magic, version, flags, LSN, tracker and completion. */
   private static void assertSavedPair(Path sideFile, DiskStorage.BackupContinuity pair)
       throws IOException {
+    assertSavedPair(sideFile, pair, 3);
+  }
+
+  private static void assertSavedPair(Path sideFile, DiskStorage.BackupContinuity pair, int flags)
+      throws IOException {
     var bytes = ByteBuffer.wrap(Files.readAllBytes(sideFile));
     assertEquals(0x59544350, bytes.getInt());
     assertEquals(1, bytes.getInt());
-    assertEquals("trusted completion with no pending seal", 3, bytes.get());
+    assertEquals("exact saved trust, completion and pending flags", flags, bytes.get());
     bytes.getLong();
     bytes.getInt();
     assertEquals(pair.trackerId(), new UUID(bytes.getLong(), bytes.getLong()));

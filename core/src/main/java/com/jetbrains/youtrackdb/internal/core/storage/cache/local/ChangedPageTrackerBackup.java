@@ -120,6 +120,11 @@ public final class ChangedPageTrackerBackup {
       }
     }
 
+    /** True only while this request still owns its boundary and captured trust remains live. */
+    public boolean isOwnedBoundaryTrusted() {
+      return handle != null && handle.owner.isBoundaryTrusted(handle.seal);
+    }
+
     @Nullable ChangedPageTracker.SealedGeneration internalSeal() {
       return handle == null ? null : handle.seal;
     }
@@ -171,6 +176,8 @@ public final class ChangedPageTrackerBackup {
       return Status.NO_BOUNDARY;
     }
     // Keep this abandon condition aligned with DiskStorage.BackupRequestOwner.finish.
+    // Selected durable output can consume an eligible seal without a full read. stageCompletion
+    // checks live trust again, so fullRead is not an abandon condition.
     if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
       return abandon(tracker, context);
     }

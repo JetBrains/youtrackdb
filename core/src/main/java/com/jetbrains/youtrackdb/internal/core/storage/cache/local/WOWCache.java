@@ -2371,61 +2371,6 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  @Override
-  public void replaceFileId(final long fileId, final long newFileId) throws IOException {
-    filesLock.acquireWriteLock();
-    try {
-      checkForClose();
-
-      final var file = files.remove(fileId);
-      final var newFile = files.remove(newFileId);
-
-      final var intFileId = extractFileId(fileId);
-      final var newIntFileId = extractFileId(newFileId);
-
-      final var fileName = idNameMap.get(intFileId);
-      final var newFileName = idNameMap.remove(newIntFileId);
-
-      if (!file.isOpen()) {
-        file.open();
-      }
-      if (!newFile.isOpen()) {
-        newFile.open();
-      }
-
-      // invalidate old entries
-      writeNameIdEntry(new NameFileIdEntry(fileName, 0, ""), false);
-      writeNameIdEntry(new NameFileIdEntry(newFileName, 0, ""), false);
-
-      // add new one
-      writeNameIdEntry(new NameFileIdEntry(newFileName, intFileId, file.getName()), true);
-
-      file.delete();
-
-      files.add(fileId, newFile);
-
-      idNameMap.put(intFileId, newFileName);
-      nameIdMap.remove(fileName);
-      nameIdMap.put(newFileName, intFileId);
-
-      // Remove the replaced file's internal ID from non-durable registry if present.
-      // The newFile replaces the old file under intFileId, so newIntFileId is no longer
-      // valid. The intFileId retains whatever durability status the original had.
-      if (nonDurableFileIds.contains(newIntFileId)) {
-        final var updated = new IntOpenHashSet(nonDurableFileIds);
-        updated.remove(newIntFileId);
-        nonDurableFileIds = updated;
-        writeNonDurableRegistry();
-      }
-    } catch (final java.lang.InterruptedException e) {
-      throw BaseException.wrapException(
-          new StorageException(storageName, "Replace of file was interrupted"),
-          e, storageName);
-    } finally {
-      filesLock.releaseWriteLock();
-    }
-  }
-
   private void stopFlush() {
     stopFlush = true;
 
@@ -4702,12 +4647,8 @@ public final class WOWCache extends AbstractWriteCache
         // extend / gap-fill branches submit EnsurePageIsValidInFileTask asynchronously, and
         // the live producer of that window is deleteFile -> executeDeleteFile, which calls
         // files.remove after the task was queued. (The whole-cache close() also removes every
-        // file, but it sets stopFlush first, so the guard above already covers it. WOWCache
-        // .replaceFileId would unregister both ids while it rebinds them and additionally open
-        // a window where the id is valid but bound to a different file — it has no production
-        // callers today, the only one being commented out in CollectionPositionMapV2, so it is
-        // named here as a hazard to re-check if that code is ever revived, not as a path that
-        // is currently reachable.) Nothing can be stamped for a file that is gone, so bail out
+        // file, but it sets stopFlush first, so the guard above already covers it.)
+        // Nothing can be stamped for a file that is gone, so bail out
         // instead of dereferencing null.
         //
         // WARN rather than a silent skip, deliberately asymmetric with the null-entry skips on

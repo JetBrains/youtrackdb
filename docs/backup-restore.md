@@ -35,14 +35,50 @@ These fields do not change restore admission.
 
 A matching pair alone does not prove that tracker history is safe to use after startup.
 
-Page copying reads all current pages while the changed-page tracker records and consumes
-history. It does not use selective page reads. Reading all pages does not mean replacing
-the backup chain. An incremental backup still appends a unit.
+### Page selection and full reads
+
+A **candidate** is a page that the changed-page tracker marks as possibly changed.
+A **full read** reads all current pages instead of only candidates.
+A full read is not a new full backup.
+An incremental backup still appends one unit to its chain.
+
+Page selection needs trusted tracker history and a matching continuity pair at the chain head.
+The pair contains the tracker identifier and generation identifier.
+Historical heads without a pair use a full read.
+Older heads also use a full read when their pair does not match.
+An older head from custom output can share the current pair and select candidates.
+That output keeps the previous completion and merges marks back instead of consuming them.
+
+The writer checks trust before page selection and again before copying the write-ahead log (WAL).
+Trust loss before the first check makes the whole request use a full read.
+Any trust loss between the checks fails a selected request, even when it has no candidates.
+Mark allocation failure, checkpoint save failure and mark merge failure can each cause trust loss.
+The tracker merges the selected marks back into active history.
+
+The retained failed output has no tail.
+Later extension and restore refuse that output.
+An operator must resolve it before the next backup can extend the chain.
+See [Unreadable backup output needs an operator decision](#unreadable-backup-output-needs-an-operator-decision).
+
+The **inventory snapshot** lists the files that the unit will copy.
+A file adopted after that snapshot is absent from the unit.
+Adoption means registering existing file content with the storage.
+Pages changed between the chain head and the unit end can then be missing from the chain.
+Full reads have the same limitation.
+Adoption between the two trust checks fails a selected request instead of completing it.
+
+Non-durable files do not keep their changes in the WAL.
+They always use a full read.
+Page selection does not repair missing non-durable data.
+Selection reduces page reads but does not guarantee a faster backup.
+Scattered reads can be slower than a sequential full read.
 
 Custom output without a force capability records the previous completed continuity pair,
 or absent continuity when no pair exists. The tracker merges the pending generation back
-into active history instead of consuming it. The force-barrier flag does not certify that
-the final flush or close succeeded.
+into active history instead of consuming it.
+Such output can select candidates only after a durable completion from force-capable output exists.
+Deployments that use only output without force capability always read all pages.
+The force-barrier flag does not certify that the final flush or close succeeded.
 
 An output with a force capability can make preceding bytes and the file length durable.
 The writer flushes the payload and padding before the first force call.
@@ -105,7 +141,7 @@ before the database becomes available.
 ## Older backups are unsupported
 
 This release reads backup format versions 3, 4, 5, and 6. It writes version 6.
-Version 5 introduced a page-allocation write-ahead log (WAL) record that older releases
+Version 5 introduced a page-allocation WAL record that older releases
 cannot replay. Version 5 uses the version 4 header layout, metadata checksum, and
 force-barrier flag. Version 6 adds continuity fields to that header.
 

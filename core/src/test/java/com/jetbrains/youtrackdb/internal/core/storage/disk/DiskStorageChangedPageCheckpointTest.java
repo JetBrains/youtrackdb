@@ -36,6 +36,7 @@ import static org.mockito.Mockito.withSettings;
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
@@ -96,10 +97,12 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.rules.TemporaryFolder;
 import org.junit.rules.TestName;
 
 /** Direct storage bridge contracts, independent of ordinary checkpoint caller routing. */
+@Category(SequentialTest.class)
 public class DiskStorageChangedPageCheckpointTest {
 
   private static final LogSequenceNumber COVERAGE = new LogSequenceNumber(2, 32);

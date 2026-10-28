@@ -17,7 +17,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.Assume;
 
-/** Opt-in, uninstrumented child workloads. Timings are evidence, not regression thresholds. */
+/**
+ * Opt-in child workloads without inherited agents. The first-mark burst uses Mockito-inline
+ * instrumentation. Timings are evidence, not regression thresholds.
+ */
 public final class TrackerPerformanceProbe {
 
   static final String ENABLED = "youtrackdb.test.trackerPerformance";
@@ -46,7 +49,7 @@ public final class TrackerPerformanceProbe {
     command.add(System.getProperty("java.home") + "/bin/java");
     command.addAll(java.util.List.of("-Xms256m",
         timeoutSeconds == 900 ? "-Xmx1g" : "-Xmx256m", "-XX:-DoEscapeAnalysis", "-ea"));
-    // The real WAL needs the same module access as the parent, but no instrumentation agent.
+    // Inherit WAL module access, not parent agents. The first-mark child attaches Mockito-inline.
     ManagementFactory.getRuntimeMXBean().getInputArguments().stream()
         .filter(arg -> arg.startsWith("--add-opens=") || arg.startsWith("--add-exports="))
         .forEach(command::add);
@@ -149,6 +152,234 @@ public final class TrackerPerformanceProbe {
         ALLOCATIONS.isThreadAllocatedMemorySupported());
     ALLOCATIONS.setThreadAllocatedMemoryEnabled(true);
     return ALLOCATIONS.getThreadAllocatedBytes(Thread.currentThread().threadId());
+  }
+
+  /**
+   * Reports a synchronized commit burst after the real backup unfreeze. Mockito interception is
+   * intentionally disclosed and calibrated. No generation is primed and no warm control runs.
+   */
+  public static void main(String[] args) throws Exception {
+    System.out.println("BURST_ENV os=" + System.getProperty("os.name") + " arch="
+        + System.getProperty("os.arch") + " processors="
+        + Runtime.getRuntime().availableProcessors()
+        + " jdk=" + System.getProperty("java.runtime.version") + " flags="
+        + ManagementFactory.getRuntimeMXBean().getInputArguments()
+        + " maxHeap=" + Runtime.getRuntime().maxMemory()
+        + " instrumentation=Mockito-inline writers=16 classes=16");
+    System.out.println("BURST_OVERHEAD firstMarkNs includes allocation-observer callbacks,"
+        + " ThreadLocal lookups, mask updates and observer timer calls."
+        + " classificationNs times only mask updates, not full observer overhead."
+        + " commitNs includes all intercepted mark calls and recorder work."
+        + " interceptionExtraNs is a separate post-burst default-spy estimate per call,"
+        + " not a correction for the timed answer or share.");
+    var series = new Series("firstMarkBurst", "firstMarkNs", "firstMarkBytes", "commitNs",
+        "share", "classificationNs", "interceptionExtraNs", "interceptionExtraBytes");
+    for (int run = 0; run < samples(); run++) {
+      burst(run, series);
+    }
+    series.report();
+    System.out.println(COMPLETE);
+  }
+
+  private static Object get(Object target, Class<?> owner, String name) throws Exception {
+    var field = owner.getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(target);
+  }
+
+  private static void set(Object target, Class<?> owner, String name, Object value)
+      throws Exception {
+    var field = owner.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(target, value);
+  }
+
+  private static final class BurstMarks {
+    // Each commit has a bounded, preallocated buffer. Classification uses only primitive stores.
+    final long[][] rows = new long[4096][5];
+    int count;
+    long markCalls;
+    int kinds;
+    long classificationNs;
+    long commitNs;
+  }
+
+  private static void burst(int run, Series series) throws Exception {
+    var root = java.nio.file.Files.createTempDirectory("tracker-burst-");
+    var local = new ThreadLocal<BurstMarks>();
+    try (var tracks =
+        (com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl) com.jetbrains.youtrackdb.api.YourTracks
+            .instance(root.resolve("db").toString())) {
+      tracks.create("burst", com.jetbrains.youtrackdb.api.DatabaseType.DISK,
+          "admin", "adminpwd", "admin");
+      try (var session = tracks.open("burst", "admin", "adminpwd")) {
+        for (int writer = 0; writer < 16; writer++) {
+          session.getMetadata().getSchema().createClass("Burst" + writer);
+          session.begin();
+          session.newEntity("Burst" + writer).setProperty("value", "before");
+          session.commit();
+        }
+      }
+      var storage =
+          ((com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded) tracks.internal)
+              .getStorage("burst");
+      var tracker = (ChangedPageTracker) get(storage,
+          com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage.class,
+          "changedPageTracker");
+      var observed = org.mockito.Mockito.spy(tracker);
+      set(observed, ChangedPageTracker.class, "allocations",
+          (ChangedPageTracker.AllocationObserver) kind -> {
+            var marks = local.get();
+            if (marks != null) {
+              long start = System.nanoTime();
+              marks.kinds |= 1 << kind.ordinal();
+              marks.classificationNs += System.nanoTime() - start;
+            }
+          });
+      org.mockito.Mockito.doAnswer(call -> {
+        var marks = local.get();
+        if (marks == null) {
+          return call.callRealMethod();
+        }
+        // Count all intercepted calls in this commit, including non-allocating marks.
+        marks.markCalls++;
+        marks.kinds = 0;
+        long bytes = allocated();
+        long start = System.nanoTime();
+        var result = call.callRealMethod();
+        long elapsed = System.nanoTime() - start;
+        long allocation = allocated() - bytes;
+        if ((marks.kinds & ((1 << ChangedPageTracker.Allocation.FILE.ordinal())
+            | (1 << ChangedPageTracker.Allocation.NODE.ordinal())
+            | (1 << ChangedPageTracker.Allocation.SEGMENT.ordinal()))) != 0) {
+          assertTrue("mark buffer exhausted", marks.count < marks.rows.length);
+          var row = marks.rows[marks.count++];
+          row[0] = call.<Integer>getArgument(0);
+          row[1] = call.<Long>getArgument(1);
+          row[2] = elapsed;
+          row[3] = allocation;
+          row[4] = marks.kinds;
+        }
+        return result;
+      }).when(observed).mark(org.mockito.ArgumentMatchers.anyInt(),
+          org.mockito.ArgumentMatchers.anyLong());
+      var cache = storage.getWriteCache();
+      set(storage, com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage.class,
+          "changedPageTracker", observed);
+      set(cache, WOWCache.class, "changedPageTracker", observed);
+      var backup = java.nio.file.Files.createDirectories(root.resolve("backup"));
+      storage.fullBackup(backup);
+      var ready = new java.util.concurrent.CountDownLatch(16);
+      var release = new java.util.concurrent.CountDownLatch(1);
+      var records = new ArrayList<BurstMarks>();
+      var tasks = new ArrayList<java.util.concurrent.Future<?>>();
+      try (var writers = Executors.newFixedThreadPool(16)) {
+        for (int writer = 0; writer < 16; writer++) {
+          int id = writer;
+          var marks = new BurstMarks();
+          records.add(marks);
+          tasks.add(writers.submit(() -> {
+            try (var session = tracks.open("burst", "admin", "adminpwd")) {
+              session.begin();
+              session.command("update Burst" + id + " set value = 'after'");
+              ready.countDown();
+              assertTrue(release.await(60, TimeUnit.SECONDS));
+              local.set(marks);
+              try {
+                long start = System.nanoTime();
+                session.commit();
+                marks.commitNs = System.nanoTime() - start;
+              } finally {
+                local.remove();
+              }
+            }
+            return null;
+          }));
+        }
+        assertTrue(ready.await(60, TimeUnit.SECONDS));
+        var inventory = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+            org.mockito.AdditionalAnswers.delegatesTo(cache));
+        var reached = new java.util.concurrent.atomic.AtomicBoolean();
+        org.mockito.Mockito.doAnswer(call -> {
+          // files() runs after the production beginBoundary and freezer release.
+          if (reached.compareAndSet(false, true)) {
+            release.countDown();
+            for (var task : tasks) {
+              task.get(60, TimeUnit.SECONDS);
+            }
+          }
+          return cache.files();
+        }).when(inventory).files();
+        set(storage,
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+            "writeCache", inventory);
+        try {
+          storage.backup(backup);
+          assertTrue(reached.get());
+        } finally {
+          release.countDown();
+          set(storage,
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class,
+              "writeCache", cache);
+        }
+      }
+      long ns = 0;
+      long bytes = 0;
+      long commits = 0;
+      long classification = 0;
+      long markCalls = 0;
+      var files = new HashSet<Long>();
+      for (int writer = 0; writer < records.size(); writer++) {
+        var marks = records.get(writer);
+        commits += marks.commitNs;
+        classification += marks.classificationNs;
+        markCalls += marks.markCalls;
+        System.out.printf(Locale.ROOT,
+            "BURST_COMMIT run=%d writer=%d markCalls=%d firstMarks=%d commitNs=%d%n",
+            run, writer, marks.markCalls, marks.count, marks.commitNs);
+        for (int mark = 0; mark < marks.count; mark++) {
+          var row = marks.rows[mark];
+          ns += row[2];
+          bytes += row[3];
+          files.add(row[0]);
+          System.out.printf(Locale.ROOT,
+              "BURST_MARK run=%d writer=%d file=%d page=%d ns=%d bytes=%d kinds=%d commitNs=%d%n",
+              run, writer, row[0], row[1], row[2], row[3], row[4], marks.commitNs);
+        }
+      }
+      assertTrue("burst must allocate marks in many files", files.size() >= 16);
+      // Post-burst calibration does not prime any measured generation. Both trackers already
+      // contain this bit. The positive delta estimates interception overhead, not a warm control.
+      var direct = new ChangedPageTracker();
+      direct.mark(1, 0);
+      var intercepted = org.mockito.Mockito.spy(direct);
+      int calls = 10000;
+      long directBytes = allocated();
+      long directStart = System.nanoTime();
+      for (int call = 0; call < calls; call++) {
+        direct.mark(1, 0);
+      }
+      long directNs = System.nanoTime() - directStart;
+      directBytes = allocated() - directBytes;
+      long interceptedBytes = allocated();
+      long interceptedStart = System.nanoTime();
+      for (int call = 0; call < calls; call++) {
+        intercepted.mark(1, 0);
+      }
+      long interceptedNs = System.nanoTime() - interceptedStart;
+      interceptedBytes = allocated() - interceptedBytes;
+      double extraNs = Math.max(0, interceptedNs - directNs) / (double) calls;
+      double extraBytes = Math.max(0, interceptedBytes - directBytes) / (double) calls;
+      double share = ns / (double) commits;
+      System.out.printf(Locale.ROOT,
+          "BURST_RUN run=%d files=%d markCalls=%d firstMarkNs=%d firstMarkBytes=%d commitNs=%d share=%.9f classificationNs=%d interceptionExtraNs=%.3f interceptionExtraBytes=%.3f%n",
+          run, files.size(), markCalls, ns, bytes, commits, share, classification, extraNs,
+          extraBytes);
+      series.add(ns, bytes, commits, share, classification, extraNs, extraBytes);
+    } finally {
+      com.jetbrains.youtrackdb.internal.common.io.FileUtils.deleteRecursively(root.toFile());
+    }
   }
 
   public static final class Series {

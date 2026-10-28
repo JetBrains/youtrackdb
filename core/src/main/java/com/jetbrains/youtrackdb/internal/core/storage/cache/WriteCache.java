@@ -525,8 +525,6 @@ public interface WriteCache {
 
   void open() throws IOException;
 
-  void replaceFileId(long fileId, long newFileId) throws IOException;
-
   /**
    * Deletes all non-durable files from both read and write caches during crash recovery.
    *

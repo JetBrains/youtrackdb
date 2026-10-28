@@ -467,6 +467,18 @@ public final class ChangedPageTracker {
     }
   }
 
+  /** Live trust for an owned boundary, including failures since its capture. */
+  boolean isBoundaryTrusted(SealedGeneration boundary) {
+    generationState.lock();
+    try {
+      long version = failures.get();
+      return sealed == boundary && boundary.failureVersion() == version
+          && !startupVerificationPending && historyTrusted && savedFailureVersion == version;
+    } finally {
+      generationState.unlock();
+    }
+  }
+
   void validateBoundary(SealedGeneration boundary) {
     requireSaveOrder();
     generationState.lock();
