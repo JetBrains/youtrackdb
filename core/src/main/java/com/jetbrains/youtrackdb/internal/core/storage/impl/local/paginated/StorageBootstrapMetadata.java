@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException.Reason;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -40,15 +39,6 @@ public final class StorageBootstrapMetadata {
   private static final long MAGIC = 0x5954444242534D31L;
   private static final int ENCODING_VERSION = 1;
   private static final int RECORD_SIZE = 80;
-
-  /**
-   * Names the single storage layout version that this build supports.
-   *
-   * <p>The storage layout version is the version of the on-disk storage layout. The record carries
-   * that version in the field that carried no meaning before. The record size therefore stays at
-   * {@link #RECORD_SIZE} bytes, and every field offset stays unchanged.
-   */
-  static final int SUPPORTED_STORAGE_LAYOUT_VERSION = StorageConfiguration.CURRENT_VERSION;
 
   private static final int CHECKSUM_OFFSET = RECORD_SIZE - Long.BYTES;
   private static final long XX_HASH_SEED = 0x648B7A2195D3L;
@@ -140,8 +130,17 @@ public final class StorageBootstrapMetadata {
   public Snapshot createBirth(
       final StorageIdentity storageIdentity, final StorageLineageIdentity lineageIdentity)
       throws IOException {
+    return createBirth(storageIdentity, lineageIdentity, StorageFormat.productionDefault());
+  }
+
+  /** Selects a supported layout for this birth only, without overriding existing authority. */
+  Snapshot createBirth(
+      final StorageIdentity storageIdentity,
+      final StorageLineageIdentity lineageIdentity,
+      final StorageFormat storageFormat) throws IOException {
     Objects.requireNonNull(storageIdentity, "storageIdentity");
     Objects.requireNonNull(lineageIdentity, "lineageIdentity");
+    Objects.requireNonNull(storageFormat, "storageFormat");
 
     return withAuthorityLock(
         () -> {
@@ -150,7 +149,8 @@ public final class StorageBootstrapMetadata {
           }
 
           final var floor = new LogicalSequenceFloor(storageIdentity, lineageIdentity, 0);
-          final var birth = new Snapshot(expectedFormat, 1, State.BIRTH_IN_PROGRESS, floor);
+          final var birth =
+              new Snapshot(expectedFormat, storageFormat, 1, State.BIRTH_IN_PROGRESS, floor);
           publishTo(birth, authorityPaths.get(0), temporaryPaths.get(0));
           liveBirth = birth;
           locallyConfirmed = birth;
@@ -297,6 +297,7 @@ public final class StorageBootstrapMetadata {
           final var next =
               new Snapshot(
                   current.format(),
+                  current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.ACTIVE,
                   floor);
@@ -339,6 +340,7 @@ public final class StorageBootstrapMetadata {
           final var next =
               new Snapshot(
                   current.format(),
+                  current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.RESTORE_IN_PROGRESS,
                   current.sequenceFloor());
@@ -602,6 +604,7 @@ public final class StorageBootstrapMetadata {
           final var next =
               new Snapshot(
                   current.format(),
+                  current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.RESTORE_IN_PROGRESS,
                   targetFloor);
@@ -814,6 +817,16 @@ public final class StorageBootstrapMetadata {
       }
     }
 
+    // Layout is immutable even when missing generations prevent a successor check.
+    // Keep this after the complete storage-identity check so foreign copies retain precedence.
+    for (var record : records) {
+      if (record.snapshot().storageFormat() != first.storageFormat()) {
+        throw admissionFailure(
+            Reason.AUTHORITY_STORAGE_LAYOUT_CONFLICT,
+            "Bootstrap authority copies name different supported storage layouts");
+      }
+    }
+
     final Map<Long, Snapshot> generations = new HashMap<>();
     for (var record : records) {
       final var prior = generations.putIfAbsent(record.snapshot().generation(), record.snapshot());
@@ -975,14 +988,12 @@ public final class StorageBootstrapMetadata {
     final var generation = buffer.getLong();
     final var state = State.fromCode(buffer.getInt(), directory);
     final var storageLayoutVersion = buffer.getInt();
-    if (storageLayoutVersion != SUPPORTED_STORAGE_LAYOUT_VERSION) {
-      // The empty value zero comes from an earlier commit of this branch and is also unsupported.
+    final StorageFormat storageFormat;
+    try {
+      storageFormat = StorageFormat.resolve(storageLayoutVersion);
+    } catch (IllegalArgumentException unsupportedLayout) {
       throw admissionFailure(
-          Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION,
-          "Unsupported storage layout version: "
-              + storageLayoutVersion
-              + ", supported storage layout version: "
-              + SUPPORTED_STORAGE_LAYOUT_VERSION);
+          Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION, unsupportedLayout.getMessage());
     }
     final var storageIdentity = new StorageIdentity(readUuid(buffer));
     final var lineageIdentity = new StorageLineageIdentity(readUuid(buffer));
@@ -999,7 +1010,7 @@ public final class StorageBootstrapMetadata {
           "Invalid bootstrap authority highest issued value: " + highestIssued);
     }
     final var floor = new LogicalSequenceFloor(storageIdentity, lineageIdentity, highestIssued);
-    return new Snapshot(format, generation, state, floor);
+    return new Snapshot(format, storageFormat, generation, state, floor);
   }
 
   private void publish(final Snapshot snapshot) throws IOException {
@@ -1147,7 +1158,8 @@ public final class StorageBootstrapMetadata {
   }
 
   private static boolean isLegalSuccessor(final Snapshot prior, final Snapshot next) {
-    if (!prior.storageIdentity().equals(next.storageIdentity())
+    if (prior.storageFormat() != next.storageFormat()
+        || !prior.storageIdentity().equals(next.storageIdentity())
         || next.sequenceFloor().highestIssued() < prior.sequenceFloor().highestIssued()) {
       return false;
     }
@@ -1170,8 +1182,8 @@ public final class StorageBootstrapMetadata {
     buffer.putInt(snapshot.format().version());
     buffer.putLong(snapshot.generation());
     buffer.putInt(snapshot.state().code);
-    // The field of the former spare value now carries the supported storage layout version.
-    buffer.putInt(SUPPORTED_STORAGE_LAYOUT_VERSION);
+    // The selected image layout occupies offset 28 without changing the record encoding.
+    buffer.putInt(snapshot.storageFormat().layoutVersion());
     writeUuid(buffer, snapshot.storageIdentity().value());
     writeUuid(buffer, snapshot.lineageIdentity().value());
     buffer.putLong(snapshot.sequenceFloor().highestIssued());
@@ -1292,12 +1304,14 @@ public final class StorageBootstrapMetadata {
 
   public record Snapshot(
       FeatureFormatIdentity format,
+      StorageFormat storageFormat,
       long generation,
       State state,
       LogicalSequenceFloor sequenceFloor) {
 
     public Snapshot {
       Objects.requireNonNull(format, "format");
+      Objects.requireNonNull(storageFormat, "storageFormat");
       Objects.requireNonNull(state, "state");
       Objects.requireNonNull(sequenceFloor, "sequenceFloor");
       if (generation <= 0) {
@@ -1314,7 +1328,7 @@ public final class StorageBootstrapMetadata {
     }
 
     private Snapshot withFloor(final LogicalSequenceFloor floor, final long nextGeneration) {
-      return new Snapshot(format, nextGeneration, state, floor);
+      return new Snapshot(format, storageFormat, nextGeneration, state, floor);
     }
   }
 }

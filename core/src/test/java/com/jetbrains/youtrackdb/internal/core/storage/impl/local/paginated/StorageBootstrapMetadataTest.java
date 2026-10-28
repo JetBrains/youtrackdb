@@ -82,7 +82,8 @@ public class StorageBootstrapMetadataTest {
     assertThat(Files.size(authorityPath(0))).isEqualTo(80);
     // Storage birth writes the storage layout version into the former spare field at offset 28.
     assertThat(readStorageLayoutVersion(authorityPath(0)))
-        .isEqualTo(StorageBootstrapMetadata.SUPPORTED_STORAGE_LAYOUT_VERSION);
+        .isEqualTo(25);
+    assertThat(birth.storageFormat()).isEqualTo(StorageFormat.LAYOUT_25);
   }
 
   /**
@@ -1700,6 +1701,265 @@ public class StorageBootstrapMetadataTest {
         .isInstanceOf(NullPointerException.class);
     assertThatThrownBy(() -> new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, -1))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /** Both layouts survive birth, floor updates, activation, lineage replacement, and slot reuse. */
+  @Test
+  public void publicationsAndRepairKeepLayout25() throws IOException {
+    assertPublicationLayout(StorageFormat.LAYOUT_25, 25);
+  }
+
+  /** Literal 26 checks prevent the production birth default from masking a relabelled image. */
+  @Test
+  public void publicationsAndRepairKeepLayout26() throws IOException {
+    assertPublicationLayout(StorageFormat.LAYOUT_26, 26);
+  }
+
+  private void assertPublicationLayout(final StorageFormat format, final int literal)
+      throws IOException {
+    final var creator = metadata();
+    var current = creator.createBirth(STORAGE, LINEAGE_ONE, format);
+    assertPersistedLayout(current, literal);
+    current = creator.advanceFloor(current, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 11));
+    assertPersistedLayout(current, literal);
+    current = creator.activate(current, 12);
+    assertPersistedLayout(current, literal);
+    current = creator.advanceFloor(current, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 20));
+    assertPersistedLayout(current, literal);
+    assertThat(authorityFiles()).hasSize(3);
+
+    current = creator.beginLineageReplacement(current, adoption(30));
+    assertPersistedLayout(current, literal);
+    current = creator.advanceFloor(current,
+        new LogicalSequenceFloor(STORAGE, current.lineageIdentity(), 40));
+    assertPersistedLayout(current, literal);
+    current = creator.activate(current, 41);
+    assertPersistedLayout(current, literal);
+
+    // A fresh reader decodes the descriptor before confirming it at the same generation.
+    assertThat(metadata().readActiveRequired()).isEqualTo(current);
+    assertPersistedLayout(current, literal);
+    final var selected = Files.readAllBytes(authorityPath(0));
+    for (var authority : authorityFiles()) {
+      Files.delete(authority);
+    }
+    // Keep one valid copy, one damaged copy, and one absent slot for admission repair.
+    Files.write(authorityPath(0), selected);
+    Files.write(authorityPath(1), new byte[] {1});
+    Files.write(temporaryPath(2), new byte[] {2});
+    final var recovered = metadata().readActiveRequired();
+    assertThat(recovered).isEqualTo(current);
+    assertThat(temporaryFiles()).isEmpty();
+    // Repair first fills the missing slot, then replaces the damaged slot.
+    assertThat(metadata().readActiveRequired()).isEqualTo(current);
+    assertPersistedLayout(recovered, literal);
+  }
+
+  /** Fresh restore birth and its repeat-safe transition preserve each explicitly selected layout. */
+  @Test
+  public void freshRestorePublicationsKeepBothLayouts() throws IOException {
+    final var root = directory;
+    try {
+      for (var literal : List.of(25, 26)) {
+        directory = Files.createDirectory(root.resolve("restore-" + literal));
+        final var creator = metadata();
+        final var birth = creator.createBirth(STORAGE, LINEAGE_ONE, StorageFormat.resolve(literal));
+        assertPersistedLayout(birth, literal);
+        var pending = creator.beginRestoreFromBirth(birth);
+        assertPersistedLayout(pending, literal);
+        assertThat(creator.beginRestoreFromBirth(pending)).isEqualTo(pending);
+        pending = creator.advanceFloor(pending, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 10));
+        assertPersistedLayout(pending, literal);
+        final var active = creator.activate(pending, 20);
+        assertThat(metadata().readActiveRequired()).isEqualTo(active);
+        assertPersistedLayout(active, literal);
+      }
+    } finally {
+      directory = root;
+    }
+  }
+
+  /**
+   * Each publication can fail before or after its move. Every surviving record retains the
+   * selected literal layout, and recovery selects the old or new lifecycle state without conversion.
+   */
+  @Test
+  public void interruptedPublicationsKeepBothLayouts() throws IOException {
+    final var root = directory;
+    try {
+      for (var literal : List.of(25, 26)) {
+        for (var failAt = 1; failAt <= 4; failAt++) {
+          for (var afterMove : List.of(false, true)) {
+            directory = Files.createDirectory(root.resolve(
+                "failure-" + literal + "-" + failAt + "-" + afterMove));
+            final var moves = new AtomicInteger();
+            final int failureMove = failAt;
+            final var creator = new StorageBootstrapMetadata(directory, FORMAT,
+                (source, target, requester) -> {
+                  final boolean fail = moves.incrementAndGet() == failureMove;
+                  if (fail && !afterMove) {
+                    throw new IOException("injected before move");
+                  }
+                  FileUtils.durableAtomicMove(source, target, requester);
+                  if (fail) {
+                    throw new IOException("injected after move");
+                  }
+                });
+            assertThatThrownBy(() -> {
+              var current = creator.createBirth(
+                  STORAGE, LINEAGE_ONE, StorageFormat.resolve(literal));
+              current = creator.advanceFloor(
+                  current, new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 10));
+              current = creator.beginRestoreFromBirth(current);
+              creator.activate(current, 20);
+            }).isInstanceOf(IOException.class).hasMessageContaining("injected");
+            if (failAt == 1 && !afterMove) {
+              assertThat(authorityFiles()).isEmpty();
+              assertThat(admissionRejection(metadata()::readActiveRequired).reason())
+                  .isEqualTo(Reason.INTERRUPTED_BIRTH);
+            } else {
+              final int durableStep = afterMove ? failAt : failAt - 1;
+              final var recovered = metadata().readRequired();
+              assertThat(recovered.generation()).isEqualTo(durableStep);
+              assertThat(recovered.state()).isEqualTo(
+                  durableStep == 4 ? StorageBootstrapMetadata.State.ACTIVE
+                      : durableStep == 3 ? StorageBootstrapMetadata.State.RESTORE_IN_PROGRESS
+                          : StorageBootstrapMetadata.State.BIRTH_IN_PROGRESS);
+              assertThat(recovered.sequenceFloor().highestIssued())
+                  .isEqualTo(durableStep == 4 ? 20 : durableStep >= 2 ? 10 : 0);
+              assertPersistedLayout(recovered, literal);
+            }
+          }
+        }
+      }
+    } finally {
+      directory = root;
+    }
+  }
+
+  /**
+   * Supported layouts conflict at equal, adjacent, and gapped generations in either order.
+   * Active admission must reject without touching authority bytes or candidate residue.
+   */
+  @Test
+  public void supportedLayoutConflictsRejectEveryGenerationRelationship() throws IOException {
+    final var root = directory;
+    try {
+      for (var distance : List.of(0, 1, 3)) {
+        for (var firstLayout : List.of(25, 26)) {
+          directory =
+              Files.createDirectory(root.resolve("conflict-" + distance + "-" + firstLayout));
+          final var creator = metadata();
+          creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE));
+          final var active = Files.readAllBytes(authorityPath(1));
+          writeLayoutFixture(0, active, firstLayout, 2);
+          writeLayoutFixture(1, active, firstLayout == 25 ? 26 : 25, 2 + distance);
+          Files.write(temporaryPath(2), new byte[] {7, 8});
+          final var before = authorityBytes();
+
+          final var rejection = admissionRejection(metadata()::readActiveRequired);
+
+          assertThat(rejection.reason()).isEqualTo(Reason.AUTHORITY_STORAGE_LAYOUT_CONFLICT);
+          assertThat(rejection).hasMessageContaining("AUTHORITY_STORAGE_LAYOUT_CONFLICT")
+              .hasMessageContaining(directory.toRealPath().toString());
+          assertThat(rejection.reason().description()).isEqualTo(
+              "Two bootstrap authority records name different on-disk storage layouts.");
+          assertAuthorityBytesUnchanged(before);
+          assertThat(Files.readAllBytes(temporaryPath(2))).containsExactly(7, 8);
+        }
+      }
+    } finally {
+      directory = root;
+    }
+  }
+
+  /** Foreign identity retains precedence even if an earlier copy also conflicts on layout. */
+  @Test
+  public void foreignIdentityPrecedesSupportedLayoutConflict() throws IOException {
+    final var creator = metadata();
+    creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE));
+    final var active = Files.readAllBytes(authorityPath(1));
+    writeLayoutFixture(0, active, 25, 2);
+    writeLayoutFixture(1, active, 26, 3);
+    final var foreign = active.clone();
+    ByteBuffer.wrap(foreign).putLong(32, 123);
+    writeLayoutFixture(2, foreign, 25, 5);
+    final var before = authorityBytes();
+
+    assertThat(admissionRejection(metadata()::readActiveRequired).reason())
+        .isEqualTo(Reason.FOREIGN_AUTHORITY_COPY);
+    assertAuthorityBytesUnchanged(before);
+  }
+
+  /**
+   * An integrity-valid unsupported predecessor is fatal even beside a newer supported active copy.
+   * Rejection leaves authority and candidate bytes intact for every unsupported boundary value.
+   */
+  @Test
+  public void unsupportedOlderLayoutsRejectWithoutRepair() throws IOException {
+    final var root = directory;
+    try {
+      for (var supported : List.of(25, 26)) {
+        for (var unsupported : List.of(-1, 0, 24, 27, 99)) {
+          directory =
+              Files.createDirectory(root.resolve("unsupported-" + supported + "-" + unsupported));
+          final var creator = metadata();
+          creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE,
+              StorageFormat.resolve(supported)));
+          final var active = Files.readAllBytes(authorityPath(1));
+          writeLayoutFixture(0, active, unsupported, 1);
+          Files.write(temporaryPath(2), new byte[] {9});
+          final var before = authorityBytes();
+
+          final var rejection = admissionRejection(metadata()::readActiveRequired);
+
+          assertThat(rejection.reason()).isEqualTo(Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION);
+          assertThat(rejection)
+              .hasMessageContaining("Unsupported storage layout version: " + unsupported);
+          assertAuthorityBytesUnchanged(before);
+          assertThat(Files.readAllBytes(temporaryPath(2))).containsExactly(9);
+        }
+      }
+    } finally {
+      directory = root;
+    }
+  }
+
+  /** Explicit birth selection is local and cannot replace an existing image. */
+  @Test
+  public void explicitBirthLayoutCannotOverrideExistingAuthority() throws IOException {
+    final var creator = metadata();
+    final var birth = creator.createBirth(STORAGE, LINEAGE_ONE, StorageFormat.LAYOUT_26);
+    final var before = authorityBytes();
+    assertThatThrownBy(() -> metadata().createBirth(STORAGE, LINEAGE_ONE, StorageFormat.LAYOUT_25))
+        .isInstanceOf(IOException.class).hasMessageContaining("already exists");
+    assertAuthorityBytesUnchanged(before);
+    assertPersistedLayout(birth, 26);
+
+    final var ordinary = Files.createDirectory(directory.resolve("ordinary"));
+    final var defaultBirth = new StorageBootstrapMetadata(ordinary, FORMAT)
+        .createBirth(STORAGE, LINEAGE_ONE);
+    assertThat(defaultBirth.storageFormat()).isEqualTo(StorageFormat.LAYOUT_25);
+    assertThat(readStorageLayoutVersion(
+        ordinary.resolve(StorageBootstrapMetadata.AUTHORITY_FILE_NAMES.get(0)))).isEqualTo(25);
+  }
+
+  private void assertPersistedLayout(
+      final StorageBootstrapMetadata.Snapshot snapshot, final int literal) throws IOException {
+    assertThat(snapshot.storageFormat().layoutVersion()).isEqualTo(literal);
+    assertThat(authorityFiles()).isNotEmpty();
+    for (var authority : authorityFiles()) {
+      assertThat(readStorageLayoutVersion(authority)).isEqualTo(literal);
+    }
+  }
+
+  private void writeLayoutFixture(
+      final int slot, final byte[] template, final int layout, final long generation)
+      throws IOException {
+    final var record = template.clone();
+    ByteBuffer.wrap(record).putLong(16, generation).putInt(28, layout);
+    updateChecksum(record);
+    Files.write(authorityPath(slot), record);
   }
 
   private StorageBootstrapMetadata metadata() throws IOException {
