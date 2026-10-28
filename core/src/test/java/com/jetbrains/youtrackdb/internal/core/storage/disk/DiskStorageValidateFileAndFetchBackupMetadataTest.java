@@ -1347,10 +1347,10 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   }
 
   /**
-   * A header of another storage layout version is unsupported.
+   * A header of unsupported storage layout 27 is rejected.
    *
-   * <p>The scenario writes an otherwise valid header whose storage layout version differs from the
-   * layout version of this build. The expected outcome has two parts. The validation rejects the
+   * <p>The scenario writes an otherwise valid header whose storage layout version is outside the
+   * supported set. The expected outcome has two parts. The validation rejects the
    * unit. The classification refuses every automatic removal of the unit.
    */
   @Test
@@ -1359,7 +1359,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     final var identity = DiskStorage.supportedBackupSemanticIdentity();
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
-            identity.featureFormatVersion(), identity.storageLayoutVersion() + 1,
+            identity.featureFormatVersion(), 27,
             identity.creationEvidence(), true);
 
     final var inspection = inspect(unit, unitFileName(uuid, 1), uuid);

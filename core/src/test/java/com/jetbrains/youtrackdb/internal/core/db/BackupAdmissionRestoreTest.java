@@ -347,7 +347,7 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * One path restore refuses a chain of another storage layout version.
+   * One path restore refuses a chain of unsupported storage layout 27.
    *
    * <p>A storage layout version names the on-disk layout of one database. The expected outcome has
    * two parts. The restore names the foreign layout version. No database and no directory of the
@@ -356,7 +356,7 @@ public class BackupAdmissionRestoreTest {
   @Test
   public void pathRestoreRefusesAnIncompatibleStorageLayoutChain() throws Exception {
     writeSyntheticUnit(0, true, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
-        BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion() + 1,
+        BackupUnitFiles.supportedFeatureFormat(), 27,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
 
     try (var youTrackDB = openManager()) {
