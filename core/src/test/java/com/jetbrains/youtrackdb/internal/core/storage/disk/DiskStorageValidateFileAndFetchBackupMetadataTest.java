@@ -13,6 +13,102 @@ import org.junit.Test;
 
 public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
+  /** Literal v6 offsets preserve all shared fields, optional pairs and both hash boundaries. */
+  @Test
+  public void versionSixContinuityAndEveryByteAreValidated() throws Exception {
+    var id = UUID.randomUUID();
+    var name = BackupUnitFiles.unitFileName(id, "db", 1);
+    var sharedUnit = backupUnitWithHeader(id, 1, 5,
+        BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion(),
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+    var shared = java.util.Arrays.copyOfRange(sharedUnit, sharedUnit.length - 74,
+        sharedUnit.length);
+    var pair = new DiskStorage.BackupContinuity(new UUID(0x123456789abcdefL, 0x23456789abcdef1L),
+        new UUID(0x3456789abcdef12L, 0x456789abcdef123L));
+    for (var length : new int[] {390, 391, 511, 512, 65539}) {
+      for (var continuity : new DiskStorage.BackupContinuity[] {null, pair}) {
+        var unit = BackupUnitFiles.version6Bytes(new byte[length], shared,
+            DiskStorage.BARRIER_PRESENT, continuity);
+        var tail = unit.length - 122;
+        Assert.assertTrue(tail % 512 <= 390);
+        Assert.assertEquals(6, java.nio.ByteBuffer.wrap(unit).getShort(unit.length - 74));
+        Assert.assertEquals(continuity == null ? 0 : 0x434F4E54,
+            java.nio.ByteBuffer.wrap(unit).getInt(tail + 12));
+        if (continuity != null) {
+          Assert.assertEquals(pair.trackerId().getMostSignificantBits(),
+              java.nio.ByteBuffer.wrap(unit).getLong(tail + 16));
+        }
+        for (int chunk : new int[] {1, 13, 65536}) {
+          var copy = new ByteArrayOutputStream();
+          var input = new ByteArrayInputStream(unit) {
+            private boolean zero;
+
+            @Override
+            public synchronized int read(byte[] bytes, int offset, int count) {
+              zero = !zero;
+              return zero ? 0 : super.read(bytes, offset, Math.min(chunk, count));
+            }
+          };
+          var result = DiskStorage.inspectBackupUnit(name, "db", id, input, copy);
+          Assert.assertArrayEquals(unit, copy.toByteArray());
+          Assert.assertEquals(continuity, result.metadata().continuity());
+          Assert.assertEquals(id, result.metadata().databaseId());
+          Assert.assertEquals(1, result.metadata().sequenceNumber());
+          Assert.assertEquals(42, result.metadata().lastTxId());
+          Assert.assertEquals(DiskStorage.supportedBackupSemanticIdentity(),
+              result.metadata().semanticIdentity());
+        }
+      }
+    }
+    var sound = BackupUnitFiles.version6Bytes(new byte[103], shared,
+        DiskStorage.BARRIER_PRESENT, pair);
+    var tail = sound.length - 122;
+    // UUIDs, marker, barrier and checksum must not escape either integrity check.
+    for (int offset = 0; offset < 48; offset++) {
+      for (boolean repairMetadata : new boolean[] {true, false}) {
+        var damaged = sound.clone();
+        damaged[tail + offset] ^= 1;
+        BackupUnitFiles.repairVersion6Hashes(damaged, repairMetadata, !repairMetadata);
+        var copied = new ByteArrayOutputStream();
+        var result = DiskStorage.inspectBackupUnit(name, "db", id,
+            new ByteArrayInputStream(damaged), copied);
+        Assert.assertArrayEquals(damaged, copied.toByteArray());
+        // Repairing the checksum erases a mutation to the checksum itself.
+        if (repairMetadata && offset < 8) {
+          Assert.assertNotNull(result.metadata());
+        } else {
+          Assert.assertNull("offset " + offset, result.metadata());
+          Assert.assertEquals(repairMetadata, result.contentCheckFailed());
+        }
+      }
+    }
+    for (int marker : new int[] {0, 0x434F4E54, 1, -1}) {
+      var unit = sound.clone();
+      java.nio.ByteBuffer.wrap(unit).putInt(tail + 12, marker);
+      BackupUnitFiles.repairVersion6Hashes(unit, true, true);
+      var result = DiskStorage.inspectBackupUnit(name, "db", id,
+          new ByteArrayInputStream(unit), null);
+      if (marker == 0 || marker == 0x434F4E54) {
+        Assert.assertEquals(marker == 0 ? null : pair, result.metadata().continuity());
+      } else {
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            result.classification());
+        Assert.assertTrue(result.detail().contains("marker"));
+        unit[0] ^= 1;
+        result = DiskStorage.inspectBackupUnit(name, "db", id,
+            new ByteArrayInputStream(unit), null);
+        Assert.assertTrue(result.contentCheckFailed());
+        Assert.assertEquals(DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            result.classification());
+      }
+    }
+    for (int size : new int[] {0, 73, 74, 85, 86, 121}) {
+      var shortUnit = java.util.Arrays.copyOfRange(sound, sound.length - size, sound.length);
+      Assert.assertNull(DiskStorage.inspectBackupUnit(name, "db", id,
+          new ByteArrayInputStream(shortUnit), null).metadata());
+    }
+  }
+
   @Test
   public void testValidateFileAndFetchBackupMetadata() throws IOException {
     final var uuid = UUID.randomUUID();
@@ -23,7 +119,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -71,7 +167,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -509,7 +605,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -558,7 +654,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When startLsn is (-1, -1), the returned metadata should have null startLsn
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -607,7 +703,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -756,7 +852,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -851,7 +947,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only segment is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -901,7 +997,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only position is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1006,7 +1102,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -1095,7 +1191,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1188,7 +1284,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity());
+        DiskStorage.supportedBackupSemanticIdentity(), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1296,7 +1392,14 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.writeLong(validHash ? xxHash64.getValue() : xxHash64.getValue() + 1);
       dataOutputStream.flush();
 
-      return outputStream.toByteArray();
+      var unit = outputStream.toByteArray();
+      if (backupFormatVersion == BackupUnitFiles.VERSION_6) {
+        unit = BackupUnitFiles.version6Bytes(new byte[0], unit, 0, null);
+        if (!validHash) {
+          unit[unit.length - 1] ^= 1;
+        }
+      }
+      return unit;
     }
   }
 
@@ -1516,14 +1619,15 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
         Assert.assertEquals(DiskStorage.BackupUnitClassification.SUPPORTED,
             inspection.classification());
         Assert.assertEquals(version, inspection.metadata().backupFormatVersion());
+        Assert.assertNull(inspection.metadata().continuity());
       }
     }
   }
 
   /**
-   * Neither version 2 nor version 6 passes full or header-only admission.
+   * Neither version 2 nor version 7 passes full or header-only admission.
    *
-   * <p>The refusal must name the encountered version and all three supported versions.
+   * <p>The refusal must name the encountered version and all four supported versions.
    */
   @Test
   public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
@@ -1541,7 +1645,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
             inspection.classification());
         Assert.assertTrue(inspection.detail(), inspection.detail().contains("version " + version));
         Assert.assertTrue(inspection.detail(),
-            inspection.detail().contains("versions 3, 4, and 5"));
+            inspection.detail().contains("versions 3, 4, 5, and 6"));
       }
     }
   }
@@ -1864,6 +1968,6 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       int version) {
     Assert.assertTrue(inspection.detail(),
         inspection.detail().contains("backup format version " + version + ","));
-    Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3, 4, and 5"));
+    Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3, 4, 5, and 6"));
   }
 }

@@ -34,6 +34,51 @@ public class PreparedBackupChainTest {
 
   private Path root;
 
+  /** Prepared restore validates mixed layouts and copies exact bytes without pair matching. */
+  @Test
+  public void prepareMixedVersionChainPreservesBytesAndRejectsEitherHashFailure() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    var names = new java.util.ArrayList<String>();
+    for (int sequence = 0; sequence < 6; sequence++) {
+      var version = sequence < 3 ? sequence + 3 : 5;
+      names.add(BackupUnitFiles.writeUnit(root, id, DATABASE, sequence, sequence == 0,
+          version, BackupUnitFiles.supportedFeatureFormat(),
+          BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true));
+      if (sequence >= 3) {
+        var path = root.resolve(names.getLast());
+        var bytes = Files.readAllBytes(path);
+        Files.write(path, BackupUnitFiles.version6Bytes(new byte[19],
+            java.util.Arrays.copyOfRange(bytes, bytes.length - 74, bytes.length),
+            DiskStorage.BARRIER_PRESENT, sequence == 3 ? null
+                : new DiskStorage.BackupContinuity(java.util.UUID.randomUUID(),
+                    java.util.UUID.randomUUID())));
+      }
+    }
+    try (var chain = DiskStorage.prepareBackupChain(DATABASE, root, id.toString())) {
+      assertEquals(names.size(), chain.units().size());
+      for (int i = 0; i < names.size(); i++) {
+        org.junit.Assert.assertArrayEquals(Files.readAllBytes(root.resolve(names.get(i))),
+            Files.readAllBytes(chain.units().get(i).left()));
+        assertEquals(i == 0, chain.units().get(i).rightBoolean());
+      }
+    }
+    var path = root.resolve(names.getLast());
+    var sound = Files.readAllBytes(path);
+    for (boolean payloadDamage : new boolean[] {true, false}) {
+      var damaged = sound.clone();
+      damaged[payloadDamage ? 0 : damaged.length - 122 + 16] ^= 1;
+      if (!payloadDamage) {
+        BackupUnitFiles.repairVersion6Hashes(damaged, false, true);
+      }
+      Files.write(path, damaged);
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException.class,
+          () -> DiskStorage.prepareBackupChain(DATABASE, root, id.toString()));
+      org.junit.Assert.assertArrayEquals(damaged, Files.readAllBytes(path));
+    }
+  }
+
   @Before
   public void createRoot() throws Exception {
     root = Files.createTempDirectory("prepared-chain-");

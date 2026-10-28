@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -84,6 +85,21 @@ public class WALRecordsFactoryPageOperationTest {
     // Use a fresh factory without registration — the default factory has our
     // test record registered. Instead, we tamper the ID to one that's unregistered.
     WALRecordsFactory.INSTANCE.fromStream(content);
+  }
+
+  /**
+   * A native-order factory header for reserved type 11, formerly the NonTx record, has no payload.
+   * The decoder must reject this valid header with IllegalStateException.
+   */
+  @Test
+  public void testReservedType11DecoderRejectsValidHeader() {
+    var content = ByteBuffer.allocate(Short.BYTES + Integer.BYTES)
+        .order(ByteOrder.nativeOrder())
+        .putShort((short) 11)
+        .putInt(0)
+        .array();
+    Assert.assertThrows(IllegalStateException.class,
+        () -> WALRecordsFactory.INSTANCE.fromStream(content));
   }
 
   /**

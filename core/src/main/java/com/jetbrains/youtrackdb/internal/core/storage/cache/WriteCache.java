@@ -106,7 +106,11 @@ public interface WriteCache {
 
   boolean checkLowDiskSpace() throws IOException;
 
-  void syncDataFiles(long segmentId) throws IOException;
+  /**
+   * Forces durable data files and flushes the WAL without removing WAL segments.
+   * The caller owns the WAL cut and must perform it only after this method succeeds.
+   */
+  void syncDataFiles() throws IOException;
 
   void flushTillSegment(long segmentId);
 
@@ -520,8 +524,6 @@ public interface WriteCache {
   void create() throws IOException;
 
   void open() throws IOException;
-
-  void replaceFileId(long fileId, long newFileId) throws IOException;
 
   /**
    * Deletes all non-durable files from both read and write caches during crash recovery.

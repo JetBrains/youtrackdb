@@ -71,6 +71,43 @@ public class FileUtilsDurableAtomicMoveTest {
     assertTrue("the source must be gone after the move", Files.notExists(source));
   }
 
+  /** An unavailable strict helper preserves both names and reports the native loading cause. */
+  @Test
+  public void strictWindowsMoveFailsClosedWithoutNativeHelper() throws IOException {
+    var source = directory.resolve("source");
+    var target = directory.resolve("target");
+    Files.writeString(source, "new");
+    Files.writeString(target, "old");
+    var cause = new UnsatisfiedLinkError("injected native load failure");
+    var failure = assertThrows(IOException.class, () -> FileUtils.windowsWriteThroughMove(
+        source, target, FileUtils.WindowsMoveBinding.unavailable(cause)));
+    assertEquals("Windows write-through move unavailable", failure.getMessage());
+    assertSame(cause, failure.getCause());
+    assertEquals("new", Files.readString(source));
+    assertEquals("old", Files.readString(target));
+  }
+
+  /** Strict movement delegates once without opening or forcing the caller's source again. */
+  @Test
+  public void strictWindowsMoveDelegatesDirectlyToAvailableBinding() throws IOException {
+    var source = directory.resolve("absent-source");
+    var target = directory.resolve("absent-target");
+    var calls = new AtomicInteger();
+    FileUtils.windowsWriteThroughMove(source, target, new FileUtils.WindowsMoveBinding((s, t) -> {
+      assertSame(source, s);
+      assertSame(target, t);
+      calls.incrementAndGet();
+    }, null));
+    assertEquals(1, calls.get());
+    assertTrue(Files.notExists(source));
+    assertTrue(Files.notExists(target));
+    var cause = new IOException("native replacement failed");
+    assertSame(cause, assertThrows(IOException.class, () -> FileUtils.windowsWriteThroughMove(
+        source, target, new FileUtils.WindowsMoveBinding((s, t) -> {
+          throw cause;
+        }, null))));
+  }
+
   /** A required Unix directory barrier failure is reported after the atomic replacement. */
   @Test
   public void directoryBarrierFailureIsReported() throws IOException {

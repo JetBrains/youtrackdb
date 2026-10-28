@@ -66,7 +66,7 @@ import org.mockito.MockedStatic;
 
 /**
  * Tests the in-memory non-durable file tracking in WOWCache: addFile with nonDurable flag,
- * isNonDurable queries, deleteFile cleanup, replaceFileId cleanup, and close() clearing.
+ * isNonDurable queries, deleteFile cleanup, and close() clearing.
  *
  * <p>Tagged {@link SequentialTest} because {@link #beforeClass()} mutates two
  * {@link GlobalConfiguration} flags ({@code STORAGE_EXCLUSIVE_FILE_ACCESS}, {@code FILE_LOCK})
@@ -281,88 +281,6 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue(
         "Non-durable file should remain in registry after deleting a different durable file",
         wowCache.isNonDurable(ndFileId));
-  }
-
-  /**
-   * Verifies that replaceFileId removes the replaced (new) file's internal ID from the
-   * non-durable registry if it was non-durable. The surviving original ID retains its
-   * (durable) status.
-   */
-  @Test
-  public void testReplaceFileIdRemovesReplacedNonDurableEntry() throws IOException {
-    // Create original durable file
-    final var originalId = wowCache.addFile("original.tst");
-
-    // Create a non-durable replacement file
-    final var replacementBookedId = wowCache.bookFileId("replacement.tst");
-    final var replacementId =
-        wowCache.addFile("replacement.tst", replacementBookedId, true);
-    assertTrue(
-        "Replacement file should be non-durable before replaceFileId",
-        wowCache.isNonDurable(replacementId));
-
-    // Replace original with replacement — newFileId's internal ID should be removed
-    wowCache.replaceFileId(originalId, replacementId);
-
-    // The replacement's internal ID was removed from the non-durable registry
-    assertFalse(
-        "After replaceFileId, the consumed replacement file's ID should no longer be non-durable",
-        wowCache.isNonDurable(replacementId));
-
-    // The original file ID retains its durable status (was never in the non-durable set)
-    assertFalse(
-        "After replaceFileId, the original file ID should remain durable",
-        wowCache.isNonDurable(originalId));
-  }
-
-  /**
-   * Verifies that when the original (surviving) file ID was non-durable, it retains its
-   * non-durable status after replaceFileId. Durability status is tied to the ID slot, not
-   * the file content.
-   */
-  @Test
-  public void testReplaceFileIdPreservesOriginalNonDurableStatus() throws IOException {
-    // Create original non-durable file
-    final var bookedOriginalId = wowCache.bookFileId("originalNd.tst");
-    final var originalId =
-        wowCache.addFile("originalNd.tst", bookedOriginalId, true);
-    assertTrue(wowCache.isNonDurable(originalId));
-
-    // Create a durable replacement file
-    final var replacementId = wowCache.addFile("replacementDurable.tst");
-    assertFalse(wowCache.isNonDurable(replacementId));
-
-    // Replace: originalId's internal ID is kept; it should remain non-durable
-    wowCache.replaceFileId(originalId, replacementId);
-
-    assertTrue(
-        "Original non-durable file's ID should remain non-durable after replaceFileId",
-        wowCache.isNonDurable(originalId));
-  }
-
-  /**
-   * Verifies that when both original and replacement are non-durable, replaceFileId removes
-   * only the replacement's internal ID from the registry, leaving the original's.
-   */
-  @Test
-  public void testReplaceFileIdBothNonDurableRemovesOnlyReplacement() throws IOException {
-    final var bookedOrigId = wowCache.bookFileId("ndOrig2.tst");
-    final var ndOrigId = wowCache.addFile("ndOrig2.tst", bookedOrigId, true);
-
-    final var bookedReplId = wowCache.bookFileId("ndRepl2.tst");
-    final var ndReplId = wowCache.addFile("ndRepl2.tst", bookedReplId, true);
-
-    assertTrue(wowCache.isNonDurable(ndOrigId));
-    assertTrue(wowCache.isNonDurable(ndReplId));
-
-    wowCache.replaceFileId(ndOrigId, ndReplId);
-
-    assertTrue(
-        "Original non-durable ID must remain in registry after replace",
-        wowCache.isNonDurable(ndOrigId));
-    assertFalse(
-        "Replacement's ID must be removed from registry after replace",
-        wowCache.isNonDurable(ndReplId));
   }
 
   /**
@@ -726,13 +644,13 @@ public class WOWCacheNonDurableFileTrackingTest {
     files.add(secondId, second);
     final var originalBegin = writeAheadLog.begin();
 
-    assertThrows(StorageException.class, () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+    assertThrows(StorageException.class, () -> wowCache.syncDataFiles());
     assertEquals("one successful file must precede the failure", 2, attempts.get());
     assertEquals("failed attempt must retain WAL", originalBegin, writeAheadLog.begin());
     verify(doubleWriteLog, never()).truncate();
     verify(doubleWriteLog).endCheckpoint();
 
-    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    wowCache.syncDataFiles();
     assertEquals("the next attempt retries both files", 4, attempts.get());
   }
 
@@ -780,11 +698,11 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertTrue("real full checkpoint reports the file-force failure",
         failure.getCause() instanceof RuntimeException);
     assertThrows(StorageException.class,
-        () -> wowCache.syncDataFiles(Long.MAX_VALUE));
+        () -> wowCache.syncDataFiles());
     assertEquals("neither failure can delete WAL", begin, writeAheadLog.begin());
     verify(doubleWriteLog, never()).truncate();
     wowCache.flush();
-    wowCache.syncDataFiles(writeAheadLog.begin().getSegment());
+    wowCache.syncDataFiles();
     assertEquals("both paths invoked file force again", 3, attempts.get());
   }
 
@@ -1586,8 +1504,7 @@ public class WOWCacheNonDurableFileTrackingTest {
 
     // syncDataFiles should succeed — the non-durable file is skipped before fsync.
     // The durable file's channel is still open, so its fsync proceeds normally.
-    final var walSegment = writeAheadLog.begin().getSegment();
-    wowCache.syncDataFiles(walSegment);
+    wowCache.syncDataFiles();
   }
 
   /**

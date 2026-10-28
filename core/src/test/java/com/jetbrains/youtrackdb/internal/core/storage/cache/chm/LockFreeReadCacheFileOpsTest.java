@@ -806,7 +806,7 @@ public class LockFreeReadCacheFileOpsTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override
@@ -965,10 +965,6 @@ public class LockFreeReadCacheFileOpsTest {
 
     @Override
     public void open() throws IOException {
-    }
-
-    @Override
-    public void replaceFileId(long fileId, long newFileId) {
     }
 
     @Override
