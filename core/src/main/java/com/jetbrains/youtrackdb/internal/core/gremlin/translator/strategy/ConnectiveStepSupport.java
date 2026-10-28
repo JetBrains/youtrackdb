@@ -143,8 +143,8 @@ final class ConnectiveStepSupport {
   /** Captures a whole OR arm. No leaf becomes a mandatory positive-pattern predicate. */
   static MatchBooleanCheck booleanArm(
       RecognitionContext ctx, SubTraversalPredicateAdapter adapter, String boundary) {
-    // Nested boolean recognition belongs to the next track. Never flatten a captured tree.
-    if (adapter.booleanCheck() != null) {
+    // A tree belongs to the bound boundary, not to a target reached by a detached chain.
+    if (adapter.hasEdges() && adapter.booleanCheck() != null) {
       return null;
     }
     var children = new ArrayList<MatchBooleanCheck>();
@@ -183,6 +183,9 @@ final class ConnectiveStepSupport {
     }
     for (var expression : adapter.capturedExistsExpressions()) {
       children.add(new MatchBooleanCheck.Probe(expression));
+    }
+    if (adapter.booleanCheck() != null) {
+      children.add(adapter.booleanCheck());
     }
     if (children.isEmpty()) {
       return null;

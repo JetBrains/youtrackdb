@@ -17,9 +17,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int builtKeys,
     Map<Integer, Long> rows) {
 
-  /** OR uses scoped checks. NOT over OR remains a native traversal. */
+  /** OR and NOT over OR use scoped checks. */
   static boolean expectTranslatedOr(String kind) {
-    return kind.equals("OR");
+    return kind.equals("OR") || kind.equals("NOT_OR");
   }
 
   static DetachedChecksBenchmarkWitness gremlin(Traversal.Admin<?, ?> traversal,

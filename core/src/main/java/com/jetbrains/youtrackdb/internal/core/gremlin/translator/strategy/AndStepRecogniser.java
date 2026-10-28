@@ -42,6 +42,9 @@ final class AndStepRecogniser implements StepRecogniser {
     if (adapters == null) {
       return Outcome.DECLINE;
     }
+    // Keep mandatory sibling filters and detached checks on their normal optimisation paths.
+    // Inside an OR or NOT, the enclosing capture folds these contributions and the whole tree
+    // into one scoped conjunction through booleanArm.
     // Validate every detached check before committing any child, so a failed arm never leaves
     // another arm's filters on the parent. Child walks have already forwarded parameter binding
     // and alias minting, which cannot change the result of a declined outer walk.
