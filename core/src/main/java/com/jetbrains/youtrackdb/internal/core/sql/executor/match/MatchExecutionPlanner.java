@@ -386,7 +386,8 @@ public class MatchExecutionPlanner {
    * Maximum estimated build-side cardinality for which the planner will choose a
    * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
    * If the estimated NOT-pattern result set exceeds this threshold, the planner
-   * falls back to {@link FilterNotMatchPatternStep}. Configurable via
+   * falls back to {@link FilterNotMatchPatternStep}. Zero leaves hash builds uncapped and
+   * disables bounded result memory. Configurable via
    * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
    */
   static long getHashJoinThreshold() {
@@ -835,13 +836,15 @@ public class MatchExecutionPlanner {
         double probeWork = 0;
         for (var exp : existsMatchExpressions) {
           var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
-          targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+          targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling,
+              DetachedCheckReadSet.describe(exp, pattern)));
           probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
         for (var exp : notMatchExpressions) {
           var steps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
-          targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling));
+          targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling,
+              DetachedCheckReadSet.describe(exp, pattern)));
           probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
@@ -1234,7 +1237,8 @@ public class MatchExecutionPlanner {
             context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, matchSteps, enableProfiling));
       } else {
         // Fallback: nested-loop evaluation via FilterNotMatchPatternStep
-        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
+        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling,
+            DetachedCheckReadSet.describe(exp, pattern)));
       }
     }
   }
@@ -1260,7 +1264,8 @@ public class MatchExecutionPlanner {
         result.chain(new HashJoinMatchStep(context, buildPlan, findSharedAliases(exp, pattern),
             JoinMode.SEMI_JOIN, steps, enableProfiling));
       } else {
-        result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+        result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling,
+            DetachedCheckReadSet.describe(exp, pattern)));
       }
     }
   }
@@ -1308,7 +1313,8 @@ public class MatchExecutionPlanner {
       }
     }
     return new FilterBooleanMatchStep(context, profiling, kind, children, alias, condition,
-        steps, hash);
+        steps, hash, check instanceof MatchBooleanCheck.Probe probe
+            ? DetachedCheckReadSet.describe(probe.expression(), pattern) : null);
   }
 
   /** Validates a detached check and builds its linear MATCH traversal chain. */
@@ -1532,7 +1538,8 @@ public class MatchExecutionPlanner {
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       Pattern pattern) {
-    if (notPatternDependsOnMatched(exp)) {
+    var reads = DetachedCheckReadSet.describe(exp, pattern);
+    if (notPatternDependsOnMatched(exp) || reads.correlated()) {
       return false;
     }
     var originAlias = exp.getOrigin().getAlias();
@@ -1546,7 +1553,7 @@ public class MatchExecutionPlanner {
       return false;
     }
     // Later null shared keys are unbound to a per-row probe but cannot join a hash key.
-    var sharedAliases = findSharedAliases(exp, pattern);
+    var sharedAliases = reads.aliases();
     for (var i = 1; i < sharedAliases.size(); i++) {
       if (pattern.aliasToNode.get(sharedAliases.get(i)).isOptionalNode()) {
         return false;
@@ -1554,7 +1561,7 @@ public class MatchExecutionPlanner {
     }
     var estimatedCardinality = estimateNotPatternCardinality(
         exp, aliasClasses, aliasFilters, aliasPinnedRids, context);
-    return estimatedCardinality <= getHashJoinThreshold();
+    return getHashJoinThreshold() == 0 || estimatedCardinality <= getHashJoinThreshold();
   }
 
   /** Shared detached-check choice: eligibility always applies, even with the guards off. */
@@ -1581,13 +1588,32 @@ public class MatchExecutionPlanner {
       return true;
     }
     var estimates = estimateDetachedWalk(exp, aliasClasses, context);
-    var pass = findSharedAliases(exp, pattern).size() == 1
+    var reads = DetachedCheckReadSet.describe(exp, pattern);
+    var pass = reads.aliases().size() == 1
         ? detachedPassFraction(estimates.paths(), exp.getItems().isEmpty(), slice.exists())
         : OptionalDouble.empty();
     return detachedHashCostWins(outerRows,
         estimateAliasCardinality(exp.getOrigin().getAlias(), aliasClasses, aliasFilters,
             aliasPinnedRids, context),
-        estimates.work(), slice.requiredRows(), pass);
+        estimates.work(), slice.requiredRows(), pass,
+        estimateDetachedKeys(reads, aliasClasses, aliasFilters, aliasPinnedRids, context));
+  }
+
+  private static OptionalDouble estimateDetachedKeys(DetachedCheckReadSet reads,
+      Map<String, String> classes, Map<String, SQLWhereClause> filters,
+      Map<String, List<SQLRid>> pins, CommandContext context) {
+    if (!reads.rememberable()) {
+      return OptionalDouble.empty();
+    }
+    double keys = 1;
+    for (var alias : reads.aliases()) {
+      long count = estimateAliasCardinality(alias, classes, filters, pins, context);
+      if (count == Long.MAX_VALUE || count < 0) {
+        return OptionalDouble.empty();
+      }
+      keys *= Math.max(1, count);
+    }
+    return Double.isFinite(keys) ? OptionalDouble.of(keys) : OptionalDouble.empty();
   }
 
   /** Unknown estimates bypass both guards. A large sentinel would fail the cost comparison. */
@@ -1598,6 +1624,12 @@ public class MatchExecutionPlanner {
 
   static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk,
       OptionalLong requiredRows, OptionalDouble pass) {
+    return detachedHashCostWins(outerRows, origins, walk, requiredRows, pass,
+        OptionalDouble.empty());
+  }
+
+  static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk,
+      OptionalLong requiredRows, OptionalDouble pass, OptionalDouble distinctKeys) {
     long minimum = getHashJoinUpstreamMin();
     if (!hashJoinCostGuardsEnabled(minimum) || outerRows.isEmpty() || walk.isEmpty()) {
       return true;
@@ -1607,7 +1639,8 @@ public class MatchExecutionPlanner {
       return false;
     }
     double rows = detachedProbeRows(outer, origins, requiredRows, pass);
-    double nestedCost = rows * walk.getAsDouble();
+    double nestedCost = rememberedProbeCount(rows, distinctKeys, getHashJoinThreshold())
+        * walk.getAsDouble();
     double hashCost = origins + origins * walk.getAsDouble() + rows;
     if (!usableDetachedEstimate(nestedCost) || !usableDetachedEstimate(hashCost)) {
       // A saturated discounted cost is not evidence for a cheaper limited plan.
@@ -1615,6 +1648,20 @@ public class MatchExecutionPlanner {
       hashCost = origins + origins * walk.getAsDouble() + outer;
     }
     return hashCost < nestedCost;
+  }
+
+  static double rememberedProbeCount(double rows, OptionalDouble distinctKeys, long limit) {
+    if (limit <= 0 || distinctKeys.isEmpty() || distinctKeys.getAsDouble() <= 0) {
+      return rows;
+    }
+    double distinct = Math.min(rows, distinctKeys.getAsDouble());
+    if (distinct == 0) {
+      return 0;
+    }
+    double remembered = Math.min(distinct, limit);
+    // Memory stores failures too. Only the remembered fraction avoids repeated probes.
+    // Keys beyond the limit still pay one probe per row, even with a tiny match fraction.
+    return remembered + rows * (distinct - remembered) / distinct;
   }
 
   /** Literal-only slicing keeps the choice independent of bindings in a cached SQL plan. */
@@ -2131,13 +2178,13 @@ public class MatchExecutionPlanner {
         trace.branchRoot, trace.branchEdges, aliasClasses, aliasFilters,
         aliasPinnedRids, context);
     long threshold = getHashJoinThreshold();
-    if (cardinality > threshold) {
+    if (threshold > 0 && cardinality > threshold) {
       return null;
     }
 
     // INNER_JOIN materializes full ResultInternal rows (~7× heavier per entry
     // than SEMI_JOIN's lightweight JoinKey entries). Apply a tighter threshold.
-    if (joinMode == JoinMode.INNER_JOIN
+    if (threshold > 0 && joinMode == JoinMode.INNER_JOIN
         && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
       return null;
     }

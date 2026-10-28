@@ -57,11 +57,117 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(minimum);
   }
 
+  /** Every detached kind agrees across hash, plain nested and remembered nested execution. */
+  @Test
+  public void detachedKindsRememberTrueFalseAndRestartWithFreshParametersAndData()
+      throws Exception {
+    session.rollback();
+    session.createEdgeClass("BoolFan");
+    session.begin();
+    for (int i = 0; i < 16; i++) {
+      session.execute("CREATE EDGE BoolFan FROM (SELECT FROM BoolP)"
+          + " TO (SELECT FROM BoolP WHERE name='neither')").close();
+    }
+    session.commit();
+    session.begin();
+    for (int kind = 0; kind < 4; kind++) {
+      boolean negative = kind == 1 || kind == 3;
+      for (int mode = 0; mode < 3; mode++) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(mode == 0 ? 0L : 256L);
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
+            mode == 2 ? 0L : Long.MAX_VALUE);
+        var statement = parse("MATCH {class:BoolP, as:p}.out('BoolFan'){as:q}"
+            + " RETURN p.name as name");
+        var pattern = new Pattern();
+        statement.getMatchExpressions().forEach(pattern::addExpression);
+        var check = parse("MATCH {as:p}.out('BoolE'){as:t, where:(name=:wanted)} RETURN p")
+            .getMatchExpressions().getFirst();
+        var builder = MatchPlanInputs.builder(pattern).aliasClasses(Map.of("p", "BoolP"))
+            .returnItems(statement.getReturnItems()).returnAliases(statement.getReturnAliases())
+            .returnNestedProjections(statement.getReturnNestedProjections());
+        if (kind == 0) {
+          builder.existsMatchExpressions(List.of(check));
+        } else if (kind == 1) {
+          builder.notMatchExpressions(List.of(check));
+        } else {
+          builder
+              .booleanCheck(new MatchBooleanCheck.Or(List.of(new MatchBooleanCheck.Probe(check))));
+        }
+        var ctx = context();
+        ctx.setInputParameters(Map.of("wanted", "neither"));
+        var planner = kind == 3 ? new MatchExecutionPlanner(parse(
+            "MATCH {class:BoolP, as:p}.out('BoolFan'){as:q},"
+                + " NOT {as:p}.out('BoolE'){as:t, where:(name=:wanted)} RETURN p.name as name"))
+            : new MatchExecutionPlanner(builder.build());
+        var plan = (SelectExecutionPlan) planner.createExecutionPlan(ctx, false, false);
+        assertThat(plan.prettyPrint(0, 2).contains("HASH")).isEqualTo(mode == 2);
+        for (int start = 0; start < 3; start++) {
+          if (start == 2) {
+            session.execute("CREATE EDGE BoolE FROM (SELECT FROM BoolP WHERE name='filter')"
+                + " TO (SELECT FROM BoolP WHERE name='neither')").close();
+          }
+          ctx.setInputParameters(Map.of("wanted", start == 1 ? "absent" : "neither"));
+          var stream = plan.start();
+          var rows = stream.stream(ctx).map(row -> row.<String>getProperty("name"))
+              .sorted().toList();
+          var passing = start == 1 ? List.<String>of()
+              : start == 2 ? List.of("both", "filter", "hop") : List.of("both", "hop");
+          var expected = List.of("both", "filter", "hop", "neither").stream()
+              .filter(name -> negative != passing.contains(name))
+              .flatMap(name -> java.util.stream.IntStream.range(0, 16).mapToObj(i -> name))
+              .toList();
+          assertThat(rows).isEqualTo(expected);
+          if (mode != 2) {
+            var memories = memories(plan.getSteps());
+            assertThat(memories).hasSize(1);
+            assertThat(memories.getFirst().hits()).isEqualTo(mode == 1 ? 60 : 0);
+            assertThat(memories.getFirst().size()).isEqualTo(mode == 1 ? 4 : 0);
+          }
+          stream.close(ctx);
+          if (start == 1) {
+            plan.close();
+            for (var memory : memories(plan.getSteps())) {
+              assertThat(memory.size()).isZero();
+            }
+          } else {
+            plan.reset(ctx);
+          }
+        }
+        plan.close();
+        session.execute("DELETE EDGE BoolE FROM (SELECT FROM BoolP WHERE name='filter')").close();
+      }
+    }
+  }
+
+  private List<DetachedCheckMemory> memories(
+      List<? extends com.jetbrains.youtrackdb.internal.core.query.ExecutionStep> steps)
+      throws Exception {
+    var result = new java.util.ArrayList<DetachedCheckMemory>();
+    for (var step : steps) {
+      if (step instanceof FilterBooleanMatchStep tree) {
+        var field = FilterBooleanMatchStep.class.getDeclaredField("kind");
+        field.setAccessible(true);
+        if (field.get(tree) == FilterBooleanMatchStep.Kind.PROBE) {
+          var memory = FilterBooleanMatchStep.class.getDeclaredField("memory");
+          memory.setAccessible(true);
+          result.add((DetachedCheckMemory) memory.get(step));
+        }
+      } else if (step instanceof FilterExistsMatchPatternStep
+          || step instanceof FilterNotMatchPatternStep) {
+        var field = step.getClass().getDeclaredField("memory");
+        field.setAccessible(true);
+        result.add((DetachedCheckMemory) field.get(step));
+      }
+      result.addAll(memories(step.getSubSteps()));
+    }
+    return result;
+  }
+
   /** OR retains filter-only, hop-only and both once. Hash and nested give identical multisets. */
   @Test
   public void orHashAndNestedKeepExactlyThePassingRows() {
     for (var hash : List.of(true, false)) {
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(hash ? 10000L : 0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(hash ? 0L : Long.MAX_VALUE);
       var plan = plan("RETURN p.name as name", or());
       assertThat(plan.prettyPrint(0, 2)).contains("BOOLEAN OR", "BOOLEAN PROBE");
       if (hash) {
@@ -149,7 +255,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     assertThat(names(plan)).containsExactly("both", "filter", "hop");
   }
 
-  /** Default guards choose nested for four outer rows and hash for a repeated forty-row input. */
+  /** Memory makes repeated origins cheaper than an eager build, even for forty outer rows. */
   @Test
   public void defaultCostGuardsDistinguishFewAndManyOuterRows() {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
@@ -178,7 +284,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
         .returnNestedProjections(statement.getReturnNestedProjections()).build();
     var many = (SelectExecutionPlan) new MatchExecutionPlanner(inputs)
         .createExecutionPlan(context(), false, false);
-    assertThat(many.prettyPrint(0, 2)).contains("BOOLEAN PROBE", "HASH SEMI_JOIN");
+    assertThat(many.prettyPrint(0, 2)).contains("BOOLEAN PROBE").doesNotContain("HASH SEMI_JOIN");
     assertThat(names(many)).hasSize(40).containsOnly("hop");
   }
 
@@ -276,6 +382,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
   /** Concurrent copies evaluate different parameter bindings in independent database sessions. */
   @Test
   public void concurrentCopiesHaveIndependentBindings() throws Exception {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(Long.MAX_VALUE);
     var condition = parse("MATCH {as:p, where:(slug = :wanted)} RETURN p")
         .getMatchExpressions().getFirst().getOrigin().getFilter();
     var template = plan("RETURN p.name as name", new MatchBooleanCheck.Or(List.of(probe(),
@@ -424,12 +531,14 @@ public class BooleanMatchPlannerTest extends DbTestBase {
       }
       return;
     }
-    if (value instanceof java.util.Set<?> || value instanceof CommandContext) {
+    if (value instanceof java.util.Set<?> || value instanceof java.util.HashMap<?, ?>
+        || value instanceof CommandContext) {
       state.put(value, value.toString());
       return;
     }
     if (!(value instanceof com.jetbrains.youtrackdb.internal.core.query.ExecutionStep)
         && !(value instanceof SelectExecutionPlan)
+        && !(value instanceof DetachedCheckMemory)
         && !(value instanceof com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode)) {
       return;
     }

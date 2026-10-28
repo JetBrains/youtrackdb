@@ -308,7 +308,8 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
     var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      // Isolate the slice cost rule. Zero leaves hash builds uncapped and disables memory.
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
       var target = graph.addVertex(T.label, "Target", "name", "Target");
       for (var i = 0; i < 30; i++) {
         var article = graph.addVertex(T.label, "Article", "name", "Article" + i);

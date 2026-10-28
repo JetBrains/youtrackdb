@@ -202,11 +202,11 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot + ")}"
             + " RETURN a.name as name";
         // Every origin matches. This is the first-neighbour case required by the cost rule.
-        assertNotPathAgreement(sql, List.of(), true);
+        assertNotPathAgreement(sql, List.of(), false);
         var selective = "MATCH {class:CostOrigin, as:a}, {class:CostRepeat, as:q},"
             + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot
             + " AND accepted=true)} RETURN a.name as name";
-        assertNotPathAgreement(selective, expected, true);
+        assertNotPathAgreement(selective, expected, false);
       }
     } finally {
       session.rollback();
@@ -445,32 +445,47 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   /** Run one NOT statement through both physical paths without losing duplicate rows. */
   private void assertNotPathAgreement(String sql, List<String> expected, boolean hashEligible) {
     var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    var savedCostMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
     try {
       List<String> hashRows = null;
       List<String> nestedRows = null;
       for (var threshold : List.of(10_000L, 0L)) {
         GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
-        // A different projection alias keeps the SQL plan cache from reusing the hash plan.
-        var query = (threshold == 0L ? sql.replace(" as name", " as nameZero") : sql)
-            + " /* detached agreement threshold " + threshold + " */";
-        try (var explain = session.query("EXPLAIN " + query)) {
-          var plan = explain.toList().getFirst().<String>getProperty("executionPlanAsString");
-          if (threshold == 0L || !hashEligible) {
-            assertTrue("expected nested-loop NOT: " + plan, plan.contains("+ NOT ("));
-          } else {
-            assertTrue("expected hash anti-join: " + plan, plan.contains("+ HASH ANTI_JOIN"));
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedCostMinimum);
+        // The comparison explicitly forces detached eligibility off. Zero is an uncapped
+        // hash limit, not a planner off switch. The first plan still tests real cost selection.
+        try (var forced = threshold == 0L
+            ? org.mockito.Mockito.mockStatic(MatchExecutionPlanner.class,
+                org.mockito.Mockito.CALLS_REAL_METHODS)
+            : null) {
+          if (forced != null) {
+            forced.when(() -> MatchExecutionPlanner.canUseHashJoin(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(false);
           }
-        }
-        List<String> rows;
-        try (var results = session.query(query)) {
-          rows = results.stream()
-              .map(r -> (String) r.getProperty(threshold == 0L ? "nameZero" : "name"))
-              .sorted().toList();
-        }
-        if (threshold != 0L) {
-          hashRows = rows;
-        } else {
-          nestedRows = rows;
+          var query = (threshold == 0L ? sql.replace(" as name", " as nameZero") : sql)
+              + " /* detached agreement threshold " + threshold + " */";
+          try (var explain = session.query("EXPLAIN " + query)) {
+            var plan = explain.toList().getFirst().<String>getProperty("executionPlanAsString");
+            if (threshold == 0L || !hashEligible) {
+              assertTrue("expected nested-loop NOT: " + plan, plan.contains("+ NOT ("));
+            } else {
+              assertTrue("expected hash anti-join: " + plan, plan.contains("+ HASH ANTI_JOIN"));
+            }
+          }
+          List<String> rows;
+          try (var results = session.query(query)) {
+            rows = results.stream()
+                .map(r -> (String) r.getProperty(threshold == 0L ? "nameZero" : "name"))
+                .sorted().toList();
+          }
+          if (threshold != 0L) {
+            hashRows = rows;
+          } else {
+            nestedRows = rows;
+          }
         }
       }
       assertEquals("nested-loop row multiset", expected, nestedRows);
@@ -478,6 +493,7 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       assertEquals("both paths must retain the same row multiset", nestedRows, hashRows);
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedCostMinimum);
     }
   }
 
@@ -779,6 +795,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
       for (var threshold : List.of(10_000L, 0L)) {
         GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
+            threshold == 0 ? Long.MAX_VALUE : 0L);
         var positive = (SQLMatchStatement) new YouTrackDBSql(new ByteArrayInputStream(
             (positiveSql + " RETURN a.name, b.name, c.name, t.name")
                 .getBytes(StandardCharsets.UTF_8)))
@@ -1143,12 +1161,11 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
   }
 
   /**
-   * Setting the threshold to 0 should disable hash join optimization entirely.
-   * The planner should fall back to nested-loop (FilterNotMatchPatternStep)
-   * for NOT patterns, showing "+ NOT (" instead of "HASH ANTI_JOIN" in EXPLAIN.
+   * A zero threshold leaves detached hash builds uncapped. Cost guards are disabled here
+   * so the plan must select the eligible hash anti-join.
    */
   @Test
-  public void thresholdZero_disablesHashJoin() {
+  public void thresholdZero_allowsUncappedDetachedHashJoin() {
     var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
@@ -1163,10 +1180,8 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
       assertEquals(1, result.size());
       String plan = result.get(0).getProperty("executionPlanAsString");
       assertNotNull(plan);
-      assertFalse("threshold=0 should disable hash join, got:\n" + plan,
+      assertTrue("threshold=0 should allow an uncapped hash build, got:\n" + plan,
           plan.contains("HASH ANTI_JOIN"));
-      assertTrue("threshold=0 should use nested-loop NOT step, got:\n" + plan,
-          plan.contains("+ NOT ("));
       session.commit();
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);

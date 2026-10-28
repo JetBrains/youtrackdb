@@ -539,9 +539,9 @@ public class MatchExistsPlannerTest extends DbTestBase {
         + " RETURN p.name as name", false);
   }
 
-  /** Repeated origins make the eligible hash build cheaper than repeated complete walks. */
+  /** Repeated origins favor remembered probes over an eligible eager build. */
   @Test
-  public void exists_guardTwoRepeatedOrigins_usesHash() {
+  public void exists_guardTwoRepeatedOrigins_usesRememberedProbes() {
     session.begin();
     for (var i = 0; i < 9; i++) {
       session.execute("CREATE EDGE ExistsLink FROM (SELECT FROM ExistsPerson WHERE name='one')"
@@ -550,7 +550,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
     session.commit();
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
     assertExistsChoice("MATCH {class:ExistsPerson, as:p}.out('ExistsLink'){as:q}"
-        + " RETURN p.name as name", true);
+        + " RETURN p.name as name", false);
   }
 
   /** Unknown recursive walk cost bypasses both guards, including a large minimum. */
@@ -703,7 +703,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
     }
   }
 
-  /** Parameter LIMIT never discounts. SQL cache reuse keeps hash but reads each slice binding. */
+  /** Parameter LIMIT never discounts. Cached remembered probes read each fresh slice binding. */
   @Test
   public void detachedLimit_parameterCacheReuse_readsFreshBindings() {
     seedSliceOrigins();
@@ -713,14 +713,16 @@ public class MatchExistsPlannerTest extends DbTestBase {
     try {
       for (var n : List.of(1, 17)) {
         try (var rows = session.query(sql, Map.of("n", n))) {
-          assertThat(rows.getExecutionPlan().prettyPrint(0, 2)).contains("+ HASH ANTI_JOIN");
+          assertThat(rows.getExecutionPlan().prettyPrint(0, 2)).contains("+ NOT (")
+              .doesNotContain("+ HASH ANTI_JOIN");
           assertThat(rows.toList()).hasSize(n);
         }
         var ctx = context();
         ctx.setInputParameters(Map.of("n", n));
         var cached = YqlExecutionPlanCache.get(sql, ctx, session);
         assertThat(cached).isNotNull();
-        assertThat(cached.prettyPrint(0, 2)).contains("+ HASH ANTI_JOIN");
+        assertThat(cached.prettyPrint(0, 2)).contains("+ NOT (")
+            .doesNotContain("+ HASH ANTI_JOIN");
       }
     } finally {
       session.rollback();
@@ -755,11 +757,15 @@ public class MatchExistsPlannerTest extends DbTestBase {
 
   private void assertSlicePlan(boolean negative, String check, String projection, String tail,
       boolean hash, int expected) {
+    var costMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
     session.begin();
     try {
       List<com.jetbrains.youtrackdb.internal.core.query.Result> chosenRows = null;
       for (var threshold : List.of(10_000L, 0L)) {
-        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+        // Isolate slice costing without memory. Force the comparison path with the minimum.
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
+            threshold == 0 ? Long.MAX_VALUE : costMinimum);
         var sql = slicePositive() + (negative ? ", NOT " + check : "")
             + " RETURN " + projection + tail;
         var plan = detachedPlan(sql,
@@ -782,6 +788,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
       }
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(costMinimum);
       session.rollback();
     }
   }
@@ -899,6 +906,8 @@ public class MatchExistsPlannerTest extends DbTestBase {
         List<String> first = null;
         for (var threshold : List.of(10_000L, 0L)) {
           GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
+          GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
+              threshold == 0 ? Long.MAX_VALUE : 0L);
           var sql = positive + (negative ? ", NOT " + check : "")
               + " RETURN " + projection + " as name";
           var plan = detachedPlan(sql,
@@ -935,6 +944,7 @@ public class MatchExistsPlannerTest extends DbTestBase {
     try {
       // A nested-loop NOT check exercises the same detached filter as EXISTS.
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(Long.MAX_VALUE);
       session.begin();
       try {
         if (existsChecks.isEmpty()) {

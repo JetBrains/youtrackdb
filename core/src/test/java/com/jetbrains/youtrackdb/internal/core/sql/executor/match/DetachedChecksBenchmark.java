@@ -189,6 +189,7 @@ public class DetachedChecksBenchmark extends DbTestBase {
         while (results.hasNext()) {
           Number n = results.next().getProperty("n");
           rows.merge(n.intValue(), 1L, Long::sum);
+          observed.observeMemory();
         }
         return observed;
       }
@@ -200,6 +201,7 @@ public class DetachedChecksBenchmark extends DbTestBase {
       var observed = DetachedChecksBenchmarkWitness.gremlin(traversal, rows);
       while (traversal.hasNext()) {
         rows.merge(((Number) traversal.next()).intValue(), 1L, Long::sum);
+        observed.observeMemory();
       }
       return observed;
     }
