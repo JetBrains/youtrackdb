@@ -9197,6 +9197,7 @@ public abstract class AbstractStorage
   private LogSequenceNumber restoreFrom(WriteAheadLog writeAheadLog, LogSequenceNumber lsn,
       RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
+    final var replayDeletions = new ReplayDeletions(writeAheadLog);
 
     long recordsProcessed = 0;
     long maxOperationUnitId = -1;
@@ -9214,6 +9215,9 @@ public abstract class AbstractStorage
 
       while (!records.isEmpty()) {
         for (final var walRecord : records) {
+          // Count the end before applying its unit, including that unit's own deletion.
+          replayDeletions.position = walRecord.getLsn();
+          replayDeletions.observe(walRecord);
           switch (walRecord) {
             case AtomicUnitEndRecord atomicUnitEndRecord -> {
               final var opId = atomicUnitEndRecord.getOperationUnitId();
@@ -9226,7 +9230,8 @@ public abstract class AbstractStorage
               // flushed to the disk
               if (atomicUnit != null) {
                 atomicUnit.add(walRecord);
-                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext);
+                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext,
+                    replayDeletions);
                 lastUpdatedLSN = walRecord.getLsn();
               }
             }
@@ -9303,6 +9308,69 @@ public abstract class AbstractStorage
     return lastUpdatedLSN;
   }
 
+  /**
+   * Deletion evidence belongs to one WAL replay, including backup replay without a page context.
+   * Unit ids are unique within that WAL, as required by the normal replay buffer.
+   */
+  private final class ReplayDeletions {
+
+    private final WriteAheadLog wal;
+    private final Map<Long, List<FileDeletedWALRecord>> pending = new HashMap<>();
+    private final Map<Integer, LogSequenceNumber> committed = new HashMap<>();
+    private LogSequenceNumber position;
+    private LogSequenceNumber observedThrough;
+    private boolean scanned;
+
+    private ReplayDeletions(WriteAheadLog wal) {
+      this.wal = wal;
+    }
+
+    private void observe(WALRecord record) {
+      // The normal reader eventually catches up with the forward reader. Do not count twice.
+      if (observedThrough != null && record.getLsn().compareTo(observedThrough) <= 0) {
+        return;
+      }
+      observedThrough = record.getLsn();
+      if (record instanceof FileDeletedWALRecord deletion) {
+        pending.computeIfAbsent(deletion.getOperationUnitId(), ignored -> new ArrayList<>())
+            .add(deletion);
+      } else if (record instanceof AtomicUnitEndRecord end) {
+        final var deletions = pending.remove(end.getOperationUnitId());
+        if (deletions != null) {
+          for (final var deletion : deletions) {
+            committed.merge(writeCache.internalFileId(deletion.getFileId()), deletion.getLsn(),
+                (left, right) -> left.compareTo(right) >= 0 ? left : right);
+          }
+        }
+      }
+    }
+
+    private boolean deletedAfter(int internalId, LogSequenceNumber pagePosition) {
+      if (!scanned) {
+        scanned = true;
+        // position is the last consumed record, not the end of its fetched batch.
+        var cursor = position;
+        try {
+          var records = wal.next(cursor, 1_000);
+          while (!records.isEmpty()) {
+            for (final var record : records) {
+              observe(record);
+            }
+            cursor = records.getLast().getLsn();
+            records = wal.next(cursor, 1_000);
+          }
+        } catch (IOException | RuntimeException e) {
+          // No evidence beyond the valid prefix may authorize a skip. Normal replay still
+          // handles its own read errors and can continue using all evidence collected so far.
+          LogManager.instance().warn(AbstractStorage.this,
+              "Deletion lookahead stopped at WAL position %s", e, cursor);
+        }
+      }
+      final var deletion = committed.get(internalId);
+      return deletion != null && deletion.compareTo(pagePosition) > 0;
+    }
+  }
+
   protected final void restoreAtomicUnit(
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
@@ -9312,8 +9380,15 @@ public abstract class AbstractStorage
   private void restoreAtomicUnit(final List<WALRecord> atomicUnit,
       final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
       throws IOException {
+    // Standalone replay has no WAL to read forward and retains its existing fallback behavior.
+    restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext, null);
+  }
+
+  private void restoreAtomicUnit(final List<WALRecord> atomicUnit,
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext,
+      ReplayDeletions replayDeletions) throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
-    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
+    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit, replayDeletions);
     if (recoveryContext != null) {
       // A fuzzy-checkpoint WAL cut can leave only the tail of a committed unit. Its
       // allocations do not prove that earlier page changes remain in WAL.
@@ -9339,7 +9414,7 @@ public abstract class AbstractStorage
           readCache.releaseFromWrite(entry, writeCache, true);
         }
       }
-      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext);
+      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext, replayDeletions);
     } finally {
       if (recoveryContext != null) {
         recoveryContext.setDeclaredPages(null);
@@ -9351,6 +9426,11 @@ public abstract class AbstractStorage
   // Package-private so replay tests can check the allocation map without reflection.
   Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
       final List<WALRecord> atomicUnit) throws IOException {
+    return scanDeclaredAllocationPages(atomicUnit, null);
+  }
+
+  private Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
+      final List<WALRecord> atomicUnit, ReplayDeletions replayDeletions) throws IOException {
     final Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = new TreeMap<>();
     // Scan the whole unit before any redo. Allocation records may follow the
     // page operations that require their pages, including a pending file create.
@@ -9361,7 +9441,9 @@ public abstract class AbstractStorage
         if (deletedNonDurableFileIds.contains(internalId)) {
           continue;
         }
-        ensureFileForReplay(atomicUnit, fileId);
+        if (!ensureFileForReplay(atomicUnit, fileId, allocation.getLsn(), replayDeletions)) {
+          continue;
+        }
         declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
             .put(allocation.getPageIndex(), allocation.getLsn());
       }
@@ -9370,8 +9452,8 @@ public abstract class AbstractStorage
   }
 
   private void applyAtomicUnitRecords(final List<WALRecord> atomicUnit,
-      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
-      throws IOException {
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext,
+      ReplayDeletions replayDeletions) throws IOException {
     for (final var walRecord : atomicUnit) {
       if (recoveryContext != null) {
         recoveryContext.setCurrentRecord(walRecord.getLsn());
@@ -9408,7 +9490,9 @@ public abstract class AbstractStorage
             continue;
           }
 
-          ensureFileForReplay(atomicUnit, fileId);
+          if (!ensureFileForReplay(atomicUnit, fileId, walRecord.getLsn(), replayDeletions)) {
+            continue;
+          }
 
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -9467,7 +9551,9 @@ public abstract class AbstractStorage
             continue;
           }
 
-          ensureFileForReplay(atomicUnit, fileId);
+          if (!ensureFileForReplay(atomicUnit, fileId, walRecord.getLsn(), replayDeletions)) {
+            continue;
+          }
 
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -9550,41 +9636,31 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Materializes a file a page-redo record references but the cache has not seen yet, so
-   * WAL replay can continue across atomic units. The open-time caller has already applied the
-   * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
-   * file on that path. The incremental-backup caller
-   * ({@code DiskStorage.restoreFromIncrementalBackup}, the other of the two {@code restoreFrom}
-   * callers) reaches this helper with {@code deletedNonDurableFileIds} as the empty no-op set
-   * left behind by open-time recovery — incremental-backup restore has no non-durable-file
-   * concept, so the skip is simply inert there rather than a universal precondition. The branch
-   * order is the lazy-consult sequence (see issue YTDB-1099):
+   * Resolves the file referenced by a page change, or skips a change whose missing file is deleted
+   * later. The caller checks non-durable file exclusions first. Incremental-backup replay has no
+   * non-durable files and uses an empty exclusion set.
    *
    * <ol>
-   *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
-   *       {@code addFile} was lost (the crash landed between its durable end record and
-   *       the completion of its apply phase) leaves a later committed unit's page redo
-   *       pointing at a file the cache never created. Scan this unit forward for the
-   *       {@link FileCreatedWALRecord} that creates the file, matched on
-   *       {@code internalFileId} because backup/restore rewrites the external high bits,
-   *       and materialize the empty file through the same
-   *       {@code readCache.addFile(name, id, writeCache)} path the
-   *       {@code FileCreatedWALRecord} branch uses. The later {@code FileCreatedWALRecord}
-   *       then replays as an idempotent no-op. Without this, the redo would throw and
-   *       {@code restoreFrom}'s {@code catch (RuntimeException)} would discard every later
-   *       unit.</li>
-   *   <li><b>{@code restoreFileById} fallback.</b> A file deleted by a later, already-applied
-   *       unit is resurrected from its persisted negative name-id entry. Load-bearing -- kept
-   *       unchanged.</li>
-   *   <li><b>Throw.</b> Neither path recovered the file, so the unit is genuinely incomplete
-   *       (its create record was never made durable) and the rest of the restore is
-   *       abandoned, exactly as before the fix.</li>
+   *   <li><b>Existing file.</b> Return true without consulting deletion evidence.</li>
+   *   <li><b>Pending-create consult.</b> Scan the current unit for a matching
+   *       {@link FileCreatedWALRecord}, comparing internal file ids because backup restore rewrites
+   *       external high bits. If its file name is absent, materialize the file through
+   *       {@code readCache.addFile(name, id, writeCache)} and return true. The unit's later create
+   *       record then replays as an idempotent no-op.</li>
+   *   <li><b>Later committed deletion.</b> If this recovery call has a counted deletion after the
+   *       page change, log the skip and return false without restoring the missing file.</li>
+   *   <li><b>{@code restoreFileById} fallback.</b> If no skip applies, attempt to restore the missing
+   *       file from its persisted negative name-id entry. Return true on success.</li>
+   *   <li><b>Throw.</b> If the file remains missing, throw {@link StorageException} so the caller
+   *       abandons the rest of the restore.</li>
    * </ol>
+   *
+   * @return true if the file exists or was materialized, false if the caller must skip the change
    */
-  private void ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId)
-      throws IOException {
+  private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
+      LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
     if (writeCache.exists(fileId)) {
-      return;
+      return true;
     }
 
     final var internalId = writeCache.internalFileId(fileId);
@@ -9605,13 +9681,20 @@ public abstract class AbstractStorage
       // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
       //
       // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
-      // so this forward scan finds nothing for it and correctly falls through to restoreFileById.
+      // so this scan finds nothing for it. Check later deletion evidence before the fallback.
       if (record instanceof FileCreatedWALRecord fileCreated
           && writeCache.internalFileId(fileCreated.getFileId()) == internalId
           && !writeCache.exists(fileCreated.getFileName())) {
         readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
-        return;
+        return true;
       }
+    }
+
+    if (replayDeletions != null && replayDeletions.deletedAfter(internalId, position)) {
+      LogManager.instance().info(this,
+          "Skipping page change at %s for missing file %d: committed deletion at %s",
+          position, fileId, replayDeletions.committed.get(internalId));
+      return false;
     }
 
     final var fileName = writeCache.restoreFileById(fileId);
@@ -9622,7 +9705,7 @@ public abstract class AbstractStorage
               "Previously deleted file with name "
                   + fileName
                   + " was deleted but new empty file was added to continue restore process");
-      return;
+      return true;
     }
 
     throw new StorageException(name,
