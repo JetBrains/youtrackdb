@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -39,6 +40,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -336,61 +338,53 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Compares the storage layout version of the storage configuration against the storage layout
-   * version of the bootstrap authority record.
-   *
-   * <p>The bootstrap authority record is the durable record that names one storage identity, one
-   * storage lineage, and one lifecycle state. Storage admission accepts an image only when the
-   * record carries the supported storage layout version. The supported storage layout version is
-   * {@link #CURRENT_VERSION}. A comparison against that constant is therefore a comparison against
-   * the accepted record.
-   *
-   * <p>Both directions of a disagreement report the named inconsistent-metadata result. An older
-   * layout has no in-place upgrade, because the engine file base identifier format has no
-   * computable default for an entry written before version 24. A newer layout is unreadable for
-   * these binaries. The check reads the preloaded cache directly instead of {@code getVersion},
-   * because the caller holds the non-reentrant write lock.
-   *
-   * <p>Both messages name the two disagreeing sources and the operator action. Neither message
-   * describes the admission decision, because an operator cannot act on that internal detail.
+   * Requires configuration to agree with the admitted image layout. The preloaded cache avoids
+   * reentering the write lock. Missing versions are invalid. No disagreement repairs either source.
    */
   private void checkStorageLayoutVersionConsistency() {
     final var version = (Integer) cache.get(VERSION_PROPERTY);
-    if (version == null || version < CURRENT_VERSION) {
+    final var imageVersion = storage.getStorageFormat().layoutVersion();
+    if (version == null || version != imageVersion) {
+      var guidance = ". Open the database with the version of YouTrackDB that created it."
+          + " A direct upgrade of the storage layout is not supported.";
+      // Bounds choose operator guidance only. Agreement with the selected image is mandatory,
+      // so a value between these bounds is never accepted merely because it is in that range.
+      if (version != null) {
+        var supportedVersions = Arrays.stream(StorageFormat.values())
+            .mapToInt(StorageFormat::layoutVersion).summaryStatistics();
+        if (version < supportedVersions.getMin()) {
+          guidance = ". A direct upgrade of the storage layout is not supported. Export database '"
+              + storage.getName()
+              + "' with the earlier version of YouTrackDB, and import that export with the"
+              + " current version of YouTrackDB.";
+        } else if (version > supportedVersions.getMax()) {
+          guidance = ". The stored layout is newer than the layout of this build. Open database '"
+              + storage.getName()
+              + "' with the version of YouTrackDB that created the database.";
+        }
+      }
       throw new InconsistentStorageMetadataException(storage.getName(),
           InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
           "Inconsistent storage metadata of database '" + storage.getName()
               + "'. The storage configuration reports storage layout version "
               + (version == null ? "<missing>" : version)
               + ". The bootstrap authority record reports storage layout version "
-              + CURRENT_VERSION
-              + ". A direct upgrade of the storage layout is not supported. Export database '"
-              + storage.getName()
-              + "' with the earlier version of YouTrackDB, and import that export with the"
-              + " current version of YouTrackDB.");
-    }
-    if (version > CURRENT_VERSION) {
-      throw new InconsistentStorageMetadataException(storage.getName(),
-          InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
-          "Inconsistent storage metadata of database '" + storage.getName()
-              + "'. The storage configuration reports storage layout version " + version
-              + ". The bootstrap authority record reports storage layout version "
-              + CURRENT_VERSION
-              + ". The stored layout is newer than the layout of this build. Open database '"
-              + storage.getName()
-              + "' with the version of YouTrackDB that created the database.");
+              + imageVersion + guidance);
     }
   }
 
   /**
-   * Rewrites the persisted storage-format version — FOR TESTS ONLY. Production code writes the
-   * version once, at creation ({@code init()}); this seam lets the format-gate tests fabricate a
-   * database that reads as older or newer than {@link #CURRENT_VERSION}.
+   * Rewrites or removes the persisted layout for inconsistency tests only. Production writes the
+   * selected image layout once, at creation.
    */
-  public void updateVersionForTesting(AtomicOperation atomicOperation, int version) {
+  public void updateVersionForTesting(AtomicOperation atomicOperation, Integer version) {
     lock.writeLock().lock();
     try {
-      updateIntProperty(atomicOperation, VERSION_PROPERTY, version);
+      if (version == null) {
+        dropProperty(atomicOperation, VERSION_PROPERTY);
+      } else {
+        updateIntProperty(atomicOperation, VERSION_PROPERTY, version);
+      }
     } finally {
       lock.writeLock().unlock();
     }
@@ -686,7 +680,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private void updateVersion(final AtomicOperation atomicOperation) {
-    updateIntProperty(atomicOperation, VERSION_PROPERTY, CURRENT_VERSION);
+    updateIntProperty(atomicOperation, VERSION_PROPERTY,
+        storage.getStorageFormat().layoutVersion());
   }
 
   @Override

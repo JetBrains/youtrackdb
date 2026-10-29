@@ -134,7 +134,7 @@ public final class StorageBootstrapMetadata {
   }
 
   /** Selects a supported layout for this birth only, without overriding existing authority. */
-  Snapshot createBirth(
+  public Snapshot createBirth(
       final StorageIdentity storageIdentity,
       final StorageLineageIdentity lineageIdentity,
       final StorageFormat storageFormat) throws IOException {
