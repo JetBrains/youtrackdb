@@ -75,7 +75,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
       for (int mode = 0; mode < 3; mode++) {
         GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(mode == 0 ? 0L : 256L);
         GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
-            mode == 2 ? 0L : Long.MAX_VALUE);
+            mode == 1 ? Long.MAX_VALUE : 0L);
         var statement = parse("MATCH {class:BoolP, as:p}.out('BoolFan'){as:q}"
             + " RETURN p.name as name");
         var pattern = new Pattern();
@@ -167,7 +167,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
   @Test
   public void orHashAndNestedKeepExactlyThePassingRows() {
     for (var hash : List.of(true, false)) {
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(hash ? 0L : Long.MAX_VALUE);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(hash ? 10000L : 0L);
       var plan = plan("RETURN p.name as name", or());
       assertThat(plan.prettyPrint(0, 2)).contains("BOOLEAN OR", "BOOLEAN PROBE");
       if (hash) {
@@ -195,6 +195,32 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10000L);
     plan.reset(plan.getContext());
     assertThat(names(plan)).containsExactly("both", "filter", "hop");
+  }
+
+  /** A plan selected before zero still builds its hash set at runtime without a positive cap. */
+  @Test
+  public void zeroRuntimeThresholdKeepsAlreadySelectedHashBuild() throws Exception {
+    var plan = plan("RETURN p.name as name", or());
+    assertThat(plan.prettyPrint(0, 2)).contains("HASH SEMI_JOIN");
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+    var hash = findHashStep(plan.getSteps());
+    assertThat(hash).isNotNull();
+    assertThat(hash.buildHashSet(plan.getContext())).hasSize(2);
+    assertThat(names(plan)).containsExactly("both", "filter", "hop");
+  }
+
+  private HashJoinMatchStep findHashStep(
+      List<? extends com.jetbrains.youtrackdb.internal.core.query.ExecutionStep> steps) {
+    for (var step : steps) {
+      if (step instanceof HashJoinMatchStep hash) {
+        return hash;
+      }
+      var nested = findHashStep(step.getSubSteps());
+      if (nested != null) {
+        return nested;
+      }
+    }
+    return null;
   }
 
   /** A positive hop repeats the origin row. Tree membership must not multiply or deduplicate it. */
@@ -382,7 +408,6 @@ public class BooleanMatchPlannerTest extends DbTestBase {
   /** Concurrent copies evaluate different parameter bindings in independent database sessions. */
   @Test
   public void concurrentCopiesHaveIndependentBindings() throws Exception {
-    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(Long.MAX_VALUE);
     var condition = parse("MATCH {as:p, where:(slug = :wanted)} RETURN p")
         .getMatchExpressions().getFirst().getOrigin().getFilter();
     var template = plan("RETURN p.name as name", new MatchBooleanCheck.Or(List.of(probe(),

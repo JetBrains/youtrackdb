@@ -386,8 +386,8 @@ public class MatchExecutionPlanner {
    * Maximum estimated build-side cardinality for which the planner will choose a
    * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
    * If the estimated NOT-pattern result set exceeds this threshold, the planner
-   * falls back to {@link FilterNotMatchPatternStep}. Zero leaves hash builds uncapped and
-   * disables bounded result memory. Configurable via
+   * falls back to {@link FilterNotMatchPatternStep}. Zero disables new hash selection and
+   * bounded result memory. Configurable via
    * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
    */
   static long getHashJoinThreshold() {
@@ -1561,7 +1561,7 @@ public class MatchExecutionPlanner {
     }
     var estimatedCardinality = estimateNotPatternCardinality(
         exp, aliasClasses, aliasFilters, aliasPinnedRids, context);
-    return getHashJoinThreshold() == 0 || estimatedCardinality <= getHashJoinThreshold();
+    return estimatedCardinality <= getHashJoinThreshold();
   }
 
   /** Shared detached-check choice: eligibility always applies, even with the guards off. */
@@ -2178,13 +2178,13 @@ public class MatchExecutionPlanner {
         trace.branchRoot, trace.branchEdges, aliasClasses, aliasFilters,
         aliasPinnedRids, context);
     long threshold = getHashJoinThreshold();
-    if (threshold > 0 && cardinality > threshold) {
+    if (cardinality > threshold) {
       return null;
     }
 
     // INNER_JOIN materializes full ResultInternal rows (~7× heavier per entry
     // than SEMI_JOIN's lightweight JoinKey entries). Apply a tighter threshold.
-    if (threshold > 0 && joinMode == JoinMode.INNER_JOIN
+    if (joinMode == JoinMode.INNER_JOIN
         && cardinality > threshold / INNER_JOIN_MEMORY_WEIGHT) {
       return null;
     }

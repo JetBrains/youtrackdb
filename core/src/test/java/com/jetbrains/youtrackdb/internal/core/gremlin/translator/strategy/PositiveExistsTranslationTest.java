@@ -301,15 +301,14 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Article").filter(__.out("a")));
   }
 
-  /** Earlier hops amplify outer rows. A literal limit moves exists from hash to per-row. */
+  /** Repeated articles favor remembered probes with and without a literal limit. */
   @Test
   public void amplifiedExistsWithLimit_changesPlanAndPreservesNativeRows() {
     var savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
     var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
     try {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(1L);
-      // Isolate the slice cost rule. Zero leaves hash builds uncapped and disables memory.
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
       var target = graph.addVertex(T.label, "Target", "name", "Target");
       for (var i = 0; i < 30; i++) {
         var article = graph.addVertex(T.label, "Article", "name", "Article" + i);
@@ -337,7 +336,7 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
           assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isEqualTo(1);
           var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
           assertThat(boundary.getPlan().prettyPrint(0, 2))
-              .contains(limited ? "+ EXISTS (" : "+ HASH SEMI_JOIN");
+              .contains("+ EXISTS (").doesNotContain("+ HASH SEMI_JOIN");
           assertThat(admin.toList()).hasSize(limited ? 1 : 10);
         }
       });

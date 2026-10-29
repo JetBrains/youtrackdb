@@ -1251,8 +1251,6 @@ public class MatchPlannerHelpersTest {
   /** A late selective match still visits ten candidates. Only earlier filters discount later hops. */
   @Test
   public void detachedWalkCost_countsCandidatesBeforeFilters() {
-    // Disable result memory while isolating the walk-cost estimate.
-    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
     var exp = buildNotExpression("person", null, "tag", buildWhereClause("flag=true", false));
     var ctx = buildMockContext("Person", 100);
     assertThat(MatchExecutionPlanner.estimateDetachedWalkCost(exp, Map.of("person", "Person"),
@@ -1402,7 +1400,7 @@ public class MatchPlannerHelpersTest {
           buildPattern("person"), OptionalLong.of(1000), slice)).isFalse();
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
       assertThat(MatchExecutionPlanner.canUseHashJoin(exp, Map.of("person", "Person"), Map.of(),
-          Map.of(), ctx, buildPattern("person"), OptionalLong.of(1000), slice)).isTrue();
+          Map.of(), ctx, buildPattern("person"), OptionalLong.of(1000), slice)).isFalse();
     }
   }
 
@@ -1442,8 +1440,6 @@ public class MatchPlannerHelpersTest {
   /** The shared walk retains fractional lambda. Wider keys and recursive walks do not discount. */
   @Test
   public void detachedSlice_fractionalPathsWiderKeysAndRecursiveBypass() throws Exception {
-    // Zero keeps hash builds uncapped and isolates slice costing without result memory.
-    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
     var ctx = buildMockContext("Person", 999);
     var classes = Map.of("person", "Person");
     var exp = parseExpression("{as:person}.out(){as:tag, where:(flag=true)}");
@@ -1451,7 +1447,7 @@ public class MatchPlannerHelpersTest {
     var outer = OptionalLong.of(100_000);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.001);
     assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
-        buildPattern("person"), outer, slice)).isTrue(); // lambda=.01, not rounded to 1
+        buildPattern("person"), outer, slice)).isFalse(); // remembered origins beat the build
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.1);
     assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
         buildPattern("person"), outer, slice)).isFalse();

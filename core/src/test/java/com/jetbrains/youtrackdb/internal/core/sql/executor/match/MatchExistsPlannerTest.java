@@ -757,15 +757,16 @@ public class MatchExistsPlannerTest extends DbTestBase {
 
   private void assertSlicePlan(boolean negative, String check, String projection, String tail,
       boolean hash, int expected) {
-    var costMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
     session.begin();
-    try {
+    // Isolate the slice rule from the separately tested remembered-probe discount.
+    try (var costs = org.mockito.Mockito.mockStatic(MatchExecutionPlanner.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      costs.when(() -> MatchExecutionPlanner.rememberedProbeCount(
+          org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.any(),
+          org.mockito.ArgumentMatchers.anyLong())).thenAnswer(call -> call.getArgument(0));
       List<com.jetbrains.youtrackdb.internal.core.query.Result> chosenRows = null;
       for (var threshold : List.of(10_000L, 0L)) {
-        // Isolate slice costing without memory. Force the comparison path with the minimum.
-        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
-        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
-            threshold == 0 ? Long.MAX_VALUE : costMinimum);
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
         var sql = slicePositive() + (negative ? ", NOT " + check : "")
             + " RETURN " + projection + tail;
         var plan = detachedPlan(sql,
@@ -788,7 +789,6 @@ public class MatchExistsPlannerTest extends DbTestBase {
       }
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10_000L);
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(costMinimum);
       session.rollback();
     }
   }
@@ -906,8 +906,6 @@ public class MatchExistsPlannerTest extends DbTestBase {
         List<String> first = null;
         for (var threshold : List.of(10_000L, 0L)) {
           GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(threshold);
-          GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
-              threshold == 0 ? Long.MAX_VALUE : 0L);
           var sql = positive + (negative ? ", NOT " + check : "")
               + " RETURN " + projection + " as name";
           var plan = detachedPlan(sql,
@@ -944,7 +942,6 @@ public class MatchExistsPlannerTest extends DbTestBase {
     try {
       // A nested-loop NOT check exercises the same detached filter as EXISTS.
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
-      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(Long.MAX_VALUE);
       session.begin();
       try {
         if (existsChecks.isEmpty()) {
