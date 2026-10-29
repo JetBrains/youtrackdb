@@ -139,6 +139,76 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     }
   }
 
+  /** Hidden context suffixes must not reuse p's answer for a different q under SQL NOT. */
+  @Test
+  public void contextSuffixDisablesMemoryAndHashForNot() throws Exception {
+    var sql = "MATCH {class:BoolP, as:p, where:(name='hop')}, {class:BoolP, as:q}"
+        + ", NOT {as:p}.out('BoolE'){as:x, where:(name=$matched.p.$matched.q.name)}"
+        + " RETURN q.name as name ORDER BY name";
+    var check = parse("MATCH {as:p}.out('BoolE'){as:x,"
+        + " where:(name=$matched.p.$matched.q.name)} RETURN p")
+        .getMatchExpressions().getFirst();
+    var pattern = new Pattern();
+    parse("MATCH {class:BoolP,as:p}, {class:BoolP,as:q} RETURN p")
+        .getMatchExpressions().forEach(pattern::addExpression);
+    var reads = DetachedCheckReadSet.describe(check, pattern);
+    for (long limit : List.of(0L, 10000L)) {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(limit);
+      var plan = (SelectExecutionPlan) new MatchExecutionPlanner(parse(sql))
+          .createExecutionPlan(context(), false, false);
+      assertThat(plan.prettyPrint(0, 2)).doesNotContain("HASH");
+      assertThat(names(plan)).containsExactly("both", "filter", "hop");
+    }
+    assertThat(reads.rememberable()).isFalse();
+    assertThat(reads.independent()).isFalse();
+    assertThat(MatchExecutionPlanner.canUseHashJoin(check, Map.of("p", "BoolP", "q", "BoolP"),
+        Map.of(), Map.of(), context(), pattern)).isFalse();
+  }
+
+  /** A classless shared target has no key bound. Keep the undiscounted hash-winning choice. */
+  @Test
+  public void classlessSharedAliasDoesNotDiscountNestedCost() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
+    session.rollback();
+    session.createEdgeClass("BoolFan");
+    session.begin();
+    // Model 5,000 distinct targets per origin and ten candidate visits in the NOT walk.
+    // Only the fan-out estimates are controlled. The planner performs eligibility and costing.
+    try (var planner = org.mockito.Mockito.mockStatic(MatchExecutionPlanner.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      planner.when(() -> MatchExecutionPlanner.estimateMethodFanOut(
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyMap()))
+          .thenAnswer(call -> call.getArgument(0).toString().contains("BoolFan") ? 5000.0 : 10.0);
+      var plan = (SelectExecutionPlan) new MatchExecutionPlanner(parse(
+          "MATCH {class:BoolP,as:p}.out('BoolFan'){as:q},"
+              + " NOT {as:p}.out('BoolE'){as:q} RETURN p,q"))
+          .createExecutionPlan(context(), false, false);
+      try {
+        assertThat(plan.prettyPrint(0, 2)).contains("HASH ANTI_JOIN");
+      } finally {
+        plan.close();
+      }
+    }
+  }
+
+  /** Runtime graph dispatch ignores method case. Both hash and memory eligibility must agree. */
+  @Test
+  public void uppercaseGraphMethodsKeepHashAndMemoryEligibility() throws Exception {
+    var pattern = new Pattern();
+    parse("MATCH {class:BoolP,as:p} RETURN p").getMatchExpressions()
+        .forEach(pattern::addExpression);
+    for (var method : List.of("OUT", "OuT", "outE", "OUTE", "inV", "INV")) {
+      var check = parse("MATCH {as:p}." + method + "('BoolE'){as:x} RETURN p")
+          .getMatchExpressions().getFirst();
+      var reads = DetachedCheckReadSet.describe(check, pattern);
+      assertThat(reads.rememberable()).as(method).isTrue();
+      assertThat(reads.independent()).as(method).isTrue();
+      assertThat(MatchExecutionPlanner.canUseHashJoin(check, Map.of("p", "BoolP"), Map.of(),
+          Map.of(), context(), pattern)).as(method).isTrue();
+    }
+  }
+
   private List<DetachedCheckMemory> memories(
       List<? extends com.jetbrains.youtrackdb.internal.core.query.ExecutionStep> steps)
       throws Exception {

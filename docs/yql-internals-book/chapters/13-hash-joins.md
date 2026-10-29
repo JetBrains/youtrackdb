@@ -41,9 +41,9 @@ painful to run:
 
 If the `Blocked` relationship exists for even one percent of those five million people,
 the engine re-runs the sub-plan five million times. Most of those runs produce no result
-— they are pure wasted traversal. The engine has no memory between rows. It cannot
-remember which people have already been seen blocking the admin. It must ask again for
-each one.
+— each distinct person still needs a probe. Eligible detached checks remember boolean
+answers between rows within one execution start. Repeated bindings can reuse an answer,
+but a scan of distinct people gains nothing from that memory.
 
 The fundamental problem is that the cost scales as *outer × inner*. With five million
 outer rows and an average of, say, two blocked targets per person, the engine examines
@@ -124,8 +124,20 @@ If the planner's estimate of how many rows the build side will produce exceeds
 much heap. The planner rejects hash join and falls back to nested loops
 (`MatchExecutionPlanner.java:1423–1426`, `1995–1999`, `GlobalConfiguration.java:883–891`).
 
-Setting this threshold to zero disables new hash selection
-(`MatchExecutionPlanner.java:383–385`, `1423–1426`).
+The threshold also limits remembered results for each eligible detached check.
+Setting it to zero disables both new hash selection and result memory.
+A positive limit bounds each check separately, not the whole query.
+
+Memory stores true and false answers under tuples of bound record identities.
+The tuple includes every shared alias and recognised outer-alias read.
+A null optional binding has its own key component. Non-record bindings bypass memory.
+Unrecognised reads, unrelated context reads and non-deterministic functions disable memory.
+Query parameters are safe because they stay fixed during one start.
+
+At the limit, the check retains stored answers but stores no new ones.
+Rows with unstored keys still run a probe. Start, reset and close clear the memory.
+Plan copies own separate memory. A remembered answer need not reflect writes made while
+its execution start remains open.
 
 ### Guard 2b: Tighter cap for INNER_JOIN
 
@@ -168,9 +180,21 @@ minimum and hash must be strictly cheaper. Ties choose the per-row path
 (`MatchExecutionPlanner.java:1442–1489`):
 
 ```text
-nested cost = O × W
+nested cost = probes(O) × W
 hash cost   = B + B × W + O
 ```
+
+For eligible result memory, **D** estimates distinct complete keys, capped at the row count.
+**L** is the positive threshold and **M** = min(D, L) is the estimated number of remembered keys.
+The planner charges one probe per remembered key and one per row with an unstored key:
+
+```text
+probes(R) = M + R × (D - M) / D
+```
+
+Zero rows need zero probes. Without memory or a usable key estimate, probes(R) = R.
+An alias without a class or pinned record identifiers makes the key estimate unknown.
+The hash cost does not change. Memory counts failed checks as well as successful checks.
 
 A usable literal LIMIT discounts the rows probed, not the build. Define **K** as literal
 LIMIT + literal SKIP, with absent SKIP equal to zero. The *pass fraction* **q** estimates
@@ -195,11 +219,13 @@ m = max(1, O / B)                 # outer rows per origin
 P = ceil(K / m)                   # passing origins needed
 S = ceil(P / q)                   # origins scanned
 R = O if S > B, otherwise min(O, m × S)
-nested cost = R × W
+nested cost = probes(R) × W
 hash cost   = B + B × W + R
 ```
 
 Guard 3 still uses O. Only Guard 4 uses **R**, the estimated outer rows probed.
+Detached boolean-tree leaves use R = O without the slice discount.
+LIMIT or SKIP keeps these leaves nested. Missing row or walk estimates also keep them nested.
 Neither cost discounts work saved by stopping within a probe
 (`MatchExecutionPlanner.java:1475–1489`, `1594–1628`). The pass fraction is a heuristic.
 Default selectivity can supply its inputs when measured statistics are absent

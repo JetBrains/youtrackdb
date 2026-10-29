@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /** Shared binding dependencies of a detached check, derived from its condition syntax. */
@@ -38,8 +39,8 @@ record DetachedCheckReadSet(List<String> aliases, boolean independent, boolean r
         // Composite paths and field paths carry additional syntax outside this read set.
         independent = false;
       } else {
-        independent &= Set.of("out", "in", "both", "outE", "inE", "bothE", "outV", "inV", "bothV")
-            .contains(item.getMethod().getMethodNameString());
+        independent &= Set.of("out", "in", "both", "oute", "ine", "bothe", "outv", "inv", "bothv")
+            .contains(item.getMethod().getMethodNameString().toLowerCase(Locale.ROOT));
         for (var parameter : item.getMethod().getParams()) {
           var reads = parameter.getMatchPatternInvolvedAliases();
           if (reads != null) {
@@ -124,6 +125,14 @@ record DetachedCheckReadSet(List<String> aliases, boolean independent, boolean r
     var base = (SQLBaseExpression) math;
     if (base.getModifier() != null && !base.getModifier().isPlainPropertyChain()) {
       return false;
+    }
+    // A suffix beginning with '$' resolves context again, not a record property.
+    // The parser reports only the first matched alias, so these chains have hidden reads.
+    for (var modifier = base.getModifier(); modifier != null; modifier = modifier.getNext()) {
+      var identifier = modifier.getSuffix().getIdentifier();
+      if (identifier != null && identifier.getStringValue().startsWith("$")) {
+        return false;
+      }
     }
     if (base.getIdentifier() == null) {
       // A base without an identifier or modifier is a literal or a query parameter.

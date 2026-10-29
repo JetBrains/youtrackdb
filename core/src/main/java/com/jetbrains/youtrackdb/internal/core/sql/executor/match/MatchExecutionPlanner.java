@@ -1607,6 +1607,10 @@ public class MatchExecutionPlanner {
     }
     double keys = 1;
     for (var alias : reads.aliases()) {
+      // A classless, unpinned alias receives a planning default, not a key-count estimate.
+      if (classes.get(alias) == null && !pins.containsKey(alias)) {
+        return OptionalDouble.empty();
+      }
       long count = estimateAliasCardinality(alias, classes, filters, pins, context);
       if (count == Long.MAX_VALUE || count < 0) {
         return OptionalDouble.empty();

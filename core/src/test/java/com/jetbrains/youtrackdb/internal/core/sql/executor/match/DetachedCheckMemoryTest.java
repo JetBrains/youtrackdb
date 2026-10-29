@@ -224,7 +224,7 @@ public class DetachedCheckMemoryTest {
     }
   }
 
-  /** Failed probes publish no answer. A fresh copy cannot observe the original memory. */
+  /** Failed probes publish no answer. Independently constructed owners do not share answers. */
   @Test
   public void failedProbeAndIndependentOwnersCannotPublishAnswers() {
     var reads = new DetachedCheckReadSet(List.of("p"), true, true);
@@ -241,6 +241,90 @@ public class DetachedCheckMemoryTest {
     assertThat(first.matches(row, () -> true)).isTrue();
     assertThat(copy.matches(row, () -> false)).isFalse();
     assertThat(first.matches(row, () -> false)).isTrue();
+  }
+
+  /** Production flat copies keep opposite answers isolated during interleaved duplicate reads. */
+  @Test
+  public void flatCopiesOwnMemoryAndKeepInterleavedAnswersSeparate() throws Exception {
+    var session = mock(DatabaseSessionEmbedded.class);
+    when(session.assertIfNotActive()).thenReturn(true);
+    for (boolean negative : List.of(false, true)) {
+      var templateContext = new BasicCommandContext(session);
+      var calls = new AtomicInteger();
+      var probe = new AbstractExecutionStep(templateContext, false) {
+        @Override
+        public ExecutionStream internalStart(CommandContext context) {
+          calls.incrementAndGet();
+          return Boolean.TRUE.equals(context.getInputParameters().get("answer"))
+              ? ExecutionStream.singleton(new ResultInternal(null)) : ExecutionStream.empty();
+        }
+
+        @Override
+        public ExecutionStep copy(CommandContext context) {
+          return this;
+        }
+      };
+      AbstractExecutionStep template = negative
+          ? new FilterNotMatchPatternStep(List.of(probe), templateContext, false,
+              reads("name=:name"))
+          : new FilterExistsMatchPatternStep(List.of(probe), templateContext, false,
+              reads("name=:name"));
+      var firstContext = new BasicCommandContext(session);
+      firstContext.setInputParameters(java.util.Map.of("answer", true));
+      var secondContext = new BasicCommandContext(session);
+      secondContext.setInputParameters(java.util.Map.of("answer", false));
+      var first = (AbstractExecutionStep) template.copy(firstContext);
+      var second = (AbstractExecutionStep) template.copy(secondContext);
+      var field = template.getClass().getDeclaredField("memory");
+      field.setAccessible(true);
+      var templateMemory = (DetachedCheckMemory) field.get(template);
+      var firstMemory = (DetachedCheckMemory) field.get(first);
+      var secondMemory = (DetachedCheckMemory) field.get(second);
+      assertThat(firstMemory).isNotSameAs(templateMemory).isNotSameAs(secondMemory);
+      assertThat(secondMemory).isNotSameAs(templateMemory);
+      var answers = DetachedCheckMemory.class.getDeclaredField("answers");
+      answers.setAccessible(true);
+      assertThat(answers.get(firstMemory)).isNotSameAs(answers.get(secondMemory))
+          .isNotSameAs(answers.get(templateMemory));
+      var row = row(new RecordId(10, 1), null);
+      for (var step : List.of(first, second)) {
+        step.setPrevious(new AbstractExecutionStep(templateContext, false) {
+          @Override
+          public ExecutionStream internalStart(CommandContext context) {
+            return ExecutionStream.resultIterator(List.<Result>of(row, row).iterator());
+          }
+
+          @Override
+          public ExecutionStep copy(CommandContext context) {
+            throw new UnsupportedOperationException();
+          }
+        });
+      }
+      var firstStream = first.start(firstContext);
+      var secondStream = second.start(secondContext);
+      try {
+        // Start both copies before either stores an answer. Resume the first after the second.
+        assertThat(firstStream.hasNext(firstContext)).isEqualTo(!negative);
+        if (!negative) {
+          assertThat(firstStream.next(firstContext)).isSameAs(row);
+        }
+        assertThat(secondStream.stream(secondContext).toList())
+            .containsExactlyElementsOf(negative ? List.of(row, row) : List.of());
+        assertThat(firstStream.stream(firstContext).toList())
+            .containsExactlyElementsOf(negative ? List.of() : List.of(row));
+        assertThat(calls).hasValue(2);
+        assertThat(firstMemory.hits()).isEqualTo(1);
+        assertThat(secondMemory.hits()).isEqualTo(1);
+        assertThat(templateMemory.size()).isZero();
+        assertThat(templateMemory.hits()).isZero();
+      } finally {
+        firstStream.close(firstContext);
+        secondStream.close(secondContext);
+        first.close();
+        second.close();
+        template.close();
+      }
+    }
   }
 
   /** Repeated keys favor memory, but overflow keys with low match fraction still favor hash. */
