@@ -90,6 +90,9 @@ public class StorageAdmissionException extends IOException {
     /** Two readable authority copies hold conflicting content at the same generation. */
     AUTHORITY_AMBIGUOUS,
 
+    /** Two readable authority copies name different supported storage layout versions. */
+    AUTHORITY_STORAGE_LAYOUT_CONFLICT,
+
     /** Two consecutive generations describe an illegal lifecycle transition. */
     AUTHORITY_ILLEGAL_TRANSITION,
 
@@ -163,6 +166,8 @@ public class StorageAdmissionException extends IOException {
             "Two bootstrap authority records name two different databases.";
         case AUTHORITY_AMBIGUOUS ->
             "Two bootstrap authority records of the same age hold different content.";
+        case AUTHORITY_STORAGE_LAYOUT_CONFLICT ->
+            "Two bootstrap authority records name different on-disk storage layouts.";
         case AUTHORITY_ILLEGAL_TRANSITION ->
             "Two bootstrap authority records describe an impossible lifecycle change.";
         case UNSUPPORTED_ENCODING_VERSION ->

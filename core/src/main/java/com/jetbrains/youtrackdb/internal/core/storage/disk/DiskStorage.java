@@ -448,7 +448,7 @@ public class DiskStorage extends AbstractStorage {
   protected void prepareStorageBirth() {
     try {
       var birth = bootstrapMetadata().createBirth(StorageIdentity.random(),
-          StorageLineageIdentity.random());
+          StorageLineageIdentity.random(), getStorageFormat());
       bootstrapSnapshot = birth;
       updateStorageIdentity(birth.storageIdentity(), birth.lineageIdentity());
     } catch (IOException exception) {
@@ -652,6 +652,7 @@ public class DiskStorage extends AbstractStorage {
       requireUsableOperationIdFloor(
           active.sequenceFloor().highestIssued(), "bootstrap authority admission");
       bootstrapSnapshot = active;
+      selectStorageFormat(active.storageFormat());
       updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
     } catch (StorageAdmissionException rejection) {
       // The cause already names the admission reason and the storage path. This message therefore
