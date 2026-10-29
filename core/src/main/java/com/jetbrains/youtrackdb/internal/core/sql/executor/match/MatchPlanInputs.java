@@ -48,6 +48,7 @@ public record MatchPlanInputs(
     List<SQLMatchExpression> matchExpressions,
     List<SQLMatchExpression> notMatchExpressions,
     List<SQLMatchExpression> existsMatchExpressions,
+    MatchBooleanCheck booleanCheck,
     List<SQLExpression> returnItems,
     List<SQLIdentifier> returnAliases,
     List<SQLNestedProjection> returnNestedProjections,
@@ -96,13 +97,25 @@ public record MatchPlanInputs(
     }
   }
 
-  /**
-   * Starts a {@link Builder} for the given (required) {@code pattern}. Every other field
-   * defaults to {@code null} / {@code false}; the compact constructor normalises null
-   * collections to empty. A front-end sets only the fields its shape actually carries — e.g. a
-   * single-node Gremlin {@code g.V()} translation sets the pattern, alias classes and filters,
-   * and the return items, leaving the projection, ordering, and return-mode fields at defaults.
-   */
+  /** Copies all inputs so projection-only rewrites cannot lose detached checks. */
+  public Builder toBuilder() {
+    return new Builder(pattern)
+        .aliasClasses(aliasClasses).aliasFilters(aliasFilters)
+        .matchExpressions(matchExpressions).notMatchExpressions(notMatchExpressions)
+        .existsMatchExpressions(existsMatchExpressions).booleanCheck(booleanCheck)
+        .returnItems(returnItems).returnAliases(returnAliases)
+        .returnNestedProjections(returnNestedProjections).groupBy(groupBy).orderBy(orderBy)
+        .unwind(unwind).limit(limit).skip(skip).returnDistinct(returnDistinct)
+        .returnElements(returnElements).returnPaths(returnPaths).returnPatterns(returnPatterns)
+        .returnPathElements(returnPathElements);
+  }
+
+  public boolean hasChecks() {
+    return booleanCheck != null || !notMatchExpressions.isEmpty()
+        || !existsMatchExpressions.isEmpty();
+  }
+
+  /** Starts inputs for a new pattern. Use {@link #toBuilder()} to rebuild existing inputs. */
   public static Builder builder(Pattern pattern) {
     return new Builder(pattern);
   }
@@ -122,6 +135,7 @@ public record MatchPlanInputs(
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
     private List<SQLMatchExpression> existsMatchExpressions;
+    private MatchBooleanCheck booleanCheck;
     private List<SQLExpression> returnItems;
     private List<SQLIdentifier> returnAliases;
     private List<SQLNestedProjection> returnNestedProjections;
@@ -162,6 +176,11 @@ public record MatchPlanInputs(
 
     public Builder existsMatchExpressions(List<SQLMatchExpression> existsMatchExpressions) {
       this.existsMatchExpressions = existsMatchExpressions;
+      return this;
+    }
+
+    public Builder booleanCheck(MatchBooleanCheck booleanCheck) {
+      this.booleanCheck = booleanCheck;
       return this;
     }
 
@@ -239,6 +258,7 @@ public record MatchPlanInputs(
           matchExpressions,
           notMatchExpressions,
           existsMatchExpressions,
+          booleanCheck,
           returnItems,
           returnAliases,
           returnNestedProjections,

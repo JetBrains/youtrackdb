@@ -397,6 +397,28 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     }
   }
 
+  /** A polymorphic label-only sibling narrows the scan without needing a tree Filter leaf. */
+  @Test
+  public void treeBearingChildWithPolymorphicLabelOnlySibling_translates() {
+    session.createVertexClass("Article");
+    var admin = graph.traversal()
+        .withoutStrategies(
+            org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy.class)
+        .V().and(__.or(__.out("category"), __.has("slug", "yes")),
+            __.hasLabel("Article"))
+        .asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+    assertThat(cursor.peek()).isInstanceOf(AndStep.class);
+    assertThat(AndStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.registeredAliasClasses())
+        .containsEntry(BOUNDARY_ALIAS, "Article");
+    assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.booleanCheck())
+        .isInstanceOf(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Or.class);
+  }
+
   private void createLabelHierarchy() {
     var user = session.createVertexClass("User");
     var employee = session.getSchema().createClass("Employee", user);

@@ -4420,6 +4420,31 @@ public class MatchStepUnitTest extends DbTestBase {
     assertEquals(buildPlan.getSteps().size(), subSteps.size());
   }
 
+  /** Every join mode rebuilds after a partial read and reset, without closing its template. */
+  @Test
+  public void hashJoinRestartsAllModesAfterPartialRead() {
+    for (var mode : JoinMode.values()) {
+      var ctx = createCommandContext();
+      var first = createRow("friend", new RecordId(1, 1));
+      var second = createRow("friend", new RecordId(1, 2));
+      var build = createBuildPlan(ctx, first);
+      var step = new HashJoinMatchStep(ctx, build, List.of("friend"), mode, false);
+      step.setPrevious(createUpstreamStep(ctx, first, second));
+      var stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      stream.next(ctx);
+      stream.close(ctx);
+      step.reset();
+      stream = step.start(ctx);
+      assertTrue(stream.hasNext(ctx));
+      assertEquals(mode == JoinMode.ANTI_JOIN ? new RecordId(1, 2) : new RecordId(1, 1),
+          stream.next(ctx).getProperty("friend"));
+      assertFalse(stream.hasNext(ctx));
+      stream.close(ctx);
+      step.close();
+    }
+  }
+
   /** Verifies copy() produces a distinct instance with equivalent state. */
   @Test
   public void testHashJoinCopy() {

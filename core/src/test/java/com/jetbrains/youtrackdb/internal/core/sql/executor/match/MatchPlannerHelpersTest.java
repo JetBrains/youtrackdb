@@ -1447,7 +1447,7 @@ public class MatchPlannerHelpersTest {
     var outer = OptionalLong.of(100_000);
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.001);
     assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
-        buildPattern("person"), outer, slice)).isTrue(); // lambda=.01, not rounded to 1
+        buildPattern("person"), outer, slice)).isFalse(); // remembered origins beat the build
     GlobalConfiguration.QUERY_STATS_DEFAULT_SELECTIVITY.setValue(0.1);
     assertThat(MatchExecutionPlanner.canUseHashJoin(exp, classes, Map.of(), Map.of(), ctx,
         buildPattern("person"), outer, slice)).isFalse();

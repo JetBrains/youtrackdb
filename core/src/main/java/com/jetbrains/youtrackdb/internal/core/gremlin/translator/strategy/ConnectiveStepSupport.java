@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
@@ -12,7 +13,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.ConnectiveStep
  * Shared child sub-walk and commit helpers for {@link AndStepRecogniser} and {@link
  * OrStepRecogniser}. Each connective drives every child through {@link RecognitionContext#walkChild}
  * and then commits captured state per its connective semantics (AND distributes over pattern
- * fragments and WHERE conjuncts; OR composes pure-filter booleans only).
+ * fragments and WHERE conjuncts. OR scopes detached checks within each complete arm).
  */
 final class ConnectiveStepSupport {
 
@@ -57,8 +58,8 @@ final class ConnectiveStepSupport {
    * <p>Forwarding detached checks is sound on this path and only on this path. Both callers are
    * conjunctive — an AND arm and a positive {@code where} / {@code filter} child both have to hold
    * for the row to pass — and the plan-level NOT and exists sinks apply their
-   * expressions conjunctively over the whole match, so the two agree. The OR path must not forward
-   * (see {@link #collectOrExpressions}), and neither may an enclosing {@code not(...)}.
+   * expressions conjunctively over the whole match, so the two agree. OR instead scopes each
+   * complete arm in a tree. An enclosing {@code not(...)} must not forward these conjuncts.
    *
    * <p>Only {@code boundary} may be re-typed on this pure-filter path. Hop targets travel in
    * detached exists checks, not in the positive pattern.
@@ -83,6 +84,9 @@ final class ConnectiveStepSupport {
     for (var existsExpression : adapter.capturedExistsExpressions()) {
       ctx.addExistsMatchExpression(existsExpression);
     }
+    if (adapter.booleanCheck() != null) {
+      ctx.addBooleanCheck(adapter.booleanCheck());
+    }
   }
 
   /**
@@ -97,8 +101,7 @@ final class ConnectiveStepSupport {
     if (boundary == null || !ctx.positivePatternHasAlias(boundary)
         || adapter.capturedAliasFilters().containsKey(boundary)
         || adapter.capturedPattern().registeredAliasClasses().containsKey(boundary)
-        || !adapter.capturedNotExpressions().isEmpty()
-        || !adapter.capturedExistsExpressions().isEmpty()) {
+        || adapter.hasCapturedChecks()) {
       return null;
     }
     try {
@@ -137,43 +140,57 @@ final class ConnectiveStepSupport {
     return Outcome.ACCEPTED;
   }
 
-  /**
-   * Collects one composable {@link SQLBooleanExpression} per accepted pure-filter child from the
-   * child's captured boundary filters. Returns {@code null} when any child is edge-bearing, when a
-   * child captured a detached check, when a child contributed no filter, or when
-   * {@code boundary} is {@code null}.
-   *
-   * <p>The anti-join check is what keeps a {@code not(hop)} arm out of a disjunction. An OR arm has
-   * to reduce to one boolean operand on {@code boundary}, and a detached {@code SQLMatchExpression}
-   * is not one: the only place it can go is the plan-level sink, which the planner applies
-   * conjunctively over the whole match. Composing the arm's other operands into the OR and letting
-   * the anti-join travel to that sink reads
-   * {@code or(not(out(a)).has(name, x), has(age, 30))} as {@code (no out-a) AND (name = x OR age =
-   * 30)} and drops every row that passed only the second arm.
-   */
-  static SQLBooleanExpression collectOrExpressions(
-      ConnectiveStep<?> connective, RecognitionContext ctx, String boundary) {
-    if (boundary == null) {
+  /** Captures a whole OR arm. No leaf becomes a mandatory positive-pattern predicate. */
+  static MatchBooleanCheck booleanArm(
+      RecognitionContext ctx, SubTraversalPredicateAdapter adapter, String boundary) {
+    // A tree belongs to the bound boundary, not to a target reached by a detached chain.
+    if (adapter.hasEdges() && adapter.booleanCheck() != null) {
       return null;
     }
-    var adapters = walkAcceptedChildren(connective, ctx);
-    if (adapters == null) {
+    var children = new ArrayList<MatchBooleanCheck>();
+    if (adapter.hasEdges()) {
+      if (boundary == null || !ctx.positivePatternHasAlias(boundary)
+          || adapter.capturedPattern().registeredAliasClasses().containsKey(boundary)) {
+        return null;
+      }
+      try {
+        // The chain builder consumes target filters only. Keep the origin filter as a sibling
+        // conjunct in this arm, not a mandatory predicate on the enclosing MATCH.
+        var expression = adapter.capturedPattern().buildNotExpression(
+            boundary, adapter.capturedAliasFilters(), WalkerContext.VERTEX_ROOT_CLASS);
+        if (expression.getItems().size() != adapter.capturedPattern().edgeCount()) {
+          return null;
+        }
+        children.add(new MatchBooleanCheck.Probe(expression));
+      } catch (IllegalArgumentException e) {
+        return null;
+      }
+      var filter = adapter.capturedAliasFilters().get(boundary);
+      if (filter != null) {
+        children.add(new MatchBooleanCheck.Filter(boundary, filter));
+      }
+    } else if (!adapter.capturedAliasFilters().isEmpty()
+        || !adapter.capturedPattern().registeredAliasClasses().isEmpty()) {
+      var filter = singleCapturedFilter(adapter, boundary);
+      if (filter == null || adapter.capturedAliasFilters().keySet().stream()
+          .anyMatch(alias -> !boundary.equals(alias))) {
+        return null;
+      }
+      children.add(new MatchBooleanCheck.Filter(boundary, WHERE.wrap(filter)));
+    }
+    for (var expression : adapter.capturedNotExpressions()) {
+      children.add(new MatchBooleanCheck.Not(new MatchBooleanCheck.Probe(expression)));
+    }
+    for (var expression : adapter.capturedExistsExpressions()) {
+      children.add(new MatchBooleanCheck.Probe(expression));
+    }
+    if (adapter.booleanCheck() != null) {
+      children.add(adapter.booleanCheck());
+    }
+    if (children.isEmpty()) {
       return null;
     }
-    var exprs = new ArrayList<SQLBooleanExpression>();
-    for (var adapter : adapters) {
-      if (adapter.hasEdges() || !adapter.capturedNotExpressions().isEmpty()
-          || !adapter.capturedExistsExpressions().isEmpty()) {
-        return null;
-      }
-      var expr = singleCapturedFilter(adapter, boundary);
-      if (expr == null) {
-        return null;
-      }
-      exprs.add(expr);
-    }
-    return exprs.size() == 1 ? exprs.getFirst()
-        : WHERE.or(exprs.toArray(new SQLBooleanExpression[0]));
+    return children.size() == 1 ? children.getFirst() : new MatchBooleanCheck.And(children);
   }
 
   /**
