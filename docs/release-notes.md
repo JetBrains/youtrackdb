@@ -10,6 +10,10 @@ between your current version and your target version.
 Gremlin `order().by(key)` uses the label class or the common ancestor of several labels.
 Without a label filter, a supported hop uses the edge LINK schema to choose the collation class.
 Label filters take precedence over LINK declarations.
+Native and translated `values(key).order()` also use this rule for the extracted property's
+collation, at vertex starts and after hops. They preserve extracted values and configured null
+placement. Their order can change when the resolved declaration differs from the previous fallback.
+A following slice can return different values. Missing properties still emit no value.
 
 **Who is affected.** Queries whose resolved class declares a different collation from the
 previous fallback can return records in a different order. This applies to native and translated

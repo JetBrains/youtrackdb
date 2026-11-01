@@ -8,13 +8,19 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.CollatedSortKeyTraversal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
+import org.apache.tinkerpop.gremlin.process.traversal.Scope;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -217,6 +223,413 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
     assertThat(graph.traversal().V().hasLabel("First", "Second")
         .order().by("name", Order.asc).values("name").toList())
         .containsExactly("alice", "Zebra");
+  }
+
+  /** Extracted values must use the label hierarchy despite an unrelated default declaration. */
+  @Test
+  public void extractedValues_labelHierarchyMustAgreeWithAcceptedTranslation() {
+    var named = session.createVertexClass("Named");
+    named.createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.createVertexClass("Unrelated").createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Named", "name", "alice");
+    graph.addVertex(T.label, "Named", "name", "Zebra");
+    graph.tx().commit();
+
+    assertEquivalentOrdered("extracted label hierarchy",
+        () -> graph.traversal().V().hasLabel("Named").values("name").order());
+  }
+
+  /** Bare and explicit identity orders use the same class rule at roots and every supported hop. */
+  @Test
+  public void extractedValues_sharedClassFormsPreserveDirectionsAndSlices() {
+    seedLinkedNames();
+    List<Supplier<GraphTraversal<?, Vertex>>> sources = List.of(
+        () -> graph.traversal().V().hasLabel("Named"),
+        () -> graph.traversal().V().hasLabel("First", "Second"),
+        () -> graph.traversal().V().hasLabel("Source").out("Link"),
+        () -> graph.traversal().V().hasLabel("Source").out("Link")
+            .hasLabel("First", "Second"),
+        () -> graph.traversal().V().hasLabel("Named").both("Peer"),
+        () -> graph.traversal().V().hasLabel("Source").outE("Link")
+            .has("active", true).inV(),
+        () -> graph.traversal().V().hasLabel("Source").outE("Link")
+            .has("active", true).otherV());
+    for (var source : sources) {
+      assertExtractedDirections(source, true, Recognition.RECOGNIZED);
+    }
+    assertExtractedDirections(
+        () -> graph.traversal().V().hasLabel("Named").in("Link"), false,
+        Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Named")
+        .inE("Link").has("active", true).outV(), false, Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Source").both("Link"),
+        false, Recognition.RECOGNIZED);
+  }
+
+  /** Subclass-only declarations agree, while a conflicting child restores default comparison. */
+  @Test
+  public void extractedValues_subclassAndConflictingDeclarations() {
+    var parent = session.createVertexClass("Parent");
+    var first = session.getMetadata().getSchema().createClass("First", parent);
+    first.createProperty("name", PropertyType.STRING).setCollate("ci");
+    var second = session.getMetadata().getSchema().createClass("Second", parent);
+    second.createProperty("name", PropertyType.STRING).setCollate("ci");
+    graph.addVertex(T.label, "First", "name", "alice");
+    graph.addVertex(T.label, "Second", "name", "Zebra");
+    graph.tx().commit();
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Parent"), true,
+        Recognition.RECOGNIZED);
+    second.getProperty("name").setCollate("default");
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Parent"), false,
+        Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("First", "Second"), false,
+        Recognition.RECOGNIZED);
+  }
+
+  /** A LINK class with no declaration excludes an unrelated ci declaration and stays default. */
+  @Test
+  public void extractedValues_linkWithoutDeclarationUsesDefault() {
+    var sourceClass = session.createVertexClass("Source");
+    sourceClass.createProperty("name", PropertyType.STRING).setCollate("ci");
+    var target = session.createVertexClass("Target");
+    var link = session.createEdgeClass("Link");
+    link.getProperty("out").setLinkedClass(sourceClass);
+    link.getProperty("in").setLinkedClass(target);
+    var source = graph.addVertex(T.label, "Source");
+    for (var name : List.of("alice", "Zebra")) {
+      source.addEdge("Link", graph.addVertex(T.label, "Target", "name", name));
+    }
+    graph.tx().commit();
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Source").out("Link"),
+        false, Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Target"), false,
+        Recognition.RECOGNIZED);
+  }
+
+  /** Unwrapping applies only to identity orders. Keyed and mixed scalar sorts keep metadata. */
+  @Test
+  public void extractedValues_keyedAndMixedOrdersDoNotUnwrap() {
+    seedLinkedNames();
+    var keyed = graph.traversal().V().hasLabel("Source").out("Link")
+        .values("name").order().by("name").asAdmin();
+    var mixed = graph.traversal().V().hasLabel("Source").out("Link")
+        .values("name").order().by().by("name").asAdmin();
+    var identity = graph.traversal().V().hasLabel("Source").out("Link")
+        .values("name").order().asAdmin();
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    for (var traversal : List.of(keyed, mixed)) {
+      var step = traversal.getEndStep();
+      assertThat(YTDBOrderCollationStrategy.orderedClasses(schema, step))
+          .containsExactlyElementsOf(YTDBOrderCollationStrategy.graphClasses(schema));
+    }
+    var walk = GremlinStepWalker.production().walk(keyed);
+    assertThat(walk).isNotNull();
+    assertThat(walk.inputs().orderCollationClasses().get(walk.boundaryAlias()))
+        .contains("Source", "V", "E");
+    var unwrapped = GremlinStepWalker.production().walk(identity);
+    assertThat(unwrapped).isNotNull();
+    assertThat(unwrapped.inputs().orderCollationClasses().get(unwrapped.boundaryAlias()))
+        .containsExactlyInAnyOrder("Named", "First", "Second");
+  }
+
+  /** A target label narrows a conflicting LINK hierarchy, while select keeps its wide fallback. */
+  @Test
+  public void extractedValues_targetLabelAndSelectFallback() {
+    seedLinkedNames();
+    var base = session.createVertexClass("Mixed");
+    var child = session.getMetadata().getSchema().createClass("CollatedChild", base);
+    child.createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.getMetadata().getSchema().createClass("DefaultChild", base)
+        .createProperty("name", PropertyType.STRING);
+    var edge = session.createEdgeClass("MixedLink");
+    edge.getProperty("in").setLinkedClass(base);
+    var source = graph.traversal().V().hasLabel("Source").next();
+    for (var name : List.of("alice", "Zebra")) {
+      source.addEdge("MixedLink", graph.addVertex(T.label, "CollatedChild", "name", name));
+    }
+    graph.tx().commit();
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Source").out("MixedLink"),
+        false, Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Source").out("MixedLink")
+        .hasLabel("CollatedChild"), true, Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Source").out("Link")
+        .as("c").select("c"), false, Recognition.RECOGNIZED);
+    assertExtractedDirections(() -> graph.traversal().V().hasLabel("Named").bothE("Peer")
+        .otherV(), true, Recognition.RECOGNIZED);
+  }
+
+  /** Only single-key values and agreeing union projections identify one collated property. */
+  @Test
+  public void extractedValues_projectionGuardRejectsOtherShapes() {
+    List<GraphTraversal<?, ?>> unsupported = List.of(
+        __.values().order(), __.values("name", "other").order(),
+        __.properties("name").order(), __.valueMap("name").order(),
+        __.values("name").order().by("name"),
+        __.union(__.values("name"), __.values("other")).order(),
+        __.union(__.values("name"), __.identity()).order(),
+        __.values("name").fold().order(),
+        __.values("name").unfold().order(),
+        __.values("name").order(Scope.local).order(),
+        __.values("name").map(t -> t.get()).order(),
+        __.union(__.values("name").fold(), __.values("name").fold()).order(),
+        __.union(__.values("name").unfold(), __.values("name").unfold()).order(),
+        __.union(__.values("name").order(Scope.local), __.values("name")).order());
+    for (var traversal : unsupported) {
+      assertThat(YTDBOrderCollationStrategy.projectedProperty(traversal.asAdmin().getEndStep()))
+          .isNull();
+    }
+  }
+
+  /** Extracting first drops absent properties under either missing-key policy, but keeps null. */
+  @Test
+  public void extractedValues_nullPlacementAndMissingKeySettings() {
+    seedLinkedNames();
+    var source = graph.traversal().V().hasLabel("Source").next();
+    source.addEdge("Link", graph.addVertex(T.label, "First", "tag", "missing"));
+    var nullVertex = graph.addVertex(T.label, "First", "tag", "null");
+    ((com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl) nullVertex)
+        .getRawEntity().setProperty("name", null);
+    source.addEdge("Link", nullVertex);
+    graph.tx().commit();
+    var config = session.getConfiguration();
+    var missingKey = GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY;
+    var ascKey = GlobalConfiguration.QUERY_ORDER_BY_NULLS_PLACEMENT_ASC;
+    var descKey = GlobalConfiguration.QUERY_ORDER_BY_NULLS_PLACEMENT_DESC;
+    var oldMissing = config.getValue(missingKey);
+    var oldAsc = config.getValue(ascKey);
+    var oldDesc = config.getValue(descKey);
+    try {
+      for (var missing : List.of(false, true)) {
+        config.setValue(missingKey, missing);
+        for (var placement : OrderByNullsPlacement.values()) {
+          config.setValue(ascKey, placement);
+          config.setValue(descKey, placement);
+          for (var direction : List.of(Order.asc, Order.desc)) {
+            Supplier<GraphTraversal<?, ?>> query = () -> graph.traversal().V()
+                .hasLabel("Source").out("Link").values("name").order().by(direction);
+            assertEquivalentOrdered("extracted null " + missing + placement + direction, query);
+            var rows = query.get().toList();
+            assertThat(rows).hasSize(3);
+            assertThat(rows.get(placement == OrderByNullsPlacement.FIRST ? 0 : 2)).isNull();
+          }
+        }
+      }
+    } finally {
+      config.setValue(missingKey, oldMissing);
+      config.setValue(ascKey, oldAsc);
+      config.setValue(descKey, oldDesc);
+    }
+  }
+
+  /** Both union projection positions decline declared collation, with and without a slice. */
+  @Test
+  public void extractedValues_unionCollationDeclines() {
+    session.createVertexClass("Thing").createProperty("name", PropertyType.STRING)
+        .setCollate("ci");
+    seedUnionNames();
+    for (var extractionInside : List.of(false, true)) {
+      for (var sliced : List.of(false, true)) {
+        Supplier<GraphTraversal<?, ?>> query = () -> {
+          var values = extractionInside
+              ? graph.traversal().V().union(__.out("next").values("name"),
+                  __.in("next").values("name"))
+              : graph.traversal().V().union(__.out("next"), __.in("next")).values("name");
+          var ordered = values.order();
+          return sliced ? ordered.limit(5) : ordered;
+        };
+        support.assertEquivalent("union values " + extractionInside + sliced,
+            Recognition.DECLINED, Cardinality.NON_EMPTY,
+            OrderCollationEquivalenceTest::orderedRows, query);
+        support.withTranslatorRestored(() -> {
+          for (var enabled : List.of(false, true)) {
+            support.setTranslatorEnabled(enabled);
+            var names = orderedRows(query.get().toList());
+            assertThat(names).hasSize(sliced ? 5 : 12);
+            assertThat(names.subList(0, 4)).containsExactlyInAnyOrder("Ada", "ada", "Ada", "ada");
+            assertThat(names.subList(4, names.size())).containsExactlyElementsOf(sliced
+                ? List.of("Bob")
+                : List.of("Bob", "Bob", "Cara", "Cara", "Zebra", "Zebra", "Ähhhh", "Ähhhh"));
+          }
+        });
+      }
+    }
+  }
+
+  /** Extracted case variants form a ci tie group on both execution paths at roots and hops. */
+  @Test
+  public void extractedValues_caseVariantTiesRecordOutcome() {
+    session.createVertexClass("Person").createProperty("name", PropertyType.STRING)
+        .setCollate("ci");
+    seedNames("Person");
+    var sourceClass = session.createVertexClass("Source");
+    var link = session.createEdgeClass("Link");
+    link.getProperty("out").setLinkedClass(sourceClass);
+    link.getProperty("in").setLinkedClass(session.getMetadata().getSchema().getClass("Person"));
+    var source = graph.addVertex(T.label, "Source");
+    for (var person : graph.traversal().V().hasLabel("Person").toList().reversed()) {
+      source.addEdge("Link", person);
+    }
+    graph.tx().commit();
+    for (var hop : List.of(false, true)) {
+      Supplier<GraphTraversal<?, Vertex>> vertices = () -> hop
+          ? graph.traversal().V().hasLabel("Source").out("Link")
+          : graph.traversal().V().hasLabel("Person");
+      support.withTranslatorRestored(() -> {
+        for (var direction : List.of(Order.asc, Order.desc)) {
+          support.setTranslatorEnabled(true);
+          var translated = vertices.get().values("name")
+              .order().by(direction).asAdmin();
+          translated.applyStrategies();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(translated)).isEqualTo(1);
+          var on = translated.toList();
+          support.setTranslatorEnabled(false);
+          var off = vertices.get().values("name").order().by(direction).toList();
+          var rest = direction == Order.asc
+              ? List.of("Bob", "Cara", "Zebra", "Ähhhh")
+              : List.of("Ähhhh", "Zebra", "Cara", "Bob");
+          assertCiNameOrder(on, rest, direction == Order.asc);
+          assertCiNameOrder(off, rest, direction == Order.asc);
+        }
+      });
+    }
+  }
+
+  /** A caller comparator receives strings, not internal collated sort keys, on either path. */
+  @Test
+  public void extractedValues_customComparatorsKeepScalarInput() {
+    session.createVertexClass("Person").createProperty("name", PropertyType.STRING)
+        .setCollate("ci");
+    graph.addVertex(T.label, "Person", "name", "alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    for (var comparator : List.of(Comparator.comparingInt(String::length),
+        String.CASE_INSENSITIVE_ORDER)) {
+      Supplier<GraphTraversal<?, ?>> query = () -> graph.traversal().V().hasLabel("Person")
+          .<String>values("name").order().by(comparator);
+      var order = query.get().asAdmin().getEndStep();
+      assertThat(YTDBOrderCollationStrategy.projectedProperty(order)).isNull();
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      assertThat(YTDBOrderCollationStrategy.orderedClasses(schema, order))
+          .containsExactlyElementsOf(YTDBOrderCollationStrategy.graphClasses(schema));
+      support.assertEquivalent("custom scalar comparator", Recognition.DECLINED,
+          Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::orderedRows, query);
+      assertThat(orderedRows(query.get().toList())).containsExactlyElementsOf(
+          comparator == String.CASE_INSENSITIVE_ORDER
+              ? List.of("alice", "Bob") : List.of("Bob", "alice"));
+    }
+  }
+
+  /** Mixed framework and caller slots keep scalar input and default order on both paths. */
+  @Test
+  public void extractedValues_mixedCustomComparatorKeepsAllSlotsUncollated() {
+    session.createVertexClass("Person").createProperty("name", PropertyType.STRING)
+        .setCollate("ci");
+    for (var name : List.of("alice", "Bob", "Bob")) {
+      graph.addVertex(T.label, "Person", "name", name);
+    }
+    graph.tx().commit();
+    support.withTranslatorRestored(() -> {
+      for (var enabled : List.of(false, true)) {
+        support.setTranslatorEnabled(enabled);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        Comparator<String> comparator = (left, right) -> {
+          calls.incrementAndGet();
+          return Integer.compare(left.length(), right.length());
+        };
+        // An unmergeable sack keeps the two Bob traversers distinct so the second slot is called.
+        var query = graph.traversal().withSack(1).V().hasLabel("Person").<String>values("name")
+            .order().by(Order.asc).by(comparator).asAdmin();
+        var order = query.getEndStep();
+        assertThat(YTDBOrderCollationStrategy.projectedProperty(order)).isNull();
+        var schema = session.getMetadata().getImmutableSchemaSnapshot();
+        assertThat(YTDBOrderCollationStrategy.orderedClasses(schema, order))
+            .containsExactlyElementsOf(YTDBOrderCollationStrategy.graphClasses(schema));
+        query.applyStrategies();
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(query)).isZero();
+        assertThat(query.toList()).containsExactly("Bob", "Bob", "alice");
+        assertThat(calls.get()).isPositive();
+      }
+    });
+  }
+
+  /**
+   * Folded lists, unfolded list properties and local sorts keep plain TinkerPop comparison even
+   * when the source property declares ci. The final global sort must not gain a collated key.
+   */
+  @Test
+  public void extractedValues_shapeChangesStopCollationDiscovery() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING).setCollate("ci");
+    person.createProperty("names", PropertyType.EMBEDDEDLIST).setCollate("ci");
+    graph.addVertex(T.label, "Person", "name", "Bob", "names", List.of("alice", "Zebra"));
+    graph.addVertex(T.label, "Person", "name", "Ada");
+    graph.tx().commit();
+    List<Supplier<GraphTraversal<?, ?>>> queries = List.of(
+        () -> graph.traversal().V().hasLabel("Person").union(
+            __.has("name", "Bob").values("name").fold(),
+            __.has("name", "Ada").values("name").fold()).order(),
+        () -> graph.traversal().V().hasLabel("Person").order().by("name", Order.desc)
+            .values("name").fold().order(),
+        () -> graph.traversal().V().hasLabel("Person").values("names").unfold().order(),
+        () -> graph.traversal().V().hasLabel("Person").values("names")
+            .order(Scope.local).order());
+    List<List<?>> expected = List.of(
+        List.of(List.of("Ada"), List.of("Bob")),
+        List.of(List.of("Bob", "Ada")),
+        List.of("Zebra", "alice"),
+        List.of(List.of("Zebra", "alice")));
+    support.withTranslatorRestored(() -> {
+      for (var enabled : List.of(false, true)) {
+        support.setTranslatorEnabled(enabled);
+        for (var i = 0; i < queries.size(); i++) {
+          var query = queries.get(i).get().asAdmin();
+          assertThat(YTDBOrderCollationStrategy.projectedProperty(query.getEndStep())).isNull();
+          query.applyStrategies();
+          var orders = TraversalHelper.getStepsOfAssignableClass(OrderGlobalStep.class, query);
+          assertThat(orders).isNotEmpty();
+          for (var slot : ((OrderGlobalStep<?, ?>) orders.getLast()).getComparators()) {
+            assertThat(slot.getValue0()).isNotInstanceOf(CollatedSortKeyTraversal.class);
+          }
+          assertThat((List<?>) query.toList()).isEqualTo(expected.get(i));
+        }
+      }
+    });
+  }
+
+  /** A transparent barrier keeps extraction collation and translation engagement in every direction. */
+  @Test
+  public void extractedValues_barrierPreservesDeclaredCollation() {
+    seedLinkedNames();
+    for (var mode : List.of("bare", "asc", "desc")) {
+      Supplier<GraphTraversal<?, ?>> query = () -> {
+        var order = graph.traversal().V().hasLabel("Named").values("name").barrier().order();
+        return mode.equals("bare") ? order : order.by(mode.equals("asc") ? Order.asc : Order.desc);
+      };
+      assertEquivalentOrdered("extracted barrier " + mode, query);
+      assertThat(orderedRows(query.get().toList())).containsExactlyElementsOf(
+          mode.equals("desc") ? List.of("Zebra", "alice") : List.of("alice", "Zebra"));
+    }
+  }
+
+  private void assertExtractedDirections(Supplier<GraphTraversal<?, Vertex>> source,
+      boolean ci, Recognition recognition) {
+    for (var mode : List.of("bare", "asc", "desc")) {
+      Supplier<GraphTraversal<?, ?>> query = () -> {
+        var order = source.get().values("name").order();
+        return mode.equals("bare") ? order : order.by(mode.equals("asc") ? Order.asc : Order.desc);
+      };
+      support.assertEquivalent("extracted " + mode, recognition, Cardinality.NON_EMPTY,
+          OrderCollationEquivalenceTest::orderedRows, query);
+      var expected = ci ? List.of("alice", "Zebra") : List.of("Zebra", "alice");
+      if (mode.equals("desc")) {
+        expected = expected.reversed();
+      }
+      assertThat(orderedRows(query.get().toList())).containsExactlyElementsOf(expected);
+      support.assertEquivalent("extracted slice " + mode, Recognition.DECLINED,
+          Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::orderedRows,
+          () -> query.get().limit(1));
+      assertThat(orderedRows(query.get().limit(1).toList())).containsExactly(expected.getFirst());
+    }
   }
 
   /** LINK inference must exclude unrelated default declarations for outgoing targets. */

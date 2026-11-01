@@ -18,13 +18,16 @@ import java.util.function.BiPredicate;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.Contains;
+import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy.ProviderOptimizationStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.ValueTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.ComparatorHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
+import org.apache.tinkerpop.gremlin.process.traversal.step.branch.UnionStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.FilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeOtherVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
@@ -33,18 +36,22 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderLocalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.UnfoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
+import org.apache.tinkerpop.gremlin.structure.PropertyType;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.javatuples.Pair;
 
 /**
- * Makes a native {@code order().by(propertyKey)} follow the collation the property declares, by
+ * Makes native {@code order().by(propertyKey)} and {@code values(propertyKey).order()} follow the
+ * collation the property declares, by
  * replacing the plain property modulator with a {@link CollatedSortKeyTraversal}.
  *
  * <h2>The declaration is the authority, and the default declaration changes nothing</h2>
@@ -70,8 +77,8 @@ import org.javatuples.Pair;
  *       (before this strategy runs): it compares identifiers, never text, so no collation applies
  *       to it.
  *   <li>A modulator that is already a {@link CollatedSortKeyTraversal}. That type is the idempotence
- *       marker: only a {@link ValueTraversal} is replaced, so a second application finds the
- *       replacement and changes nothing.
+ *       marker: only a {@link ValueTraversal} or an extracted-value identity modulator is
+ *       replaced, so a second application finds the replacement and changes nothing.
  *   <li>A modulator that is a full traversal rather than a plain property projection, such as
  *       {@code by(__.values("name"))}. The declaration governs one property of one record, and such
  *       a traversal may not be reading one.
@@ -109,6 +116,12 @@ public final class YTDBOrderCollationStrategy
     return Set.of(GremlinToMatchStrategy.class);
   }
 
+  /** Inspect framework comparator identity before null placement wraps those comparators. */
+  @Override
+  public Set<Class<? extends ProviderOptimizationStrategy>> applyPost() {
+    return Set.of(YTDBOrderNullsStrategy.class);
+  }
+
   @Override
   public void apply(Admin<?, ?> traversal) {
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
@@ -120,7 +133,8 @@ public final class YTDBOrderCollationStrategy
     // The hierarchy walk below is wasted work on a traversal that sorts by anything other than a
     // plain property, which is the common case, so the sort keys are inspected first.
     // Scope.local is out of scope for this strategy (not translated; leave TinkerPop semantics).
-    if (!carriesPlainPropertyModulator(globalSteps)) {
+    if (!carriesPlainPropertyModulator(globalSteps)
+        && globalSteps.stream().noneMatch(step -> projectedProperty((Step<?, ?>) step) != null)) {
       return;
     }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
@@ -136,7 +150,21 @@ public final class YTDBOrderCollationStrategy
   @SuppressWarnings({"rawtypes", "unchecked"})
   private static void collateGlobal(OrderGlobalStep<?, ?> step, List<SchemaClass> graphClasses) {
     var modulators = OrderStepModulators.modulatorsOf(step.getComparators());
-    if (substituteCollatedModulators(modulators, graphClasses)) {
+    var changed = substituteCollatedModulators(modulators, graphClasses);
+    var property = projectedProperty(step);
+    if (property != null) {
+      var collate = OrderByCollationResolver.declaredCollation(graphClasses, property);
+      if (collate != null) {
+        for (var i = 0; i < modulators.size(); i++) {
+          if (modulators.get(i) instanceof IdentityTraversal) {
+            // Keep the comparator object so the null-placement strategy can still wrap it.
+            modulators.set(i, CollatedSortKeyTraversal.identity(property, collate));
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) {
       OrderStepModulators.replaceGlobalModulators((OrderGlobalStep) step, modulators);
     }
   }
@@ -213,6 +241,11 @@ public final class YTDBOrderCollationStrategy
   public static List<SchemaClass> orderedClasses(Schema schema, Step<?, ?> orderStep) {
     var labels = new LinkedHashSet<String>();
     var producer = walkToProducer(orderStep.getPreviousStep(), labels);
+    if (projectedProperty(orderStep) != null && valueProperty(producer) != null) {
+      // An identity sort compares the extracted property, but its declaration belongs to the
+      // element source. Do not unwrap keyed or mixed orders over scalar input.
+      producer = walkToProducer(producer.getPreviousStep(), labels);
+    }
     if (producer == null) {
       // A label predicate this method cannot enumerate — neither an equality nor a membership one.
       // The widest set is the safe answer: it can only fall back to the default collation.
@@ -367,6 +400,65 @@ public final class YTDBOrderCollationStrategy
         return OrderClassResolver.inferHopClass(schema,
             direction.name().toLowerCase(java.util.Locale.ROOT) + "v", null, label);
       }
+    }
+    return null;
+  }
+
+  /** The single property behind an identity sort, including agreeing union value branches. */
+  @Nullable public static String projectedProperty(Step<?, ?> order) {
+    if (!identityOnly(order)) {
+      return null;
+    }
+    var previous = walkToProjection(order.getPreviousStep());
+    var direct = valueProperty(previous);
+    if (direct != null) {
+      return direct;
+    }
+    if (previous instanceof UnionStep<?, ?> union) {
+      String agreed = null;
+      for (var child : union.getGlobalChildren()) {
+        var end = child.getEndStep();
+        if (end instanceof ComputerAwareStep.EndStep) {
+          end = end.getPreviousStep();
+        }
+        var key = valueProperty(walkToProjection(end));
+        if (key == null || (agreed != null && !agreed.equals(key))) {
+          return null;
+        }
+        agreed = key;
+      }
+      return agreed;
+    }
+    return null;
+  }
+
+  /**
+   * Only value-transparent steps preserve the projected sort key. The keyed class walk has a
+   * broader contract and also crosses folds, unfolds and local sorts, which can change that key.
+   */
+  private static Step<?, ?> walkToProjection(Step<?, ?> start) {
+    var current = start;
+    while (current instanceof FilterStep
+        || current instanceof IdentityStep
+        || current instanceof NoOpBarrierStep
+        || current instanceof OrderGlobalStep) {
+      current = current.getPreviousStep();
+    }
+    return current;
+  }
+
+  private static boolean identityOnly(Step<?, ?> step) {
+    return step instanceof OrderGlobalStep<?, ?> order
+        && order.getComparators().stream()
+            .allMatch(pair -> pair.getValue0() instanceof IdentityTraversal
+                && (pair.getValue1() == Order.asc || pair.getValue1() == Order.desc));
+  }
+
+  @Nullable private static String valueProperty(@Nullable Step<?, ?> step) {
+    if (step instanceof PropertiesStep<?> properties
+        && properties.getReturnType() == PropertyType.VALUE
+        && properties.getPropertyKeys().length == 1) {
+      return properties.getPropertyKeys()[0];
     }
     return null;
   }

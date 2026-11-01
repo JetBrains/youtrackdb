@@ -37,6 +37,8 @@ public final class CollatedSortKeyTraversal<S> extends AbstractLambdaTraversal<S
 
   private final Collate collate;
 
+  private final boolean identity;
+
   /** The projection of the most recent start, read back by {@link #next()}. */
   @Nullable private CollatedSortKey key;
 
@@ -44,8 +46,18 @@ public final class CollatedSortKeyTraversal<S> extends AbstractLambdaTraversal<S
   private boolean noStarts;
 
   public CollatedSortKeyTraversal(@Nonnull String propertyKey, @Nonnull Collate collate) {
+    this(propertyKey, collate, false);
+  }
+
+  private CollatedSortKeyTraversal(String propertyKey, Collate collate, boolean identity) {
     this.propertyKey = propertyKey;
     this.collate = collate;
+    this.identity = identity;
+  }
+
+  /** Compare an already extracted value without reading a property from it. */
+  public static <S> CollatedSortKeyTraversal<S> identity(String key, Collate collate) {
+    return new CollatedSortKeyTraversal<>(key, collate, true);
   }
 
   @Nonnull
@@ -89,7 +101,9 @@ public final class CollatedSortKeyTraversal<S> extends AbstractLambdaTraversal<S
       return;
     }
     var value = start.get();
-    if (value instanceof Element element) {
+    if (identity) {
+      key = collate(value);
+    } else if (value instanceof Element element) {
       var property = element.property(propertyKey);
       if (property.isPresent()) {
         key = collate(property.value());
@@ -122,18 +136,20 @@ public final class CollatedSortKeyTraversal<S> extends AbstractLambdaTraversal<S
   /** Stable text form — the shape cache and the step renderers both key on a modulator's text. */
   @Override
   public String toString() {
-    return "collated(" + propertyKey + "," + collate.getName() + ")";
+    return (identity ? "collatedValue(" : "collated(") + propertyKey + ","
+        + collate.getName() + ")";
   }
 
   @Override
   public boolean equals(Object other) {
     return other instanceof CollatedSortKeyTraversal<?> traversal
+        && identity == traversal.identity
         && propertyKey.equals(traversal.propertyKey)
         && collate.getName().equals(traversal.collate.getName());
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(CollatedSortKeyTraversal.class, propertyKey, collate.getName());
+    return Objects.hash(CollatedSortKeyTraversal.class, propertyKey, collate.getName(), identity);
   }
 }

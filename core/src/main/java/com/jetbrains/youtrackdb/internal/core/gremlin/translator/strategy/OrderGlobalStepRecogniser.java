@@ -203,6 +203,15 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     }
     var classes = YTDBOrderCollationStrategy.graphClasses(schema);
     for (var pair : step.getComparators()) {
+      if (pair.getValue0() instanceof IdentityTraversal
+          && ctx.boundaryOutputType() == BoundaryOutputType.SINGLE_VALUE
+          && ctx instanceof WalkerContext walker) {
+        var keys = walker.shaping().presencePropertyKeys();
+        if (keys.size() == 1
+            && OrderByCollationResolver.declaredCollation(classes, keys.getFirst()) != null) {
+          return true;
+        }
+      }
       var target = ByModulatorTranslator.orderModulatorPresenceTarget(
           boundary, pair.getValue0(), ctx::resolveUserLabel);
       if (target.isPresent()

@@ -63,6 +63,33 @@ public class CollatedSortKeyTest {
     assertThat(ada).isGreaterThan(bob);
   }
 
+  /** Identity comparison accepts extracted scalars and retains null for placement. */
+  @Test
+  public void traversal_identityPreservesScalarAndRealNull() {
+    var traversal = CollatedSortKeyTraversal.identity("name", CASE_INSENSITIVE);
+    traversal.addStart(new B_O_Traverser<Object>("alice", 1L));
+    assertThat(traversal.next().value()).isEqualTo("alice");
+    traversal.reset();
+    traversal.addStart(new B_O_Traverser<Object>(null, 1L));
+    assertThat(traversal.hasNext()).isTrue();
+    assertThat(traversal.next()).isNull();
+  }
+
+  /** Identity mode is part of the cache identity and survives cloning without changing values. */
+  @Test
+  public void traversal_identityModeHasDistinctStableIdentity() {
+    var identity = CollatedSortKeyTraversal.identity("name", CASE_INSENSITIVE);
+    var equal = CollatedSortKeyTraversal.identity("name", CASE_INSENSITIVE);
+    assertThat(identity).isEqualTo(equal).isEqualTo(identity.clone())
+        .isNotEqualTo(new CollatedSortKeyTraversal<>("name", CASE_INSENSITIVE))
+        .isNotEqualTo(CollatedSortKeyTraversal.identity("other", CASE_INSENSITIVE))
+        .isNotEqualTo(CollatedSortKeyTraversal.identity("name", DEFAULT)).isNotEqualTo("name");
+    assertThat(identity.hashCode()).isEqualTo(equal.hashCode());
+    assertThat(identity).hasToString("collatedValue(name,ci)");
+    assertThat(new CollatedSortKeyTraversal<>("name", CASE_INSENSITIVE))
+        .hasToString("collated(name,ci)");
+  }
+
   /** A keyed modulator rejects scalars with the same diagnostic as ValueTraversal. */
   @Test
   public void traversal_scalarInput_preservesPropertyProjectionError() {
