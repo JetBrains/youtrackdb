@@ -29,11 +29,19 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
   private final List<AbstractExecutionStep> probeSteps;
   private final HashJoinMatchStep hash;
   private Set<JoinKey> keys;
+  private final DetachedCheckMemory memory;
 
   FilterBooleanMatchStep(CommandContext ctx, boolean profiling, Kind kind,
       List<FilterBooleanMatchStep> children, String alias, SQLWhereClause condition,
       List<AbstractExecutionStep> probeSteps, HashJoinMatchStep hash) {
+    this(ctx, profiling, kind, children, alias, condition, probeSteps, hash, null);
+  }
+
+  FilterBooleanMatchStep(CommandContext ctx, boolean profiling, Kind kind,
+      List<FilterBooleanMatchStep> children, String alias, SQLWhereClause condition,
+      List<AbstractExecutionStep> probeSteps, HashJoinMatchStep hash, DetachedCheckReadSet reads) {
     super(ctx, profiling);
+    this.memory = new DetachedCheckMemory(reads);
     this.kind = kind;
     this.children = List.copyOf(children);
     this.alias = alias;
@@ -55,6 +63,7 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
   }
 
   private void prepare(CommandContext ctx) {
+    memory.start();
     if (hash != null) {
       // BasicCommandContext forwards writes to the parent that owns a system variable.
       // This boundary keeps build writes local while preserving parent reads and cancellation.
@@ -116,7 +125,8 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
         }
       }
       case PROBE -> keys == null
-          ? DetachedMatchPatternProbe.matches(row, probeSteps, ctx, profilingEnabled)
+          ? memory.matches(row,
+              () -> DetachedMatchPatternProbe.matches(row, probeSteps, ctx, profilingEnabled))
           : keys.contains(hash.extractKey(row));
     };
   }
@@ -124,6 +134,7 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
   @Override
   public void reset() {
     keys = null;
+    memory.clear();
     children.forEach(FilterBooleanMatchStep::reset);
     if (hash != null) {
       hash.reset();
@@ -179,7 +190,7 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
         children.stream().map(child -> (FilterBooleanMatchStep) child.copy(ctx)).toList(),
         alias, condition == null ? null : condition.copy(),
         probeSteps.stream().map(step -> (AbstractExecutionStep) step.copy(ctx)).toList(),
-        hash == null ? null : (HashJoinMatchStep) hash.copy(ctx));
+        hash == null ? null : (HashJoinMatchStep) hash.copy(ctx), memory.reads());
   }
 
   private static final class BuildContext extends BasicCommandContext {

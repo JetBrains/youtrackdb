@@ -301,7 +301,7 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Article").filter(__.out("a")));
   }
 
-  /** Earlier hops amplify outer rows. A literal limit moves exists from hash to per-row. */
+  /** Repeated articles favor remembered probes with and without a literal limit. */
   @Test
   public void amplifiedExistsWithLimit_changesPlanAndPreservesNativeRows() {
     var savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
@@ -336,7 +336,7 @@ public class PositiveExistsTranslationTest extends GraphBaseTest {
           assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isEqualTo(1);
           var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
           assertThat(boundary.getPlan().prettyPrint(0, 2))
-              .contains(limited ? "+ EXISTS (" : "+ HASH SEMI_JOIN");
+              .contains("+ EXISTS (").doesNotContain("+ HASH SEMI_JOIN");
           assertThat(admin.toList()).hasSize(limited ? 1 : 10);
         }
       });

@@ -57,6 +57,201 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(minimum);
   }
 
+  /** Every detached kind agrees across hash, plain nested and remembered nested execution. */
+  @Test
+  public void detachedKindsRememberTrueFalseAndRestartWithFreshParametersAndData()
+      throws Exception {
+    session.rollback();
+    session.createEdgeClass("BoolFan");
+    session.begin();
+    for (int i = 0; i < 16; i++) {
+      session.execute("CREATE EDGE BoolFan FROM (SELECT FROM BoolP)"
+          + " TO (SELECT FROM BoolP WHERE name='neither')").close();
+    }
+    session.commit();
+    session.begin();
+    for (int kind = 0; kind < 4; kind++) {
+      boolean negative = kind == 1 || kind == 3;
+      for (int mode = 0; mode < 3; mode++) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(mode == 0 ? 0L : 256L);
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
+            mode == 1 ? Long.MAX_VALUE : 0L);
+        var statement = parse("MATCH {class:BoolP, as:p}.out('BoolFan'){as:q}"
+            + " RETURN p.name as name");
+        var pattern = new Pattern();
+        statement.getMatchExpressions().forEach(pattern::addExpression);
+        var check = parse("MATCH {as:p}.out('BoolE'){as:t, where:(name=:wanted)} RETURN p")
+            .getMatchExpressions().getFirst();
+        var builder = MatchPlanInputs.builder(pattern).aliasClasses(Map.of("p", "BoolP"))
+            .returnItems(statement.getReturnItems()).returnAliases(statement.getReturnAliases())
+            .returnNestedProjections(statement.getReturnNestedProjections());
+        if (kind == 0) {
+          builder.existsMatchExpressions(List.of(check));
+        } else if (kind == 1) {
+          builder.notMatchExpressions(List.of(check));
+        } else {
+          builder
+              .booleanCheck(new MatchBooleanCheck.Or(List.of(new MatchBooleanCheck.Probe(check))));
+        }
+        var ctx = context();
+        ctx.setInputParameters(Map.of("wanted", "neither"));
+        var planner = kind == 3 ? new MatchExecutionPlanner(parse(
+            "MATCH {class:BoolP, as:p}.out('BoolFan'){as:q},"
+                + " NOT {as:p}.out('BoolE'){as:t, where:(name=:wanted)} RETURN p.name as name"))
+            : new MatchExecutionPlanner(builder.build());
+        var plan = (SelectExecutionPlan) planner.createExecutionPlan(ctx, false, false);
+        assertThat(plan.prettyPrint(0, 2).contains("HASH")).isEqualTo(mode == 2);
+        for (int start = 0; start < 3; start++) {
+          if (start == 2) {
+            session.execute("CREATE EDGE BoolE FROM (SELECT FROM BoolP WHERE name='filter')"
+                + " TO (SELECT FROM BoolP WHERE name='neither')").close();
+          }
+          ctx.setInputParameters(Map.of("wanted", start == 1 ? "absent" : "neither"));
+          var stream = plan.start();
+          var rows = stream.stream(ctx).map(row -> row.<String>getProperty("name"))
+              .sorted().toList();
+          var passing = start == 1 ? List.<String>of()
+              : start == 2 ? List.of("both", "filter", "hop") : List.of("both", "hop");
+          var expected = List.of("both", "filter", "hop", "neither").stream()
+              .filter(name -> negative != passing.contains(name))
+              .flatMap(name -> java.util.stream.IntStream.range(0, 16).mapToObj(i -> name))
+              .toList();
+          assertThat(rows).isEqualTo(expected);
+          if (mode != 2) {
+            var memories = memories(plan.getSteps());
+            assertThat(memories).hasSize(1);
+            assertThat(memories.getFirst().hits()).isEqualTo(mode == 1 ? 60 : 0);
+            assertThat(memories.getFirst().size()).isEqualTo(mode == 1 ? 4 : 0);
+          }
+          stream.close(ctx);
+          if (start == 1) {
+            plan.close();
+            for (var memory : memories(plan.getSteps())) {
+              assertThat(memory.size()).isZero();
+            }
+          } else {
+            plan.reset(ctx);
+          }
+        }
+        plan.close();
+        session.execute("DELETE EDGE BoolE FROM (SELECT FROM BoolP WHERE name='filter')").close();
+      }
+    }
+  }
+
+  /** Hidden context suffixes must not reuse p's answer for a different q under SQL NOT. */
+  @Test
+  public void contextSuffixDisablesMemoryAndHashForNot() throws Exception {
+    var pattern = new Pattern();
+    parse("MATCH {class:BoolP,as:p}, {class:BoolP,as:q} RETURN p")
+        .getMatchExpressions().forEach(pattern::addExpression);
+    for (var suffix : List.of("$matched.q.name", "matched.q.name",
+        "context.matched.q.name", "CONTEXT.matched.q.name", "rowState.q.name")) {
+      var predicate = "name=$matched.p." + suffix;
+      var sql = "MATCH {class:BoolP, as:p, where:(name='hop')}, {class:BoolP, as:q}"
+          + ", NOT {as:p}.out('BoolE'){as:x, where:(" + predicate + ")}"
+          + " RETURN q.name as name ORDER BY name";
+      var check = parse("MATCH {as:p}.out('BoolE'){as:x, where:(" + predicate
+          + ")} RETURN p").getMatchExpressions().getFirst();
+      List<String> nested = null;
+      for (long limit : List.of(0L, 10000L)) {
+        GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(limit);
+        var ctx = context();
+        // User variables can expose the row just like built-in context names.
+        ctx.setDynamicVariable("rowState", current -> current.getVariable("matched"));
+        var plan = (SelectExecutionPlan) new MatchExecutionPlanner(parse(sql))
+            .createExecutionPlan(ctx, false, false);
+        assertThat(plan.prettyPrint(0, 2)).doesNotContain("HASH");
+        var stream = plan.start();
+        try {
+          var rows = stream.stream(ctx).map(row -> row.<String>getProperty("name"))
+              .sorted().toList();
+          assertThat(rows).as(suffix).containsExactly("both", "filter", "hop");
+          if (nested == null) {
+            nested = rows;
+          } else {
+            assertThat(rows).as(suffix).isEqualTo(nested);
+          }
+          var memory = memories(plan.getSteps()).getFirst();
+          assertThat(memory.size()).as(suffix).isZero();
+          assertThat(memory.hits()).as(suffix).isZero();
+        } finally {
+          stream.close(ctx);
+          plan.close();
+        }
+      }
+      var reads = DetachedCheckReadSet.describe(check, pattern);
+      assertThat(reads.rememberable()).as(suffix).isFalse();
+      assertThat(reads.independent()).as(suffix).isFalse();
+    }
+  }
+
+  /** A classless shared target has no key bound. Keep the undiscounted hash-winning choice. */
+  @Test
+  public void classlessSharedAliasDoesNotDiscountNestedCost() {
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(5L);
+    session.rollback();
+    session.createEdgeClass("BoolFan");
+    session.begin();
+    // Model 5,000 distinct targets per origin and ten candidate visits in the NOT walk.
+    // Only the fan-out estimates are controlled. The planner performs eligibility and costing.
+    try (var planner = org.mockito.Mockito.mockStatic(MatchExecutionPlanner.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      planner.when(() -> MatchExecutionPlanner.estimateMethodFanOut(
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyMap()))
+          .thenAnswer(call -> call.getArgument(0).toString().contains("BoolFan") ? 5000.0 : 10.0);
+      var plan = (SelectExecutionPlan) new MatchExecutionPlanner(parse(
+          "MATCH {class:BoolP,as:p}.out('BoolFan'){as:q},"
+              + " NOT {as:p}.out('BoolE'){as:q} RETURN p,q"))
+          .createExecutionPlan(context(), false, false);
+      try {
+        assertThat(plan.prettyPrint(0, 2)).contains("HASH ANTI_JOIN");
+      } finally {
+        plan.close();
+      }
+    }
+  }
+
+  /** Runtime graph dispatch ignores method case. Both hash and memory eligibility must agree. */
+  @Test
+  public void uppercaseGraphMethodsKeepHashAndMemoryEligibility() throws Exception {
+    var pattern = new Pattern();
+    parse("MATCH {class:BoolP,as:p} RETURN p").getMatchExpressions()
+        .forEach(pattern::addExpression);
+    for (var method : List.of("OUT", "OuT", "outE", "OUTE", "inV", "INV")) {
+      var check = parse("MATCH {as:p}." + method + "('BoolE'){as:x} RETURN p")
+          .getMatchExpressions().getFirst();
+      var reads = DetachedCheckReadSet.describe(check, pattern);
+      assertThat(reads.rememberable()).as(method).isTrue();
+      assertThat(reads.independent()).as(method).isTrue();
+    }
+  }
+
+  private List<DetachedCheckMemory> memories(
+      List<? extends com.jetbrains.youtrackdb.internal.core.query.ExecutionStep> steps)
+      throws Exception {
+    var result = new java.util.ArrayList<DetachedCheckMemory>();
+    for (var step : steps) {
+      if (step instanceof FilterBooleanMatchStep tree) {
+        var field = FilterBooleanMatchStep.class.getDeclaredField("kind");
+        field.setAccessible(true);
+        if (field.get(tree) == FilterBooleanMatchStep.Kind.PROBE) {
+          var memory = FilterBooleanMatchStep.class.getDeclaredField("memory");
+          memory.setAccessible(true);
+          result.add((DetachedCheckMemory) memory.get(step));
+        }
+      } else if (step instanceof FilterExistsMatchPatternStep
+          || step instanceof FilterNotMatchPatternStep) {
+        var field = step.getClass().getDeclaredField("memory");
+        field.setAccessible(true);
+        result.add((DetachedCheckMemory) field.get(step));
+      }
+      result.addAll(memories(step.getSubSteps()));
+    }
+    return result;
+  }
+
   /** OR retains filter-only, hop-only and both once. Hash and nested give identical multisets. */
   @Test
   public void orHashAndNestedKeepExactlyThePassingRows() {
@@ -89,6 +284,32 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10000L);
     plan.reset(plan.getContext());
     assertThat(names(plan)).containsExactly("both", "filter", "hop");
+  }
+
+  /** A plan selected before zero still builds its hash set at runtime without a positive cap. */
+  @Test
+  public void zeroRuntimeThresholdKeepsAlreadySelectedHashBuild() throws Exception {
+    var plan = plan("RETURN p.name as name", or());
+    assertThat(plan.prettyPrint(0, 2)).contains("HASH SEMI_JOIN");
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+    var hash = findHashStep(plan.getSteps());
+    assertThat(hash).isNotNull();
+    assertThat(hash.buildHashSet(plan.getContext())).hasSize(2);
+    assertThat(names(plan)).containsExactly("both", "filter", "hop");
+  }
+
+  private HashJoinMatchStep findHashStep(
+      List<? extends com.jetbrains.youtrackdb.internal.core.query.ExecutionStep> steps) {
+    for (var step : steps) {
+      if (step instanceof HashJoinMatchStep hash) {
+        return hash;
+      }
+      var nested = findHashStep(step.getSubSteps());
+      if (nested != null) {
+        return nested;
+      }
+    }
+    return null;
   }
 
   /** A positive hop repeats the origin row. Tree membership must not multiply or deduplicate it. */
@@ -149,7 +370,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
     assertThat(names(plan)).containsExactly("both", "filter", "hop");
   }
 
-  /** Default guards choose nested for four outer rows and hash for a repeated forty-row input. */
+  /** Memory makes repeated origins cheaper than an eager build, even for forty outer rows. */
   @Test
   public void defaultCostGuardsDistinguishFewAndManyOuterRows() {
     GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(
@@ -178,7 +399,7 @@ public class BooleanMatchPlannerTest extends DbTestBase {
         .returnNestedProjections(statement.getReturnNestedProjections()).build();
     var many = (SelectExecutionPlan) new MatchExecutionPlanner(inputs)
         .createExecutionPlan(context(), false, false);
-    assertThat(many.prettyPrint(0, 2)).contains("BOOLEAN PROBE", "HASH SEMI_JOIN");
+    assertThat(many.prettyPrint(0, 2)).contains("BOOLEAN PROBE").doesNotContain("HASH SEMI_JOIN");
     assertThat(names(many)).hasSize(40).containsOnly("hop");
   }
 
@@ -424,12 +645,14 @@ public class BooleanMatchPlannerTest extends DbTestBase {
       }
       return;
     }
-    if (value instanceof java.util.Set<?> || value instanceof CommandContext) {
+    if (value instanceof java.util.Set<?> || value instanceof java.util.HashMap<?, ?>
+        || value instanceof CommandContext) {
       state.put(value, value.toString());
       return;
     }
     if (!(value instanceof com.jetbrains.youtrackdb.internal.core.query.ExecutionStep)
         && !(value instanceof SelectExecutionPlan)
+        && !(value instanceof DetachedCheckMemory)
         && !(value instanceof com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode)) {
       return;
     }

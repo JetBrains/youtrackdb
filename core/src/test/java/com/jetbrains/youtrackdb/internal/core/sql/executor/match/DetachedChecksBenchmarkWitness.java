@@ -15,7 +15,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 
 /** Untimed observation of the live plan, after opening but before exhaustion closes hash state. */
 record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int builtKeys,
-    Map<Integer, Long> rows) {
+    Map<Integer, Long> rows, List<DetachedCheckMemory> memories, long[] rememberedHits) {
+
+  @Override
+  public String toString() {
+    return "engine=" + engine + ", paths=" + paths + ", builtKeys=" + builtKeys
+        + ", rememberedHits=" + rememberedHits[0] + ", rows=" + rows;
+  }
 
   /** OR and NOT over OR use scoped checks. */
   static boolean expectTranslatedOr(String kind) {
@@ -28,7 +34,8 @@ record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int bui
         .toList();
     assertThat(boundaries).hasSizeLessThanOrEqualTo(1);
     if (boundaries.isEmpty()) {
-      return new DetachedChecksBenchmarkWitness("native", List.of("native"), 0, rows);
+      return new DetachedChecksBenchmarkWitness("native", List.of("native"), 0, rows,
+          List.of(), new long[1]);
     }
     if (boundaries.getFirst() instanceof YTDBMatchPlanStep<?, ?> single) {
       return inspect("translated", single.getPlan(), rows);
@@ -36,10 +43,13 @@ record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int bui
     var multi = (MultiPlanMatchStep<?, ?>) boundaries.getFirst();
     var paths = new ArrayList<String>();
     int keys = 0;
+    var memories = new ArrayList<DetachedCheckMemory>();
     for (var plan : multi.getPlans()) {
       keys += inspectSteps(plan.getSteps(), paths);
+      collectMemories(plan.getSteps(), memories);
     }
-    return new DetachedChecksBenchmarkWitness("translated", List.copyOf(paths), keys, rows);
+    return new DetachedChecksBenchmarkWitness("translated", List.copyOf(paths), keys, rows,
+        memories, new long[1]);
   }
 
   static DetachedChecksBenchmarkWitness sql(ExecutionPlan plan, Map<Integer, Long> rows)
@@ -51,7 +61,29 @@ record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int bui
       Map<Integer, Long> rows) throws Exception {
     var paths = new ArrayList<String>();
     int keys = inspectSteps(plan.getSteps(), paths);
-    return new DetachedChecksBenchmarkWitness(engine, List.copyOf(paths), keys, rows);
+    var memories = new ArrayList<DetachedCheckMemory>();
+    collectMemories(plan.getSteps(), memories);
+    return new DetachedChecksBenchmarkWitness(engine, List.copyOf(paths), keys, rows,
+        memories, new long[1]);
+  }
+
+  private static void collectMemories(List<? extends ExecutionStep> steps,
+      List<DetachedCheckMemory> memories) throws Exception {
+    for (var step : steps) {
+      if (step instanceof FilterBooleanMatchStep || step instanceof FilterExistsMatchPatternStep
+          || step instanceof FilterNotMatchPatternStep) {
+        var field = step.getClass().getDeclaredField("memory");
+        field.setAccessible(true);
+        memories.add((DetachedCheckMemory) field.get(step));
+      }
+      collectMemories(step.getSubSteps(), memories);
+    }
+  }
+
+  void observeMemory() {
+    // Exhaustion may close the live plan. Snapshot hits while the iterator still owns its state.
+    rememberedHits[0] = Math.max(rememberedHits[0],
+        memories.stream().mapToLong(DetachedCheckMemory::hits).sum());
   }
 
   private static int inspectSteps(List<? extends ExecutionStep> steps, List<String> paths)
@@ -109,6 +141,13 @@ record DetachedChecksBenchmarkWitness(String engine, List<String> paths, int bui
       assertThat(paths).containsExactly("native");
     } else {
       assertThat(paths).containsAnyOf("nested-BOOLEAN", "hash-BOOLEAN");
+    }
+    if (or && scenario.equals("low-match")) {
+      assertThat(paths).contains("hash-BOOLEAN");
+    }
+    if (scenario.equals("repeated-nested")) {
+      assertThat(rememberedHits[0]).as("repeated nested checks must reuse remembered answers")
+          .isPositive();
     }
     if (limited) {
       assertThat(rows.values().stream().mapToLong(Long::longValue).sum()).isEqualTo(1);
