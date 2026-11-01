@@ -27,12 +27,7 @@ final class PostConcatSupport {
     aliases.add(null);
     List<SQLNestedProjection> nested = new ArrayList<>(1);
     nested.add(null);
-    return MatchPlanInputs.builder(inputs.pattern())
-        .aliasClasses(inputs.aliasClasses())
-        .aliasFilters(inputs.aliasFilters())
-        .matchExpressions(inputs.matchExpressions())
-        .notMatchExpressions(inputs.notMatchExpressions())
-        .existsMatchExpressions(inputs.existsMatchExpressions())
+    return inputs.toBuilder()
         .returnItems(List.of(MatchProjectionBuilder.countStar()))
         .returnAliases(aliases)
         .returnNestedProjections(nested)
