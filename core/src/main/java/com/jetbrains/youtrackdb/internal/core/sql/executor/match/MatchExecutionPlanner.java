@@ -1085,7 +1085,16 @@ public class MatchExecutionPlanner {
     SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
   }
 
-  /** Direct references can use identity only when bindings stay links throughout the pattern. */
+  /**
+   * Direct references can use identity only when bindings stay links throughout the pattern.
+   *
+   * <p>The boolean tree runs before DISTINCT, so duplicate suppression sees only survivors.
+   * FILTER leaves read the outer row and PROBE leaves write a detached copy. Probe aliases,
+   * including depth/path metadata with the returned alias's name, cannot replace the outer key.
+   * Consequently booleanCheck needs no alias-overwrite veto here. GremlinStepWalker also allows
+   * only projection after captured DISTINCT, so it cannot move a later boolean filter before it.
+   * Keep these placement and row-isolation contracts when adding boolean leaf implementations.
+   */
   @Nullable private String identityDistinctAlias() {
     if (!returnDistinct || groupBy != null || orderBy != null || unwind != null
         || skip != null || limit != null || returnItems.isEmpty()) {
