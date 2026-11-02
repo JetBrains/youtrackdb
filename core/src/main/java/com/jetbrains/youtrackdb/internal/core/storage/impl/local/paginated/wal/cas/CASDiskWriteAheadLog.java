@@ -449,16 +449,15 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   @Override
   public List<WriteableWALRecord> read(final LogSequenceNumber lsn, final int limit)
       throws IOException {
-    return read(lsn, limit, false);
+    try {
+      return readForRecovery(lsn, limit);
+    } catch (WALRecordDecodeException e) {
+      throw (RuntimeException) e.getCause();
+    }
   }
 
   /** Recovery receives the decoded prefix with a record decoding failure. */
   public List<WriteableWALRecord> readForRecovery(LogSequenceNumber lsn, int limit)
-      throws IOException {
-    return read(lsn, limit, true);
-  }
-
-  private List<WriteableWALRecord> read(LogSequenceNumber lsn, int limit, boolean recovery)
       throws IOException {
     addCutTillLimit(lsn);
     try {
@@ -528,7 +527,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         writtenLSN = this.writtenUpTo.get().lsn();
       }
 
-      return readFromDisk(lsn, limit, recovery);
+      return readFromDisk(lsn, limit);
     } finally {
       removeCutTillLimit(lsn);
     }
@@ -560,8 +559,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return logSize.get();
   }
 
-  private List<WriteableWALRecord> readFromDisk(final LogSequenceNumber lsn, final int limit,
-      boolean recovery)
+  private List<WriteableWALRecord> readFromDisk(final LogSequenceNumber lsn, final int limit)
       throws IOException {
     final List<WriteableWALRecord> result = new ArrayList<>();
     long position = lsn.getPosition();
@@ -694,10 +692,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
               } catch (RuntimeException failure) {
                 // Framing and payload decoding share the same stop boundary. Disk read errors
                 // and Errors are not converted into a recoverable prefix.
-                if (recovery) {
-                  throw new WALRecordDecodeException(result, failure);
-                }
-                throw failure;
+                throw new WALRecordDecodeException(result, failure);
               }
 
               pageIndex++;
@@ -728,16 +723,15 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   @Override
   public List<WriteableWALRecord> next(final LogSequenceNumber lsn, final int limit)
       throws IOException {
-    return next(lsn, limit, false);
+    try {
+      return nextForRecovery(lsn, limit);
+    } catch (WALRecordDecodeException e) {
+      throw (RuntimeException) e.getCause();
+    }
   }
 
   /** Like {@link #readForRecovery}, but excludes the record at {@code lsn}. */
   public List<WriteableWALRecord> nextForRecovery(LogSequenceNumber lsn, int limit)
-      throws IOException {
-    return next(lsn, limit, true);
-  }
-
-  private List<WriteableWALRecord> next(LogSequenceNumber lsn, int limit, boolean recovery)
       throws IOException {
     addCutTillLimit(lsn);
     try {
@@ -834,7 +828,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
       final List<WriteableWALRecord> result;
       try {
-        result = readFromDisk(lsn, limit <= 0 ? 0 : limit + 1, recovery);
+        result = readFromDisk(lsn, limit <= 0 ? 0 : limit + 1);
       } catch (WALRecordDecodeException failure) {
         final var prefix = failure.getRecords();
         // The disk read includes lsn. next must exclude it even on failure.

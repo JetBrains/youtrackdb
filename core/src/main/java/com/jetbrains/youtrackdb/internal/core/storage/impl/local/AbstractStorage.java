@@ -9215,7 +9215,7 @@ public abstract class AbstractStorage
     LogSequenceNumber lastUpdatedLSN = null;
 
     try {
-      var records = cursor.read(lsn, true);
+      var records = cursor.read(lsn);
 
       while (!records.isEmpty()) {
         for (final var walRecord : records) {
@@ -9284,7 +9284,7 @@ public abstract class AbstractStorage
           }
         }
 
-        records = cursor.read(records.getLast().getLsn(), false);
+        records = cursor.next(records.getLast().getLsn());
       }
       cursor.checkFailure();
     } catch (final IOException e) {
@@ -9331,19 +9331,33 @@ public abstract class AbstractStorage
       this.wal = wal;
     }
 
-    private List<WriteableWALRecord>
-        read(LogSequenceNumber position, boolean first) throws IOException {
+    private List<WriteableWALRecord> read(LogSequenceNumber position) throws IOException {
       checkFailure();
       try {
         if (wal instanceof CASDiskWriteAheadLog disk) {
-          return first ? disk.readForRecovery(position, 1_000)
-              : disk.nextForRecovery(position, 1_000);
+          return disk.readForRecovery(position, 1_000);
         }
-        return first ? wal.read(position, 1_000) : wal.next(position, 1_000);
+        return wal.read(position, 1_000);
       } catch (WALRecordDecodeException e) {
-        failure = (RuntimeException) e.getCause();
-        return e.getRecords();
+        return deferFailure(e);
       }
+    }
+
+    private List<WriteableWALRecord> next(LogSequenceNumber position) throws IOException {
+      checkFailure();
+      try {
+        if (wal instanceof CASDiskWriteAheadLog disk) {
+          return disk.nextForRecovery(position, 1_000);
+        }
+        return wal.next(position, 1_000);
+      } catch (WALRecordDecodeException e) {
+        return deferFailure(e);
+      }
+    }
+
+    private List<WriteableWALRecord> deferFailure(WALRecordDecodeException e) {
+      failure = (RuntimeException) e.getCause();
+      return e.getRecords();
     }
 
     private void checkFailure() {
@@ -9405,13 +9419,13 @@ public abstract class AbstractStorage
         var cursor = position;
         final var reader = new RecoveryWALCursor(wal);
         try {
-          var records = reader.read(cursor, false);
+          var records = reader.next(cursor);
           while (!records.isEmpty()) {
             for (final var record : records) {
               observe(record);
             }
             cursor = records.getLast().getLsn();
-            records = reader.read(cursor, false);
+            records = reader.next(cursor);
           }
           reader.checkFailure();
         } catch (IOException | RuntimeException e) {
