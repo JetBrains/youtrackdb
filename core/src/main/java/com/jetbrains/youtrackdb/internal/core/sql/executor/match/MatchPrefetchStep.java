@@ -77,6 +77,14 @@ public class MatchPrefetchStep extends AbstractExecutionStep {
     this.prefetchedVariable = new ContextVariableReference(PREFETCHED_MATCH_ALIAS_PREFIX + alias);
   }
 
+  String getAlias() {
+    return alias;
+  }
+
+  InternalExecutionPlan getSourcePlan() {
+    return prefetchExecutionPlan;
+  }
+
   @Override
   public void reset() {
     prefetchExecutionPlan.reset(ctx);
