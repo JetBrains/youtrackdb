@@ -24,7 +24,6 @@ permissions:
 jobs:
   detect-changes:
     name: Detect Build-Relevant Changes
-    if: github.event.pull_request.draft != true
     runs-on: ubuntu-latest-8-cores-x64-public
     outputs:
       should_build: ${{ steps.filter.outputs.should_build }}
@@ -79,6 +78,7 @@ jobs:
           HEAD_COMMIT_SUBJECT: ${{ steps.head_commit.outputs.subject }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: |
@@ -99,6 +99,11 @@ jobs:
             exit 0
           elif [[ "$EVENT_NAME" == "pull_request" ]]; then
             BASE_SHA="$PR_BASE_SHA"
+            # Draft takes precedence over other skip reasons, including early exits below.
+            if [[ "$PR_DRAFT" == "true" ]]; then
+              RUN_INTEGRATION_TESTS=false
+              INTEGRATION_SKIP_REASON=draft
+            fi
           elif [[ "$EVENT_NAME" == "merge_group" ]]; then
             BASE_SHA="$MERGE_GROUP_BASE_SHA"
             RUN_INTEGRATION_TESTS=false
@@ -113,8 +118,9 @@ jobs:
           fi
 
           # Only a nonempty, same-repository pull request head is trusted.
-          if [[ "$EVENT_NAME" == "pull_request" && -n "$HEAD_REPOSITORY" \
-            && "$HEAD_REPOSITORY" == "$CURRENT_REPOSITORY" ]]; then
+          # Keep the draft skip reason when the head also has a skip marker.
+          if [[ "$EVENT_NAME" == "pull_request" && "$RUN_INTEGRATION_TESTS" == "true" \
+            && -n "$HEAD_REPOSITORY" && "$HEAD_REPOSITORY" == "$CURRENT_REPOSITORY" ]]; then
             if [[ "$HEAD_COMMIT_READ_STATUS" != "success" ]]; then
               echo "::warning::The head commit message could not be read. Integration tests will run."
             elif [[ "$HEAD_COMMIT_SUBJECT" == *"[no-it-tests]"* ]]; then
@@ -1052,7 +1058,7 @@ jobs:
   # ------------------------------------------------------------------
   ci-status:
     name: CI Status
-    if: always() && github.event.pull_request.draft != true
+    if: always()
     needs: [ detect-changes, integration-tests, test-linux, test-windows, coverage-gate, test-count-gate ]
     runs-on: ubuntu-latest-8-cores-x64-public
     steps:
@@ -1099,7 +1105,7 @@ jobs:
           elif [[ "$RUN_INTEGRATION_TESTS" == "false" \
             && "$INTEGRATION_RESULT" == "skipped" ]]; then
             case "$INTEGRATION_SKIP_REASON" in
-              no-it-tests|markdown-only|no-java-changes|no-it-modules|push|merge-group)
+              draft|no-it-tests|markdown-only|no-java-changes|no-it-modules|push|merge-group)
                 echo "Integration tests skipped for permitted reason: $INTEGRATION_SKIP_REASON"
                 ;;
               *)
