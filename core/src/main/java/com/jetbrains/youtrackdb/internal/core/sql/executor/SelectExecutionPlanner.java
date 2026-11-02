@@ -3,15 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
-import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
-import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.CompositeCollate;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -3282,7 +3279,7 @@ public class SelectExecutionPlanner {
       for (var i = 0; i < orderItemCount; i++) {
         var orderItem = info.orderBy.getItems().get(i);
         if (orderItem.getCollate() != null
-            || !sortOnlyCollationsMatch(idx.getDefinition().getCollate(), i,
+            || !IndexOrderCollations.matches(idx.getDefinition().getCollate(), i,
                 orderItem.getDeclaredCollate())) {
           indexFound = false;
           break;
@@ -3349,26 +3346,6 @@ public class SelectExecutionPlanner {
                 || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
                     info.whereClause == null ? null : info.whereClause.getBaseExpression()));
     return true;
-  }
-
-  /**
-   * Only built-in default and ci comparators have a known equivalence with index key order.
-   * Check ordered components only. Trailing components cannot change the ordered prefix, but
-   * prevent the caller from claiming RID order within an equal-prefix group.
-   */
-  private static boolean sortOnlyCollationsMatch(
-      Collate indexCollate, int component, @Nullable Collate declaredCollate) {
-    if (indexCollate instanceof CompositeCollate composite) {
-      indexCollate = composite.getCollates().get(component);
-    }
-    var indexDefault = indexCollate == null || indexCollate.getClass() == DefaultCollate.class;
-    var declaredDefault =
-        declaredCollate == null || declaredCollate.getClass() == DefaultCollate.class;
-    if (indexDefault && declaredDefault) {
-      return true;
-    }
-    return indexCollate != null && indexCollate.getClass() == CaseInsensitiveCollate.class
-        && declaredCollate != null && declaredCollate.getClass() == CaseInsensitiveCollate.class;
   }
 
   /**
@@ -3762,16 +3739,20 @@ public class SelectExecutionPlanner {
     // Every item shares one direction here, and an item with no declared type sorts ascending.
     var orderAsc = !SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType());
     if (IndexOrderedPlanner.isMultiValueDefinition(definition)
-        || !IndexOrderedPlanner.isDefaultCollate(definition.getCollate())
         || !canProduceNullPlacement(definition, orderBy, orderAsc, placements)) {
       return false;
     }
-    for (var item : orderBy.getItems()) {
-      if (!IndexOrderedPlanner.isDefaultCollate(item.getDeclaredCollate())) {
+    var components = desc.orderedIndexComponents(orderBy.getProperties());
+    if (components == null) {
+      return false;
+    }
+    for (var i = 0; i < components.size(); i++) {
+      if (!IndexOrderCollations.matches(definition.getCollate(), components.get(i),
+          orderBy.getItems().get(i).getDeclaredCollate())) {
         return false;
       }
     }
-    return desc.fullySorted(orderBy.getProperties());
+    return true;
   }
 
   /** An index may order ties by RID only when no unfixed key component remains. */

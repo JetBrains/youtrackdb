@@ -195,7 +195,6 @@ public class IndexScanOrderTest extends DbTestBase {
   /** Pending two-bound SELECT DESC keeps its range plan and returns the reference rows in order. */
   @Test
   public void pendingSelectDescendingRangeKeepsPlanAndMatchesFixture() {
-    assumeFalse(caseInsensitive);
     assertPendingSelect(
         "SELECT FROM " + CLASS_NAME + " WHERE p >= 'A' AND p <= 'u' ORDER BY p DESC",
         this::withinRange);
@@ -311,7 +310,8 @@ public class IndexScanOrderTest extends DbTestBase {
   }
 
   private boolean withinRange(Row row) {
-    return row.key().compareTo("A") >= 0 && row.key().compareTo("u") <= 0;
+    var key = collated(row.key());
+    return key.compareTo(collated("A")) >= 0 && key.compareTo(collated("u")) <= 0;
   }
 
   private void assertRequested() {
