@@ -152,7 +152,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALRecordDecodeException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
@@ -9198,6 +9201,7 @@ public abstract class AbstractStorage
       RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
     final var replayDeletions = new ReplayDeletions(writeAheadLog);
+    final var cursor = new RecoveryWALCursor(writeAheadLog);
 
     long recordsProcessed = 0;
     long maxOperationUnitId = -1;
@@ -9211,7 +9215,7 @@ public abstract class AbstractStorage
     LogSequenceNumber lastUpdatedLSN = null;
 
     try {
-      var records = writeAheadLog.read(lsn, 1_000);
+      var records = cursor.read(lsn, true);
 
       while (!records.isEmpty()) {
         for (final var walRecord : records) {
@@ -9280,9 +9284,14 @@ public abstract class AbstractStorage
           }
         }
 
-        records = writeAheadLog.next(records.getLast().getLsn(), 1_000);
+        records = cursor.read(records.getLast().getLsn(), false);
       }
+      cursor.checkFailure();
+    } catch (final IOException e) {
+      cursor.attachFailure(e);
+      throw e;
     } catch (final WALPageBrokenException e) {
+      cursor.attachFailure(e);
       LogManager.instance()
           .error(
               this,
@@ -9290,6 +9299,7 @@ public abstract class AbstractStorage
                   + " be rolled back.",
               e);
     } catch (final RuntimeException e) {
+      cursor.attachFailure(e);
       LogManager.instance()
           .error(
               this,
@@ -9306,6 +9316,49 @@ public abstract class AbstractStorage
     }
 
     return lastUpdatedLSN;
+  }
+
+  /**
+   * Both recovery reads consume the decoded prefix before reporting its failure.
+   * A deferred failure must also be checked when that prefix is empty.
+   */
+  private static final class RecoveryWALCursor {
+
+    private final WriteAheadLog wal;
+    private RuntimeException failure;
+
+    private RecoveryWALCursor(WriteAheadLog wal) {
+      this.wal = wal;
+    }
+
+    private List<WriteableWALRecord>
+        read(LogSequenceNumber position, boolean first) throws IOException {
+      checkFailure();
+      try {
+        if (wal instanceof CASDiskWriteAheadLog disk) {
+          return first ? disk.readForRecovery(position, 1_000)
+              : disk.nextForRecovery(position, 1_000);
+        }
+        return first ? wal.read(position, 1_000) : wal.next(position, 1_000);
+      } catch (WALRecordDecodeException e) {
+        failure = (RuntimeException) e.getCause();
+        return e.getRecords();
+      }
+    }
+
+    private void checkFailure() {
+      if (failure != null) {
+        throw failure;
+      }
+    }
+
+    private void attachFailure(Throwable replayFailure) {
+      // Prefix replay can fail before the deferred decode error reaches checkFailure().
+      // Keep both causes without replacing the replay failure or suppressing it on itself.
+      if (failure != null && failure != replayFailure) {
+        replayFailure.addSuppressed(failure);
+      }
+    }
   }
 
   /**
@@ -9350,16 +9403,19 @@ public abstract class AbstractStorage
         scanned = true;
         // position is the last consumed record, not the end of its fetched batch.
         var cursor = position;
+        final var reader = new RecoveryWALCursor(wal);
         try {
-          var records = wal.next(cursor, 1_000);
+          var records = reader.read(cursor, false);
           while (!records.isEmpty()) {
             for (final var record : records) {
               observe(record);
             }
             cursor = records.getLast().getLsn();
-            records = wal.next(cursor, 1_000);
+            records = reader.read(cursor, false);
           }
+          reader.checkFailure();
         } catch (IOException | RuntimeException e) {
+          reader.attachFailure(e);
           // No evidence beyond the valid prefix may authorize a skip. Normal replay still
           // handles its own read errors and can continue using all evidence collected so far.
           LogManager.instance().warn(AbstractStorage.this,

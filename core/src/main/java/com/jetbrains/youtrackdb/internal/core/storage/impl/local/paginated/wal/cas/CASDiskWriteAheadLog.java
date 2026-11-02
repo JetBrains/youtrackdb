@@ -449,6 +449,17 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   @Override
   public List<WriteableWALRecord> read(final LogSequenceNumber lsn, final int limit)
       throws IOException {
+    return read(lsn, limit, false);
+  }
+
+  /** Recovery receives the decoded prefix with a record decoding failure. */
+  public List<WriteableWALRecord> readForRecovery(LogSequenceNumber lsn, int limit)
+      throws IOException {
+    return read(lsn, limit, true);
+  }
+
+  private List<WriteableWALRecord> read(LogSequenceNumber lsn, int limit, boolean recovery)
+      throws IOException {
     addCutTillLimit(lsn);
     try {
       final var begin = begin();
@@ -517,7 +528,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         writtenLSN = this.writtenUpTo.get().lsn();
       }
 
-      return readFromDisk(lsn, limit);
+      return readFromDisk(lsn, limit, recovery);
     } finally {
       removeCutTillLimit(lsn);
     }
@@ -549,7 +560,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     return logSize.get();
   }
 
-  private List<WriteableWALRecord> readFromDisk(final LogSequenceNumber lsn, final int limit)
+  private List<WriteableWALRecord> readFromDisk(final LogSequenceNumber lsn, final int limit,
+      boolean recovery)
       throws IOException {
     final List<WriteableWALRecord> result = new ArrayList<>();
     long position = lsn.getPosition();
@@ -620,61 +632,72 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
               }
 
               buffer.position((int) (position - pageIndex * pageSize));
-              while (buffer.remaining() > 0) {
-                if (recordLen == -1) {
-                  if (recordLenBytes == null) {
-                    lsnPos = (int) (pageIndex * pageSize + buffer.position());
+              try {
+                while (buffer.remaining() > 0) {
+                  if (recordLen == -1) {
+                    if (recordLenBytes == null) {
+                      lsnPos = (int) (pageIndex * pageSize + buffer.position());
 
-                    if (buffer.remaining() >= IntegerSerializer.INT_SIZE) {
-                      recordLen = buffer.getInt();
+                      if (buffer.remaining() >= IntegerSerializer.INT_SIZE) {
+                        recordLen = buffer.getInt();
+                      } else {
+                        recordLenBytes = new byte[IntegerSerializer.INT_SIZE];
+                        recordLenRead = buffer.remaining();
+
+                        buffer.get(recordLenBytes, 0, recordLenRead);
+                        continue;
+                      }
                     } else {
-                      recordLenBytes = new byte[IntegerSerializer.INT_SIZE];
-                      recordLenRead = buffer.remaining();
-
-                      buffer.get(recordLenBytes, 0, recordLenRead);
-                      continue;
+                      buffer.get(
+                          recordLenBytes, recordLenRead,
+                          IntegerSerializer.INT_SIZE - recordLenRead);
+                      recordLen = IntegerSerializer.deserializeNative(recordLenBytes, 0);
                     }
-                  } else {
-                    buffer.get(
-                        recordLenBytes, recordLenRead, IntegerSerializer.INT_SIZE - recordLenRead);
-                    recordLen = IntegerSerializer.deserializeNative(recordLenBytes, 0);
+
+                    if (recordLen == 0) {
+                      // end of page is reached
+                      recordLen = -1;
+                      recordLenBytes = null;
+                      recordLenRead = -1;
+
+                      break;
+                    }
+
+                    recordContent = new byte[recordLen];
                   }
 
-                  if (recordLen == 0) {
-                    // end of page is reached
+                  final var bytesToRead = Math.min(recordLen - bytesRead, buffer.remaining());
+                  buffer.get(recordContent, bytesRead, bytesToRead);
+                  bytesRead += bytesToRead;
+
+                  if (bytesRead == recordLen) {
+                    final var walRecord =
+                        WALRecordsFactory.INSTANCE.fromStream(recordContent);
+
+                    walRecord.setLsn(new LogSequenceNumber(segment, lsnPos));
+
+                    recordContent = null;
+                    bytesRead = 0;
                     recordLen = -1;
+
                     recordLenBytes = null;
                     recordLenRead = -1;
 
-                    break;
-                  }
+                    result.add(walRecord);
 
-                  recordContent = new byte[recordLen];
-                }
-
-                final var bytesToRead = Math.min(recordLen - bytesRead, buffer.remaining());
-                buffer.get(recordContent, bytesRead, bytesToRead);
-                bytesRead += bytesToRead;
-
-                if (bytesRead == recordLen) {
-                  final var walRecord =
-                      WALRecordsFactory.INSTANCE.fromStream(recordContent);
-
-                  walRecord.setLsn(new LogSequenceNumber(segment, lsnPos));
-
-                  recordContent = null;
-                  bytesRead = 0;
-                  recordLen = -1;
-
-                  recordLenBytes = null;
-                  recordLenRead = -1;
-
-                  result.add(walRecord);
-
-                  if (result.size() == limit) {
-                    return Collections.unmodifiableList(result);
+                    if (result.size() == limit) {
+                      return Collections.unmodifiableList(result);
+                    }
                   }
                 }
+
+              } catch (RuntimeException failure) {
+                // Framing and payload decoding share the same stop boundary. Disk read errors
+                // and Errors are not converted into a recoverable prefix.
+                if (recovery) {
+                  throw new WALRecordDecodeException(result, failure);
+                }
+                throw failure;
               }
 
               pageIndex++;
@@ -704,6 +727,17 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
   @Override
   public List<WriteableWALRecord> next(final LogSequenceNumber lsn, final int limit)
+      throws IOException {
+    return next(lsn, limit, false);
+  }
+
+  /** Like {@link #readForRecovery}, but excludes the record at {@code lsn}. */
+  public List<WriteableWALRecord> nextForRecovery(LogSequenceNumber lsn, int limit)
+      throws IOException {
+    return next(lsn, limit, true);
+  }
+
+  private List<WriteableWALRecord> next(LogSequenceNumber lsn, int limit, boolean recovery)
       throws IOException {
     addCutTillLimit(lsn);
     try {
@@ -799,10 +833,14 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
 
       final List<WriteableWALRecord> result;
-      if (limit <= 0) {
-        result = readFromDisk(lsn, 0);
-      } else {
-        result = readFromDisk(lsn, limit + 1);
+      try {
+        result = readFromDisk(lsn, limit <= 0 ? 0 : limit + 1, recovery);
+      } catch (WALRecordDecodeException failure) {
+        final var prefix = failure.getRecords();
+        // The disk read includes lsn. next must exclude it even on failure.
+        throw new WALRecordDecodeException(
+            prefix.isEmpty() ? prefix : prefix.subList(1, prefix.size()),
+            (RuntimeException) failure.getCause());
       }
       if (result.isEmpty()) {
         return result;
