@@ -684,6 +684,96 @@ public class MatchExecutionPlannerInputsTest extends DbTestBase {
     }
   }
 
+  /**
+   * Boolean filters run before identity DISTINCT even when their answer depends on another alias.
+   * A failed arrival must not suppress a later passing arrival of the same returned vertex.
+   * Detached probe metadata may reuse that vertex's alias without replacing the outer identity.
+   */
+  @Test
+  public void booleanSurvivorsDeduplicateBeforeProjectionWithoutLeakingProbeAliases() {
+    session.createVertexClass("BooleanSource");
+    session.begin();
+    var rejected = session.newVertex("BooleanSource");
+    rejected.setProperty("keep", false);
+    var accepted = session.newVertex("BooleanSource");
+    accepted.setProperty("keep", true);
+    var shared = session.newVertex("V");
+    var probed = session.newVertex("V");
+    var dropped = session.newVertex("V");
+    rejected.addEdge(shared, "E");
+    accepted.addEdge(shared, "E");
+    rejected.addEdge(probed, "E");
+    rejected.addEdge(dropped, "E");
+    probed.addEdge(session.newVertex("V"), "E");
+    session.commit();
+    session.begin();
+    try {
+      for (var metadata : List.of("", ", depthAlias:a", ", pathAlias:a")) {
+        var statement = (SQLMatchStatement) SQLEngine.parse(
+            "MATCH {class:BooleanSource, as:p}.out(){as:a}, "
+                + "NOT {as:a}.out(){as:probe" + metadata + "} RETURN DISTINCT a",
+            session);
+        var condition = ((SQLMatchStatement) SQLEngine.parse(
+            "MATCH {as:p, where:(keep = true)} RETURN p", session))
+            .getMatchExpressions().getFirst().getOrigin().getFilter();
+        var tree = new MatchBooleanCheck.Or(List.of(
+            new MatchBooleanCheck.Filter("p", condition),
+            new MatchBooleanCheck.Probe(statement.getNotMatchExpressions().getFirst())));
+        var pattern = new Pattern();
+        statement.getMatchExpressions().forEach(pattern::addExpression);
+        var inputs = MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("p", "BooleanSource"))
+            .matchExpressions(statement.getMatchExpressions())
+            .booleanCheck(tree)
+            .returnItems(statement.getReturnItems())
+            .returnAliases(statement.getReturnAliases())
+            .returnNestedProjections(statement.getReturnNestedProjections())
+            .returnDistinct(true).build();
+        for (boolean projected : List.of(false, true)) {
+          var ctx = new BasicCommandContext(session);
+          var builder = inputs.toBuilder();
+          if (projected) {
+            builder.skip(((SQLMatchStatement) SQLEngine.parse(
+                "MATCH {as:a} RETURN a SKIP 0", session)).getSkip());
+          }
+          var plan = new MatchExecutionPlanner(builder.build())
+              .createExecutionPlan(ctx, false, false);
+          var steps = plan.getSteps();
+          int booleanIndex = -1;
+          int distinctIndex = -1;
+          int projectionIndex = -1;
+          for (int i = 0; i < steps.size(); i++) {
+            if (steps.get(i) instanceof FilterBooleanMatchStep) {
+              booleanIndex = i;
+            } else if (steps.get(i) instanceof DistinctExecutionStep) {
+              distinctIndex = i;
+            } else if (steps.get(i) instanceof ProjectionCalculationStep) {
+              projectionIndex = i;
+            }
+          }
+          assertThat(booleanIndex).isGreaterThanOrEqualTo(0).isLessThan(distinctIndex);
+          assertThat(distinctIndex < projectionIndex).isEqualTo(!projected);
+          assertThat(plan.prettyPrint(0, 2).contains("BY IDENTITY (a)"))
+              .isEqualTo(!projected);
+          var stream = plan.start();
+          try {
+            var identities = new ArrayList<Object>();
+            while (stream.hasNext(ctx)) {
+              identities.add(stream.next(ctx).getVertex("a").getIdentity());
+            }
+            assertThat(identities).as(metadata + " projected=" + projected)
+                .containsExactlyInAnyOrder(shared.getIdentity(), probed.getIdentity());
+          } finally {
+            stream.close(ctx);
+            plan.close();
+          }
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
   private void assertPrebuiltDistinctMatchesControl(
       String query, boolean identity, int expectedSize) {
     var statement = (SQLMatchStatement) SQLEngine.parse(query, session);
