@@ -7,11 +7,13 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -616,6 +618,172 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       }
       assertThat(translatedBulks).containsExactlyElementsOf(nativeBulks);
       assertThat(expanded).containsExactlyElementsOf(nativeRows);
+    });
+  }
+
+  /**
+   * Boolean OR, flat NOT, NOT over OR and positive EXISTS keep translated maps ungrouped on a
+   * cold miss and a real warm hit. The planner representation and G6 refusal are both pinned.
+   */
+  @Test
+  public void booleanAndExistsMapsRefuseBulkingOnColdAndWarmTranslationPaths() {
+    seed();
+    var shapes = List.<Supplier<GraphTraversal<?, ?>>>of(
+        () -> graph.traversal().V().hasLabel("BulkSource").out("first").out("second")
+            .or(__.out("missing"), __.has("name", "same")).barrier(2500).valueMap("name"),
+        () -> graph.traversal().V().hasLabel("BulkSource").out("first").out("second")
+            .not(__.out("missing")).barrier(2500).valueMap("name"),
+        () -> graph.traversal().V().hasLabel("BulkSource").out("first")
+            .where(__.out("second")).barrier(2500).valueMap("name"),
+        () -> graph.traversal().V().hasLabel("BulkSource").out("first").out("second")
+            .not(__.or(__.out("missing"), __.has("name", "absent")))
+            .barrier(2500).valueMap("name"));
+    for (int shapeIndex = 0; shapeIndex < shapes.size(); shapeIndex++) {
+      var shape = shapes.get(shapeIndex);
+      int representation = shapeIndex;
+      support.withTranslatorRestored(() -> {
+        support.setTranslatorEnabled(false);
+        var expected = new ArrayList<Object>(shape.get().toList());
+        assertThat(expected).isNotEmpty();
+        support.setTranslatorEnabled(true);
+        var cache = GremlinPlanCache.instance(graphSession());
+        cache.invalidate();
+        Object template = null;
+        long hits = cache.getTranslationHits();
+        for (int replay = 0; replay < 2; replay++) {
+          var raw = shape.get().asAdmin();
+          var extraction = GremlinStepWalker.extractShape(raw, graphSession());
+          var translation = GremlinStepWalker.production().walk(raw);
+          assertThat(translation).isNotNull();
+          switch (representation) {
+            case 0 -> assertThat(translation.inputs().booleanCheck())
+                .isInstanceOf(MatchBooleanCheck.Or.class);
+            case 1 -> {
+              assertThat(translation.inputs().booleanCheck()).isNull();
+              assertThat(translation.inputs().notMatchExpressions()).hasSize(1);
+            }
+            case 2 -> {
+              assertThat(translation.inputs().booleanCheck()).isNull();
+              assertThat(translation.inputs().existsMatchExpressions()).hasSize(1);
+            }
+            case 3 -> assertThat(translation.inputs().booleanCheck())
+                .isInstanceOf(MatchBooleanCheck.Not.class);
+            default -> throw new AssertionError("Unknown planner representation");
+          }
+          assertThat(extraction.complete()).isTrue();
+          assertThat(extraction.propertyMapBulkingCapacity()).isZero();
+          assertThat(translation.shaping().propertyMapBulkingCapacity()).isZero();
+          assertThat(extraction.key()).doesNotContain("3:pmb");
+          var fingerprint = GremlinPlanFingerprint.fingerprint(translation.inputs(),
+              translation.shaping());
+          assertThat(fingerprint).doesNotContain(";PMB:");
+          assertThat(GremlinPlanFingerprint.fingerprint(translation.inputs(),
+              translation.shaping().withPropertyMapBulkingCapacity(2500)))
+              .contains(";PMB:").isNotEqualTo(fingerprint);
+          // Apply directly to retain the exact shape used for the extraction/walker comparison.
+          GremlinToMatchStrategy.instance().apply(raw);
+          assertThat(raw.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+          var boundary = (YTDBMatchPlanStep<?, ?>) raw.getStartStep();
+          assertThat(boundary.getPropertyMapBulkingCapacity()).isZero();
+          assertThat(cache.getTranslationHits()).isEqualTo(hits + replay);
+          if (template != null) {
+            assertThat(boundary.getPlan()).isSameAs(template);
+          }
+          template = boundary.getPlan();
+          assertThat(new ArrayList<Object>(raw.toList()))
+              .containsExactlyInAnyOrderElementsOf(expected);
+          assertThat(boundary.mapConstructions()).isZero();
+        }
+      });
+    }
+  }
+
+  /** A warm capacity mismatch must walk again rather than splice the poisoned template. */
+  @Test
+  public void warmCapacityMismatchFallsBackToCurrentUngroupedTranslation() {
+    seed();
+    support.withTranslatorRestored(() -> {
+      Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V().hasLabel("BulkSource")
+          .out("first").out("second").valueMap("name");
+      support.setTranslatorEnabled(false);
+      var expected = new ArrayList<Object>(shape.get().toList());
+      assertThat(expected).hasSize(4);
+      support.setTranslatorEnabled(true);
+      var first = shape.get().asAdmin();
+      GremlinToMatchStrategy.instance().apply(first);
+      var extraction = GremlinStepWalker.extractShape(shape.get().asAdmin(), graphSession());
+      assertThat(extraction.complete()).isTrue();
+      assertThat(extraction.propertyMapBulkingCapacity()).isZero();
+      var stored = (GremlinTranslationTemplate.Translate) GremlinPlanCache.getTranslation(
+          extraction.key(), graphSession());
+      assertThat(stored).isNotNull();
+      var poisoned = new GremlinTranslationTemplate.Translate(stored.planTemplate(),
+          stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
+          stored.shaping().withPropertyMapBulkingCapacity(2500), stored.bindingCount(),
+          stored.hasContributions());
+      var cache = GremlinPlanCache.instance(graphSession());
+      GremlinPlanCache.putTranslation(extraction.key(), poisoned, graphSession(),
+          cache.getGeneration());
+      var walks = new AtomicInteger();
+      var failures = new ArrayList<String>();
+      var strategy = new GremlinToMatchStrategy(raw -> {
+        walks.incrementAndGet();
+        return GremlinToMatchTranslator.translate(raw);
+      }, GremlinToMatchStrategy::buildPlan, true, failures::add);
+      long hits = cache.getTranslationHits();
+      var replay = shape.get().asAdmin();
+      strategy.apply(replay);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      assertThat(walks.get()).as("mismatched warm capacity must invoke the walker").isEqualTo(1);
+      assertThat(failures).containsExactly("Translation cache binding agreement failed");
+      assertThat(replay.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(((YTDBMatchPlanStep<?, ?>) replay.getStartStep())
+          .getPropertyMapBulkingCapacity()).isZero();
+      assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession()))
+          .isNotSameAs(poisoned);
+      assertThat(new ArrayList<Object>(replay.toList()))
+          .containsExactlyInAnyOrderElementsOf(expected);
+    });
+  }
+
+  /** A cold capacity disagreement executes the fresh plan but refuses translation-cache publication. */
+  @Test
+  public void coldCapacityMismatchRefusesTranslationTemplatePublication() {
+    seed();
+    support.withTranslatorRestored(() -> {
+      Supplier<GraphTraversal<?, ?>> shape = () -> graph.traversal().V().hasLabel("BulkSource")
+          .out("first").out("second").barrier(2500).valueMap("name");
+      support.setTranslatorEnabled(false);
+      var expected = new ArrayList<Object>(shape.get().toList());
+      assertThat(expected).hasSize(4);
+      support.setTranslatorEnabled(true);
+      var raw = shape.get().asAdmin();
+      var extraction = GremlinStepWalker.extractShape(raw, graphSession());
+      assertThat(extraction.complete()).isTrue();
+      assertThat(extraction.propertyMapBulkingCapacity()).isEqualTo(2500);
+      var cache = GremlinPlanCache.instance(graphSession());
+      cache.invalidate();
+      var failures = new ArrayList<String>();
+      var walks = new AtomicInteger();
+      var strategy = new GremlinToMatchStrategy(traversal -> {
+        walks.incrementAndGet();
+        var translation = GremlinToMatchTranslator.translate(traversal);
+        assertThat(translation).isNotNull();
+        assertThat(translation.shaping().propertyMapBulkingCapacity()).isEqualTo(2500);
+        // Inject only the walker capacity. Bindings, layout and the real plan remain unchanged.
+        return translation.withShaping(translation.shaping().withPropertyMapBulkingCapacity(0));
+      }, GremlinToMatchStrategy::buildPlan, true, failures::add);
+      long misses = cache.getTranslationMisses();
+      strategy.apply(raw);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+      assertThat(walks.get()).isEqualTo(1);
+      assertThat(raw.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      assertThat(((YTDBMatchPlanStep<?, ?>) raw.getStartStep())
+          .getPropertyMapBulkingCapacity()).isZero();
+      assertThat(failures).containsExactly("Cold translation binding agreement failed");
+      assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession())).isNull();
+      assertThat(new ArrayList<Object>(raw.toList()))
+          .containsExactlyInAnyOrderElementsOf(expected);
     });
   }
 
