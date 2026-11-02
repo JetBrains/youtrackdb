@@ -13,10 +13,12 @@ import static org.mockito.Mockito.mock;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
@@ -130,10 +132,6 @@ public class BackupRequestOwnerTest {
       boolean failedInvalidation = expected
           == ChangedPageTrackerBackup.Status.SAVE_FAILED_INVALIDATION_FAILED
           || expected == ChangedPageTrackerBackup.Status.COVERAGE_UNAVAILABLE_INVALIDATION_FAILED;
-      if (failedSave) {
-        Files.createDirectories(target.resolveSibling("history.tmp"));
-        Files.writeString(target.resolveSibling("history.tmp").resolve("child"), "block delete");
-      }
       if (failedInvalidation) {
         Files.createDirectories(target);
         Files.writeString(target.resolve("child"), "block delete");
@@ -151,7 +149,17 @@ public class BackupRequestOwnerTest {
         warnings.incrementAndGet();
         throw new AssertionError("diagnostic failure");
       };
-      assertEquals(expected, owner.finish(target, facts, coverage, sink));
+      var failPublication = new AtomicBoolean(failedSave);
+      // Fail only serialization. Invalidation must retain access to its Windows scratch name.
+      try (var files = ChangedPageTrackerCheckpointTest.observeFilesystem(call -> {
+        if (call.getMethod().getName().equals("write")
+            && failPublication.compareAndSet(true, false)) {
+          throw new IOException("injected publication failure");
+        }
+        return call.callRealMethod();
+      })) {
+        assertEquals(expected, owner.finish(target, facts, coverage, sink));
+      }
       long before = failures(tracker);
       owner.abort(null);
       assertEquals(before, failures(tracker));

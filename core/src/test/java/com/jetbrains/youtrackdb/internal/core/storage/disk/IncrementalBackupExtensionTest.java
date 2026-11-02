@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -1110,8 +1111,9 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Real supplier completion uses current WAL preflight and preserves every fallback warning.
-   * Filesystem obstructions distinguish save failure from failed invalidation. Invalidating at
-   * close distinguishes saved-untrusted history from a trusted full-read bootstrap.
+   * An injected one-shot serialization fault causes save failure. A filesystem obstruction causes
+   * invalidation failure. Invalidating at close distinguishes saved-untrusted history from a trusted
+   * full-read bootstrap.
    */
   @Test
   public void supplierCompletionUsesBridgeAndReportsExactFallbackStatus() throws Exception {
@@ -1170,10 +1172,6 @@ public class IncrementalBackupExtensionTest {
               invalidate.setAccessible(true);
               invalidate.invoke(tracker);
             }
-            if (row[0].startsWith("SAVE_FAILED")) {
-              Files.createDirectories(temporary);
-              Files.writeString(temporary.resolve("obstruction"), "owned test obstruction");
-            }
             if (row[0].endsWith("INVALIDATION_FAILED")) {
               Files.deleteIfExists(sideFile);
               Files.createDirectories(sideFile);
@@ -1186,7 +1184,16 @@ public class IncrementalBackupExtensionTest {
         };
         var records = new CopyOnWriteArrayList<LogRecord>();
         walField.set(storage, wal);
-        try {
+        var failPublication = new java.util.concurrent.atomic.AtomicBoolean(
+            row[0].startsWith("SAVE_FAILED"));
+        // The one-shot fault leaves the Windows invalidation scratch name available.
+        try (var files = ChangedPageTrackerCheckpointTest.observeFilesystem(call -> {
+          if (outputClosed.get() && call.getMethod().getName().equals("write")
+              && failPublication.compareAndSet(true, false)) {
+            throw new IOException("injected publication failure");
+          }
+          return call.callRealMethod();
+        })) {
           withDiskStorageLogs(records, () -> storage.backup(
               () -> List.<String>of().iterator(), file -> InputStream.nullInputStream(),
               file -> output, file -> {
@@ -1983,8 +1990,6 @@ public class IncrementalBackupExtensionTest {
       output.onClose = () -> {
         order.lock();
         try {
-          Files.createDirectories(temporary);
-          Files.writeString(temporary.resolve("obstruction"), "save blocker");
           Files.deleteIfExists(side);
           Files.createDirectory(side);
           Files.writeString(side.resolve("obstruction"), "invalidation blocker");
@@ -1995,9 +2000,19 @@ public class IncrementalBackupExtensionTest {
       walField.set(storage, wal);
       try {
         var records = new CopyOnWriteArrayList<LogRecord>();
-        withDiskStorageLogs(records, () -> storage.backup(() -> List.<String>of().iterator(),
-            file -> InputStream.nullInputStream(), file -> output, file -> {
-            }));
+        var failPublication = new java.util.concurrent.atomic.AtomicBoolean(true);
+        // Publication fails once. Only the target obstruction survives for the retry oracle.
+        try (var files = ChangedPageTrackerCheckpointTest.observeFilesystem(call -> {
+          if (call.getMethod().getName().equals("write")
+              && failPublication.compareAndSet(true, false)) {
+            throw new IOException("injected publication failure");
+          }
+          return call.callRealMethod();
+        })) {
+          withDiskStorageLogs(records, () -> storage.backup(() -> List.<String>of().iterator(),
+              file -> InputStream.nullInputStream(), file -> output, file -> {
+              }));
+        }
         assertTrue(records.stream().anyMatch(r -> r.getMessage()
             .endsWith("Backup completion save and invalidation failed.")));
         // Backup rotation can still publish a new physical WAL file asynchronously. Drain it
@@ -2017,8 +2032,14 @@ public class IncrementalBackupExtensionTest {
         Files.delete(side);
         var type = Class.forName(
             "com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile$FileOperations");
+        var failRetryPublication = new java.util.concurrent.atomic.AtomicBoolean(true);
         try (var mocked = org.mockito.Mockito.mockConstruction(type,
             org.mockito.Mockito.withSettings().defaultAnswer(call -> {
+              // Keep the retry on the invalidation path without obstructing its scratch name.
+              if (call.getMethod().getName().equals("write")
+                  && failRetryPublication.compareAndSet(true, false)) {
+                throw new IOException("injected retry publication failure");
+              }
               var result = call.callRealMethod();
               var method = call.getMethod().getName();
               // Portable deletion forces the folder. Windows publishes an empty tombstone or
