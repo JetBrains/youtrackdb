@@ -266,7 +266,7 @@ public class ChangedPageTrackerStartupTest {
         if (stage == 2) {
           fail();
         }
-        super.forceFolder(target);
+        // This fault seam models folder force without a platform-specific directory handle.
       }
 
       private void fail() throws IOException {

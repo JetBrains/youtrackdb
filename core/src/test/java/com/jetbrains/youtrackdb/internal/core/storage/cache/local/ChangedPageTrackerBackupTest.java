@@ -1019,6 +1019,11 @@ public class ChangedPageTrackerBackupTest {
     }
 
     @Override
+    void forceFolder(Path folder) throws IOException {
+      // This fixture models POSIX publication without opening a directory on Windows.
+    }
+
+    @Override
     void write(FileChannel channel, ChangedPageTracker.SaveState state,
         LogSequenceNumber coverage) throws IOException {
       writes++;
