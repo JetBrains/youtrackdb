@@ -828,13 +828,19 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
       final List<WriteableWALRecord> result;
       try {
-        result = readFromDisk(lsn, limit <= 0 ? 0 : limit + 1);
+        if (limit <= 0) {
+          // A limit of 0 means no record limit. Batch pages and the written end bound the read.
+          result = readFromDisk(lsn, 0);
+        } else {
+          result = readFromDisk(lsn, limit + 1);
+        }
       } catch (WALRecordDecodeException failure) {
-        final var prefix = failure.getRecords();
+        var prefix = failure.getRecords();
         // The disk read includes lsn. next must exclude it even on failure.
-        throw new WALRecordDecodeException(
-            prefix.isEmpty() ? prefix : prefix.subList(1, prefix.size()),
-            (RuntimeException) failure.getCause());
+        if (!prefix.isEmpty()) {
+          prefix = prefix.subList(1, prefix.size());
+        }
+        throw new WALRecordDecodeException(prefix, (RuntimeException) failure.getCause());
       }
       if (result.isEmpty()) {
         return result;
