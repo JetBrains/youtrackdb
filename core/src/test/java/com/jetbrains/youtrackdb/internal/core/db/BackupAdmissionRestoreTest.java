@@ -1926,6 +1926,35 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
+  /** Mixed layouts refuse before manager target birth. Homogeneous layout 26 prepares normally. */
+  @Test
+  public void preparationRequiresOneLayoutBeforeTargetBirth() throws Exception {
+    for (var firstLayout : new int[] {25, 26}) {
+      var full = writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(),
+          firstLayout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var increment = writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(),
+          firstLayout == 25 ? 26 : 25, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      try (var manager = openManager()) {
+        var refusal = assertThrows(UnsupportedBackupException.class,
+            () -> internalOf(manager).restore(TARGET, syntheticBackupPath.toString(), null, null));
+        assertTrue(refusal.getMessage().contains("different storage layout versions"));
+        assertNoTargetExists(manager);
+      }
+      Files.delete(syntheticBackupPath.resolve(full));
+      Files.delete(syntheticBackupPath.resolve(increment));
+    }
+    writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(), 26,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 26,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    try (var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
+        .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString())) {
+      try (var copies = Files.list(prepared.temporaryDirectory())) {
+        assertEquals("both layout-26 units must reach prepared copies", 2, copies.count());
+      }
+    }
+  }
+
   /** Writes one synthetic unit of one fixed database identifier into the synthetic directory. */
   private String writeSyntheticUnit(int sequenceNumber, boolean fullBackup,
       int backupFormatVersion, int featureFormat, int layoutVersion, int creationEvidence)

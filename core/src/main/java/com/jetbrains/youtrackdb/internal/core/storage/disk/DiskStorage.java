@@ -67,6 +67,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Featu
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
@@ -1554,9 +1555,9 @@ public class DiskStorage extends AbstractStorage {
       if (tailReader == null) {
         try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
           inspection = headFound
-              ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream)
+              ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream, getStorageFormat())
               : inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null,
-                  header -> signalHeadInspectionFallback(ibuLastFile, header));
+                  header -> signalHeadInspectionFallback(ibuLastFile, header), getStorageFormat());
         }
       } else {
         // Read the tail before opening any stream. A failed tail read propagates before removal.
@@ -1583,10 +1584,12 @@ public class DiskStorage extends AbstractStorage {
         }
         if (needsFullInspection) {
           try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
-            inspection = inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null);
+            inspection = inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null,
+                null, getStorageFormat());
           }
         } else {
-          inspection = inspectBackupUnitTail(ibuLastFile, getName(), uuid, tail);
+          inspection =
+              inspectBackupUnitTail(ibuLastFile, getName(), uuid, tail, getStorageFormat());
         }
       }
 
@@ -1651,8 +1654,7 @@ public class DiskStorage extends AbstractStorage {
    * Reads the semantic identity of this open source database for one new backup unit.
    *
    * <p>The feature format comes from this build, and the storage open of this database accepted
-   * that same feature format. The storage layout version comes from this build as well, because a
-   * storage open accepts one layout version only.
+   * that same feature format. The storage layout comes from the selected source descriptor.
    *
    * <p>The creation completion evidence comes from the durable genesis completion marker of this
    * database. A database without that marker therefore produces a backup unit without accepted
@@ -1663,15 +1665,15 @@ public class DiskStorage extends AbstractStorage {
         Boolean.parseBoolean(configuration.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY));
     return new BackupSemanticIdentity(
         FEATURE_FORMAT.version(),
-        StorageConfiguration.CURRENT_VERSION,
+        getStorageFormat().layoutVersion(),
         genesisCompleted ? CREATION_COMPLETED_EVIDENCE : CREATION_EVIDENCE_ABSENT);
   }
 
-  /** Returns the semantic identity that this build accepts in one backup header. */
-  static BackupSemanticIdentity supportedBackupSemanticIdentity() {
+  /** Returns the completed semantic identity for one supported source layout. */
+  static BackupSemanticIdentity supportedBackupSemanticIdentity(StorageFormat format) {
     return new BackupSemanticIdentity(
         FEATURE_FORMAT.version(),
-        StorageConfiguration.CURRENT_VERSION,
+        format.layoutVersion(),
         CREATION_COMPLETED_EVIDENCE);
   }
 
@@ -1778,12 +1780,13 @@ public class DiskStorage extends AbstractStorage {
       @Nullable UUID dbUUID,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream)
       throws IOException {
-    return inspectBackupUnit(ibuFileName, storageName, dbUUID, inputStream, copyStream, null);
+    return inspectBackupUnit(ibuFileName, storageName, dbUUID, inputStream, copyStream, null, null);
   }
 
   private static BackupUnitInspection inspectBackupUnit(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, InputStream inputStream, @Nullable OutputStream copyStream,
-      @Nullable Consumer<byte[]> tailObserver) throws IOException {
+      @Nullable Consumer<byte[]> tailObserver, @Nullable StorageFormat sourceFormat)
+      throws IOException {
     try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       var trailer =
           readBackupUnitTrailer(ibuFileName, storageName, inputStream, copyStream, xxHash64);
@@ -1797,7 +1800,7 @@ public class DiskStorage extends AbstractStorage {
       // The stored hash stays outside its own calculation for both tail sizes.
       xxHash64.update(trailer.header(), 0, trailer.header().length - Long.BYTES);
       return classifyBackupUnit(ibuFileName, storageName, dbUUID, trailer.header(),
-          xxHash64.getValue());
+          xxHash64.getValue(), sourceFormat);
     }
   }
 
@@ -1821,6 +1824,13 @@ public class DiskStorage extends AbstractStorage {
    */
   static BackupUnitInspection inspectBackupUnitHeader(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, @Nonnull InputStream inputStream) throws IOException {
+    return inspectBackupUnitHeader(ibuFileName, storageName, dbUUID, inputStream, null);
+  }
+
+  private static BackupUnitInspection inspectBackupUnitHeader(String ibuFileName,
+      String storageName,
+      @Nullable UUID dbUUID, InputStream inputStream, @Nullable StorageFormat sourceFormat)
+      throws IOException {
     try (var hash = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       var trailer = readBackupUnitTrailer(ibuFileName, storageName, inputStream, null, hash);
       if (trailer.header() == null) {
@@ -1831,20 +1841,21 @@ public class DiskStorage extends AbstractStorage {
       if (hasBackupMetadataChecksum(ShortSerializer.deserializeLiteral(header,
           header.length - IBU_METADATA_SIZE)) && !metadataChecksumMatches(header)) {
         hash.update(header, 0, header.length - Long.BYTES);
-        return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue());
+        return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue(),
+            sourceFormat);
       }
-      return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, null);
+      return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, null, sourceFormat);
     }
   }
 
   /** Admits a tail without reading the payload or checking the full hash. */
   private static BackupUnitInspection inspectBackupUnitTail(String unit, String storageName,
-      UUID uuid, byte[] tail) {
+      UUID uuid, byte[] tail, StorageFormat sourceFormat) {
     var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
     var size = hasBackupMetadataChecksum(version) ? IBU_V4_METADATA_SIZE : IBU_METADATA_SIZE;
     // The caller sends short or damaged v4/v5 tails to the full inspection instead.
     return classifyBackupUnit(unit, storageName, uuid,
-        Arrays.copyOfRange(tail, tail.length - size, tail.length), null);
+        Arrays.copyOfRange(tail, tail.length - size, tail.length), null, sourceFormat);
   }
 
   /**
@@ -1920,7 +1931,8 @@ public class DiskStorage extends AbstractStorage {
    * @param calculatedHashCode the hash of the read content, or null for a header-only admission
    */
   private static BackupUnitInspection classifyBackupUnit(String ibuFileName, String storageName,
-      @Nullable UUID dbUUID, byte[] metaDataCandidate, @Nullable Long calculatedHashCode) {
+      @Nullable UUID dbUUID, byte[] metaDataCandidate, @Nullable Long calculatedHashCode,
+      @Nullable StorageFormat sourceFormat) {
     var sharedOffset = metaDataCandidate.length - IBU_METADATA_SIZE;
     var shared = Arrays.copyOfRange(metaDataCandidate, sharedOffset, metaDataCandidate.length);
     var metadataVersion = ShortSerializer.deserializeLiteral(shared, IBU_METADATA_VERSION_OFFSET);
@@ -1954,12 +1966,20 @@ public class DiskStorage extends AbstractStorage {
 
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
         metadataLayoutVersion, metadataCreationEvidence);
-    // Develop recognizes versions 3 and 4 as removable after a failed full hash check.
-    // Extend that rule to version 5 without removing any unknown or foreign unit.
+    StorageFormat headerFormat;
+    try {
+      headerFormat = StorageFormat.resolve(metadataLayoutVersion);
+    } catch (IllegalArgumentException unsupportedLayout) {
+      headerFormat = null;
+    }
+    // Recognition keeps the exact completed identity and source ownership checks. Generic
+    // admission has no source descriptor, but extension must never remove another layout.
     var recognized = (metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
         || metadataVersion == PREVIOUS_BACKUP_FORMAT_VERSION
         || metadataVersion == SUPPORTED_OLD_BACKUP_FORMAT_VERSION)
-        && semanticIdentity.equals(supportedBackupSemanticIdentity())
+        && headerFormat != null
+        && semanticIdentity.equals(supportedBackupSemanticIdentity(headerFormat))
+        && (sourceFormat == null || sourceFormat == headerFormat)
         && dbUUID != null
         && dbUUID.getLeastSignificantBits() == metadataUUIDLowerBits
         && dbUUID.getMostSignificantBits() == metadataUUIDHigherBits;
@@ -2048,14 +2068,18 @@ public class DiskStorage extends AbstractStorage {
           + FEATURE_FORMAT.version() + " only.");
     }
 
-    if (metadataLayoutVersion != StorageConfiguration.CURRENT_VERSION) {
+    if (headerFormat == null) {
       LogManager.instance()
           .warn(DiskStorage.class, storageName,
-              "Storage layout version %d of the file %s does not match supported version %d.",
-              metadataLayoutVersion, ibuFileName, StorageConfiguration.CURRENT_VERSION);
+              "Storage layout version %d of the file %s is unsupported.",
+              metadataLayoutVersion, ibuFileName);
       return unclassifiableUnit("The header carries storage layout version "
-          + metadataLayoutVersion + ", and this build supports storage layout version "
-          + StorageConfiguration.CURRENT_VERSION + " only.");
+          + metadataLayoutVersion
+          + ", and this build supports storage layout versions 25 and 26 only.");
+    }
+    if (sourceFormat != null && sourceFormat != headerFormat) {
+      return unclassifiableUnit(
+          "The header storage layout differs from the source storage layout.");
     }
 
     if (metadataCreationEvidence != CREATION_COMPLETED_EVIDENCE) {
@@ -2641,6 +2665,7 @@ public class DiskStorage extends AbstractStorage {
       @Nullable UnaryOperator<OutputStream> outputDecorator) throws IOException {
     var storageName = chain.storageName();
     UUID metadataUUID = null;
+    Integer chainLayout = null;
     LogSequenceNumber lastLsn = null;
     long backupLastTxId = -1;
 
@@ -2674,6 +2699,13 @@ public class DiskStorage extends AbstractStorage {
                 + inspection.detail());
           }
           var backupMetadata = inspection.metadata();
+          var unitLayout = backupMetadata.semanticIdentity().storageLayoutVersion();
+          if (chainLayout == null) {
+            chainLayout = unitLayout;
+          } else if (chainLayout != unitLayout) {
+            throw new UnsupportedBackupException(storageName,
+                "Backup units carry different storage layout versions, restore is impossible.");
+          }
           if (metadataUUID == null) {
             metadataUUID = backupMetadata.databaseId;
           } else if (!metadataUUID.equals(backupMetadata.databaseId)) {

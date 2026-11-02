@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -57,12 +58,14 @@ public final class BackupUnitFiles {
 
   /** Returns the database feature format that this build accepts. */
   public static int supportedFeatureFormat() {
-    return DiskStorage.supportedBackupSemanticIdentity().featureFormatVersion();
+    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25)
+        .featureFormatVersion();
   }
 
-  /** Returns the storage layout version that this build accepts. */
+  /** Returns layout 25, the default for synthetic fixtures, not the supported set. */
   public static int supportedLayoutVersion() {
-    return DiskStorage.supportedBackupSemanticIdentity().storageLayoutVersion();
+    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25)
+        .storageLayoutVersion();
   }
 
   /**
