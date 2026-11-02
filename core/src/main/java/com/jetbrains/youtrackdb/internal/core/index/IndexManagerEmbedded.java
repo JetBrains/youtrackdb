@@ -1465,8 +1465,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   /**
    * Rejects a tx-created index whose source collection already holds committed rows (the v1
    * empty-class build bound). Reads the collection's record count lock-free (the caller holds
-   * {@code stateLock.writeLock()}), so it never re-acquires the non-reentrant state lock. A
-   * same-transaction-created source collection is empty by construction and passes.
+   * {@code stateLock.writeLock()}). Read re-entry is supported, but this caller-held path avoids
+   * an extra counted read hold. A same-transaction-created source collection is empty by
+   * construction and passes.
    *
    * <p>Two-stage check so the bound never silently ships an incomplete index. The approximate count
    * is a fast pre-check: an approximate {@code > 0} rejects immediately, and because the approximate
@@ -1535,8 +1536,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * apply has assigned the transaction's records persistent RIDs: builds the engine for each
    * tx-created index and populates it from the transaction's final record state, and deletes the
    * engine for each tx-dropped index. The build feeds {@code doPut} directly with no copied session
-   * or nested transaction (both would re-enter the non-reentrant {@code stateLock}). Because the v1
-   * bound guarantees an empty source collection, the committed-row population scan is empty and the
+   * or nested transaction. Read re-entry by the write owner is supported, but the build keeps the
+   * caller-held state-lock path and the existing atomic-operation window. Because the v1 bound
+   * guarantees an empty source collection, the committed-row population scan is empty and the
    * whole population comes from the final-state re-derivation over the transaction's own record
    * operations: each created or updated entity of the index's collections contributes its key,
    * deletes are skipped.

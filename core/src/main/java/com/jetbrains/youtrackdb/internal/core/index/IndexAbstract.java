@@ -41,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.id.IdentityChangeListener;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysGreaterKey;
 import com.jetbrains.youtrackdb.internal.core.index.comparator.AlwaysLessKey;
+import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
@@ -610,10 +611,12 @@ public abstract class IndexAbstract implements Index {
           ? storage.resolveIndexEngineByOwnerWithStateLock(descriptorIdentity)
           : storage.resolveIndexEngineByOwner(descriptorIdentity);
     } catch (StaleIndexEngineException exception) {
-      throw new StaleIndexEngineException(
+      final var stale = new StaleIndexEngineException(
           storage.getName(),
           "Cannot recover index '" + getName() + "' for descriptor " + descriptorIdentity
               + ": no registered engine has that owner");
+      stale.initCause(exception);
+      throw stale;
     }
 
     final var latest = state();
@@ -711,6 +714,7 @@ public abstract class IndexAbstract implements Index {
   }
 
   private <T> T withOwnedEngineAndStateLock(StateOperation<T> operation) {
+    assert storage.callerOwnsStateProtection();
     var current = state();
     for (var attempt = 0; attempt < 3; attempt++) {
       if (!current.hasEngine()) {
@@ -1689,10 +1693,64 @@ public abstract class IndexAbstract implements Index {
   }
 
   @Override
-  public boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
-    return withOwnedEngineAndStateLock(current -> storage.getIndexEngineWithStateLock(
-        current.engineIdentifier(), current.engineReference()))
-        .acquireAtomicExclusiveLock(atomicOperation);
+  public BaseIndexEngine acquireAtomicExclusiveLock(AtomicOperation atomicOperation) {
+    assert storage.callerOwnsStateProtection();
+    final var engine = withOwnedEngineAndStateLock(current -> storage
+        .getIndexEngineWithStateLock(current.engineIdentifier(), current.engineReference()));
+    assert storage.callerOwnsStateProtection();
+    engine.acquireAtomicExclusiveLock(atomicOperation);
+    return engine;
+  }
+
+  /** A short-lived apply binding. It is not a preprocessing identity token. */
+  public record CommitBinding(int engineIdentifier, BaseIndexEngine engine) {
+  }
+
+  /** Reads one live fused carrier and resolves it without lock reentry or owner recovery. */
+  public final CommitBinding bindForCommitWithStateLock(AbstractStorage storage) {
+    assert storage.callerOwnsStateProtection();
+    final var current = state();
+    final var reference = current.engineReference();
+    final var descriptor = current.descriptorIdentity();
+    if (this.storage != storage || !current.hasEngine() || reference == null
+        || descriptor == null || !descriptor.isPersistent()
+        || !descriptor.equals(reference.ownerDescriptorIdentity())
+        || reference.slot() != (current.engineIdentifier() & 0x7_FF_FF_FF)
+        || reference.apiVersion() != current.engineIdentifier() >>> (Integer.SIZE - 5)) {
+      throw new StaleIndexEngineException(storage.getName(),
+          "Incomplete or foreign ownership for index '" + getName() + "'");
+    }
+    try {
+      final var engine = storage.getIndexEngineWithStateLock(
+          current.engineIdentifier(), reference);
+      // Reference identity also enforces the generation. Check the registered engine's slot/API
+      // independently so a torn registration cannot pass through a coherent handle.
+      if (engine.getId() != reference.slot()
+          || engine.getEngineAPIVersion() != reference.apiVersion()) {
+        throw new StaleIndexEngineException(storage.getName(),
+            "Engine slot or API changed for index '" + getName() + "'");
+      }
+      return new CommitBinding(current.engineIdentifier(), engine);
+    } catch (InvalidIndexEngineIdException exception) {
+      final var stale = new StaleIndexEngineException(storage.getName(),
+          "Engine became stale for index '" + getName() + "' and descriptor " + descriptor);
+      stale.initCause(exception);
+      throw stale;
+    }
+  }
+
+  /** Commit-only dispatch. Subtypes keep their existing validation and value semantics. */
+  public abstract void doPut(AbstractStorage storage, CommitBinding binding, Object key, RID rid,
+      AtomicOperation operation);
+
+  public boolean doRemove(AbstractStorage storage, CommitBinding binding, Object key, RID rid,
+      AtomicOperation operation) {
+    return doRemove(storage, binding, key, operation);
+  }
+
+  public final boolean doRemove(AbstractStorage storage, CommitBinding binding, Object key,
+      AtomicOperation operation) {
+    return storage.removeKeyFromIndex(binding.engine(), key, operation);
   }
 
   @Nullable @Override

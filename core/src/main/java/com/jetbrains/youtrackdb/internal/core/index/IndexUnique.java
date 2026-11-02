@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.index.engine.UniqueIndexEngineValidator;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChangesPerKey.TransactionIndexEntry;
@@ -58,6 +59,12 @@ public class IndexUnique extends IndexOneValue {
     withOwnedEngine(current -> storage.validatedPutIndexValue(
         current.engineIdentifier(), current.engineReference(), key, rid, uniqueValidator,
         transaction.getAtomicOperation()));
+  }
+
+  @Override
+  public void doPut(AbstractStorage storage, CommitBinding binding, Object key, RID rid,
+      AtomicOperation operation) {
+    storage.validatedPutIndexValue(binding.engine(), key, rid, uniqueValidator, operation);
   }
 
   @Override

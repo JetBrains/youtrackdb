@@ -64,8 +64,8 @@ import java.util.function.BooleanSupplier;
  * Disadvantages:
  *
  * <ul>
- *   <li>Not Reentrant
- *   <li>Has Writer-Preference
+ *   <li>Write mode is not reentrant. Read mode is counted and supports write-to-read downgrade
+ *   <li>Prefers writers over new readers, but admits existing readers and the write owner
  *   <li>Memory footprint increases with number of threads by sizeof(ReadersEntry) x O(N_threads)
  *   <li>Does not support {@code lockInterruptibly()}
  *   <li>Does not support {@code newCondition()}
@@ -101,7 +101,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   /** The thread that currently holds write mode, or {@code null} when write mode is free. */
   private transient volatile Thread writeOwner;
 
-  /** Holds the current thread's single non-reentrant reader state. */
+  /** Holds the current thread's counted reader ownership and writer-visible state. */
   private final transient ThreadLocal<ReadersEntry> entry;
 
   private final transient AtomicReference<AtomicInteger[]> readersStateArrayRef;
@@ -123,6 +123,9 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   static final class ReadersEntry {
 
     public final AtomicInteger state;
+
+    // Accessed only by the owning thread. Cleanup needs only the shared state.
+    private int readHolds;
 
     public ReadersEntry(AtomicInteger state) {
       this.state = state;
@@ -162,7 +165,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Read-only lock
+   * Read-lock view with the counted reader and write-owner admission rules of
+   * {@link #sharedLock()}, {@link #sharedTryLock()}, and {@link #sharedTryLockNanos(long)}.
    */
   final class InnerReadLock implements Lock {
 
@@ -285,12 +289,24 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   /** Returns whether the current thread holds this lock in read mode. */
   public boolean isReadLockedByCurrentThread() {
     final var localEntry = entry.get();
-    return localEntry != null && localEntry.state.get() == SRWL_STATE_READING;
+    return localEntry != null && localEntry.readHolds > 0
+        && localEntry.state.get() == SRWL_STATE_READING;
   }
 
   /** Returns whether the current thread holds this lock in write mode. */
   public boolean isWriteLockedByCurrentThread() {
     return writeOwner == Thread.currentThread();
+  }
+
+  private boolean isReadOnlyHolder() {
+    final var localEntry = entry.get();
+    return localEntry != null && localEntry.readHolds > 0 && !isWriteLockedByCurrentThread();
+  }
+
+  private void rejectReadOnlyUpgrade() {
+    if (isReadOnlyHolder()) {
+      throw new IllegalMonitorStateException("Cannot upgrade a read hold to write mode");
+    }
   }
 
   /**
@@ -316,19 +332,28 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the read lock.
+   * Acquires a counted read hold.
    *
-   * <p>Acquires the read lock if the write lock is not held by another thread and returns
-   * immediately.
+   * <p>An existing reader acquires a nested hold immediately, even while another writer drains
+   * its outer hold. The write owner can also acquire read mode without waiting.
    *
-   * <p>If the write lock is held by another thread then the current thread yields until the write
-   * lock is released.
+   * <p>Otherwise, the current thread yields while another thread holds the write bit, including
+   * while that writer drains prior readers, and retries until it acquires read mode.
    */
   public void sharedLock() {
     var localEntry = entry.get();
     // Initialize a new Reader-state for this thread if needed
     if (localEntry == null) {
       localEntry = addState();
+    }
+
+    // Existing readers must not back off for a writer that is draining their outer hold.
+    if (localEntry.readHolds > 0) {
+      if (localEntry.readHolds == Integer.MAX_VALUE) {
+        throw new IllegalMonitorStateException("Read hold count overflow");
+      }
+      localEntry.readHolds++;
+      return;
     }
 
     final var currentReadersState = localEntry.state;
@@ -340,8 +365,8 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       // pattern — the writer must observe READING before the reader checks isWriteLocked(),
       // otherwise both could proceed concurrently.
       currentReadersState.set(SRWL_STATE_READING);
-      if (!stampedLock.isWriteLocked()) {
-        // Acquired lock in read-only mode
+      if (!stampedLock.isWriteLocked() || isWriteLockedByCurrentThread()) {
+        localEntry.readHolds = 1;
         return;
       } else {
         // Back off to NOT_READING to unblock a waiting writer. lazySet (release/StoreStore)
@@ -359,16 +384,16 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   /**
    * Releases the current thread's read mode.
    *
-   * <p>Read mode is not reentrant. One release clears the current thread's reader state.
+   * <p>Only the final matching release clears the writer-visible reader state.
    *
-   * @throws IllegalMonitorStateException if the current thread has no reader state.
+   * @throws IllegalMonitorStateException if the current thread has no read hold.
    */
   public void sharedUnlock() {
     final var localEntry = entry.get();
-    if (localEntry == null) {
-      // ERROR: Tried to unlock a non read-locked lock
-      throw new IllegalMonitorStateException();
-    } else {
+    if (localEntry == null || localEntry.readHolds == 0) {
+      throw new IllegalMonitorStateException("Current thread has no read hold");
+    }
+    if (--localEntry.readHolds == 0) {
       // lazySet (release/StoreStore) is sufficient: all stores from the critical section
       // are ordered before this release, and the writer will eventually see NOT_READING.
       // The full StoreLoad barrier from set() is not needed because the writer's
@@ -383,6 +408,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * <p>Write mode is not reentrant. A current-thread reacquisition blocks indefinitely.
    */
   public void exclusiveLock() {
+    rejectReadOnlyUpgrade();
     // Try to acquire the lock in write-mode
     stampedLock.writeLock();
     writeOwner = Thread.currentThread();
@@ -423,14 +449,14 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the read lock only if the write lock is not held by another thread at the time of
-   * invocation.
+   * Attempts to acquire a counted read hold without waiting.
    *
-   * <p>Acquires the read lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true}.
+   * <p>An existing reader acquires a nested hold immediately, even while another writer drains
+   * its outer hold. The write owner can also acquire read mode without waiting. Both return
+   * {@code true}.
    *
-   * <p>If the write lock is held by another thread then this method will return immediately with
-   * the value {@code false}.
+   * <p>Otherwise, returns {@code false} if another thread holds the write bit, including while
+   * that writer drains prior readers, or acquires read mode and returns {@code true}.
    *
    * @return {@code true} if the read lock was acquired
    */
@@ -441,11 +467,20 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       localEntry = addState();
     }
 
+    // Existing readers must not back off for a writer that is draining their outer hold.
+    if (localEntry.readHolds > 0) {
+      if (localEntry.readHolds == Integer.MAX_VALUE) {
+        throw new IllegalMonitorStateException("Read hold count overflow");
+      }
+      localEntry.readHolds++;
+      return true;
+    }
+
     final var currentReadersState = localEntry.state;
     // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
     currentReadersState.set(SRWL_STATE_READING);
-    if (!stampedLock.isWriteLocked()) {
-      // Acquired lock in read-only mode
+    if (!stampedLock.isWriteLocked() || isWriteLockedByCurrentThread()) {
+      localEntry.readHolds = 1;
       return true;
     } else {
       // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
@@ -455,21 +490,16 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
-   * Acquires the read lock if the write lock is not held by another thread within the given waiting
-   * time.
+   * Attempts to acquire a counted read hold within the given waiting time.
    *
-   * <p>Acquires the read lock if the write lock is not held by another thread and returns
-   * immediately with the value {@code true}.
+   * <p>An existing reader acquires a nested hold immediately, even while another writer drains
+   * its outer hold. The write owner can also acquire read mode without waiting. Both return
+   * {@code true}, regardless of the timeout.
    *
-   * <p>If the write lock is held by another thread then the current thread yields execution until
-   * one of two things happens:
-   *
-   * <ul>
-   *   <li>The read lock is acquired by the current thread; or
-   *   <li>The specified waiting time elapses.
-   * </ul>
-   *
-   * <p>If the read lock is acquired then the value {@code true} is returned.
+   * <p>Otherwise, attempts read acquisition immediately. While another thread holds the write
+   * bit, including while that writer drains prior readers, the current thread yields and retries
+   * until it acquires read mode or the waiting time elapses. Returns {@code false} if the time
+   * elapses before acquisition.
    *
    * @param nanosTimeout the time to wait for the read lock in nanoseconds
    * @return {@code true} if the read lock was acquired
@@ -482,12 +512,21 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
       localEntry = addState();
     }
 
+    // Existing readers must not back off for a writer that is draining their outer hold.
+    if (localEntry.readHolds > 0) {
+      if (localEntry.readHolds == Integer.MAX_VALUE) {
+        throw new IllegalMonitorStateException("Read hold count overflow");
+      }
+      localEntry.readHolds++;
+      return true;
+    }
+
     final var currentReadersState = localEntry.state;
     while (true) {
       // Full volatile write required (Dekker pattern) — see sharedLock() for reasoning.
       currentReadersState.set(SRWL_STATE_READING);
-      if (!stampedLock.isWriteLocked()) {
-        // Acquired lock in read-only mode
+      if (!stampedLock.isWriteLocked() || isWriteLockedByCurrentThread()) {
+        localEntry.readHolds = 1;
         return true;
       } else {
         // Back off — lazySet sufficient (see sharedLock() backoff for reasoning).
@@ -513,6 +552,9 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return {@code true} if write mode was acquired
    */
   public boolean exclusiveTryLock() {
+    if (isReadOnlyHolder()) {
+      return false;
+    }
     // Try to acquire the lock in write-mode
     if (stampedLock.tryWriteLock() == 0) {
       return false;
@@ -553,6 +595,9 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * @return {@code true} if write mode was acquired, or {@code false} if the time elapsed first
    */
   public boolean exclusiveTryLockNanos(long nanosTimeout) throws java.lang.InterruptedException {
+    if (isReadOnlyHolder()) {
+      return false;
+    }
     final var lastTime = System.nanoTime();
     // Try to acquire the lock in write-mode
     if (stampedLock.tryWriteLock(nanosTimeout, TimeUnit.NANOSECONDS) == 0) {
@@ -599,8 +644,10 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * <ul>
    *   <li><b>Bounded acquisition under sustained readers.</b> The write bit is acquired exactly
    *       once and then HELD through the reader drain — writer preference: from the moment the
-   *       bit is set, new readers observe {@code isWriteLocked()} and back off exactly as they do
-   *       against {@link #exclusiveLock()}. There is no inter-attempt release window (unlike an
+   *       bit is set, readers without an existing read hold or write ownership observe
+   *       {@code isWriteLocked()} and back off exactly as they do against {@link #exclusiveLock()}.
+   *       Existing readers can still acquire nested holds. There is no inter-attempt release
+   *       window (unlike an
    *       {@link #exclusiveTryLockNanos} retry loop, which releases the bit on every drain
    *       timeout and forfeits admission to slip-in readers), so the acquisition completes within
    *       the maximum residual reader residence — deterministic, no starvation, no retry storm.
@@ -629,7 +676,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * flag and throws {@link DatabaseException} naming the lock state. The phase-2 drain is a yield
    * spin, uninterruptible exactly like {@link #exclusiveLock()}'s.
    *
-   * <p>All other methods of this class are byte-for-byte unaffected; readers pay nothing new.
+   * <p>Read-only holders cannot upgrade. They must release all read holds first.
    *
    * <p>Fairness note: a phase-1 timeout re-enters the stamped writer queue at its tail, so under
    * sustained contention from plain {@link #exclusiveLock()} writers this waiter can lose its
@@ -651,6 +698,7 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
    * {@link #exclusiveUnlock()}); {@code false} when the abort predicate turned true first.
    */
   public boolean exclusiveLockWithAbort(final BooleanSupplier abort, final long pollNanos) {
+    rejectReadOnlyUpgrade();
     java.util.Objects.requireNonNull(abort, "abort predicate must not be null");
     if (pollNanos <= 0) {
       throw new IllegalArgumentException("pollNanos must be positive, got " + pollNanos);

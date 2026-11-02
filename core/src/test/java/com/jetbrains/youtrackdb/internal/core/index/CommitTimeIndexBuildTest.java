@@ -85,11 +85,7 @@ import org.junit.rules.Timeout;
  */
 public class CommitTimeIndexBuildTest extends DbTestBase {
 
-  /**
-   * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock} would
-   * busy-spin forever rather than throw, hanging the whole surefire fork with no signal. A per-method
-   * timeout converts that hang into a fast, diagnosable failure that names the stuck commit thread.
-   */
+  /** Bounds schema-commit and cross-thread waits so failures report the stuck test. */
   @Rule
   public Timeout globalTimeout =
       Timeout.builder()
