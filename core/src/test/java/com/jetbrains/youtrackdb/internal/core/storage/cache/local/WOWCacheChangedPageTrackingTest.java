@@ -103,11 +103,14 @@ public class WOWCacheChangedPageTrackingTest {
       cache.delete();
       wal.delete();
     } finally {
-      io.shutdownNow();
-      assertTrue(io.awaitTermination(10, TimeUnit.SECONDS));
-      pool.clear();
-      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(exclusiveAccess);
-      GlobalConfiguration.FILE_LOCK.setValue(fileLock);
+      try {
+        io.shutdownNow();
+        assertTrue(io.awaitTermination(10, TimeUnit.SECONDS));
+        pool.clear();
+      } finally {
+        GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(exclusiveAccess);
+        GlobalConfiguration.FILE_LOCK.setValue(fileLock);
+      }
     }
   }
 

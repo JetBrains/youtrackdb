@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -42,16 +43,30 @@ public class WOWCacheDeleteTimeoutIT {
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
   private static final ByteBufferPool BUFFER_POOL = new ByteBufferPool(PAGE_SIZE);
 
+  private static Object previousExclusiveFileAccess;
+  private static Object previousFileLock;
   private static Path storagePath;
   private ExecutorService executor;
 
   @BeforeClass
   public static void beforeClass() {
+    previousExclusiveFileAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
 
     var buildDirectory = System.getProperty("buildDirectory", ".");
     storagePath = Paths.get(buildDirectory).resolve("WOWCacheDeleteTimeoutIT");
+  }
+
+  @AfterClass
+  public static void afterClass() {
+    try {
+      BUFFER_POOL.clear();
+    } finally {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before

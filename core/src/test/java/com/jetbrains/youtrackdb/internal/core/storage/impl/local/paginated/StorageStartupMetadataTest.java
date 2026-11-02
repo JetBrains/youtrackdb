@@ -1066,21 +1066,26 @@ public class StorageStartupMetadataTest {
 
   /** Child returns success only when the parent lock prevents startup metadata open. */
   public static void main(String[] arguments) throws Exception {
+    var previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.FILE_LOCK.setValue(true);
-    var mainPath = Path.of(arguments[0]);
-    var backup = Path.of(arguments[1]);
-    var backupBefore = Files.exists(backup) ? Files.readAllBytes(backup) : null;
-    var metadata = new StorageStartupMetadata(mainPath, backup);
     try {
-      metadata.open("child");
-      metadata.close();
-      throw new AssertionError("Child unexpectedly opened metadata");
-    } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException expected) {
-      if (backupBefore != null) {
-        assertThat(Files.readAllBytes(backup)).isEqualTo(backupBefore);
-      } else {
-        assertThat(Files.exists(backup)).isFalse();
+      var mainPath = Path.of(arguments[0]);
+      var backup = Path.of(arguments[1]);
+      var backupBefore = Files.exists(backup) ? Files.readAllBytes(backup) : null;
+      var metadata = new StorageStartupMetadata(mainPath, backup);
+      try {
+        metadata.open("child");
+        metadata.close();
+        throw new AssertionError("Child unexpectedly opened metadata");
+      } catch (com.jetbrains.youtrackdb.internal.core.exception.StorageException expected) {
+        if (backupBefore != null) {
+          assertThat(Files.readAllBytes(backup)).isEqualTo(backupBefore);
+        } else {
+          assertThat(Files.exists(backup)).isFalse();
+        }
       }
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
     }
   }
 
