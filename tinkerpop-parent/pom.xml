@@ -39,7 +39,7 @@
     <slf4j.version>1.7.36</slf4j.version>
     <snakeyaml.version>2.7</snakeyaml.version>
     <bouncycastle.version>1.69</bouncycastle.version>
-    <ayza.version>10.0.0</ayza.version>
+    <ayza.version>10.1.0</ayza.version>
     <!-- Kryo and Groovy need reflective access on Java 21. These flags apply only to tests. -->
     <argLine>--add-exports=java.base/sun.nio.ch=ALL-UNNAMED
       --add-exports=java.base/sun.security.x509=ALL-UNNAMED
