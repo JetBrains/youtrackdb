@@ -33,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -407,10 +406,19 @@ public class DiskStorage extends AbstractStorage {
   @SuppressWarnings("CanBeFinal")
   @Override
   public void create(final ContextConfiguration contextConfiguration) {
+    create(contextConfiguration, null);
+  }
+
+  /** Births a restore target from the admitted source without ordinary birth selection. */
+  public void createForRestore(ContextConfiguration configuration, StorageFormat sourceFormat) {
+    create(configuration, java.util.Objects.requireNonNull(sourceFormat, "sourceFormat"));
+  }
+
+  private void create(ContextConfiguration contextConfiguration, StorageFormat sourceFormat) {
     try {
       stateLock.writeLock().lock();
       try {
-        doCreate(contextConfiguration);
+        doCreate(contextConfiguration, sourceFormat);
       } finally {
         stateLock.writeLock().unlock();
       }
@@ -437,12 +445,18 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    doCreate(contextConfiguration, null);
+  }
+
+  @Override
+  protected void doCreate(ContextConfiguration contextConfiguration, StorageFormat sourceFormat)
+      throws IOException, java.lang.InterruptedException {
     final var storageFolder = storagePath;
     if (!Files.exists(storageFolder)) {
       Files.createDirectories(storageFolder);
     }
 
-    super.doCreate(contextConfiguration);
+    super.doCreate(contextConfiguration, sourceFormat);
   }
 
   @Override
@@ -2745,7 +2759,7 @@ public class DiskStorage extends AbstractStorage {
           "Full backup file is absent in the backup, restore is "
               + "impossible.");
     }
-    chain.completePreparation(backupLastTxId);
+    chain.completePreparation(backupLastTxId, StorageFormat.resolve(chainLayout));
   }
 
   /**
@@ -2774,6 +2788,12 @@ public class DiskStorage extends AbstractStorage {
       if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
         throw new InvalidStorageEncryptionKeyException(name,
             "Invalid length of the encryption key, provided size is " + aesKey.length);
+      }
+
+      if (chain.sourceFormat() != getStorageFormat()) {
+        throw new UnsupportedBackupException(name,
+            "Cannot restore storage layout version " + chain.sourceFormat().layoutVersion()
+                + " in place into target layout version " + getStorageFormat().layoutVersion());
       }
 
       // A restored image never shares its storage lineage with the backup source. A storage
@@ -2813,7 +2833,7 @@ public class DiskStorage extends AbstractStorage {
       // after the validation of the restored content and after the durability barrier over
       // that content. A failed validation therefore leaves the restore-in-progress state, and
       // the destructive restart entry accepts that state.
-      validateRestoredContent();
+      validateRestoredContent(chain.sourceFormat());
       barrierWhileCallerOwnsStateLock();
       // Capture after the barrier because histogram and index flushing can issue operations.
       activateRestoredBootstrapSnapshot();
@@ -2884,37 +2904,38 @@ public class DiskStorage extends AbstractStorage {
    * <p>A failed validation leaves this target in the restore-in-progress lifecycle state, because
    * the activation follows this method.
    */
-  private void validateRestoredContent() throws IOException {
+  private void validateRestoredContent(StorageFormat sourceFormat) throws IOException {
     final var restoredConfiguration = (CollectionBasedStorageConfiguration) configuration;
     final var restoredLayoutVersion =
         atomicOperationsManager.calculateInsideAtomicOperation(restoredConfiguration::getVersion);
-    validateRestoredStorageLayoutVersion(name, restoredLayoutVersion);
+    validateRestoredStorageLayoutVersion(name, restoredLayoutVersion, sourceFormat);
     validateRestoredGenesisMarker(
         name, restoredConfiguration.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY));
   }
 
   /**
-   * Rejects a restored storage layout version that this build does not support.
+   * Rejects a restored configuration layout that differs from the admitted source.
    *
-   * <p>A backup of an older or a newer build carries such a version. The refusal keeps the target
+   * <p>The refusal keeps the target
    * in the restore-in-progress lifecycle state. A drop discards that target and reports success.
    *
    * <p>This check is defense in depth. The configuration load of the restore reads the same value
    * earlier. That load reports the named inconsistent-metadata result for a disagreement. A real
-   * backup of another build therefore never reaches this check today. This check still guards the
+   * backup with conflicting configuration therefore never reaches this check. This still guards the
    * case of a configuration load that stops comparing that value.
    */
-  static void validateRestoredStorageLayoutVersion(String storageName, int restoredLayoutVersion) {
-    if (restoredLayoutVersion != StorageConfiguration.CURRENT_VERSION) {
+  static void validateRestoredStorageLayoutVersion(String storageName, int restoredLayoutVersion,
+      StorageFormat sourceFormat) {
+    if (restoredLayoutVersion != sourceFormat.layoutVersion()) {
       throw new StorageException(
           storageName,
           "The restore of database '"
               + storageName
               + "' failed. The backup content carries storage layout version "
               + restoredLayoutVersion
-              + ". This build supports storage layout version "
-              + StorageConfiguration.CURRENT_VERSION
-              + " only. Drop database '"
+              + ". The admitted source carries storage layout version "
+              + sourceFormat.layoutVersion()
+              + ". Drop database '"
               + storageName
               + "' to remove the unusable restore target.");
     }

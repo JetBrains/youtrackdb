@@ -1537,6 +1537,13 @@ public abstract class AbstractStorage
 
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    doCreate(contextConfiguration, null);
+  }
+
+  /** Creates storage with an explicit restore layout, or ordinary birth selection when null. */
+  protected void doCreate(ContextConfiguration contextConfiguration,
+      @Nullable StorageFormat sourceFormat)
+      throws IOException, java.lang.InterruptedException {
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1566,13 +1573,18 @@ public abstract class AbstractStorage
           "Cannot create new storage '" + getURL() + "' because it already exists");
     }
 
-    final var selection = SCOPED_BIRTH_FORMAT.get();
-    if (selection != null && !selection.consumed
-        && selection.context == context && selection.databaseName.equals(name)) {
-      selection.consumed = true;
-      storageFormat = selection.format;
+    if (sourceFormat != null) {
+      // Restore identity comes only from chain admission. Do not read or consume a test scope.
+      storageFormat = sourceFormat;
     } else {
-      storageFormat = StorageFormat.productionDefault();
+      final var selection = SCOPED_BIRTH_FORMAT.get();
+      if (selection != null && !selection.consumed
+          && selection.context == context && selection.databaseName.equals(name)) {
+        selection.consumed = true;
+        storageFormat = selection.format;
+      } else {
+        storageFormat = StorageFormat.productionDefault();
+      }
     }
     prepareStorageBirth();
     uuid = UUID.randomUUID();
