@@ -102,6 +102,23 @@ public class FrontendTransactionIndexChangesPerKey {
     synchronized (this) {
       var valueIdentity = iValue == null ? null : iValue.getIdentity();
       if (operation == OPERATION.REMOVE) {
+        if (valueIdentity != null && entries.getFirstNode(null, OPERATION.REMOVE).isPresent()) {
+          // A whole-key removal is a barrier. Only cancel the first PUT after the last one.
+          TransactionIndexEntry putToCancel = null;
+          for (var entry : entries) {
+            if (entry.getOperation() == OPERATION.REMOVE && entry.getValue() == null) {
+              putToCancel = null;
+            } else if (putToCancel == null && entry.getOperation() == OPERATION.PUT
+                && valueIdentity.equals(entry.getValue())) {
+              putToCancel = entry;
+            }
+          }
+          if (putToCancel != null) {
+            entries.getNode(putToCancel).orElseThrow().remove();
+          }
+          // Without a later PUT, the whole-key removal already removed this RID.
+          return;
+        }
         var nodeToRemove =
             entries.getFirstNode(valueIdentity, OPERATION.PUT);
         if (nodeToRemove.isPresent()) {
@@ -214,11 +231,11 @@ public class FrontendTransactionIndexChangesPerKey {
       final var value = entry.value;
 
       switch (entry.operation) {
-        case PUT:
+        case PUT :
           assert value != null;
           interpretation.add(entry);
           break;
-        case REMOVE:
+        case REMOVE :
           if (!interpretation.remove(entry)) {
             if (firstExternalRemove == null) {
               firstExternalRemove =
@@ -230,8 +247,8 @@ public class FrontendTransactionIndexChangesPerKey {
             }
           }
           break;
-        case CLEAR:
-        default:
+        case CLEAR :
+        default :
           assert false;
           break;
       }
@@ -324,13 +341,13 @@ public class FrontendTransactionIndexChangesPerKey {
       final var value = entry.value;
 
       switch (entry.operation) {
-        case PUT:
+        case PUT :
           assert value != null;
 
           interpretation.add(entry);
           lastObservedPuts.addLast(entry);
           break;
-        case REMOVE:
+        case REMOVE :
           if (interpretation.remove(entry)) { // the put of this RID is no longer observable
             assert value != null;
 
@@ -358,8 +375,8 @@ public class FrontendTransactionIndexChangesPerKey {
           }
           break;
 
-        case CLEAR:
-        default:
+        case CLEAR :
+        default :
           assert false;
           break;
       }
@@ -432,12 +449,12 @@ public class FrontendTransactionIndexChangesPerKey {
       final var rid = value == null ? null : value.getIdentity();
 
       switch (entry.operation) {
-        case PUT:
+        case PUT :
           assert rid != null;
 
           interpretation.add(entry);
           break;
-        case REMOVE:
+        case REMOVE :
           if (rid == null) {
             interpretation.clear();
 
@@ -456,8 +473,8 @@ public class FrontendTransactionIndexChangesPerKey {
           }
           break;
 
-        case CLEAR:
-        default:
+        case CLEAR :
+        default :
           assert false;
           break;
       }

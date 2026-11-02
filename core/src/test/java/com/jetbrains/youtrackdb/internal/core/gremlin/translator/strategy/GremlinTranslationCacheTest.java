@@ -2909,6 +2909,196 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(encoder.complete()).isFalse();
   }
 
+  /** NOT-local labels must not become outer labels through either cache warm-up order. */
+  @Test
+  public void notChildEnd_separatesBarrierLabelsAndWarmCacheRows() {
+    assertFilterChildBoundary(__::not, "missing");
+  }
+
+  /** TraversalFilterStep keeps its labelled trailing barrier inside the existential child. */
+  @Test
+  public void filterChildEnd_separatesBarrierLabelsAndWarmCacheRows() {
+    assertFilterChildBoundary(__::filter, "present");
+  }
+
+  /** WhereTraversalStep delimits barriers and labels even when labels denote equality checks. */
+  @Test
+  public void whereChildEnd_separatesBarrierLabels() {
+    assertParentChildBoundary(__::where);
+  }
+
+  private void assertFilterChildBoundary(
+      java.util.function.Function<GraphTraversal<Vertex, Vertex>, GraphTraversal<?, ?>> wrapper,
+      String operand) {
+    var vertex = graph.addVertex(T.label, "Article", "name", "present");
+    graph.tx().commit();
+    Supplier<GraphTraversal<?, ?>> inside = () -> filterBoundaryShape(wrapper, operand, true);
+    Supplier<GraphTraversal<?, ?>> outside = () -> filterBoundaryShape(wrapper, operand, false);
+    assertThat(shapeKey(inside)).isNotEqualTo(shapeKey(outside));
+    support.withTranslator(false, () -> {
+      assertThat(inside.get().toList()).isEmpty();
+      assertThat(outside.get().toList()).isEqualTo(List.of(vertex));
+    });
+    var cache = GremlinPlanCache.instance(graphSession());
+    for (boolean innerFirst : List.of(true, false)) {
+      cache.invalidate();
+      long hits = cache.getTranslationHits();
+      long misses = cache.getTranslationMisses();
+      for (int pass = 0; pass < 2; pass++) {
+        for (boolean useInner : List.of(innerFirst, !innerFirst)) {
+          var traversal = (useInner ? inside : outside).get().asAdmin();
+          GremlinToMatchStrategy.instance().apply(traversal);
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal))
+              .isEqualTo(useInner ? 0 : 1);
+          assertThat(traversal.toList()).isEqualTo(useInner ? List.of() : List.of(vertex));
+        }
+      }
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses + 2);
+      assertThat(cache.getTranslationHits()).isGreaterThanOrEqualTo(hits + 2);
+    }
+  }
+
+  private GraphTraversal<?, ?> filterBoundaryShape(
+      java.util.function.Function<GraphTraversal<Vertex, Vertex>, GraphTraversal<?, ?>> wrapper,
+      String operand, boolean inside) {
+    var traversal = graph.traversal()
+        .withoutStrategies(
+            org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy.class)
+        .V().hasLabel("Article");
+    var child = __.<Vertex>has("name", operand);
+    if (inside) {
+      child.barrier().as("x");
+    }
+    // Insert the exact requested filter step so provider-independent inlining cannot erase it.
+    traversal.asAdmin().addStep(wrapper.apply(child).asAdmin().getStartStep());
+    if (!inside) {
+      traversal.barrier().as("x");
+    }
+    return traversal.select("x");
+  }
+
+  /** AND operands retain their own trailing barriers and labels. */
+  @Test
+  public void andChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.and(child, __.has("age", 1)));
+  }
+
+  /** OR operands retain their own trailing barriers and labels. */
+  @Test
+  public void orChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.or(child, __.has("age", 1)));
+  }
+
+  /** A where(P) by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void wherePredicateChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.where(P.eq("x")).by(child));
+  }
+
+  /** A dedup by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void dedupChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.dedup().by(child));
+  }
+
+  /** A valueMap by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void propertyMapChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.valueMap().by(child));
+  }
+
+  /** A single-label select by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void selectOneChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.select("x").by(child));
+  }
+
+  /** Multiple-label select by-modulators retain their child boundaries. */
+  @Test
+  public void selectChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.select("x", "y").by(child));
+  }
+
+  /** A project by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void projectChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.project("x").by(child));
+  }
+
+  /** An order by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void orderChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.order().by(child));
+  }
+
+  /** Group's key and value children retain their child boundaries. */
+  @Test
+  public void groupChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.group().by(child));
+  }
+
+  /** A groupCount by-modulator cannot absorb an enclosing barrier or label. */
+  @Test
+  public void groupCountChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.groupCount().by(child));
+  }
+
+  /** Union's global arms and local branch selector retain their child boundaries. */
+  @Test
+  public void unionChildEnd_separatesBarriers() {
+    assertParentChildBoundary(__::union);
+  }
+
+  /** An unregistered traversal map still delimits its single local child. */
+  @Test
+  public void traversalMapChildEnd_separatesBarriers() {
+    assertParentChildBoundary(__::map);
+  }
+
+  /** An unregistered local step still delimits its single local child. */
+  @Test
+  public void localChildEnd_separatesBarriers() {
+    assertParentChildBoundary(__::local);
+  }
+
+  /** Repeat keeps local termination children separate from its global loop body. */
+  @Test
+  public void repeatChildEnd_separatesBarriers() {
+    assertParentChildBoundary(child -> __.repeat(child).until(__.has("age", 1)));
+  }
+
+  private void assertParentChildBoundary(
+      java.util.function.Function<GraphTraversal<Vertex, Vertex>, GraphTraversal<?, ?>> parent) {
+    for (boolean labelled : List.of(false, true)) {
+      var child = __.<Vertex>has("name", "present").barrier();
+      var outer = parent.apply(__.<Vertex>has("name", "present")).barrier();
+      if (labelled) {
+        child.as("x");
+        outer.as("x");
+      }
+      var inside = parent.apply(child);
+      var extraction = parentShape(inside);
+      assertThat(extraction.key()).isNotEqualTo(parentShape(outer).key());
+      var reboundChild = __.<Vertex>has("name", "another").barrier();
+      if (labelled) {
+        reboundChild.as("x");
+      }
+      var changed = parentShape(parent.apply(reboundChild));
+      assertThat(changed.key()).isEqualTo(extraction.key());
+      assertThat(changed.bindings()).hasSameSizeAs(extraction.bindings());
+      assertThat(changed.bindings()).isNotEqualTo(extraction.bindings());
+    }
+  }
+
+  private GremlinShapeExtractor.Extraction parentShape(GraphTraversal<?, ?> traversal) {
+    // Anonymous order() children have no graph configuration from which to resolve placements.
+    var extraction = GremlinStepWalker.extractShape(traversal.asAdmin(), graphSession(), true,
+        com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED);
+    // Union's constant branch selector is opaque and keeps extraction incomplete. Its visited
+    // children still need unambiguous boundaries, just like children of unregistered parents.
+    return extraction;
+  }
+
   private String shapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {

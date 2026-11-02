@@ -17,8 +17,8 @@ after all unit and integration tests pass.
   Without an issue, CI leaves the title unchanged. Individual commit subjects need no issue number.
 - For multiple issues, list all issue IDs in the title, separated by commas and wrapped in
   square brackets: `[YTDB-123, YTDB-456] <summary>`.
-- CI forbids merge commits through `.github/workflows/block-merge-commits.yml`.
-  Each pull request merges as one squashed commit.
+- Pull requests merge into `develop` with a merge commit. Branches may contain merge commits,
+  for example a merge of `develop`. No CI check rejects them.
 - Use `--force-with-lease`, never `--force`, for force pushes.
 - The PR description uses `.github/pull_request_template.md`.
 - Add `[no-test-number-check]` to the PR title only for intentional test refactorings that
@@ -28,9 +28,12 @@ after all unit and integration tests pass.
 
 The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
 
-## Rebase conflict resolution
+## Merge and rebase conflict resolution
 
-When a rebase produces conflicts in prose-heavy files, reread every resolved file from start
+Follow the pinned Slate package's `docs/track-workflow.md` § Delivery history and accounting
+for branch updates and reviewed-history protection, and `docs/pr-publishing.md` for publishing.
+
+When a merge or rebase produces conflicts in prose-heavy files, reread every resolved file from start
 to end before continuing. Check the whole document, not just conflict hunks. Unchanged
 paragraphs can refer to rules renamed or removed on the other side.
 
@@ -41,11 +44,12 @@ the verification sets are computed, which gate runs when, and when a gate must b
 coverage measurement procedure — how to produce a coverage number, and how to tell a real pass
 from a vacuous one — is in `docs-internal/dev-workflow/coverage-verification.md`.
 
-Intermediate code-track commits do not reach `develop` individually. Each level pull request
-merges as one squashed commit. Running unit tests and coverage checks on every commit adds
-delay without protecting a separately merged result. The compile gate runs on every applicable
-commit. The unit-test and coverage gate runs before each code track's agent code review.
-Re-run it before the closing event when anything but prose lands after it.
+Intermediate code-track commits reach `develop` history through the pull request's merge commit.
+The compile gate runs on every applicable commit. The unit-test and coverage gate runs before
+each code track's agent code review, so each reviewed track has a tested boundary without running
+those gates on every intermediate commit. Re-run it before the closing event when anything but
+prose lands after it. `git bisect` can stop on a branch commit that passed only the compile gate.
+Do not assume that every commit in `develop` history passed unit tests and coverage checks.
 
 ### Mid-track commit gate
 
@@ -83,26 +87,37 @@ each scope.
 **Compile-gate set** — the full reactor. Build it with `./mvnw package -DskipTests`
 so every dependency and consumer compiles against the working tree.
 
-**Test-gate set** — only the reactor modules containing changed files. A developer machine
-runs tests only in this set. Do not add upstream or downstream modules to it.
+**Test-gate set** — only the reactor modules containing changed files. This set bounds where
+local tests are picked, not which whole module suites to run.
+A developer machine runs only **related tests** within this set: unit tests covering changed
+production code plus unit tests changed by the same work.
+Use a nonempty `-Dtest` selector for these tests. Do not run whole module suites.
+For coverage when a measured module has no related test, follow
+`docs-internal/dev-workflow/coverage-verification.md` § The run.
+Do not add upstream or downstream modules to the test-gate set.
 This rule also excludes a downstream module whose tests exercise the changed behavior.
-The pull request build owns those tests. This keeps a local change from requiring almost
-all module suites.
+The pull request build owns those tests.
 
-The pull request build runs the whole unit suite, including the full disk-mode suite.
-A draft pull request runs no continuous integration (CI).
-For build-relevant changes, the whole unit suite runs at the ready-for-review flip.
-A manual workflow run also runs the whole unit suite. Markdown-only changes skip the build.
-Integration tests follow the rules below.
+Continuous integration (CI) runs the full unit suite on GitHub runners for every pull request
+push with build-relevant changes, including drafts. This includes the full disk-mode suite.
+A new push cancels the older running pipeline for the same pull request.
+
+The ready-for-review flip starts a new run, including the full unit suite.
+It does not reuse draft results. A manual workflow run also runs the full unit suite.
+Markdown-only changes skip the build. Integration tests follow the rules below.
+
+Draft CI results provide information only. No end-of-track gate or closing-event re-run
+waits for them or uses them instead of local verification.
+Merging still requires a green pull request.
 
 A developer machine never runs the full unit suite in disk mode. Disk mode means starting the
-run with `-Dyoutrackdb.test.env=ci`. The targeted subset stays inside the test-gate set.
-It includes tests covering changed production code and tests changed by the same work.
+run with `-Dyoutrackdb.test.env=ci`. Local disk-mode runs use only the related tests.
 Local verification relies on the pull request build for wider disk-mode coverage.
 
-A developer machine never runs an integration test. The pull request pipeline skips integration
-tests for drafts or Markdown-only changes. When the changed-file list is known, it also skips
-them if no reactor module has both a changed `.java` file and integration test sources. The
+A developer machine never runs an integration test. Pull request integration tests wait until
+the pull request is ready for review. The pipeline skips them for drafts or Markdown-only changes.
+When the changed-file list is known, it also skips them if no reactor module has both a changed
+`.java` file and integration test sources. The
 exact marker `[no-it-tests]` skips them when it appears in the first line of the head commit
 message on a same-repository pull request.
 Fork pull requests cannot use the marker.
@@ -208,7 +223,8 @@ modules. Select them from the changed-file paths.
 At the end of each code track's implementation, and **before** its agent code review, the
 full verification runs:
 
-1. **Unit tests** for the test-gate modules, green.
+1. **Related unit tests** from the test-gate set, green. Run tests covering changed production
+   code plus tests changed by the same work, not whole module suites.
 2. **Integration tests** run in the pull request pipeline for reactor modules with a changed
    `.java` file and integration test sources when the changed-file list is known. The skip rules
    above still apply. The pipeline can miss integration-gate classes in dependent modules.
@@ -248,7 +264,8 @@ Integration tests do not run for a draft pull request or when every changed file
 file. A merge queue orders approved pull requests for merging. A merge group temporarily
 combines changes GitHub tests before a merge queue writes them to the target branch. Merge groups
 do not rerun integration tests because the pull request ran them for its changed modules.
-Develop runs the full suite after merge. Worker threads do most work during the draft phase.
+Develop runs the full suite after merge. Draft CI provides full-unit feedback while worker
+threads implement the change.
 
 The exact lowercase marker `[no-it-tests]` skips integration tests when it appears in the first
 line of the head commit message. The marker comparison respects letter case and works only for a
@@ -282,17 +299,15 @@ Gating only at the track's closing event would have reviewers reviewing unverifi
 only before the review would let review-fix commits land unverified. Both holes are closed by
 this pre-review placement plus the re-run rule below.
 
-**This applies regardless of proved focus areas, including single-track changes.** A
-single-track change has no marker commit. It still runs the gate before any required agent
-code review.
+**This gate applies regardless of proved focus areas, including single-track changes.**
 
 ### Re-running the gate before the track's closing event
 
-Every code track has a **closing event**. Draft publishing uses one pull request per level
-with code tracks. A multi-track change closes each code track at its marker commit, with or
-without draft publishing. A single-track change with a draft pull request closes at the
-ready-for-review flip. Without draft publishing, a single-track change closes at final
-acceptance. This boundary gives each code track a verification trigger.
+Every code track has a **closing event**. A multi-track change closes each code track at its
+marker commit, with or without draft publishing. A single-track change with a draft pull request
+closes at the ready-for-review flip. Without draft publishing, a single-track change closes at
+final acceptance. This boundary gives each code track a local verification trigger.
+Draft CI results do not satisfy or delay this gate.
 
 The gate must be re-run before the closing event **unless every commit landed since the gate is
 provably outcome-neutral — documentation or comments only.** It is an exclusion rule rather than
@@ -316,11 +331,10 @@ named red result. Any other observed red result still blocks the commit.
 
 ### After the flip
 
-Any post-flip commit that touches code runs the test-gate modules' tests before being pushed.
-Once the PR is non-draft CI enforces on every push regardless, including the coverage gate,
-which runs only on non-draft PRs and so re-engages at the flip. During the draft phase there is
-no CI at all, which is why the end-of-track gate is the only verification signal a track has
-while it is being implemented.
+Any post-flip commit that touches code runs the related tests from the test-gate set before
+being pushed. CI runs full unit tests and the coverage gate on pull request pushes when the build runs.
+This includes drafts. Integration tests also run on ready pull requests under the skip rules above.
+The local end-of-track gate and closing-event re-run remain independent of draft CI results.
 
 ### Encouraged, never required
 

@@ -40,9 +40,7 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
   }
 
   public enum OPERATION {
-    PUT,
-    REMOVE,
-    CLEAR
+    PUT, REMOVE, CLEAR
   }
 
   public TreeMap<Object, FrontendTransactionIndexChangesPerKey> changesPerKey =
@@ -51,8 +49,9 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
   private final IdentityHashMap<Object, FrontendTransactionIndexChangesPerKey> identityChangeQueue =
       new IdentityHashMap<>();
 
-  public FrontendTransactionIndexChangesPerKey nullKeyChanges = new FrontendTransactionIndexChangesPerKey(
-      null);
+  public FrontendTransactionIndexChangesPerKey nullKeyChanges =
+      new FrontendTransactionIndexChangesPerKey(
+          null);
 
   public boolean cleared = false;
 
@@ -98,9 +97,9 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
     if (from != null && to != null) {
       interval = changesPerKey.subMap(from, fromInclusive, to, toInclusive);
     } else if (from != null) {
-      interval = changesPerKey.headMap(from, fromInclusive);
+      interval = changesPerKey.tailMap(from, fromInclusive);
     } else if (to != null) {
-      interval = changesPerKey.tailMap(to, toInclusive);
+      interval = changesPerKey.headMap(to, toInclusive);
     } else {
       interval = changesPerKey;
     }
@@ -108,7 +107,7 @@ public class FrontendTransactionIndexChanges implements IdentityChangeListener {
     if (interval.isEmpty()) {
       return new Object[0];
     } else {
-      return new Object[]{interval.firstKey(), interval.lastKey()};
+      return new Object[] {interval.firstKey(), interval.lastKey()};
     }
   }
 

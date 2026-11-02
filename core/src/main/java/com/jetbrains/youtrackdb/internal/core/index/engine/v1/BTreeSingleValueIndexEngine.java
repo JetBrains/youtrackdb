@@ -418,6 +418,13 @@ public final class BTreeSingleValueIndexEngine
   }
 
   @Override
+  public Stream<RID> getNullKeyRids(boolean ascending, @Nonnull AtomicOperation atomicOperation) {
+    // A single-value null key has at most one visible RID, so its order is trivial.
+    // The point lookup also rejects incomplete composite keys without scanning their prefix.
+    return get(null, atomicOperation);
+  }
+
+  @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
       @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = sbTree.firstKey(atomicOperation);
@@ -434,13 +441,10 @@ public final class BTreeSingleValueIndexEngine
   @Override
   public Stream<RawPair<Object, RID>> descStream(
       IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
-    final var lastKey = sbTree.lastKey(atomicOperation);
-    if (lastKey == null) {
-      return Stream.empty();
-    }
-
+    // Resolve the last entry on first pull. A captured physical key includes a version and
+    // can exclude its replacement if a writer commits before the cursor fetches its first batch.
     return indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        sbTree.iterateEntriesMinor(lastKey, true, false, atomicOperation),
+        sbTree.iterateEntriesMinor(null, true, false, atomicOperation),
         BTreeSingleValueIndexEngine::extractKey)
         .filter(p -> p.first() != null);
   }

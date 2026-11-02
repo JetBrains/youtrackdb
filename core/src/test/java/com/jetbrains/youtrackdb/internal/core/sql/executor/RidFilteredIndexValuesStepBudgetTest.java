@@ -1,15 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
@@ -197,6 +205,39 @@ public class RidFilteredIndexValuesStepBudgetTest extends DbTestBase {
       if (session.getTransactionInternal().isActive()) {
         session.rollback();
       }
+    }
+  }
+
+  /** Early close releases the consumed filtered null sub-stream and the unread main stream. */
+  @Test
+  public void earlyCloseReleasesConsumedFilteredSubStream() {
+    seedIndexedPeople();
+    var real = session.getSharedContext().getIndexManager().getIndex(session, "Person.age");
+    var members = allPersonRids();
+    var rid = members.iterator().next();
+    var nullClosed = new AtomicBoolean();
+    var mainClosed = new AtomicBoolean();
+    var index = mock(Index.class);
+    when(index.getDefinition()).thenReturn(real.getDefinition());
+    when(index.getName()).thenReturn(real.getName());
+    when(index.getNullKeyRids(any(), eq(false)))
+        .thenReturn(Stream.of(rid).onClose(() -> nullClosed.set(true)));
+    when(index.descStream(any())).thenReturn(Stream.<RawPair<Object, RID>>empty()
+        .onClose(() -> mainClosed.set(true)));
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(session);
+    session.begin();
+    try {
+      var step = new RidFilteredIndexValuesStep(new IndexSearchDescriptor(index), false, true,
+          ctx, false, members);
+      var stream = step.internalStart(ctx);
+      assertThat(stream.hasNext(ctx)).isTrue();
+      stream.next(ctx);
+      stream.close(ctx);
+      assertThat(nullClosed).isTrue();
+      assertThat(mainClosed).isTrue();
+    } finally {
+      session.rollback();
     }
   }
 

@@ -1224,6 +1224,34 @@ public class KnownEndpointExistsPlannerTest extends DbTestBase {
     }
   }
 
+  /** A tree blocks endpoint discovery and the flat-check LIMIT demand shortcut. */
+  @Test
+  public void booleanTreeRetainsFilterBesideEligibleFlatExists() {
+    session.begin();
+    for (var suffix : List.of("", " LIMIT 1")) {
+      var statement = parse("MATCH {class:KnownSource,as:s} RETURN s.n as n" + suffix);
+      var pattern = new Pattern();
+      statement.getMatchExpressions().forEach(pattern::addExpression);
+      var condition = parse("MATCH {as:s,where:(n=7)} RETURN s")
+          .getMatchExpressions().getFirst().getOrigin().getFilter();
+      var inputs = MatchPlanInputs.builder(pattern).aliasClasses(Map.of("s", "KnownSource"))
+          .existsMatchExpressions(List.of(parse(check()).getMatchExpressions().getFirst()))
+          .booleanCheck(new MatchBooleanCheck.Or(List.of(
+              new MatchBooleanCheck.Filter("s", condition))))
+          .returnItems(statement.getReturnItems()).returnAliases(statement.getReturnAliases())
+          .returnNestedProjections(statement.getReturnNestedProjections())
+          .limit(statement.getLimit()).build();
+      var planner = new MatchExecutionPlanner(inputs);
+      var ctx = context(Map.of());
+      assertThat(planner.detachedRequiredRows(ctx)).isEmpty();
+      var plan = (SelectExecutionPlan) planner.createExecutionPlan(ctx, false, false);
+      assertThat(plan.prettyPrint(0, 2)).contains("BOOLEAN FILTER")
+          .doesNotContain("CURRENT:", "TARGET:");
+      assertThat(drain(plan)).containsExactly(7);
+    }
+    session.rollback();
+  }
+
   private String check() {
     return "MATCH {as:s}.out('KnownLink'){as:t,where:(@rid=" + target + ")} RETURN s";
   }

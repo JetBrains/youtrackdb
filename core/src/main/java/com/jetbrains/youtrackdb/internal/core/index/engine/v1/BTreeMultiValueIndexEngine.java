@@ -482,6 +482,16 @@ public final class BTreeMultiValueIndexEngine
   }
 
   @Override
+  public Stream<RID> getNullKeyRids(boolean ascending, @Nonnull AtomicOperation atomicOperation) {
+    if (ascending) {
+      return get(null, atomicOperation);
+    }
+    // Resolve the version-free start on first pull, even if a writer replaces the highest RID.
+    return nullIndexesSnapshot.visibilityFilterValues(atomicOperation,
+        nullTree.iterateEntriesMinor(null, true, false, atomicOperation));
+  }
+
+  @Override
   public Stream<RawPair<Object, RID>> stream(IndexEngineValuesTransformer valuesTransformer,
       @Nonnull AtomicOperation atomicOperation) {
     final var firstKey = svTree.firstKey(atomicOperation);
@@ -497,13 +507,10 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public Stream<RawPair<Object, RID>> descStream(
       IndexEngineValuesTransformer valuesTransformer, @Nonnull AtomicOperation atomicOperation) {
-    final var lastKey = svTree.lastKey(atomicOperation);
-    if (lastKey == null) {
-      return Stream.empty();
-    }
-
+    // Resolve the last entry on first pull. A captured physical key includes a version and
+    // can exclude its replacement if a writer commits before the cursor fetches its first batch.
     return indexesSnapshot.visibilityFilterMapped(atomicOperation,
-        svTree.iterateEntriesMinor(lastKey, true, false, atomicOperation),
+        svTree.iterateEntriesMinor(null, true, false, atomicOperation),
         BTreeMultiValueIndexEngine::extractKey);
   }
 

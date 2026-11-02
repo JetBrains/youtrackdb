@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
@@ -76,6 +77,25 @@ final class WalkerContext implements RecognitionContext {
 
   /** Detached positive checks applied as row filters after the positive pattern. */
   final List<SQLMatchExpression> existsMatchExpressions = new ArrayList<>();
+
+  @Nullable private MatchBooleanCheck booleanCheck;
+
+  @Override
+  public void addBooleanCheck(MatchBooleanCheck check) {
+    booleanCheck = booleanCheck == null ? check
+        : new MatchBooleanCheck.And(List.of(booleanCheck, check));
+  }
+
+  @Override
+  public MatchBooleanCheck booleanCheck() {
+    return booleanCheck;
+  }
+
+  @Override
+  public boolean hasCapturedChecks() {
+    return !notMatchExpressions.isEmpty() || !existsMatchExpressions.isEmpty()
+        || booleanCheck != null;
+  }
 
   /** Positional-parameter values collected during the walk, keyed by slot ({@code 0}, {@code 1}, …).
    *  Insertion order matches slot allocation order for deterministic rebinding on cache hit. */

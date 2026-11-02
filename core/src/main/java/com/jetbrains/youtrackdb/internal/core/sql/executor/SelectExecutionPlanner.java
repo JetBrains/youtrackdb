@@ -3271,8 +3271,7 @@ public class SelectExecutionPlanner {
       if (indexFields.size() < orderItemCount) {
         continue;
       }
-      if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())
-          || !IndexOrderedPlanner.isDefaultCollate(idx.getDefinition().getCollate())) {
+      if (IndexOrderedPlanner.isMultiValueDefinition(idx.getDefinition())) {
         continue;
       }
       var indexFound = true;
@@ -3280,7 +3279,8 @@ public class SelectExecutionPlanner {
       for (var i = 0; i < orderItemCount; i++) {
         var orderItem = info.orderBy.getItems().get(i);
         if (orderItem.getCollate() != null
-            || !IndexOrderedPlanner.isDefaultCollate(orderItem.getDeclaredCollate())) {
+            || !IndexOrderCollations.matches(idx.getDefinition().getCollate(), i,
+                orderItem.getDeclaredCollate())) {
           indexFound = false;
           break;
         }
@@ -3341,7 +3341,8 @@ public class SelectExecutionPlanner {
     info.orderApplied = true;
     info.ridOrderWithinEqualKeys =
         bestTrailingFields == 0
-            && (!SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
+            && (bestIndex.getDefinition().getProperties().size() == 1
+                || !SQLOrderByItem.DESC.equals(info.orderBy.getItems().getFirst().getType())
                 || orderedFieldsExcludeNulls(clazz, info.orderBy.getProperties(),
                     info.whereClause == null ? null : info.whereClause.getBaseExpression()));
     return true;
@@ -3738,16 +3739,20 @@ public class SelectExecutionPlanner {
     // Every item shares one direction here, and an item with no declared type sorts ascending.
     var orderAsc = !SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType());
     if (IndexOrderedPlanner.isMultiValueDefinition(definition)
-        || !IndexOrderedPlanner.isDefaultCollate(definition.getCollate())
         || !canProduceNullPlacement(definition, orderBy, orderAsc, placements)) {
       return false;
     }
-    for (var item : orderBy.getItems()) {
-      if (!IndexOrderedPlanner.isDefaultCollate(item.getDeclaredCollate())) {
+    var components = desc.orderedIndexComponents(orderBy.getProperties());
+    if (components == null) {
+      return false;
+    }
+    for (var i = 0; i < components.size(); i++) {
+      if (!IndexOrderCollations.matches(definition.getCollate(), components.get(i),
+          orderBy.getItems().get(i).getDeclaredCollate())) {
         return false;
       }
     }
-    return desc.fullySorted(orderBy.getProperties());
+    return true;
   }
 
   /** An index may order ties by RID only when no unfixed key component remains. */
@@ -3771,13 +3776,14 @@ public class SelectExecutionPlanner {
     coveredFields.addAll(orderBy.getProperties());
     return coveredFields.size() == definition.getProperties().size()
         && coveredFields.containsAll(definition.getProperties())
-        && (!SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
+        && (definition.getProperties().size() == 1
+            || !SQLOrderByItem.DESC.equals(orderBy.getItems().getFirst().getType())
             || orderedFieldsExcludeNulls(clazz, orderBy.getProperties(), keyCondition));
   }
 
   /**
-   * Shared SELECT and single-node MATCH proof that every ordered key excludes nulls.
-   * A descending scan cannot promise RID order in a nullable index-key bucket.
+   * Conservative proof that every ordered composite key excludes nulls.
+   * Single-property scans supply direction-aware RID order in their separate null bucket.
    * Schema constraints do not prove this for existing records or disabled validation.
    */
   public static boolean orderedFieldsExcludeNulls(

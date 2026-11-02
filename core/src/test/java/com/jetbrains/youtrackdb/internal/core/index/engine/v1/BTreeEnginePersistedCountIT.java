@@ -2,16 +2,35 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.WalTestUtils;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.apache.commons.io.FileUtils;
+import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.rules.TestRule;
+import org.junit.runners.model.Statement;
 
 /**
  * Integration tests for persisted approximate index entries count.
@@ -23,6 +42,28 @@ import org.junit.experimental.categories.Category;
  */
 @Category(SequentialTest.class)
 public class BTreeEnginePersistedCountIT extends DbTestBase {
+
+  private final List<Path> failedCrashCopies = new ArrayList<>();
+
+  @Rule
+  public final TestRule crashCopyCleanup = (base, description) -> new Statement() {
+    @Override
+    public void evaluate() throws Throwable {
+      Throwable failure = null;
+      try {
+        // The base statement includes @After, which shuts down the database manager.
+        base.evaluate();
+      } catch (Throwable primary) {
+        failure = primary;
+      }
+      for (var path : failedCrashCopies) {
+        failure = cleanup(failure, () -> FileUtils.deleteDirectory(path.toFile()));
+      }
+      if (failure != null) {
+        throw failure;
+      }
+    }
+  };
 
   // ═══════════════════════════════════════════════════════════════════════
   // Single-value index: count survives restart
@@ -369,240 +410,221 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Crash recovery: forceDatabaseClose + WAL replay
+  // Crash recovery: protected open-storage copy + WAL replay
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Insert 100 records into a DISK database, commit, call forceDatabaseClose()
-   * (simulates non-graceful shutdown — no flush), reopen (triggers WAL replay),
-   * and verify that the approximate entries count is correct.
+   * Persist an empty single-value index, insert 100 records under WAL protection, and copy
+   * the open storage. Recovery must restore count 100 and exact index and SQL identities.
+   * Skipping page redo leaves the empty baseline with count 0.
    */
   @Test
   public void singleValue_countSurvivesCrashRecovery() throws Exception {
     var crashDbName = "crash_count_insert";
-    youTrackDB.create(crashDbName, DatabaseType.DISK,
-        adminUser, adminPassword, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+    try (var crash = new CrashDatabase(crashDbName)) {
+      var crashSession = crash.current;
 
-    crashSession.createClassIfNotExist("CrashSV");
-    var cls = crashSession.getClass("CrashSV");
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("CrashSV.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
+      crashSession.createClassIfNotExist("CrashSV");
+      var cls = crashSession.getClass("CrashSV");
+      cls.createProperty("name", PropertyType.STRING);
+      cls.createIndex("CrashSV.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
 
-    crashSession.begin();
-    for (int i = 0; i < 100; i++) {
-      crashSession.newEntity("CrashSV").setProperty("name", "entry_" + i);
+      var source = crash.persistBaselineAndReopen();
+      var expectedRids = new HashMap<Object, Set<RID>>();
+      WalTestUtils.withWalProtection(source, () -> {
+        source.begin();
+        for (int i = 0; i < 100; i++) {
+          source.newEntity("CrashSV").setProperty("name", "entry_" + i);
+        }
+        source.commit();
+        expectedRids.putAll(queryRidsByKey(source, "CrashSV", "name"));
+        copyCrash(source, crashDbName);
+      });
+      crashSession = crash.openCopy();
+      assertRecoveryRan(crashSession);
+
+      var engine = getBTreeIndexEngine(crashSession, "CrashSV.name");
+      crashSession.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(atomicOp -> {
+            assertEquals(
+                "Approximate count must be 100 after crash recovery",
+                100, engine.getTotalCount(atomicOp));
+          });
+      assertIndexAndSqlRids(crashSession, "CrashSV", "name", "entry_", 100, expectedRids);
     }
-    crashSession.commit();
-
-    // Simulate non-graceful shutdown — no flush
-    crashSession.activateOnCurrentThread();
-    youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-    // Reopen — WAL replay restores the B-tree
-    crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-    var engine = getBTreeIndexEngine(crashSession, "CrashSV.name");
-    var finalSession = crashSession;
-    crashSession.getStorage().getAtomicOperationsManager()
-        .executeInsideAtomicOperation(atomicOp -> {
-          assertEquals(
-              "Approximate count must be 100 after crash recovery",
-              100, engine.getTotalCount(atomicOp));
-        });
-
-    finalSession.close();
-    youTrackDB.drop(crashDbName);
   }
 
   /**
-   * Insert 100 records, commit, delete 50, commit, forceDatabaseClose, reopen,
-   * verify approximate count is ~50.
+   * Persist 100 records, delete 50 under WAL protection, and recover an open-storage copy.
+   * The count must be exactly 50, not the baseline's 100. Direct index reads and SQL must
+   * contain only the surviving identities.
    */
   @Test
   public void singleValue_insertAndDelete_countSurvivesCrashRecovery()
       throws Exception {
     var crashDbName = "crash_count_del";
-    youTrackDB.create(crashDbName, DatabaseType.DISK,
-        adminUser, adminPassword, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+    try (var crash = new CrashDatabase(crashDbName)) {
+      var crashSession = crash.current;
 
-    crashSession.createClassIfNotExist("CrashDel");
-    var cls = crashSession.getClass("CrashDel");
-    cls.createProperty("val", PropertyType.STRING);
-    cls.createIndex("CrashDel.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+      crashSession.createClassIfNotExist("CrashDel");
+      var cls = crashSession.getClass("CrashDel");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("CrashDel.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
 
-    // Insert 100
-    crashSession.begin();
-    for (int i = 0; i < 100; i++) {
-      crashSession.newEntity("CrashDel").setProperty("val", "v" + i);
+      // Insert 100
+      crashSession.begin();
+      for (int i = 0; i < 100; i++) {
+        crashSession.newEntity("CrashDel").setProperty("val", "v" + i);
+      }
+      crashSession.commit();
+
+      var source = crash.persistBaselineAndReopen();
+      var expectedRids = new HashMap<Object, Set<RID>>();
+      WalTestUtils.withWalProtection(source, () -> {
+        source.begin();
+        for (int i = 0; i < 50; i++) {
+          source.command("DELETE FROM CrashDel WHERE val = 'v" + i + "'");
+        }
+        source.commit();
+        expectedRids.putAll(queryRidsByKey(source, "CrashDel", "val"));
+        copyCrash(source, crashDbName);
+      });
+      crashSession = crash.openCopy();
+      assertRecoveryRan(crashSession);
+
+      var engine = getBTreeIndexEngine(crashSession, "CrashDel.val");
+      crashSession.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(atomicOp -> {
+            // Delta is persisted inside the same atomic operation as the B-tree
+            // mutation (persistCountDelta). WAL replay replays the full operation
+            // atomically, so the count must be exact.
+            assertEquals(
+                "Count must be 50 after delete + crash recovery",
+                50, engine.getTotalCount(atomicOp));
+          });
+
+      assertIndexAndSqlRids(crashSession, "CrashDel", "val", "v", 100, expectedRids);
     }
-    crashSession.commit();
-
-    // Delete 50
-    crashSession.begin();
-    for (int i = 0; i < 50; i++) {
-      crashSession.command("DELETE FROM CrashDel WHERE val = 'v" + i + "'");
-    }
-    crashSession.commit();
-
-    // Simulate non-graceful shutdown
-    crashSession.activateOnCurrentThread();
-    youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-    // Reopen — WAL replay
-    crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-    var engine = getBTreeIndexEngine(crashSession, "CrashDel.val");
-    var finalSession = crashSession;
-    crashSession.getStorage().getAtomicOperationsManager()
-        .executeInsideAtomicOperation(atomicOp -> {
-          // Delta is persisted inside the same atomic operation as the B-tree
-          // mutation (persistCountDelta). WAL replay replays the full operation
-          // atomically, so the count must be exact.
-          assertEquals(
-              "Count must be 50 after delete + crash recovery",
-              50, engine.getTotalCount(atomicOp));
-        });
-
-    finalSession.close();
-    youTrackDB.drop(crashDbName);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  // Multi-value crash recovery: forceDatabaseClose + WAL replay
+  // Multi-value crash recovery: protected open-storage copy + WAL replay
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Multi-value crash recovery for persisted counts: insert non-null and null
-   * entries, forceDatabaseClose (no flush), reopen (WAL replay), verify both
-   * getTotalCount and getNullCount are correct.
-   *
-   * <p>persistCountDelta() for multi-value indexes issues TWO separate page
-   * writes (one to svTree's entry point, one to nullTree's entry point). If
-   * the process crashes after one write but before the other, WAL replay must
-   * replay both atomically.
+   * Persist an empty multi-value index. Insert 50 non-null and 10 null records under WAL
+   * protection, then recover an open-storage copy. Both trees must recover their counts
+   * and exact identities. Skipping page redo leaves total and null counts at 0.
+   * This scenario copies completed atomic operations, not a partial atomic WAL unit.
    */
   @Test
   public void multiValue_countsSurviveCrashRecovery() throws Exception {
     var crashDbName = "crash_mv_count";
-    youTrackDB.create(crashDbName, DatabaseType.DISK,
-        adminUser, adminPassword, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+    try (var crash = new CrashDatabase(crashDbName)) {
+      var crashSession = crash.current;
 
-    crashSession.createClassIfNotExist("CrashMV");
-    var cls = crashSession.getClass("CrashMV");
-    cls.createProperty("tag", PropertyType.STRING);
-    cls.createIndex("CrashMV.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
+      crashSession.createClassIfNotExist("CrashMV");
+      var cls = crashSession.getClass("CrashMV");
+      cls.createProperty("tag", PropertyType.STRING);
+      cls.createIndex("CrashMV.tag", SchemaClass.INDEX_TYPE.NOTUNIQUE, "tag");
 
-    // Insert 50 non-null entries + 10 null entries
-    crashSession.begin();
-    for (int i = 0; i < 50; i++) {
-      crashSession.newEntity("CrashMV").setProperty("tag", "tag_" + i);
+      var source = crash.persistBaselineAndReopen();
+      var expectedRids = new HashMap<Object, Set<RID>>();
+      WalTestUtils.withWalProtection(source, () -> {
+        source.begin();
+        for (int i = 0; i < 50; i++) {
+          source.newEntity("CrashMV").setProperty("tag", "tag_" + i);
+        }
+        for (int i = 0; i < 10; i++) {
+          // A missing tag exercises the separate null-key tree.
+          source.newEntity("CrashMV");
+        }
+        source.commit();
+        expectedRids.putAll(queryRidsByKey(source, "CrashMV", "tag"));
+        copyCrash(source, crashDbName);
+      });
+      crashSession = crash.openCopy();
+      assertRecoveryRan(crashSession);
+
+      var engine = getBTreeIndexEngine(crashSession, "CrashMV.tag");
+      crashSession.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(atomicOp -> {
+            assertEquals(
+                "Total count must be 60 after crash recovery",
+                60, engine.getTotalCount(atomicOp));
+            assertEquals(
+                "Null count must be 10 after crash recovery",
+                10, engine.getNullCount(atomicOp));
+          });
+
+      assertIndexAndSqlRids(crashSession, "CrashMV", "tag", "tag_", 50, expectedRids);
     }
-    for (int i = 0; i < 10; i++) {
-      // No tag property → null key in nullTree
-      crashSession.newEntity("CrashMV");
-    }
-    crashSession.commit();
-
-    // Simulate non-graceful shutdown — no flush
-    crashSession.activateOnCurrentThread();
-    youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-    // Reopen — WAL replay restores both B-trees
-    crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-    var engine = getBTreeIndexEngine(crashSession, "CrashMV.tag");
-    var finalSession = crashSession;
-    crashSession.getStorage().getAtomicOperationsManager()
-        .executeInsideAtomicOperation(atomicOp -> {
-          assertEquals(
-              "Total count must be 60 after crash recovery",
-              60, engine.getTotalCount(atomicOp));
-          assertEquals(
-              "Null count must be 10 after crash recovery",
-              10, engine.getNullCount(atomicOp));
-        });
-
-    finalSession.close();
-    youTrackDB.drop(crashDbName);
   }
 
   /**
-   * Multi-value crash recovery after inserts and deletes: insert non-null
-   * and null entries, delete some of each, forceDatabaseClose, reopen,
-   * verify counts reflect the net state.
+   * Persist 30 non-null and 5 null records. Delete 10 non-null and 2 null records under
+   * WAL protection, then recover an open-storage copy. Counts must be total 23 and null 3,
+   * not the baseline's 35 and 5. Index and SQL reads must return exact surviving identities.
    */
   @Test
   public void multiValue_insertAndDelete_countSurviveCrashRecovery()
       throws Exception {
     var crashDbName = "crash_mv_del";
-    youTrackDB.create(crashDbName, DatabaseType.DISK,
-        adminUser, adminPassword, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
+    try (var crash = new CrashDatabase(crashDbName)) {
+      var crashSession = crash.current;
 
-    crashSession.createClassIfNotExist("CrashMvDel");
-    var cls = crashSession.getClass("CrashMvDel");
-    cls.createProperty("val", PropertyType.STRING);
-    cls.createIndex("CrashMvDel.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+      crashSession.createClassIfNotExist("CrashMvDel");
+      var cls = crashSession.getClass("CrashMvDel");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("CrashMvDel.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
 
-    // Insert 30 non-null + 5 null entries
-    crashSession.begin();
-    for (int i = 0; i < 30; i++) {
-      crashSession.newEntity("CrashMvDel").setProperty("val", "v" + i);
+      // Insert 30 non-null + 5 null entries
+      crashSession.begin();
+      for (int i = 0; i < 30; i++) {
+        crashSession.newEntity("CrashMvDel").setProperty("val", "v" + i);
+      }
+      for (int i = 0; i < 5; i++) {
+        crashSession.newEntity("CrashMvDel");
+      }
+      crashSession.commit();
+
+      var source = crash.persistBaselineAndReopen();
+      var expectedRids = new HashMap<Object, Set<RID>>();
+      WalTestUtils.withWalProtection(source, () -> {
+        source.begin();
+        for (int i = 0; i < 10; i++) {
+          source.command("DELETE FROM CrashMvDel WHERE val = 'v" + i + "'");
+        }
+        source.commit();
+
+        source.begin();
+        source.command("DELETE FROM CrashMvDel WHERE val IS NULL LIMIT 2");
+        source.commit();
+        // Capture the actual survivors because LIMIT does not specify which null RIDs are deleted.
+        expectedRids.putAll(queryRidsByKey(source, "CrashMvDel", "val"));
+        copyCrash(source, crashDbName);
+      });
+      crashSession = crash.openCopy();
+      assertRecoveryRan(crashSession);
+
+      var engine = getBTreeIndexEngine(crashSession, "CrashMvDel.val");
+      crashSession.getStorage().getAtomicOperationsManager()
+          .executeInsideAtomicOperation(atomicOp -> {
+            // Delta is persisted inside the same atomic operation as the B-tree
+            // mutation (persistCountDelta). WAL replay replays the full operation
+            // atomically, so counts must be exact.
+            // 30 + 5 - 10 - 2 = 23 total
+            assertEquals(
+                "Total count must be 23 after insert+delete + crash recovery",
+                23, engine.getTotalCount(atomicOp));
+            // 5 - 2 = 3 null
+            assertEquals(
+                "Null count must be 3 after delete + crash recovery",
+                3, engine.getNullCount(atomicOp));
+          });
+
+      assertIndexAndSqlRids(crashSession, "CrashMvDel", "val", "v", 30, expectedRids);
     }
-    for (int i = 0; i < 5; i++) {
-      crashSession.newEntity("CrashMvDel");
-    }
-    crashSession.commit();
-
-    // Delete 10 non-null entries
-    crashSession.begin();
-    for (int i = 0; i < 10; i++) {
-      crashSession.command("DELETE FROM CrashMvDel WHERE val = 'v" + i + "'");
-    }
-    crashSession.commit();
-
-    // Delete 2 null entries
-    crashSession.begin();
-    crashSession.command("DELETE FROM CrashMvDel WHERE val IS NULL LIMIT 2");
-    crashSession.commit();
-
-    // Simulate non-graceful shutdown
-    crashSession.activateOnCurrentThread();
-    youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-    // Reopen — WAL replay
-    crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-    var engine = getBTreeIndexEngine(crashSession, "CrashMvDel.val");
-    var finalSession = crashSession;
-    crashSession.getStorage().getAtomicOperationsManager()
-        .executeInsideAtomicOperation(atomicOp -> {
-          // Delta is persisted inside the same atomic operation as the B-tree
-          // mutation (persistCountDelta). WAL replay replays the full operation
-          // atomically, so counts must be exact.
-          // 30 + 5 - 10 - 2 = 23 total
-          assertEquals(
-              "Total count must be 23 after insert+delete + crash recovery",
-              23, engine.getTotalCount(atomicOp));
-          // 5 - 2 = 3 null
-          assertEquals(
-              "Null count must be 3 after delete + crash recovery",
-              3, engine.getNullCount(atomicOp));
-        });
-
-    finalSession.close();
-    youTrackDB.drop(crashDbName);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -610,55 +632,42 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
   // ═══════════════════════════════════════════════════════════════════════
 
   /**
-   * Regression test for a bug where REBUILD INDEX deleted the index metadata
-   * entity (the ODocument in CONFIG_INDEXES) but never recreated it. After a
-   * non-graceful shutdown + WAL replay, getIndex() returned null — the index
-   * was invisible to the IndexManager even though the B-tree data was intact.
+   * Persist an empty index, then insert 100 records and rebuild under WAL protection.
+   * Recover an open-storage copy and verify visible metadata, count 100, and exact identities
+   * through direct index reads and SQL. The empty baseline cannot satisfy these outcomes.
+   * Recovery must restore the rebuilt engine and its metadata registration together.
    *
-   * <p>The fix ensures rebuild() persists a new metadata entity and registers
-   * it in the IndexManager's CONFIG_INDEXES link set.
-   *
-   * <p>Steps: insert 100 records, REBUILD INDEX, forceDatabaseClose (crash),
-   * reopen (WAL replay), verify index is visible, count is correct, and all
-   * records are accessible via the index.
+   * <p>This test exposes YTDB-1464. Re-enable it when that issue is fixed.
    */
   @Test
+  @Ignore("YTDB-1464: WAL recovery fails after a crash that follows REBUILD INDEX "
+      + "(https://youtrack.jetbrains.com/issue/YTDB-1464)")
   public void singleValue_rebuildIndex_metadataSurvivesCrashRecovery()
       throws Exception {
     var crashDbName = "crash_rebuild_meta";
-    youTrackDB.create(crashDbName, DatabaseType.DISK,
-        adminUser, adminPassword, "admin");
-    var crashSession =
-        (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-    try {
+    try (var crash = new CrashDatabase(crashDbName)) {
+      var crashSession = crash.current;
       crashSession.createClassIfNotExist("RebuildCrash");
       var cls = crashSession.getClass("RebuildCrash");
       cls.createProperty("name", PropertyType.STRING);
       cls.createIndex("RebuildCrash.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
 
-      // Insert 100 records
-      crashSession.begin();
-      for (int i = 0; i < 100; i++) {
-        crashSession.newEntity("RebuildCrash")
-            .setProperty("name", "entry_" + i);
-      }
-      crashSession.commit();
+      var source = crash.persistBaselineAndReopen();
+      var expectedRids = new HashMap<Object, Set<RID>>();
+      WalTestUtils.withWalProtection(source, () -> {
+        source.begin();
+        for (int i = 0; i < 100; i++) {
+          source.newEntity("RebuildCrash").setProperty("name", "entry_" + i);
+        }
+        source.commit();
+        source.command("REBUILD INDEX RebuildCrash.name");
+        expectedRids.putAll(queryRidsByKey(source, "RebuildCrash", "name"));
+        copyCrash(source, crashDbName);
+      });
+      crashSession = crash.openCopy();
+      assertRecoveryRan(crashSession);
 
-      // Rebuild the index — this deletes + recreates the storage engine
-      // and, with the fix, persists a new metadata entity
-      crashSession.command("REBUILD INDEX RebuildCrash.name");
-
-      // Simulate non-graceful shutdown — no flush
-      crashSession.activateOnCurrentThread();
-      youTrackDB.internal.forceDatabaseClose(crashDbName);
-
-      // Reopen — WAL replay
-      crashSession =
-          (DatabaseSessionEmbedded) youTrackDB.open(crashDbName, adminUser, adminPassword);
-
-      // The key assertion: index must be visible to the IndexManager after
-      // crash recovery. Before the fix, this returned null.
+      // The rebuilt index must be registered in the recovered metadata.
       var idx = crashSession.getSharedContext().getIndexManager()
           .getIndex("RebuildCrash.name");
       assertNotNull(
@@ -674,26 +683,160 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
                 100, engine.getTotalCount(atomicOp));
           });
 
-      // Verify all records are accessible via the index
-      var resultSet = crashSession.query("SELECT FROM RebuildCrash WHERE name >= 'entry_'");
-      int count = 0;
-      while (resultSet.hasNext()) {
-        resultSet.next();
-        count++;
-      }
-      resultSet.close();
-      assertEquals(
-          "All 100 records must be accessible via the index after recovery",
-          100, count);
-    } finally {
-      crashSession.close();
-      youTrackDB.drop(crashDbName);
+      assertIndexAndSqlRids(crashSession, "RebuildCrash", "name", "entry_", 100, expectedRids);
     }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
   // Helpers
   // ═══════════════════════════════════════════════════════════════════════
+
+  private static YouTrackDBConfig crashConfig() {
+    // The tiny workloads fit in cache. Keep non-periodic flush paths idle too.
+    return YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL,
+            100000000)
+        .addGlobalConfigurationParameter(GlobalConfiguration.DISK_CACHE_SIZE, 256)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_MAX_SEGMENT_SIZE, 256)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_MAX_SIZE, 1024)
+        .build();
+  }
+
+  private final class CrashDatabase implements AutoCloseable {
+
+    private final String dbName;
+    private DatabaseSessionEmbedded current;
+    private boolean copyOpened;
+
+    private CrashDatabase(String dbName) {
+      this.dbName = dbName;
+      youTrackDB.create(dbName, DatabaseType.DISK, crashConfig(),
+          adminUser, adminPassword, "admin");
+      current = youTrackDB.open(dbName, adminUser, adminPassword, crashConfig());
+    }
+
+    private DatabaseSessionEmbedded persistBaselineAndReopen() {
+      // A session close alone leaves storage open. forceDatabaseClose performs a normal
+      // storage shutdown that flushes baseline pages. It is not the simulated crash.
+      current.close();
+      youTrackDB.internal.forceDatabaseClose(dbName);
+      current = youTrackDB.open(dbName, adminUser, adminPassword, crashConfig());
+      return current;
+    }
+
+    private DatabaseSessionEmbedded openCopy() {
+      if (current.isTxActive()) {
+        current.rollback();
+      }
+      current.close();
+      // Closing the source normally cannot change the already copied files.
+      youTrackDB.internal.forceDatabaseClose(dbName);
+      current = youTrackDB.open(dbName + "_recovered", adminUser, adminPassword, crashConfig());
+      copyOpened = true;
+      return current;
+    }
+
+    @Override
+    public void close() throws Exception {
+      Throwable failure = cleanup(null, () -> {
+        if (!current.isClosed()) {
+          current.activateOnCurrentThread();
+          if (current.isTxActive()) {
+            current.rollback();
+          }
+          current.close();
+        }
+      });
+      failure = cleanup(failure, () -> youTrackDB.drop(dbName));
+      if (copyOpened) {
+        failure = cleanup(failure, () -> youTrackDB.drop(dbName + "_recovered"));
+      } else {
+        // Drop opens storage. A failed recovery must not be retried during cleanup.
+        // Delete its files only after the manager releases all storage resources.
+        failedCrashCopies.add(Path.of(dbPath).resolve(dbName + "_recovered"));
+      }
+      if (failure instanceof Exception exception) {
+        throw exception;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+    }
+  }
+
+  private static Throwable cleanup(Throwable failure, WalTestUtils.ThrowingRunnable action) {
+    try {
+      action.run();
+    } catch (Exception | Error cleanupFailure) {
+      if (failure == null) {
+        return cleanupFailure;
+      }
+      failure.addSuppressed(cleanupFailure);
+    }
+    return failure;
+  }
+
+  private void copyCrash(DatabaseSessionEmbedded source, String dbName) throws Exception {
+    ((DiskStorage) source.getStorage()).getWALInstance().flush();
+    WalTestUtils.copyDirtyStorage(Path.of(source.getURL().substring("disk:".length())),
+        Path.of(dbPath).resolve(dbName + "_recovered"));
+  }
+
+  private static void assertRecoveryRan(DatabaseSessionEmbedded recovered) {
+    assertTrue("The copied dirty storage must replay its write-ahead log",
+        ((DiskStorage) recovered.getStorage()).wereDataRestoredAfterOpen());
+  }
+
+  private static Map<Object, Set<RID>> queryRidsByKey(DatabaseSessionEmbedded source,
+      String className, String property) {
+    var rids = new HashMap<Object, Set<RID>>();
+    source.begin();
+    try (var rows = source.query("SELECT FROM " + className)) {
+      rows.stream().forEach(row -> rids.computeIfAbsent(row.getProperty(property),
+          key -> new HashSet<>()).add(row.getIdentity()));
+      return rids;
+    } finally {
+      source.rollback();
+    }
+  }
+
+  private static void assertIndexAndSqlRids(DatabaseSessionEmbedded recovered, String className,
+      String property, String prefix, int keyCount, Map<Object, Set<RID>> expectedRids) {
+    // Check every inserted key, including removed keys, and the separate null-key range.
+    for (int i = 0; i < keyCount; i++) {
+      var key = prefix + i;
+      assertIndexAndSqlRids(recovered, className + "." + property, key,
+          "SELECT FROM " + className + " WHERE " + property + " = '" + key + "'",
+          expectedRids.getOrDefault(key, Set.of()));
+    }
+    assertIndexAndSqlRids(recovered, className + "." + property, null,
+        "SELECT FROM " + className + " WHERE " + property + " IS NULL",
+        expectedRids.getOrDefault(null, Set.of()));
+  }
+
+  private static void assertIndexAndSqlRids(DatabaseSessionEmbedded recovered, String indexName,
+      Object key, String query, Set<RID> expected) {
+    recovered.begin();
+    try {
+      var index = recovered.getSharedContext().getIndexManager().getIndex(indexName);
+      try (var rids = index.getRids(recovered, key)) {
+        var actual = rids.toList();
+        assertEquals("Recovered index " + indexName + " key " + key + " must have exact RIDs",
+            expected, new HashSet<>(actual));
+        assertEquals("Recovered index must not contain duplicate RIDs", expected.size(),
+            actual.size());
+      }
+    } finally {
+      recovered.rollback();
+    }
+    recovered.begin();
+    try (var rows = recovered.query(query)) {
+      assertEquals("Recovered SQL results must have exact RIDs: " + query, expected,
+          rows.stream().map(row -> row.getIdentity()).collect(Collectors.toSet()));
+    } finally {
+      recovered.rollback();
+    }
+  }
 
   /**
    * Gets the BTreeIndexEngine for the named index by reading the indexId

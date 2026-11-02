@@ -415,7 +415,7 @@ def baseline_fixture_with_macos(current):
 
 def check_negative_controls():
     mutations = [
-        ("block-merge runner typo", "block-merge-commits.yml", X64,
+        ("notifier runner typo", "youtrack-notifier-tests.yml", X64,
          "ubuntu-latest-8-core-x64-public"),
         ("integration matrix runner typo", "maven-integration-tests-pipeline.yml", ARM,
          "ubuntu-24.04-8-core-arm64-public"),

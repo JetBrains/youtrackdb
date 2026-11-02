@@ -160,11 +160,13 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
           @Override
           public ExecutionStream next(CommandContext ctx) {
             var s = iter.next();
+            // The result iterator does not own its Java stream. Forward close explicitly so
+            // exhaustion and early termination release the currently consumed index cursor too.
             return ExecutionStream.resultIterator(
                 s.map((nextEntry) -> {
                   tx.preProcessRecordsAndExecuteCallCallbacks();
                   return readResult(ctx, nextEntry);
-                }).iterator());
+                }).iterator()).onClose(closeCtx -> s.close());
           }
 
           @Override
@@ -302,7 +304,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     Stream<RawPair<Object, RID>> nullStream = null;
     Stream<RawPair<Object, RID>> mainStream = null;
     try {
-      nullStream = fetchNullKeys(session, index);
+      nullStream = fetchNullKeys(session, index, isOrderAsc);
       mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
     } catch (RuntimeException | Error e) {
       // Guard both unchecked hierarchies, not just RuntimeException: if the main-stream setup trips
@@ -374,12 +376,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * to return complete results.
    */
   @Nullable private static Stream<RawPair<Object, RID>> fetchNullKeys(DatabaseSessionEmbedded session,
-      Index index) {
+      Index index, boolean isOrderAsc) {
     if (index.getDefinition().isNullValuesIgnored()) {
       return null;
     }
 
-    return getStreamForNullKey(session, index);
+    return getStreamForNullKey(session, index, isOrderAsc);
   }
 
   /**
@@ -487,7 +489,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                       // manage null value explicitly, as the index API does not seem to work
                       // correctly in this
                       // case
-                      stream = getStreamForNullKey(session, index);
+                      stream = getStreamForNullKey(session, index, isOrderAsc);
                       addStreamIfNew(stream, streams, acquiredStreams);
                     } else {
                       stream =
@@ -519,7 +521,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       if (from == null && to == null) {
         // manage null value explicitly, as the index API does not seem to work correctly in this
         // case
-        stream = getStreamForNullKey(session, index);
+        stream = getStreamForNullKey(session, index, isOrderAsc);
         addStreamIfNew(stream, streams, acquiredStreams);
       } else {
         if (from instanceof Collection<?> fromColl) {
@@ -556,8 +558,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * The returned pairs have {@code null} as the key component and the stored RID as the value.
    */
   private static Stream<RawPair<Object, RID>> getStreamForNullKey(
-      DatabaseSessionEmbedded session, Index index) {
-    final var stream = index.getRids(session, null);
+      DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
+    final var stream = index.getNullKeyRids(session, isOrderAsc);
     return stream.map((rid) -> new RawPair<>(null, rid));
   }
 

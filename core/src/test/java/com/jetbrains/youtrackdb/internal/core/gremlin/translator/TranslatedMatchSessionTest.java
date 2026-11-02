@@ -271,6 +271,67 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
     }
   }
 
+  /** A real hash anti-join rewinds in place after a partial read without stale hash state. */
+  @Test
+  public void hashAntiJoinPartialReadResetRead() throws Exception {
+    var savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10000L);
+      graphSession().createVertexClass("RestartPerson");
+      var a = graph.addVertex(T.label, "RestartPerson", "name", "A");
+      var b = graph.addVertex(T.label, "RestartPerson", "name", "B");
+      graph.addVertex(T.label, "RestartPerson", "name", "C");
+      a.addEdge("knows", b);
+      graph.tx().commit();
+      try (var traversal = graph.traversal().V().hasLabel("RestartPerson")
+          .not(__.out("knows")).asAdmin()) {
+        var step = (YTDBMatchPlanStep<?, ?>) boundary(traversal);
+        assertThat(step.getPlan().prettyPrint(0, 2)).contains("HASH ANTI_JOIN");
+        assertThat(traversal.next().<String>value("name")).isIn("B", "C");
+        var openPlan = step.getPlan();
+        traversal.reset();
+        assertThat(traversal.toList().stream().map(v -> v.value("name")).toList())
+            .containsExactlyInAnyOrder("B", "C");
+        assertThat(step.getPlan()).isSameAs(openPlan);
+      }
+    } finally {
+      graph.tx().rollback();
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMinimum);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
+  }
+
+  /** Flat translated NOT keeps hash selection for IN predicates outside the tree whitelist. */
+  @Test
+  public void flatNotWithWithinPredicateKeepsHashSelection() throws Exception {
+    var savedMinimum = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.getValue();
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(0L);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(10000L);
+      graphSession().createVertexClass("FlatPerson");
+      var a = graph.addVertex(T.label, "FlatPerson", "name", "A", "age", 30);
+      var b = graph.addVertex(T.label, "FlatPerson", "name", "B", "age", 40);
+      a.addEdge("knows", b);
+      graph.tx().commit();
+      try (var traversal = graph.traversal().V().hasLabel("FlatPerson")
+          .not(__.out("knows").has("age", org.apache.tinkerpop.gremlin.process.traversal.P
+              .within(30, 40)))
+          .asAdmin()) {
+        var step = (YTDBMatchPlanStep<?, ?>) boundary(traversal);
+        assertThat(step.getPlan().prettyPrint(0, 2)).contains("HASH ANTI_JOIN");
+        assertThat(traversal.toList().stream().map(v -> v.value("name")).toList())
+            .containsExactly("B");
+      }
+    } finally {
+      graph.tx().rollback();
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_UPSTREAM_MIN.setValue(savedMinimum);
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
+  }
+
   /** A reset before commit preserves a requested real execution and replaces the closed plan. */
   @Test
   public void nextResetCommitReadUsesFreshPlanAndRegistration() throws Exception {

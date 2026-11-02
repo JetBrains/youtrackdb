@@ -5872,6 +5872,14 @@ public abstract class AbstractStorage
       int indexId, @Nullable IndexEngineReference expectedReference,
       final Object key, AtomicOperation atomicOperation)
       throws InvalidIndexEngineIdException {
+    return getIndexValues(indexId, expectedReference, key, atomicOperation, true);
+  }
+
+  /** Owner-bound lookup. Only the null-key scan requests descending RID order. */
+  public Stream<RID> getIndexValues(
+      int indexId, @Nullable IndexEngineReference expectedReference,
+      final Object key, AtomicOperation atomicOperation, boolean ascending)
+      throws InvalidIndexEngineIdException {
     final var engineAPIVersion = extractEngineAPIVersion(indexId);
     if (engineAPIVersion != 1) {
       throw new IllegalStateException(
@@ -5885,7 +5893,7 @@ public abstract class AbstractStorage
       try {
         checkOpennessAndMigration();
 
-        return doGetIndexValues(indexId, expectedReference, key, atomicOperation);
+        return doGetIndexValues(indexId, expectedReference, key, atomicOperation, ascending);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -5902,12 +5910,14 @@ public abstract class AbstractStorage
 
   private Stream<RID> doGetIndexValues(
       final int indexId, @Nullable IndexEngineReference expectedReference,
-      final Object key, AtomicOperation atomicOperation)
+      final Object key, AtomicOperation atomicOperation, boolean ascending)
       throws InvalidIndexEngineIdException {
     final var engine = engineForDereference(indexId, expectedReference);
     assert indexId == engine.getId();
 
-    return ((V1IndexEngine) engine).get(key, atomicOperation);
+    return key == null
+        ? ((V1IndexEngine) engine).getNullKeyRids(ascending, atomicOperation)
+        : ((V1IndexEngine) engine).get(key, atomicOperation);
   }
 
   public BaseIndexEngine getIndexEngine(final int indexId)
