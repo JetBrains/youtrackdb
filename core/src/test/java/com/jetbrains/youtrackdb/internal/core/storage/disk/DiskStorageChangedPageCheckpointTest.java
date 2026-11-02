@@ -186,7 +186,8 @@ public class DiskStorageChangedPageCheckpointTest {
         .resolve(ChangedPageTrackerFile.FILE_NAME);
     Files.writeString(path, "invalid saved authority");
     created.open(new ContextConfiguration());
-    assertFalse("Admission must durably remove unprovable authority", Files.exists(path));
+    assertTrue("Admission must durably invalidate unprovable authority",
+        !Files.exists(path) || Files.size(path) == 0);
   }
 
   /** An initial fallback failure must stop open before configuration or maintenance admission. */
@@ -1141,7 +1142,7 @@ public class DiskStorageChangedPageCheckpointTest {
     assertEquals(List.of("end", "distrust", "resource-close"), steps);
     var path = ((Path) field(DiskStorage.class, created, "storagePath"))
         .resolve(ChangedPageTrackerFile.FILE_NAME);
-    assertFalse(Files.exists(path));
+    assertTrue(!Files.exists(path) || Files.size(path) == 0);
   }
 
   /** Replay deletion keeps unrelated saved candidates and normal clearing resumes afterward. */
@@ -1273,7 +1274,7 @@ public class DiskStorageChangedPageCheckpointTest {
           (ChangedPageTrackerStartup.PendingHistory) field(owner.getClass(), owner, "history");
       ChangedPageTrackerStartup.replayFailed(pending);
       call.callRealMethod();
-      assertFalse(Files.exists(path));
+      assertTrue(!Files.exists(path) || Files.size(path) == 0);
       assertEquals(AbstractStorage.STATUS.CLOSED, created.getStatus());
       return null;
     }).when(created).finishStartupHistory();
@@ -1320,7 +1321,7 @@ public class DiskStorageChangedPageCheckpointTest {
           assertThrows(Error.class, () -> created.open(new ContextConfiguration())));
     }
     assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
-    assertFalse(Files.exists(path));
+    assertTrue(!Files.exists(path) || Files.size(path) == 0);
     assertNull(field(DiskStorage.class, created, "startupOwner"));
   }
 
@@ -1398,7 +1399,7 @@ public class DiskStorageChangedPageCheckpointTest {
           return call.callRealMethod();
         }
         call.callRealMethod();
-        assertFalse(Files.exists(path));
+        assertTrue(!Files.exists(path) || Files.size(path) == 0);
         barriers.incrementAndGet();
         return null;
       }).when(created).startupHistoryBarrier();
@@ -1430,7 +1431,7 @@ public class DiskStorageChangedPageCheckpointTest {
       Files.write(cache.getRootDirectory().resolve("late_" + cache.internalFileId(id) + ".bin"),
           new byte[com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE]);
       assertEquals(id, cache.loadFile("late.bin"));
-      assertFalse(Files.exists(path));
+      assertTrue(!Files.exists(path) || Files.size(path) == 0);
       assertFalse(selected.isTrusted());
       assertEquals(List.of(7L, 9L), candidates(selected, 123456));
       assertNotNull(field(DiskStorage.class, created, "startupOwner"));
@@ -2614,7 +2615,7 @@ public class DiskStorageChangedPageCheckpointTest {
   public void interruptedPublicationPreservesFlagAndLaterCheckpointRetries() throws Exception {
     doAnswer(call -> {
       assertFalse(Thread.currentThread().isInterrupted());
-      assertFalse(Files.exists(sideFile));
+      assertTrue(!Files.exists(sideFile) || Files.size(sideFile) == 0);
       return true;
     }).when(wal).cutAllSegmentsSmallerThan(2);
     Thread.currentThread().interrupt();

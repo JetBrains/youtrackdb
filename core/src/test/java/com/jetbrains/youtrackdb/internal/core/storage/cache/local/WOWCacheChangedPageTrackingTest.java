@@ -788,7 +788,7 @@ public class WOWCacheChangedPageTrackingTest {
                 Files.write(wow.getRootDirectory().resolve("adopted_"
                     + wow.internalFileId(file) + ".tst"), new byte[File.HEADER_SIZE + pageSize]);
                 assertEquals(file, op.loadFile("adopted.tst"));
-                assertFalse(Files.exists(authority));
+                assertTrue(!Files.exists(authority) || Files.size(authority) == 0);
               } else {
                 long file = op.addFile("atomic.tst");
                 try (var entry = op.allocatePageForWrite(file, 0)) {

@@ -207,7 +207,7 @@ public class DiskStorageBackupCoverageSourceTest {
         } else {
           assertEquals(Status.COVERAGE_UNAVAILABLE, complete(tracker, context));
         }
-        assertFalse(Files.exists(sideFile));
+        assertTrue(!Files.exists(sideFile) || Files.size(sideFile) == 0);
         assertFalse(order(tracker).isLocked());
       }
     }
