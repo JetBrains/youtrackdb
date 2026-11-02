@@ -12,8 +12,8 @@ Before choosing verification scope or committing, read
 ./mvnw clean package -DskipTests
 
 # Test-gate scope: docs-internal/dev-workflow/track-development.md.
-# Example for a test-gate set containing core and server:
-./mvnw -pl core,server clean test
+# Select only related tests within the test-gate set, not whole module suites.
+./mvnw -pl core,server clean test -Dtest='ChangedProductionTest,ChangedTest'
 
 # Build with Docker images (requires Docker)
 ./mvnw clean package -P docker-images -DskipTests
@@ -79,11 +79,25 @@ Code formatting is enforced by [Spotless](https://github.com/diffplug/spotless) 
 - A code change carries tests for its new or changed behavior.
 - A bug fix carries a regression test unless one already exists.
 - Prefer existing test classes when they fit the change. Create a new class only when none fits.
+- Local verification selects unit tests covering changed production code plus tests changed by
+  the same work. Keep this related-test subset inside the test-gate set.
 
 Before measuring coverage, read `docs-internal/dev-workflow/coverage-verification.md`
 for thresholds and the mandatory procedure. Use `.github/scripts/coverage-gate.py`, not hand arithmetic.
 
 ### Test Execution
+
+Run only related unit tests locally with a nonempty `-Dtest` selector, not whole module suites.
+Use those tests for the local changed-line coverage gate as well.
+For a measured module with no related test, follow the exception in
+`docs-internal/dev-workflow/coverage-verification.md` § The run.
+
+GitHub runners run the full unit suite, including disk mode, on every build-relevant pull request
+push, drafts included. A new push cancels the older running pipeline for that pull request.
+Draft continuous integration (CI) results provide information only. Local gates do not depend on them.
+
+Pull request integration tests wait until ready for review and follow the pipeline skip rules.
+A developer machine never runs integration tests. The full-reactor compile gate stays unchanged.
 
 Never run two Maven invocations concurrently in one worktree. Database locking and classloading
 failures make concurrent runs unsafe. Wait for running Maven work before starting another
@@ -93,7 +107,10 @@ This rule covers all Maven invocations, including unit, integration, and coverag
 Separate worktrees may run Maven concurrently.
 
 ### Test Modules at a Glance
-- **Unit tests**: `./mvnw -pl <module> clean test`. Core/server use JUnit 4 (`surefire-junit47` runner); the `tests` module uses JUnit 5 with `EmbeddedTestSuite` (shared DB, fixed class/method order via `@SelectClasses` / `@Order`).
+- **Unit tests**: `./mvnw -pl <module> clean test -Dtest='<related test classes>'`.
+  Core and server use JUnit 4 with the `surefire-junit47` runner.
+  The `tests` module uses JUnit 5 with `EmbeddedTestSuite` and a shared database.
+  `@SelectClasses` and `@Order` fix the class and method order.
 - **Test utilities**: `test-commons` provides `TestBuilder`, `TestFactory`, `ConcurrentTestHelper`.
 
 For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDBC and legacy JMH benchmarks, and the per-test JVM properties (`bufferSize`, `createDefaultUsers`, `checksumMode`, `directMemory.trackMode`): see `.claude/docs/testing-details.md`.
