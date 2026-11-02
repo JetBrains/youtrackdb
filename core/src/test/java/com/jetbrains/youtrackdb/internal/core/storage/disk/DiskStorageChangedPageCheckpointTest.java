@@ -1966,7 +1966,9 @@ public class DiskStorageChangedPageCheckpointTest {
         // not just its dirty flag, so recovery consumes the exact pre-close WAL and registry.
         try (var paths = Files.list(directory)) {
           for (var path : paths.filter(Files::isRegularFile).toList()) {
-            image.put(path, Files.readAllBytes(path));
+            // Windows locks dirty.fl against reads through a second channel.
+            image.put(path, path.getFileName().toString().equals("dirty.fl")
+                ? created.readStartupMetadataForTesting() : Files.readAllBytes(path));
           }
         }
       }
