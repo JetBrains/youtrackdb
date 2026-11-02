@@ -314,10 +314,13 @@ public class IndexesSnapshot {
     return result;
   }
 
+  /**
+   * Discards this index's history and visibility entries. Engine CLEAR keeps history
+   * for rollback and leaves reclamation to low-water-mark eviction instead.
+   */
   public void clear() {
     // Capture the current upper bound to guarantee termination when there
-    // are no concurrent writers (the production case: clear() runs inside
-    // an atomic operation with exclusive index access).
+    // are no concurrent writers.
     var lastEntry = indexesSnapshot.lastEntry();
     if (lastEntry == null) {
       return;

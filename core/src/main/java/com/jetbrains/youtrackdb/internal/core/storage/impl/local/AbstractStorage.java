@@ -10546,8 +10546,11 @@ public abstract class AbstractStorage
     // entries whose snapshotData was already cleaned are removed from versionIdx.
     for (var it = stale.entrySet().iterator(); it.hasNext();) {
       var entry = it.next();
-      snapshotData.remove(entry.getKey());
+      // For pairs with no shared entries, remove the tombstone before its guard so
+      // readers in a CLEAR/reinsert gap cannot see the old RID between removals.
+      // Chained updates share keys and have a separate eviction defect (YTDB-1490).
       snapshotData.remove(entry.getValue());
+      snapshotData.remove(entry.getKey());
       it.remove();
       evicted += 2;
     }

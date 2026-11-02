@@ -351,8 +351,8 @@ public final class BTreeMultiValueIndexEngine
     assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
         : "clear() snapshot invariant violated on engine=" + name + " id=" + id
             + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
-    indexesSnapshot.clear();
-    nullIndexesSnapshot.clear();
+    // Keep regular and null-key history for readers if this atomic operation rolls
+    // back. LWM eviction reclaims it once no running transaction needs it.
     // Mixed-mode encoding (replaces the prior pure-delta encoding that
     // wrote -currentTotal / -currentNull through the persist hook).
     // Persisted side: two inline per-tree absolute writes, WAL-tracked

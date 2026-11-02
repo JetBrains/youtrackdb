@@ -298,7 +298,8 @@ public final class BTreeSingleValueIndexEngine
       assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
           : "clear() snapshot invariant violated on engine=" + name + " id=" + id
               + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
-      indexesSnapshot.clear();
+      // Keep history for readers if this atomic operation rolls back. LWM eviction
+      // reclaims it once no running transaction needs it.
       // Mixed-mode encoding (replaces the prior pure-delta encoding that wrote
       // totalDelta=-currentTotal through persistCountDelta and silently dropped
       // nullDelta because the single-value engine stores nulls and non-nulls
