@@ -49,6 +49,292 @@ public class ProjectionEquivalenceTest extends GraphBaseTest {
       new TranslatorEquivalenceSupport(() -> session);
 
   /**
+   * Dense and sparse value hops and root selects reuse a template across disjoint survivor values.
+   * Binding 1 emits only 41 and binding 2 only 42, so stale parameter reuse cannot pass.
+   */
+  @Test
+  public void promotedHop_keepsReferenceDirectionAndReusesPlanForSecondBinding() {
+    for (var dense : List.of(true, false)) {
+      var suffix = dense ? "Dense" : "Sparse";
+      var sourceClass = "PresenceSource" + suffix;
+      var targetClass = "PresenceTarget" + suffix;
+      var edgeClass = "PresenceLink" + suffix;
+      var source = session.createVertexClass(sourceClass);
+      source.createProperty("bucket",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER)
+          .createIndex(
+              com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE);
+      var target = session.createVertexClass(targetClass);
+      var edge = session.createEdgeClass(edgeClass);
+      edge.getProperty("out").setLinkedClass(source);
+      edge.getProperty("in").setLinkedClass(target);
+      var targets = new ArrayList<Vertex>();
+      for (int i = 0; i < 400; i++) {
+        var vertex = graph.addVertex(T.label, targetClass);
+        if (dense || i == 0 || i == 150) {
+          vertex.property("k", i < 150 ? 41 : 42);
+        }
+        targets.add(vertex);
+      }
+      for (int i = 0; i < 400; i++) {
+        var vertex = graph.addVertex(T.label, sourceClass, "bucket", i < 150 ? 1 : 2);
+        if (dense || i == 0 || i == 150) {
+          vertex.property("k", i < 150 ? 41 : 42);
+        }
+        vertex.addEdge(edgeClass, targets.get(i));
+      }
+      graph.tx().commit();
+      for (var select : List.of(false, true)) {
+        var walks = new java.util.concurrent.atomic.AtomicInteger();
+        var builds = new java.util.concurrent.atomic.AtomicInteger();
+        var strategy = new GremlinToMatchStrategy(t -> {
+          walks.incrementAndGet();
+          return GremlinToMatchTranslator.translate(t);
+        }, (s, translation, scope) -> {
+          builds.incrementAndGet();
+          return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+        }, true);
+        com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan template = null;
+        for (var bucket : List.of(1, 2, 1)) {
+          var nativeRows = new ArrayList<Object>();
+          long nativeStart = System.nanoTime();
+          withTranslatorOff(() -> nativeRows.addAll(promotedHop(sourceClass, edgeClass,
+              targetClass, bucket, select).toList()));
+          assertThat(nativeRows).as("dense=%s select=%s bucket=%s", dense, select, bucket)
+              .isNotEmpty().allMatch(value -> value.equals(bucket == 1 ? 41 : 42));
+          long nativeNanos = System.nanoTime() - nativeStart;
+          var traversal = promotedHop(sourceClass, edgeClass, targetClass, bucket, select);
+          strategy.apply(traversal.asAdmin());
+          var boundary =
+              (com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep<?,
+                  ?>) traversal.asAdmin().getStartStep();
+          var closed = boundary.getPlan();
+          var translation = GremlinToMatchTranslator.translate(
+              promotedHop(sourceClass, edgeClass, targetClass, bucket, select).asAdmin());
+          assertThat(translation).isNotNull();
+          assertThat(translation.inputs().promotedPresenceKeys().values())
+              .containsExactly(java.util.Set.of("k"));
+          assertThat(translation.inputs().aliasFilters().values().stream()
+              .map(Object::toString).toList()).anyMatch(filter -> filter.contains("is defined"));
+          assertThat(closed.prettyPrint(0, 2)).contains("bucket")
+              .doesNotContain("INDEX ORDERED MATCH");
+          if (template == null) {
+            template = closed;
+          } else {
+            assertThat(closed).isSameAs(template);
+          }
+          long translatedStart = System.nanoTime();
+          assertThat(traversal.toList()).isEqualTo(nativeRows).isNotEmpty();
+          System.out.println("G5 projection " + suffix + " select=" + select + " bucket=" + bucket
+              + " nativeNanos=" + nativeNanos + " translatedNanos="
+              + (System.nanoTime() - translatedStart) + "\n" + closed.prettyPrint(0, 2));
+        }
+        assertThat(walks.get()).isEqualTo(1);
+        assertThat(builds.get()).isEqualTo(1);
+        for (var bucket : List.of(1, 2)) {
+          var nativeTimes = new ArrayList<Long>();
+          var translatedTimes = new ArrayList<Long>();
+          for (int run = 0; run < 14; run++) {
+            long start = System.nanoTime();
+            withTranslatorOff(() -> promotedHop(sourceClass, edgeClass, targetClass,
+                bucket, select).toList());
+            long nativeTime = System.nanoTime() - start;
+            var warm = promotedHop(sourceClass, edgeClass, targetClass, bucket, select);
+            strategy.apply(warm.asAdmin());
+            start = System.nanoTime();
+            warm.toList();
+            long translatedTime = System.nanoTime() - start;
+            if (run >= 5) {
+              nativeTimes.add(nativeTime);
+              translatedTimes.add(translatedTime);
+            }
+          }
+          nativeTimes.sort(Long::compare);
+          translatedTimes.sort(Long::compare);
+          System.out.println("G5 warm median " + suffix + " select=" + select + " bucket=" + bucket
+              + " nativeNanos=" + nativeTimes.get(4)
+              + " translatedNanos=" + translatedTimes.get(4));
+        }
+      }
+    }
+  }
+
+  private GraphTraversal<?, ?> promotedHop(String source, String edge, String target,
+      int bucket, boolean select) {
+    var start = graph.traversal().V().hasLabel(source).has("bucket", bucket);
+    return (select ? start.as("s").select("s").by("k")
+        : start.out(edge).hasLabel(target).values("k")).limit(10);
+  }
+
+  /** User negative predicates keep their own presence guard on edge and vertex projections. */
+  @Test
+  public void negativePredicates_keepPresenceEstimateOnEdgeAndVertexAliases() {
+    session.createEdgeClass("PresenceKnows");
+    for (var predicate : List.of(P.without(1999), P.neq(1999))) {
+      for (var edge : List.of(false, true)) {
+        var start = graph.traversal().V();
+        var filtered = edge ? start.outE("PresenceKnows").has("since", predicate).as("e")
+            .inV().select("e").by("since") : start.has("since", predicate).values("since");
+        var translation = GremlinToMatchTranslator.translate(filtered.limit(1).asAdmin());
+        assertThat(translation).isNotNull();
+        var inputs = translation.inputs();
+        assertThat(inputs.promotedPresenceKeys()).isEmpty();
+        assertThat(inputs.aliasFilters().toString()).contains("since is defined");
+      }
+    }
+  }
+
+  /** Union child copies and the count rewrite retain origin and executable survivor filtering. */
+  @Test
+  public void promotedUnionChildrenAndCountRewrite_keepOriginAtRuntime() {
+    session.createVertexClass("UnionPresence");
+    graph.addVertex(T.label, "UnionPresence");
+    graph.addVertex(T.label, "UnionPresence", "k", 7);
+    graph.tx().commit();
+    var child = GremlinToMatchTranslator.translate(graph.traversal().V()
+        .hasLabel("UnionPresence").values("k").limit(1).asAdmin());
+    assertThat(child).isNotNull();
+    var counted = PostConcatSupport.rewriteToCountStar(child.inputs());
+    assertThat(counted.promotedPresenceKeys()).isEqualTo(child.inputs().promotedPresenceKeys());
+    session.begin();
+    var plan = new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner(
+        counted).createExecutionPlan(
+            new com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext(session),
+            false, false);
+    try {
+      var context = new com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext(session);
+      var stream = plan.start();
+      try {
+        var row = stream.next(context);
+        assertThat(row.<Number>getProperty(row.getPropertyNames().iterator().next()).longValue())
+            .isEqualTo(1);
+        assertThat(stream.hasNext(context)).isFalse();
+      } finally {
+        stream.close(context);
+      }
+    } finally {
+      plan.close();
+      session.rollback();
+    }
+    assertEquivalent("union promoted children", Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("UnionPresence")
+            .union(__.values("k").limit(1), __.values("k").limit(1)));
+  }
+
+  /** Direct and select slices do no more reads than the same scan counting surviving values. */
+  @Test
+  public void promotedSlices_boundReadsBySurvivorEquivalentScanForBothBindings() {
+    session.createVertexClass("ReadPresence");
+    for (int i = 0; i < 300; i++) {
+      var vertex = graph.addVertex(T.label, "ReadPresence", "bucket", i % 2);
+      if (i >= 298) {
+        vertex.property("k", 7);
+      }
+    }
+    graph.tx().commit();
+    for (var bucket : List.of(0, 1)) {
+      for (var select : List.of(false, true)) {
+        var traversal = graph.traversal().V().hasLabel("ReadPresence").has("bucket", bucket);
+        var values = select ? traversal.as("s").select("s").by("k") : traversal.values("k");
+        var translated = GremlinToMatchTranslator.translate(values.limit(2).asAdmin());
+        assertThat(translated).isNotNull();
+        var inputs = translated.inputs();
+        var alias = inputs.aliasClasses().keySet().iterator().next();
+        var referenceFilter =
+            ((com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+                .parse(
+                    "MATCH {class:ReadPresence,as:s,where:(bucket=" + bucket + ")} RETURN s",
+                    session))
+                .getMatchExpressions().getFirst().getOrigin().getFilter();
+        var reference = com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
+            .builder(inputs.pattern()).aliasClasses(inputs.aliasClasses())
+            .aliasFilters(Map.of(alias, referenceFilter)).returnItems(inputs.returnItems())
+            .returnAliases(inputs.returnAliases())
+            .returnNestedProjections(inputs.returnNestedProjections()).build();
+        var actualReads = survivorReads(inputs, translated.inputParameters());
+        var referenceReads = survivorReads(reference, translated.inputParameters());
+        assertThat(actualReads[1]).isPositive().isLessThanOrEqualTo(referenceReads[1]);
+        System.out.println("G5 survivor reads bucket=" + bucket + " select=" + select
+            + " actual planning/execution=" + java.util.Arrays.toString(actualReads)
+            + " reference planning/execution=" + java.util.Arrays.toString(referenceReads));
+      }
+    }
+  }
+
+  private long[] survivorReads(
+      com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs inputs,
+      Map<Object, Object> parameters) {
+    session.begin();
+    try {
+      // Count logical class-scan record requests, including cache hits, rather than disk I/O.
+      var observed = org.mockito.Mockito.spy(session);
+      var reads = new java.util.concurrent.atomic.AtomicLong();
+      org.mockito.Mockito.doAnswer(call -> {
+        reads.incrementAndGet();
+        return call.callRealMethod();
+      }).when(observed).executeReadRecord(org.mockito.ArgumentMatchers.any(),
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
+      var context =
+          new com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext(observed);
+      context.setInputParameters(parameters);
+      var plan =
+          new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner(
+              inputs).createExecutionPlan(context, false, false);
+      long planning = reads.getAndSet(0);
+      var stream = plan.start();
+      var survivors = new ArrayList<Object>();
+      try {
+        while (survivors.size() < 2 && stream.hasNext(context)) {
+          var row = stream.next(context);
+          var column = row.getPropertyNames().iterator().next();
+          var value = row.getProperty(column);
+          if (value instanceof Identifiable) {
+            var entity = row.getEntity(column);
+            value = entity.hasProperty("k") ? entity.getProperty("k") : null;
+          }
+          if (value != null) {
+            survivors.add(value);
+          }
+        }
+        assertThat(survivors).containsExactly(7);
+        return new long[] {planning, reads.get()};
+      } finally {
+        stream.close(context);
+        plan.close();
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** Only projection promotions own origin metadata, not user or standard ordering predicates. */
+  @Test
+  public void presenceOrigin_distinguishesWritersAndSelectPromotion() {
+    session.createVertexClass("OriginSource");
+    var promoted = GremlinToMatchTranslator.translate(graph.traversal().V()
+        .hasLabel("OriginSource").has("bucket", 1).values("k").limit(2).asAdmin());
+    assertThat(promoted).isNotNull();
+    assertThat(promoted.inputs().promotedPresenceKeys().values())
+        .containsExactly(java.util.Set.of("k"));
+    var select = GremlinToMatchTranslator.translate(graph.traversal().V()
+        .hasLabel("OriginSource").has("bucket", 1).as("s").select("s").by("k")
+        .limit(2).asAdmin());
+    assertThat(select).isNotNull();
+    assertThat(select.inputs().promotedPresenceKeys().values())
+        .containsExactly(java.util.Set.of("k"));
+    for (var traversal : List.of(
+        graph.traversal().V().hasLabel("OriginSource").has("k").values("k").limit(2),
+        graph.traversal().V().hasLabel("OriginSource").hasNot("k").limit(2),
+        graph.traversal().V().hasLabel("OriginSource").has("k", P.neq(null)).limit(2),
+        graph.traversal().with(YTDBQueryConfigParam.orderIncludesMissingKey, false).V()
+            .hasLabel("OriginSource").order().by("k").limit(2))) {
+      var ordinary = GremlinToMatchTranslator.translate(traversal.asAdmin());
+      assertThat(ordinary).isNotNull();
+      assertThat(ordinary.inputs().promotedPresenceKeys()).isEmpty();
+    }
+  }
+
+  /**
    * Absent vs present-null for {@code valueMap}: native and translated both omit absent keys and
    * include present-null as {@code [null]}.
    */

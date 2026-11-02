@@ -381,19 +381,20 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
   }
 
   double filterShare(CommandContext ctx) {
-    if (access.sourceFilter == null) {
+    var estimateFilter = access.estimateFilter();
+    if (estimateFilter == null) {
       return 1;
     }
     var session = ctx.getDatabaseSession();
     var clazz = session.getMetadata().getImmutableSchemaSnapshot()
         .getClassInternal(access.sourceClass);
-    var blocks = access.sourceFilter.flatten(ctx, clazz);
+    var blocks = estimateFilter.flatten(ctx, clazz);
     if (blocks.size() == 1 && blocks.getFirst().getSubBlocks().size() == 1
         && blocks.getFirst().getSubBlocks().getFirst() instanceof SQLBinaryCondition binary
         && KnownEndpointExistsAccess.fixedExpression(binary.getRight(), ctx)) {
       // Index selection can also evaluate the RHS. Any failure discards the target attempt.
       var descriptor = TraversalPreFilterHelper.findIndexForFilter(
-          access.sourceFilter, access.sourceClass, ctx);
+          estimateFilter, access.sourceClass, ctx);
       if (descriptor != null) {
         var index = descriptor.getIndex();
         var statistics = index.getStatistics(session);

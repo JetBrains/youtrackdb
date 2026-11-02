@@ -460,7 +460,8 @@ public class OrHopTranslationTest extends GraphBaseTest {
       assertThat(flat.inputs().notMatchExpressions()).hasSize(1);
       // Pin the fingerprint of flat not(out()) with one negative expression and no boolean tree.
       assertThat(GremlinPlanFingerprint.fingerprint(flat.inputs(), flat.shaping()))
-          .isEqualTo("P:7:$g2m_v07:Article0;E:;F:;M:;N:46:{as: $g2m_v0}.out(\"category\")"
+          .isEqualTo("P:7:$g2m_v07:Article0;E:;F:|promotedPresence=;M:;N:46:{as: $g2m_v0}"
+              + ".out(\"category\")"
               + "{as: $g2m_anon_0};X:;R:7:$g2m_v0+7:$g2m_v0-;G:;O:;U:;L:;S:;D:false;"
               + "RM:0000;BS:00000000;PK:;AP:;MO:;RI:;EK:;RD:;OS:;LS:");
     });

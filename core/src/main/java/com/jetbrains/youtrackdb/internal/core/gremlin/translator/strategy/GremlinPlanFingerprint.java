@@ -77,6 +77,13 @@ final class GremlinPlanFingerprint {
     appendPattern(sb, inputs);
     appendOrderCollationClasses(sb, inputs.orderCollationClasses());
     appendAliasFilters(sb, inputs.aliasFilters());
+    sb.append("|promotedPresence=");
+    inputs.promotedPresenceKeys().entrySet().stream().sorted(Map.Entry.comparingByKey())
+        .forEach(entry -> {
+          appendToken(sb, entry.getKey());
+          entry.getValue().stream().sorted().forEach(key -> appendToken(sb, key));
+          sb.append(';');
+        });
     appendMatchExpressions(sb, inputs.matchExpressions());
     appendNotExpressions(sb, inputs.notMatchExpressions());
     appendExistsExpressions(sb, inputs.existsMatchExpressions());

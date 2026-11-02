@@ -28,6 +28,45 @@ import org.junit.Test;
  */
 public class GremlinPlanFingerprintTest {
 
+  /** Identical executable presence checks with different origins cannot share a plan template. */
+  @Test
+  public void promotedPresence_copiesKeepDistinctFingerprint() {
+    var where =
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder();
+    var ordinary = where.wrap(where.and(where.isDefined("other"), where.isDefined("k")));
+    var promoted = ordinary.copy();
+    var plainInputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", ordinary)).build();
+    var markedInputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", promoted))
+        .promotedPresenceKeys(java.util.Map.of("a", java.util.Set.of("k"))).build();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(markedInputs, ResultShaping.NONE);
+    assertThat(fingerprint).isNotEqualTo(
+        GremlinPlanFingerprint.fingerprint(plainInputs, ResultShaping.NONE));
+    assertThat(GremlinPlanFingerprint.fingerprint(MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", promoted.copy()))
+        .promotedPresenceKeys(markedInputs.promotedPresenceKeys()).build(), ResultShaping.NONE))
+        .isEqualTo(fingerprint);
+  }
+
+  /** Map and key iteration order cannot split the single promotion-origin fingerprint token. */
+  @Test
+  public void promotedPresence_usesOneDeterministicToken() {
+    var left = new java.util.LinkedHashMap<String, java.util.Set<String>>();
+    left.put("b", new java.util.LinkedHashSet<>(List.of("x", "k")));
+    left.put("a", java.util.Set.of("q"));
+    var right = new java.util.LinkedHashMap<String, java.util.Set<String>>();
+    right.put("a", java.util.Set.of("q"));
+    right.put("b", new java.util.LinkedHashSet<>(List.of("k", "x")));
+    var inputs = MatchPlanInputs.builder(new Pattern()).promotedPresenceKeys(left).build();
+    left.clear();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE);
+    assertThat(fingerprint.split("\\|promotedPresence=", -1)).hasSize(2);
+    assertThat(fingerprint).isEqualTo(GremlinPlanFingerprint.fingerprint(
+        MatchPlanInputs.builder(new Pattern()).promotedPresenceKeys(right).build(),
+        ResultShaping.NONE));
+  }
+
   /** Alias and hierarchy iteration order cannot split equivalent comparison contracts. */
   @Test
   public void comparisonClasses_useDeterministicAliasAndClassOrder() {

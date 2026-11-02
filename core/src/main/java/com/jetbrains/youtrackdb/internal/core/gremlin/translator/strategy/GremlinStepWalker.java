@@ -1469,6 +1469,7 @@ final class GremlinStepWalker {
             .aliasClasses(ir.aliasClasses())
             .orderCollationClasses(ctx.orderCollationClasses)
             .aliasFilters(finalAliasFilters)
+            .promotedPresenceKeys(ctx.promotedPresenceKeys)
             .notMatchExpressions(
                 ctx.notMatchExpressions.isEmpty() ? null : List.copyOf(ctx.notMatchExpressions))
             .existsMatchExpressions(List.copyOf(ctx.existsMatchExpressions))

@@ -52,7 +52,8 @@ public class MatchExecutionPlannerInputsTest {
   @Test
   public void checksAndRebuildCoverEveryRepresentation() {
     var empty = MatchPlanInputs.builder(new Pattern())
-        .orderCollationClasses(Map.of("m", List.of("Named"))).build();
+        .orderCollationClasses(Map.of("m", List.of("Named")))
+        .promotedPresenceKeys(Map.of("m", java.util.Set.of("name"))).build();
     var check = new SQLMatchExpression(-1);
     assertThat(empty.hasChecks()).isFalse();
     var not = empty.toBuilder().notMatchExpressions(List.of(check)).build();
@@ -78,7 +79,7 @@ public class MatchExecutionPlannerInputsTest {
     var inputs =
         new MatchPlanInputs(
             new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, false, false, false, false, false);
+            null, null, null, null, null, false, false, false, false, false);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
@@ -123,6 +124,7 @@ public class MatchExecutionPlannerInputsTest {
             /* aliasClasses */ null,
             /* orderCollationClasses */ null,
             /* aliasFilters */ null,
+            /* promotedPresenceKeys */ null,
             /* matchExpressions */ null,
             /* notMatchExpressions */ null,
             /* existsMatchExpressions */ null,

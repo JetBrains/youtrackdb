@@ -321,6 +321,8 @@ public class MatchExecutionPlanner {
    * `MATCH` expressions, all its `WHERE` predicates are AND-ed together.
    */
   private Map<String, SQLWhereClause> aliasFilters;
+  private Map<String, SQLWhereClause> estimateFilters;
+  private Map<String, Set<String>> promotedPresenceKeys = Map.of();
 
   /** Maps each alias to the schema class name it is constrained to. */
   private Map<String, String> aliasClasses;
@@ -566,6 +568,7 @@ public class MatchExecutionPlanner {
     this.aliasClasses = new HashMap<>(inputs.aliasClasses());
     this.orderCollationClasses = Map.copyOf(inputs.orderCollationClasses());
     this.aliasFilters = new HashMap<>(inputs.aliasFilters());
+    this.promotedPresenceKeys = inputs.promotedPresenceKeys();
     // aliasPinnedRids starts empty and mutable; buildPatterns promotes the pre-built @rid /
     // @rid IN filters into it on this additive path (see promoteFilterRidsOnBuild), so RID-pinned
     // sources take the same fast path as the SQL path.
@@ -648,6 +651,9 @@ public class MatchExecutionPlanner {
 
     // Phase 1: Build the pattern graph and extract per-alias metadata
     buildPatterns(context);
+    // Resolve origin once before index-order detection can rewrite an alias class.
+    estimateFilters = translatedGremlin && !promotedPresenceKeys.isEmpty()
+        ? PresenceEstimateFilters.build(aliasFilters, promotedPresenceKeys) : aliasFilters;
     // Phase 1b: Pin the declared collation of each ordered property, now that buildPatterns has
     // filled the alias-to-class map. Done here, once, because both ORDER BY paths below need it:
     // the built-in RETURN modes chain their own OrderByStep, and a custom RETURN delegates to the
@@ -678,7 +684,7 @@ public class MatchExecutionPlanner {
 
     // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
-        estimateRootEntries(aliasClasses, aliasPinnedRids, aliasFilters, context);
+        estimateRootEntries(aliasClasses, aliasPinnedRids, estimateFilters, context);
     // Inflate estimates for inferred-class aliases so they never outcompete
     // explicitly declared roots. A low-cardinality inferred class can cause
     // the scheduler to reverse traversal direction across while steps.
@@ -734,7 +740,7 @@ public class MatchExecutionPlanner {
     List<EdgeTraversal> probeEdges = null;
     if (subPatterns.size() == 1 && orderBy != null) {
       probeEdges = getTopologicalSortedSchedule(
-          estimatedRootEntries, pattern, aliasClasses, aliasFilters,
+          estimatedRootEntries, pattern, aliasClasses, estimateFilters,
           context.getDatabaseSession());
       observeRootPlanning(estimatedRootEntries, aliasesToPrefetch, probeEdges);
       indexOrderedCandidate = detectIndexOrderedCandidate(
@@ -813,7 +819,7 @@ public class MatchExecutionPlanner {
       KnownEndpointExistsStep.checkpoint("plan");
       endpointAccess = booleanCheck == null && subPatterns.size() == 1
           ? KnownEndpointExistsAccess.find(result, pattern, existsMatchExpressions,
-              aliasClasses, aliasFilters, context)
+              aliasClasses, aliasFilters, estimateFilters, context)
           : null;
       targetPlan = endpointAccess == null ? null : (SelectExecutionPlan) result.copy(context);
     } catch (RuntimeException failure) {
@@ -825,11 +831,11 @@ public class MatchExecutionPlanner {
     // Phase 6: Detached checks run after the positive pattern and before projection.
     var requiredRows = detachedRequiredRows(context);
     manageExistsPatterns(result, pattern, existsMatchExpressions, aliasClasses, aliasFilters,
-        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
+        estimateFilters, aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
         new DetachedSlice(requiredRows, true), enableProfiling);
     manageNotPatterns(
         result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
-        aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
+        estimateFilters, aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
         new DetachedSlice(requiredRows, false), enableProfiling);
 
     if (booleanCheck != null) {
@@ -846,14 +852,14 @@ public class MatchExecutionPlanner {
           var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
           targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling,
               DetachedCheckReadSet.describe(exp, pattern)));
-          probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
+          probeWork += estimateDetachedWalk(exp, aliasClasses, estimateFilters, context).work()
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
         for (var exp : notMatchExpressions) {
           var steps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
           targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling,
               DetachedCheckReadSet.describe(exp, pattern)));
-          probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
+          probeWork += estimateDetachedWalk(exp, aliasClasses, estimateFilters, context).work()
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
         prepareEndpointSource(targetPlan, endpointAccess, true, context, enableProfiling);
@@ -1242,6 +1248,7 @@ public class MatchExecutionPlanner {
       List<SQLMatchExpression> notMatchExpressions,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLWhereClause> estimateFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       OptionalLong outerRows,
@@ -1250,7 +1257,8 @@ public class MatchExecutionPlanner {
     for (var exp : notMatchExpressions) {
       var matchSteps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows, slice)) {
+          exp, aliasClasses, estimateFilters, aliasPinnedRids, context, pattern, outerRows,
+          slice)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
             exp, matchSteps, aliasClasses, aliasFilters, aliasPinnedRids,
@@ -1273,6 +1281,7 @@ public class MatchExecutionPlanner {
       List<SQLMatchExpression> existsMatchExpressions,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLWhereClause> estimateFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       OptionalLong outerRows,
@@ -1281,7 +1290,8 @@ public class MatchExecutionPlanner {
     for (var exp : existsMatchExpressions) {
       var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
       if (canUseHashJoin(
-          exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern, outerRows, slice)) {
+          exp, aliasClasses, estimateFilters, aliasPinnedRids, context, pattern, outerRows,
+          slice)) {
         var buildPlan = buildNotPatternPlan(
             exp, steps, aliasClasses, aliasFilters, aliasPinnedRids, context, enableProfiling);
         result.chain(new HashJoinMatchStep(context, buildPlan, findSharedAliases(exp, pattern),
@@ -1321,13 +1331,14 @@ public class MatchExecutionPlanner {
     } else if (check instanceof MatchBooleanCheck.Probe probe) {
       var exp = probe.expression().copy();
       steps = buildDetachedPatternSteps(exp, pattern, "BOOLEAN", context, profiling);
-      var walk = estimateDetachedWalkCost(exp, aliasClasses, context);
+      // Boolean leaves use the same estimate-only view as flat detached checks.
+      var walk = estimateDetachedWalk(exp, aliasClasses, estimateFilters, context).work();
       var reads = DetachedCheckReadSet.describe(exp, pattern);
       // Tree leaves share flat-check eligibility and cost rules, but require independent reads,
       // known estimates and an unsliced input before building eagerly.
       if (limit == null && skip == null && outerRows.isPresent() && walk.isPresent()
           && reads.independent()
-          && canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern,
+          && canUseHashJoin(exp, aliasClasses, estimateFilters, aliasPinnedRids, context, pattern,
               outerRows)) {
         var build = buildNotPatternPlan(exp, steps, aliasClasses, aliasFilters, aliasPinnedRids,
             context, profiling);
@@ -1527,9 +1538,11 @@ public class MatchExecutionPlanner {
       // estimation if an index is available, otherwise fall back to default.
       var filter = item.getFilter();
       var targetClass = estimateTargetClass(item, reachedClass, aliasClasses, context);
-      if (filter != null && filter.getFilter() != null) {
+      var estimateFilter = filter == null ? null
+          : PresenceEstimateFilters.pathFilter(aliasFilters, filter);
+      if (estimateFilter != null) {
         double selectivity = estimateFilterSelectivity(
-            filter.getFilter(), targetClass, context);
+            estimateFilter, targetClass, context);
         estimate = Math.max(1, Math.round(estimate * selectivity));
       }
       // Recursion can reach mixed classes, so the next hop cannot infer an endpoint from it.
@@ -1610,7 +1623,7 @@ public class MatchExecutionPlanner {
     if (!hashJoinCostGuardsEnabled(getHashJoinUpstreamMin()) || outerRows.isEmpty()) {
       return true;
     }
-    var estimates = estimateDetachedWalk(exp, aliasClasses, context);
+    var estimates = estimateDetachedWalk(exp, aliasClasses, aliasFilters, context);
     var reads = DetachedCheckReadSet.describe(exp, pattern);
     var pass = reads.aliases().size() == 1
         ? detachedPassFraction(estimates.paths(), exp.getItems().isEmpty(), slice.exists())
@@ -1794,11 +1807,12 @@ public class MatchExecutionPlanner {
   /** Sum candidate visits before each hop's filter, using surviving rows for the next hop. */
   static OptionalDouble estimateDetachedWalkCost(
       SQLMatchExpression exp, Map<String, String> aliasClasses, CommandContext context) {
-    return estimateDetachedWalk(exp, aliasClasses, context).work();
+    return estimateDetachedWalk(exp, aliasClasses, Map.of(), context).work();
   }
 
   private static DetachedWalk estimateDetachedWalk(
-      SQLMatchExpression exp, Map<String, String> aliasClasses, CommandContext context) {
+      SQLMatchExpression exp, Map<String, String> aliasClasses,
+      Map<String, SQLWhereClause> estimateFilters, CommandContext context) {
     double rows = 1;
     double work = 0;
     var currentClass = aliasClasses.get(exp.getOrigin().getAlias());
@@ -1817,8 +1831,10 @@ public class MatchExecutionPlanner {
         return new DetachedWalk(OptionalDouble.empty(), OptionalDouble.empty());
       }
       var targetClass = estimateTargetClass(item, reachedClass, aliasClasses, context);
-      if (filter != null && filter.getFilter() != null) {
-        rows *= estimateFilterSelectivity(filter.getFilter(), targetClass, context);
+      var estimateFilter = filter == null ? null
+          : PresenceEstimateFilters.pathFilter(estimateFilters, filter);
+      if (estimateFilter != null) {
+        rows *= estimateFilterSelectivity(estimateFilter, targetClass, context);
       }
       reachedClass = isRecursive(filter) ? null : targetClass;
       // An unknown target keeps the carried fan-out class, not the filter's null class.
@@ -2932,8 +2948,11 @@ public class MatchExecutionPlanner {
     var sortedEdges = precomputedSortedEdges != null
         ? precomputedSortedEdges
         : getTopologicalSortedSchedule(estimatedRootEntries, pattern,
-            aliasClasses, aliasFilters, context.getDatabaseSession());
+            aliasClasses, estimateFilters, context.getDatabaseSession());
 
+    if (precomputedSortedEdges == null) {
+      observeRootPlanning(estimatedRootEntries, prefetchedAliases, sortedEdges);
+    }
     var semiJoinEdges = new HashSet<PatternEdge>();
     var first = true;
     if (!sortedEdges.isEmpty()) {
@@ -2979,7 +2998,7 @@ public class MatchExecutionPlanner {
       var downstreamAliases = collectDownstreamAliases(
           returnItems, groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
       var hashJoinBranches = identifyHashJoinBranches(
-          sortedEdges, downstreamAliases, aliasClasses, aliasFilters,
+          sortedEdges, downstreamAliases, aliasClasses, estimateFilters,
           aliasPinnedRids, context);
 
       // Collect edges that belong to hash join branches — skip them in the main loop.
@@ -3061,7 +3080,7 @@ public class MatchExecutionPlanner {
     }
     if (outerEstimates != null) {
       outerEstimates.add(estimateDetachedOuterRows(pattern, sortedEdges, estimatedRootEntries,
-          aliasClasses, aliasFilters, context, semiJoinEdges));
+          aliasClasses, estimateFilters, context, semiJoinEdges));
     }
     return plan;
   }
@@ -4043,7 +4062,7 @@ public class MatchExecutionPlanner {
     // forecasts to {@code DEFERRED_WITH_NET}.
     double targetSel = targetSelectivityFactor(
         targetAlias, et.edge, et.out,
-        aliasClasses, aliasFilters, aliasRowEstimate, classCountCache, session);
+        aliasClasses, estimateFilters, aliasRowEstimate, classCountCache, session);
     double targetDouble = forecastDouble * targetSel;
     if (Double.isFinite(targetDouble) && targetDouble > 0) {
       long targetRows = (long) Math.min(
@@ -7303,6 +7322,7 @@ public class MatchExecutionPlanner {
         pattern, aliasClasses, aliasFilters, aliasPinnedRids,
         orderBy, skip, limit, returnItems, returnAliases, returnDistinct,
         returnElements, returnPaths, returnPatterns, returnPathElements)
+        .estimateFilters(estimateFilters)
         .detect(sortedEdges, context, estimatedRootEntries);
   }
 

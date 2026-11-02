@@ -14,6 +14,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
@@ -62,6 +64,7 @@ final class WalkerContext implements RecognitionContext {
    *  Merged with the builder's own alias filters at result-build time; entries here override builder
    *  entries on the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+  final Map<String, Set<String>> promotedPresenceKeys = new LinkedHashMap<>();
 
   /**
    * Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
@@ -1074,7 +1077,7 @@ final class WalkerContext implements RecognitionContext {
     }
     if (presenceDropAlias != null) {
       for (var key : shaping.presencePropertyKeys()) {
-        ByModulatorPresence.requireProjectedProperty(this, presenceDropAlias, key);
+        promotePresence(presenceDropAlias, key);
       }
       // dropOnAbsent stays on: after the conjunct no row lacking the key survives, so the shaping
       // drop is redundant, but it cannot remove a row the conjunct left.
@@ -1091,9 +1094,34 @@ final class WalkerContext implements RecognitionContext {
         continue;
       }
       var internalAlias = internalAliasFromPresenceEntityColumn(presence.entityColumnAlias());
-      ByModulatorPresence.requireProjectedProperty(this, internalAlias, presence.propertyKey());
+      promotePresence(internalAlias, presence.propertyKey());
     }
     return true;
+  }
+
+  private void promotePresence(String alias, String key) {
+    // Existing user or ordering presence stays estimate-visible. Only a newly added conjunct
+    // belongs to the projection-promotion origin map.
+    var filter = aliasFilters.get(alias);
+    // Edge predicates join alias filters only when inputs are built. Inspect both stores so
+    // a user's AND-spine presence guard cannot acquire projection-promotion origin.
+    var edgeFilter = edgeFilters.get(alias);
+    if (!hasPresenceConjunct(alias, key)
+        && (filter == null || !containsPresence(filter.getBaseExpression(), key))
+        && (edgeFilter == null || !containsPresence(edgeFilter.getBaseExpression(), key))) {
+      ByModulatorPresence.requireProjectedProperty(this, alias, key);
+      promotedPresenceKeys.computeIfAbsent(alias, ignored -> new LinkedHashSet<>()).add(key);
+    }
+  }
+
+  private static boolean containsPresence(SQLBooleanExpression expression, String key) {
+    if (expression.equals(WHERE.isDefined(key))) {
+      return true;
+    }
+    if (expression instanceof SQLAndBlock and) {
+      return and.getSubBlocks().stream().anyMatch(child -> containsPresence(child, key));
+    }
+    return false;
   }
 
   private static String internalAliasFromPresenceEntityColumn(String entityColumnAlias) {

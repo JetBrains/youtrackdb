@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 
 /**
@@ -28,9 +30,10 @@ import javax.annotation.Nonnull;
  * call to {@code SelectExecutionPlanner.handleProjectionsBlock} for projection / order /
  * limit / skip / group-by handling.
  *
- * <p>The compact constructor performs <b>null normalisation only</b> &mdash; null collections
+ * <p>The compact constructor normalises null collections &mdash; null collections
  * become {@link Map#of() empty maps} / {@link List#of() empty lists}, and {@code pattern}
- * is required non-null. It does <b>not</b> defensive-copy: the planner constructor that
+ * is required non-null. The promoted-presence map is deeply immutable. Other fields are not
+ * defensive copies: the planner constructor that
  * consumes this record performs its own defensive copies on the mutable working maps so
  * the planner can mutate them during planning without affecting the caller's record.
  *
@@ -46,6 +49,7 @@ public record MatchPlanInputs(
     Map<String, String> aliasClasses,
     Map<String, List<String>> orderCollationClasses,
     Map<String, SQLWhereClause> aliasFilters,
+    Map<String, Set<String>> promotedPresenceKeys,
     List<SQLMatchExpression> matchExpressions,
     List<SQLMatchExpression> notMatchExpressions,
     List<SQLMatchExpression> existsMatchExpressions,
@@ -73,6 +77,9 @@ public record MatchPlanInputs(
     aliasClasses = aliasClasses == null ? Map.of() : aliasClasses;
     orderCollationClasses = orderCollationClasses == null ? Map.of() : orderCollationClasses;
     aliasFilters = aliasFilters == null ? Map.of() : aliasFilters;
+    promotedPresenceKeys = promotedPresenceKeys == null ? Map.of()
+        : promotedPresenceKeys.entrySet().stream().collect(Collectors.toUnmodifiableMap(
+            Map.Entry::getKey, entry -> Set.copyOf(entry.getValue())));
     matchExpressions = matchExpressions == null ? List.of() : matchExpressions;
     notMatchExpressions = notMatchExpressions == null ? List.of() : notMatchExpressions;
     existsMatchExpressions = existsMatchExpressions == null ? List.of() : existsMatchExpressions;
@@ -103,7 +110,7 @@ public record MatchPlanInputs(
   public Builder toBuilder() {
     return new Builder(pattern)
         .aliasClasses(aliasClasses).orderCollationClasses(orderCollationClasses)
-        .aliasFilters(aliasFilters)
+        .aliasFilters(aliasFilters).promotedPresenceKeys(promotedPresenceKeys)
         .matchExpressions(matchExpressions).notMatchExpressions(notMatchExpressions)
         .existsMatchExpressions(existsMatchExpressions).booleanCheck(booleanCheck)
         .returnItems(returnItems).returnAliases(returnAliases)
@@ -136,6 +143,7 @@ public record MatchPlanInputs(
     private Map<String, String> aliasClasses;
     private Map<String, List<String>> orderCollationClasses;
     private Map<String, SQLWhereClause> aliasFilters;
+    private Map<String, Set<String>> promotedPresenceKeys;
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
     private List<SQLMatchExpression> existsMatchExpressions;
@@ -171,6 +179,12 @@ public record MatchPlanInputs(
 
     public Builder aliasFilters(Map<String, SQLWhereClause> aliasFilters) {
       this.aliasFilters = aliasFilters;
+      return this;
+    }
+
+    /** Top-level presence conjuncts introduced by Gremlin projection promotion only. */
+    public Builder promotedPresenceKeys(Map<String, Set<String>> keys) {
+      this.promotedPresenceKeys = keys;
       return this;
     }
 
@@ -266,6 +280,7 @@ public record MatchPlanInputs(
           aliasClasses,
           orderCollationClasses,
           aliasFilters,
+          promotedPresenceKeys,
           matchExpressions,
           notMatchExpressions,
           existsMatchExpressions,
