@@ -1999,6 +1999,8 @@ public class CASDiskWriteAheadLogLifecycleTest {
   // for a FIFO partner. Replacing it with a regular file cannot repair the capture failure.
   @Test(timeout = 10000)
   public void proofRejectsCanonicalFifoWithoutBlockingConstructionOrReading() throws Exception {
+    org.junit.Assume.assumeFalse("FIFO fixtures require POSIX filesystem semantics",
+        System.getProperty("os.name").startsWith("Windows"));
     Files.createDirectories(testDirectory);
     Process mkfifo;
     try {
