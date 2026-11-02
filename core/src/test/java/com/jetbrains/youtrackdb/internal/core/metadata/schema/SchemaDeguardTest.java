@@ -92,13 +92,7 @@ public class SchemaDeguardTest extends DbTestBase {
         thrown.getMessage().contains("UnresolvedRippleProbe"));
   }
 
-  /**
-   * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
-   * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.
-   * These tests drive schema-carrying commits (and cross-thread readers) through that substrate,
-   * so a per-method stuck-thread timeout converts such a hang into a fast, diagnosable failure
-   * naming the stuck thread, matching the sibling CommitTimeIndexBuildTest guard.
-   */
+  /** Bounds schema-commit and cross-thread waits so failures report the stuck test. */
   @Rule
   public Timeout globalTimeout =
       Timeout.builder()

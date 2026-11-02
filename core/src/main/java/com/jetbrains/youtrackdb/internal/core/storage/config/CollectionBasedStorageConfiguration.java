@@ -313,9 +313,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       readMinimumCollections(atomicOperation);
       recalculateLocale();
 
-      // Access the cache directly instead of going through getProperty() which
-      // would try to acquire the read lock, causing a deadlock with the write lock
-      // already held by this method (ScalableRWLock is non-reentrant).
+      // The caller holds write mode, so the preloaded cache needs no extra read hold.
       @SuppressWarnings("unchecked")
       final var properties = (Map<String, String>) cache.get(PROPERTIES);
       validation = properties != null
@@ -349,7 +347,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
    * layout has no in-place upgrade, because the engine file base identifier format has no
    * computable default for an entry written before version 24. A newer layout is unreadable for
    * these binaries. The check reads the preloaded cache directly instead of {@code getVersion},
-   * because the caller holds the non-reentrant write lock.
+   * because the caller already holds write mode.
    *
    * <p>Both messages name the two disagreeing sources and the operator action. Neither message
    * describes the admission decision, because an operator cannot act on that internal detail.
@@ -440,8 +438,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   /// Reads the minimumCollections property from the cache and applies it.
   /// Called while the write lock is already held (from load()), so it accesses
   /// the configuration field directly instead of going through lock-acquiring
-  /// methods (setMinimumCollections/getContextConfiguration) to avoid deadlock
-  /// with the non-reentrant ScalableRWLock.
+  /// methods. setMinimumCollections takes non-reentrant write mode. Read mode is reentrant.
   private void readMinimumCollections(AtomicOperation atomicOperation) {
     if (containsProperty(MINIMUM_COLLECTIONS_PROPERTY, atomicOperation)) {
       var minimumCollections = readIntProperty(MINIMUM_COLLECTIONS_PROPERTY);

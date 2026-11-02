@@ -502,10 +502,9 @@ public abstract class AbstractStorage
   // stateLock.writeLock() from the start and then, while still holding it,
   // reads records to serialize and re-parse the schema (txLocalSchema.toStream,
   // committedSchema.fromStream reached through session.load). Those reads route
-  // back into this storage's stateLock.readLock()-taking methods. The
-  // ScalableRWLock is non-reentrant, so a read re-acquire from the write-lock
-  // holder busy-spins forever. While this counter is positive on the current
-  // thread, the readLock-taking record-read methods skip the readLock: the held
+  // back into this storage's stateLock.readLock()-taking methods.
+  // Read mode is reentrant, including for the write owner. While this counter is
+  // positive on the current thread, the record-read methods skip the readLock: the held
   // write lock already excludes every concurrent registrar and supplies the
   // happens-before edge, so the read is safe and lock-free. The counter is a
   // depth, not a flag, so nested enter/exit pairs compose. It is set only by the
@@ -1747,8 +1746,8 @@ public abstract class AbstractStorage
    * write-ahead log, and the write cache.
    *
    * <p>This method takes no state lock, so the caller must already own the storage state lock. The
-   * state lock of this storage is not reentrant, so the public entry point would deadlock a caller
-   * that already owns the write lock.
+   * public entry point takes a counted read hold, which the write owner can also acquire. This
+   * caller-held path avoids that extra hold and applies the fail-closed rules below.
    *
    * <p>This method fails closed. The public synchronization entry point skips every flush while
    * the storage sits in the internal error state. That entry point also swallows a failure of one
@@ -1943,8 +1942,8 @@ public abstract class AbstractStorage
       // The schema-carry commit reaches this through the tx-local schema serialization: deleting a
       // dropped class's record runs the link-consistency pre-update path, which logs via
       // EntityImpl.toString() -> session.isClosed(). That runs while the commit holds
-      // stateLock.writeLock(), so re-acquiring the read lock busy-spins forever on the non-reentrant
-      // ScalableRWLock. The commit window self-routes to the plain status read; the held write lock
+      // stateLock.writeLock(). The commit window avoids another counted read acquire.
+      // The held write lock
       // already proves the storage is open and supplies the visibility edge.
       final boolean lockFree = isCommitWindowActive();
       if (!lockFree) {
@@ -2352,12 +2351,12 @@ public abstract class AbstractStorage
 
   /**
    * The lock-free commit-window analogue of {@link #getApproximateRecordsCount(int)}: reads a
-   * collection's approximate record count without taking {@code stateLock}, because the schema-carry
-   * commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant read lock
-   * would busy-spin. The commit-time index build uses it to enforce the v1 empty-source-collection
-   * bound. Mirrors the lock-free {@link #getIndexEngineWithStateLock(int)} precondition: the caller
-   * MUST hold
-   * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
+   * collection's approximate record count without taking {@code stateLock}, because the
+   * schema-carry commit already holds {@code stateLock.writeLock()}. Reentrant reads are supported.
+   * The commit-time index build uses it to enforce the v1 empty-source-collection bound.
+   * Mirrors the lock-free {@link #getIndexEngineWithStateLock(int)} precondition:
+   * the caller MUST hold {@code stateLock.writeLock()} with the commit window open.
+   * This supplies the exclusion and the
    * happens-before edge for the plain-list read.
    *
    * @param collectionId a real (>= 0) collection id.
@@ -2378,14 +2377,14 @@ public abstract class AbstractStorage
   /**
    * The lock-free commit-window analogue of {@link StorageCollection#getEntries(AtomicOperation)}:
    * reads a collection's <em>exact</em> record count without taking {@code stateLock}, because the
-   * schema-carry commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant
-   * read lock would busy-spin. The commit-time index build uses it to confirm an approximate-zero
-   * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
-   * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
-   * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
+   * schema-carry commit already holds {@code stateLock.writeLock()}. Reentrant reads are supported.
+   * The commit-time index build uses it to confirm an approximate-zero count before it relies on
+   * the v1 empty-source-collection bound, closing the under-report hole where a stale approximate
+   * zero would let the build skip committed rows. Exact but cheap on the empty collection already
+   * pre-checked as approximately empty. Mirrors the lock-free
    * {@link #getIndexEngineWithStateLock(int)} precondition: the caller MUST hold
-   * {@code stateLock.writeLock()} with
-   * the commit window open, which supplies the exclusion and the happens-before edge.
+   * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
+   * happens-before edge.
    *
    * @param collectionId    a real (>= 0) collection id.
    * @param atomicOperation the in-flight commit atomic operation the count reads through.
@@ -3673,8 +3672,8 @@ public abstract class AbstractStorage
         }
         try {
           // Open the lock-free commit window: schema toStream/fromStream and the record-read path
-          // re-enter stateLock.readLock() through session.load, which would busy-spin forever on the
-          // non-reentrant lock the commit already holds for writing. The window makes those reads
+          // re-enter stateLock.readLock() through session.load. The commit already holds write
+          // mode. The window makes those reads
           // skip the read lock; the held write lock supplies the exclusion and the visibility edge.
           enterCommitWindow();
           try {
@@ -4006,8 +4005,8 @@ public abstract class AbstractStorage
     // Enters the freezer UNARMED (the internal atomic-operation wrapper below) while holding the
     // metadata-write mutex, the schema and index-manager write locks, and stateLock.writeLock.
     // Never parks under an operator freeze: an operator freeze can only arm under
-    // stateLock.readLock (see freeze()), which the held write lock excludes for this whole
-    // window. If that premise ever changes, this undo could park unbounded here with no gate.
+    // stateLock.readLock (see freeze()), which the held write lock excludes across threads for
+    // this whole window. If that premise changes, this undo could park unbounded here with no gate.
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
@@ -4077,9 +4076,9 @@ public abstract class AbstractStorage
    * Creates an index engine inside the schema-carry commit window at a commit-local first-null-slot
    * id, publishes it into the in-memory registries, and returns its external id. The commit-window
    * analogue of {@link #addIndexEngine(IndexMetadata, Map)}: it takes no {@code stateLock} (the
-   * caller already holds {@code stateLock.writeLock()}, and re-acquiring the non-reentrant lock would
-   * busy-spin), runs inside the commit's own atomic operation so the engine files are buffered as
-   * WAL-reverted intent, and allocates from a freed slot so a failed commit reuses the id. The
+   * caller already holds {@code stateLock.writeLock()}, and re-acquiring write mode would
+   * block indefinitely), runs inside the commit's own atomic operation so engine files are buffered
+   * as WAL-reverted intent, and allocates from a freed slot so a failed commit reuses the id. The
    * registry publish is eager (mirroring how {@link #reconcileCollections} publishes a created
    * collection), and a failed commit reverts it through {@link #undoReconciledIndexEngines}.
    *
@@ -4610,11 +4609,11 @@ public abstract class AbstractStorage
   /**
    * Whether the named engine is registered in both {@code indexEngineNameMap} and {@code
    * indexEngines}, read lock-free for a caller already inside the commit window. The public {@link
-   * #loadIndexEngine(String)} takes {@code stateLock.readLock()}, which busy-spins forever when the
-   * schema-carry commit already holds the non-reentrant write lock, so a test hook firing inside the
-   * commit window must use this window-aware probe instead. Test-only: it is the assertion seam that
-   * proves an engine actually exists at the fault point, so a failed-commit test cannot pass
-   * vacuously. Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   * #loadIndexEngine(String)} takes {@code stateLock.readLock()}. A test hook firing inside the
+   * commit window uses this probe to avoid an extra counted read acquire. Test-only: it is the
+   * assertion seam that proves an engine exists at the fault point, so a failed-commit test cannot
+   * pass vacuously. Must be called with {@code stateLock.writeLock()} held and the commit window
+   * open.
    *
    * @param engineName the engine name to probe.
    * @return {@code true} when a registered engine of that name exists.
@@ -5066,7 +5065,7 @@ public abstract class AbstractStorage
   /**
    * Resolves the packed identifier of the engine owned by a durable index descriptor.
    *
-   * <p>The commit-window branch avoids reacquiring the non-reentrant storage state lock.
+   * <p>The commit-window branch uses caller-held storage state protection.
    */
   public ResolvedIndexEngine resolveIndexEngineByOwner(final RID descriptorIdentity) {
     try {
@@ -5949,7 +5948,7 @@ public abstract class AbstractStorage
       throws InvalidIndexEngineIdException {
     try {
       // A schema-carrying commit already holds stateLock.writeLock(). The active commit window
-      // proves that ownership and avoids a non-reentrant read-lock acquisition.
+      // proves that ownership and avoids an extra counted read-lock acquisition.
       if (isCommitWindowActive()) {
         return getIndexEngineWithStateLock(indexId, expectedReference);
       }
@@ -6027,8 +6026,7 @@ public abstract class AbstractStorage
    * {@code session.load}, which routes back into this storage's
    * readLock-taking record-read methods). While the window is open, {@link
    * #getPhysicalCollectionNameById(int)} and {@link #readRecordInternal} skip
-   * {@code stateLock.readLock()} so they do not deadlock re-acquiring the
-   * non-reentrant {@link ScalableRWLock} the commit already holds for writing.
+   * {@code stateLock.readLock()} because the commit already holds write mode.
    *
    * <p><b>Precondition the caller MUST satisfy:</b> the current thread holds
    * {@code stateLock.writeLock()} for the duration of the window. That held
@@ -6058,9 +6056,9 @@ public abstract class AbstractStorage
    * worker. The decrement is clamped at zero so a stray exit without a matching
    * enter cannot drive the depth negative — a negative depth would let a later
    * legitimate window read as closed ({@link #isCommitWindowActive()} tests
-   * {@code > 0}), silently re-introducing the read-lock busy-spin the window
-   * exists to avoid. Java {@code assert}s are disabled in production, so the
-   * clamp, not the assert, is the production guard; the assert still surfaces the
+   * {@code > 0}), silently making a caller-held read take an extra counted hold.
+   * Java {@code assert}s are disabled in production, so the clamp, not the assert,
+   * is the production guard. The assert still surfaces the
    * unbalanced call loudly under {@code -ea} in tests. When the depth returns to
    * zero the {@link ThreadLocal} is {@code remove()}'d so the next unrelated read
    * on the same pooled thread starts from a fresh zero-depth cell rather than
@@ -6138,8 +6136,7 @@ public abstract class AbstractStorage
     try {
       // The commit-time engine build reaches this through IndexAbstract.onIndexEngineChange
       // (engine.init) while the schema-carrying commit already holds stateLock.writeLock() with the
-      // commit window open. Re-acquiring the read lock there would busy-spin forever on the
-      // non-reentrant ScalableRWLock, so the window self-routes to the lock-free body, the same seam
+      // commit window open. The window avoids an extra counted read acquire, using the same seam
       // getIndexEngine uses. The held write lock supplies the exclusion and the happens-before edge.
       if (isCommitWindowActive()) {
         checkOpennessAndMigration();
@@ -6994,8 +6991,7 @@ public abstract class AbstractStorage
     try {
       // The commit window (a schema-carrying commit holding stateLock.writeLock())
       // reaches this method through the security check in session.executeReadRecord
-      // while serializing/promoting the schema. Re-acquiring the read lock there would
-      // deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+      // while serializing/promoting the schema. Skip an extra read acquire: the held write lock
       // already excludes registrars and supplies the visibility edge.
       final boolean lockFree = isCommitWindowActive();
       if (!lockFree) {
@@ -7112,6 +7108,7 @@ public abstract class AbstractStorage
 
   @Override
   public final void freeze(DatabaseSessionEmbedded db, final boolean throwException) {
+    assert !stateLock.isWriteLockedByCurrentThread();
     try {
       stateLock.readLock().lock();
       try {
@@ -7138,8 +7135,10 @@ public abstract class AbstractStorage
         // restoreReconciledDroppedIndexEngines) enter the freezer UNARMED while holding
         // stateLock.writeLock, and are safe precisely because no operator freeze can arm while
         // they hold the write lock — registering one here would first need this readLock, which
-        // the writeLock excludes. A future operator-freeze registration added on a path that does
-        // NOT hold stateLock.readLock would break both belts (see those helpers' notes).
+        // the writeLock excludes across threads. Same-thread write ownership is excluded by
+        // contract and checked only by the entry assertion. No production caller holds write mode.
+        // A future operator-freeze registration on a path that does NOT hold stateLock.readLock
+        // would break both belts (see those helpers' notes).
         final long freezeId;
         if (throwException) {
           freezeId = atomicOperationsManager.freezeWriteOperations(
@@ -7939,8 +7938,7 @@ public abstract class AbstractStorage
     }
     // The commit window (a schema-carrying commit holding stateLock.writeLock())
     // reaches this method through session.executeReadRecord on a genuine record-cache
-    // miss while serializing/promoting the schema. Re-acquiring the read lock there
-    // would deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+    // miss while serializing/promoting the schema. Skip an extra read acquire: the held write lock
     // already excludes registrars and supplies the visibility edge.
     final boolean lockFree = isCommitWindowActive();
     if (!lockFree) {
@@ -10344,7 +10342,7 @@ public abstract class AbstractStorage
    *   <li>GC thread holds {@code PageFrame} lock → needs {@code filesLock} (read)</li>
    *   <li>flush executor needs the same {@code PageFrame} lock</li>
    * </ol>
-   * Holding {@code stateLock.readLock()} forces the delete path to wait until this
+   * Holding {@code stateLock.readLock()} forces a delete on another thread to wait until this
    * method completes, preventing the deadlock.
    */
   public void periodicRecordsGc() {

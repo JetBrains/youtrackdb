@@ -24,6 +24,234 @@ import org.junit.Test;
  */
 public class ScalableRWLockTest {
 
+  @FunctionalInterface
+  private interface CheckedTask {
+    void run() throws Exception;
+  }
+
+  // Keep a different thread in read mode so write attempts reach the reader-drain branch.
+  private static void withOtherReader(ScalableRWLock lock, CheckedTask task) throws Exception {
+    var acquired = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var reader = new java.util.concurrent.FutureTask<Void>(() -> {
+      lock.sharedLock();
+      try {
+        acquired.countDown();
+        release.await();
+      } finally {
+        lock.sharedUnlock();
+      }
+      return null;
+    });
+    var thread = new Thread(reader);
+    thread.start();
+    try {
+      assertTrue(acquired.await(5, TimeUnit.SECONDS));
+      task.run();
+    } finally {
+      release.countDown();
+      reader.get(5, TimeUnit.SECONDS);
+      thread.join(5_000);
+    }
+  }
+
+  /** Nested reads retain the outer signal even after a writer sets its admission bit. */
+  @Test(timeout = 10_000)
+  public void nestedReadsRetainProtectionWithWaitingWriter() throws Exception {
+    var lock = new ScalableRWLock();
+    var entered = new AtomicBoolean();
+    var writer = new java.util.concurrent.FutureTask<Void>(() -> {
+      lock.exclusiveLock();
+      try {
+        entered.set(true);
+      } finally {
+        lock.exclusiveUnlock();
+      }
+      return null;
+    });
+    lock.sharedLock();
+    var thread = new Thread(writer);
+    thread.start();
+    try {
+      var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (!lock.isWriteLocked() && System.nanoTime() < deadline) {
+        Thread.yield();
+      }
+      assertTrue(lock.isWriteLocked());
+      assertTrue(lock.isReadLockedByCurrentThread());
+      lock.sharedLock();
+      try {
+        assertTrue(lock.sharedTryLock());
+        try {
+          assertTrue(lock.sharedTryLockNanos(0));
+          lock.sharedUnlock();
+        } finally {
+          lock.sharedUnlock();
+        }
+      } finally {
+        lock.sharedUnlock();
+      }
+      assertTrue(lock.isReadLockedByCurrentThread());
+      assertFalse(entered.get());
+    } finally {
+      lock.sharedUnlock();
+      writer.get(5, TimeUnit.SECONDS);
+      thread.join(5_000);
+    }
+    assertTrue(entered.get());
+    assertFalse(lock.isReadLockedByCurrentThread());
+  }
+
+  /** All read APIs admit the write owner and the final read survives write release. */
+  @Test(timeout = 10_000)
+  public void writerCanReadAndDowngradeThroughAllApis() throws Exception {
+    var lock = new ScalableRWLock();
+    lock.exclusiveLock();
+    try {
+      lock.sharedLock();
+      assertTrue(lock.sharedTryLock());
+      assertTrue(lock.sharedTryLockNanos(0));
+      lock.readLock().lock();
+      assertTrue(lock.readLock().tryLock());
+      assertTrue(lock.readLock().tryLock(0, TimeUnit.NANOSECONDS));
+    } finally {
+      lock.exclusiveUnlock();
+    }
+    try {
+      for (var i = 0; i < 5; i++) {
+        lock.sharedUnlock();
+        assertTrue(lock.isReadLockedByCurrentThread());
+      }
+      var attempt = new java.util.concurrent.FutureTask<Boolean>(lock::exclusiveTryLock);
+      var writer = new Thread(attempt);
+      writer.start();
+      assertFalse(attempt.get(5, TimeUnit.SECONDS));
+      writer.join(5_000);
+    } finally {
+      lock.sharedUnlock();
+    }
+    assertTrue(lock.exclusiveTryLock());
+    lock.exclusiveUnlock();
+  }
+
+  /** Each read API can publish the write owner's first read hold, not just nest an existing hold. */
+  @Test(timeout = 10_000)
+  public void eachReadApiPublishesFirstWriterOwnedHold() throws Exception {
+    for (var api = 0; api < 6; api++) {
+      var lock = new ScalableRWLock();
+      lock.exclusiveLock();
+      try {
+        switch (api) {
+          case 0 -> lock.sharedLock();
+          case 1 -> assertTrue(lock.sharedTryLock());
+          case 2 -> assertTrue(lock.sharedTryLockNanos(0));
+          case 3 -> lock.readLock().lock();
+          case 4 -> assertTrue(lock.readLock().tryLock());
+          case 5 -> assertTrue(lock.readLock().tryLock(0, TimeUnit.NANOSECONDS));
+          default -> throw new AssertionError("Unknown read API");
+        }
+        assertTrue(lock.isReadLockedByCurrentThread());
+      } finally {
+        lock.exclusiveUnlock();
+      }
+      try {
+        withOtherReader(lock, () -> assertTrue(lock.isReadLockedByCurrentThread()));
+        var attempt = new java.util.concurrent.FutureTask<Boolean>(lock::exclusiveTryLock);
+        var writer = new Thread(attempt);
+        writer.start();
+        assertFalse(attempt.get(5, TimeUnit.SECONDS));
+        writer.join(5_000);
+        assertFalse(writer.isAlive());
+      } finally {
+        lock.sharedUnlock();
+      }
+      assertTrue(lock.exclusiveTryLock());
+      lock.exclusiveUnlock();
+    }
+  }
+
+  /**
+   * Checks a blocking upgrade on a dedicated worker. If rejection regresses, clearing only this
+   * test lock's reader signal lets the worker finish draining and release its write bit.
+   */
+  private static void assertBlockingUpgradeRejected(boolean abortAware) throws Exception {
+    var lock = new ScalableRWLock();
+    var readerState = new AtomicReference<AtomicInteger>();
+    var acquired = new CountDownLatch(1);
+    var attempt = new java.util.concurrent.FutureTask<Void>(() -> {
+      lock.sharedLock();
+      try {
+        var entryField = ScalableRWLock.class.getDeclaredField("entry");
+        entryField.setAccessible(true);
+        var entry = (ScalableRWLock.ReadersEntry) ((ThreadLocal<?>) entryField.get(lock)).get();
+        readerState.set(entry.state);
+        acquired.countDown();
+        org.junit.Assert.assertThrows(IllegalMonitorStateException.class, () -> {
+          if (abortAware) {
+            lock.exclusiveLockWithAbort(() -> {
+              throw new AssertionError("upgrade must be rejected before polling");
+            }, 1);
+          } else {
+            lock.exclusiveLock();
+          }
+        });
+        assertTrue(lock.isReadLockedByCurrentThread());
+        assertFalse(lock.isWriteLocked());
+      } finally {
+        if (lock.isWriteLockedByCurrentThread()) {
+          lock.exclusiveUnlock();
+        }
+        lock.sharedUnlock();
+      }
+      return null;
+    });
+    var worker = new Thread(attempt, "read-only-upgrade-check");
+    worker.start();
+    try {
+      assertTrue(acquired.await(5, TimeUnit.SECONDS));
+      attempt.get(1, TimeUnit.SECONDS);
+    } finally {
+      // This escape is only for failed tests. The owning worker still releases its counted hold.
+      if (!attempt.isDone() && readerState.get() != null) {
+        readerState.get().set(0);
+      }
+      worker.join(5_000);
+      assertFalse("Upgrade worker must terminate, including when rejection regresses",
+          worker.isAlive());
+    }
+  }
+
+  /** Upgrade refusals retain the read hold and never evaluate an abort predicate. */
+  @Test(timeout = 30_000)
+  public void readOnlyUpgradesFailWithoutLosingProtection() throws Exception {
+    assertBlockingUpgradeRejected(false);
+    assertBlockingUpgradeRejected(true);
+    var lock = new ScalableRWLock();
+    lock.sharedLock();
+    try {
+      assertFalse(lock.exclusiveTryLock());
+      assertFalse(lock.exclusiveTryLockNanos(Long.MAX_VALUE));
+      assertTrue(lock.isReadLockedByCurrentThread());
+      assertFalse(lock.isWriteLocked());
+    } finally {
+      lock.sharedUnlock();
+    }
+  }
+
+  /** Zero-count release is rejected, including after an unmatched inner release consumes a hold. */
+  @Test
+  public void zeroCountReleaseFailsClearly() {
+    var lock = new ScalableRWLock();
+    org.junit.Assert.assertThrows(IllegalMonitorStateException.class, lock::sharedUnlock);
+    lock.sharedLock();
+    lock.sharedLock();
+    lock.sharedUnlock();
+    lock.sharedUnlock();
+    assertFalse(lock.isReadLockedByCurrentThread());
+    org.junit.Assert.assertThrows(IllegalMonitorStateException.class, lock::sharedUnlock);
+    org.junit.Assert.assertThrows(IllegalMonitorStateException.class, lock::exclusiveUnlock);
+  }
+
   /**
    * Verifies that a reader thread dying without calling sharedUnlock() does not permanently block
    * writers. After the thread terminates and its ReadersEntry becomes phantom-reachable, the
@@ -36,6 +264,8 @@ public class ScalableRWLockTest {
 
     // Spawn a thread that acquires the read lock and then dies without unlocking
     var readerThread = new Thread(() -> {
+      lock.sharedLock();
+      lock.sharedLock();
       lock.sharedLock();
       readLockAcquired.countDown();
       // Thread exits without calling sharedUnlock()
@@ -170,9 +400,17 @@ public class ScalableRWLockTest {
 
     lock.exclusiveLock();
     try {
-      // sharedTryLock should fail immediately because writer holds the lock
-      assertFalse("sharedTryLock should return false when writer holds the lock",
-          lock.sharedTryLock());
+      var attempt = new java.util.concurrent.FutureTask<Boolean>(() -> {
+        var result = lock.sharedTryLock();
+        assertFalse(lock.isReadLockedByCurrentThread());
+        org.junit.Assert.assertThrows(IllegalMonitorStateException.class, lock::sharedUnlock);
+        return result;
+      });
+      var reader = new Thread(attempt);
+      reader.start();
+      assertFalse(attempt.get(5, TimeUnit.SECONDS));
+      reader.join(5_000);
+      assertFalse(reader.isAlive());
     } finally {
       lock.exclusiveUnlock();
     }
@@ -193,9 +431,17 @@ public class ScalableRWLockTest {
 
     lock.exclusiveLock();
     try {
-      // sharedTryLockNanos with a short timeout should fail
-      assertFalse("sharedTryLockNanos should return false when writer holds the lock",
-          lock.sharedTryLockNanos(TimeUnit.MILLISECONDS.toNanos(50)));
+      var attempt = new java.util.concurrent.FutureTask<Boolean>(() -> {
+        var result = lock.sharedTryLockNanos(TimeUnit.MILLISECONDS.toNanos(50));
+        assertFalse(lock.isReadLockedByCurrentThread());
+        org.junit.Assert.assertThrows(IllegalMonitorStateException.class, lock::sharedUnlock);
+        return result;
+      });
+      var reader = new Thread(attempt);
+      reader.start();
+      assertFalse(attempt.get(5, TimeUnit.SECONDS));
+      reader.join(5_000);
+      assertFalse(reader.isAlive());
     } finally {
       lock.exclusiveUnlock();
     }
@@ -267,30 +513,28 @@ public class ScalableRWLockTest {
 
   /** A failed immediate write attempt clears current-thread ownership. */
   @Test
-  public void failedImmediateWriteAttemptClearsOwner() {
+  public void failedImmediateWriteAttemptClearsOwner() throws Exception {
     final var lock = new ScalableRWLock();
-
-    lock.sharedLock();
-    try {
+    withOtherReader(lock, () -> {
       assertFalse(lock.exclusiveTryLock());
       assertFalse(lock.isWriteLockedByCurrentThread());
-    } finally {
-      lock.sharedUnlock();
-    }
+      assertFalse(lock.isWriteLocked());
+    });
+    assertTrue(lock.exclusiveTryLock());
+    lock.exclusiveUnlock();
   }
 
   /** A timed write attempt clears current-thread ownership after its reader drain expires. */
   @Test
   public void expiredTimedWriteAttemptClearsOwner() throws Exception {
     final var lock = new ScalableRWLock();
-
-    lock.sharedLock();
-    try {
+    withOtherReader(lock, () -> {
       assertFalse(lock.exclusiveTryLockNanos(TimeUnit.MILLISECONDS.toNanos(1)));
       assertFalse(lock.isWriteLockedByCurrentThread());
-    } finally {
-      lock.sharedUnlock();
-    }
+      assertFalse(lock.isWriteLocked());
+    });
+    assertTrue(lock.exclusiveTryLock());
+    lock.exclusiveUnlock();
   }
 
   /**

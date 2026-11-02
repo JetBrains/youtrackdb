@@ -45,35 +45,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 /**
- * White-box tests for the lock-free commit-window primitives extracted out of the public
- * structural methods on {@link AbstractStorage}: {@code getIndexEngineWithStateLock},
- * {@code doAddIndexEngine} / {@code publishIndexEngine}, {@code doDeleteIndexEngine}, and
- * the {@code doCreateCollection} / {@code registerCollection} create/publish split.
- *
- * <p>Two properties are pinned. First, the public {@code addIndexEngine} /
- * {@code deleteIndexEngine} / {@code addCollection} wrappers still create, register, and
- * drop structures exactly as before the extraction (behavior preservation). Second — the
- * load-bearing one — {@code getIndexEngineWithStateLock} resolves an engine by id while the calling
- * thread holds {@code stateLock.writeLock()}, the situation a schema-carrying commit is in
- * once it takes the write lock from the start. The public {@code getIndexEngine} would
- * busy-spin forever there because it re-acquires {@code stateLock.readLock()} on the
- * non-reentrant {@code ScalableRWLock}; the lock-free resolver must not.
- *
- * <p>The class also pins the lock-free commit-window <i>record-read</i> substrate: while a
- * schema-carrying commit holds {@code stateLock.writeLock()}, it serializes and re-parses the
- * schema by reading records through {@code session.load}, which routes back into this storage's
- * {@code getPhysicalCollectionNameById} (the security check) and {@code readRecordInternal} (a
- * record cache miss). Both re-acquire {@code stateLock.readLock()} on the normal path and so
- * would deadlock the non-reentrant {@code ScalableRWLock} under the held write lock. The commit
- * opens a per-thread commit window ({@code enterCommitWindow()} / {@code exitCommitWindow()})
- * that makes those two methods skip the read lock; the tests prove a read resolves under the held
- * write lock when the window is open, the normal path is unchanged when it is closed, and the
- * window's depth counter composes and closes balanced.
- *
- * <p>The test lives in the storage package so it can read {@code storage.stateLock} for
- * white-box lock-holding, and uses reflection only for the {@code private} members it
- * must reach directly: the {@code indexEngines} registry (to find an engine's internal id),
- * {@code getIndexEngineWithStateLock(int)}, and {@code isCommitWindowActive()} (the window predicate).
+ * Tests caller-held storage primitives, balanced commit-window routing, and state protection.
+ * Commit-window reads must avoid an extra read acquire even though read mode is reentrant.
  */
 public class AbstractStorageCommitPrimitivesTest {
 
@@ -93,6 +66,61 @@ public class AbstractStorageCommitPrimitivesTest {
   public void after() {
     db.close();
     youTrackDB.close();
+  }
+
+  /** DATE serialization must retain the outer pure-data commit read hold through index apply. */
+  @Test(timeout = 30_000)
+  public void dateSerializationRetainsStateProtectionAtIndexApply() throws Exception {
+    db.activateOnCurrentThread();
+    var cls = db.createVertexClass("DateCommitProtection");
+    cls.createProperty("day", PropertyType.DATE);
+    cls.createProperty("key", PropertyType.STRING);
+    cls.createIndex("DateCommitProtection.key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
+    var storage = (AbstractStorage) db.getStorage();
+    var original = findEngineByName(storage, "DateCommitProtection.key");
+    var applies = new java.util.concurrent.atomic.AtomicInteger();
+    var probe = Mockito.mock(original.getClass(), invocation -> {
+      if (invocation.getMethod().getName().equals("put")
+          || invocation.getMethod().getName().equals("validatedPut")) {
+        assertThat(storage.callerOwnsStateProtection()).isTrue();
+        assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
+        assertThat(storage.stateLock.isWriteLockedByCurrentThread()).isFalse();
+        applies.incrementAndGet();
+      }
+      return org.mockito.AdditionalAnswers.delegatesTo(original).answer(invocation);
+    });
+    var engines = indexEngines(storage);
+    engines.set(original.getId(), probe);
+    try {
+      db.begin();
+      var vertex = db.newVertex("DateCommitProtection");
+      vertex.setProperty("day", new java.util.Date());
+      vertex.setProperty("key", "date-key");
+      db.commit();
+      assertThat(applies.get()).isGreaterThan(0);
+    } finally {
+      engines.set(original.getId(), original);
+    }
+  }
+
+  // Assert the actual no-acquisition contract, not merely completion under write ownership.
+  private static <T> T withoutStateReadAcquire(AbstractStorage storage, Callable<T> call)
+      throws Exception {
+    var field = AbstractStorage.class.getDeclaredField("stateLock");
+    field.setAccessible(true);
+    var original = storage.stateLock;
+    var observed = Mockito.spy(original);
+    field.set(storage, observed);
+    try {
+      var result = call.call();
+      Mockito.verify(observed, Mockito.never()).readLock();
+      Mockito.verify(observed, Mockito.never()).sharedLock();
+      Mockito.verify(observed, Mockito.never()).sharedTryLock();
+      Mockito.verify(observed, Mockito.never()).sharedTryLockNanos(Mockito.anyLong());
+      return result;
+    } finally {
+      field.set(storage, original);
+    }
   }
 
   // ---- Public-wrapper behavior preservation ----
@@ -256,17 +284,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
   // ---- The load-bearing property: getIndexEngineWithStateLock resolves under a held write lock ----
 
-  // getIndexEngineWithStateLock must resolve an engine by internal id without taking stateLock, so a
-  // schema-carrying commit holding stateLock.writeLock() can reach engines during the
-  // index-apply path without the non-reentrant self-deadlock the public getIndexEngine
-  // would cause. The test holds the write lock on the calling thread, then resolves.
-  //
-  // A regression that re-took stateLock.readLock() here would busy-spin forever on the
-  // non-reentrant ScalableRWLock (it loops Thread.yield while the write lock is held, with no
-  // same-thread relief) rather than throwing — and core surefire sets no fork timeout, so the
-  // hang would wedge the build instead of failing red. The bound converts that hang into a
-  // clean TestTimedOutException naming this method, matching the ScalableRWLockTest convention
-  // in this package.
+  // Caller-held paths must use existing state protection without an extra read acquire.
   @Test(timeout = 30_000)
   public void heldStateLockResolverWorksForReadLockAndCommitWindow() throws Exception {
     db.activateOnCurrentThread();
@@ -282,7 +300,9 @@ public class AbstractStorageCommitPrimitivesTest {
 
     storage.stateLock.readLock().lock();
     try {
-      assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+      assertThat(
+          withoutStateReadAcquire(storage, () -> storage.getIndexEngineWithStateLock(externalId)))
+          .isSameAs(engine);
     } finally {
       storage.stateLock.readLock().unlock();
     }
@@ -291,7 +311,9 @@ public class AbstractStorageCommitPrimitivesTest {
     try {
       storage.enterCommitWindow();
       try {
-        assertThat(storage.getIndexEngineWithStateLock(externalId)).isSameAs(engine);
+        assertThat(
+            withoutStateReadAcquire(storage, () -> storage.getIndexEngineWithStateLock(externalId)))
+            .isSameAs(engine);
       } finally {
         storage.exitCommitWindow();
       }
@@ -876,12 +898,7 @@ public class AbstractStorageCommitPrimitivesTest {
 
   // ---- The load-bearing property: record reads resolve lock-free in the commit window ----
 
-  // getPhysicalCollectionNameById is the security-check leg of the commit-window record read
-  // (session.executeReadRecord -> session.getCollectionNameById -> storage). With the commit
-  // window open on a thread that holds stateLock.writeLock(), it must resolve the collection
-  // name without re-taking stateLock.readLock(); re-taking it would busy-spin forever on the
-  // non-reentrant ScalableRWLock. The 30 s bound converts that hang into a clean
-  // TestTimedOutException naming this method (core surefire sets no fork timeout).
+  // Caller-held paths must use existing state protection without an extra read acquire.
   @Test(timeout = 30_000)
   public void getPhysicalCollectionNameByIdResolvesLockFreeWhileWriteLockHeld() throws Exception {
     db.activateOnCurrentThread();
@@ -897,12 +914,13 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat(collectionId).as("precondition: a real collection id").isGreaterThanOrEqualTo(0);
 
     // Hold the write lock exactly as a schema-carrying commit does, then open the commit window
-    // and resolve the name lock-free. Without the window this call would deadlock.
+    // and resolve the name lock-free. The window must avoid an extra counted read acquire.
     storage.stateLock.writeLock().lock();
     try {
       storage.enterCommitWindow();
       try {
-        assertThat(storage.getPhysicalCollectionNameById(collectionId))
+        assertThat(withoutStateReadAcquire(storage,
+            () -> storage.getPhysicalCollectionNameById(collectionId)))
             .as("getPhysicalCollectionNameById must resolve lock-free under the held write lock")
             .isEqualTo(collectionName);
       } finally {
@@ -913,12 +931,7 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
-  // readRecordInternal is the record-cache-miss leg of the commit-window record read
-  // (session.executeReadRecord -> storage.readRecord -> readRecordInternal). With the commit
-  // window open under the held write lock, reading a persistent record must resolve its raw
-  // buffer lock-free rather than deadlocking on the read-lock re-acquire. The atomic operation
-  // the read needs is started under segmentLock, which is disjoint from stateLock, so it does
-  // not interact with the held write lock.
+  // Caller-held paths must use existing state protection without an extra read acquire.
   @Test(timeout = 30_000)
   public void readRecordResolvesLockFreeWhileWriteLockHeld() throws Exception {
     db.activateOnCurrentThread();
@@ -940,8 +953,8 @@ public class AbstractStorageCommitPrimitivesTest {
       storage.enterCommitWindow();
       try {
         StorageReadResult result =
-            storage.getAtomicOperationsManager()
-                .calculateInsideAtomicOperation(op -> storage.readRecord(rid, op));
+            withoutStateReadAcquire(storage, () -> storage.getAtomicOperationsManager()
+                .calculateInsideAtomicOperation(op -> storage.readRecord(rid, op)));
         assertThat(result)
             .as("readRecord must resolve a persistent record lock-free under the held write lock")
             .isInstanceOf(RawBuffer.class);
@@ -1076,19 +1089,7 @@ public class AbstractStorageCommitPrimitivesTest {
     }
   }
 
-  // An over-exit (one stray exitCommitWindow without a matching enter, e.g. a mis-placed finally)
-  // must not corrupt the per-thread depth so that a later legitimate window silently reads closed.
-  // In production (asserts disabled) the over-exit is absorbed by the clamp in exitCommitWindow,
-  // which leaves the depth at zero rather than driving it negative; a negative depth would make the
-  // next enterCommitWindow leave the counter at or below zero, so isCommitWindowActive() reads
-  // false while the commit holds the write lock and the next lock-free-intended read re-acquires
-  // stateLock.readLock() and re-introduces the busy-spin deadlock the substrate removes.
-  //
-  // Under -ea (this test module) the assert in exitCommitWindow fires first on the unbalanced call,
-  // before the clamp runs, so the over-exit is caught loudly — and because the decrement sits after
-  // the assert the depth is never written, leaving the cell at zero exactly as the production clamp
-  // would. This test pins both halves of that contract: the unbalanced exit is detected under -ea,
-  // and the depth is left at zero so a subsequent legitimate window opens normally.
+  // An unbalanced exit must fail under assertions and leave a later balanced window usable.
   @Test
   public void overExitIsDetectedUnderAssertionsAndLeavesDepthClampedAtZero() throws Exception {
     var storage = (AbstractStorage) db.getStorage();

@@ -543,43 +543,12 @@ public class CollectionBasedStorageConfigurationTest {
     }
   }
 
-  // --- setMinimumCollections / getMinimumCollections ---
-  //
-  // Coverage gap: setMinimumCollections is intentionally NOT exercised here. The
-  // method holds a latent production deadlock that surfaced during this test
-  // class's authoring:
-  //
-  //   setMinimumCollections (line 323) → lock.writeLock().lock()
-  //                                    → getContextConfiguration() (line 372)
-  //                                    → lock.readLock().lock()  ← spins forever
-  //
-  // The class's ScalableRWLock is non-reentrant (see the Javadoc on
-  // readMinimumCollections, lines 338-342, which deliberately accesses the
-  // configuration field directly to avoid the same trap). setMinimumCollections
-  // failed to apply that workaround and therefore self-deadlocks on every call.
-  //
-  // Symptom observed during Phase B authoring of this test: JUnitTestListener
-  // deadlock-watchdog dumps diagnostics and halts the surefire JVM after 900 s,
-  // turning the run into "VM crash or System.exit called?" with Tests run: 0.
-  //
-  // We do not pin the deadlock with a regression test because the only available
-  // pin would leak a daemon thread spinning in Thread.yield() — the
-  // ScalableRWLock fast path does not respond to interrupt — which would burn
-  // CPU during every subsequent test method in the class.
-  //
-  // WHEN-FIXED: replace the `getContextConfiguration()` call inside
-  // setMinimumCollections (line 326) with a direct `configuration.setValue(...)`
-  // call mirroring readMinimumCollections (line 346). At that point, add:
-  //
-  //   @Test
-  //   public void testSetMinimumCollectionsUpdatesGetMinimumCollections() {
-  //     config.setMinimumCollections(16);
-  //     assertTrue(config.getMinimumCollections() > 0);
-  //   }
-  //
-  // and remove this comment block. getMinimumCollections() is exercised
-  // transitively by other tests (Locale tests via auto-init), so the read-path
-  // already has coverage; only the broken write-path is uncovered.
+  /** The write-held setter can call its read-locking configuration accessor. */
+  @Test(timeout = 10_000)
+  public void testSetMinimumCollectionsUpdatesGetMinimumCollections() {
+    config.setMinimumCollections(16);
+    assertEquals(16, config.getMinimumCollections());
+  }
 
   // --- getContextConfiguration ---
 
