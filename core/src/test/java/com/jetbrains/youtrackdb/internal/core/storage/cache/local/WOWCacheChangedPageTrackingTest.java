@@ -448,6 +448,8 @@ public class WOWCacheChangedPageTrackingTest {
       var registry = cache.getRootDirectory().resolve("name_id_map_v3.cm");
       var bytes = Files.readAllBytes(registry);
       var side = cache.getRootDirectory().resolve(ChangedPageTrackerFile.FILE_NAME);
+      // A successful previous retry can leave an empty Windows invalidation tombstone.
+      Files.deleteIfExists(side);
       Files.createDirectory(side);
       Files.writeString(side.resolve("blocker"), "cannot delete");
       assertThrows(java.io.IOException.class, () -> cache.loadFile(name));
