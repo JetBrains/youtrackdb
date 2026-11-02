@@ -682,6 +682,7 @@ public class MatchExecutionPlanner {
       return result;
     }
 
+    choosePresenceRoot(context);
     // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
         estimateRootEntries(aliasClasses, aliasPinnedRids, estimateFilters, context);
@@ -699,6 +700,7 @@ public class MatchExecutionPlanner {
     var aliasesToPrefetch =
         estimatedRootEntries.entrySet().stream()
             .filter(x -> x.getValue() < THRESHOLD)
+            .filter(x -> !(estimateFilters.get(x.getKey()) instanceof PresenceDensityFilter))
             .filter(x -> !dependsOnExecutionContext(x.getKey()))
             .map(Entry::getKey)
             .collect(Collectors.toSet());
@@ -3187,6 +3189,10 @@ public class MatchExecutionPlanner {
       rootWeights.add(new PairLongObject<>(root.getValue(), root.getKey()));
     }
     Collections.sort(rootWeights);
+    if (presenceRoot != null && pattern.aliasToNode.containsKey(presenceRoot)) {
+      rootWeights.sort(java.util.Comparator.comparingInt(
+          weight -> presenceRoot.equals(weight.getValue()) ? 0 : 1));
+    }
 
     // Add the starting vertices, in the correct order, to an ordered set.
     Set<String> remainingStarts = new LinkedHashSet<>();
@@ -3672,6 +3678,9 @@ public class MatchExecutionPlanner {
       @Nullable SQLWhereClause where,
       @Nullable String className,
       CommandContext ctx) {
+    if (where instanceof PresenceDensityFilter presence) {
+      return presence.density.density();
+    }
     if (where == null || className == null) {
       return SelectivityEstimator.defaultSelectivity();
     }
@@ -3870,6 +3879,11 @@ public class MatchExecutionPlanner {
       Map<String, Long> estimatedRootEntries,
       @Nullable Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
+    if (aliasFilters != null
+        && aliasFilters.get(targetAlias) instanceof PresenceDensityFilter presence) {
+      // This population belongs to the original candidate class, not a later LINK rewrite.
+      return presence.density.density();
+    }
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null) {
       return 1.0;
@@ -4715,6 +4729,9 @@ public class MatchExecutionPlanner {
       long classCount,
       @Nullable SchemaClassInternal schemaClass,
       @Nullable DatabaseSessionEmbedded session) {
+    if (filter instanceof PresenceDensityFilter presence) {
+      return presence.density.density();
+    }
     var base = classCount > 0 ? filter.getBaseExpression() : null;
     var condition = base != null ? unwrapSingleCondition(base) : null;
     if (condition == null) {
@@ -7303,6 +7320,86 @@ public class MatchExecutionPlanner {
     }
   }
 
+  private String presenceRoot;
+  private Map<String, PresenceDensity> presenceDensities = Map.of();
+
+  Map<String, PresenceDensity> presenceDensities() {
+    return Map.copyOf(presenceDensities);
+  }
+
+  /** A single directed hop needs no join reordering or dependency relaxation. */
+  private void choosePresenceRoot(CommandContext context) {
+    if (!translatedGremlin || promotedPresenceKeys.isEmpty()) {
+      return;
+    }
+    var session = context.getDatabaseSession();
+    var records = new HashMap<String, PresenceDensity>();
+    promotedPresenceKeys.forEach((alias, keys) -> records.put(alias,
+        PresenceDensity.read(alias, aliasClasses.get(alias), keys, session)));
+    presenceDensities = records;
+    if (pattern.numOfEdges != 1 || pattern.aliasToNode.size() != 2
+        || !notMatchExpressions.isEmpty() || !existsMatchExpressions.isEmpty()
+        || booleanCheck != null || !aliasPinnedRids.isEmpty()
+        || groupBy != null || unwind != null || returnDistinct) {
+      return;
+    }
+    var edge = pattern.aliasToNode.values().stream().flatMap(node -> node.out.stream())
+        .findFirst().orElseThrow();
+    var source = edge.out.alias;
+    var target = edge.in.alias;
+    var density = records.get(target);
+    var method = edge.item.getMethod();
+    var filter = edge.item.getFilter();
+    if (density == null || !density.useful() || promotedPresenceKeys.size() != 1
+        || estimateFilters.get(target) != null || isOptional(source) || isOptional(target)
+        || dependsOnExecutionContext(source) || dependsOnExecutionContext(target)
+        || method == null || method.getParams().size() != 1
+        || !("out".equalsIgnoreCase(method.getMethodNameString())
+            || "in".equalsIgnoreCase(method.getMethodNameString()))
+        || (filter != null && (filter.getWhileCondition() != null
+            || filter.getMaxDepth() != null))) {
+      return;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var sourceClass = schema.getClassInternal(aliasClasses.get(source));
+    var edgeClass = schema.getClassInternal(extractEdgeClassName(method));
+    if (sourceClass == null || edgeClass == null || density.candidates() <= 0) {
+      return;
+    }
+    var estimates = estimateRootEntries(aliasClasses, aliasPinnedRids, estimateFilters, context);
+    // Probe only the forward schedule, on copied classes. Detection may perform LINK inference.
+    if (orderBy != null) {
+      var forward = new EdgeTraversal(edge, true);
+      var candidate = new IndexOrderedPlanner(pattern, new HashMap<>(aliasClasses), aliasFilters,
+          aliasPinnedRids, orderBy, skip, limit, returnItems, returnAliases, returnDistinct,
+          returnElements, returnPaths, returnPatterns, returnPathElements)
+          .estimateFilters(estimateFilters).detect(List.of(forward), context, estimates);
+      if (candidate != null) {
+        return;
+      }
+    }
+    long sources = sourceClass.approximateCount(session);
+    long selected = Math.min(sources, estimates.getOrDefault(source, sources));
+    long edges = edgeClass.approximateCount(session);
+    if (sources <= 0 || selected <= 0 || edges <= 0) {
+      return;
+    }
+    var sourceIndex = estimateFilters.get(source) == null ? null
+        : TraversalPreFilterHelper.findIndexForFilter(
+            estimateFilters.get(source), sourceClass.getName(), context);
+    long demand = orderBy == null && limit != null && limit.getValue(context) > 0
+        ? (long) limit.getValue(context) + (skip == null ? 0 : skip.getValue(context)) : -1;
+    var costs = PresenceRootCost.compare(sources, selected, density.candidates(), edges,
+        density.density(), sourceIndex != null, demand);
+    if (!Double.isFinite(costs.forward()) || !Double.isFinite(costs.reverse())) {
+      return;
+    }
+    presenceRoot = costs.reverseWins() ? target : source;
+    var applied = density.applied(true);
+    records.put(target, applied);
+    estimateFilters.put(target, new PresenceDensityFilter(applied));
+  }
+
   /** Observation point for package-local tests of the actual pre-detection planner inputs. */
   void observeRootPlanning(Map<String, Long> estimates, Set<String> prefetch,
       List<EdgeTraversal> schedule) {
@@ -7379,7 +7476,9 @@ public class MatchExecutionPlanner {
       var classCount = oClass.approximateCount(ctx.getDatabaseSession());
       long upperBound;
       var filter = aliasFilters.get(alias);
-      if (filter != null) {
+      if (filter instanceof PresenceDensityFilter presence) {
+        upperBound = presence.estimate(oClass, THRESHOLD, ctx);
+      } else if (filter != null) {
         // A WHERE filter always reduces or equals the full class scan.
         // The estimate() heuristic may return a higher value (e.g.
         // count/2 > count for another class), so we cap it to ensure

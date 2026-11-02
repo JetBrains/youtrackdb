@@ -306,6 +306,55 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     GremlinPlanCache.putTranslation("t", new GremlinTranslationTemplate.Decline(), null, 0);
   }
 
+  /** Creation and rebuild completion reject interval plans in both Gremlin maps and SQL. */
+  @Test
+  public void fillCompletionClearsAllThreePlanCachePaths() {
+    var clazz = session.createVertexClass("FilledCache");
+    clazz.createProperty("k",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
+    graph.addVertex(T.label, "FilledCache", "k", 1);
+    graph.tx().commit();
+    var db = session;
+    var cache = GremlinPlanCache.instance(db);
+    var sqlCache = db.getSharedContext().getYqlExecutionPlanCache();
+    var listener = new com.jetbrains.youtrackdb.internal.common.listener.ProgressListener() {
+      public void onBegin(Object task, long total, Object metadata) {
+      }
+
+      public boolean onProgress(Object task, long count, float percent) {
+        return true;
+      }
+
+      public void onCompletition(DatabaseSessionEmbedded filling, Object task, boolean success) {
+        if (!success) {
+          return;
+        }
+        sqlCache.getInternal("sql", new BasicCommandContext(db), db);
+        cache.templateInternal("physical", db);
+        var template = mock(InternalExecutionPlan.class);
+        when(template.canBeCached()).thenReturn(true);
+        when(template.copy(any())).thenReturn(template);
+        cache.putInternal("physical", template, db, cache.getGeneration());
+        cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
+            cache.getGeneration());
+        sqlCache.putInternal("sql", template, db, sqlCache.getGeneration(), null);
+        assertThat(cache.templateInternal("physical", db)).isNotNull();
+        assertThat(cache.getTranslationInternal("translation", db)).isNotNull();
+        assertThat(sqlCache.getInternal("sql", new BasicCommandContext(db), db)).isNotNull();
+      }
+    };
+    var index = db.getSharedContext().getIndexManager().createIndex(db, "FilledCache.k",
+        "NOTUNIQUE", new com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition(
+            "FilledCache", "k",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.INTEGER),
+        clazz.getCollectionIds(), listener, java.util.Map.of());
+    assertMisses(cache, db);
+    assertThat(sqlCache.getInternal("sql", new BasicCommandContext(db), db)).isNull();
+    index.rebuild(db, listener);
+    assertMisses(cache, db);
+    assertThat(sqlCache.getInternal("sql", new BasicCommandContext(db), db)).isNull();
+  }
+
   private void assertMisses(GremlinPlanCache cache, DatabaseSessionEmbedded db) {
     assertThat(cache.peekStored("physical")).isNull();
     assertThat(cache.contains("physical")).isFalse();

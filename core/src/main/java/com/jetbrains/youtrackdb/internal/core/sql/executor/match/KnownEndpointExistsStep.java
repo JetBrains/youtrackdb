@@ -385,6 +385,9 @@ final class KnownEndpointExistsStep extends AbstractExecutionStep {
     if (estimateFilter == null) {
       return 1;
     }
+    if (estimateFilter instanceof PresenceDensityFilter presence) {
+      return presence.density.density();
+    }
     var session = ctx.getDatabaseSession();
     var clazz = session.getMetadata().getImmutableSchemaSnapshot()
         .getClassInternal(access.sourceClass);
