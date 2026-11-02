@@ -11,8 +11,10 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALRecordDecodeException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -37,6 +40,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -126,6 +130,82 @@ public class WALDecodeRecoveryTest {
       // Each iteration needs a separate WAL, so no earlier invalid record can mask this case.
       for (var file : folder.getRoot().listFiles()) {
         assertTrue(file.delete());
+      }
+    }
+  }
+
+  /** Unwrapping preserves the primary object and every close failure without self-suppression. */
+  @Test
+  public void unwrappingKeepsSuppressedFailuresOnOriginalCause() {
+    var cause = new IllegalArgumentException("bad record");
+    var failure = new WALRecordDecodeException(List.of(), cause);
+    var firstClose = new IOException("first close");
+    var secondClose = new IOException("second close");
+    failure.addSuppressed(firstClose);
+    failure.addSuppressed(cause);
+    failure.addSuppressed(secondClose);
+
+    assertSame(cause, failure.getCauseWithSuppressed());
+    assertEquals(List.of(firstClose, secondClose), List.of(cause.getSuppressed()));
+  }
+
+  /** Decode plus close failures survive ordinary reads, next-prefix trimming and replay. */
+  @Test
+  public void decodeAndCloseFailuresRetainBothCauses() throws Exception {
+    LogSequenceNumber start;
+    LogSequenceNumber end;
+    LogSequenceNumber bad;
+    try (var wal = open()) {
+      start = wal.log(new AtomicUnitStartRecord(false, 1));
+      end = wal.log(new AtomicUnitEndRecord(1, false, null));
+      bad = wal.log(new AtomicUnitStartRecord(false, 2));
+    }
+    corrupt(bad, true);
+    var closeFailure = new IOException("injected close failure");
+    var storage = storage(mock(WriteCache.class), mock(ReadCache.class));
+    try (var wal = open(); var capture = new Capture(storage)) {
+      var read = withCloseFailure(bad, closeFailure,
+          () -> assertThrows(WALRecordDecodeException.class,
+              () -> wal.readForRecovery(start, 1000)));
+      assertEquals(2, read.getRecords().size());
+      assertSame(closeFailure, read.getSuppressed()[0]);
+
+      var next = withCloseFailure(bad, closeFailure,
+          () -> assertThrows(WALRecordDecodeException.class,
+              () -> wal.nextForRecovery(start, 1000)));
+      assertEquals(List.of(end), next.getRecords().stream().map(r -> r.getLsn()).toList());
+      assertSame(closeFailure, next.getSuppressed()[0]);
+
+      var ordinaryRead = withCloseFailure(bad, closeFailure,
+          () -> assertThrows(NegativeArraySizeException.class, () -> wal.read(start, 1000)));
+      assertEquals(List.of(closeFailure), List.of(ordinaryRead.getSuppressed()));
+      var ordinaryNext = withCloseFailure(bad, closeFailure,
+          () -> assertThrows(NegativeArraySizeException.class, () -> wal.next(start, 1000)));
+      assertEquals(List.of(closeFailure), List.of(ordinaryNext.getSuppressed()));
+
+      assertEquals(end, withCloseFailure(bad, closeFailure, () -> storage.restoreFrom(wal, start)));
+      assertEquals(1, capture.records.size());
+      var replayFailure = capture.records.getFirst().getThrown();
+      assertTrue(replayFailure instanceof NegativeArraySizeException);
+      assertEquals(List.of(closeFailure), List.of(replayFailure.getSuppressed()));
+    }
+  }
+
+  private <T> T withCloseFailure(LogSequenceNumber lsn, IOException closeFailure,
+      Callable<T> action) throws Exception {
+    var path = folder.getRoot().toPath().resolve(
+        ContextConfiguration.WAL_DEFAULT_NAME + "." + lsn.getSegment() + ".wal");
+    try (var file = WALFile.createReadWALFile(path, lsn.getSegment())) {
+      var failingFile = mock(WALFile.class, org.mockito.AdditionalAnswers.delegatesTo(file));
+      doAnswer(invocation -> {
+        file.close();
+        throw closeFailure;
+      }).when(failingFile).close();
+      // Only the calling thread uses this factory override. WAL writers keep their real files.
+      try (var factory = mockStatic(WALFile.class, CALLS_REAL_METHODS)) {
+        factory.when(() -> WALFile.createReadWALFile(any(Path.class), anyLong()))
+            .thenReturn(failingFile);
+        return action.call();
       }
     }
   }

@@ -452,7 +452,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     try {
       return readForRecovery(lsn, limit);
     } catch (WALRecordDecodeException e) {
-      throw (RuntimeException) e.getCause();
+      throw e.getCauseWithSuppressed();
     }
   }
 
@@ -726,7 +726,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     try {
       return nextForRecovery(lsn, limit);
     } catch (WALRecordDecodeException e) {
-      throw (RuntimeException) e.getCause();
+      throw e.getCauseWithSuppressed();
     }
   }
 
@@ -829,7 +829,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       final List<WriteableWALRecord> result;
       try {
         if (limit <= 0) {
-          // A limit of 0 means no record limit. Batch pages and the written end bound the read.
+          // A limit of 0 means no record limit. The read stops at the written end.
+          // The page budget is checked between segments, so one long segment is read fully.
           result = readFromDisk(lsn, 0);
         } else {
           result = readFromDisk(lsn, limit + 1);
@@ -840,7 +841,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         if (!prefix.isEmpty()) {
           prefix = prefix.subList(1, prefix.size());
         }
-        throw new WALRecordDecodeException(prefix, (RuntimeException) failure.getCause());
+        var trimmed = new WALRecordDecodeException(prefix, (RuntimeException) failure.getCause());
+        for (var suppressed : failure.getSuppressed()) {
+          trimmed.addSuppressed(suppressed);
+        }
+        throw trimmed;
       }
       if (result.isEmpty()) {
         return result;

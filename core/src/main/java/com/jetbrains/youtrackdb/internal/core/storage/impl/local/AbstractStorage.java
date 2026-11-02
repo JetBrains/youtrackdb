@@ -9356,7 +9356,7 @@ public abstract class AbstractStorage
     }
 
     private List<WriteableWALRecord> deferFailure(WALRecordDecodeException e) {
-      failure = (RuntimeException) e.getCause();
+      failure = e.getCauseWithSuppressed();
       return e.getRecords();
     }
 

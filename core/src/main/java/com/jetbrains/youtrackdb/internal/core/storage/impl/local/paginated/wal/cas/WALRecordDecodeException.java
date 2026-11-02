@@ -13,6 +13,17 @@ public final class WALRecordDecodeException extends RuntimeException {
     this.records = List.copyOf(records);
   }
 
+  /** Keep resource close failures when the recovery wrapper is discarded. */
+  public RuntimeException getCauseWithSuppressed() {
+    var cause = (RuntimeException) getCause();
+    for (var suppressed : getSuppressed()) {
+      if (suppressed != cause) {
+        cause.addSuppressed(suppressed);
+      }
+    }
+    return cause;
+  }
+
   public List<WriteableWALRecord> getRecords() {
     return records;
   }
