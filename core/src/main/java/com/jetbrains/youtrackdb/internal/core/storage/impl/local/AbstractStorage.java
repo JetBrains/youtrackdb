@@ -3345,7 +3345,7 @@ public abstract class AbstractStorage
 
         lockCollections(workingSet.collectionsToLock(), atomicOperation);
         lockLinkBags(workingSet.collectionsToLock(), atomicOperation);
-        lockIndexes(indexOperations, atomicOperation);
+        final var lockedIndexEngines = lockIndexes(indexOperations, atomicOperation);
 
         final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
         for (final var recordOperation : workingSet.newRecords()) {
@@ -3433,8 +3433,7 @@ public abstract class AbstractStorage
         var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
         recordSerializationContext.executeOperations(atomicOperation, this);
 
-        commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
-            indexOperations);
+        commitIndexes(atomicOperation, indexOperations, lockedIndexEngines);
 
         if (indexPlan != null) {
           // Index reconciliation, phase 2: now that the record apply has assigned the transaction's
@@ -4625,62 +4624,58 @@ public abstract class AbstractStorage
     return indexEngineNameMap.containsKey(engineName);
   }
 
-  private void commitIndexes(DatabaseSessionEmbedded db, AtomicOperation atomicOperation,
-      final Map<String, FrontendTransactionIndexChanges> indexesToCommit) {
+  private void commitIndexes(AtomicOperation atomicOperation,
+      final Map<String, FrontendTransactionIndexChanges> indexesToCommit,
+      final Map<Index, BaseIndexEngine> lockedEngines) {
+    assert callerOwnsStateProtection();
+    final Map<IndexAbstract, IndexAbstract.CommitBinding> bindings = new IdentityHashMap<>();
+    // Admit the entire pass before CLEAR or key interpretation. A later stale index must not let
+    // an earlier CLEAR erase snapshot history that atomic rollback cannot restore.
     for (final var changes : indexesToCommit.values()) {
-      var index = changes.getIndex();
-      try {
-        if (changes.cleared) {
-          if (index instanceof IndexAbstract handle) {
-            final var snapshot = handle.engineSnapshot();
-            if (snapshot.engineIdentifier() < 0) {
-              throw new StaleIndexEngineException(
-                  name, "Index engine became unavailable before index clear");
-            }
-            final var internalIndexId = extractInternalId(snapshot.engineIdentifier());
-            doClearIndex(
-                atomicOperation, internalIndexId,
-                engineForDereference(internalIndexId, snapshot.engineReference()));
-          } else {
-            doClearIndex(atomicOperation, extractInternalId(index.getIndexId()));
-          }
-        }
-
-        for (final var changesPerKey : changes.changesPerKey.values()) {
-          applyTxChanges(db, changesPerKey, index);
-        }
-
-        applyTxChanges(db, changes.nullKeyChanges, index);
-      } catch (final IndexEngineReplacedException exception) {
-        final var stale = new StaleIndexEngineException(
-            name, "Index engine changed during index commit");
-        stale.initCause(exception);
-        throw stale;
-      } catch (final InvalidIndexEngineIdException exception) {
-        final var stale = new StaleIndexEngineException(
-            name, "Index engine became unavailable during index commit");
-        stale.initCause(exception);
-        throw stale;
+      if (!(changes.getIndex() instanceof IndexAbstract index)) {
+        throw new StaleIndexEngineException(name, "Index has no committed local handle");
       }
+      final var binding = index.bindForCommitWithStateLock(this);
+      if (binding.engine() != lockedEngines.get(index)) {
+        throw new StaleIndexEngineException(name,
+            "Apply engine differs from locked engine for index '" + index.getName() + "'");
+      }
+      bindings.put(index, binding);
+    }
+
+    assert callerOwnsStateProtection();
+    for (final var changes : indexesToCommit.values()) {
+      final var index = (IndexAbstract) changes.getIndex();
+      final var binding = bindings.get(index);
+      if (changes.cleared) {
+        assert callerOwnsStateProtection();
+        doClearIndex(atomicOperation, extractInternalId(binding.engineIdentifier()),
+            binding.engine());
+      }
+      for (final var changesPerKey : changes.changesPerKey.values()) {
+        applyTxChanges(atomicOperation, changesPerKey, index, binding);
+      }
+      applyTxChanges(atomicOperation, changes.nullKeyChanges, index, binding);
     }
   }
 
-  private void applyTxChanges(DatabaseSessionEmbedded session,
-      FrontendTransactionIndexChangesPerKey changes, Index index)
-      throws InvalidIndexEngineIdException {
+  private void applyTxChanges(AtomicOperation operation,
+      FrontendTransactionIndexChangesPerKey changes, IndexAbstract index,
+      IndexAbstract.CommitBinding binding) {
+    assert callerOwnsStateProtection();
     assert !(changes.key instanceof RID orid) || orid.isPersistent();
     for (var op : index.interpretTxKeyChanges(changes)) {
       switch (op.getOperation()) {
-        case PUT -> index.doPut(session, this, changes.key, op.getValue().getIdentity());
+        case PUT -> index.doPut(this, binding, changes.key, op.getValue().getIdentity(), operation);
         case REMOVE -> {
           if (op.getValue() != null) {
-            index.doRemove(session, this, changes.key, op.getValue().getIdentity());
+            index.doRemove(this, binding, changes.key, op.getValue().getIdentity(), operation);
           } else {
-            index.doRemove(this, changes.key, session);
+            index.doRemove(this, binding, changes.key, operation);
           }
         }
         case CLEAR -> {
-          // SHOULD NEVER BE THE CASE HANDLE BY cleared FLAG
+          // CLEAR is represented by the cleared flag, not by per-key operations.
         }
       }
     }
@@ -6086,7 +6081,7 @@ public abstract class AbstractStorage
   }
 
   /** Returns whether this thread owns any supported storage state protection. */
-  final boolean callerOwnsStateProtection() {
+  public final boolean callerOwnsStateProtection() {
     return stateLock.isReadLockedByCurrentThread()
         || stateLock.isWriteLockedByCurrentThread()
         || isCommitWindowActive();
@@ -6177,6 +6172,31 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(indexId);
 
     callback.callEngine(engine);
+  }
+
+  /** Commit dispatch to a retained engine under caller-held storage state protection. */
+  public void putRidIndexEntry(BaseIndexEngine engine, Object key, RID value,
+      AtomicOperation operation) {
+    assert callerOwnsStateProtection();
+    ((V1IndexEngine) engine).put(operation, key, value);
+  }
+
+  public boolean removeRidIndexEntry(BaseIndexEngine engine, Object key, RID value,
+      AtomicOperation operation) {
+    assert callerOwnsStateProtection();
+    return ((MultiValueIndexEngine) engine).remove(operation, key, value);
+  }
+
+  public boolean removeKeyFromIndex(BaseIndexEngine engine, Object key,
+      AtomicOperation operation) {
+    assert callerOwnsStateProtection();
+    return removeKeyFromIndexInternal(operation, engine, key);
+  }
+
+  public boolean validatedPutIndexValue(BaseIndexEngine engine, Object key, RID value,
+      IndexEngineValidator<Object, RID> validator, AtomicOperation operation) {
+    assert callerOwnsStateProtection();
+    return doValidatedPutIndexValue(operation, engine.getId(), engine, key, value, validator);
   }
 
   public void putRidIndexEntry(
@@ -9680,12 +9700,17 @@ public abstract class AbstractStorage
     return ridsPerCollection;
   }
 
-  private static void lockIndexes(
+  private Map<Index, BaseIndexEngine> lockIndexes(
       final SortedMap<String, FrontendTransactionIndexChanges> indexes,
       AtomicOperation atomicOperation) {
+    assert callerOwnsStateProtection();
+    final Map<Index, BaseIndexEngine> lockedEngines = new IdentityHashMap<>();
     for (final var changes : indexes.values()) {
-      changes.getIndex().acquireAtomicExclusiveLock(atomicOperation);
+      final var index = changes.getIndex();
+      assert callerOwnsStateProtection();
+      lockedEngines.put(index, index.acquireAtomicExclusiveLock(atomicOperation));
     }
+    return lockedEngines;
   }
 
   private static void lockCollections(final TreeMap<Integer, StorageCollection> collectionsToLock,

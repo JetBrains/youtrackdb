@@ -714,7 +714,7 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
    * registered and readable.
    */
   @Test
-  public void staleHandleCannotReadOrDeleteSameNameReplacement() {
+  public void staleHandleCannotReadOrDeleteSameNameReplacement() throws Exception {
     var clsName = CLASS_NAME + "StaleReplacement";
     var cls = session.createClass(clsName);
     cls.createProperty("prop", PropertyType.STRING);
@@ -744,10 +744,20 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
               new RecordId(7, 42)));
       assertEquals("a stale write must not poison storage", "OPEN",
           session.getStorage().getStatus().name());
-      assertThrows(
-          StaleIndexEngineException.class,
-          () -> staleIndex.acquireAtomicExclusiveLock(
-              session.getActiveTransaction().getAtomicOperation()));
+      // Direct lock selection has the same caller-held protection precondition as commit.
+      var lockField = AbstractStorage.class.getDeclaredField("stateLock");
+      lockField.setAccessible(true);
+      var stateLock =
+          (java.util.concurrent.locks.ReadWriteLock) lockField.get(session.getStorage());
+      stateLock.readLock().lock();
+      try {
+        assertThrows(
+            StaleIndexEngineException.class,
+            () -> staleIndex.acquireAtomicExclusiveLock(
+                session.getActiveTransaction().getAtomicOperation()));
+      } finally {
+        stateLock.readLock().unlock();
+      }
       assertEquals("detached lock acquisition must not poison storage", "OPEN",
           session.getStorage().getStatus().name());
       assertThrows(

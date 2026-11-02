@@ -261,6 +261,9 @@ public class IndexRecoveryPathsTest {
     var engine = mock(BaseIndexEngine.class);
     var storage = mock(AbstractStorage.class, invocation -> {
       var methodName = invocation.getMethod().getName();
+      if (methodName.equals("callerOwnsStateProtection")) {
+        return true;
+      }
       if (methodName.equals("getName")) {
         return "recovery-path-test";
       }
