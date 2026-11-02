@@ -2244,8 +2244,11 @@ public class DiskStorageChangedPageCheckpointTest {
       }
       verify(created, never()).postCloseSteps(eq(false), eq(true), anyLong());
     } finally {
-      ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
-      GlobalConfiguration.FILE_LOCK.setValue(previous);
+      try {
+        ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+      } finally {
+        GlobalConfiguration.FILE_LOCK.setValue(previous);
+      }
     }
   }
 
@@ -2291,13 +2294,16 @@ public class DiskStorageChangedPageCheckpointTest {
       }
       verify(created).postCloseSteps(eq(false), eq(true), anyLong());
     } finally {
-      created.preCloseSteps();
-      if (created.getWriteCache() != null) {
-        readCache.closeStorage(created.getWriteCache());
+      try {
+        created.preCloseSteps();
+        if (created.getWriteCache() != null) {
+          readCache.closeStorage(created.getWriteCache());
+        }
+        ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
+        Files.deleteIfExists(segment);
+      } finally {
+        GlobalConfiguration.FILE_LOCK.setValue(previous);
       }
-      ((StorageStartupMetadata) field(DiskStorage.class, created, "startupMetadata")).close();
-      Files.deleteIfExists(segment);
-      GlobalConfiguration.FILE_LOCK.setValue(previous);
     }
   }
 

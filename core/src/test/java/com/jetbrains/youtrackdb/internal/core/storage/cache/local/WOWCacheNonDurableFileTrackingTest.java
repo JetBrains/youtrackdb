@@ -109,14 +109,16 @@ public class WOWCacheNonDurableFileTrackingTest {
 
   @AfterClass
   public static void afterClass() {
-    bufferPool.clear();
-    // Restore the pre-test GlobalConfiguration values to avoid leaking the mutation into
-    // any sequential test that runs afterwards in the same JVM
-    if (savedExclusiveFileAccess != null) {
-      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(savedExclusiveFileAccess);
-    }
-    if (savedFileLock != null) {
-      GlobalConfiguration.FILE_LOCK.setValue(savedFileLock);
+    try {
+      bufferPool.clear();
+    } finally {
+      // Restore the pre-test values even when buffer cleanup fails.
+      if (savedExclusiveFileAccess != null) {
+        GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(savedExclusiveFileAccess);
+      }
+      if (savedFileLock != null) {
+        GlobalConfiguration.FILE_LOCK.setValue(savedFileLock);
+      }
     }
   }
 
