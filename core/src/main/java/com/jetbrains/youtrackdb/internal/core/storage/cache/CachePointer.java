@@ -422,13 +422,12 @@ public final class CachePointer {
 
   /**
    * Propagates this CachePointer's (fileId, pageIndex) coordinates to the underlying PageFrame.
-   * Called at construction time — the frame is thread-local at this point (not yet published
-   * to any shared data structure), so no lock is needed. The subsequent publication of this
-   * CachePointer via a volatile write or CAS provides the necessary happens-before edge.
+   * The caller must complete content initialization before construction. Stale readers
+   * can still hold this pooled frame, so publication must invalidate their stamps.
    */
   private void propagateCoordinatesToFrame() {
     if (this.pageFrame != null) {
-      this.pageFrame.initPageCoordinates(fileId, pageIndex);
+      this.pageFrame.publishPageCoordinates(fileId, pageIndex);
     }
   }
 

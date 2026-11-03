@@ -22,6 +22,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -46,6 +48,7 @@ import org.junit.Test;
  * Tests for StorageComponent.loadPageOptimistic() and executeOptimisticStorageRead().
  * Uses a test subclass that exposes the protected methods.
  */
+@org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
 public class StorageComponentOptimisticReadTest {
 
   private static final int PAGE_SIZE = 4096;
@@ -87,6 +90,78 @@ public class StorageComponentOptimisticReadTest {
     pool.clear();
     allocator.checkMemoryLeaks();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
+  }
+
+  /**
+   * Each shared failure detector increments only its own cause. Successful lookup and
+   * validation leave all causes unchanged. Both epoch failure modes count as EPOCH.
+   */
+  @Test
+  public void testSharedFailureCountersAreExclusiveAndSuccessIsFree() {
+    var before = counterSnapshot();
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    scope.reset();
+    component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+    scope.validateLastOrThrow();
+    scope.validateOrThrow();
+    assertCounterDelta(before, null);
+
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(null);
+    assertCountedFailure(Cause.LOOKUP_MISS,
+        () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(true);
+    assertCountedFailure(Cause.LOCAL_CHANGES,
+        () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+    when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(false);
+    long lock = frame.acquireExclusiveLock();
+    try {
+      assertCountedFailure(Cause.STAMP,
+          () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+    } finally {
+      frame.releaseExclusiveLock(lock);
+    }
+    assertCountedFailure(Cause.STAMP, scope::validateOrThrow);
+    assertCountedFailure(Cause.STAMP, scope::validateLastOrThrow);
+
+    frame.publishPageCoordinates(FILE_ID + 1, PAGE_INDEX);
+    assertCountedFailure(Cause.COORDINATES,
+        () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+    frame.publishPageCoordinates(FILE_ID, PAGE_INDEX + 1);
+    assertCountedFailure(Cause.COORDINATES,
+        () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+
+    var epoch = new ApplyPhaseEpoch();
+    scope.reset(epoch);
+    epoch.enterApplyPhase();
+    assertCountedFailure(Cause.EPOCH, scope::validateOrThrow);
+    scope.reset(epoch);
+    assertCountedFailure(Cause.EPOCH, scope::validateOrThrow);
+    epoch.exitApplyPhase();
+    scope.reset(epoch);
+    before = counterSnapshot();
+    scope.validateOrThrow();
+    assertCounterDelta(before, null);
+    releaseFrame(frame);
+  }
+
+  private static long[] counterSnapshot() {
+    return java.util.Arrays.stream(Cause.values())
+        .mapToLong(OptimisticReadFailureCounters::count).toArray();
+  }
+
+  private static void assertCounterDelta(long[] before, Cause expected) {
+    for (var cause : Cause.values()) {
+      assertEquals(cause.name(), before[cause.ordinal()] + (cause == expected ? 1 : 0),
+          OptimisticReadFailureCounters.count(cause));
+    }
+  }
+
+  private static void assertCountedFailure(Cause cause, Runnable action) {
+    var before = counterSnapshot();
+    org.junit.Assert.assertThrows(OptimisticReadFailedException.class, action::run);
+    assertCounterDelta(before, cause);
   }
 
   @Test

@@ -30,6 +30,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
 import java.nio.ByteBuffer;
 import org.junit.After;
 import org.junit.Before;
@@ -39,6 +41,7 @@ import org.junit.Test;
  * Tests for the StorageReadResult sealed interface hierarchy: RawBuffer,
  * RawPageBuffer, and their common contract.
  */
+@org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
 public class StorageReadResultTest {
 
   private DirectMemoryAllocator allocator;
@@ -405,6 +408,33 @@ public class StorageReadResultTest {
   }
 
   // --- toRawBuffer() ---
+
+  @Test
+  public void testResultExtractionCountsOnlyStampFailuresAndLeavesSuccessFree() {
+    // Successful extraction and an already-copied result leave all shared counters unchanged.
+    // A later extraction with an invalidated stamp increments only STAMP, exactly once.
+    var before = new long[Cause.values().length];
+    for (var cause : Cause.values()) {
+      before[cause.ordinal()] = OptimisticReadFailureCounters.count(cause);
+    }
+    var result = new RawPageBuffer(
+        pageFrame, pageFrame.tryOptimisticRead(), 0, 3, 1L, (byte) 'd');
+    var copied = result.toRawBuffer();
+    assertSame(copied, copied.toRawBuffer());
+    for (var cause : Cause.values()) {
+      assertEquals(cause.name(), before[cause.ordinal()],
+          OptimisticReadFailureCounters.count(cause));
+    }
+
+    long stamp = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(stamp);
+    assertSame(OptimisticReadFailedException.INSTANCE,
+        assertThrows(OptimisticReadFailedException.class, result::toRawBuffer));
+    for (var cause : Cause.values()) {
+      assertEquals(cause.name(), before[cause.ordinal()] + (cause == Cause.STAMP ? 1 : 0),
+          OptimisticReadFailureCounters.count(cause));
+    }
+  }
 
   @Test
   public void testToRawBufferExtractsCorrectBytes() {

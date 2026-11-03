@@ -19,7 +19,8 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
 
 /**
  * Sealed result of a storage read operation. Two variants:
@@ -62,7 +63,7 @@ public sealed interface StorageReadResult permits RawBuffer, RawPageBuffer {
         // scope.validateOrThrow() and sliceContent().get() would silently produce
         // corrupt data.
         if (!pb.pageFrame().validate(pb.stamp())) {
-          throw OptimisticReadFailedException.INSTANCE;
+          throw OptimisticReadFailureCounters.failure(Cause.STAMP);
         }
         yield new RawBuffer(bytes, pb.recordVersion(), pb.recordType());
       }

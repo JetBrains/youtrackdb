@@ -1788,10 +1788,9 @@ public final class WOWCache extends AbstractWriteCache
    * caller's release path balances correctly.
    */
   private CachePointer newEmptyCachePointer(final long fileId, final long pageIndex) {
-    // Use ADD_NEW_PAGE_IN_DISK_CACHE to match the legacy read-cache install pattern in
-    // LockFreeReadCache.addNewPagePointerToTheCache; the disk-stamp executor path uses
-    // ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse memory-accounting
-    // buckets in profiling.
+    // Use ADD_NEW_PAGE_IN_DISK_CACHE for cache page allocation. The disk-stamp executor
+    // path uses ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse
+    // memory-accounting buckets in profiling.
     final var pageFrame =
         pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
     DurablePage.setLogSequenceNumberForPage(

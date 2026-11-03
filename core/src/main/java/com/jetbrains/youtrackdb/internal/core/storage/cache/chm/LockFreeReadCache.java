@@ -3,9 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
-import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
@@ -21,7 +19,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue.MPSCLinkedQueue;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -83,8 +80,6 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final int pageSize;
 
-  private final PageFramePool pageFramePool;
-
   private final Ratio cacheHitRatio;
 
   public LockFreeReadCache(
@@ -94,7 +89,6 @@ public final class LockFreeReadCache implements ReadCache {
     evictionLock.lock();
     try {
       this.pageSize = pageSize;
-      this.pageFramePool = bufferPool.pageFramePool();
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
       // Section count rounded up to power of two from N_CPU << 1 (matching
@@ -371,30 +365,6 @@ public final class LockFreeReadCache implements ReadCache {
     } finally {
       cacheHitRatio.record(success);
     }
-  }
-
-  private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
-
-    final var pageFrame = pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, pageIndex);
-    cachePointer.incrementReadersReferrer();
-    DurablePage.setLogSequenceNumberForPage(
-        pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
-
-    final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
-    cacheEntry.acquireEntry();
-
-    final var oldCacheEntry =
-        data.putIfAbsent(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
-    if (oldCacheEntry != null) {
-      throw new IllegalStateException(
-          "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
-    }
-
-    cacheSize.incrementAndGet();
-    afterAdd(cacheEntry);
-
-    return cacheEntry;
   }
 
   @Override

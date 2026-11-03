@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -589,24 +590,25 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // If the current transaction has uncommitted WAL changes for this page,
     // the optimistic path would return stale committed data. Force fallback.
     if (atomicOperation.hasChangesForPage(fileId, pageIndex)) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters
+          .failure(OptimisticReadFailureCounters.Cause.LOCAL_CHANGES);
     }
 
     final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
     if (frame == null) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.LOOKUP_MISS);
     }
 
     final long stamp = frame.tryOptimisticRead();
     if (stamp == 0) {
       // Exclusive lock is held — cannot read optimistically
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
     }
 
     // Verify coordinates match to detect frame reuse (frame may have been
     // recycled for a different page between the CHM lookup and stamp acquisition)
     if (frame.getFileId() != fileId || frame.getPageIndex() != (int) pageIndex) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.COORDINATES);
     }
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();

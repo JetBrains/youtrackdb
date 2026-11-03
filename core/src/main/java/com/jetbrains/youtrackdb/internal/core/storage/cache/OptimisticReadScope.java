@@ -97,7 +97,7 @@ public final class OptimisticReadScope {
   public void validateOrThrow() {
     for (int i = 0; i < count; i++) {
       if (!frames[i].validate(stamps[i])) {
-        throw OptimisticReadFailedException.INSTANCE;
+        throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
       }
     }
     // Epoch check placement: the essential requirement is only that this check runs
@@ -111,7 +111,7 @@ public final class OptimisticReadScope {
     // (enter == exit at capture) and that none entered since (live enterSeq unchanged).
     if (enterSeqAtCapture != exitSeqAtCapture
         || applyPhaseEpoch.enterSeq() != enterSeqAtCapture) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.EPOCH);
     }
   }
 
@@ -126,7 +126,7 @@ public final class OptimisticReadScope {
     assert count > 0 : "No stamps recorded — cannot validate last";
 
     if (!frames[count - 1].validate(stamps[count - 1])) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
     }
   }
 
