@@ -107,19 +107,19 @@ public final class BTreeMultiValueIndexEngine
       svTree =
           new BTree<>(
               stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
-      svTree.setEngineId(id);
+      svTree.setHistoryFileBaseId(this.fileBaseId);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stems.
       svTree.setDisplayName(name);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
-      nullTree.setEngineId(id);
+      nullTree.setHistoryFileBaseId(this.fileBaseId);
       nullTree.setDisplayName(name + AbstractStorage.NULL_TREE_SUFFIX);
       // Explicit null-tree identity for the tombstone-GC snapshot lookup — the component name
       // is a file key, not an identity carrier.
       nullTree.setNullTree(true);
-      indexesSnapshot = storage.subIndexSnapshot(id);
-      nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
+      indexesSnapshot = storage.subIndexSnapshot(this.fileBaseId);
+      nullIndexesSnapshot = storage.subNullIndexSnapshot(this.fileBaseId);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }

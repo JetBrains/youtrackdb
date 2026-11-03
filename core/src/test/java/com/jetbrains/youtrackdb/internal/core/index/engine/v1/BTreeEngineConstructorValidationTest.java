@@ -186,7 +186,7 @@ public class BTreeEngineConstructorValidationTest {
   }
 
   /**
-   * The {@link CellBTreeSingleValue} identity-seam defaults ({@code setEngineId},
+   * The {@link CellBTreeSingleValue} identity-seam defaults ({@code setHistoryFileBaseId},
    * {@code setNullTree}, {@code setDisplayName}) are no-ops by contract: implementations that do
    * not participate in GC or user-facing diagnostics may ignore them, and the owning engine's
    * construction-time calls must be safe against such implementations. Pinned by invoking the
@@ -198,7 +198,7 @@ public class BTreeEngineConstructorValidationTest {
         com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue.class,
         org.mockito.Mockito.CALLS_REAL_METHODS);
     // Must not throw — the defaults are deliberate no-ops.
-    tree.setEngineId(7);
+    tree.setHistoryFileBaseId(7);
     tree.setNullTree(true);
     tree.setDisplayName("logical-name");
   }

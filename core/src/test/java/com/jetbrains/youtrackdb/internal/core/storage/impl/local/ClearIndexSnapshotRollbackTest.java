@@ -13,6 +13,9 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.id.SnapshotMarkerRID;
+import com.jetbrains.youtrackdb.internal.core.id.TombstoneRID;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
@@ -20,6 +23,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.CellBTreeSingleValueBucketV3;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionIndexChanges.OPERATION;
 import java.util.List;
 import java.util.UUID;
@@ -104,11 +109,175 @@ public class ClearIndexSnapshotRollbackTest extends DbTestBase {
         .getIndexEngine(IndexEngineTestSupport.externalIdentifier(index));
   }
 
-  private IndexesSnapshot history(Index index) {
+  private IndexesSnapshot history(Index index) throws Exception {
     var storage = session.getStorage();
-    return type == INDEX_TYPE.NOTUNIQUE && key == null
+    var fileBaseId = engine(index).getFileBaseId();
+    var snapshot = type == INDEX_TYPE.NOTUNIQUE && key == null
+        ? storage.subNullIndexSnapshot(fileBaseId)
+        : storage.subIndexSnapshot(fileBaseId);
+    var byName = type == INDEX_TYPE.NOTUNIQUE && key == null
         ? storage.getNullIndexSnapshotByEngineName(index.getName())
         : storage.getIndexSnapshotByEngineName(index.getName());
+    assertThat(byName.allEntries()).containsExactlyElementsOf(snapshot.allEntries());
+    return snapshot;
+  }
+
+  private Index createIndexInReusedSlot() throws Exception {
+    var discardedClass = session.createClass("Discarded");
+    discardedClass.createProperty("value", PropertyType.STRING);
+    discardedClass.createIndex("discarded", type, "value");
+    var discardedEngine = engine(session.getIndex("discarded"));
+    session.getSharedContext().getIndexManager().dropIndex(session, "discarded");
+    // Commit-time creation uses the first free registry slot.
+    session.begin();
+    createIndex();
+    session.commit();
+    var index = session.getIndex("a_cleared");
+    var currentEngine = engine(index);
+    assertThat(currentEngine.getId()).isEqualTo(discardedEngine.getId());
+    assertThat(currentEngine.getFileBaseId()).isNotEqualTo(currentEngine.getId());
+    assertThat(currentEngine.getFileBaseId()).isGreaterThan(discardedEngine.getFileBaseId());
+    return index;
+  }
+
+  @SuppressWarnings("unchecked")
+  private BTree<CompositeKey> tree(BTreeIndexEngine engine) throws Exception {
+    var treeField = engine.getClass().getDeclaredField(
+        type == INDEX_TYPE.UNIQUE ? "sbTree" : key == null ? "nullTree" : "svTree");
+    treeField.setAccessible(true);
+    return (BTree<CompositeKey>) treeField.get(engine);
+  }
+
+  /**
+   * A real removal must write history under the new file base id, never the reused slot.
+   * Keep a different RID in the slot namespace throughout the history-dependent reader
+   * lookup so that selecting the old family's view cannot silently pass.
+   */
+  @Test
+  public void reusedSlotWritesAndReadsOnlyTheNewFileFamilyHistory() throws Exception {
+    var index = createIndexInReusedSlot();
+    var currentEngine = engine(index);
+    var original = newPayload();
+    var foreign = newPayload();
+    put(index, original);
+    var tree = tree(currentEngine);
+    var operations = session.getStorage().getAtomicOperationsManager();
+    var entryKey = operations.calculateInsideAtomicOperation(op -> {
+      try (var entries = tree.allEntries(op)) {
+        return entries.findFirst().orElseThrow().first();
+      }
+    });
+    var prefix = new CompositeKey(entryKey.getKeys().subList(0, entryKey.getKeys().size() - 1));
+    var slotHistory = type == INDEX_TYPE.NOTUNIQUE && key == null
+        ? session.getStorage().subNullIndexSnapshot(currentEngine.getId())
+        : session.getStorage().subIndexSnapshot(currentEngine.getId());
+    // Seed after DROP because DROP retention belongs to a separate lifecycle contract.
+    // Version zero leaves this distinguishable sentinel intact beside real write versions.
+    slotHistory.addSnapshotPair(new CompositeKey(prefix, 0L),
+        new CompositeKey(prefix, Long.MAX_VALUE), foreign);
+    var sentinel = List.copyOf(slotHistory.allEntries());
+    try (var reader = openDatabase()) {
+      reader.begin();
+      assertThat(lookup(reader, index, key)).containsExactly(original);
+      session.activateOnCurrentThread();
+      assertThat(history(index).allEntries()).isEmpty();
+      session.begin();
+      index.remove(session.getTransactionInternal(), key, original);
+      session.commit();
+      // Check the producer before any synthetic history is added to the file namespace.
+      assertThat(history(index).allEntries()).hasSize(2).allSatisfy(entry -> {
+        assertThat(entry.getKey().getKeys().getFirst())
+            .isEqualTo((long) currentEngine.getFileBaseId());
+        assertThat(entry.getValue().getIdentity()).isEqualTo(original);
+      });
+      // The slot contains only the old-family sentinel, not the real removal's pair.
+      assertThat(slotHistory.allEntries()).containsExactlyElementsOf(sentinel);
+      assertThat(lookup(reader, index, key)).containsExactly(original);
+      session.activateOnCurrentThread();
+      assertThat(slotHistory.allEntries()).containsExactlyElementsOf(sentinel);
+      reader.activateOnCurrentThread();
+      reader.rollback();
+    } finally {
+      session.activateOnCurrentThread();
+      slotHistory.clear();
+    }
+  }
+
+  /**
+   * Exercise GC on the real engine's leaf, with distinct slot and file ids, for all
+   * regular/null tree layouts. A retained-history fixture makes an old marker eligible
+   * for the identity-dependent GC check. A subsequent real remove must preserve its
+   * tombstone and the reader's old RID.
+   */
+  @Test
+  public void reusedSlotKeepsHistoryAndGcInTheFileBaseNamespace() throws Exception {
+    var index = createIndexInReusedSlot();
+    var currentEngine = engine(index);
+    var original = newPayload();
+    if (type == INDEX_TYPE.UNIQUE) {
+      var previous = newPayload();
+      put(index, previous);
+      replace(index, previous, original);
+    } else {
+      put(index, original);
+      // MV re-put creates a marker. UNIQUE treats a same-RID put as a no-op.
+      put(index, original);
+    }
+    newPayload(); // Advance the next reader's LWM past the marker version.
+    var tree = tree(currentEngine);
+    var operations = session.getStorage().getAtomicOperationsManager();
+    var markerKey = operations.calculateInsideAtomicOperation(op -> {
+      try (var entries = tree.allEntries(op)) {
+        return entries.filter(p -> p.second() instanceof SnapshotMarkerRID)
+            .findFirst().orElseThrow().first();
+      }
+    });
+    var prefix = new CompositeKey(markerKey.getKeys().subList(0, markerKey.getKeys().size() - 1));
+    try (var reader = openDatabase()) {
+      reader.begin();
+      assertThat(lookup(reader, index, key)).containsExactly(original);
+      session.activateOnCurrentThread();
+      // Model retained history from a reverted write. Its guard is newer than LWM while the
+      // restored marker is older. GC must query this engine's file base id to keep the marker.
+      history(index).addSnapshotPair(markerKey,
+          new CompositeKey(prefix, Long.MAX_VALUE - 1), original);
+      var lwm = session.getStorage().computeGlobalLowWaterMark();
+      assertThat((Long) markerKey.getKeys().getLast()).isLessThan(lwm);
+      assertThat(session.getStorage().hasActiveIndexSnapshotEntriesById(
+          currentEngine.getFileBaseId(), type == INDEX_TYPE.NOTUNIQUE && key == null, prefix, lwm))
+          .isTrue();
+      assertThat(session.getStorage().hasActiveIndexSnapshotEntriesById(
+          currentEngine.getId(), type == INDEX_TYPE.NOTUNIQUE && key == null, prefix, lwm))
+          .isFalse();
+      var gc = BTree.class.getDeclaredMethod("filterAndRebuildBucket",
+          CellBTreeSingleValueBucketV3.class);
+      gc.setAccessible(true);
+      operations.executeInsideAtomicOperation(op -> {
+        try (var page = op.loadPageForWrite(tree.getFileId(), 1, 1, true)) {
+          var bucket = new CellBTreeSingleValueBucketV3<CompositeKey>(page);
+          assertThat(bucket.isLeaf()).isTrue();
+          assertThat(gc.invoke(tree, bucket)).isEqualTo(0);
+        }
+        assertThat(tree.get(markerKey, op)).isInstanceOf(SnapshotMarkerRID.class);
+      });
+      session.begin();
+      index.remove(session.getTransactionInternal(), key, original);
+      session.commit();
+      operations.executeInsideAtomicOperation(op -> {
+        try (var page = op.loadPageForWrite(tree.getFileId(), 1, 1, true)) {
+          assertThat(gc.invoke(tree, new CellBTreeSingleValueBucketV3<CompositeKey>(page)))
+              .isEqualTo(0);
+        }
+        try (var entries = tree.allEntries(op)) {
+          assertThat(entries.map(p -> p.second()).toList())
+              .anyMatch(TombstoneRID.class::isInstance);
+        }
+      });
+      assertThat(lookup(reader, index, key)).containsExactly(original);
+      reader.rollback();
+    } finally {
+      session.activateOnCurrentThread();
+    }
   }
 
   /**

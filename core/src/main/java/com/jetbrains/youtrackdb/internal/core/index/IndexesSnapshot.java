@@ -39,7 +39,8 @@ import javax.annotation.Nullable;
  * <h3>Key layout</h3>
  * <p>Snapshot keys have the layout {@code [indexId, userKey..., version]}, where
  * {@code indexId} is prepended by {@link #enhanceIndexId} to namespace entries
- * across indexes in the shared global map.
+ * across indexes in the shared global map. This identity is the engine's never-reused
+ * file base id, not its reusable registry slot.
  *
  * <h3>Visibility rules</h3>
  * <p>{@link #checkVisibility} implements the visibility decision: entries from
@@ -70,12 +71,12 @@ public class IndexesSnapshot {
 
   public IndexesSnapshot(NavigableMap<CompositeKey, RID> indexesSnapshot,
       NavigableMap<CompositeKey, CompositeKey> visibilityIndex,
-      @Nonnull AtomicLong snapshotSizeCounter, long indexId) {
+      @Nonnull AtomicLong snapshotSizeCounter, long fileBaseId) {
     this.indexesSnapshot = indexesSnapshot.subMap(
-        new CompositeKey(indexId), true, new CompositeKey(indexId + 1), false);
+        new CompositeKey(fileBaseId), true, new CompositeKey(fileBaseId + 1), false);
     this.visibilityIndex = visibilityIndex;
     this.snapshotSizeCounter = snapshotSizeCounter;
-    this.indexId = indexId;
+    this.indexId = fileBaseId;
   }
 
   public void addSnapshotPair(CompositeKey addedKey, CompositeKey removedKey, RID value) {

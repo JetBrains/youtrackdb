@@ -122,13 +122,11 @@ public class IndexesSnapshotClearTest {
   // ========================================================================
 
   /**
-   * Gets the IndexesSnapshot for a given index by resolving the external index ID
-   * to the internal engine ID via {@code getIndexEngine().getId()}.
+   * Gets the snapshot using the engine's never-reused file base id.
    */
   private IndexesSnapshot getSnapshotForIndex(String indexName)
       throws InvalidIndexEngineIdException {
     var storage = db.getStorage();
-    int internalId = IndexEngineTestSupport.internalIdentifier(db, indexName);
-    return storage.subIndexSnapshot(internalId);
+    return storage.getIndexSnapshotByEngineName(indexName);
   }
 }

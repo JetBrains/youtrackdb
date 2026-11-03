@@ -12,7 +12,7 @@ import javax.annotation.Nonnull;
 import org.junit.Test;
 
 /**
- * Verifies that the {@link CellBTreeSingleValue#setEngineId(long)} default method
+ * Verifies that the {@link CellBTreeSingleValue#setHistoryFileBaseId(long)} default method
  * is a true no-op: implementations that do not override it can call it without
  * any side-effect or exception. The v3 {@code BTree} class overrides this method
  * (to store the engine-id for tombstone GC); this test exercises the default path
@@ -22,7 +22,7 @@ public class CellBTreeSingleValueDefaultTest {
 
   /**
    * A minimal stub implementing {@link CellBTreeSingleValue} that intentionally
-   * does NOT override {@code setEngineId}, inheriting the interface default no-op.
+   * does NOT override {@code setHistoryFileBaseId}, inheriting the interface default no-op.
    * Only the methods required by the compiler are present; all throw
    * {@link UnsupportedOperationException} since they are not exercised here.
    */
@@ -141,13 +141,13 @@ public class CellBTreeSingleValueDefaultTest {
   }
 
   /**
-   * Calling {@link CellBTreeSingleValue#setEngineId(long)} on a stub that does NOT
+   * Calling {@link CellBTreeSingleValue#setHistoryFileBaseId(long)} on a stub that does NOT
    * override the default completes without throwing — the default body is empty.
    */
   @Test
-  public void setEngineIdDefaultIsNoOp() {
+  public void setHistoryFileBaseIdDefaultIsNoOp() {
     CellBTreeSingleValue<String> tree = new StubTree();
     // Must not throw; the default implementation is intentionally a no-op.
-    tree.setEngineId(123L);
+    tree.setHistoryFileBaseId(123L);
   }
 }
