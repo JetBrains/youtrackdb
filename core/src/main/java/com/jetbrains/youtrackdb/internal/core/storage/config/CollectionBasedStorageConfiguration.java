@@ -1465,8 +1465,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         storeProperty(
             atomicOperation,
             ENGINE_PREFIX_PROPERTY + name,
-            serializeIndexEngineProperty(engineData),
-            INDEX_ENGINE_PROPERTY_VERSION);
+            encodeIndexEngineEntry(engineData,
+                IndexEngineFileState.allCreated(engineData.isMultivalue()),
+                storage.getStorageFormat(),
+                storage.getName()),
+            indexEngineEntryVersion(storage.getStorageFormat()));
       }
     } finally {
       lock.writeLock().unlock();
@@ -1525,8 +1528,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   /**
    * Stores an index-engine entry under an explicit property version tag — FOR TESTS ONLY.
-   * Production engine entries are always written at {@link #INDEX_ENGINE_PROPERTY_VERSION}; this
-   * seam lets tests fabricate a stale-versioned entry to pin the deserializer's hard-fail gate.
+   * Production entries use the tag selected by the storage layout. This seam lets tests
+   * fabricate a stale-versioned entry to pin the deserializer's hard-fail gate.
    */
   public void storeIndexEngineEntryForTesting(
       final AtomicOperation atomicOperation,
@@ -1538,7 +1541,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       storeProperty(
           atomicOperation,
           ENGINE_PREFIX_PROPERTY + name,
-          serializeIndexEngineProperty(engineData),
+          encodeIndexEngineEntry(engineData,
+              IndexEngineFileState.allCreated(engineData.isMultivalue()),
+              storage.getStorageFormat(),
+              storage.getName()),
           propertyVersion);
     } finally {
       lock.writeLock().unlock();
@@ -1829,7 +1835,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     // ConfigurationException (a HighLevelException) deliberately: this is a controlled
     // format rejection with a user-facing redirect, like the load-time version gate — it must
     // not flip the storage into the restart-requiring error state.
-    if (binaryVersion < INDEX_ENGINE_PROPERTY_VERSION) {
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_25
+        && binaryVersion < INDEX_ENGINE_PROPERTY_VERSION) {
       throw new ConfigurationException(storage.getName(),
           "Index engine entry '" + name + "' of database '" + storage.getName()
               + "' is stored under engine-property version " + binaryVersion
@@ -1838,6 +1845,120 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
               + " must be exported with the previous version of YouTrackDB and reimported using"
               + " the current one.");
     }
+    return decodeIndexEngineEntry(name, property, defaultIndexId, binaryVersion,
+        storage.getStorageFormat(), storage.getName(),
+        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY)).data();
+  }
+
+  static int indexEngineEntryVersion(StorageFormat format) {
+    return format.layoutVersion() == 26 ? 3 : INDEX_ENGINE_PROPERTY_VERSION;
+  }
+
+  record IndexEngineEntry(IndexEngineData data, IndexEngineFileState state) {
+  }
+
+  static byte[] encodeIndexEngineEntry(IndexEngineData data, IndexEngineFileState state,
+      StorageFormat format, String storageName) {
+    if (format == StorageFormat.LAYOUT_26) {
+      IndexEngineFileState.requireSupportedKind(data, storageName);
+      if (state.multivalue() != data.isMultivalue()) {
+        throw new ConfigurationException(storageName,
+            "Index engine entry '" + data.getName() + "' has mismatched role kind");
+      }
+    }
+    var bytes = serializeIndexEngineProperty(data);
+    if (format == StorageFormat.LAYOUT_26) {
+      bytes = Arrays.copyOf(bytes, bytes.length + 1);
+      bytes[bytes.length - 1] = (byte) state.bits();
+    }
+    return bytes;
+  }
+
+  static IndexEngineEntry decodeIndexEngineEntry(String name, byte[] property, int defaultIndexId,
+      int tag, StorageFormat format, String storageName, String encryptionKey) {
+    if (tag != indexEngineEntryVersion(format)) {
+      throw invalidIndexEngineEntry(name, storageName,
+          "Entry version " + tag + " is invalid for layout " + format.layoutVersion());
+    }
+    try {
+      if (format == StorageFormat.LAYOUT_26) {
+        validateIndexEnginePayload(property);
+      }
+      var data = deserializeLegacyIndexEngine(name, property, defaultIndexId, encryptionKey);
+      if (format == StorageFormat.LAYOUT_26) {
+        IndexEngineFileState.requireSupportedKind(data, storageName);
+        var bits = Byte.toUnsignedInt(property[property.length - 1]);
+        if ((bits & ~IndexEngineFileState.roleMask(data.isMultivalue())) != 0) {
+          throw new IllegalArgumentException("Unknown or foreign engine role flags: " + bits);
+        }
+        return new IndexEngineEntry(data, new IndexEngineFileState(data.isMultivalue(), bits));
+      }
+      return new IndexEngineEntry(data, IndexEngineFileState.allCreated(data.isMultivalue()));
+    } catch (IndexOutOfBoundsException | IllegalArgumentException | NullPointerException e) {
+      if (format == StorageFormat.LAYOUT_25) {
+        throw e;
+      }
+      throw invalidIndexEngineEntry(name, storageName, "Invalid layout-26 payload: " + e);
+    }
+  }
+
+  private static ConfigurationException invalidIndexEngineEntry(String name, String storageName,
+      String reason) {
+    return new ConfigurationException(storageName, "Invalid index engine entry '" + name + "': "
+        + reason);
+  }
+
+  // Bound every variable-size field before the legacy decoder allocates or reads it.
+  private static void validateIndexEnginePayload(byte[] bytes) {
+    if (bytes.length < 25) {
+      throw new IllegalArgumentException("Truncated engine numeric fields");
+    }
+    for (int pos = 10; pos <= 12; pos++) {
+      if (bytes[pos] != 0 && bytes[pos] != 1) {
+        throw new IllegalArgumentException("Invalid engine boolean");
+      }
+    }
+    var pos = strictEngineStringEnd(bytes, 25); // Algorithm.
+    pos = strictEngineStringEnd(bytes, pos); // Index type.
+    pos = strictEngineStringEnd(bytes, pos); // Encryption.
+    var count = strictEngineCount(bytes, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    for (int i = 0; i < count; i++) {
+      pos = strictEngineStringEnd(bytes, pos); // Key type.
+    }
+    count = strictEngineCount(bytes, pos);
+    pos += IntegerSerializer.INT_SIZE;
+    for (int i = 0; i < count; i++) {
+      pos = strictEngineStringEnd(bytes, pos); // Property key.
+      pos = strictEngineStringEnd(bytes, pos); // Property value.
+    }
+    if (pos != bytes.length - 1) {
+      throw new IllegalArgumentException("Truncated or trailing engine bytes");
+    }
+  }
+
+  private static int strictEngineStringEnd(byte[] bytes, int pos) {
+    var end = strictStringEnd(bytes, pos);
+    if (bytes[pos] == 1
+        && (IntegerSerializer.deserializeNative(bytes, pos + 1) & 1) != 0) {
+      throw new IllegalArgumentException("Invalid UTF-16 string length");
+    }
+    return end;
+  }
+
+  private static int strictEngineCount(byte[] bytes, int pos) {
+    if (bytes.length - pos < IntegerSerializer.INT_SIZE) {
+      throw new IllegalArgumentException("Truncated engine count");
+    }
+    var count = IntegerSerializer.deserializeNative(bytes, pos);
+    if (count < 0 || count > bytes.length - pos - IntegerSerializer.INT_SIZE) {
+      throw new IllegalArgumentException("Invalid engine count");
+    }
+    return count;
+  }
+
+  private static IndexEngineData deserializeLegacyIndexEngine(String name, byte[] property,
+      int defaultIndexId, String encryptionKey) {
     var pos = 0;
 
     final var version = IntegerSerializer.deserializeNative(property, pos);
@@ -1933,7 +2054,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         isNullValueSupport,
         keySize,
         encryption,
-        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
+        encryptionKey,
         engineProperties);
   }
 

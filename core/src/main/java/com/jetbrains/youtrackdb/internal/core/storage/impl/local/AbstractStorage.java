@@ -127,6 +127,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.config.IndexEngineFileState;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
@@ -4192,7 +4193,7 @@ public abstract class AbstractStorage
     // monotonic high-water mark inside this commit's atomic operation (the floor write reverts
     // with a failed commit; the mark itself burns the value).
     final var fileBaseId = allocateIndexEngineFileBaseId(atomicOperation);
-    final var engineData =
+    final var engineData = resolveLayout26EngineVersion(
         new IndexEngineData(
             generatedId,
             fileBaseId,
@@ -4204,7 +4205,7 @@ public abstract class AbstractStorage
             keySize,
             null,
             cfgEncryptionKey,
-            engineProperties);
+            engineProperties));
 
     final var engine = doAddIndexEngine(atomicOperation, engineData);
     publishIndexEngine(engineData.getIndexId(), engine);
@@ -5328,7 +5329,7 @@ public abstract class AbstractStorage
               // operation (the held stateLock.writeLock() serializes it against concurrent
               // creates).
               final var fileBaseId = allocateIndexEngineFileBaseId(atomicOperation);
-              final var engineData =
+              final var engineData = resolveLayout26EngineVersion(
                   new IndexEngineData(
                       generatedId,
                       fileBaseId,
@@ -5340,7 +5341,7 @@ public abstract class AbstractStorage
                       keySize,
                       null,
                       cfgEncryptionKey,
-                      engineProperties);
+                      engineProperties));
 
               final var creationHook = indexEngineCreationTestHook;
               if (creationHook != null) {
@@ -5369,6 +5370,21 @@ public abstract class AbstractStorage
     }
   }
 
+  private IndexEngineData resolveLayout26EngineVersion(IndexEngineData data) {
+    // Resolve only the engine selector. The caller-owned schema metadata keeps its version,
+    // including the default -1, regardless of when its schema record is serialized.
+    if (storageFormat == StorageFormat.LAYOUT_26 && data.getVersion() < 0
+        && "BTREE".equals(data.getAlgorithm())) {
+      return new IndexEngineData(data.getIndexId(), data.getFileBaseId(), data.getName(),
+          data.getAlgorithm(), data.getIndexType(), data.getDurableInNonTxMode(),
+          BTreeIndexEngine.VERSION, data.getApiVersion(), data.isMultivalue(),
+          data.getValueSerializerId(), data.getKeySerializedId(), data.isAutomatic(),
+          data.getKeyTypes(), data.isNullValuesSupport(), data.getKeySize(),
+          data.getEncryption(), data.getEncryptionOptions(), data.getEngineProperties());
+    }
+    return data;
+  }
+
   /**
    * Creates the index engine, its files, and its storage-configuration entry inside the
    * given atomic operation, without publishing the engine into the in-memory registries
@@ -5395,6 +5411,9 @@ public abstract class AbstractStorage
   private BaseIndexEngine doAddIndexEngine(
       final AtomicOperation atomicOperation, final IndexEngineData engineData)
       throws IOException {
+    if (storageFormat == StorageFormat.LAYOUT_26) {
+      IndexEngineFileState.requireSupportedKind(engineData, name);
+    }
     final var engine = Indexes.createIndexEngine(this, engineData);
 
     engine.create(atomicOperation, engineData);
