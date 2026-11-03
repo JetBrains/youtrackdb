@@ -67,7 +67,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.CutPreflight;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALRecordDecodeException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.DataInputStream;
 import java.io.IOException;
@@ -1358,6 +1361,88 @@ public class DiskStorageChangedPageCheckpointTest {
     assertTrue(Arrays.asList(primary.getSuppressed()).contains(secondary));
     assertNull(field(DiskStorage.class, created, "startupOwner"));
     assertTrue(created.isClosed(null));
+  }
+
+  /**
+   * A real startup owner distrusts history before logging a failed decoded prefix. The pending
+   * decode cause stays suppressed on the replay failure even when that diagnostic also fails.
+   */
+  @Test
+  public void startupPrefixReplayFailureRetainsDeferredDecodeCause() throws Exception {
+    var created = createObservedStorage();
+    seedTrustedHistory(created, true, UUID.randomUUID());
+    var primary = new IllegalStateException("decoded prefix replay failed");
+    var decode = new IllegalArgumentException("pending WAL decode failure");
+    var diagnosticFailure = new Error("startup replay diagnostic failed");
+    var replayed = new AtomicInteger();
+    var diagnostics = new AtomicInteger();
+    var trustAtFirstDiagnostic = new AtomicReference<Boolean>();
+    var decodeAtFirstDiagnostic = new AtomicReference<Boolean>();
+    var selected = new AtomicReference<ChangedPageTracker>();
+    var originalReadCache = created.getReadCache();
+    doAnswer(call -> {
+      call.callRealMethod();
+      var actual = created.getWALInstance();
+      var observed = mock(CASDiskWriteAheadLog.class, delegatesTo(actual));
+      var fileId = created.getWriteCache().externalFileId(123458);
+      var start = new AtomicUnitStartRecord(false, 456);
+      var file = new FileCreatedWALRecord(456, "failed-prefix.bin", fileId);
+      var end = new AtomicUnitEndRecord(456, false, null);
+      List<WriteableWALRecord> prefix = List.of(start, file, end);
+      for (var i = 0; i < prefix.size(); i++) {
+        prefix.get(i).setLsn(new LogSequenceNumber(1, 100 + i));
+      }
+      doAnswer(read -> {
+        assertNotNull("physical open must own startup history",
+            field(DiskStorage.class, created, "startupOwner"));
+        selected.set((ChangedPageTracker) field(DiskStorage.class, created,
+            "changedPageTracker"));
+        assertTrue("proof must establish trust before replay", selected.get().isTrusted());
+        throw new WALRecordDecodeException(prefix, decode);
+      }).when(observed).readForRecovery(any(), anyInt());
+      var readCache = mock(ReadCache.class, delegatesTo(originalReadCache));
+      doAnswer(add -> {
+        replayed.incrementAndGet();
+        assertTrue("the decoded prefix must reach replay before distrust",
+            selected.get().isTrusted());
+        throw primary;
+      }).when(readCache).addFile(eq("failed-prefix.bin"), eq(fileId), any());
+      setField(created, "readCache", readCache);
+      setField(created, "writeAheadLog", observed);
+      return null;
+    }).when(created).initWalAndDiskCacheOnOpen(any());
+    var logger = LogManager.instance();
+    try (var logging = mockStatic(LogManager.class)) {
+      var diagnostic = mock(LogManager.class, call -> {
+        if (call.getMethod().getName().equals("error") && call.getArguments().length > 2
+            && call.getArgument(2) == primary) {
+          diagnostics.incrementAndGet();
+          // Open can log the primary again after abort. Retain the first observation so
+          // abort cleanup cannot hide a missing distrust or decode attachment in replay.
+          trustAtFirstDiagnostic.compareAndSet(null, selected.get().isTrusted());
+          decodeAtFirstDiagnostic.compareAndSet(null,
+              Arrays.asList(primary.getSuppressed()).contains(decode));
+          throw diagnosticFailure;
+        }
+        return delegatesTo(logger).answer(call);
+      });
+      logging.when(LogManager::instance).thenReturn(diagnostic);
+      assertSame(primary, assertThrows(RuntimeException.class,
+          () -> created.open(new ContextConfiguration())));
+    } finally {
+      setField(created, "readCache", originalReadCache);
+    }
+    assertEquals(1, replayed.get());
+    assertTrue("the replay diagnostic must be reached", diagnostics.get() > 0);
+    assertEquals("distrust must precede the first diagnostic", Boolean.FALSE,
+        trustAtFirstDiagnostic.get());
+    assertEquals("decode attachment must precede the first diagnostic", Boolean.TRUE,
+        decodeAtFirstDiagnostic.get());
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(decode));
+    assertTrue(Arrays.asList(primary.getSuppressed()).contains(diagnosticFailure));
+    assertFalse("abort must not restore tracker trust", selected.get().isTrusted());
+    assertTrue(created.isClosed(null));
+    assertNull(field(DiskStorage.class, created, "startupOwner"));
   }
 
   /** The shared replay consumer sends no startup notification outside a physical-open owner. */
