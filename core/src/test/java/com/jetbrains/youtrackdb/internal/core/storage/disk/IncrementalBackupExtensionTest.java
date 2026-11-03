@@ -4809,6 +4809,77 @@ public class IncrementalBackupExtensionTest {
     }
   }
 
+  /**
+   * Version 6 damaged heads belong only to their source layout, with or without continuity.
+   * A valid metadata checksum must not authorize deletion of foreign-layout bytes. The same
+   * fixture in the source layout must remain removable through both stream and tail readers.
+   */
+  @Test
+  public void version6DamagedHeadRecognitionRequiresSourceLayout() throws Exception {
+    for (var format : StorageFormat.values()) {
+      try (var manager = openManager()) {
+        AbstractStorage storage;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          storage = createSourceDatabase(manager);
+        }
+        for (var continuityPresent : new boolean[] {false, true}) {
+          for (var plain : new boolean[] {false, true}) {
+            for (var sameLayout : new boolean[] {false, true}) {
+              var layout = sameLayout ? format.layoutVersion()
+                  : format == StorageFormat.LAYOUT_25 ? 26 : 25;
+              var damaged = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
+                  0, true, 6, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
+              var path = backupPath.resolve(damaged);
+              var bytes = Files.readAllBytes(path);
+              if (continuityPresent) {
+                var continuity = new DiskStorage.BackupContinuity(UUID.randomUUID(),
+                    UUID.randomUUID());
+                bytes = BackupUnitFiles.version6Bytes(new byte[0],
+                    java.util.Arrays.copyOfRange(bytes, bytes.length - 74, bytes.length),
+                    DiskStorage.BARRIER_ABSENT, continuity);
+                bytes[bytes.length - 1] ^= 1;
+                Files.write(path, bytes);
+              }
+              var tail = bytes.length - DiskStorage.IBU_V6_METADATA_SIZE;
+              assertEquals("metadata checksum must remain valid",
+                  ByteBuffer.wrap(bytes).getLong(tail),
+                  DiskStorage.XX_HASH_64.hash(bytes, tail + 8, 106,
+                      DiskStorage.METADATA_HASH_SEED));
+              assertTrue("full hash must be broken",
+                  ByteBuffer.wrap(bytes).getLong(bytes.length - 8)
+                      != DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - 8,
+                          DiskStorage.XX_HASH_SEED));
+              var before = unitContent();
+              var removed = new ArrayList<String>();
+              Function<String, InputStream> reader = plain ? this::openInput
+                  : new CountingTailSupplier();
+              java.util.function.Consumer<String> remover = name -> {
+                removed.add(name);
+                removeUnit(name);
+              };
+              if (sameLayout) {
+                var replacement = storage.backup(this::unitIterator, reader, this::openOutput,
+                    remover);
+                assertEquals(List.of(damaged), removed);
+                assertFalse(Files.exists(path));
+                assertEquals(List.of(replacement), unitNames());
+              } else {
+                assertThrows(UnsupportedBackupException.class,
+                    () -> storage.backup(this::unitIterator, reader, this::openOutput, remover));
+                assertTrue("foreign output must never reach the remover", removed.isEmpty());
+                assertEquals("foreign output must stay byte-identical", before, unitContent());
+              }
+              for (var name : unitNames()) {
+                Files.delete(backupPath.resolve(name));
+              }
+            }
+          }
+        }
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
   /** Writes a barrier-absent head and independently verifies its two distinct checksum states. */
   private String writeChecksumValidDamagedUnit(UUID databaseId, int version, int layout)
       throws IOException {
