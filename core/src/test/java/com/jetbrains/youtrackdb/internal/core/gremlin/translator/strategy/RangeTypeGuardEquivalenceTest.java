@@ -58,6 +58,10 @@ import org.junit.Test;
  */
 public class RangeTypeGuardEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** The alias the walker mints for the root {@code V()} scan. */
   private static final String ORIGIN_ALIAS = "$g2m_v0";
 

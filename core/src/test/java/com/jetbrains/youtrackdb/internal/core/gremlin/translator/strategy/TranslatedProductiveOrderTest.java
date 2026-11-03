@@ -48,6 +48,10 @@ import org.junit.Test;
  */
 public class TranslatedProductiveOrderTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /**
    * Two people carrying {@code age} and exactly ONE without it. One ageless record is deliberate:
    * two would tie on the null key and no absolute ordering could be pinned.

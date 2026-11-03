@@ -4,10 +4,10 @@ import java.util.Set;
 
 /** Immutable plan analysis. This value does not execute or route queries. */
 public record PlainPlanDecision(Reason reason, String offendingStepClass, Facts facts,
-    boolean l3Applied, boolean ridProtected) {
+    boolean sliceAfterFilter, boolean ridProtected) {
 
   public PlainPlanDecision(Reason reason, String offendingStepClass, Facts facts) {
-    this(reason, offendingStepClass, facts, reason == Reason.L3,
+    this(reason, offendingStepClass, facts, reason == Reason.SLICE_AFTER_FILTER,
         reason == Reason.RID_SINGLE_HOP_PROTECTED);
   }
 
@@ -35,7 +35,7 @@ public record PlainPlanDecision(Reason reason, String offendingStepClass, Facts 
     /** A logical boolean node has no audited shape. */
     BOOLEAN_SHAPE,
     /** A root slice follows filtered streaming scan or hop work. */
-    L3,
+    SLICE_AFTER_FILTER,
     /** The single-hop RID-start measurement protection keeps translation. */
     RID_SINGLE_HOP_PROTECTED,
     /** Concatenation or a post-concatenation reduction keeps translation. */

@@ -11,8 +11,10 @@ import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -261,19 +263,37 @@ public class LdbcGremlinShapeTranslationTest {
   // -------------------------------------------------------------------------------------------
 
   /**
-   * Shape 1 — a bare {@code g.V(rid)} point-lookup translates on, runs natively off, and returns
-   * Alice on both arms.
-   *
-   * <p>Composition stacks need RID starts to compile to MATCH (same path as hop-after-RID). The
-   * plan is uncached ({@code cacheEligible=false}); cost vs native is a JMH question, not a
-   * decline.
+   * A bare RID lookup chooses rule-native with translation enabled and stays native when disabled.
+   * Repeated calls return Alice. The outcome counter distinguishes rule-native from a decline,
+   * and the protected witness proves that this session can install MATCH.
    */
   @Test
-  public void vertexByRidTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
-        "g.V(rid)",
-        t -> GremlinTraversalShapes.personByRid(t, aliceRid),
-        List.of("element:" + aliceRid));
+  public void vertexByRidRunsRuleNativeOnAndNativeOff() {
+    var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+    try {
+      requireKillSwitchReachesTraversals("g.V(rid)");
+      for (boolean enabled : new boolean[] {true, false}) {
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(enabled);
+        g.executeInTx(t -> {
+          var tx = (YTDBTransaction) t.getGraph().tx();
+          tx.readWrite();
+          var metrics = GremlinTranslationMetrics.of(tx.getDatabaseSession());
+          for (int call = 0; call < 2; call++) {
+            var nativeBefore = metrics.getRuleNative();
+            var declinesBefore = metrics.getDeclines();
+            var admin = GremlinTraversalShapes.personByRid(t, aliceRid).asAdmin();
+            admin.applyStrategies();
+            GremlinTraversalShapes.requireNotTranslated("g.V(rid)", admin);
+            assertEquals(nativeBefore + (enabled ? 1 : 0), metrics.getRuleNative());
+            assertEquals(declinesBefore, metrics.getDeclines());
+            assertEquals(List.of("element:" + aliceRid),
+                render(admin.toList(), Comparison.AS_MULTISET));
+          }
+        });
+      }
+    } finally {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
+    }
   }
 
   /**

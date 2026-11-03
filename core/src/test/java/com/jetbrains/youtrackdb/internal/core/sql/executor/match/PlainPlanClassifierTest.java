@@ -91,16 +91,16 @@ public class PlainPlanClassifierTest {
     assertDecision(f, Reason.PLAIN);
     classStart(f);
     f.source.chain(new FilterStep(where("name = 'a' OR name = 'b'"), ctx, 0, false));
-    assertDecision(f, Reason.L3);
-    assertThat(decide(f).l3Applied()).isTrue();
+    assertDecision(f, Reason.SLICE_AFTER_FILTER);
+    assertThat(decide(f).sliceAfterFilter()).isTrue();
     f = fixture("{as:a}.out('E'){as:b,where:(age > 1)}", "b LIMIT 2");
-    assertDecision(f, Reason.L3);
+    assertDecision(f, Reason.SLICE_AFTER_FILTER);
     f = fixture("{as:a}", "a SKIP 1 LIMIT 2");
     assertDecision(f, Reason.PLAIN);
   }
 
   @Test
-  public void materializedRootDoesNotTransferItsScanFilterToL3() throws Exception {
+  public void materializedRootDoesNotTransferItsScanFilterToSliceAfterFilter() throws Exception {
     var f = fixture("{as:a}", "a LIMIT 2");
     classStart(f);
     f.source.chain(new FilterStep(where("age > 1"), ctx, 0, false));
@@ -340,12 +340,14 @@ public class PlainPlanClassifierTest {
       var f = fixture("{as:a}.out(){as:b}.out(){as:c}", "c " + slice);
       f.inputs = f.inputs.toBuilder().aliasClasses(Map.of("b", "V", "c", "V")).build();
       assertDecision(f, Reason.PLAIN);
-      assertThat(decide(f).l3Applied()).isFalse();
-      assertDecision(fixture("{as:a}.out(){as:b,where:(age > 1)}", "b " + slice), Reason.L3);
-      assertDecision(fixture("{as:a}.out(){as:b,class:Person}", "b " + slice), Reason.L3);
+      assertThat(decide(f).sliceAfterFilter()).isFalse();
+      assertDecision(fixture("{as:a}.out(){as:b,where:(age > 1)}", "b " + slice),
+          Reason.SLICE_AFTER_FILTER);
+      assertDecision(fixture("{as:a}.out(){as:b,class:Person}", "b " + slice),
+          Reason.SLICE_AFTER_FILTER);
     }
     var f = fixture("{as:a}.out(){as:b,where:(age > 1)}", "b LIMIT 1");
-    assertThat(decide(f).l3Applied()).isTrue();
+    assertThat(decide(f).sliceAfterFilter()).isTrue();
     assertThat(decide(f).ridProtected()).isTrue();
     f = fixture("{as:a}.outE('Person'){as:e,class:Person}.inV(){as:b}", "b LIMIT 1");
     assertDecision(f, Reason.RID_SINGLE_HOP_PROTECTED);
@@ -433,7 +435,7 @@ public class PlainPlanClassifierTest {
     f = fixture("{as:a}", "a LIMIT 1");
     classStart(f);
     f.steps.add(1, leaf);
-    assertDecision(f, Reason.L3);
+    assertDecision(f, Reason.SLICE_AFTER_FILTER);
   }
 
   private FilterBooleanMatchStep bool(FilterBooleanMatchStep.Kind kind,

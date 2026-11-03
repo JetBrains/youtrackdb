@@ -42,7 +42,7 @@ import java.util.Set;
  *
  * <p>Only allowlisted owners expose nested content here. Unknown owners fail immediately, even
  * when getSubSteps is empty. In particular a probe and a prebuilt hash child are not a linear
- * continuation of the outer stream. Both keep MATCH, so neither transfers L3 state to that stream.
+ * continuation of the outer stream. Both keep MATCH, so neither transfers slice-after-filter state to that stream.
  */
 public final class PlainPlanClassifier {
 
@@ -201,10 +201,11 @@ public final class PlainPlanClassifier {
       return new PlainPlanDecision(Reason.UNKNOWN_STEP, steps.get(position).getClass().getName(),
           facts);
     }
-    boolean l3 = sliced && filtered;
+    boolean sliceAfterFilter = sliced && filtered;
     boolean ridProtected = kind == StartKind.RID && vertexHops == 1;
-    var reason = l3 ? Reason.L3 : ridProtected ? Reason.RID_SINGLE_HOP_PROTECTED : Reason.PLAIN;
-    return new PlainPlanDecision(reason, null, facts, l3, ridProtected);
+    var reason = sliceAfterFilter ? Reason.SLICE_AFTER_FILTER
+        : ridProtected ? Reason.RID_SINGLE_HOP_PROTECTED : Reason.PLAIN;
+    return new PlainPlanDecision(reason, null, facts, sliceAfterFilter, ridProtected);
   }
 
   private static PlainPlanDecision rejectedAt(List<? extends ExecutionStep> steps, int position,
