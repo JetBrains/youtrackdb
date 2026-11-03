@@ -2005,7 +2005,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       try {
         validateCollectionPayload(property);
         final var bits = Byte.toUnsignedInt(property[property.length - 1]);
-        if ((bits & ~31) != 0) {
+        if ((bits & ~CollectionFileState.ALL_ROLES_MASK) != 0) {
           throw new IllegalArgumentException("Unknown collection file role flags: " + bits);
         }
         state = new CollectionFileState(bits);

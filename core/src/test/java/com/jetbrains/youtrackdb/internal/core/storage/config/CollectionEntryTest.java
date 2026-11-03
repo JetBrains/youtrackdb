@@ -80,6 +80,8 @@ public class CollectionEntryTest {
   /** Fixed role fixtures pin both the declared order and each persisted role bit. */
   @Test
   public void namedRolesHaveFixedBytes() {
+    assertEquals(0x1F, CollectionFileState.ALL_ROLES_MASK);
+    assertEquals(0x1F, CollectionFileState.ALL_CREATED.bits());
     var roles = new CollectionFileState.Role[] {
         CollectionFileState.Role.DATA, CollectionFileState.Role.POSITION_MAP,
         CollectionFileState.Role.FREE_SPACE_MAP, CollectionFileState.Role.DIRTY_PAGE_BITSET,

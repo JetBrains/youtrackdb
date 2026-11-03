@@ -15,10 +15,19 @@ public record CollectionFileState(int bits) {
     }
   }
 
-  public static final CollectionFileState ALL_CREATED = new CollectionFileState(31);
+  public static final int ALL_ROLES_MASK = allRolesMask();
+  public static final CollectionFileState ALL_CREATED = new CollectionFileState(ALL_ROLES_MASK);
+
+  private static int allRolesMask() {
+    var bits = 0;
+    for (var role : Role.values()) {
+      bits |= role.mask;
+    }
+    return bits;
+  }
 
   public CollectionFileState {
-    if ((bits & ~31) != 0) {
+    if ((bits & ~ALL_ROLES_MASK) != 0) {
       throw new ConfigurationException((String) null,
           "Unknown collection file role flags: " + bits);
     }
