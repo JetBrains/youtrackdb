@@ -54,6 +54,10 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class GremlinTranslationCacheTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private Object previousAscending;
   private Object previousDescending;
 
@@ -575,7 +579,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       assertThat(OrderedFilterBinding.fromExtraction(wrongShaping, extraction)).isNull();
       GremlinPlanCache.putTranslation(extraction.key(), new GremlinTranslationTemplate.Translate(
           stored.planTemplate(), stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
-          wrongShaping, stored.bindingCount(), stored.hasContributions()), graphSession(),
+          wrongShaping, stored.bindingCount(), stored.hasContributions(), stored.decision()),
+          graphSession(),
           GremlinPlanCache.instance(graphSession()).getGeneration());
       var walks = new AtomicInteger();
       var failures = new ArrayList<String>();
@@ -1143,7 +1148,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     wrong.set(wrong.size() - 1, new HasBindingContext.Contribution(contribution.context(), slots));
     GremlinPlanCache.putTranslation(key, new GremlinTranslationTemplate.Translate(
         stored.planTemplate(), stored.boundaryAlias(), stored.outputType(),
-        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong), graphSession(),
+        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong, stored.decision()),
+        graphSession(),
         GremlinPlanCache.instance(graphSession()).getGeneration());
     var walks = new AtomicInteger();
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =

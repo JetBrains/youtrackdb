@@ -70,6 +70,12 @@ Fork count and iteration length vary by tier to achieve stable results within a 
 A pull request head is its captured commit.
 A SHA is a full 40-character commit identifier.
 A Gremlin arm is one setting of the translator-enabled benchmark parameter.
+The enabled arm permits MATCH translation but does not force it. A supported traversal runs
+natively when its complete physical plan and boundary pass the strict plain-plan rule.
+A filtered streaming scan or hop followed by a root slice keeps MATCH. The rule also keeps
+single-hop RID-start plans in MATCH. Translation telemetry separates rule-native choices
+from successful translations, capability declines, and errors. All four ratio metrics use
+the same attempts denominator.
 An attestation is a signed statement that identifies the trusted validator workflow.
 
 Dispatch `LDBC JMH Benchmark Compare` from `develop`.

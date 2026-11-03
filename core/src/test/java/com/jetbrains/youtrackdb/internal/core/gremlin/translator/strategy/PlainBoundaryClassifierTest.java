@@ -162,7 +162,7 @@ public class PlainBoundaryClassifierTest extends GraphBaseTest {
   }
 
   @Test
-  public void translatedUnfilteredHopSliceIsPlainButPredicateFilterAppliesL3() {
+  public void translatedUnfilteredHopSliceIsPlainButPredicateFilterAppliesSliceAfterFilter() {
     var modern = ModernGraphFixture.seed(graph, session);
     // Keep the filtered target above the prefetch threshold as well as the unfiltered target.
     for (int i = 0; i < 1100; i++) {
@@ -173,7 +173,7 @@ public class PlainBoundaryClassifierTest extends GraphBaseTest {
         .out("knows").out("created").limit(1)))).isEqualTo(Reason.PLAIN);
     assertThat(decision(translate(graph.traversal().V(modern.marko().id())
         .out("knows").has("age", 2)
-        .limit(1)))).isEqualTo(Reason.L3);
+        .limit(1)))).isEqualTo(Reason.SLICE_AFTER_FILTER);
   }
 
   private GremlinToMatchTranslator.TranslationResult translate(GraphTraversal<?, ?> traversal) {

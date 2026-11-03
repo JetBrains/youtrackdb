@@ -30,6 +30,10 @@ import org.junit.Test;
 
 public class PropertyMapBulkingTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::graphSession);
 
@@ -720,7 +724,7 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       var poisoned = new GremlinTranslationTemplate.Translate(stored.planTemplate(),
           stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
           stored.shaping().withPropertyMapBulkingCapacity(2500), stored.bindingCount(),
-          stored.hasContributions());
+          stored.hasContributions(), stored.decision());
       var cache = GremlinPlanCache.instance(graphSession());
       GremlinPlanCache.putTranslation(extraction.key(), poisoned, graphSession(),
           cache.getGeneration());

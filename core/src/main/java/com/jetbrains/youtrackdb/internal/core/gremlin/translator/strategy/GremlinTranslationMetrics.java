@@ -19,11 +19,11 @@ import javax.annotation.Nullable;
  * Per-database counters for Gremlin-to-MATCH translation outcomes. Lives on {@code SharedContext}
  * beside {@link GremlinPlanCache}. Counts translation <em>attempts</em>: shapes the strategy tried
  * to cover — successes, declines (unsupported walk, edge / non-vertex start, repeat veto, cached
- * decline), and throw-safety-net errors. Kill-switch / missing session and idempotent re-applies
+ * decline), rule-native choices, and throw-safety-net errors. Kill-switch / missing session and idempotent re-applies
  * (boundary already present) are not attempts.
  *
- * <p>Each recording also feeds three engine-global {@link Ratio} metrics in {@link CoreMetrics}
- * (success / decline / error share of attempts). Shape frequencies for declines are bounded
+ * <p>Each recording also feeds four engine-global {@link Ratio} metrics in {@link CoreMetrics}
+ * (success / decline / error / rule-native share of attempts). Shape frequencies for declines are bounded
  * ({@link #MAX_TRACKED_SHAPES}) so a long-running process cannot grow an unbounded map of rare
  * shapes.
  */
@@ -35,12 +35,14 @@ public final class GremlinTranslationMetrics {
   private final LongAdder successes = new LongAdder();
   private final LongAdder declines = new LongAdder();
   private final LongAdder errors = new LongAdder();
+  private final LongAdder ruleNative = new LongAdder();
 
   private final ConcurrentHashMap<String, LongAdder> declineShapes = new ConcurrentHashMap<>();
 
   private final Ratio successRatio;
   private final Ratio declineRatio;
   private final Ratio errorRatio;
+  private final Ratio ruleNativeRatio;
 
   public GremlinTranslationMetrics() {
     this(YouTrackDBEnginesManager.instance().getMetricsRegistry());
@@ -53,6 +55,7 @@ public final class GremlinTranslationMetrics {
     this.successRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO);
     this.declineRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO);
     this.errorRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO);
+    this.ruleNativeRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
   }
 
   /** Resolves the metrics holder for {@code session}'s shared context. */
@@ -66,6 +69,7 @@ public final class GremlinTranslationMetrics {
     successRatio.record(1, 1);
     declineRatio.record(0, 1);
     errorRatio.record(0, 1);
+    ruleNativeRatio.record(0, 1);
   }
 
   /**
@@ -78,6 +82,7 @@ public final class GremlinTranslationMetrics {
     successRatio.record(0, 1);
     declineRatio.record(1, 1);
     errorRatio.record(0, 1);
+    ruleNativeRatio.record(0, 1);
     trackShape(declineShapes, shape);
   }
 
@@ -90,6 +95,25 @@ public final class GremlinTranslationMetrics {
     successRatio.record(0, 1);
     declineRatio.record(0, 1);
     errorRatio.record(1, 1);
+    ruleNativeRatio.record(0, 1);
+  }
+
+  /** Records a supported translation whose complete plan and boundary are proved plain. */
+  public void recordRuleNative() {
+    ruleNative.increment();
+    successRatio.record(0, 1);
+    declineRatio.record(0, 1);
+    errorRatio.record(0, 1);
+    ruleNativeRatio.record(1, 1);
+  }
+
+  public long getRuleNative() {
+    return ruleNative.sum();
+  }
+
+  /** Lifetime rule-native share of all attempts, or zero before the first attempt. */
+  public double ruleNativeShare() {
+    return share(getRuleNative());
   }
 
   public long getSuccesses() {
@@ -104,9 +128,9 @@ public final class GremlinTranslationMetrics {
     return errors.sum();
   }
 
-  /** Successes + declines + errors. */
+  /** Successes + declines + errors + rule-native choices. */
   public long getAttempts() {
-    return getSuccesses() + getDeclines() + getErrors();
+    return getSuccesses() + getDeclines() + getErrors() + getRuleNative();
   }
 
   /**

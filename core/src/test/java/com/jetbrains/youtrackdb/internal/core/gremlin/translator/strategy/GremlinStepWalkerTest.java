@@ -89,6 +89,10 @@ import org.junit.Test;
  */
 public class GremlinStepWalkerTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
 
   private final TranslatorEquivalenceSupport support =
