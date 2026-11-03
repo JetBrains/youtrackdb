@@ -93,6 +93,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private static final String COLLECTIONS_PREFIX_PROPERTY = "collection_";
   private static final int COLLECTIONS_PROPERTY_VERSION = 0;
+  private static final int COLLECTIONS_STATE_PROPERTY_VERSION = 1;
+
+  static int collectionEntryVersion(StorageFormat format) {
+    return format == StorageFormat.LAYOUT_25
+        ? COLLECTIONS_PROPERTY_VERSION : COLLECTIONS_STATE_PROPERTY_VERSION;
+  }
+
+  record CollectionEntry(StorageCollectionConfiguration configuration, CollectionFileState state) {
+  }
+
   private static final String PROPERTY_PREFIX_PROPERTY = "property_";
 
   private static final String ENGINE_PREFIX_PROPERTY = "engine_";
@@ -1618,8 +1628,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       storeProperty(
           atomicOperation,
           COLLECTIONS_PREFIX_PROPERTY + config.id(),
-          updateCollectionConfig(config),
-          COLLECTIONS_PROPERTY_VERSION);
+          encodeCollectionEntry(config, CollectionFileState.ALL_CREATED,
+              storage.getStorageFormat()),
+          collectionEntryVersion(storage.getStorageFormat()));
     } finally {
       lock.writeLock().unlock();
     }
@@ -1661,10 +1672,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       collections.add(null);
                     }
 
-                    collections.add(deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.add(decodeCollectionEntry(id, buffer.buffer(),
+                        entry.second().getCollectionId(), storage.getStorageFormat(),
+                        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
+                        storage.getName())
+                        .configuration());
                     assert id == collections.size() - 1;
                   } else {
-                    collections.set(id, deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.set(id, decodeCollectionEntry(id, buffer.buffer(),
+                        entry.second().getCollectionId(), storage.getStorageFormat(),
+                        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
+                        storage.getName())
+                        .configuration());
                   }
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
@@ -1929,7 +1948,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return property;
   }
 
-  private static byte[] updateCollectionConfig(final StorageCollectionConfiguration collection) {
+  static byte[] encodeCollectionEntry(StorageCollectionConfiguration collection,
+      CollectionFileState state, StorageFormat format) {
     var totalSize = 0;
     final List<byte[]> entries = new ArrayList<>(8);
 
@@ -1961,11 +1981,39 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     entries.add(compression);
     totalSize += compression.length;
 
+    if (format == StorageFormat.LAYOUT_26) {
+      entries.add(new byte[] {(byte) state.bits()});
+      totalSize++;
+    }
     return mergeBinaryEntries(totalSize, entries);
   }
 
-  private StorageCollectionConfiguration deserializeStorageCollectionConfig(
-      final int id, final byte[] property) {
+  static CollectionEntry decodeCollectionEntry(int id, byte[] property, int tag,
+      StorageFormat format, String encryptionKey) {
+    return decodeCollectionEntry(id, property, tag, format, encryptionKey, null);
+  }
+
+  private static CollectionEntry decodeCollectionEntry(int id, byte[] property, int tag,
+      StorageFormat format, String encryptionKey, String storageName) {
+    if (tag != collectionEntryVersion(format)) {
+      throw invalidCollectionEntry(id, storageName,
+          "Entry version " + tag + " is invalid for layout " + format.layoutVersion());
+    }
+    final CollectionFileState state;
+    if (format == StorageFormat.LAYOUT_26) {
+      try {
+        validateCollectionPayload(property);
+        final var bits = Byte.toUnsignedInt(property[property.length - 1]);
+        if ((bits & ~31) != 0) {
+          throw new IllegalArgumentException("Unknown collection file role flags: " + bits);
+        }
+        state = new CollectionFileState(bits);
+      } catch (IndexOutOfBoundsException | IllegalArgumentException e) {
+        throw invalidCollectionEntry(id, storageName, "Invalid layout-26 payload: " + e);
+      }
+    } else {
+      state = CollectionFileState.ALL_CREATED;
+    }
     var pos = 0;
 
     final var name = deserializeStringValue(property, pos);
@@ -1985,7 +2033,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     final var compression = deserializeStringValue(property, pos);
 
-    return new StoragePaginatedCollectionConfiguration(
+    return new CollectionEntry(new StoragePaginatedCollectionConfiguration(
         id,
         name,
         null,
@@ -1994,9 +2042,57 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         0,
         compression,
         encryption,
-        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
+        encryptionKey,
         conflictStrategy,
-        binaryVersion);
+        binaryVersion), state);
+  }
+
+  private static ConfigurationException invalidCollectionEntry(int id, String storageName,
+      String reason) {
+    return new ConfigurationException(storageName,
+        "Invalid collection entry " + id + ": " + reason);
+  }
+
+  // Check bounds before the legacy decoder allocates strings or reads numeric fields.
+  private static void validateCollectionPayload(byte[] property) {
+    var pos = strictStringEnd(property, 0);
+    if (property[pos] != 0 && property[pos] != 1) {
+      throw new IllegalArgumentException("Invalid useWal boolean");
+    }
+    pos++;
+    if (property.length - pos < IntegerSerializer.INT_SIZE) {
+      throw new IllegalArgumentException("Truncated collection binary version");
+    }
+    final var binaryVersion = IntegerSerializer.deserializeNative(property, pos);
+    // Only the version-3 collection implementation has this five-file role set.
+    if (binaryVersion != 3) {
+      throw new IllegalArgumentException("Unknown collection binary version: " + binaryVersion);
+    }
+    pos += IntegerSerializer.INT_SIZE;
+    pos = strictStringEnd(property, pos);
+    pos = strictStringEnd(property, pos);
+    pos = strictStringEnd(property, pos);
+    if (pos != property.length - 1) {
+      throw new IllegalArgumentException("Truncated or trailing collection bytes");
+    }
+  }
+
+  private static int strictStringEnd(byte[] property, int pos) {
+    final var marker = property[pos];
+    if (marker == 0) {
+      return pos + 1;
+    }
+    if (marker != 1) {
+      throw new IllegalArgumentException("Invalid string presence boolean");
+    }
+    if (property.length - pos < 5) {
+      throw new IllegalArgumentException("Truncated string length");
+    }
+    final var size = IntegerSerializer.deserializeNative(property, pos + 1);
+    if (size < 0 || size > property.length - pos - 5) {
+      throw new IllegalArgumentException("Invalid string length");
+    }
+    return pos + 5 + size;
   }
 
   private void dropProperty(final AtomicOperation atomicOperation, final String name) {
