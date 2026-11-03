@@ -128,6 +128,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -392,6 +393,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private StorageFormat storageFormat = StorageFormat.productionDefault();
+
   private final StorageIdentityHolder storageIdentityHolder;
   private final IndexLifecycleRegistry indexLifecycleRegistry;
   private static final String TOP_LEVEL_INDEX_LIFECYCLES =
@@ -1534,6 +1537,13 @@ public abstract class AbstractStorage
 
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    doCreate(contextConfiguration, null);
+  }
+
+  /** Creates storage with an explicit restore layout, or ordinary birth selection when null. */
+  protected void doCreate(ContextConfiguration contextConfiguration,
+      @Nullable StorageFormat sourceFormat)
+      throws IOException, java.lang.InterruptedException {
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1563,6 +1573,19 @@ public abstract class AbstractStorage
           "Cannot create new storage '" + getURL() + "' because it already exists");
     }
 
+    if (sourceFormat != null) {
+      // Restore identity comes only from chain admission. Do not read or consume a test scope.
+      storageFormat = sourceFormat;
+    } else {
+      final var selection = SCOPED_BIRTH_FORMAT.get();
+      if (selection != null && !selection.consumed
+          && selection.context == context && selection.databaseName.equals(name)) {
+        selection.consumed = true;
+        storageFormat = selection.format;
+      } else {
+        storageFormat = StorageFormat.productionDefault();
+      }
+    }
     prepareStorageBirth();
     uuid = UUID.randomUUID();
     initIv();
@@ -1806,6 +1829,46 @@ public abstract class AbstractStorage
                 + "' failed, because the storage reached an internal error state"),
         storageError,
         name);
+  }
+
+  /** Returns the selected image layout, available before configuration and recovery. */
+  public final StorageFormat getStorageFormat() {
+    return storageFormat;
+  }
+
+  /** Selects the descriptor carried by admitted bootstrap metadata before recovery. */
+  protected final void selectStorageFormat(final StorageFormat format) {
+    storageFormat = Objects.requireNonNull(format, "format");
+  }
+
+  private static final ThreadLocal<BirthFormatSelection> SCOPED_BIRTH_FORMAT = new ThreadLocal<>();
+
+  private static final class BirthFormatSelection {
+    private final YouTrackDBInternalEmbedded context;
+    private final String databaseName;
+    private final StorageFormat format;
+    private boolean consumed;
+
+    private BirthFormatSelection(YouTrackDBInternalEmbedded context, String databaseName,
+        StorageFormat format) {
+      this.context = Objects.requireNonNull(context);
+      this.databaseName = Objects.requireNonNull(databaseName);
+      this.format = Objects.requireNonNull(format);
+    }
+  }
+
+  /** A thread-confined, one-shot selection for one manager and database birth, never for open. */
+  static AutoCloseable useBirthFormatForCurrentThread(YouTrackDBInternalEmbedded context,
+      String databaseName, StorageFormat format) {
+    final var previous = SCOPED_BIRTH_FORMAT.get();
+    SCOPED_BIRTH_FORMAT.set(new BirthFormatSelection(context, databaseName, format));
+    return () -> {
+      if (previous == null) {
+        SCOPED_BIRTH_FORMAT.remove();
+      } else {
+        SCOPED_BIRTH_FORMAT.set(previous);
+      }
+    };
   }
 
   /** Reads durable identity before write-ahead log processing starts. */

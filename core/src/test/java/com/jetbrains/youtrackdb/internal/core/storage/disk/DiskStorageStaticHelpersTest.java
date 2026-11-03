@@ -453,8 +453,23 @@ public class DiskStorageStaticHelpersTest {
    */
   @Test
   public void restoredStorageLayoutVersionOfThisBuildIsAccepted() {
+    // Equality with the admitted source matters, not membership in the supported set.
+    for (var format : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+        .values()) {
+      DiskStorage.validateRestoredStorageLayoutVersion("matrix", format.layoutVersion(), format);
+      for (var conflicting : new int[] {24, 25, 26, 27}) {
+        if (conflicting != format.layoutVersion()) {
+          var failure = assertThrows(StorageException.class,
+              () -> DiskStorage.validateRestoredStorageLayoutVersion("matrix", conflicting,
+                  format));
+          assertTrue(failure.getMessage().contains("admitted source carries storage layout version "
+              + format.layoutVersion()));
+        }
+      }
+    }
     DiskStorage.validateRestoredStorageLayoutVersion(
-        "acceptedLayout", StorageConfiguration.CURRENT_VERSION);
+        "acceptedLayout", StorageConfiguration.CURRENT_VERSION,
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
   }
 
   /**
@@ -470,7 +485,8 @@ public class DiskStorageStaticHelpersTest {
         assertThrows(
             StorageException.class,
             () -> DiskStorage.validateRestoredStorageLayoutVersion(
-                "refusedLayout", StorageConfiguration.CURRENT_VERSION - 1));
+                "refusedLayout", StorageConfiguration.CURRENT_VERSION - 1,
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25));
 
     assertTrue(
         "the refusal must name the restored storage layout version, saw: " + refusal.getMessage(),

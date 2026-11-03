@@ -20,6 +20,16 @@ public final class StorageBirthTestSupport {
   private StorageBirthTestSupport() {
   }
 
+  /** Selects one birth layout for one manager and database on the current thread. */
+  public static AutoCloseable selectBirthFormat(
+      com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl manager,
+      String databaseName,
+      com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat format) {
+    return AbstractStorage.useBirthFormatForCurrentThread(
+        (com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded) manager.internal,
+        databaseName, format);
+  }
+
   /**
    * Installs two observers of one storage birth on the current thread.
    *

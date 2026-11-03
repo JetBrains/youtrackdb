@@ -347,7 +347,7 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * One path restore refuses a chain of another storage layout version.
+   * One path restore refuses a chain of unsupported storage layout 27.
    *
    * <p>A storage layout version names the on-disk layout of one database. The expected outcome has
    * two parts. The restore names the foreign layout version. No database and no directory of the
@@ -356,7 +356,7 @@ public class BackupAdmissionRestoreTest {
   @Test
   public void pathRestoreRefusesAnIncompatibleStorageLayoutChain() throws Exception {
     writeSyntheticUnit(0, true, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
-        BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion() + 1,
+        BackupUnitFiles.supportedFeatureFormat(), 27,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
 
     try (var youTrackDB = openManager()) {
@@ -1923,6 +1923,35 @@ public class BackupAdmissionRestoreTest {
       }
     } catch (UnsupportedOperationException | IOException unsupported) {
       permissionsEnforced.set(false);
+    }
+  }
+
+  /** Mixed layouts refuse before manager target birth. Homogeneous layout 26 prepares normally. */
+  @Test
+  public void preparationRequiresOneLayoutBeforeTargetBirth() throws Exception {
+    for (var firstLayout : new int[] {25, 26}) {
+      var full = writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(),
+          firstLayout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var increment = writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(),
+          firstLayout == 25 ? 26 : 25, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      try (var manager = openManager()) {
+        var refusal = assertThrows(UnsupportedBackupException.class,
+            () -> internalOf(manager).restore(TARGET, syntheticBackupPath.toString(), null, null));
+        assertTrue(refusal.getMessage().contains("different storage layout versions"));
+        assertNoTargetExists(manager);
+      }
+      Files.delete(syntheticBackupPath.resolve(full));
+      Files.delete(syntheticBackupPath.resolve(increment));
+    }
+    writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(), 26,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 26,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    try (var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
+        .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString())) {
+      try (var copies = Files.list(prepared.temporaryDirectory())) {
+        assertEquals("both layout-26 units must reach prepared copies", 2, copies.count());
+      }
     }
   }
 

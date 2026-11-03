@@ -19,10 +19,13 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import java.io.ByteArrayInputStream;
@@ -1178,6 +1181,216 @@ public class RestoreLifecycleTest {
           "the refusal must delete no file of the target directory",
           List.of("storage-bootstrap.bsml"),
           entryNames(targetDirectory));
+    }
+  }
+
+  /**
+   * Both source layouts survive restore against an opposing birth scope, including persisted
+   * authority and configuration, data, and a cold reopen. Restore must not consume the scope.
+   */
+  @Test
+  public void restoreUsesSourceLayoutDespiteOpposingBirthSelection() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = TARGET + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("source" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        var opposite = opposite(format);
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, opposite)) {
+          internalOf(manager).restore(target, backup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, format);
+          manager.drop(target);
+          manager.create(target, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+          assertEquals("restore must leave the birth scope unconsumed", opposite,
+              storageOf(manager, target).getStorageFormat());
+        }
+        manager.drop(target);
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, opposite)) {
+          internalOf(manager).restore(target, backup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, format);
+        }
+        manager.drop(SOURCE);
+      }
+      try (var manager = openManager()) {
+        assertRestoredLayoutAndData(manager, target, format);
+      }
+    }
+    assertNotEquals(StorageFormat.LAYOUT_25.layoutVersion(),
+        StorageFormat.LAYOUT_26.layoutVersion());
+  }
+
+  /**
+   * A crash at activation leaves an interrupted image in the source layout. Retry admits a new
+   * source of the other layout and births that layout instead of retaining the deleted image.
+   */
+  @Test
+  public void activationCrashAndRetryUseTheirOwnAdmittedSourceLayouts() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = TARGET + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("crash" + format.layoutVersion()));
+      var retryBackup = Files.createDirectory(root.resolve("retry" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        manager.drop(SOURCE);
+        try (var scope =
+            StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, opposite(format))) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(retryBackup);
+        try (
+            var scope =
+                StorageBirthTestSupport.selectBirthFormat(manager, target, opposite(format));
+            var crash = BootstrapMetadataTestSupport.failRestoreActivationPublication(
+                databasesPath.resolve(target), format, () -> {
+                  var storage = storageOf(manager, target);
+                  try {
+                    assertEquals(format.layoutVersion(),
+                        storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+                            storage.configuration::getVersion).intValue());
+                  } catch (IOException failure) {
+                    throw new UncheckedIOException(failure);
+                  }
+                })) {
+          assertThrows(RuntimeException.class,
+              () -> internalOf(manager).restore(target, backup.toString(), null, null));
+          assertTrue("the third publication must be activation",
+              crash.activationMoveObserved().get());
+          assertTrue(crash.candidateObserved().get());
+        }
+        assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
+            admissionReasonOf(target));
+        assertRawLayout(target, format);
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, format)) {
+          internalOf(manager).restartInterruptedRestore(target, retryBackup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, opposite(format));
+        }
+        manager.drop(SOURCE);
+      }
+      try (var manager = openManager()) {
+        assertRestoredLayoutAndData(manager, target, opposite(format));
+      }
+    }
+  }
+
+  /** Supported but conflicting configuration values must never activate an admitted source. */
+  @Test
+  public void conflictingRestoredConfigurationPreventsActivationInBothDirections()
+      throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = TARGET + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("conflict" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        var storage = storageOf(manager, SOURCE);
+        var configuration = (CollectionBasedStorageConfiguration) storage.configuration;
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            operation -> configuration.updateVersionForTesting(operation,
+                opposite(format).layoutVersion()));
+        storage.fullBackup(backup);
+        var failure = assertThrows(RuntimeException.class,
+            () -> internalOf(manager).restore(target, backup.toString(), null, null));
+        assertTrue(rootMessage(failure).contains("storage layout version"));
+        assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
+            admissionReasonOf(target));
+        assertRawLayout(target, format);
+        // Restore the source configuration before closing it.
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            operation -> configuration.updateVersionForTesting(operation, format.layoutVersion()));
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /**
+   * In-place cross-layout restore refuses after admission without changing authority bytes,
+   * lineage, or content. The original target stays usable and accepts another transaction.
+   */
+  @Test
+  public void inPlaceCrossLayoutRefusalLeavesTheActiveTargetUnchanged() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var backup = Files.createDirectory(root.resolve("inplace" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        try (var scope =
+            StorageBirthTestSupport.selectBirthFormat(manager, TARGET, opposite(format))) {
+          manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+        }
+        try (var session = manager.open(TARGET, ADMIN, PASSWORD)) {
+          session.getMetadata().getSchema().createClass("TargetOnly");
+          session.begin();
+          session.newEntity("TargetOnly").setProperty("value", "kept");
+          session.commit();
+        }
+        var storage = storageOf(manager, TARGET);
+        var lineage = storage.getStorageLineageIdentity();
+        var first =
+            Files.readAllBytes(databasesPath.resolve(TARGET).resolve("storage-bootstrap-0.bsm"));
+        var second =
+            Files.readAllBytes(databasesPath.resolve(TARGET).resolve("storage-bootstrap-1.bsm"));
+        var failure = assertThrows(UnsupportedBackupException.class,
+            () -> storage.restoreFromBackup(backup, null));
+        assertTrue(failure.getMessage().contains("in place"));
+        assertTrue(Arrays.equals(first,
+            Files.readAllBytes(databasesPath.resolve(TARGET).resolve("storage-bootstrap-0.bsm"))));
+        assertTrue(Arrays.equals(second,
+            Files.readAllBytes(databasesPath.resolve(TARGET).resolve("storage-bootstrap-1.bsm"))));
+        assertEquals(lineage, storage.getStorageLineageIdentity());
+        try (var session = manager.open(TARGET, ADMIN, PASSWORD)) {
+          try (var rows = session.query("select from TargetOnly")) {
+            assertEquals("kept", rows.next().getProperty("value"));
+            assertFalse(rows.hasNext());
+          }
+          assertFalse(session.getMetadata().getSchema().existsClass(RECORD_CLASS));
+        }
+        try (var session = manager.open(TARGET, ADMIN, PASSWORD)) {
+          session.begin();
+          session.newEntity("TargetOnly").setProperty("value", "still usable");
+          session.commit();
+        }
+        manager.drop(TARGET);
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  private static StorageFormat opposite(StorageFormat format) {
+    return format == StorageFormat.LAYOUT_25 ? StorageFormat.LAYOUT_26 : StorageFormat.LAYOUT_25;
+  }
+
+  /** Reads configuration through storage independently of both bootstrap records and the descriptor. */
+  private void assertRestoredLayoutAndData(YouTrackDBImpl manager, String target,
+      StorageFormat format)
+      throws Exception {
+    try (var session = manager.open(target, ADMIN, PASSWORD);
+        var rows = session.query("select from " + RECORD_CLASS)) {
+      assertEquals("restored", rows.next().getProperty("value"));
+      assertFalse(rows.hasNext());
+      var storage = storageOf(manager, target);
+      assertEquals(format.layoutVersion(),
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              storage.configuration::getVersion).intValue());
+    }
+    assertEquals(format, new StorageBootstrapMetadata(databasesPath.resolve(target), FEATURE_FORMAT)
+        .readActiveRequired().storageFormat());
+    assertRawLayout(target, format);
+  }
+
+  private void assertRawLayout(String target, StorageFormat format) throws IOException {
+    for (var slot : new int[] {0, 1}) {
+      var bytes = Files.readAllBytes(databasesPath.resolve(target)
+          .resolve("storage-bootstrap-" + slot + ".bsm"));
+      assertEquals(format.layoutVersion(), java.nio.ByteBuffer.wrap(bytes).getInt(28));
     }
   }
 
