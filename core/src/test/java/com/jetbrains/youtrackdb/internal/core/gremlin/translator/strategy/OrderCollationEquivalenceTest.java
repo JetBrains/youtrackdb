@@ -625,7 +625,7 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
         expected = expected.reversed();
       }
       assertThat(orderedRows(query.get().toList())).containsExactlyElementsOf(expected);
-      support.assertEquivalent("extracted slice " + mode, Recognition.DECLINED,
+      support.assertEquivalent("extracted slice " + mode, recognition,
           Cardinality.NON_EMPTY, OrderCollationEquivalenceTest::orderedRows,
           () -> query.get().limit(1));
       assertThat(orderedRows(query.get().limit(1).toList())).containsExactly(expected.getFirst());
