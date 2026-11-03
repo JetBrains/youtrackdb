@@ -35,6 +35,10 @@ import org.junit.Test;
  */
 public class StackedParityEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
 
