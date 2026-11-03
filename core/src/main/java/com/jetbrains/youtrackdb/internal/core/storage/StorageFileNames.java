@@ -36,6 +36,17 @@ public final class StorageFileNames {
   public static final String INDEX_NULL_EXTENSION =
       BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION;
 
+  public static final List<String> COLLECTION_FILE_EXTENSIONS = List.of(
+      PaginatedCollection.DEF_EXTENSION, CollectionPositionMap.DEF_EXTENSION,
+      FreeSpaceMap.DEF_EXTENSION, CollectionDirtyPageBitSet.DEF_EXTENSION);
+  public static final List<String> CONFIGURATION_FILE_EXTENSIONS = List.of(
+      CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.MAP_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.FREE_MAP_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.DIRTY_PAGE_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
+      CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION);
+
   private static final Pattern LOGICAL_ENGINE =
       Pattern.compile("ie_([1-9][0-9]*)(?:\\$null)?\\.(?:cbt|nbt|ixs)");
   private static final Pattern LOGICAL_LINK =
@@ -117,7 +128,7 @@ public final class StorageFileNames {
     if (extension.equals(LinkCollectionsBTreeManagerShared.FILE_EXTENSION)) {
       return link.matches() && boundedId(link.group(1));
     }
-    if (List.of(".pcl", ".cpm", ".fsm", ".dpb").contains(extension)) {
+    if (COLLECTION_FILE_EXTENSIONS.contains(extension)) {
       return true;
     }
     return name.equals(CollectionBasedStorageConfiguration.COMPONENT_NAME + extension);

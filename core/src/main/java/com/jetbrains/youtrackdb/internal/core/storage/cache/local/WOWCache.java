@@ -63,6 +63,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenLis
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -70,7 +71,11 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -489,7 +494,12 @@ public final class WOWCache extends AbstractWriteCache
   // Malformed maps can alias ids or paths. The owner pass must skip all affected registrations.
   private final Map<String, String> registrationDiskNames = new HashMap<>();
   // Retain signed replay ids before absent physical files become negative in nameIdMap.
-  private final Map<String, Integer> registrationFileIds = new HashMap<>();
+  private final Object2IntOpenHashMap<String> registrationFileIds = new Object2IntOpenHashMap<>();
+
+  {
+    // Zero denotes no replay evidence. Live and deleted registrations have nonzero signed ids.
+    registrationFileIds.defaultReturnValue(0);
+  }
 
   /**
    * Mapping between file's internal ids and case sensitive file names are used in write cache. Name
@@ -3602,22 +3612,24 @@ public final class WOWCache extends AbstractWriteCache
    * Returns live ids whose logical names or physical paths are not one-to-one.
    * Replay evidence is necessary because the open-file table keeps only one handle per id.
    */
-  public java.util.Set<Long> ambiguousFileIds() {
+  public LongSet ambiguousFileIds() {
     filesLock.acquireReadLock();
     try {
-      final var idCounts = new HashMap<Integer, Integer>();
-      final var diskIds = new HashMap<String, java.util.Set<Integer>>();
-      for (final var entry : registrationFileIds.entrySet()) {
-        if (entry.getValue() > 0) {
-          idCounts.merge(entry.getValue(), 1, Integer::sum);
+      final var idCounts = new Int2IntOpenHashMap();
+      // No evidence is not a unique registration.
+      idCounts.defaultReturnValue(0);
+      final var diskIds = new Object2ObjectOpenHashMap<String, IntOpenHashSet>();
+      for (final var entry : registrationFileIds.object2IntEntrySet()) {
+        final var internalId = entry.getIntValue();
+        if (internalId > 0) {
+          idCounts.addTo(internalId, 1);
           final var disk = registrationDiskNames.get(entry.getKey());
-          diskIds.computeIfAbsent(disk, ignored -> new java.util.HashSet<>())
-              .add(entry.getValue());
+          diskIds.computeIfAbsent(disk, ignored -> new IntOpenHashSet()).add(internalId);
         }
       }
-      final var result = new java.util.HashSet<Long>();
+      final var result = new LongOpenHashSet();
       for (final var entry : nameIdMap.entrySet()) {
-        final var internalId = entry.getValue();
+        final int internalId = entry.getValue();
         if (internalId > 0) {
           final var disk = registrationDiskNames.get(entry.getKey());
           final var file = files.get(externalFileId(internalId));

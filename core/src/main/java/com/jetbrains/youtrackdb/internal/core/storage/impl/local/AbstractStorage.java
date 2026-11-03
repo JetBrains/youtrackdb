@@ -1151,15 +1151,15 @@ public abstract class AbstractStorage
     final var mains = new HashSet<String>();
     for (final var collection : configuration.getCollections()) {
       if (collection != null) {
-        for (final var extension : List.of(".pcl", ".cpm", ".fsm", ".dpb")) {
+        for (final var extension : StorageFileNames.COLLECTION_FILE_EXTENSIONS) {
           owners.add(collection.name() + extension);
         }
-        mains.add(collection.name() + ".pcl");
+        mains.add(collection.name() + PaginatedCollection.DEF_EXTENSION);
         owners.add(LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX + collection.id()
             + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
       }
     }
-    for (final var extension : List.of(".cd", ".ccm", ".fcm", ".dcm", ".bd", ".nd")) {
+    for (final var extension : StorageFileNames.CONFIGURATION_FILE_EXTENSIONS) {
       owners.add(CollectionBasedStorageConfiguration.COMPONENT_NAME + extension);
     }
     mains.add(CollectionBasedStorageConfiguration.COMPONENT_NAME
@@ -1190,7 +1190,7 @@ public abstract class AbstractStorage
     final var ambiguous = diskCache.ambiguousFileIds();
     final var candidates = new HashSet<Long>();
     for (final var entry : diskCache.files().entrySet()) {
-      if (ambiguous.contains(entry.getValue())) {
+      if (ambiguous.contains(entry.getValue().longValue())) {
         LogManager.instance().warn(this,
             "Skipping ambiguous file registration %s (id %s)",
             (Throwable) null, entry.getKey(), entry.getValue());
