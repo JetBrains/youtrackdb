@@ -27,8 +27,8 @@ import javax.annotation.Nullable;
  * <ul>
  *   <li>{@code indexesSnapshot} — a sub-map view of the global
  *       {@code ConcurrentSkipListMap<CompositeKey, RID>}, scoped to this index's
- *       entries by the {@code [indexId, indexId+1)} key range. Stores pairs of
- *       entries per version change: a {@link TombstoneRID} at the old version and
+ *       entries by the {@code [historyFileBaseId, historyFileBaseId+1)} key range.
+ *       Stores pairs of entries per version change: a {@link TombstoneRID} at the old version and
  *       a plain {@link com.jetbrains.youtrackdb.internal.core.id.RecordId} guard
  *       at the new version.</li>
  *   <li>{@code visibilityIndex} — maps newVersion keys to oldVersion keys for
@@ -37,8 +37,8 @@ import javax.annotation.Nullable;
  * </ul>
  *
  * <h3>Key layout</h3>
- * <p>Snapshot keys have the layout {@code [indexId, userKey..., version]}, where
- * {@code indexId} is prepended by {@link #enhanceIndexId} to namespace entries
+ * <p>Snapshot keys have the layout {@code [historyFileBaseId, userKey..., version]}, where
+ * {@code historyFileBaseId} is prepended by {@link #enhanceIndexId} to namespace entries
  * across indexes in the shared global map. This identity is the engine's never-reused
  * file base id, not its reusable registry slot.
  *
@@ -67,16 +67,17 @@ public class IndexesSnapshot {
   @Nonnull
   private final AtomicLong snapshotSizeCounter;
 
-  private final long indexId;
+  private final long historyFileBaseId;
 
   public IndexesSnapshot(NavigableMap<CompositeKey, RID> indexesSnapshot,
       NavigableMap<CompositeKey, CompositeKey> visibilityIndex,
-      @Nonnull AtomicLong snapshotSizeCounter, long fileBaseId) {
+      @Nonnull AtomicLong snapshotSizeCounter, long historyFileBaseId) {
     this.indexesSnapshot = indexesSnapshot.subMap(
-        new CompositeKey(fileBaseId), true, new CompositeKey(fileBaseId + 1), false);
+        new CompositeKey(historyFileBaseId), true,
+        new CompositeKey(historyFileBaseId + 1), false);
     this.visibilityIndex = visibilityIndex;
     this.snapshotSizeCounter = snapshotSizeCounter;
-    this.indexId = fileBaseId;
+    this.historyFileBaseId = historyFileBaseId;
   }
 
   public void addSnapshotPair(CompositeKey addedKey, CompositeKey removedKey, RID value) {
@@ -239,7 +240,7 @@ public class IndexesSnapshot {
   // Package-private for direct unit testing in IndexesSnapshotVisibilityFilterTest.
   @Nullable RID lookupSnapshotRid(CompositeKey key, long snapshotTs) {
     var keys = key.getKeys();
-    // Build the search key in one allocation: CompositeKey(indexId, userKey..., snapshotTs+1)
+    // Build CompositeKey(historyFileBaseId, userKey..., snapshotTs+1) in one allocation
     // instead of three intermediate CompositeKeys.
     // We want entries with version <= snapshotTs (inclusive). Since lowerEntry()
     // returns entries strictly less than the search key, add 1 to make the
@@ -247,7 +248,7 @@ public class IndexesSnapshot {
     // lowerEntry(MAX_VALUE) still finds all entries with version < MAX_VALUE,
     // which is sufficient since MAX_VALUE is a sentinel, not a real version.
     var searchKey = new CompositeKey(keys.size() + 1);
-    searchKey.addKeyDirect(indexId);
+    searchKey.addKeyDirect(historyFileBaseId);
     for (int i = 0, end = keys.size() - 1; i < end; i++) {
       searchKey.addKeyDirect(keys.get(i));
     }
@@ -277,15 +278,15 @@ public class IndexesSnapshot {
   /**
    * Checks whether the snapshot entry's user-key prefix matches the B-tree entry's
    * user-key prefix. The B-tree key layout is {@code [userKey..., version]}, while
-   * the snapshot key layout is {@code [indexId, userKey..., version]} — so snapshot
+   * the snapshot key layout is {@code [historyFileBaseId, userKey..., version]} — so snapshot
    * elements are offset by 1.
    *
    * <p>Similar to {@code BTree.userKeyPrefixMatches()}, but accounts for the
-   * {@code indexId} prefix in snapshot keys.
+   * {@code historyFileBaseId} prefix in snapshot keys.
    *
    * @param btreeKeyElements the B-tree entry's key elements {@code [userKey..., version]}
    * @param snapshotKeyElements the snapshot entry's key elements
-   *     {@code [indexId, userKey..., version]}
+   *     {@code [historyFileBaseId, userKey..., version]}
    * @return true if all user-key elements match
    */
   private static boolean snapshotUserKeyMatches(
@@ -303,12 +304,12 @@ public class IndexesSnapshot {
     return true;
   }
 
-  // Prepend indexId without varargs allocation and without the recursive
+  // Prepend historyFileBaseId without varargs allocation and without the recursive
   // addKey(CompositeKey) path that also checks ChangeableIdentity per element.
   private CompositeKey enhanceIndexId(CompositeKey key) {
     var keys = key.getKeys();
     var result = new CompositeKey(keys.size() + 1);
-    result.addKeyDirect(indexId);
+    result.addKeyDirect(historyFileBaseId);
     for (var o : keys) {
       result.addKeyDirect(o);
     }

@@ -538,7 +538,7 @@ public abstract class AbstractStorage
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
 
-  // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
+  // Indexes snapshot: CompositeKey(historyFileBaseId, userKey..., version) → RID (tombstone or plain).
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
@@ -10595,16 +10595,16 @@ public abstract class AbstractStorage
     }
   }
 
-  public IndexesSnapshot subIndexSnapshot(long fileBaseId) {
+  public IndexesSnapshot subIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        fileBaseId);
+        historyFileBaseId);
   }
 
-  public IndexesSnapshot subNullIndexSnapshot(long fileBaseId) {
+  public IndexesSnapshot subNullIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        fileBaseId);
+        historyFileBaseId);
   }
 
   /**
@@ -10696,19 +10696,19 @@ public abstract class AbstractStorage
 
     // indexEngineNameMap is a plain HashMap — guard with stateLock.readLock()
     // to avoid racing with concurrent index creation/deletion.
-    final long indexId;
+    final long historyFileBaseId;
     stateLock.readLock().lock();
     try {
       var engine = indexEngineNameMap.get(resolvedName);
       if (engine == null) {
         return false;
       }
-      indexId = requireHistoryFileBaseId(engine);
+      historyFileBaseId = requireHistoryFileBaseId(engine);
     } finally {
       stateLock.readLock().unlock();
     }
 
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
   }
 
   /**
@@ -10718,18 +10718,19 @@ public abstract class AbstractStorage
    * lookup, eliminating the lock-ordering inversion when called while holding
    * a BTree component lock.
    *
-   * @param indexId the pre-resolved engine file base id, never the reusable registry slot
+   * @param historyFileBaseId the pre-resolved engine file base id, never the reusable registry slot
    * @param useNullSnapshot {@code true} to query the null-key snapshot map
    * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
    * @param lwm the global low-water mark
    * @return {@code true} if at least one snapshot entry exists with version >= lwm
    */
   public boolean hasActiveIndexSnapshotEntriesById(
-      long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
-    assert indexId >= 0 : "indexId must be non-negative, got " + indexId;
+      long historyFileBaseId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    assert historyFileBaseId >= 0
+        : "historyFileBaseId must be non-negative, got " + historyFileBaseId;
     final NavigableMap<CompositeKey, RID> snapshotMap =
         useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
   }
 
   /**
@@ -10749,21 +10750,21 @@ public abstract class AbstractStorage
 
   private static boolean hasActiveSnapshotEntriesInMap(
       NavigableMap<CompositeKey, RID> snapshotMap,
-      long indexId,
+      long historyFileBaseId,
       CompositeKey userKeyPrefix,
       long lwm) {
     assert lwm >= 0 : "LWM must be non-negative, got " + lwm;
     var prefixKeys = userKeyPrefix.getKeys();
-    var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
-    var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);
+    var lower = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, lwm);
+    var upper = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, LONG_MAX_VALUE);
     return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
   }
 
   // The leading bound element is the never-reused file base id, not a registry slot.
   private static CompositeKey buildSnapshotBoundKey(
-      long indexId, List<Object> prefixKeys, long version) {
+      long historyFileBaseId, List<Object> prefixKeys, long version) {
     var key = new CompositeKey(prefixKeys.size() + 2);
-    key.addKey(indexId);
+    key.addKey(historyFileBaseId);
     for (var pk : prefixKeys) {
       key.addKey(pk);
     }
