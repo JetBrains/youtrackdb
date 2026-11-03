@@ -94,6 +94,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private static final String COLLECTIONS_PREFIX_PROPERTY = "collection_";
   private static final int COLLECTIONS_PROPERTY_VERSION = 0;
   private static final int COLLECTIONS_STATE_PROPERTY_VERSION = 1;
+  private static final int STRING_HEADER_SIZE = 1 + IntegerSerializer.INT_SIZE;
 
   static int collectionEntryVersion(StorageFormat format) {
     return format == StorageFormat.LAYOUT_25
@@ -2085,14 +2086,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     if (marker != 1) {
       throw new IllegalArgumentException("Invalid string presence boolean");
     }
-    if (property.length - pos < 5) {
+    if (property.length - pos < STRING_HEADER_SIZE) {
       throw new IllegalArgumentException("Truncated string length");
     }
     final var size = IntegerSerializer.deserializeNative(property, pos + 1);
-    if (size < 0 || size > property.length - pos - 5) {
+    if (size < 0 || size > property.length - pos - STRING_HEADER_SIZE) {
       throw new IllegalArgumentException("Invalid string length");
     }
-    return pos + 5 + size;
+    return pos + STRING_HEADER_SIZE + size;
   }
 
   private void dropProperty(final AtomicOperation atomicOperation, final String name) {
