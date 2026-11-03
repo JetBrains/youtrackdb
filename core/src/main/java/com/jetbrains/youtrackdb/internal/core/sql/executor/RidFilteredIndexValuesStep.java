@@ -166,7 +166,7 @@ public class RidFilteredIndexValuesStep extends FetchFromIndexValuesStep {
                 s.map((RawPair<Object, RID> nextEntry) -> {
                   tx.preProcessRecordsAndExecuteCallCallbacks();
                   return readResult(ctx, nextEntry);
-                }).iterator());
+                }).iterator()).onClose(closeCtx -> s.close());
           }
 
           @Override

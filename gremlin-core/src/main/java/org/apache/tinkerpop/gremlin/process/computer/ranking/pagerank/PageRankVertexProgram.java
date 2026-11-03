@@ -86,7 +86,8 @@ public class PageRankVertexProgram implements VertexProgram<Double> {
             this.initialRankTraversal = PureTraversal.loadState(configuration, INITIAL_RANK_TRAVERSAL, graph);
         if (configuration.containsKey(EDGE_TRAVERSAL)) {
             this.edgeTraversal = PureTraversal.loadState(configuration, EDGE_TRAVERSAL, graph);
-            this.incidentMessageScope = MessageScope.Local.of(() -> this.edgeTraversal.get().clone());
+            // Clone the read-only source without populating a cache shared by workers.
+            this.incidentMessageScope = MessageScope.Local.of(() -> this.edgeTraversal.getPure());
             this.countMessageScope = MessageScope.Local.of(new MessageScope.Local.ReverseTraversalSupplier(this.incidentMessageScope));
         }
         this.alpha = configuration.getDouble(ALPHA, this.alpha);

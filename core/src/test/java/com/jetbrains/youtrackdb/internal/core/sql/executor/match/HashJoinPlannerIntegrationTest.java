@@ -202,11 +202,11 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
             + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot + ")}"
             + " RETURN a.name as name";
         // Every origin matches. This is the first-neighbour case required by the cost rule.
-        assertNotPathAgreement(sql, List.of(), true);
+        assertNotPathAgreement(sql, List.of(), false);
         var selective = "MATCH {class:CostOrigin, as:a}, {class:CostRepeat, as:q},"
             + " NOT {as:a}.out('CostEdge'){as:x, where:(slot=" + slot
             + " AND accepted=true)} RETURN a.name as name";
-        assertNotPathAgreement(selective, expected, true);
+        assertNotPathAgreement(selective, expected, false);
       }
     } finally {
       session.rollback();
@@ -1167,6 +1167,29 @@ public class HashJoinPlannerIntegrationTest extends DbTestBase {
           plan.contains("HASH ANTI_JOIN"));
       assertTrue("threshold=0 should use nested-loop NOT step, got:\n" + plan,
           plan.contains("+ NOT ("));
+      session.commit();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /** Zero prevents semi and inner branch hash selection without changing diamond rows. */
+  @Test
+  public void thresholdZero_disablesBranchHashJoins() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    try {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+      session.begin();
+      for (var middle : List.of("", ", c.name as cName")) {
+        try (var rows = session.query(
+            "MATCH {class:Person, as:a, where:(name='n1')}"
+                + ".out('Friend'){as:b}.out('Likes'){class:Tag, as:t},"
+                + " {as:a}.out('Friend'){as:c}.out('Likes'){as:t}"
+                + " RETURN a.name, b.name, t.name" + middle)) {
+          assertFalse(rows.getExecutionPlan().prettyPrint(0, 2).contains("HASH"));
+          assertEquals(5, rows.toList().size());
+        }
+      }
       session.commit();
     } finally {
       GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);

@@ -3,9 +3,11 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Cardinality;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TranslatorEquivalenceSupport.Recognition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
@@ -146,6 +148,53 @@ public class OrderCollationEquivalenceTest extends GraphBaseTest {
         graph.traversal().V().hasLabel("Person").order().by("name").values("name").toList(),
         List.of("Bob", "Cara", "Zebra", "\u00c4hhhh"),
         true);
+  }
+
+  /**
+   * Edge-schema narrowing must not replace the whole-V collation resolved before detection.
+   * A label constraint resolves ci instead. Both translated and native arms follow that rule.
+   */
+  @Test
+  public void edgeSchemaNarrowingPreservesResolvedComparison() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    var comment = session.createVertexClass("Comment");
+    comment.createProperty("name", PropertyType.STRING).setCollate("ci")
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    session.createEdgeClass("Wrote").getProperty("in").setLinkedClass(comment);
+    var source = graph.addVertex(T.label, "Person", "name", "source");
+    for (var name : List.of("B", "a", "A")) {
+      source.addEdge("Wrote", graph.addVertex(T.label, "Comment", "name", name));
+    }
+    graph.tx().commit();
+    var id = graph.traversal().V().hasLabel("Person").next().id();
+    support.withTranslator(true, () -> {
+      var bare = graph.traversal().V(id).out("Wrote").order().by("name").limit(3);
+      bare.asAdmin().applyStrategies();
+      var bareBoundary = (YTDBMatchPlanStep<?, ?>) bare.asAdmin().getStartStep();
+      assertThat(bareBoundary.getPlan().prettyPrint(0, 2)).doesNotContain("INDEX ORDERED MATCH");
+      bareBoundary.getPlan().close();
+      var labelled = graph.traversal().V(id).out("Wrote").hasLabel("Comment")
+          .order().by("name").limit(3);
+      labelled.asAdmin().applyStrategies();
+      var labelledBoundary = (YTDBMatchPlanStep<?, ?>) labelled.asAdmin().getStartStep();
+      assertThat(labelledBoundary.getPlan().prettyPrint(0, 2)).contains("INDEX ORDERED MATCH");
+      labelledBoundary.getPlan().close();
+    });
+    assertEquivalentOrdered("bare hop retains default comparison",
+        () -> graph.traversal().V(id).out("Wrote").order().by("name").limit(3).values("name"));
+    support.withTranslator(true, () -> assertThat(
+        graph.traversal().V(id).out("Wrote").order().by("name").limit(3).values("name").toList())
+        .containsExactly("A", "B", "a"));
+    assertEquivalentOrdered("label-constrained hop resolves ci",
+        () -> graph.traversal().V(id).out("Wrote").hasLabel("Comment")
+            .order().by("name").limit(3).values("name"));
+    support.withTranslator(true, () -> {
+      var names = graph.traversal().V(id).out("Wrote").hasLabel("Comment")
+          .order().by("name").limit(3).values("name").toList();
+      assertThat(names.subList(0, 2)).containsExactlyInAnyOrder("a", "A");
+      assertThat(names.get(2)).isEqualTo("B");
+    });
   }
 
   /** An edge-only declaration governs union sorts over vertices through the native whole graph set. */

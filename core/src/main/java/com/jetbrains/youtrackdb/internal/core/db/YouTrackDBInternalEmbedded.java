@@ -45,6 +45,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -857,7 +858,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     try (var prepared =
         DiskStorage.prepareBackupChain(name, ibuFilesSupplier, ibuInputStreamSupplier,
             expectedUUID, preparedCopyOutputDecoratorForTesting)) {
-      restoreStorage(name, (YouTrackDBConfigImpl) config,
+      restoreStorage(name, (YouTrackDBConfigImpl) config, prepared.sourceFormat(),
           storage -> storage.restoreFromPreparedBackupChain(prepared));
     }
   }
@@ -968,7 +969,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         if (restartAfterDeletionForTesting != null) {
           restartAfterDeletionForTesting.run();
         }
-        restoreStorage(name, solvedConfig,
+        restoreStorage(name, solvedConfig, prepared.sourceFormat(),
             storage -> storage.restoreFromPreparedBackupChain(prepared), true);
       }
     }
@@ -1071,8 +1072,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
    * the drop both need that evidence. A failed restore removes the in-memory registration only.
    */
   private void restoreStorage(String name, YouTrackDBConfigImpl config,
-      Consumer<AbstractStorage> restoreContent) {
-    restoreStorage(name, config, restoreContent, false);
+      StorageFormat sourceFormat, Consumer<AbstractStorage> restoreContent) {
+    restoreStorage(name, config, sourceFormat, restoreContent, false);
   }
 
   /**
@@ -1081,7 +1082,8 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
    * @param afterDestructiveRestart true when the deletion of a destructive restart ran before
    */
   private void restoreStorage(String name, YouTrackDBConfigImpl config,
-      Consumer<AbstractStorage> restoreContent, boolean afterDestructiveRestart) {
+      StorageFormat sourceFormat, Consumer<AbstractStorage> restoreContent,
+      boolean afterDestructiveRestart) {
     checkDatabaseName(name);
     // Every restore entry resolves the target directory of the name. A name that escapes the
     // databases directory therefore never reaches the creation of a storage. The restart entry
@@ -1108,7 +1110,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
               this);
       storages.put(name, storage);
       try {
-        storage.create(solvedConfig.getConfiguration());
+        ((DiskStorage) storage).createForRestore(solvedConfig.getConfiguration(), sourceFormat);
         storage.beginRestoreLifecycle();
         restoreContent.accept(storage);
       } catch (RuntimeException | Error restoreFailure) {

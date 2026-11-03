@@ -504,6 +504,16 @@ public class IndexSearchDescriptor {
    *     defensive copy if they need the original list afterward.
    */
   public boolean fullySorted(List<String> orderItems) {
+    return orderedIndexComponents(orderItems) != null;
+  }
+
+  /**
+   * Maps each requested ORDER BY item to its index component, or returns null if index order
+   * cannot satisfy it. Equality-prefix components are consumed here, so collation checks use
+   * the same mapping as field-order checks. The supplied list is modified as in fullySorted.
+   */
+  public List<Integer> orderedIndexComponents(List<String> orderItems) {
+    var components = new ArrayList<Integer>();
     var conditions = getSubBlocks();
     List<String> conditionItems = new ArrayList<>();
 
@@ -513,9 +523,9 @@ public class IndexSearchDescriptor {
           && cond.getOperator() instanceof SQLEqualsOperator) {
         conditionItems.add(cond.getLeft().toString());
       } else if (item instanceof SQLInCondition) {
-        return false;
+        return null;
       } else if (i != conditions.size() - 1) {
-        return false;
+        return null;
       }
     }
 
@@ -523,33 +533,37 @@ public class IndexSearchDescriptor {
     var overlapping = false;
     for (var s : conditionItems) {
       if (orderItems.isEmpty()) {
-        return true; // nothing to sort, the conditions completely overlap the ORDER BY
+        return components; // equalities completely cover the requested ordering
       }
       if (s.equals(orderItems.get(0))) {
         orderItems.remove(0);
+        components.add(orderedFields.size());
         overlapping = true; // start overlapping
       } else if (overlapping) {
-        return false; // overlapping, but next order item does not match...
+        return null; // overlapping, but next order item does not match...
       }
       orderedFields.add(s);
+    }
+    for (var i = 0; i < orderItems.size(); i++) {
+      components.add(orderedFields.size() + i);
     }
     orderedFields.addAll(orderItems);
 
     final var definition = index.getDefinition();
     final var fields = definition.getProperties();
     if (fields.size() < orderedFields.size()) {
-      return false;
+      return null;
     }
 
     for (var i = 0; i < orderedFields.size(); i++) {
       final var orderFieldName = orderedFields.get(i);
       final var indexFieldName = fields.get(i);
       if (!orderFieldName.equals(indexFieldName)) {
-        return false;
+        return null;
       }
     }
 
-    return true;
+    return components;
   }
 
   /**

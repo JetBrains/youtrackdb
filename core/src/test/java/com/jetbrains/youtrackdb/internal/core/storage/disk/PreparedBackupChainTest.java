@@ -8,6 +8,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,6 +32,20 @@ import org.junit.Test;
 public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
+
+  /** The descriptor is unavailable before admission and after cleanup, for either layout. */
+  @Test
+  public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var directory = Files.createDirectory(root.resolve(format.name()));
+      var chain = new PreparedBackupChain(DATABASE, directory);
+      assertThrows(IllegalStateException.class, chain::sourceFormat);
+      chain.completePreparation(9, format);
+      assertSame(format, chain.sourceFormat());
+      chain.close();
+      assertThrows(IllegalStateException.class, chain::sourceFormat);
+    }
+  }
 
   private Path root;
 
@@ -219,7 +234,7 @@ public class PreparedBackupChainTest {
   public void replayOfAClosedChainIsRefused() throws Exception {
     var temporaryDirectory = Files.createDirectories(root.resolve("request"));
     var chain = new PreparedBackupChain(DATABASE, temporaryDirectory);
-    chain.completePreparation(7);
+    chain.completePreparation(7, StorageFormat.LAYOUT_25);
     chain.close();
 
     var refusal = assertThrows(IllegalStateException.class, chain::requireComplete);
@@ -263,7 +278,7 @@ public class PreparedBackupChainTest {
 
     chain.addUnit(fullBackup, true);
     chain.addUnit(increment, false);
-    chain.completePreparation(11);
+    chain.completePreparation(11, StorageFormat.LAYOUT_26);
 
     assertEquals("the chain must keep two units", 2, chain.units().size());
     assertSame("the full backup must open the chain", fullBackup, chain.units().getFirst().left());

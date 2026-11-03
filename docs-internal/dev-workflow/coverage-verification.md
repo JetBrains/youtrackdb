@@ -22,8 +22,11 @@ A report covers that module's own classes. Tests in other modules do not count t
 ## The run
 
 The **coverage set** is the modules containing changed Java files.
-It is a subset of the test-gate set.
-A developer machine runs coverage tests only in these measured modules.
+It is a subset of the test-gate set, which bounds local related-test selection.
+A developer machine measures coverage with related unit tests in these measured modules.
+Select tests covering changed production code plus tests changed by the same work.
+The no-related-test exception below also applies.
+Do not run whole module suites.
 Maven still builds their upstream dependencies from the working tree.
 
 Use `-am` to build upstream modules in the same reactor invocation.
@@ -33,6 +36,16 @@ and restores default test discovery, which can run upstream suites with `-am`.
 The filter must match no test class owned by an upstream module outside that set.
 `-Dsurefire.failIfNoSpecifiedTests=false` lets those upstream modules build with no matching tests.
 Do not use an unfiltered `-am` coverage run.
+
+If a measured module has test classes but no related test, use these rules:
+
+- If changed executable lines have no existing test coverage, write the missing unit tests
+  in that module. Follow `docs-internal/agents/thread-guidelines.md` § Test Authorship.
+  The new tests are related tests.
+- If the changed lines are not executable, select one small existing unit-test class from
+  that module to produce its report. Examples include changes only to comments, Javadoc,
+  or imports. Choose a class that produces execution data. Record the choice in the thread
+  report. This exception does not permit a whole module suite.
 
 If no measured module has test classes, do not run the Maven coverage build.
 Remove `.coverage/reports` to discard stale data and record each measured module as having
@@ -48,9 +61,9 @@ When the coverage set has test classes, run these steps in order:
 # 1. Mandatory: mvn clean does NOT remove this directory.
 rm -rf .coverage/reports
 
-# 2. Build upstream modules, but select tests only from the coverage set.
+# 2. Build upstream modules, but select coverage-set tests as described above.
 ./mvnw -pl <coverage-set modules> -am clean package -P 'coverage,!docker-images' \
-  -Dtest='<fully qualified unit-test classes from the coverage set>' \
+  -Dtest='<fully qualified selected unit-test classes from the coverage set>' \
   -Dsurefire.failIfNoSpecifiedTests=false
 
 # 3. Gate the changed lines against the thresholds.
@@ -77,11 +90,11 @@ Their names follow `IT*`, `*IT`, `*ITCase`, or `*IntegrateTest`.
 For each measured module, confirm that its reports contain the intended tests.
 Confirm that no upstream module outside the coverage set ran tests.
 
-A filtered coverage run does not replace the test-gate set suites.
+A related-test coverage run can also satisfy the local unit-test gate if all related tests ran
+and passed. Run any related tests outside the coverage set separately.
 Core Gremlin compliance executions activate automatically only when `-Dtest` is absent.
-A filtered run needs explicit profile activation to include them.
-The ordinary test-gate run still needs every configured execution.
-Do not broaden the test-gate set to compensate for a filtered coverage run.
+When a related test needs these executions, activate their profile explicitly as described below.
+Do not broaden the test-gate set or run whole module suites to compensate for a filtered run.
 
 The `package` phase creates the relocated classes in `gremlin-shaded` before its consumers build.
 A separate full-reactor `./mvnw package -DskipTests` remains the compile gate.
@@ -210,6 +223,7 @@ Derive it rather than guess:
 
 `.coverage/reports` must contain an `<artifactId>/jacoco.xml` report for every coverage-set
 module with changed main Java files and a `src/test/java` directory.
+The no-related-test rules above also apply to these required reports.
 Check with `ls -d <module>/src/test/java`. The directory is the condition, not the number of tests.
 A module without test execution data produces no JaCoCo report. Use this distinction:
 
@@ -235,10 +249,14 @@ reports remain. Investigate a surplus as well as a deficit.
 CI measures coverage in one leg of `.github/workflows/maven-pipeline.yml` (`test-linux`, x86,
 JDK 21): a full-reactor `./mvnw clean package -P docker-images,coverage` with
 `-Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci`, whose reports a separate
-`coverage-gate` job feeds to this script against `origin/<PR base branch>` on non-draft PRs.
+`coverage-gate` job feeds to this script against `origin/<PR base branch>` on pull requests,
+drafts included, when the build runs.
 CI measures modules outside the local coverage set.
 It covers disk-storage paths rather than in-memory ones and reports a number even when tests fail.
 CI is authoritative. The local run predicts its coverage result for the measured modules.
+The local changed-line coverage gate remains required.
+It uses related tests, with the no-related-test exception above.
+Draft CI results do not replace or delay that local gate.
 Do not substitute the CI command locally. For test scope and pipeline run conditions, read
 `docs-internal/dev-workflow/track-development.md` § Verification integration.
 The separate `coverage-gate-tests.yml` workflow runs Python script unit tests on pull requests

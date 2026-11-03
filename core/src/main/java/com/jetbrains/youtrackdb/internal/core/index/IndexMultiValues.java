@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.stream.Streams;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -81,6 +80,11 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key) {
+    return getRidsIgnoreTx(session, key, true);
+  }
+
+  private Stream<RID> getRidsIgnoreTx(DatabaseSessionEmbedded session, Object key,
+      boolean ascending) {
     final var collatedKey = getCollatingValue(key);
     Stream<RID> backedStream;
     acquireSharedLock();
@@ -99,7 +103,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
           var transaction = session.getActiveTransaction();
           stream = storage.getIndexValues(current.engineIdentifier(), current.engineReference(),
               collatedKey,
-              transaction.getAtomicOperation());
+              transaction.getAtomicOperation(), ascending);
           backedStream = IndexStreamSecurityDecorator.decorateRidStream(this, stream, session);
           break;
         } catch (InvalidIndexEngineIdException ignore) {
@@ -120,8 +124,17 @@ public abstract class IndexMultiValues extends IndexAbstract {
 
   @Override
   public Stream<RID> getRids(DatabaseSessionEmbedded session, Object key) {
+    return getRids(session, key, true);
+  }
+
+  @Override
+  public Stream<RID> getNullKeyRids(DatabaseSessionEmbedded session, boolean ascending) {
+    return getRids(session, null, ascending);
+  }
+
+  private Stream<RID> getRids(DatabaseSessionEmbedded session, Object key, boolean ascending) {
     final var collatedKey = getCollatingValue(key);
-    var backedStream = getRidsIgnoreTx(session, key);
+    var backedStream = getRidsIgnoreTx(session, key, ascending);
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
@@ -391,17 +404,8 @@ public abstract class IndexMultiValues extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntries(DatabaseSessionEmbedded session,
       Collection<?> keys, boolean ascSortOrder) {
-    final List<Object> sortedKeys = new ArrayList<>(keys);
-    // Stored keys use the index collation. Sort requests in that same key space.
-    sortedKeys.replaceAll(this::getCollatingValue);
-    final Comparator<Object> comparator;
-    if (ascSortOrder) {
-      comparator = DefaultComparator.INSTANCE;
-    } else {
-      comparator = Collections.reverseOrder(DefaultComparator.INSTANCE);
-    }
-
-    sortedKeys.sort(comparator);
+    final var sortedKeys =
+        RequestedIndexKeys.distinctSorted(keys, this::getCollatingValue, ascSortOrder);
 
     var transaction = session.getActiveTransaction();
     var atomicOperation = transaction.getAtomicOperation();
@@ -425,7 +429,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     final var txStream =
-        keys.stream()
+        sortedKeys.stream()
             .flatMap((key) -> txStramForKey(indexChanges, key))
             .filter(Objects::nonNull)
             .sorted(keyComparator);
@@ -435,15 +439,15 @@ public abstract class IndexMultiValues extends IndexAbstract {
     }
 
     return IndexStreamSecurityDecorator.decorateStream(
-        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder), session);
+        this, mergeTxAndBackedStreams(indexChanges, txStream, stream, ascSortOrder, true), session);
   }
 
   @Nullable private Stream<RawPair<Object, RID>> txStramForKey(
       final FrontendTransactionIndexChanges indexChanges, Object key) {
-    final var result = calculateTxValue(getCollatingValue(key), indexChanges);
+    final var result = calculateTxValue(key, indexChanges);
     if (result != null) {
       return result.stream()
-          .map((rid) -> new RawPair<>(getCollatingValue(key), rid.getIdentity()));
+          .map((rid) -> new RawPair<>(key, rid.getIdentity()));
     }
     return null;
   }
@@ -604,6 +608,14 @@ public abstract class IndexMultiValues extends IndexAbstract {
       Stream<RawPair<Object, RID>> txStream,
       Stream<RawPair<Object, RID>> backedStream,
       boolean ascOrder) {
+    return mergeTxAndBackedStreams(indexChanges, txStream, backedStream, ascOrder, false);
+  }
+
+  private Stream<RawPair<Object, RID>> mergeTxAndBackedStreams(
+      FrontendTransactionIndexChanges indexChanges,
+      Stream<RawPair<Object, RID>> txStream,
+      Stream<RawPair<Object, RID>> backedStream,
+      boolean ascOrder, boolean keysCollated) {
     Comparator<RawPair<Object, RID>> keyComparator;
     if (ascOrder) {
       keyComparator = AscComparator.INSTANCE;
@@ -613,33 +625,49 @@ public abstract class IndexMultiValues extends IndexAbstract {
     return Streams.mergeSortedSpliterators(
         txStream,
         backedStream
-            .map((entry) -> calculateTxIndexEntry(entry.first(), entry.second(), indexChanges))
+            .map((entry) -> keysCollated
+                ? calculateTxIndexEntryCollated(entry.first(), entry.second(), indexChanges)
+                : calculateTxIndexEntry(entry.first(), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         keyComparator);
   }
 
   @Nullable private RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
-    key = getCollatingValue(key);
+    return calculateTxIndexEntryCollated(getCollatingValue(key), backendValue, indexChanges);
+  }
+
+  @Nullable private RawPair<Object, RID> calculateTxIndexEntryCollated(
+      Object key, final RID backendValue, FrontendTransactionIndexChanges indexChanges) {
     final var changesPerKey = indexChanges.getChangesPerKey(key);
     if (changesPerKey.isEmpty()) {
       return new RawPair<>(key, backendValue);
     }
 
     var putCounter = 1;
+    var txPutCounter = 0;
     for (var entry : changesPerKey.getEntriesAsList()) {
       if (entry.getOperation() == OPERATION.PUT && entry.getValue().equals(backendValue)) {
         putCounter++;
+        txPutCounter++;
       } else if (entry.getOperation() == OPERATION.REMOVE) {
         if (entry.getValue() == null) {
           putCounter = 0;
-        } else if (entry.getValue().equals(backendValue) && putCounter > 0) {
-          putCounter--;
+          txPutCounter = 0;
+        } else if (entry.getValue().equals(backendValue)) {
+          if (putCounter > 0) {
+            putCounter--;
+          }
+          if (txPutCounter > 0) {
+            txPutCounter--;
+          }
         }
       }
     }
 
-    if (putCounter <= 0) {
+    // Replay from zero as calculateTxValue does. A surviving TX addition owns this pair,
+    // even when replay from the committed value also leaves it visible.
+    if (putCounter <= 0 || txPutCounter > 0) {
       return null;
     }
 

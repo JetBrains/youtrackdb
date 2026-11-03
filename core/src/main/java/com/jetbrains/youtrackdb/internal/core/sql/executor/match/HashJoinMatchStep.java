@@ -101,8 +101,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
-    assert hashSet == null && hashMap == null
-        : "internalStart() called on a step with residual state — was copy() called?";
+    reset();
     if (prev == null) {
       throw new IllegalStateException("hash join step requires a previous step");
     }
@@ -151,7 +150,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * <p>Returns null if the build set exceeds the runtime threshold — the caller
    * must fall back to per-row nested-loop evaluation.
    */
-  @Nullable private Set<JoinKey> buildHashSet(CommandContext ctx) {
+  @Nullable Set<JoinKey> buildHashSet(CommandContext ctx) {
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(ctx);
 
@@ -312,7 +311,7 @@ class HashJoinMatchStep extends AbstractExecutionStep {
    * Uses the RID fast path when all alias values are {@link RID} instances;
    * falls back to Object[] otherwise.
    */
-  @Nullable private JoinKey extractKey(Result row) {
+  @Nullable JoinKey extractKey(Result row) {
     if (sharedAliases.size() == 1) {
       var value = row.getProperty(sharedAliases.getFirst());
       if (value instanceof RID rid) {
@@ -432,7 +431,8 @@ class HashJoinMatchStep extends AbstractExecutionStep {
 
   @Override
   public boolean canBeCached() {
-    return buildPlan.canBeCached();
+    return buildPlan.canBeCached() && (detachedSteps == null
+        || detachedSteps.stream().allMatch(ExecutionStepInternal::canBeCached));
   }
 
   @Nonnull
@@ -456,9 +456,15 @@ class HashJoinMatchStep extends AbstractExecutionStep {
   }
 
   @Override
-  public void close() {
+  public void reset() {
+    // Keep the build template. Each start builds fresh state, including after a partial read.
     hashSet = null;
     hashMap = null;
+  }
+
+  @Override
+  public void close() {
+    reset();
     try {
       buildPlan.close();
     } finally {

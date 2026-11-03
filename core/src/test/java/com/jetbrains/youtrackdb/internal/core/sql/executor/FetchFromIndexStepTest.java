@@ -404,12 +404,122 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     assertThat(emittedNullRids).containsExactlyInAnyOrderElementsOf(nullRids);
   }
 
+  /** Descending null RIDs precede the non-null group under NULLS FIRST. */
+  @Test
+  public void nullRidsDescendWithNullsFirst() {
+    assertNullRidOrder(false, true);
+  }
+
+  /** Descending null RIDs follow the non-null group under NULLS LAST. */
+  @Test
+  public void nullRidsDescendWithNullsLast() {
+    assertNullRidOrder(false, false);
+  }
+
+  /** Both placements preserve ascending RID order inside an ascending null group. */
+  @Test
+  public void nullRidsAscendAtEitherNullPosition() {
+    assertNullRidOrder(true, true);
+    assertNullRidOrder(true, false);
+  }
+
+  /** Direction orders the null group by numeric RID, independently of its placement. */
+  private void assertNullRidOrder(boolean ascending, boolean nullsFirst) {
+    var fixture = createIndexedClass();
+    seed(fixture.className, 10, 20);
+    var nullRids = seedNullReturningRids(fixture.className, 33);
+    var expected = nullRids.stream().sorted(ascending
+        ? java.util.Comparator.naturalOrder() : java.util.Comparator.reverseOrder()).toList();
+    var ctx = newContext();
+    var step = new FetchFromIndexStep(new IndexSearchDescriptor(getIndex(fixture.indexName)),
+        ascending, nullsFirst, ctx, false);
+    var results = startAndDrain(step, ctx);
+    assertThat(results.stream().filter(r -> r.getProperty("key") == null)
+        .map(r -> (RID) r.getProperty("rid")).toList()).containsExactlyElementsOf(expected);
+    assertThat(results.getFirst().getProperty("key") == null).isEqualTo(nullsFirst);
+    assertThat(results.getLast().getProperty("key") == null).isEqualTo(!nullsFirst);
+  }
+
+  /** Scalar and Cartesian-expanded null bounds use scan direction before residual filtering. */
+  @Test
+  public void nullPointAndCollectionConversionFallbacksUseScanDirection() {
+    var fixture = createIndexedClass();
+    var nullRids = seedNullReturningRids(fixture.className, 33);
+    seed(fixture.className, 10);
+    for (boolean ascending : new boolean[] {true, false}) {
+      for (Object bound : new Object[] {null, java.util.Arrays.asList(null, 10)}) {
+        var condition = andBlockOf(binaryCondition("key", new SQLEqualsOperator(-1), bound));
+        var ctx = newContext();
+        var step = new FetchFromIndexStep(
+            new IndexSearchDescriptor(getIndex(fixture.indexName), condition), ascending, ctx,
+            false);
+        var results = startAndDrain(step, ctx);
+        var expected = nullRids.stream().sorted(ascending
+            ? java.util.Comparator.naturalOrder() : java.util.Comparator.reverseOrder()).toList();
+        assertThat(results.stream().filter(r -> r.getProperty("key") == null)
+            .map(r -> (RID) r.getProperty("rid")).toList()).containsExactlyElementsOf(expected);
+      }
+    }
+  }
+
   /**
-   * ASC full scan: the null-key stream is acquired first, then the main scan via {@code
-   * index.stream}. If that main acquisition throws, the already-open null stream must be closed
-   * before the exception propagates — otherwise it leaks, because the caller only closes streams
-   * that {@code init()} actually returns and on a throw the partial list is discarded.
+   * A nested collection survives Cartesian expansion as one two-element INTEGER bound. Conversion
+   * cannot fit it into the one-field type array, so recovery must read its null element separately.
+   * Both directions preserve numeric RID order. Null placement flags do not reorder point lookups.
    */
+  @Test
+  public void nestedCollectionConversionRecoveryUsesScanDirection() {
+    var fixture = createIndexedClass();
+    var nullRids = seedNullReturningRids(fixture.className, 33);
+    seed(fixture.className, 10);
+    for (boolean ascending : new boolean[] {true, false}) {
+      for (boolean nullsFirst : new boolean[] {true, false}) {
+        var bound = List.of(java.util.Arrays.asList(null, 10));
+        var condition = andBlockOf(binaryCondition("key", new SQLEqualsOperator(-1), bound));
+        var ctx = newContext();
+        var step = new FetchFromIndexStep(
+            new IndexSearchDescriptor(getIndex(fixture.indexName), condition), ascending,
+            nullsFirst, ctx, false);
+        var results = startAndDrain(step, ctx);
+        var expected = nullRids.stream().sorted(ascending
+            ? java.util.Comparator.naturalOrder() : java.util.Comparator.reverseOrder()).toList();
+        assertThat(results.stream().filter(r -> r.getProperty("key") == null)
+            .map(r -> (RID) r.getProperty("rid")).toList()).containsExactlyElementsOf(expected);
+        assertThat(keys(results)).hasSize(34).endsWith(10);
+      }
+    }
+  }
+
+  /** Early close releases both acquired directional streams, including the unread main stream. */
+  @Test
+  public void earlyCloseReleasesDirectionalNullAndMainStreams() {
+    var fixture = createIndexedClass();
+    var rids = seedNullReturningRids(fixture.className, 2);
+    var nullClosed = new AtomicBoolean();
+    var mainClosed = new AtomicBoolean();
+    var index = mock(Index.class);
+    when(index.getDefinition()).thenReturn(getIndex(fixture.indexName).getDefinition());
+    when(index.getName()).thenReturn(fixture.indexName);
+    when(index.getNullKeyRids(any(), org.mockito.ArgumentMatchers.eq(false)))
+        .thenReturn(rids.stream().onClose(() -> nullClosed.set(true)));
+    when(index.descStream(any())).thenReturn(Stream.<RawPair<Object, RID>>empty()
+        .onClose(() -> mainClosed.set(true)));
+    var ctx = newContext();
+    session.begin();
+    try {
+      var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), false, true, ctx, false);
+      var stream = step.start(ctx);
+      assertThat(stream.hasNext(ctx)).isTrue();
+      stream.next(ctx);
+      stream.close(ctx);
+      assertThat(nullClosed).isTrue();
+      assertThat(mainClosed).isTrue();
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /** A failed ascending main acquisition closes the already-open null stream. */
   @Test
   public void fullScanAscClosesNullStreamWhenMainStreamAcquisitionThrows() {
     assertMainStreamAcquisitionFailureClosesNullStream(true);
@@ -455,7 +565,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     var failingIndex = mock(Index.class);
     when(failingIndex.getDefinition()).thenReturn(definition);
     when(failingIndex.getName()).thenReturn(fixture.indexName);
-    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    when(failingIndex.getNullKeyRids(any(), anyBoolean())).thenReturn(nullRids);
     var mainStreamFailure = new AssertionError("index scan assertion failed");
     when(failingIndex.stream(any())).thenThrow(mainStreamFailure);
 
@@ -488,7 +598,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     var failingIndex = mock(Index.class);
     when(failingIndex.getDefinition()).thenReturn(definition);
     when(failingIndex.getName()).thenReturn(fixture.indexName);
-    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    when(failingIndex.getNullKeyRids(any(), anyBoolean())).thenReturn(nullRids);
     var mainStreamFailure = new IllegalStateException("index scan failed");
     if (isOrderAsc) {
       when(failingIndex.stream(any())).thenThrow(mainStreamFailure);
@@ -529,7 +639,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     var failingIndex = mock(Index.class);
     when(failingIndex.getDefinition()).thenReturn(definition);
     when(failingIndex.getName()).thenReturn(fixture.indexName);
-    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    when(failingIndex.getNullKeyRids(any(), anyBoolean())).thenReturn(nullRids);
     when(failingIndex.stream(any())).thenThrow(new IllegalStateException("index scan failed"));
 
     var desc = new IndexSearchDescriptor(failingIndex);

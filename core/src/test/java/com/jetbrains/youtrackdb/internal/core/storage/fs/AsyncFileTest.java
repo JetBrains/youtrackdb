@@ -1666,14 +1666,28 @@ public class AsyncFileTest {
         interruptRestored.set(Thread.currentThread().isInterrupted());
       }
     });
-    Assert.assertTrue(waiterStarted.await(5, TimeUnit.SECONDS));
-    waiter.get().interrupt();
-    Assert.assertFalse("interruption must not release the buffer", awaitFuture.isDone());
-    buffer.get().position(1);
-    handler.get().completed(1, attachment.get());
-    awaitFuture.get(5, TimeUnit.SECONDS);
-    Assert.assertTrue("interrupt flag must be restored", interruptRestored.get());
-    executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    try {
+      Assert.assertTrue(waiterStarted.await(5, TimeUnit.SECONDS));
+      awaitCountDownLatchWait(waiter.get());
+      waiter.get().interrupt();
+      // AQS clears the flag when it takes the InterruptedException path. Wait for that
+      // acknowledgment before releasing the latch, including after a spurious wakeup.
+      final var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (waiter.get().isInterrupted() && System.nanoTime() < deadline) {
+        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+      }
+      Assert.assertFalse("await must consume the interrupt before write completion",
+          waiter.get().isInterrupted());
+      Assert.assertFalse("interruption must not release the buffer", awaitFuture.isDone());
+      buffer.get().position(1);
+      handler.get().completed(1, attachment.get());
+      awaitFuture.get(5, TimeUnit.SECONDS);
+      Assert.assertTrue("interrupt flag must be restored", interruptRestored.get());
+    } finally {
+      // Settle a pending write on assertion failure so the waiter and close cannot hang.
+      handler.get().failed(new AssertionError("test cleanup"), attachment.get());
+      executor.submit(file::close).get(5, TimeUnit.SECONDS);
+    }
     verify(channel).close();
   }
 

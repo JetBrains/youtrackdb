@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedExp
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.OrderedHopStage;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.TailListShapingOp;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
@@ -78,6 +79,10 @@ final class GremlinPlanFingerprint {
     appendMatchExpressions(sb, inputs.matchExpressions());
     appendNotExpressions(sb, inputs.notMatchExpressions());
     appendExistsExpressions(sb, inputs.existsMatchExpressions());
+    if (inputs.booleanCheck() != null) {
+      sb.append(";B:");
+      appendBooleanCheck(sb, inputs.booleanCheck());
+    }
     appendReturnProjection(sb, inputs);
     appendResultShaping(sb, inputs);
     appendReturnModes(sb, inputs);
@@ -208,6 +213,33 @@ final class GremlinPlanFingerprint {
     sb.append(";M:");
     for (var expr : matchExprs) {
       appendRendered(sb, scratch -> appendMatchExpressionStructural(scratch, expr));
+    }
+  }
+
+  /** Counts delimit child sequences and length prefixes delimit every rendered leaf. */
+  private static void appendBooleanCheck(StringBuilder sb, MatchBooleanCheck check) {
+    switch (check) {
+      case MatchBooleanCheck.And and -> {
+        sb.append('A').append(and.children().size()).append(':');
+        and.children().forEach(child -> appendBooleanCheck(sb, child));
+      }
+      case MatchBooleanCheck.Or or -> {
+        sb.append('O').append(or.children().size()).append(':');
+        or.children().forEach(child -> appendBooleanCheck(sb, child));
+      }
+      case MatchBooleanCheck.Not not -> {
+        sb.append('N');
+        appendBooleanCheck(sb, not.child());
+      }
+      case MatchBooleanCheck.Filter filter -> {
+        sb.append('F');
+        appendToken(sb, filter.alias());
+        appendRendered(sb, scratch -> filter.condition().toString(SLOT_MARKERS, scratch));
+      }
+      case MatchBooleanCheck.Probe probe -> {
+        sb.append('P');
+        appendRendered(sb, scratch -> probe.expression().toString(SLOT_MARKERS, scratch));
+      }
     }
   }
 

@@ -418,7 +418,8 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
             }
             if (value instanceof Stream<?> stream && (method.getName().equals("stream")
                 || method.getName().equals("descStream")
-                || method.getName().equals("getRids"))) {
+                || method.getName().equals("getRids")
+                || method.getName().equals("getNullKeyRids"))) {
               return stream.peek(entry -> reads.incrementAndGet())
                   .onClose(closed::incrementAndGet);
             }

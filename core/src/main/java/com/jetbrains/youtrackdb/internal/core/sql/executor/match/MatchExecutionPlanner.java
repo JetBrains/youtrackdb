@@ -274,6 +274,8 @@ public class MatchExecutionPlanner {
   /** Detached positive patterns that keep each incoming row with at least one matching path. */
   protected List<SQLMatchExpression> existsMatchExpressions;
 
+  private MatchBooleanCheck booleanCheck;
+
   /** Expressions to evaluate in the `RETURN` clause. */
   protected List<SQLExpression> returnItems;
 
@@ -384,7 +386,8 @@ public class MatchExecutionPlanner {
    * Maximum estimated build-side cardinality for which the planner will choose a
    * hash-based join (anti-join, semi-join, inner join) over nested-loop evaluation.
    * If the estimated NOT-pattern result set exceeds this threshold, the planner
-   * falls back to {@link FilterNotMatchPatternStep}. Configurable via
+   * falls back to {@link FilterNotMatchPatternStep}. Zero disables new hash selection and
+   * bounded result memory. Configurable via
    * {@link GlobalConfiguration#QUERY_MATCH_HASH_JOIN_THRESHOLD}.
    */
   static long getHashJoinThreshold() {
@@ -569,6 +572,7 @@ public class MatchExecutionPlanner {
     this.matchExpressions = new ArrayList<>(inputs.matchExpressions());
     this.notMatchExpressions = new ArrayList<>(inputs.notMatchExpressions());
     this.existsMatchExpressions = new ArrayList<>(inputs.existsMatchExpressions());
+    this.booleanCheck = inputs.booleanCheck();
     this.returnItems = new ArrayList<>(inputs.returnItems());
     this.returnAliases = new ArrayList<>(inputs.returnAliases());
     this.returnNestedProjections = new ArrayList<>(inputs.returnNestedProjections());
@@ -766,7 +770,7 @@ public class MatchExecutionPlanner {
     // Estimate the positive output before any detached check filters it. Collect each component
     // from its actual schedule, without repeating scheduling just for the cost guards.
     List<OptionalLong> outerEstimates = notMatchExpressions.isEmpty()
-        && existsMatchExpressions.isEmpty() ? null : new ArrayList<>();
+        && existsMatchExpressions.isEmpty() && booleanCheck == null ? null : new ArrayList<>();
     // Phase 5: Topological scheduling + step generation for each connected component
     if (subPatterns.size() > 1) {
       // Multiple disjoint sub-patterns → Cartesian product of their independent results
@@ -799,7 +803,7 @@ public class MatchExecutionPlanner {
     boolean endpointTxWasActive = session.isTxActive();
     try {
       KnownEndpointExistsStep.checkpoint("plan");
-      endpointAccess = subPatterns.size() == 1
+      endpointAccess = booleanCheck == null && subPatterns.size() == 1
           ? KnownEndpointExistsAccess.find(result, pattern, existsMatchExpressions,
               aliasClasses, aliasFilters, context)
           : null;
@@ -820,6 +824,11 @@ public class MatchExecutionPlanner {
         aliasPinnedRids, context, multiplyOuterEstimates(outerEstimates),
         new DetachedSlice(requiredRows, false), enableProfiling);
 
+    if (booleanCheck != null) {
+      result.chain(buildBooleanCheck(booleanCheck, context,
+          multiplyOuterEstimates(outerEstimates), enableProfiling));
+    }
+
     if (endpointAccess != null) {
       endpointTxWasActive = session.isTxActive();
       try {
@@ -827,13 +836,15 @@ public class MatchExecutionPlanner {
         double probeWork = 0;
         for (var exp : existsMatchExpressions) {
           var steps = buildDetachedPatternSteps(exp, pattern, "EXISTS", context, enableProfiling);
-          targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+          targetPlan.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling,
+              DetachedCheckReadSet.describe(exp, pattern)));
           probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
         for (var exp : notMatchExpressions) {
           var steps = buildDetachedPatternSteps(exp, pattern, "NOT", context, enableProfiling);
-          targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling));
+          targetPlan.chain(new FilterNotMatchPatternStep(steps, context, enableProfiling,
+              DetachedCheckReadSet.describe(exp, pattern)));
           probeWork += estimateDetachedWalkCost(exp, aliasClasses, context)
               .orElse(EdgeFanOutEstimator.defaultFanOut());
         }
@@ -1110,7 +1121,7 @@ public class MatchExecutionPlanner {
    */
   private boolean tryHardwiredMatchCount(
       SelectExecutionPlan result, CommandContext context, boolean enableProfiling) {
-    if (!isCountStarReturn()) {
+    if (booleanCheck != null || !isCountStarReturn()) {
       return false;
     }
     if (returnDistinct
@@ -1226,7 +1237,8 @@ public class MatchExecutionPlanner {
             context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, matchSteps, enableProfiling));
       } else {
         // Fallback: nested-loop evaluation via FilterNotMatchPatternStep
-        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling));
+        result.chain(new FilterNotMatchPatternStep(matchSteps, context, enableProfiling,
+            DetachedCheckReadSet.describe(exp, pattern)));
       }
     }
   }
@@ -1252,9 +1264,57 @@ public class MatchExecutionPlanner {
         result.chain(new HashJoinMatchStep(context, buildPlan, findSharedAliases(exp, pattern),
             JoinMode.SEMI_JOIN, steps, enableProfiling));
       } else {
-        result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling));
+        result.chain(new FilterExistsMatchPatternStep(steps, context, enableProfiling,
+            DetachedCheckReadSet.describe(exp, pattern)));
       }
     }
+  }
+
+  FilterBooleanMatchStep buildBooleanCheck(MatchBooleanCheck check,
+      CommandContext context, OptionalLong outerRows, boolean profiling) {
+    var children = new ArrayList<FilterBooleanMatchStep>();
+    var kind = FilterBooleanMatchStep.Kind.PROBE;
+    String alias = null;
+    SQLWhereClause condition = null;
+    List<AbstractExecutionStep> steps = List.of();
+    HashJoinMatchStep hash = null;
+    if (check instanceof MatchBooleanCheck.And and) {
+      kind = FilterBooleanMatchStep.Kind.AND;
+      for (var child : and.children()) {
+        children.add(buildBooleanCheck(child, context, outerRows, profiling));
+      }
+    } else if (check instanceof MatchBooleanCheck.Or or) {
+      kind = FilterBooleanMatchStep.Kind.OR;
+      for (var child : or.children()) {
+        children.add(buildBooleanCheck(child, context, outerRows, profiling));
+      }
+    } else if (check instanceof MatchBooleanCheck.Not not) {
+      kind = FilterBooleanMatchStep.Kind.NOT;
+      children.add(buildBooleanCheck(not.child(), context, outerRows, profiling));
+    } else if (check instanceof MatchBooleanCheck.Filter filter) {
+      kind = FilterBooleanMatchStep.Kind.FILTER;
+      alias = filter.alias();
+      condition = filter.condition().copy();
+    } else if (check instanceof MatchBooleanCheck.Probe probe) {
+      var exp = probe.expression().copy();
+      steps = buildDetachedPatternSteps(exp, pattern, "BOOLEAN", context, profiling);
+      var walk = estimateDetachedWalkCost(exp, aliasClasses, context);
+      var reads = DetachedCheckReadSet.describe(exp, pattern);
+      // Tree leaves share flat-check eligibility and cost rules, but require independent reads,
+      // known estimates and an unsliced input before building eagerly.
+      if (limit == null && skip == null && outerRows.isPresent() && walk.isPresent()
+          && reads.independent()
+          && canUseHashJoin(exp, aliasClasses, aliasFilters, aliasPinnedRids, context, pattern,
+              outerRows)) {
+        var build = buildNotPatternPlan(exp, steps, aliasClasses, aliasFilters, aliasPinnedRids,
+            context, profiling);
+        hash = new HashJoinMatchStep(context, build, findSharedAliases(exp, pattern),
+            JoinMode.SEMI_JOIN, steps, profiling);
+      }
+    }
+    return new FilterBooleanMatchStep(context, profiling, kind, children, alias, condition,
+        steps, hash, check instanceof MatchBooleanCheck.Probe probe
+            ? DetachedCheckReadSet.describe(probe.expression(), pattern) : null);
   }
 
   /** Validates a detached check and builds its linear MATCH traversal chain. */
@@ -1478,7 +1538,8 @@ public class MatchExecutionPlanner {
       Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       Pattern pattern) {
-    if (notPatternDependsOnMatched(exp)) {
+    var reads = DetachedCheckReadSet.describe(exp, pattern);
+    if (notPatternDependsOnMatched(exp) || reads.correlated()) {
       return false;
     }
     var originAlias = exp.getOrigin().getAlias();
@@ -1492,7 +1553,7 @@ public class MatchExecutionPlanner {
       return false;
     }
     // Later null shared keys are unbound to a per-row probe but cannot join a hash key.
-    var sharedAliases = findSharedAliases(exp, pattern);
+    var sharedAliases = reads.aliases();
     for (var i = 1; i < sharedAliases.size(); i++) {
       if (pattern.aliasToNode.get(sharedAliases.get(i)).isOptionalNode()) {
         return false;
@@ -1527,13 +1588,36 @@ public class MatchExecutionPlanner {
       return true;
     }
     var estimates = estimateDetachedWalk(exp, aliasClasses, context);
-    var pass = findSharedAliases(exp, pattern).size() == 1
+    var reads = DetachedCheckReadSet.describe(exp, pattern);
+    var pass = reads.aliases().size() == 1
         ? detachedPassFraction(estimates.paths(), exp.getItems().isEmpty(), slice.exists())
         : OptionalDouble.empty();
     return detachedHashCostWins(outerRows,
         estimateAliasCardinality(exp.getOrigin().getAlias(), aliasClasses, aliasFilters,
             aliasPinnedRids, context),
-        estimates.work(), slice.requiredRows(), pass);
+        estimates.work(), slice.requiredRows(), pass,
+        estimateDetachedKeys(reads, aliasClasses, aliasFilters, aliasPinnedRids, context));
+  }
+
+  private static OptionalDouble estimateDetachedKeys(DetachedCheckReadSet reads,
+      Map<String, String> classes, Map<String, SQLWhereClause> filters,
+      Map<String, List<SQLRid>> pins, CommandContext context) {
+    if (!reads.rememberable()) {
+      return OptionalDouble.empty();
+    }
+    double keys = 1;
+    for (var alias : reads.aliases()) {
+      // A classless, unpinned alias receives a planning default, not a key-count estimate.
+      if (classes.get(alias) == null && !pins.containsKey(alias)) {
+        return OptionalDouble.empty();
+      }
+      long count = estimateAliasCardinality(alias, classes, filters, pins, context);
+      if (count == Long.MAX_VALUE || count < 0) {
+        return OptionalDouble.empty();
+      }
+      keys *= Math.max(1, count);
+    }
+    return Double.isFinite(keys) ? OptionalDouble.of(keys) : OptionalDouble.empty();
   }
 
   /** Unknown estimates bypass both guards. A large sentinel would fail the cost comparison. */
@@ -1544,6 +1628,12 @@ public class MatchExecutionPlanner {
 
   static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk,
       OptionalLong requiredRows, OptionalDouble pass) {
+    return detachedHashCostWins(outerRows, origins, walk, requiredRows, pass,
+        OptionalDouble.empty());
+  }
+
+  static boolean detachedHashCostWins(OptionalLong outerRows, long origins, OptionalDouble walk,
+      OptionalLong requiredRows, OptionalDouble pass, OptionalDouble distinctKeys) {
     long minimum = getHashJoinUpstreamMin();
     if (!hashJoinCostGuardsEnabled(minimum) || outerRows.isEmpty() || walk.isEmpty()) {
       return true;
@@ -1553,7 +1643,8 @@ public class MatchExecutionPlanner {
       return false;
     }
     double rows = detachedProbeRows(outer, origins, requiredRows, pass);
-    double nestedCost = rows * walk.getAsDouble();
+    double nestedCost = rememberedProbeCount(rows, distinctKeys, getHashJoinThreshold())
+        * walk.getAsDouble();
     double hashCost = origins + origins * walk.getAsDouble() + rows;
     if (!usableDetachedEstimate(nestedCost) || !usableDetachedEstimate(hashCost)) {
       // A saturated discounted cost is not evidence for a cheaper limited plan.
@@ -1563,12 +1654,27 @@ public class MatchExecutionPlanner {
     return hashCost < nestedCost;
   }
 
+  static double rememberedProbeCount(double rows, OptionalDouble distinctKeys, long limit) {
+    if (limit <= 0 || distinctKeys.isEmpty() || distinctKeys.getAsDouble() <= 0) {
+      return rows;
+    }
+    double distinct = Math.min(rows, distinctKeys.getAsDouble());
+    if (distinct == 0) {
+      return 0;
+    }
+    double remembered = Math.min(distinct, limit);
+    // Memory stores failures too. Only the remembered fraction avoids repeated probes.
+    // Keys beyond the limit still pay one probe per row, even with a tiny match fraction.
+    return remembered + rows * (distinct - remembered) / distinct;
+  }
+
   /** Literal-only slicing keeps the choice independent of bindings in a cached SQL plan. */
   record DetachedSlice(OptionalLong requiredRows, boolean exists) {
   }
 
   OptionalLong detachedRequiredRows(CommandContext context) {
-    if (limit == null || notMatchExpressions.size() + existsMatchExpressions.size() != 1
+    if (booleanCheck != null || limit == null
+        || notMatchExpressions.size() + existsMatchExpressions.size() != 1
         || detachedReturnNeedsFullInput(context)) {
       return OptionalLong.empty();
     }
@@ -1799,6 +1905,11 @@ public class MatchExecutionPlanner {
     }
     for (var check : existsMatchExpressions) {
       collectCheckAliases(check, allPatternAliases, referenced, compiled);
+    }
+
+    if (booleanCheck != null) {
+      // Correlated conditions may read any positive binding. Retain them conservatively.
+      referenced.addAll(allPatternAliases);
     }
 
     // Scan RETURN expressions

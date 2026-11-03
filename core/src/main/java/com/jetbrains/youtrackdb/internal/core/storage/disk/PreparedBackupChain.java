@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.disk;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import it.unimi.dsi.fastutil.objects.ObjectBooleanImmutablePair;
 import it.unimi.dsi.fastutil.objects.ObjectBooleanPair;
 import java.io.IOException;
@@ -36,6 +37,7 @@ public final class PreparedBackupChain implements AutoCloseable {
   private final Path temporaryDirectory;
   private final List<ObjectBooleanPair<Path>> units = new ArrayList<>();
 
+  private StorageFormat sourceFormat;
   private long lastTxId = -1;
   private boolean complete;
   private boolean closed;
@@ -70,9 +72,16 @@ public final class PreparedBackupChain implements AutoCloseable {
   }
 
   /** Marks this chain as completely prepared and validated. */
-  void completePreparation(final long chainLastTxId) {
+  void completePreparation(final long chainLastTxId, final StorageFormat sourceFormat) {
+    this.sourceFormat = java.util.Objects.requireNonNull(sourceFormat, "sourceFormat");
     this.lastTxId = chainLastTxId;
     this.complete = true;
+  }
+
+  /** Returns the admitted source layout only while this fully prepared request is open. */
+  public StorageFormat sourceFormat() {
+    requireComplete();
+    return sourceFormat;
   }
 
   /**

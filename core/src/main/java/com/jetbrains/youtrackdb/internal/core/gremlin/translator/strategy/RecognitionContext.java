@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapin
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
@@ -344,6 +345,20 @@ interface RecognitionContext extends ParamSink, HasBindingContext.VertexClassFac
 
   /** Captures a detached positive existence check for the enclosing conjunctive filter. */
   void addExistsMatchExpression(SQLMatchExpression expression);
+
+  /** Captures a scoped predicate without publishing its leaf bindings. */
+  default void addBooleanCheck(MatchBooleanCheck check) {
+    throw new UnsupportedOperationException("This context cannot capture boolean checks");
+  }
+
+  @Nullable default MatchBooleanCheck booleanCheck() {
+    return null;
+  }
+
+  /** Shared child-check classification, including flat negative checks and scoped trees. */
+  default boolean hasCapturedChecks() {
+    return hasExistsMatchExpressions() || booleanCheck() != null;
+  }
 
   /** Whether the current context has a pending detached positive check. */
   boolean hasExistsMatchExpressions();

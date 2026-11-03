@@ -129,9 +129,9 @@ shape declines along with anything else unrecognized.
 | Predicate ops | `P.inside(lo, hi)` | `AND(GT lo, LT hi)` | Track 4 |
 | Predicate ops | `P.outside(lo, hi)` | `OR(LT lo, GT hi)` | Track 4 |
 | Predicate ops | `Text.containing` / `notContaining` (and the equivalent `TextP.containing` / `TextP.notContaining`) | `SQLContainsTextCondition` / `NOT(...)` | Track 4 |
-| Logical filters | `AndStep` (`ConnectiveStrategy` form) | Pure-filter children add conjunctive boundary filters. Each allowed vertex-hop child adds a detached positive exists check. The check keeps the outer row once if its pattern has a match. Mixed children are supported. | Track 4 |
-| Logical filters | `OrStep` (`ConnectiveStrategy` form) | Pure-filter children compose with `MatchWhereBuilder.or(...)`. An arm with a vertex hop or any captured NOT or exists check declines. OR across detached checks is not supported. | Track 4 |
-| Logical filters | `NotStep` | Pure-filter children use `MatchWhereBuilder.not(...)` in the boundary filter. An allowed vertex-hop child adds a detached `SQLMatchExpression` to `notMatchExpressions`. Nested captured checks decline. | Track 4 |
+| Logical filters | `AndStep` (`ConnectiveStrategy` form) | Pure-filter children add mandatory boundary filters. Allowed vertex-hop children add flat detached exists checks. Captured flat checks stay flat and child trees pass through whole. An enclosing OR or NOT captures these contributions as one conjunction. Unsupported children decline the whole AND. | Track 4 |
+| Logical filters | `OrStep` (`ConnectiveStrategy` form) | Pure-boundary children compose with `MatchWhereBuilder.or(...)` in the boundary WHERE. Hop, exists or detached NOT arms produce a scoped boolean tree. Each arm contains all its filters and checks. Unsupported detached paths or child projections decline the whole OR. | Track 4 |
+| Logical filters | `NotStep` | Pure-boundary children use `MatchWhereBuilder.not(...)` in the boundary WHERE. An allowed vertex-hop child adds a flat `notMatchExpressions` entry. A tree-bearing child becomes tree NOT over its complete conjunction. Nested captured checks without a tree-bearing OR and unsupported detached paths decline. | Track 4 |
 | Logical filters | `WhereTraversalStep` / `TraversalFilterStep` | Ordinary `where(traversal)` uses `TraversalFilterStep`. Pure filters merge into the boundary filter. Allowed vertex-hop children add detached checks to `existsMatchExpressions`. The `WhereTraversalStep` accept path is currently unreachable. | Track 4 |
 | Logical filters | `WherePredicateStep` (`where(P.eq("a"))`) | `WHERE` referencing `$matched.<label>` | Track 4 |
 | Step labels | `as(label)` | propagated to most recent `SQLMatchFilter.alias` via `MatchPatternBuilder.alias(...)` | Track 5 |
@@ -394,12 +394,18 @@ recognizers.
 recognizer.** Each recognizer is responsible for every variant of its
 step class internally. `VertexStepRecogniser` covers OUT / IN / BOTH.
 `HasStepRecogniser` unpacks `HasContainer`s for property and predicate
-shapes. `NotStepRecogniser` first handles the `hasNot(key)` presence form.
+shapes.
+
+`NotStepRecogniser` first handles the `hasNot(key)` presence form.
 For a logical NOT, it walks the child through `GremlinStepWalker.subWalk`.
-A pure-filter child adds a negated expression to
-`aliasFilters[boundaryAlias]`. An allowed vertex-hop child adds a detached
-`SQLMatchExpression` to `notMatchExpressions`. The shared
-`DetachedChildGrammar` checks children that need detached checks before the
+A child with a boolean tree from `or()` adds a `MatchBooleanCheck.Not`.
+The NOT negates the complete child conjunction, including captured boundary
+filters, flat detached checks and the child tree. A pure-filter child without
+captured checks adds a negated expression to `aliasFilters[boundaryAlias]`.
+An allowed vertex-hop child without captured checks adds a detached
+`SQLMatchExpression` to `notMatchExpressions`.
+
+The shared `DetachedChildGrammar` checks children that need detached checks before the
 sub-walk commits them. Two recognizers for the same step class trigger a
 duplicate-key assertion.
 
@@ -1395,8 +1401,8 @@ an independent `GraphStep` source, a `ProjectStep`, or such a step inside a
 nested child. `accepts` admits linear chains of `VertexStep`,
 `VertexStepPlaceholder`, `EdgeVertexStep`, and `EdgeOtherVertexStep` hops.
 It also admits `HasStep`, positive-capacity `NoOpBarrierStep`, supported
-`TraversalFilterStep` children, supported `NotStep` children, and `AndStep`
-children whose arms all pass the same grammar. A plain `dedup()`, a
+`TraversalFilterStep` children and supported `NotStep` children.
+`AndStep` and `OrStep` children qualify when every arm passes the same grammar. A plain `dedup()`, a
 positive zero-offset `limit(n)`, a one-key `values(key)` or
 `properties(key)`, and `where(P.eq(label))` can appear only at the end.
 The limit must have `n > 0`. A labelled hop declines when a child or outer
@@ -1404,7 +1410,7 @@ step reads its label, since a detached check cannot publish that binding.
 Labels on other child steps also decline.
 
 The grammar declines independent `V()` sources, `project(...)` and other
-map payloads, branches such as `OrStep` or `union`, a child-local `skip`
+map payloads, `union` branches, a child-local `skip`
 or `range` with a nonzero offset, `limit(0)`, and a nonterminal slice.
 A child that ends in `count()`, `group()`, or `groupCount()` after a hop,
 filter, or nested check also declines. These reductions can yield a value
@@ -1423,7 +1429,11 @@ origin's class.
 
 `ConnectiveStepSupport` merges pure-filter children into the boundary
 `WHERE` clause. It forwards detached NOT and exists checks from nested
-conjunctive filters. For each allowed linear hop child of `AndStep`, it
+conjunctive filters. A captured boolean tree also passes through these wrappers.
+An `AndStep` forwards child trees whole and keeps sibling filters mandatory.
+Its detached checks retain the flat lists, including beside a tree-bearing child.
+An enclosing OR or NOT captures these contributions as one scoped conjunction.
+For each allowed linear hop child of `AndStep`, it
 adds one `SQLMatchExpression` to `MatchPlanInputs.existsMatchExpressions`.
 `TraversalFilterStep` uses the same rule for `where(traversal)` and
 `filter(traversal)`.
@@ -1513,23 +1523,39 @@ The wrapper does not publish its work allowance.
 See [Chapter 13](../../../yql-internals-book/chapters/13-hash-joins.md#finding-sources-from-a-known-endpoint) for eligibility, budgets and security.
 See [Chapter 16 §16.9](../../../yql-internals-book/chapters/16-reading-explain.md#169-observing-known-endpoint-choices) for exact plan fields.
 
-### `OrStep` — boundary filters only
+### `OrStep` — boundary filters and scoped detached checks
 
-`OrStepRecogniser` accepts arms only when each arm supplies one boundary
-`SQLBooleanExpression`. `ConnectiveStepSupport.collectOrExpressions`
-combines those expressions with `MatchWhereBuilder.or(...)`. It declines
-an arm with a captured vertex hop, NOT check, or exists check, including
-a nested arm that captures a check. Plan-level checks apply to every row
-conjunctively. They cannot act as one OR operand. For example,
-`or(out("l"), has("k", v))` declines. An OR of two supported `has(...)`
-filters translates. The native TinkerPop pipeline handles a declined OR.
+A pure-boundary OR combines its expressions with `MatchWhereBuilder.or(...)`.
+This path adds one boundary WHERE and no boolean check tree.
+An OR with a hop, exists check or detached NOT arm instead captures a `MatchBooleanCheck` tree.
+The tree has AND, OR and NOT nodes, boundary Filter leaves and detached Probe leaves.
+`ConnectiveStepSupport.booleanArm` combines every filter and check of an arm conjunctively.
+The enclosing OR keeps these complete arms separate.
 
-### Phase 2 paths for edge-bearing `OrStep`
+An arm-local property predicate never becomes a mandatory source filter.
 
-OR over a hop child remains deferred. A future implementation could use
-independent plans with boundary dedup, a correlated exists subquery in
-`WHERE`, or optional patterns with null checks. These paths require a
-separate design. None is part of the current translator.
+Nested AND and OR retain their grouping at the same bound boundary.
+AND nodes occur only around or inside a tree-bearing OR.
+Independent mandatory checks can coexist in the flat lists.
+A hop chain followed by another detached check or tree declines.
+A positive hop or union after a tree also declines.
+Independent graph sources, child projections and detached label publication remain unsupported.
+
+`MatchPlanInputs.booleanCheck` carries the tree through count and union-related rewrites.
+`FilterBooleanMatchStep` evaluates the tree after the positive pattern and flat checks.
+It runs before projection, count, ordering, dedup and slicing.
+AND and OR short-circuit in arm order.
+Each Probe stops at its first matching path.
+
+A passing row retains its original bindings and upstream multiplicity.
+Multiple matching edges or arms do not multiply that row.
+
+Each Probe uses nested evaluation or boolean hash membership under the detached eligibility rules.
+A tree blocks known-endpoint starts, the direct count shortcut and single-check slice demand.
+Tree checks keep every positive alias they read available until evaluation.
+Cached plan copies own independent execution state and contexts.
+The plan fingerprint encodes operators, grouping, aliases and positional parameter slots.
+The translation shape key records traversal lengths, connective arity and connective child boundaries.
 
 ### `NotStep` — boundary negation or detached negative check
 
@@ -1538,7 +1564,11 @@ pure-filter logical child becomes `MatchWhereBuilder.not(...)` on the
 boundary filter. A supported hop child becomes an expression in
 `MatchPlanInputs.notMatchExpressions`. Its origin alias must already be
 in the positive pattern and cannot carry a child-local filter or class.
-A child that captures another NOT or exists check declines. Thus
+A child containing a tree-bearing OR becomes a tree NOT over its complete conjunction.
+The conjunction includes all child-local boundary filters and detached checks.
+NOT also qualifies when that OR occurs inside a nested boolean arm.
+A pure-filter `not(or(has(...), has(...)))` keeps boundary WHERE negation.
+Without a tree-bearing OR, a child that captures another NOT or exists check declines. Thus
 `not(out("l").dedup())` can translate, because terminal plain `dedup()`
 does not change whether the child has a match. `not(where(out("l")))`
 declines because its child captures an exists check.
@@ -2157,7 +2187,7 @@ requires execution-model changes, or warrants a dedicated design effort.
 | Category | Steps | Why out | Phase 2 path |
 |---|---|---|---|
 | Optional sub-traversal | `optional(traversal)` | Gremlin drops the row when the sub-traversal yields nothing; MATCH emits the row with the inner alias `null`. The two outputs differ on the case `optional` exists to express. | Drop-on-null filter at the boundary step, or a MATCH-level alternative pattern, or both — designed in Phase 2 |
-| OR over detached checks | `or(__.out(L), __.has(...))` and any `OrStep` arm with a hop or captured NOT or exists check | `SQLOrBlock` composes boundary filters. A hop arm needs a detached exists check. The planner applies detached checks conjunctively, so it cannot use one as an OR operand. Translation declines and native TinkerPop handles the traversal. | Design a union of plans with boundary dedup, a correlated exists subquery in `WHERE`, or optional patterns with null checks. |
+| Nested NOT without a tree-bearing OR | `not(where(out(L)))`, `not(not(out(L)))` | Nested detached checks need a supported boolean scope. Only wrappers around a tree-bearing OR provide that scope. | Keep native execution. |
 | Variable-depth traversal | `repeat().until(...)`, `repeat().times(n)` | MATCH `WHILE` / `maxDepth` requires careful translation of the loop condition + termination semantics | Map `until` → `whileCondition`, `times` → `maxDepth` on `SQLMatchPathItem` |
 | Stateful side-effects | `sack()`, `store()`, `aggregate()` | TinkerPop traverser-state-machine has no MATCH analogue | Likely never; stay native |
 | Lambda steps | TinkerPop lambda steps (`map(λ)`, `filter(λ)`, `sideEffect(λ)`, …) | Arbitrary user code is untranslatable | Stay native; potentially inline simple Gremlin expression lambdas later |

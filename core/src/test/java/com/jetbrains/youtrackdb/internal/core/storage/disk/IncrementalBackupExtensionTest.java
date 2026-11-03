@@ -18,6 +18,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerCheckpointTest;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -4627,6 +4630,203 @@ public class IncrementalBackupExtensionTest {
       }
     }
     return content;
+  }
+
+  /** Both real source layouts persist their identity and emit it in every independently read tail. */
+  @Test
+  public void backupEmitsPersistedSourceLayout() throws Exception {
+    for (var format : StorageFormat.values()) {
+      try (var manager = openManager()) {
+        AbstractStorage storage;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          storage = createSourceDatabase(manager);
+        }
+        var persisted = new StorageBootstrapMetadata(databasesPath.resolve(SOURCE),
+            new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity(
+                1))
+            .readActiveRequired().storageFormat().layoutVersion();
+        if (format == StorageFormat.LAYOUT_26) {
+          assertTrue("the source must really persist a non-default layout", persisted != 25);
+        }
+        assertEquals(format.layoutVersion(), persisted);
+        storage.fullBackup(backupPath);
+        for (var i = 0; i < 2; i++) {
+          addOneRecord(manager);
+          storage.backup(backupPath);
+        }
+        for (var name : unitNames()) {
+          var bytes = Files.readAllBytes(backupPath.resolve(name));
+          // The layout precedes creation evidence and the full hash in every shared tail.
+          assertEquals(persisted, ByteBuffer.wrap(bytes, bytes.length - 16, 4).getInt());
+          assertEquals(persisted,
+              inspectUnit(name, storage.getUuid()).metadata().semanticIdentity()
+                  .storageLayoutVersion());
+        }
+        manager.drop(SOURCE);
+      }
+      for (var name : unitNames()) {
+        Files.delete(backupPath.resolve(name));
+      }
+    }
+  }
+
+  /**
+   * Other-layout units never permit extension or deletion. Exercise tail admission, full
+   * fallback, and stream header admission below a valid head, in both layout directions.
+   */
+  @Test
+  public void otherSourceLayoutKeepsEveryUnitAcrossReadModes() throws Exception {
+    for (var format : StorageFormat.values()) {
+      try (var manager = openManager()) {
+        AbstractStorage storage;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          storage = createSourceDatabase(manager);
+        }
+        var otherLayout = format == StorageFormat.LAYOUT_25 ? 26 : 25;
+        for (var plain : new boolean[] {false, true}) {
+          for (var belowHead : new boolean[] {false, true}) {
+            for (var validHash : new boolean[] {false, true}) {
+              for (var version : new int[] {3, 4, 5}) {
+                var foreign = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
+                    0, true, version, BackupUnitFiles.supportedFeatureFormat(), otherLayout,
+                    BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, validHash);
+                if (!validHash && version != 3) {
+                  // Force metadata-checksum fallback, including below the admitted head.
+                  var path = backupPath.resolve(foreign);
+                  var bytes = Files.readAllBytes(path);
+                  bytes[bytes.length - DiskStorage.IBU_V4_METADATA_SIZE] ^= 1;
+                  Files.write(path, bytes);
+                }
+                if (belowHead) {
+                  BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE, 1, false,
+                      5, BackupUnitFiles.supportedFeatureFormat(), format.layoutVersion(),
+                      BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+                }
+                var before = unitContent();
+                Function<String, InputStream> reader = plain ? this::openInput
+                    : new CountingTailSupplier();
+                var refusal = assertThrows(UnsupportedBackupException.class,
+                    () -> storage.backup(this::unitIterator, reader, this::openOutput,
+                        this::removeUnit));
+                assertTrue(refusal.getMessage().contains("keeps every existing backup unit"));
+                assertEquals("every unit must remain byte-identical: " + foreign,
+                    before, unitContent());
+                for (var name : unitNames()) {
+                  Files.delete(backupPath.resolve(name));
+                }
+              }
+            }
+          }
+        }
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /**
+   * Checksum-valid v4/v5 metadata must not make damaged output of the other layout removable.
+   * Both source directions refuse with byte-identical units, through either reader and with
+   * the damaged unit at the head or below a valid head.
+   */
+  @Test
+  public void checksumValidOtherLayoutDamagedOutputKeepsEveryUnit() throws Exception {
+    for (var layouts : new int[][] {{25, 26}, {26, 25}}) {
+      var format = layouts[0] == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+      try (var manager = openManager()) {
+        AbstractStorage storage;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          storage = createSourceDatabase(manager);
+        }
+        for (var plain : new boolean[] {false, true}) {
+          for (var belowHead : new boolean[] {false, true}) {
+            for (var version : new int[] {4, 5}) {
+              var damaged = writeChecksumValidDamagedUnit(storage.getUuid(), version, layouts[1]);
+              if (belowHead) {
+                BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE, 1, false,
+                    5, 1, layouts[0], BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+              }
+              var before = unitContent();
+              Function<String, InputStream> reader = plain ? this::openInput
+                  : new CountingTailSupplier();
+              var refusal = assertThrows(UnsupportedBackupException.class,
+                  () -> storage.backup(this::unitIterator, reader, this::openOutput,
+                      this::removeUnit));
+              assertTrue(refusal.getMessage().contains("keeps every existing backup unit"));
+              assertEquals("checksum-valid damaged unit must survive: " + damaged,
+                  before, unitContent());
+              for (var name : unitNames()) {
+                Files.delete(backupPath.resolve(name));
+              }
+            }
+          }
+        }
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /**
+   * The same checksum-valid, broken-full-hash fixtures are removable head candidates when their
+   * layout matches the source. Cover v4/v5, both source layouts and both readers so refusal in the
+   * other-layout cases cannot be explained by an unreachable damaged-output fixture.
+   */
+  @Test
+  public void checksumValidSameLayoutDamagedOutputIsRemoved() throws Exception {
+    for (var layout : new int[] {25, 26}) {
+      var format = layout == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+      try (var manager = openManager()) {
+        AbstractStorage storage;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          storage = createSourceDatabase(manager);
+        }
+        for (var plain : new boolean[] {false, true}) {
+          for (var version : new int[] {4, 5}) {
+            var damaged = writeChecksumValidDamagedUnit(storage.getUuid(), version, layout);
+            var removed = new ArrayList<String>();
+            var tailReader = new CountingTailSupplier();
+            Function<String, InputStream> reader = plain ? this::openInput : tailReader;
+            var replacement = storage.backup(this::unitIterator, reader, this::openOutput,
+                name -> {
+                  removed.add(name);
+                  removeUnit(name);
+                });
+            assertEquals("only the damaged same-layout unit is removable",
+                List.of(damaged), removed);
+            assertFalse("the synthetic damaged unit must be deleted",
+                Files.exists(backupPath.resolve(damaged)));
+            assertEquals(List.of(replacement), unitNames());
+            if (!plain) {
+              assertEquals("an absent barrier must reach full inspection", 1,
+                  tailReader.fullStreamsOpened);
+            }
+            for (var name : unitNames()) {
+              Files.delete(backupPath.resolve(name));
+            }
+          }
+        }
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /** Writes a barrier-absent head and independently verifies its two distinct checksum states. */
+  private String writeChecksumValidDamagedUnit(UUID databaseId, int version, int layout)
+      throws IOException {
+    var name = BackupUnitFiles.writeUnit(backupPath, databaseId, SOURCE, 0, true,
+        version, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
+    var bytes = Files.readAllBytes(backupPath.resolve(name));
+    var tailStart = bytes.length - DiskStorage.IBU_V4_METADATA_SIZE;
+    assertEquals("metadata checksum must remain intact",
+        ByteBuffer.wrap(bytes, tailStart, Long.BYTES).getLong(),
+        DiskStorage.XX_HASH_64.hash(bytes, tailStart + Long.BYTES,
+            DiskStorage.IBU_V4_METADATA_SIZE - 2 * Long.BYTES, DiskStorage.METADATA_HASH_SEED));
+    assertEquals("no barrier may bypass the full hash check", 0,
+        ByteBuffer.wrap(bytes, tailStart + Long.BYTES, Integer.BYTES).getInt());
+    assertTrue("the full hash must be broken",
+        ByteBuffer.wrap(bytes, bytes.length - Long.BYTES, Long.BYTES).getLong()
+            != DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - Long.BYTES,
+                DiskStorage.XX_HASH_SEED));
+    return name;
   }
 
   private YouTrackDBImpl openManager() {
