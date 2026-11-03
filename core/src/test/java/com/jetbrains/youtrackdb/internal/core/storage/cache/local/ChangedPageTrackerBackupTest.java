@@ -21,6 +21,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.Set;
@@ -421,6 +422,43 @@ public class ChangedPageTrackerBackupTest {
       assertNull(capture(tracker).sealed());
       assertEquals(Set.of(3L, 4L), pages(capture(tracker).active()));
       assertNotNull(begin(tracker).sealHandle());
+    }
+  }
+
+  /** An interrupt during the cleanup barrier reports failed invalidation and preserves the flag. */
+  @Test
+  public void interruptedCleanupReportsInvalidationFailureAndRestoresInterruptFlag()
+      throws Exception {
+    var tracker = trusted();
+    ChangedPageTrackerFile.save(path(), tracker, SAFE, new RecordingFiles());
+    var context = begin(tracker);
+    var barrierReached = new AtomicBoolean();
+    var files = new RecordingFiles() {
+      @Override
+      void forceFolder(Path directory) throws IOException {
+        // Cleanup shields the inherited flag, but a new interrupt can still fail its barrier.
+        assertFalse(Thread.currentThread().isInterrupted());
+        barrierReached.set(true);
+        Thread.currentThread().interrupt();
+        throw new ClosedByInterruptException();
+      }
+    };
+    try {
+      Thread.currentThread().interrupt();
+      assertEquals(COVERAGE_UNAVAILABLE_INVALIDATION_FAILED,
+          complete(tracker, context, DURABLE, unavailableSource(), files));
+      assertTrue(barrierReached.get());
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertFalse(tracker.isTrusted());
+      assertNull(capture(tracker).sealed());
+      tracker.saveOrderLock().lock();
+      try {
+        assertTrue(tracker.trustedFileMayExist());
+      } finally {
+        tracker.saveOrderLock().unlock();
+      }
+    } finally {
+      Thread.interrupted();
     }
   }
 
