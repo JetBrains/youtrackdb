@@ -178,6 +178,7 @@ public class CollectionEntryTest {
       ByteBuffer.wrap(bytes).order(ByteOrder.nativeOrder()).putInt(10, version);
       damaged.add(bytes);
     }
+    damaged.add(oddStringLengthPayload());
     var negativeLength = valid.clone();
     Arrays.fill(negativeLength, 1, 5, (byte) 255);
     damaged.add(negativeLength);
@@ -185,6 +186,16 @@ public class CollectionEntryTest {
     Arrays.fill(hugeLength, 1, 5, (byte) 127);
     damaged.add(hugeLength);
     return damaged;
+  }
+
+  private static byte[] oddStringLengthPayload() {
+    var valid = layout26Bytes();
+    // Remove one UTF-16 byte and shorten the name so all subsequent fields remain aligned.
+    var odd = new byte[valid.length - 1];
+    System.arraycopy(valid, 0, odd, 0, 8);
+    System.arraycopy(valid, 9, odd, 8, valid.length - 9);
+    ByteBuffer.wrap(odd).order(ByteOrder.nativeOrder()).putInt(1, 3);
+    return odd;
   }
 
   /** Persisted malformed entries fail preload and retain their original bytes after each check. */
@@ -226,6 +237,8 @@ public class CollectionEntryTest {
     try {
       records.updateRecord(original.getCollectionPosition(), bytes, (byte) 0, op);
       tree.put(op, key, new RecordId(tag, original.getCollectionPosition()));
+      var direct = assertThrows(ConfigurationException.class,
+          () -> config.getCollectionFileState(id, op));
       var preload =
           config.getClass().getDeclaredMethod("preloadCollections", AtomicOperation.class);
       preload.setAccessible(true);
@@ -233,6 +246,13 @@ public class CollectionEntryTest {
       assertTrue(failure.getCause() instanceof ConfigurationException);
       assertTrue(failure.getCause().getMessage().contains("collection entry " + id));
       assertTrue(failure.getCause().getMessage().contains(storage.getName()));
+      if (Arrays.equals(bytes, oddStringLengthPayload())) {
+        assertTrue(direct.getMessage().contains("Invalid UTF-16 string length"));
+        assertTrue(failure.getCause().getMessage().contains("Invalid UTF-16 string length"));
+        assertThrows(ConfigurationException.class,
+            () -> config.markCollectionFileCreated(id, CollectionFileState.Role.DATA, op));
+        assertArrayEquals(bytes, raw(config, id, op).first);
+      }
     } finally {
       records.updateRecord(original.getCollectionPosition(), originalBytes, (byte) 0, op);
       tree.put(op, key, original);

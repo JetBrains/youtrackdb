@@ -1613,34 +1613,172 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  /** Reads operation-visible flags directly from the stored entry, without a storage lock. */
+  public CollectionFileState getCollectionFileState(int id, AtomicOperation op) {
+    lock.readLock().lock();
+    try {
+      return readCollectionEntry(id, op).state();
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  private CollectionEntry readCollectionEntry(int id, AtomicOperation op) {
+    var raw = requireEntry(COLLECTIONS_PREFIX_PROPERTY + id, op);
+    return decodeCollectionEntry(id, raw.first, raw.second, storage.getStorageFormat(),
+        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
+        storage.getName());
+  }
+
+  /** Reads operation-visible flags directly from the stored entry, without a storage lock. */
+  public IndexEngineFileState getIndexEngineFileState(String name, AtomicOperation op) {
+    lock.readLock().lock();
+    try {
+      return readIndexEngineEntry(name, op).state();
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  private IndexEngineEntry readIndexEngineEntry(String name, AtomicOperation op) {
+    var raw = requireEntry(ENGINE_PREFIX_PROPERTY + name, op);
+    return decodeIndexEngineEntry(name, raw.first, -1, raw.second, storage.getStorageFormat(),
+        storage.getName(),
+        configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY));
+  }
+
+  private RawPairObjectInteger<byte[]> requireEntry(String key, AtomicOperation op) {
+    var raw = readProperty(key, op);
+    if (raw == null) {
+      throw new ConfigurationException(storage.getName(), "Missing configuration entry: " + key);
+    }
+    return raw;
+  }
+
+  /**
+   * Marks a role in the operation-visible entry. The caller must hold the exclusive storage
+   * state lock for the entire atomic operation. This method does not acquire that lock.
+   */
+  public void markCollectionFileCreated(int id, CollectionFileState.Role role, AtomicOperation op) {
+    lock.writeLock().lock();
+    try {
+      var entry = readCollectionEntry(id, op);
+      var state = entry.state().withCreated(role);
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+        var raw = requireEntry(COLLECTIONS_PREFIX_PROPERTY + id, op);
+        // Keep the validated payload intact. Only the final state byte belongs to this update.
+        var bytes = raw.first.clone();
+        bytes[bytes.length - 1] = (byte) state.bits();
+        storeProperty(op, COLLECTIONS_PREFIX_PROPERTY + id, bytes, raw.second);
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Marks a role in the operation-visible entry. The caller must hold the exclusive storage
+   * state lock for the entire atomic operation. This method does not acquire that lock.
+   */
+  public void markIndexEngineFileCreated(String name, IndexEngineFileState.Role role,
+      AtomicOperation op) {
+    lock.writeLock().lock();
+    try {
+      var entry = readIndexEngineEntry(name, op);
+      var state = entry.state().withCreated(role);
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+        var raw = requireEntry(ENGINE_PREFIX_PROPERTY + name, op);
+        // Decoding substitutes sentinel ids. Marking must preserve their stored representation.
+        var bytes = raw.first.clone();
+        bytes[bytes.length - 1] = (byte) state.bits();
+        storeProperty(op, ENGINE_PREFIX_PROPERTY + name, bytes, raw.second);
+      }
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /** Creates an eagerly allocated collection entry in the file-creating operation. */
+  public void createCollection(AtomicOperation op, StorageCollectionConfiguration config) {
+    createCollectionEntry(op, config, CollectionFileState.ALL_CREATED);
+  }
+
+  // Test-only metadata fixture. Physical files are not changed by this seam.
+  void createCollectionForTesting(AtomicOperation op, StorageCollectionConfiguration config,
+      CollectionFileState state) {
+    requireLayout26();
+    createCollectionEntry(op, config, state);
+  }
+
+  private void requireLayout26() {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
+      throw new ConfigurationException(storage.getName(), "Mixed-state fixtures require layout 26");
+    }
+  }
+
+  private void createCollectionEntry(AtomicOperation op, StorageCollectionConfiguration config,
+      CollectionFileState state) {
+    lock.writeLock().lock();
+    try {
+      if (readProperty(COLLECTIONS_PREFIX_PROPERTY + config.id(), op) != null) {
+        throw new ConfigurationException(storage.getName(), "Collection entry already exists");
+      }
+      storeCollection(op, config, state);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  // Test-only metadata fixture. Physical files are not changed by this seam.
+  void createIndexEngineForTesting(AtomicOperation op, String name, IndexEngineData data,
+      IndexEngineFileState state) {
+    lock.writeLock().lock();
+    try {
+      requireLayout26();
+      if (readProperty(ENGINE_PREFIX_PROPERTY + name, op) != null) {
+        throw new ConfigurationException(storage.getName(), "Index engine entry already exists");
+      }
+      storeProperty(op, ENGINE_PREFIX_PROPERTY + name,
+          encodeIndexEngineEntry(data, state, storage.getStorageFormat(), storage.getName()),
+          indexEngineEntryVersion(storage.getStorageFormat()));
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
   public void updateCollection(
       AtomicOperation atomicOperation, final StorageCollectionConfiguration config) {
     lock.writeLock().lock();
     try {
-      @SuppressWarnings("unchecked")
-      final var collections =
-          (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
-      if (config.id() < collections.size()) {
-        collections.set(config.id(), config);
-      } else {
-        final var diff = config.id() - collections.size();
-        for (var i = 0; i < diff; i++) {
-          collections.add(null);
-        }
-
-        collections.add(config);
-        assert collections.size() - 1 == config.id();
-      }
-
-      storeProperty(
-          atomicOperation,
-          COLLECTIONS_PREFIX_PROPERTY + config.id(),
-          encodeCollectionEntry(config, CollectionFileState.ALL_CREATED,
-              storage.getStorageFormat()),
-          collectionEntryVersion(storage.getStorageFormat()));
+      storeCollection(atomicOperation, config, readCollectionEntry(config.id(), atomicOperation)
+          .state());
     } finally {
       lock.writeLock().unlock();
     }
+  }
+
+  private void storeCollection(AtomicOperation atomicOperation,
+      StorageCollectionConfiguration config, CollectionFileState state) {
+    @SuppressWarnings("unchecked")
+    final var collections =
+        (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
+    if (config.id() < collections.size()) {
+      collections.set(config.id(), config);
+    } else {
+      final var diff = config.id() - collections.size();
+      for (var i = 0; i < diff; i++) {
+        collections.add(null);
+      }
+
+      collections.add(config);
+      assert collections.size() - 1 == config.id();
+    }
+
+    storeProperty(
+        atomicOperation,
+        COLLECTIONS_PREFIX_PROPERTY + config.id(),
+        encodeCollectionEntry(config, state, storage.getStorageFormat()),
+        collectionEntryVersion(storage.getStorageFormat()));
   }
 
   @Override
@@ -1938,12 +2076,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private static int strictEngineStringEnd(byte[] bytes, int pos) {
-    var end = strictStringEnd(bytes, pos);
-    if (bytes[pos] == 1
-        && (IntegerSerializer.deserializeNative(bytes, pos + 1) & 1) != 0) {
-      throw new IllegalArgumentException("Invalid UTF-16 string length");
-    }
-    return end;
+    return strictStringEnd(bytes, pos);
   }
 
   private static int strictEngineCount(byte[] bytes, int pos) {
@@ -2215,6 +2348,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     final var size = IntegerSerializer.deserializeNative(property, pos + 1);
     if (size < 0 || size > property.length - pos - STRING_HEADER_SIZE) {
       throw new IllegalArgumentException("Invalid string length");
+    }
+    if ((size & 1) != 0) {
+      throw new IllegalArgumentException("Invalid UTF-16 string length");
     }
     return pos + STRING_HEADER_SIZE + size;
   }

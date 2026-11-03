@@ -8692,7 +8692,7 @@ public abstract class AbstractStorage
     collection.create(atomicOperation);
 
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+        .createCollection(atomicOperation, collection.generateCollectionConfig());
 
     linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
 

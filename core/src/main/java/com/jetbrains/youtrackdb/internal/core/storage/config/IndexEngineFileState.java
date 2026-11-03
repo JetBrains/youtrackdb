@@ -37,6 +37,14 @@ public record IndexEngineFileState(boolean multivalue, int bits) {
     return new IndexEngineFileState(multivalue, roleMask(multivalue));
   }
 
+  public IndexEngineFileState withCreated(Role role) {
+    if (role == null || (role.mask & roleMask(multivalue)) == 0) {
+      throw new ConfigurationException((String) null, "Foreign or missing index engine file role: "
+          + role);
+    }
+    return new IndexEngineFileState(multivalue, bits | role.mask);
+  }
+
   public boolean isCreated(Role role) {
     return (bits & role.mask) != 0;
   }

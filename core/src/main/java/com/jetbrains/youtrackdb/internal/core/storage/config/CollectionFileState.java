@@ -33,6 +33,13 @@ public record CollectionFileState(int bits) {
     }
   }
 
+  public CollectionFileState withCreated(Role role) {
+    if (role == null) {
+      throw new ConfigurationException((String) null, "Missing collection file role");
+    }
+    return new CollectionFileState(bits | role.mask);
+  }
+
   public boolean isCreated(Role role) {
     return (bits & role.mask) != 0;
   }
