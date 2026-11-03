@@ -152,7 +152,8 @@ public final class BTreeSingleValueIndexEngine
   public void delete(final @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
-      indexesSnapshot.clear();
+      // Retain history for failed-DROP reconstruction under the same file base id.
+      // Low-water-mark eviction reclaims it after the last reader finishes.
       sbTree.delete(atomicOperation);
       var mgr = histogramManager;
       if (mgr != null) {

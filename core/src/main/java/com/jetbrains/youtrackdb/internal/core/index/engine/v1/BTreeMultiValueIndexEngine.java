@@ -179,8 +179,8 @@ public final class BTreeMultiValueIndexEngine
   public void delete(@Nonnull AtomicOperation atomicOperation) {
     try {
       clearSVTree(atomicOperation);
-      indexesSnapshot.clear();
-      nullIndexesSnapshot.clear();
+      // Retain regular and null-key history for failed-DROP reconstruction under
+      // the same file base id. Low-water-mark eviction reclaims it after readers finish.
       svTree.delete(atomicOperation);
       nullTree.delete(atomicOperation);
       var mgr = histogramManager;

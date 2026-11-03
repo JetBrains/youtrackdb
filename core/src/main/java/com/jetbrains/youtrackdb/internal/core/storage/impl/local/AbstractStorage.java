@@ -4300,6 +4300,7 @@ public abstract class AbstractStorage
    * reads is the pre-commit state again; a fresh engine is reconstructed from the captured durable
    * {@link IndexEngineData} through the same {@code Indexes.createIndexEngine} + {@code engine.load}
    * path {@link #openIndexes} uses at startup, and re-registered at the original slot.
+   * The captured file base id also reconnects it to the history retained by engine delete.
    *
    * <p>A fresh engine object is rebuilt rather than re-publishing the torn one: {@code
    * deleteIndexEngineInCommitWindow} ran the engine's own {@code delete}, which for a B-tree engine
@@ -10555,7 +10556,7 @@ public abstract class AbstractStorage
       evicted += 2;
     }
     if (evicted > 0) {
-      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // Clamp to zero: explicit snapshot utility clear() and eviction may both decrement
       // for the same entries (ConcurrentSkipListMap.remove is idempotent
       // but both callers counted entries during their own iteration pass).
       final long delta = evicted;

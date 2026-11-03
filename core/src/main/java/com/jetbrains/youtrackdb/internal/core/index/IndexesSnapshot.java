@@ -103,7 +103,8 @@ public class IndexesSnapshot {
     // Neither order is safe without the prefix validation in
     // lookupSnapshotRid.
     //
-    // Note on concurrent clear(): if clear() runs between the TombstoneRID write
+    // Explicit utility clear() (not engine CLEAR or DROP) can race with writes.
+    // If clear() runs between the TombstoneRID write
     // (line below) and the visibilityIndex write, clear() will remove the
     // TombstoneRID from indexesSnapshot but the visibilityIndex entry will still be
     // written. This orphaned visibilityIndex entry is benign: eviction will attempt
@@ -317,8 +318,9 @@ public class IndexesSnapshot {
   }
 
   /**
-   * Discards this index's history and visibility entries. Engine CLEAR keeps history
-   * for rollback and leaves reclamation to low-water-mark eviction instead.
+   * Discards this index's history and visibility entries. This utility is not part of
+   * engine CLEAR or DROP. Both keep history for rollback and leave reclamation to
+   * low-water-mark eviction.
    */
   public void clear() {
     // Capture the current upper bound to guarantee termination when there
@@ -360,7 +362,7 @@ public class IndexesSnapshot {
       }
     }
     if (entryCount > 0) {
-      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // Clamp to zero: explicit utility clear() and eviction may both decrement
       // for the same entries (ConcurrentSkipListMap.remove is idempotent
       // but both callers counted entries during their own iteration pass).
       final long delta = entryCount;

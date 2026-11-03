@@ -763,7 +763,7 @@ public class IndexesSnapshotCleanupTest {
   // --- clear() isolation between sub-snapshots ---
 
   /**
-   * Clearing one sub-snapshot (e.g., when an index engine is deleted) must not affect
+   * Explicitly clearing one utility sub-snapshot must not affect
    * entries or versionIndex mappings belonging to other sub-snapshots. The shared
    * versionIndex must only lose the entries owned by the cleared sub-snapshot.
    */
@@ -791,7 +791,7 @@ public class IndexesSnapshotCleanupTest {
     assertThat(data).hasSize(4);
     assertThat(verIdx).hasSize(2);
 
-    // Clear engine A's sub-snapshot (simulates DROP INDEX for index A)
+    // Explicit utility clear of A. Engine DROP retains history for LWM eviction.
     subA.clear();
 
     assertThat(subA.allEntries()).isEmpty();
