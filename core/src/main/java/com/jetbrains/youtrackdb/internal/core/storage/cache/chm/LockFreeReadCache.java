@@ -749,6 +749,44 @@ public final class LockFreeReadCache implements ReadCache {
     writeCache.close();
   }
 
+  /** Removes candidate pages with one map sweep under the caller's storage state write lock. */
+  @Override
+  public void clearFiles(final java.util.Set<Long> fileIds, final WriteCache writeCache) {
+    flushCurrentThreadReadBatch();
+    evictionLock.lock();
+    try {
+      emptyBuffers();
+      // Collect under the map's section locks, then remove outside them to avoid reentrancy.
+      final var candidates = new java.util.ArrayList<CacheEntry>();
+      data.forEachValue(entry -> {
+        if (fileIds.contains(entry.getFileId())) {
+          candidates.add(entry);
+        }
+      });
+      CacheEntry firstPinned = null;
+      for (final var entry : candidates) {
+        if (!data.remove(entry.getFileId(), entry.getPageIndex(), entry)) {
+          continue;
+        }
+        if (entry.freeze()) {
+          policy.onRemove(entry);
+          cacheSize.decrementAndGet();
+        } else {
+          data.put(entry.getFileId(), entry.getPageIndex(), entry);
+          if (firstPinned == null) {
+            firstPinned = entry;
+          }
+        }
+      }
+      if (firstPinned != null) {
+        throw new StorageException(writeCache.getStorageName(),
+            "Cannot quarantine a file with pinned pages: " + firstPinned.getFileId());
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
   /**
    * Single-pass bulk drain used by {@code closeStorage} and {@code deleteStorage}:
    *

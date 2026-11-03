@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -13,6 +14,10 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
@@ -20,6 +25,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -251,6 +257,67 @@ public class DiskStorageMaintenanceFloorTest {
     assertTrue("the final close must not lower the background floor", readFloor() >= issued.get());
   }
 
+  /**
+   * Error state alone still permits fuzzy checkpoints. An IN_PROGRESS operation retains its
+   * FileCreated records even when later, clean segments would otherwise be eligible for removal.
+   */
+  @Test
+  public void fuzzyCheckpointInErrorRetainsInProgressFileCreationWal() throws Exception {
+    try (var manager = manager(root)) {
+      manager.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+      try (var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+        var storage = (DiskStorage) session.getStorage();
+        prepareRemovableSegment(session, storage);
+        var wal = storage.getWALInstance();
+        var original = wal.begin().getSegment();
+        var field = AbstractStorage.class.getDeclaredField("atomicOperationsTable");
+        field.setAccessible(true);
+        var table = (AtomicOperationsTable) field.get(storage);
+        var operationId = storage.getIdGen().nextId();
+        var start = wal.log(new AtomicUnitStartRecord(false, operationId));
+        table.startOperation(operationId, start.getSegment());
+        try {
+          var names = List.of("inProgressFirst.tst", "inProgressLater.tst");
+          var first = wal.log(new FileCreatedWALRecord(operationId, names.getFirst(), 900001));
+          wal.log(new FileCreatedWALRecord(operationId, names.getLast(), 900002));
+          for (var index = 0; index < 2; index++) {
+            wal.appendNewSegment();
+            wal.log(new EmptyWALRecord());
+          }
+          wal.flush();
+          storage.getWriteCache().flush();
+          assertTrue("old segments must be removable before the operation boundary",
+              original < start.getSegment());
+          assertTrue("later WAL segments must be eligible without operation ownership",
+              wal.end().getSegment() > start.getSegment());
+          assertEquals(null, storage.getWriteCache().getMinimalNotFlushedSegment());
+          assertEquals(start.getSegment(), table.getSegmentEarliestOperationInProgress());
+          var setInError = AbstractStorage.class.getDeclaredMethod("setInError", Throwable.class);
+          setInError.setAccessible(true);
+          setInError.invoke(storage, new IOException("injected commit-apply error"));
+          assertThrows(StorageException.class, storage::checkErrorState);
+          assertFalse("the map failure latch must not short-circuit this checkpoint",
+              storage.getWriteCache().isWalCuttingStopped());
+
+          storage.makeFuzzyCheckpoint();
+
+          assertTrue("the fuzzy pass must actually cut older segments",
+              wal.begin().getSegment() > original);
+          assertTrue("the cut must not pass the IN_PROGRESS operation boundary",
+              wal.begin().getSegment() <= start.getSegment());
+          var retained = wal.read(first, 10).stream()
+              .filter(FileCreatedWALRecord.class::isInstance)
+              .map(FileCreatedWALRecord.class::cast)
+              .map(FileCreatedWALRecord::getFileName).toList();
+          assertEquals(names, retained);
+          assertEquals(start.getSegment(), table.getSegmentEarliestOperationInProgress());
+        } finally {
+          table.rollbackOperation(operationId);
+        }
+      }
+    }
+  }
+
   private static void prepareRemovableSegment(
       DatabaseSessionEmbedded session, AbstractStorage storage)
       throws IOException {
@@ -296,6 +363,11 @@ public class DiskStorageMaintenanceFloorTest {
   }
 
   private long crashChild(String mode) throws Exception {
+    return crashChild(root, mode);
+  }
+
+  /** Runs the shared abrupt-stop fixture and returns its forced handshake value. */
+  public static long crashChild(Path root, String mode) throws Exception {
     var mark = root.resolve("mark-" + mode);
     var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     var classpath =
@@ -330,6 +402,10 @@ public class DiskStorageMaintenanceFloorTest {
     var session = manager.open(DATABASE, ADMIN, ADMIN);
     var storage = (DiskStorage) session.getStorage();
     prepareRemovableSegment(session, storage);
+    if (args[0].equals("salvage")) {
+      tearMapAndHalt(root, storage, Path.of(args[2]));
+      return;
+    }
     var original = storage.getWALInstance().begin().getSegment();
     var issued = new AtomicLong(-1);
     storage.setBeforeMaintenanceFloorActionForTesting(issued::set);
@@ -345,6 +421,33 @@ public class DiskStorageMaintenanceFloorTest {
         readFloor(storage) >= issued.get());
     Files.writeString(Path.of(args[2]), Long.toString(issued.get()), StandardOpenOption.CREATE_NEW);
     try (var channel = FileChannel.open(Path.of(args[2]), StandardOpenOption.WRITE)) {
+      channel.force(true);
+    }
+    Runtime.getRuntime().halt(0);
+  }
+
+  private static void tearMapAndHalt(Path root, DiskStorage storage, Path mark) throws Exception {
+    // prepareRemovableSegment committed ordinary records. Force their commit WAL before damage.
+    var wal = storage.getWALInstance();
+    var committed = wal.end();
+    wal.flush();
+    assertTrue(wal.getFlushedLsn().compareTo(committed) >= 0);
+    var main = root.resolve(DATABASE).resolve("name_id_map_v3.cm");
+    var offset = Files.size(main);
+    storage.getWriteCache().addFile("torn.tst");
+    storage.getWriteCache().addFile("salvaged.tst");
+    for (var name : List.of("name_id_map_v3.cm", "name_id_map_v3_backup.cm")) {
+      try (var channel = FileChannel.open(main.resolveSibling(name), StandardOpenOption.WRITE)) {
+        // Tear the length of the penultimate record, leaving a complete later registration.
+        var length = ByteBuffer.allocate(4).putInt(Integer.MAX_VALUE).flip();
+        while (length.hasRemaining()) {
+          channel.write(length, offset + 8 + length.position());
+        }
+        channel.force(true);
+      }
+    }
+    Files.writeString(mark, Long.toString(offset), StandardOpenOption.CREATE_NEW);
+    try (var channel = FileChannel.open(mark, StandardOpenOption.WRITE)) {
       channel.force(true);
     }
     Runtime.getRuntime().halt(0);

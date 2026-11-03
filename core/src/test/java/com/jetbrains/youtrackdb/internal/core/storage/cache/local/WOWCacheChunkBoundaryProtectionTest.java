@@ -638,11 +638,6 @@ public class WOWCacheChunkBoundaryProtectionTest {
     }
 
     @Override
-    public void renameTo(final Path newFile) throws IOException, InterruptedException {
-      delegate.renameTo(newFile);
-    }
-
-    @Override
     public long getUnderlyingFileSize() throws IOException {
       return delegate.getUnderlyingFileSize();
     }
@@ -752,11 +747,6 @@ public class WOWCacheChunkBoundaryProtectionTest {
     @Override
     public String getName() {
       return delegate.getName();
-    }
-
-    @Override
-    public void renameTo(final Path newFile) throws IOException, InterruptedException {
-      delegate.renameTo(newFile);
     }
 
     @Override

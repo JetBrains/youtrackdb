@@ -1,25 +1,34 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexBuildState;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
@@ -28,15 +37,22 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Stora
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -56,6 +72,7 @@ public class DiskStorageBootstrapWiringTest {
   private static final String DIRTY_CHILD_ARGUMENT = "commit-and-halt";
   private static final String COMMIT_RACE_CHILD_ARGUMENT = "commit-race-and-halt";
   private static final String DIRTY_CLASS = "DirtyWork";
+  private static final String REGISTRY_CHILD_ARGUMENT = "registry-and-halt";
 
   /**
    * Commit count before the child reports its high-water mark. The count keeps that mark far above
@@ -459,15 +476,304 @@ public class DiskStorageBootstrapWiringTest {
     }
   }
 
-  /** A failed open-time indication releases the startup metadata lock for a fresh open. */
+  /**
+   * A registry rewrite failure during cache loading fails open with the original IO error.
+   * Both maintenance tasks and cache flushing stop, all opened data and map channels close,
+   * and a fresh storage opens the directory after the injected fault is removed.
+   */
+  @Test(timeout = 60_000)
+  public void failedRegistryRewriteDuringOpenReleasesTasksAndPartiallyLoadedCache()
+      throws Exception {
+    final var storageDirectory = directory.resolve(DATABASE);
+    final var primary = storageDirectory.resolve("non_durable_files.cm");
+    final var shadow = storageDirectory.resolve("non_durable_files_shadow.cm");
+    final byte[] staleRegistry;
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      final var cache = session.getStorage().getWriteCache();
+      final var deleted = cache.bookFileId("openDeleted.tst");
+      cache.addFile("openDeleted.tst", deleted, true);
+      cache.addFile("openSurvivor.tst");
+      final var nonDurableSurvivor = cache.bookFileId("openNonDurableSurvivor.tst");
+      cache.addFile("openNonDurableSurvivor.tst", nonDurableSurvivor, true);
+      staleRegistry = Files.readAllBytes(primary);
+      cache.deleteFile(deleted);
+    }
+    Files.write(primary, staleRegistry);
+    Files.write(shadow, staleRegistry);
+
+    final var observed = new AtomicReference<DiskStorage>();
+    final var openedFiles = new HashMap<Long, File>();
+    final var mapChannel = new AtomicReference<FileChannel>();
+    final var injected = new IOException("open registry rewrite rejected");
+    DiskStorage.setOpenIndicationActionForTesting(storageDirectory, observed::set);
+    try (var manager = openManager()) {
+      try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+        channels.when(() -> FileChannel.open(storageDirectory.resolve("name_id_map_v3.cm"),
+            StandardOpenOption.WRITE, StandardOpenOption.READ)).thenAnswer(invocation -> {
+              final var channel = (FileChannel) invocation.callRealMethod();
+              mapChannel.set(channel);
+              return channel;
+            });
+        // Both copies are valid, so filtering rewrites the primary first.
+        channels
+            .when(() -> FileChannel.open(primary, StandardOpenOption.WRITE))
+            .thenAnswer(invocation -> {
+              openedFiles.putAll(registeredFiles(observed.get()));
+              try (var partial = (FileChannel) invocation.callRealMethod()) {
+                partial.write(java.nio.ByteBuffer.wrap(new byte[] {1, 2}), 0);
+                partial.force(true);
+              }
+              throw injected;
+            });
+        final var failure = assertThrows(RuntimeException.class,
+            () -> manager.open(DATABASE, ADMIN, ADMIN));
+        assertTrue("open must propagate the registry IO error", hasCause(failure, injected));
+      }
+      assertNotNull(mapChannel.get());
+      assertFalse("the name-id map channel must close", mapChannel.get().isOpen());
+      assertFailedOpenResourcesReleased(observed.get(), openedFiles);
+      try (var retry = manager.open(DATABASE, ADMIN, ADMIN)) {
+        assertNotSame("retry must use a fresh storage", observed.get(), retry.getStorage());
+        final var cache = retry.getStorage().getWriteCache();
+        assertTrue(cache.exists("openSurvivor.tst"));
+        assertTrue(cache.isNonDurable(cache.fileIdByName("openNonDurableSurvivor.tst")));
+      }
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  /**
+   * An unchecked append-channel failure during WAL replay fails open with its cause intact.
+   * The later committed file unit remains unapplied, and a fresh open replays both units.
+   */
+  @Test(timeout = 120_000)
+  public void runtimeRegistryAppendFailureFailsOpenWithoutDiscardingLaterWalUnits()
+      throws Exception {
+    runCrashChild(REGISTRY_CHILD_ARGUMENT, directory.resolve("registry-ready.txt"));
+    final var storageDirectory = directory.resolve(DATABASE);
+    final var mapPath = storageDirectory.resolve("name_id_map_v3.cm");
+    final var injected = new SecurityException("append channel denied");
+    final var observed = new AtomicReference<DiskStorage>();
+    final var failedAppend = new AtomicBoolean();
+    DiskStorage.setOpenIndicationActionForTesting(storageDirectory, observed::set);
+    try (var manager = openManager()) {
+      try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+        channels.when(() -> FileChannel.open(mapPath,
+            StandardOpenOption.READ, StandardOpenOption.WRITE)).thenAnswer(invocation -> {
+              // Repair and failed-open cleanup can also open this channel. Inject once,
+              // when WAL replay has already installed its first live registration.
+              if (failedAppend.get()) {
+                return invocation.callRealMethod();
+              }
+              failedAppend.set(true);
+              final var cache = observed.get().getWriteCache();
+              assertTrue("the first unit must already be materializing its file",
+                  cache.exists("replayFirst.tst"));
+              assertFalse("the later unit must not be applied yet",
+                  cache.exists("replayLater.tst"));
+              throw injected;
+            });
+        final var failure = assertThrows(RuntimeException.class,
+            () -> manager.open(DATABASE, ADMIN, ADMIN));
+        assertTrue("the unchecked append failure must be exercised", failedAppend.get());
+        assertTrue("open must retain the original cause", hasCause(failure, injected));
+        assertTrue("the registry failure must use the checked IO path",
+            hasIoCause(failure));
+      }
+      assertEquals(AbstractStorage.STATUS.CLOSED, observed.get().getStatus());
+      try (var paths = Files.list(storageDirectory)) {
+        assertFalse("failed replay must not create the later unit's file",
+            paths.anyMatch(path -> path.getFileName().toString().startsWith("replayLater")));
+      }
+      assertTrue((boolean) fieldValue(observed.get().getWriteCache(), WOWCache.class,
+          "nameIdMapAppendsStopped"));
+      try (var retry = manager.open(DATABASE, ADMIN, ADMIN)) {
+        final var cache = retry.getStorage().getWriteCache();
+        assertTrue("retry must replay the failed unit", cache.exists("replayFirst.tst"));
+        assertTrue("retry must replay the later unit too", cache.exists("replayLater.tst"));
+      }
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  /**
+   * An unreadable map copy fails both opens of the same storage object without poisoning it.
+   * The failure preserves both copies and reports the original path and I/O cause.
+   */
+  @Test
+  public void mapReadFailuresRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Use a complete disk image so each open reaches the name-id map reader.
+    }
+    final var path = directory.resolve(DATABASE).resolve("name_id_map_v3.cm");
+    final var original = Files.readAllBytes(path);
+    final var backup = path.resolveSibling("name_id_map_v3_backup.cm");
+    final var backupBytes = Files.readAllBytes(backup);
+    try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(path, StandardOpenOption.WRITE,
+          StandardOpenOption.READ)).thenThrow(new IOException("map read rejected: " + path));
+      assertMapRejectedOnRepeatedOpen(Map.of(path, original, backup, backupBytes),
+          "Failed to initialize the file registry");
+    }
+    try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      channels.when(() -> FileChannel.open(path, StandardOpenOption.WRITE))
+          .thenThrow(new IOException("map repair force rejected: " + path));
+      assertMapRejectedOnRepeatedOpen(Map.of(path, original, backup, backupBytes),
+          "Failed to initialize the file registry");
+    }
+  }
+
+  /**
+   * Each legacy map rejects both opens of the same storage object with the migration remedy.
+   * Neither rejection may set error state or change the legacy map or the existing V3 map.
+   */
+  @Test
+  public void legacyMapsRejectRepeatedOpenWithoutErrorStateOrMapChanges() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Keep a current map beside each legacy map to check that rejection preserves both.
+    }
+    final var storageDirectory = directory.resolve(DATABASE);
+    final var current = storageDirectory.resolve("name_id_map_v3.cm");
+    final var currentBytes = Files.readAllBytes(current);
+    for (final var fileName : new String[] {"name_id_map.cm", "name_id_map_v2.cm"}) {
+      final var legacy = storageDirectory.resolve(fileName);
+      final var legacyBytes = new byte[] {1, 2, 3};
+      Files.write(legacy, legacyBytes);
+      assertMapRejectedOnRepeatedOpen(Map.of(current, currentBytes, legacy, legacyBytes),
+          legacy.toString(), "no longer supported", "Export the database with the older release",
+          "import it into a fresh database", "docs/operator-migration-procedure.md");
+      Files.delete(legacy);
+    }
+  }
+
+  private void assertMapRejectedOnRepeatedOpen(Map<Path, byte[]> maps, String... messageParts)
+      throws Exception {
+    final var observed = new AtomicReference<DiskStorage>();
+    DiskStorage.setOpenIndicationActionForTesting(directory.resolve(DATABASE), observed::set);
+    try (var manager = openManager()) {
+      final var first = assertThrows(DatabaseException.class,
+          () -> manager.open(DATABASE, ADMIN, ADMIN));
+      assertTrue("the manager must retain the storage rejection",
+          first.getCause() instanceof StorageException);
+      final var storage = observed.get();
+      assertNotNull("the failed storage must be observed", storage);
+      assertMapRejection(storage, (StorageException) first.getCause(), maps, messageParts);
+
+      // Bypass the manager, which removes failed storages and would hide a poisoned instance.
+      final var second = assertThrows(StorageException.class,
+          () -> storage.open(new ContextConfiguration()));
+      assertMapRejection(storage, second, maps, messageParts);
+    } finally {
+      DiskStorage.clearOpenIndicationActionForTesting();
+    }
+  }
+
+  private static void assertMapRejection(DiskStorage storage, StorageException failure,
+      Map<Path, byte[]> maps, String[] messageParts) throws Exception {
+    for (final var part : messageParts) {
+      assertTrue(failure.getMessage(), failure.getMessage().contains(part));
+    }
+    assertEquals(AbstractStorage.STATUS.CLOSED, storage.getStatus());
+    // This public guard throws if isInError() is true, even while the storage is CLOSED.
+    storage.checkErrorState();
+    for (final var entry : maps.entrySet()) {
+      assertArrayEquals(entry.getKey().toString(), entry.getValue(),
+          Files.readAllBytes(entry.getKey()));
+    }
+  }
+
+  private static boolean hasIoCause(Throwable failure) {
+    for (var cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause instanceof IOException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<Long, File> registeredFiles(DiskStorage storage) throws Exception {
+    final var cache = (WOWCache) storage.getWriteCache();
+    final var names = (Map<String, Integer>) fieldValue(cache, WOWCache.class, "nameIdMap");
+    final var container = (ClosableLinkedContainer<Long, File>) fieldValue(
+        storage, DiskStorage.class, "files");
+    final var result = new HashMap<Long, File>();
+    for (final var id : names.values()) {
+      if (id >= 0) {
+        final var externalId = cache.externalFileId(id);
+        final var file = container.get(externalId);
+        if (file != null) {
+          result.put(externalId, file);
+        }
+      }
+    }
+    return result;
+  }
+
+  private static Object fieldValue(Object target, Class<?> owner, String name) throws Exception {
+    final var field = owner.getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(target);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void assertFailedOpenResourcesReleased(
+      DiskStorage storage, Map<Long, File> openedFiles) throws Exception {
+    assertNotNull("the failed storage must be observed", storage);
+    assertEquals(AbstractStorage.STATUS.CLOSED, storage.getStatus());
+    for (final var name : new String[] {"fuzzyCheckpointTask", "recordsGcTask"}) {
+      final var task = (Future<?>) fieldValue(storage, DiskStorage.class, name);
+      assertNotNull("the task must have been scheduled", task);
+      assertTrue(name + " must be cancelled", task.isCancelled());
+    }
+    final var cache = (WOWCache) storage.getWriteCache();
+    assertTrue("the failed cache must be closed", (boolean) fieldValue(cache, WOWCache.class,
+        "closed"));
+    assertTrue("background flushing must stop", (boolean) fieldValue(cache, WOWCache.class,
+        "stopFlush"));
+    final var flush = (Future<?>) fieldValue(cache, WOWCache.class, "flushFuture");
+    assertTrue("the flush task must finish", flush == null || flush.isDone());
+    final var container = (ClosableLinkedContainer<Long, File>) fieldValue(
+        storage, DiskStorage.class, "files");
+    assertFalse("the failure must happen after data files open", openedFiles.isEmpty());
+    for (final var entry : openedFiles.entrySet()) {
+      assertFalse("data file channels must close", entry.getValue().isOpen());
+      assertEquals("closed files must leave the container", null, container.get(entry.getKey()));
+    }
+  }
+
+  private static boolean hasCause(Throwable failure, Throwable expected) {
+    for (var cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause == expected) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A failed open-time indication releases tasks, cache files and metadata for a fresh open. */
   @Test(timeout = 60_000)
   public void failedOpenIndicationClosesMetadataAndPermitsRetry() throws Exception {
     try (var ignored = createDatabase()) {
       // The next open must perform its own atomic setup on a clean image.
     }
     var otherRoot = createOtherStorageWithSameName();
-    DiskStorage.setOpenIndicationActionForTesting(directory.resolve(DATABASE), storage -> storage
-        .failNextRecoveryIndicationForTesting(new IOException("open indication rejected")));
+    final var observed = new AtomicReference<DiskStorage>();
+    final var openedFiles = new HashMap<Long, File>();
+    DiskStorage.setOpenIndicationActionForTesting(directory.resolve(DATABASE), storage -> {
+      observed.set(storage);
+      storage.setBeforeRecoveryIndicationActionForTesting(() -> {
+        try {
+          openedFiles.putAll(registeredFiles(storage));
+        } catch (Exception e) {
+          throw new AssertionError(e);
+        }
+      });
+      storage.failNextRecoveryIndicationForTesting(new IOException("open indication rejected"));
+    });
     try (var other = (YouTrackDBImpl) YourTracks.instance(otherRoot.toString());
         var unrelated = other.open(DATABASE, ADMIN, ADMIN);
         var manager = openManager()) {
@@ -476,7 +782,9 @@ public class DiskStorageBootstrapWiringTest {
       var failure = assertThrows(RuntimeException.class,
           () -> manager.open(DATABASE, ADMIN, ADMIN));
       assertTrue(hasCauseMessage(failure, "open indication rejected"));
+      assertFailedOpenResourcesReleased(observed.get(), openedFiles);
       try (var retry = manager.open(DATABASE, ADMIN, ADMIN)) {
+        assertNotSame("retry must use a fresh storage", observed.get(), retry.getStorage());
         assertTrue("retry must acquire the metadata lock and open", retry.getStorage() != null);
       }
     } finally {
@@ -782,6 +1090,7 @@ public class DiskStorageBootstrapWiringTest {
       case BIRTH_CHILD_ARGUMENT -> birthAndHalt(root, handshake);
       case DIRTY_CHILD_ARGUMENT -> commitAndHalt(root, handshake);
       case COMMIT_RACE_CHILD_ARGUMENT -> commitRaceAndHalt(root, handshake);
+      case REGISTRY_CHILD_ARGUMENT -> registryAndHalt(root, handshake);
       default -> throw new IllegalArgumentException("Unknown child mode " + arguments[0]);
     }
   }
@@ -836,6 +1145,27 @@ public class DiskStorageBootstrapWiringTest {
     storage.getWALInstance().flush();
 
     reportMark(handshake, reportedMark);
+    Runtime.getRuntime().halt(0);
+  }
+
+  /** Leaves two complete file-creation WAL units whose physical application requires replay. */
+  private static void registryAndHalt(Path root, Path handshake) throws Exception {
+    var manager = (YouTrackDBImpl) YourTracks.instance(root.toString());
+    manager.create(DATABASE, DatabaseType.DISK, ADMIN, ADMIN, ADMIN);
+    var session = manager.open(DATABASE, ADMIN, ADMIN);
+    var storage = (AbstractStorage) session.getStorage();
+    session.getMetadata().getSchema().createClass("RegistryReplay");
+    var cache = storage.getWriteCache();
+    var wal = storage.getWALInstance();
+    for (var name : new String[] {"replayFirst.tst", "replayLater.tst"}) {
+      var operationId = storage.getIdGen().nextId();
+      var fileId = cache.bookFileId(name);
+      wal.log(new AtomicUnitStartRecord(false, operationId));
+      wal.log(new FileCreatedWALRecord(operationId, name, fileId));
+      wal.log(new AtomicUnitEndRecord(operationId, false, null));
+    }
+    wal.flush();
+    reportMark(handshake, storage.getIdGen().getLastId());
     Runtime.getRuntime().halt(0);
   }
 

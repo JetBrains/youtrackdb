@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.exception.GenesisIncompleteException;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
@@ -54,7 +55,6 @@ public class StorageBirthActivationTest {
   private static final String ADMIN = "admin";
   private static final String PASSWORD = "adminpwd";
   private static final String LOCK_FILE_NAME = "storage-bootstrap.bsml";
-  private static final String NORMAL_DATABASE_LOCK_FILE_NAME = "dirty.fl";
 
   private Path directory;
 
@@ -384,11 +384,12 @@ public class StorageBirthActivationTest {
     var source = directory.resolve("copySource");
     var target = directory.resolve("copyTarget");
     Files.createDirectories(source.resolve("nested"));
-    var normalLockFile = Files.writeString(source.resolve(NORMAL_DATABASE_LOCK_FILE_NAME), "dirty");
+    var normalLockFile =
+        Files.writeString(source.resolve(StorageFileNames.DIRTY_FILE_NAME), "dirty");
     Files.writeString(source.resolve("storage-bootstrap-0.bsm"), "birth-record");
     Files.writeString(source.resolve("dirty.flb"), "startup-backup");
     Files.writeString(source.resolve("index.ixs"), "histogram");
-    Files.writeString(source.resolve("nested").resolve(NORMAL_DATABASE_LOCK_FILE_NAME), "nested");
+    Files.writeString(source.resolve("nested").resolve(StorageFileNames.DIRTY_FILE_NAME), "nested");
 
     try (var channel =
         FileChannel.open(normalLockFile, StandardOpenOption.READ, StandardOpenOption.WRITE);
@@ -396,12 +397,12 @@ public class StorageBirthActivationTest {
       copyDirectory(source, target);
     }
 
-    assertFalse(Files.exists(target.resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
+    assertFalse(Files.exists(target.resolve(StorageFileNames.DIRTY_FILE_NAME)));
     assertEquals("birth-record", Files.readString(target.resolve("storage-bootstrap-0.bsm")));
     assertEquals("startup-backup", Files.readString(target.resolve("dirty.flb")));
     assertEquals("histogram", Files.readString(target.resolve("index.ixs")));
     assertEquals("nested",
-        Files.readString(target.resolve("nested").resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
+        Files.readString(target.resolve("nested").resolve(StorageFileNames.DIRTY_FILE_NAME)));
   }
 
   /**
@@ -813,7 +814,7 @@ public class StorageBirthActivationTest {
         var destination = target.resolve(source.relativize(path).toString());
         if (Files.isDirectory(path)) {
           Files.createDirectories(destination);
-        } else if (!path.equals(source.resolve(NORMAL_DATABASE_LOCK_FILE_NAME))) {
+        } else if (!path.equals(source.resolve(StorageFileNames.DIRTY_FILE_NAME))) {
           // Windows forbids reading dirty.fl under the live storage lock. These copies test
           // bootstrap admission and histogram content, never startup recovery of the copy.
           Files.createDirectories(destination.getParent());
@@ -826,6 +827,6 @@ public class StorageBirthActivationTest {
         Files.isRegularFile(target.resolve("storage-bootstrap-0.bsm")));
     assertFalse(
         "the copy must omit the locked startup metadata, not attempt startup recovery",
-        Files.exists(target.resolve(NORMAL_DATABASE_LOCK_FILE_NAME)));
+        Files.exists(target.resolve(StorageFileNames.DIRTY_FILE_NAME)));
   }
 }

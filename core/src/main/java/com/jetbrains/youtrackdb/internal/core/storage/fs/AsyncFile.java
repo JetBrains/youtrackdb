@@ -521,21 +521,6 @@ public final class AsyncFile implements File {
   }
 
   @Override
-  public void renameTo(Path newFile) throws IOException {
-    lock.exclusiveLock();
-    try {
-      doClose();
-
-      //noinspection NonAtomicOperationOnVolatileField
-      osFile = Files.move(osFile, newFile);
-
-      doOpen();
-    } finally {
-      lock.exclusiveUnlock();
-    }
-  }
-
-  @Override
   public void replaceContentWith(final Path newContentFile) throws IOException {
     lock.exclusiveLock();
     try {

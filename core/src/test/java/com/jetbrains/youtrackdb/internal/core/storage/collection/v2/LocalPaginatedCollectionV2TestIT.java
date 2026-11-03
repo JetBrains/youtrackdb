@@ -387,40 +387,6 @@ public class LocalPaginatedCollectionV2TestIT extends LocalPaginatedCollectionAb
     atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
   }
 
-  // --- Rename test ---
-
-  // Verifies that renaming a collection updates the file name and the collection remains
-  // functional after the rename.
-  @Test
-  public void testSetCollectionName() throws IOException {
-    var collection = new PaginatedCollectionV2("renameSource", storage);
-    collection.configure(96, "renameSource");
-    atomicOps().executeInsideAtomicOperation(op -> collection.create(op));
-
-    // Add a record before rename
-    var data = new byte[] {1, 2, 3};
-    var pos = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.createRecord(data, (byte) 1, null, op));
-
-    // Rename
-    collection.setCollectionName("renameTarget");
-
-    // Verify new name
-    Assert.assertEquals("renameTarget", collection.getName());
-    Assert.assertTrue("File name should reflect new name",
-        collection.getFileName().contains("renameTarget"));
-
-    // Verify data is still accessible after rename
-    var buffer = atomicOps().calculateInsideAtomicOperation(
-        op -> collection.readRecord(pos.collectionPosition, op)).toRawBuffer();
-    Assertions.assertThat(buffer.buffer()).isEqualTo(data);
-
-    // Clean up
-    atomicOps().executeInsideAtomicOperation(
-        op -> collection.deleteRecord(op, pos.collectionPosition));
-    atomicOps().executeInsideAtomicOperation(op -> collection.delete(op));
-  }
-
   // --- Conflict strategy test ---
 
   // Verifies that setting a record conflict strategy updates the strategy returned by the getter.

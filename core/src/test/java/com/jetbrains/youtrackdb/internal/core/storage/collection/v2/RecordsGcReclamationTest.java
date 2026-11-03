@@ -593,13 +593,12 @@ public class RecordsGcReclamationTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Dirty page bit set: rename
+  // Garbage collection after class rename
   // ---------------------------------------------------------------------------
 
-  // Exercises the dirtyPageBitSet.rename() call in setCollectionName().
-  // Targets mutant at line 1986.
+  // A metadata-only class rename must keep dirty pages usable for GC after disk reopen.
   @Test
-  public void renameCollectionRenamesDirtyPageBitSet() {
+  public void classRenamePreservesDirtyPagesForGcAfterReopen() {
     var dbPath = diskTestPath("rename");
 
     var diskYtdb = createDiskInstance(dbPath, "renametest");
@@ -621,7 +620,7 @@ public class RecordsGcReclamationTest {
       session.command("UPDATE GcRename SET ver = 1");
       session.commit();
 
-      // Rename the class (which renames collections and their associated files)
+      // Rename only class metadata. Collection names and storage files stay unchanged.
       session.command("ALTER CLASS GcRename NAME GcRenamed");
 
       // Another update to create more dead records under the new name
@@ -645,7 +644,7 @@ public class RecordsGcReclamationTest {
         reclaimed += pc.collectDeadRecords(storage.getSharedSnapshotIndex());
       }
       assertThat(reclaimed)
-          .as("GC should work after collection rename")
+          .as("GC should work after class rename")
           .isGreaterThan(0);
     } finally {
       diskYtdb.close();

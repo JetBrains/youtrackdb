@@ -266,9 +266,4 @@ public final class FreeSpaceMap extends StorageComponent {
   public void delete(AtomicOperation atomicOperation) throws IOException {
     deleteFile(atomicOperation, fileId);
   }
-
-  void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
-    setName(newName);
-  }
 }

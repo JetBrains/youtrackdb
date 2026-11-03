@@ -95,14 +95,6 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   }
 
   /**
-   * Renames the dirty page bit set file to match a new collection name.
-   */
-  void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
-    setName(newName);
-  }
-
-  /**
    * Sets the bit corresponding to the given data page index, indicating that the page contains
    * at least one stale record's start chunk.
    *

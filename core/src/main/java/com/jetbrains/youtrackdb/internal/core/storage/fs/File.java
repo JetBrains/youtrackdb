@@ -42,8 +42,6 @@ public interface File extends ClosableItem {
 
   String getName();
 
-  void renameTo(Path newFile) throws IOException, InterruptedException;
-
   /**
    * Returns the underlying file size. It's the physical size of the file on the file system.
    *

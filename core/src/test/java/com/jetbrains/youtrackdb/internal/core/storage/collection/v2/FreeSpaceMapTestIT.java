@@ -350,30 +350,6 @@ public class FreeSpaceMapTestIT {
         operation -> freeSpaceMap.create(operation));
   }
 
-  // Verifies that rename() changes the underlying file name while preserving
-  // stored data, so lookups still work through the renamed map.
-  @Test
-  public void renamePreservesDataUnderNewName() throws IOException {
-    atomicOperationsManager.executeInsideAtomicOperation(
-        operation -> freeSpaceMap.updatePageFreeSpace(operation, 10, 1500));
-
-    freeSpaceMap.rename("renamedFreeSpaceMap");
-    Assert.assertEquals(
-        "getFullName() should reflect the renamed file",
-        "renamedFreeSpaceMap.fsm", freeSpaceMap.getFullName());
-
-    // Data should still be accessible after rename
-    atomicOperationsManager.executeInsideAtomicOperation(
-        operation -> {
-          final var pageIndex = freeSpaceMap.findFreePage(1024, operation);
-          Assert.assertEquals(
-              "page 10 should still be found after rename", 10, pageIndex);
-        });
-
-    // Rename back so @After cleanup finds the file under its original name
-    freeSpaceMap.rename("freeSpaceMap");
-  }
-
   // Verifies that findFreePage returns -1 when the map is freshly created
   // and no pages have been registered, confirming correct empty-map behavior.
   @Test

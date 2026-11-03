@@ -633,11 +633,6 @@ public class WALRetentionAfterFailedPageWriteIT {
     }
 
     @Override
-    public void renameTo(final Path newFile) throws IOException, InterruptedException {
-      delegate.renameTo(newFile);
-    }
-
-    @Override
     public long getUnderlyingFileSize() throws IOException {
       return delegate.getUnderlyingFileSize();
     }

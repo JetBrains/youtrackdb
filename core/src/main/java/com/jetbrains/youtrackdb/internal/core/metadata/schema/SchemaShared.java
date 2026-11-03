@@ -157,9 +157,8 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   /**
    * The fixed stem every generated collection name starts with. The stem is deliberately not
-   * derived from the owning class's name: a class-derived name would force a class rename to
-   * rename the collection's storage files through the non-WAL-safe {@code writeCache.renameFile}
-   * path. It is also deliberately non-numeric, so a generated name can never be mistaken for an
+   * derived from the owning class's name, so a class rename leaves collection names unchanged.
+   * It is also deliberately non-numeric, so a generated name can never be mistaken for an
    * id-based collection reference in SQL or configuration.
    */
   public static final String COLLECTION_NAME_PREFIX = "c_";

@@ -2174,26 +2174,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     this.id = id;
   }
 
-  @Override
-  public void setCollectionName(final String newName) {
-    acquireExclusiveLock();
-    try {
-      writeCache.renameFile(fileId, newName + getExtension());
-      collectionPositionMap.rename(newName);
-      freeSpaceMap.rename(newName);
-      dirtyPageBitSet.rename(newName);
-
-      setName(newName);
-    } catch (IOException e) {
-      throw BaseException.wrapException(
-          new PaginatedCollectionException(storageName, "Error during renaming of collection",
-              this),
-          e, storageName);
-    } finally {
-      releaseExclusiveLock();
-    }
-  }
-
   private static PhysicalPosition createPhysicalPosition(
       final byte recordType, final long collectionPosition, final long version) {
     final var physicalPosition = new PhysicalPosition();

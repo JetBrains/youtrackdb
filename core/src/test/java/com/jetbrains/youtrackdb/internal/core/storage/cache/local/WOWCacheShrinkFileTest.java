@@ -192,15 +192,8 @@ public class WOWCacheShrinkFileTest {
         testFile.delete();
       }
     }
-    // Recursive best-effort wipe, mirroring WOWCacheLoadOrAddTest.cleanUp(). This used to
-    // delete a hand-written list of names (name_id_map.cm, name_id_map_v2.cm) and then call
-    // Files.deleteIfExists(storagePath), which throws DirectoryNotEmptyException on anything
-    // the list misses — name_id_map_v3.cm (the format actually in use) and the WAL segments
-    // among them. On a passing test those are removed by wowCache.delete() /
-    // writeAheadLog.delete() above, so the gap was invisible; but if a test aborts partway
-    // (for example on the -ea exclusive-write-counter assertion) the leftovers make setUp
-    // itself throw for every subsequent run against the same target directory, turning one
-    // real failure into a permanently red class until the directory is wiped by hand.
+    // Recursively remove map copies, WAL segments and partial files left by failed tests.
+    // This keeps a failed assertion from poisoning the next test's storage directory.
     if (storagePath != null && Files.exists(storagePath)) {
       // Collect per-path failures instead of swallowing them. Silently ignoring an IOException
       // here is what let the original residue problem hide: the wipe appears to succeed, and
@@ -1106,7 +1099,7 @@ public class WOWCacheShrinkFileTest {
       //
       // The window is forced open explicitly rather than by assuming the work below outruns the
       // clock. That work is not cheap: allocateAndOptionallyDirty's addFile and the deleteFile
-      // after it each finish with writeNameIdEntry(..., sync = true), i.e. a real
+      // after it each finish with writeNameIdEntry(...), i.e. a real
       // nameIdMapHolder.force(true) fsync, plus a file create, a blank-page task and an unlink. On
       // an I/O-throttled runner that can cumulatively outlast the one-minute throttle interval, at
       // which point the second clamp legitimately emits and an assertion of 1 fails on correct

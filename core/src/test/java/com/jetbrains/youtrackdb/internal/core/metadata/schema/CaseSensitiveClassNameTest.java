@@ -18,7 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1191,25 +1190,16 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
   /**
    * Verifies that a class rename leaves even a legacy class-derived collection name untouched.
-   * Class rename is metadata-only: the old class-derived-name code renamed a legacy-named
-   * collection to the new lowercase class name through the storage file rename, and that path is
-   * removed, so the
-   * collection keeps its old name while the class answers to the new one.
+   * Class rename is metadata-only, so the collection keeps its name while the class answers
+   * to the new one.
    */
   @Test
   public void testRenameClassWithLegacyCollectionName() {
-    Schema schema = session.getMetadata().getSchema();
-    var cls = schema.createClass("LegacyCol");
+    SchemaInternal schema = session.getMetadata().getSchema();
+    int collectionId = session.addCollection("legacycol");
+    var cls = schema.createClass("LegacyCol", new int[] {collectionId});
 
-    int collectionId = cls.getCollectionIds()[0];
-
-    // Manually rename the collection to a legacy name (no counter suffix)
-    session.getStorage().setCollectionAttribute(
-        collectionId,
-        StorageCollection.ATTRIBUTES.NAME,
-        "legacycol");
-
-    // Verify the rename took effect
+    // The explicit collection name has no counter suffix.
     assertEquals("legacycol", session.getCollectionNameById(collectionId));
 
     // Rename the class — the metadata-only rename must leave the legacy-named collection alone.
@@ -1221,23 +1211,15 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * Verifies that a class rename leaves a collection with an arbitrary (manually renamed) name
-   * untouched. With the metadata-only rename no collection is ever renamed, whatever its name
-   * shape — this pins the behavior for names that match neither the counter-only convention nor
+   * Verifies that a class rename leaves a collection with an arbitrary explicit name untouched.
+   * Class rename is metadata-only for names that match neither the counter-only convention nor
    * the legacy class-derived one.
    */
   @Test
   public void testRenameClassSkipsUnrelatedCollectionNames() {
-    Schema schema = session.getMetadata().getSchema();
-    var cls = schema.createClass("SkipCol");
-
-    int collectionId = cls.getCollectionIds()[0];
-
-    // Manually rename the collection to something unrelated
-    session.getStorage().setCollectionAttribute(
-        collectionId,
-        StorageCollection.ATTRIBUTES.NAME,
-        "something_unrelated");
+    SchemaInternal schema = session.getMetadata().getSchema();
+    int collectionId = session.addCollection("something_unrelated");
+    var cls = schema.createClass("SkipCol", new int[] {collectionId});
 
     assertEquals("something_unrelated", session.getCollectionNameById(collectionId));
 

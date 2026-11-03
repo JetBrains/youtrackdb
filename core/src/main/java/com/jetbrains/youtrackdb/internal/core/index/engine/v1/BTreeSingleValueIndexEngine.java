@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.SingleValueIndexEngin
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -37,9 +38,6 @@ import javax.annotation.Nullable;
 
 public final class BTreeSingleValueIndexEngine
     implements SingleValueIndexEngine, BTreeIndexEngine {
-
-  private static final String DATA_FILE_EXTENSION = ".cbt";
-  private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
 
   private final CellBTreeSingleValue<CompositeKey> sbTree;
   private final IndexesSnapshot indexesSnapshot;
@@ -92,7 +90,8 @@ public final class BTreeSingleValueIndexEngine
       this.sbTree =
           new BTree<>(
               AbstractStorage.indexEngineFileStem(fileBaseId),
-              DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+              StorageFileNames.INDEX_DATA_EXTENSION, StorageFileNames.INDEX_NULL_EXTENSION,
+              storage);
       this.sbTree.setEngineId(id);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
       this.sbTree.setDisplayName(name);

@@ -16,7 +16,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
@@ -42,12 +41,14 @@ import org.junit.Test;
  */
 public class CacheLocalTaskWrappersTest {
 
-  /** Verifies {@link DeleteFileTask#call()} delegates to {@code executeDeleteFile} with the
-   * captured externalFileId and propagates the returned RawPair back to the caller. */
+  /**
+   * The task passes the captured file ID to executeDeleteFile.
+   * It returns the same deleted file names without copying them.
+   */
   @Test
   public void testDeleteFileTaskDelegatesToExecuteDeleteFile() throws Exception {
     var cache = mock(WOWCache.class);
-    var expected = new RawPair<>("logical.tst", "physical.tst");
+    var expected = new WOWCache.DeletedFileNames("physical.tst", "logical.tst");
     when(cache.executeDeleteFile(123L)).thenReturn(expected);
 
     var task = new DeleteFileTask(cache, 123L);
@@ -265,8 +266,7 @@ public class CacheLocalTaskWrappersTest {
   @Test
   public void testDeleteFileTaskCarriesDistinctIdsForDistinctInstances() throws Exception {
     var cache = mock(WOWCache.class);
-    // mock() returns null by default — no when() stubbing needed for the void-equivalent
-    // RawPair return.
+    // The mock returns null by default. This test checks only the captured IDs.
 
     var taskA = new DeleteFileTask(cache, 100L);
     var taskB = new DeleteFileTask(cache, 200L);

@@ -143,22 +143,21 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * The open-time seeding sweeps the write cache for {@code ie_<n>} file stems, so an orphaned
-   * engine file (the in-memory profile's rolled-back eager install, simulated here by planting a
-   * file directly in the write cache) pushes the high-water mark past its id and the next
-   * allocation can never collide with the orphan.
+   * Disk open quarantines unowned registered engines before seeding. The orphan does not raise
+   * the mark, and allocating its former stem is safe because its old bytes are separated.
    */
   @Test
-  public void reopenSeedsHwmFromOrphanedEngineFileSweep() throws Exception {
+  public void reopenQuarantinesOrphanBeforeHwmSeedingAndSafelyReusesStem() throws Exception {
     final var dbName = "fbiSweep";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+    final long floor;
 
     try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
       final var storage = (AbstractStorage) session.getStorage();
-      // Plant an orphaned engine-shaped file (no component references it), plus a decoy whose
-      // stem is not numeric and must be ignored by the sweep's parse.
+      floor = floorOf(storage);
+      // The next allocator value is deliberately occupied by an unowned registration.
       storage.getWriteCache().addFile(
-          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "9999.cbt");
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + (floor + 1) + ".cbt");
       storage.getWriteCache().addFile(
           AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "decoy.cbt");
     }
@@ -168,16 +167,18 @@ public class IndexEngineFileBaseIdTest {
 
     try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
       final var storage = (AbstractStorage) session.getStorage();
-      assertEquals("the sweep must push the high-water mark past the orphaned ie_ stem",
-          9999, storage.indexEngineFileBaseIdHwmForTesting());
+      assertEquals("quarantined engines must not seed the high-water mark",
+          floor, storage.indexEngineFileBaseIdHwmForTesting());
+      assertFalse(storage.getWriteCache().files().containsKey("ie_" + (floor + 1) + ".cbt"));
+      assertTrue(storage.getWriteCache().files().containsKey("ie_decoy.cbt"));
 
       createIndexedClass(session, "FbiSweepA");
       final var config = (CollectionBasedStorageConfiguration) storage.configuration;
       final var newEngineData =
           storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
               op -> config.getIndexEngine("FbiSweepA.val", -1, op));
-      assertEquals("the next allocation must skip past the orphan's id",
-          10000, newEngineData.getFileBaseId());
+      assertEquals("the next allocation safely reuses the quarantined stem",
+          floor + 1, newEngineData.getFileBaseId());
     }
   }
 
@@ -778,9 +779,9 @@ public class IndexEngineFileBaseIdTest {
   /**
    * Dropping the database removes the engine's whole five-file family from disk —
    * {@code .cbt}+{@code .nbt} for the main tree, the {@code $null} variants of both for the
-   * multi-value null tree, and the {@code .ixs} histogram. The {@code .nbt} extension was
-   * missing from {@code DiskStorage.ALL_FILE_EXTENSIONS}, so null-bucket files used to leak and
-   * kept the database directory from being deleted.
+   * multi-value null tree, and the {@code .ixs} histogram.
+   * {@code StorageFileNames.DROP_FILE_EXTENSIONS} includes every family extension, so drop
+   * removes the null-bucket files and can delete the storage directory.
    */
   @Test
   public void databaseDropRemovesWholeEngineFileFamily() throws Exception {

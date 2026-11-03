@@ -419,26 +419,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
-  @Override
-  public void renameFile(final long fileId, final String newFileName) {
-    final var intId = extractFileId(fileId);
-
-    metadataLock.lock();
-    try {
-      final var fileName = fileIdNameMap.get(intId);
-      if (fileName == null) {
-        return;
-      }
-
-      fileNameIdMap.removeInt(fileName);
-
-      fileIdNameMap.put(intId, newFileName);
-      fileNameIdMap.put(newFileName, intId);
-    } finally {
-      metadataLock.unlock();
-    }
-  }
-
   /**
    * In-memory engine has no on-disk physical state, so a one-way shrink to a non-zero
    * target has nothing to repair — the recovery-time orphan-truncation pass cannot
@@ -483,11 +463,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
 
     return new long[0];
-  }
-
-  @Override
-  public void replaceFileId(long fileId, long newFileId) {
-    throw new UnsupportedOperationException();
   }
 
   @Override

@@ -508,38 +508,6 @@ public class AsyncFileTest {
   }
 
   @Test
-  public void testRenameTo() throws Exception {
-    // Verifies renameTo() closes the original file, moves it to the new path,
-    // and reopens at the new location so subsequent reads succeed.
-    final AsyncFile file = new AsyncFile(
-        buildDirectoryPath, 1, false, executor, STORAGE_NAME);
-    file.create();
-
-    final var pos = file.allocateSpace(128);
-    final var data = new byte[128];
-    new java.util.Random().nextBytes(data);
-    file.write(pos, ByteBuffer.wrap(data));
-    file.synch();
-
-    // Rename to a sibling path in the same build directory
-    final var newPath = buildDirectoryPath.resolveSibling(
-        buildDirectoryPath.getFileName().toString() + "_renamed");
-    file.renameTo(newPath);
-
-    Assert.assertEquals(newPath.getFileName().toString(), file.getName());
-    Assert.assertTrue(file.isOpen());
-
-    // Data must still be readable at the same offset via the renamed file
-    final var result = ByteBuffer.allocate(128);
-    file.read(pos, result, true);
-    Assert.assertArrayEquals(data, result.array());
-
-    file.close();
-    // Clean up renamed file
-    com.jetbrains.youtrackdb.internal.common.io.FileUtils.deleteRecursively(newPath.toFile());
-  }
-
-  @Test
   public void testReplaceContentWith() throws Exception {
     // Verifies replaceContentWith() replaces the file's data with the contents
     // of a second file, so a subsequent read returns the new data.
