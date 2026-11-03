@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -636,12 +635,8 @@ public class BTreeEnginePersistedCountIT extends DbTestBase {
    * Recover an open-storage copy and verify visible metadata, count 100, and exact identities
    * through direct index reads and SQL. The empty baseline cannot satisfy these outcomes.
    * Recovery must restore the rebuilt engine and its metadata registration together.
-   *
-   * <p>This test exposes YTDB-1464. Re-enable it when that issue is fixed.
    */
   @Test
-  @Ignore("YTDB-1464: WAL recovery fails after a crash that follows REBUILD INDEX "
-      + "(https://youtrack.jetbrains.com/issue/YTDB-1464)")
   public void singleValue_rebuildIndex_metadataSurvivesCrashRecovery()
       throws Exception {
     var crashDbName = "crash_rebuild_meta";
