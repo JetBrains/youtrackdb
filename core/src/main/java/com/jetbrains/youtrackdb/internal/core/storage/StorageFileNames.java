@@ -36,6 +36,10 @@ public final class StorageFileNames {
   public static final String INDEX_NULL_EXTENSION =
       BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION;
 
+  private static final Pattern LOGICAL_ENGINE =
+      Pattern.compile("ie_([1-9][0-9]*)(?:\\$null)?\\.(?:cbt|nbt|ixs)");
+  private static final Pattern LOGICAL_LINK =
+      Pattern.compile("global_collection_(0|[1-9][0-9]*)\\.grb");
   private static final String POSITIVE_ID = "[1-9][0-9]*";
   private static final String ENGINE_STEM =
       Pattern.quote(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX) + POSITIVE_ID;
@@ -94,6 +98,37 @@ public final class StorageFileNames {
 
   public static boolean isComponentFile(String fileName) {
     return COMPONENT_FAMILIES.stream().anyMatch(family -> family.matches(fileName));
+  }
+
+  /**
+   * Matches logical registrations only. Physical suffixes belong to a different name domain.
+   * Numeric component ids must fit the range of their producer.
+   */
+  public static boolean isLogicalComponentFile(String name) {
+    if (!isComponentFile(name)) {
+      return false;
+    }
+    final var engine = LOGICAL_ENGINE.matcher(name);
+    final var link = LOGICAL_LINK.matcher(name);
+    final var extension = name.substring(name.lastIndexOf('.'));
+    if (isIndexEngineFileExtension(extension)) {
+      return engine.matches() && boundedId(engine.group(1));
+    }
+    if (extension.equals(LinkCollectionsBTreeManagerShared.FILE_EXTENSION)) {
+      return link.matches() && boundedId(link.group(1));
+    }
+    if (List.of(".pcl", ".cpm", ".fsm", ".dpb").contains(extension)) {
+      return true;
+    }
+    return name.equals(CollectionBasedStorageConfiguration.COMPONENT_NAME + extension);
+  }
+
+  private static boolean boundedId(String digits) {
+    try {
+      return Long.parseLong(digits) <= Integer.MAX_VALUE;
+    } catch (NumberFormatException overflow) {
+      return false;
+    }
   }
 
   public static boolean isIndexEngineFileExtension(String extension) {

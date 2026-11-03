@@ -485,6 +485,12 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentMap<String, Integer> nameIdMap = new ConcurrentHashMap<>();
 
+  // Keep each logical registration's disk name, not only the last disk name seen for an id.
+  // Malformed maps can alias ids or paths. The owner pass must skip all affected registrations.
+  private final Map<String, String> registrationDiskNames = new HashMap<>();
+  // Retain signed replay ids before absent physical files become negative in nameIdMap.
+  private final Map<String, Integer> registrationFileIds = new HashMap<>();
+
   /**
    * Mapping between file's internal ids and case sensitive file names are used in write cache. Name
    * of file in write cache is case sensitive and can be different from file name which is used to
@@ -2150,7 +2156,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   /**
-   * Quarantines registered files without deleting their bytes. There is no production caller.
+   * Quarantines registered files without deleting their bytes.
    *
    * <p>The caller must hold the storage state write lock and exclude all active access to the
    * candidates. This method holds filesLock for write through cache removal, executor tasks and
@@ -2372,6 +2378,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       final var records = new ArrayList<ByteBuffer>(entries.size());
       for (final var entry : entries) {
+        updateRegistrationEvidence(entry);
         records.add(NameIdMapFile.encode(entry, storageName));
       }
       appendMapBatch(nameIdMapHolderPath, records, true);
@@ -2705,13 +2712,15 @@ public final class WOWCache extends AbstractWriteCache
           final String fileName;
           var storedId = entry.getValue();
           if (storedId >= 0 && idFileNameMap.containsKey(storedId.intValue())) {
-            fileName = idFileNameMap.get(storedId.intValue());
+            fileName = registrationDiskNames.getOrDefault(entry.getKey(),
+                idFileNameMap.get(storedId.intValue()));
           } else {
             fileName = entry.getKey();
             storedId = -Math.abs(storedId);
           }
-          final var record = NameIdMapFile.encode(
-              new NameFileIdEntry(entry.getKey(), storedId, fileName), storageName);
+          final var storedEntry = new NameFileIdEntry(entry.getKey(), storedId, fileName);
+          updateRegistrationEvidence(storedEntry);
+          final var record = NameIdMapFile.encode(storedEntry, storageName);
           size = Math.addExact(size, record.remaining());
           records.add(record);
         }
@@ -2749,6 +2758,8 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.clear();
       idNameMap.clear();
+      registrationDiskNames.clear();
+      registrationFileIds.clear();
       nonDurableFileIds = new IntOpenHashSet();
       closed = true;
 
@@ -3576,6 +3587,53 @@ public final class WOWCache extends AbstractWriteCache
     return prefix;
   }
 
+  /** Checks the path recorded for this logical registration, not an aliased id's handle. */
+  public boolean registeredFileExists(String logicalName) {
+    filesLock.acquireReadLock();
+    try {
+      final var disk = registrationDiskNames.get(logicalName);
+      return disk != null && Files.exists(storagePath.resolve(disk));
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
+  /**
+   * Returns live ids whose logical names or physical paths are not one-to-one.
+   * Replay evidence is necessary because the open-file table keeps only one handle per id.
+   */
+  public java.util.Set<Long> ambiguousFileIds() {
+    filesLock.acquireReadLock();
+    try {
+      final var idCounts = new HashMap<Integer, Integer>();
+      final var diskIds = new HashMap<String, java.util.Set<Integer>>();
+      for (final var entry : registrationFileIds.entrySet()) {
+        if (entry.getValue() > 0) {
+          idCounts.merge(entry.getValue(), 1, Integer::sum);
+          final var disk = registrationDiskNames.get(entry.getKey());
+          diskIds.computeIfAbsent(disk, ignored -> new java.util.HashSet<>())
+              .add(entry.getValue());
+        }
+      }
+      final var result = new java.util.HashSet<Long>();
+      for (final var entry : nameIdMap.entrySet()) {
+        final var internalId = entry.getValue();
+        if (internalId > 0) {
+          final var disk = registrationDiskNames.get(entry.getKey());
+          final var file = files.get(externalFileId(internalId));
+          if (idCounts.get(internalId) != 1 || disk == null
+              || diskIds.get(disk).size() != 1 || file == null
+              || !disk.equals(file.getName())) {
+            result.add(externalFileId(internalId));
+          }
+        }
+      }
+      return result;
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
   /**
    * Read information about files are registered inside of write cache/storage File consist of rows
    * of variable length which contains following entries:
@@ -3593,6 +3651,8 @@ public final class WOWCache extends AbstractWriteCache
       throws java.lang.InterruptedException {
     nameIdMap.clear();
     idNameMap.clear();
+    registrationDiskNames.clear();
+    registrationFileIds.clear();
     final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
 
     for (final var nameFileIdEntry : entries) {
@@ -3600,6 +3660,7 @@ public final class WOWCache extends AbstractWriteCache
 
       if (absFileId != 0) {
         nameIdMap.put(nameFileIdEntry.getName(), nameFileIdEntry.getFileId());
+        updateRegistrationEvidence(nameFileIdEntry);
         if (nameFileIdEntry.getFileId() < 0) {
           // Deleted IDs must not remain live in the inverse map or durability registry.
           // A deleted record can share its absolute ID with a different live logical name.
@@ -3610,6 +3671,8 @@ public final class WOWCache extends AbstractWriteCache
         idFileNameMap.put(nameFileIdEntry.getFileId(), nameFileIdEntry.getFileSystemName());
       } else {
         nameIdMap.remove(nameFileIdEntry.getName());
+        registrationDiskNames.remove(nameFileIdEntry.getName());
+        registrationFileIds.remove(nameFileIdEntry.getName());
         idNameMap.remove(nameFileIdEntry.getFileId());
         idFileNameMap.remove(nameFileIdEntry.getFileId());
       }
@@ -3654,6 +3717,7 @@ public final class WOWCache extends AbstractWriteCache
   private void writeNameIdEntry(final NameFileIdEntry nameFileIdEntry)
       throws IOException {
     checkNameIdMapAppendsAllowed();
+    updateRegistrationEvidence(nameFileIdEntry);
     try {
       appendNameIdEntry(nameFileIdEntry);
     } catch (RuntimeException failure) {
@@ -3665,6 +3729,11 @@ public final class WOWCache extends AbstractWriteCache
       stopNameIdMapWrites(failure);
       throw failure;
     }
+  }
+
+  private void updateRegistrationEvidence(final NameFileIdEntry entry) {
+    registrationDiskNames.put(entry.getName(), entry.getFileSystemName());
+    registrationFileIds.put(entry.getName(), entry.getFileId());
   }
 
   // Package-private seam. Rewrites deliberately bypass the guarded append path.

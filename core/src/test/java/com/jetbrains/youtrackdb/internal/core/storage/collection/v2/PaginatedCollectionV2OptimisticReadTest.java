@@ -78,10 +78,12 @@ public class PaginatedCollectionV2OptimisticReadTest {
     var session = youTrackDB.open(DB_NAME, "admin", "admin");
     storage = (AbstractStorage) session.getStorage();
 
-    collection = new PaginatedCollectionV2("optReadCollection", storage);
-    collection.configure(55, "optReadCollection");
-    atomicOps().executeInsideAtomicOperation(
-        op -> collection.create(op));
+    // Configuration owns this component across the physical storage reopens below.
+    storage.addCollection(
+        (com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded) session,
+        "optreadcollection", 55);
+    collection = (PaginatedCollectionV2) storage.getCollectionInstances().stream()
+        .filter(candidate -> candidate.getId() == 55).findFirst().orElseThrow();
   }
 
   @After
@@ -106,9 +108,9 @@ public class PaginatedCollectionV2OptimisticReadTest {
     storage = (AbstractStorage) session.getStorage();
 
     // Reopen the collection with the new storage reference.
-    collection = new PaginatedCollectionV2("optReadCollection", storage);
+    collection = new PaginatedCollectionV2("optreadcollection", storage);
     try {
-      collection.configure(55, "optReadCollection");
+      collection.configure(55, "optreadcollection");
       atomicOps().executeInsideAtomicOperation(
           op -> collection.open(op));
 
@@ -1060,7 +1062,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
     Assert.assertNotNull(s);
     Assert.assertFalse(s.isEmpty());
     Assert.assertTrue("toString must include the collection name",
-        s.contains("optReadCollection"));
+        s.contains("optreadcollection"));
   }
 
   /**
@@ -1102,8 +1104,8 @@ public class PaginatedCollectionV2OptimisticReadTest {
     // Re-open. If close() did not flush the record's storage state to the underlying
     // pages (or if it left file handles in a bad state), the open() call below will
     // either throw or the readRecord() that follows will return stale/null data.
-    collection = new PaginatedCollectionV2("optReadCollection", storage);
-    collection.configure(55, "optReadCollection");
+    collection = new PaginatedCollectionV2("optreadcollection", storage);
+    collection.configure(55, "optreadcollection");
     atomicOps().executeInsideAtomicOperation(op -> collection.open(op));
 
     // Read back the previously-inserted record to verify close() did persist the state.

@@ -2967,6 +2967,7 @@ public class DiskStorage extends AbstractStorage {
               .load(contextConfiguration, atomicOperation));
     }
 
+    quarantineRegisteredOrphans();
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
 

@@ -121,6 +121,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
@@ -128,6 +129,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -967,6 +969,8 @@ public abstract class AbstractStorage
           atomicOperationsManager.executeInsideAtomicOperation(
               this::checkPageSizeAndRelatedParameters);
 
+          quarantineRegisteredOrphans();
+
           atomicOperationsManager.executeInsideAtomicOperation(linkCollectionsBTreeManager::load);
 
           atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
@@ -1117,6 +1121,92 @@ public abstract class AbstractStorage
         .info(this, "Storage '%s' is opened under YouTrackDB distribution : %s", additionalArgs);
   }
 
+  /**
+   * Configuration ids are authoritative even when a configured collection cannot be opened.
+   */
+  public final Set<Integer> configuredCollectionIds() {
+    final var ids = new HashSet<Integer>();
+    for (final var collection : configuration.getCollections()) {
+      if (collection != null) {
+        ids.add(collection.id());
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Runs under the storage state write lock, outside atomic operations and without filesLock.
+   * Configuration has finished both loads. No candidate can have an active user.
+   */
+  // One increment per disk pass lets the standalone probe verify a candidate-free open.
+  @SuppressWarnings("UnusedVariable") // Read reflectively by RegisteredOrphanOpenBenchmark.
+  private long registeredOrphanPassCount;
+
+  protected final void quarantineRegisteredOrphans() throws IOException {
+    if (!(this instanceof DiskStorage) || !(writeCache instanceof WOWCache diskCache)) {
+      return;
+    }
+    registeredOrphanPassCount++;
+    final var owners = new HashSet<String>();
+    final var mains = new HashSet<String>();
+    for (final var collection : configuration.getCollections()) {
+      if (collection != null) {
+        for (final var extension : List.of(".pcl", ".cpm", ".fsm", ".dpb")) {
+          owners.add(collection.name() + extension);
+        }
+        mains.add(collection.name() + ".pcl");
+        owners.add(LinkCollectionsBTreeManagerShared.FILE_NAME_PREFIX + collection.id()
+            + LinkCollectionsBTreeManagerShared.FILE_EXTENSION);
+      }
+    }
+    for (final var extension : List.of(".cd", ".ccm", ".fcm", ".dcm", ".bd", ".nd")) {
+      owners.add(CollectionBasedStorageConfiguration.COMPONENT_NAME + extension);
+    }
+    mains.add(CollectionBasedStorageConfiguration.COMPONENT_NAME
+        + CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION);
+    atomicOperationsManager.executeInsideAtomicOperation(operation -> {
+      for (final var name : configuration.indexEngines(operation)) {
+        final var engine = configuration.getIndexEngine(name, -1, operation);
+        final var stem = indexEngineFileStem(engine.getFileBaseId());
+        mains.add(stem + StorageFileNames.INDEX_DATA_EXTENSION);
+        owners.add(stem + StorageFileNames.INDEX_DATA_EXTENSION);
+        owners.add(stem + StorageFileNames.INDEX_NULL_EXTENSION);
+        owners.add(stem + IndexHistogramManager.IXS_EXTENSION);
+        if (engine.isMultivalue()) {
+          mains.add(stem + NULL_TREE_SUFFIX + StorageFileNames.INDEX_DATA_EXTENSION);
+          owners.add(stem + NULL_TREE_SUFFIX + StorageFileNames.INDEX_DATA_EXTENSION);
+          owners.add(stem + NULL_TREE_SUFFIX + StorageFileNames.INDEX_NULL_EXTENSION);
+        }
+      }
+    });
+    for (final var main : mains) {
+      if (!diskCache.registeredFileExists(main)) {
+        LogManager.instance().warn(this,
+            "Skipping registered orphan quarantine: configured main file %s is missing",
+            (Throwable) null, main);
+        return;
+      }
+    }
+    final var ambiguous = diskCache.ambiguousFileIds();
+    final var candidates = new HashSet<Long>();
+    for (final var entry : diskCache.files().entrySet()) {
+      if (ambiguous.contains(entry.getValue())) {
+        LogManager.instance().warn(this,
+            "Skipping ambiguous file registration %s (id %s)",
+            (Throwable) null, entry.getKey(), entry.getValue());
+      } else if (!owners.contains(entry.getKey())) {
+        if (StorageFileNames.isLogicalComponentFile(entry.getKey())) {
+          candidates.add(entry.getValue());
+        } else {
+          LogManager.instance().warn(this,
+              "Skipping unknown file registration %s (id %s)",
+              (Throwable) null, entry.getKey(), entry.getValue());
+        }
+      }
+    }
+    diskCache.quarantineFiles(candidates, readCache);
+  }
+
   protected abstract void readIv() throws IOException;
 
   @SuppressWarnings("unused")
@@ -1228,12 +1318,9 @@ public abstract class AbstractStorage
    *       high-water mark past the persistable ceiling and permanently brick index creation.
    * </ul>
    *
-   * <p>Accepted matches can still include a crash-window orphan: a kill between the physical
-   * file creation inside {@code commitChanges} and the WAL end-record becoming durable leaves a
-   * registered empty {@code ie_*} file whose atomic unit is discarded on replay. That file leaks
-   * (bounded, one family per crashed create, never collected) and its id is burned by this sweep
-   * — accepted behavior: burning the id is exactly what keeps the leaked file from ever
-   * colliding with a future engine's family.
+   * <p>Disk open quarantines unowned registered engine files before this sweep, so quarantined
+   * files do not raise the mark. Files kept by the safety stop or the ambiguity check still seed
+   * it. Memory storage keeps the sweep to avoid colliding with eager installs after rollback.
    */
   private static long parseIndexEngineFileBaseId(final String fileName) {
     final var extensionStart = fileName.lastIndexOf('.');

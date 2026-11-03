@@ -63,9 +63,13 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
   public void load(AtomicOperation atomicOperation) {
     final var writeCache = storage.getWriteCache();
 
+    final var ownedNames = new java.util.HashSet<String>();
+    for (final var collectionId : storage.configuredCollectionIds()) {
+      ownedNames.add(FILE_NAME_PREFIX + collectionId + FILE_EXTENSION);
+    }
     for (final var entry : writeCache.files().entrySet()) {
       final var fileName = entry.getKey();
-      if (fileName.endsWith(FILE_EXTENSION) && fileName.startsWith(FILE_NAME_PREFIX)) {
+      if (ownedNames.contains(fileName)) {
         final var bTree =
             new SharedLinkBagBTree(
                 storage,
