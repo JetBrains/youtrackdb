@@ -279,6 +279,7 @@ public class DiskStorageBackupCoverageSourceTest {
   }
 
   private void interruptWait(boolean inherited, boolean facade) throws Exception {
+    var interruptDelivered = new CountDownLatch(1);
     var waiting = new CountDownLatch(1);
     var release = new CountDownLatch(1);
     var task = new FutureTask<Long>(() -> {
@@ -291,6 +292,10 @@ public class DiskStorageBackupCoverageSourceTest {
       try {
         return task.get(10, TimeUnit.SECONDS);
       } catch (Exception cause) {
+        // Thread.interrupt must finish before cleanup can register a new NIO blocker.
+        if (!inherited) {
+          await(interruptDelivered);
+        }
         var thrown = new IllegalStateException(new RuntimeException(cause));
         failure.set(thrown);
         throw thrown;
@@ -336,6 +341,7 @@ public class DiskStorageBackupCoverageSourceTest {
       assertEquals(Thread.State.TIMED_WAITING, observed);
       if (!inherited) {
         sampler.get().interrupt();
+        interruptDelivered.countDown();
       }
       if (inherited) {
         release.countDown();
@@ -344,6 +350,7 @@ public class DiskStorageBackupCoverageSourceTest {
       verify(cache, times(1)).getMinimalNotFlushedSegment();
       assertFalse(order(tracker).isLocked());
     } finally {
+      interruptDelivered.countDown();
       release.countDown();
       try {
         // Drain the helper normally before shutdown can interrupt its latch wait.
