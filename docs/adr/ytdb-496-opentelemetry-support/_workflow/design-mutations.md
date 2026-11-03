@@ -1,5 +1,82 @@
 # design.md mutation log
 
+## Mutation 109 — 2026-11-02 — content-edit (design.md, design-mechanics.md)
+
+**Diff summary**: Review-fix child 103.2 round 1 replaces the shutdown mechanism with the user-approved B1 to B8 best-effort rule. Mutation 109 supersedes the Mutation 108 shutdown mechanism. Close paths only call non-waiting `beginClose`. The facade tries one final publication pass and closes each owned SDK once. Consumers keep the highest generation and position. Closed-scope values are released after one metric collection. Readers show unknown when samples stop. The server diagram and tests T1 to T13 use the same rule. Round 2 clarifies that SDK close is the only telemetry shutdown wait. Configured SDK processor and exporter timeouts govern that wait. YouTrackDB adds no further bound. A zero timeout can make it unbounded. Consumers drop non-final results from already closed owners, including delayed ready handoffs after metric-value release.
+
+**Mutation choice**: content-edit changes existing shutdown content and its matching mechanics. No section is added, renamed, moved or removed. Both line-1 workflow-sha stamps remain unchanged. The mechanical check targets both files with whole-document scope and no plan flags.
+
+**User decision and root-design delta**: Final not-ready export is a non-goal in every case. YouTrackDB tries but never guarantees it. Root line 405 changes from publishing and exporting before telemetry stops to one best-effort attempt without a guarantee. Root line 541, CN-6, keeps dropping late calls but changes final export to an attempt. Root lines 391 to 392 are refined: never-reused generations increase in allocation order within one process. Root line 360 is narrowed by the earlier approved decision: the process owner lives for one engine-manager activation. Root lines 406 and 460 and K7 at lines 250 to 251 remain compatible. The root-design file is not edited.
+
+**Mechanical checks** (target=both): PASS, whole-document scope, with no plan flags. Zero blockers. The same 35 pre-existing should-fix items and one suggestion remain. No diagnostic is introduced or worsened. `git diff --check` passes. The section 5 text audit finds no stale shutdown mechanism.
+**Cold-read** (scope: bounded — Local monitoring, SDK lifecycle and server lifecycle diagram, with Overview and Core Concepts): Iteration 1 NEEDS REVISION, with CR8 major. Round 2 applies CR8 and gate findings RG13 and RG14. Iteration 2 PASS, with CR8 resolved and no new finding.
+
+**Findings**:
+- CR7 major: B4 prevents a delayed ready result from replacing a newer final not-ready result. T5 and T6 cover generation and position ordering.
+- RG11: B5 keeps the pass and close outside facade resolution synchronization. Handoff never takes that synchronization. The pass skips a busy scope without waiting. T7 and T9 cover these paths.
+- RG8, RG9, RG10 and RG12 are moot under the approved non-goal and B1 to B8. No close is postponed while the engine runs. No final-export promise or handoff-completion wait remains. A handoff failure is logged and stops nothing.
+- CR8 major, cold-read iteration 1: The SDK-close bound contradicted the configuration contract. Round 2 states that configured SDK processor and exporter timeouts govern the wait. YouTrackDB adds no further bound. A zero timeout can make it unbounded. The server diagram, shutdown prose, mechanics and configuration use the same contract. The health publication attempt never waits.
+- RG13 minor, fix gate round 1: A delayed ready handoff could restore a released closed-scope metric value. Round 2 adds the B4 rule that consumers drop non-final results whose owners are already closed. T13 delivers a delayed ready result after release and asserts that the consumer drops it.
+- RG14 suggestion, fix gate round 1: The shutdown-wait claim was broader than telemetry. Round 2 scopes it to telemetry in both files. Engine waits remain outside this contract.
+- RG15, fix gate round 2: The sentence "a zero timeout can make the wait unbounded" is inaccurate because `OpenTelemetrySdk.close()` applies its own fixed wait cap. The user waives this finding for Track 106, which sets the exact SDK close behavior.
+- RG16, fix gate round 2: The B4 drop rule does not say how the consumer learns that the owner is closed. The user waives this finding for Track 106, which sets the handoff fields.
+- SDK close is the only telemetry shutdown wait. No new numerical limits or Track 104 to 106 design is added. Open questions 1 to 3 stay open. Pre-existing code defects P1 to P3 stay waived and unchanged.
+
+**Iterations**: Review-fix child 103.2 round 1 applied. Cold-read iteration 1 NEEDS REVISION, with CR8 major. Fix gate round 1 records RG13 minor and RG14 suggestion. Review-fix child 103.2 round 2 applies CR8, RG13 and RG14. Mechanical checks PASS. Cold-read iteration 2 PASS, with CR8 resolved and no new finding. Fix gate round 2 findings RG15 and RG16 are waived by the user for Track 106.
+
+## Mutation 108 — 2026-11-02 — content-edit (design.md, design-mechanics.md)
+
+**Diff summary**: Review-fix child 103.1 round 1 applies the approved S1 to S10 shutdown rule for Track 103. Owners belong to one engine-manager activation. Every close path uses non-waiting `beginClose` with a reserved final-transition slot. Only the four named entries drain. Core shutdown leaves the SDK open for restart. The facade drains before it closes a YTDB-owned SDK once. The health consumer keeps its last result until SDK close. Export guarantees and best-effort cases have explicit scopes. The server lifecycle diagram and shutdown validation cases use this rule.
+
+**Mutation choice**: content-edit updates existing shutdown content with a matching mechanics update. No section is added, renamed, moved or removed. Both line-1 workflow-sha stamps remain unchanged. No implementation plan exists, so plan flags are omitted.
+
+**Mechanical checks** (target=both): PASS, whole-document scope. Zero blockers. The same 35 pre-existing should-fix items and one suggestion remain. No diagnostic is introduced or worsened. `git diff --check` passes.
+**Cold-read** (scope: bounded — Local monitoring, SDK lifecycle and server lifecycle diagram, with Overview and Core Concepts): Iteration 1 NEEDS REVISION, with CR5 major and CR6 minor. Iteration 2 NEEDS REVISION, with CR7 major. Mutation 109 supersedes this shutdown mechanism. The orchestrator assigns the Mutation 109 cold read to a separate reviewer thread. No sub-agent runs in this fix action.
+
+**Findings**:
+- RG4: A database close nested under engine teardown only calls non-waiting `beginClose`. The engine shutdown entry drains before taking `engineLock`.
+- RG5: Every activation has fresh owners and a never-reused generation. Core shutdown leaves the SDK open. Only facade shutdown entries close it after drain, through one close latch.
+- CR5 major, cold-read iteration 1: Final publication could finish before evaluator export handoff. Round 2 defines completion through handoff. The final-transition slot stays claimed and flagged until completion. Drain waits for an in-progress claim outside all guards. Close paths never wait. Validation covers both claim orders.
+- CR6 minor, cold-read iteration 1: The blanket shutdown-handler no-wait statement conflicted with the drain entries. Round 2 defines teardown callbacks and names the four lifecycle-entry exceptions in both files.
+- RG6 minor, fix gate: Explicit facade shutdown could close the SDK before engine shutdown drains remaining owners. Round 2 applies user option B. Explicit shutdown always drains but closes an owned SDK only when no activation is active. Otherwise that instance's exit hook drains and closes it later. Validation covers `YouTrackDBServer(false)` and an owner created after entry (b) starts. Both retain the export guarantee.
+- RG7 minor, fix gate: The close latch had no instance scope. Round 2 gives each owned SDK its own latch and exit hook, including after ownership replacement. A deferred SDK keeps its final-health export path. Validation covers sequential owned SDKs and replacement.
+- CR7 major, cold-read iteration 2: A delayed ready handoff can replace a newer final not-ready value because the consumer follows arrival order. Mutation 109 resolves this with generation and position ordering.
+- RG8, fix gate round 2: Postponed SDK close conflicts with explicit shutdown while an engine runs. Mutation 109 makes this moot by closing at once.
+- RG9, fix gate round 2: The shutdown export promise misses owners and hook orderings. Mutation 109 makes this moot by removing the promise in every case.
+- RG10, fix gate round 2: A failed handoff can leave completion coordination blocked. Mutation 109 makes this moot by removing completion waits and logging handoff failure.
+- RG11, fix gate round 2: Facade resolution synchronization can form a cycle with health handoff and shutdown. Mutation 109 resolves this by keeping the pass and close outside that synchronization and making the pass non-waiting.
+- RG12, fix gate round 2: The statement about entry (a) already publishing an owner's final transition does not hold for every owner. Mutation 109 removes that statement and makes the finding moot.
+- S1 to S10 use the approved rule with the user-approved RG6 option B change. No new numerical limits or Track 104 to 106 design is added. Open questions 1 to 3 remain open. Pre-existing code defects P1 to P3 remain waived and unchanged.
+
+**Iterations**: Iteration 1 NEEDS REVISION. Review-fix child 103.1 round 2 applies CR5, CR6, RG6 option B and RG7. Mechanical checks PASS. Cold-read iteration 2 of 3 NEEDS REVISION, with CR7 major. Fix gate round 2 records RG8 to RG12. Mutation 109 supersedes the Mutation 108 shutdown mechanism.
+
+## Mutation 107 — 2026-11-02 — structural-rewrite (design.md, design-mechanics.md)
+
+**Diff summary**: Track 103 adds database-owned health and bounded local slow-query retention beside optional OTel export. The Overview is now a short introduction. Capture architecture remains in Core Concepts to preserve its contracts. New concepts, component and data-flow diagrams explain ownership, optional correlation and later design boundaries. Local capture is off by default. Health has four states, independent evaluation, ordered publication and resumable positions. Retention uses database owners under a global ceiling. Correlation is admitted-only and events keep immutable snapshots. The quick start uses pinned grafana/otel-lgtm with Tempo, loopback-only host ports, generated credentials and five dashboards. The local-only JMH arm copies the accepted 10% slow-filtering budget. Local-only and combined slowdown estimates remain unestimated. Tracks 104, 105 and 106 remain later design work.
+
+**Mutation choice**: structural-rewrite covers the Overview restructuring and additions across concepts, diagrams and setup. Matching mechanics change in the same mutation. No section is renamed or removed. Both line-1 workflow-sha stamps remain unchanged. No implementation plan exists, so plan flags are omitted.
+
+**Mechanical checks** (target=both): PASS, zero blockers. Whole-document scope. The baseline had 37 should-fix warnings and one suggestion. The updated files have 35 should-fix warnings and one suggestion. Remaining warnings are pre-existing legacy structure, citation and prose findings. No warning is introduced or worsened.
+**Cold-read** (scope: whole-doc): Iteration 1 NEEDS REVISION, with CR1 major and CR2 minor. Iteration 2 NEEDS REVISION, with CR1 and CR2 resolved and CR3 minor. Iteration 3 PASS. CR1, CR2 and CR3 are resolved. No new finding.
+
+**Findings**:
+- CR1 major and RI-1 major, merged: CoreQueryProvenance owns tag and origin propagation after the listener guard, including local-only capture. SQL captures that provenance. Local capture excludes nested SQL. The optional OTel hook preserves the core Context and adds only its buffer key.
+- CR2 minor: The OTel configuration inventory claim is narrowed. Independent local enable and positive threshold controls are documented with undecided names and numerical defaults.
+- CN-1 major and CN-2 through CN-5 minor: A shared record and association guard removes lock inversion. Health serialization never nests with it or storage locks. Operations bind owner references at entry. Health and history publish atomically. Core coordinates not-ready publication before teardown and telemetry shutdown. Eviction and reservation retries are bounded.
+- SE1 major and SE2 through SE5 minor: Anonymous Grafana access is explicitly disabled. Grafana and telemetry stores have no host mappings. Smoke checks use the container network. Generated credentials stay in owner-only files and out of logs and telemetry. Collector YAML is a local example. Outcomes and health reasons exclude exception messages.
+- PF2 minor: Pending handoff is bounded inside the global ceiling with drop-and-count overflow. Health triggers coalesce.
+- PL-2 minor: Local retention prose is split into labeled capacity, producer, content and visibility paragraphs.
+- RG1 major, fix round 2: Lifecycle coordination runs before engine-manager lock acquisition and outside storage locks. Health serialization never acquires engine-manager or storage locks. Only storage paths, commit paths and shutdown callbacks have the no-wait rule.
+- RG2 major, fix round 2: A facade-owned idempotent exit hook coordinates health before closing a YTDB-owned SDK. It preserves exit flush when the core hook is removed or core shutdown never runs. Host-owned SDK ordering is an export condition, not a new obligation.
+- RG3 minor, fix round 2: Dashboard authors use the later Track 104 gateway rather than a host Grafana port. Gateway design remains deferred.
+- CR3 minor, fix round 2: The lifecycle diagram and tag descriptions assign core provenance to CoreQueryProvenance. The optional OTel hook adds only its private buffer key.
+- PF1, PF3 and PL-1 are unchanged under the fix-round scope.
+- suggestion: The pre-existing SQL execution layer hook section exceeds the 200-line warning threshold.
+- Existing mechanical warnings remain outside this telemetry update. The script verdict is PASS.
+
+**Iterations**: Cold-read iterations 1 and 2 reviewed. Fix rounds 1 and 2 applied. Iteration 3 of 3 PASS.
+
+
 > **Ordering note**: mutations are recorded in application order, not numerical order. Entry numbers reflect the assignment order during the design's lifetime (a mutation announced as "M-next" picked the next free number when it landed); the file's textual order matches when each mutation's body was *written*, which can differ when several mutations are in flight concurrently or when an entry is added later than the mutation itself. To follow the design's evolution chronologically, sort by the date stamp in each `## Mutation N — YYYY-MM-DD — …` header rather than scrolling top-to-bottom.
 
 ## Mutation 1 — 2026-05-21 — phase1-creation (design.md)

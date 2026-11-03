@@ -8,9 +8,290 @@ Sem-conv means OpenTelemetry semantic conventions. D-numbers such as
 D34 identify design decisions. Section References footers summarize them.
 SLF4J means Simple Logging Facade for Java. OTLP means OpenTelemetry Protocol.
 
-A completion is accepted when it passes its own query gates. It then becomes a candidate for
-retention. Admission means storing that candidate in the traversal buffer. Neither acceptance
-nor admission guarantees span construction or export.
+In the OTel capture sections, acceptance means passing the completion's query trace gates.
+OTel buffer admission means storing that candidate in the traversal buffer.
+Local admission means retaining a slow-query record under the separate local capture policy.
+Neither admission contract guarantees span construction or export.
+
+## Local monitoring
+
+Local monitoring is database-owned state, independent of OpenTelemetry (OTel) export.
+**B1 Activation and owners.** An engine-manager activation runs from a `startup()` that sets the manager active
+to the next `shutdown()` that clears it.
+Each activation owns one process monitoring owner, its database owners and never-reused generations.
+The process monitoring owner holds process health and the global retained-memory ceiling.
+Embedded engines and servers share this process owner.
+A later `startup()` creates a new activation.
+The finished activation stays current until the next `startup()`.
+Each open database instance owns its records, health results and history positions.
+Bind that owner reference at operation start together with the listener snapshot.
+Completion and correlation use that reference, never a new lookup by database name.
+A late completion cannot enter a replacement owner after drop and re-create.
+Close marks the owner closed before releasing state. Drop affects no other database.
+Reopen and re-create allocate fresh owners.
+Engine-manager shutdown closes the activation's remaining owners.
+Late publication or correlation calls on closed owners drop without waiting or recreating state.
+
+### Slow-query admission and retention
+
+The local enable flag defaults to off. Register the local consumer only when enabled.
+A positive local threshold is independent of query trace gates and commit trace gates.
+Use existing timing meanings and threshold-resolution concepts without moving OTel configuration.
+The independent local enable and threshold settings have undecided configuration names.
+The enable default is false. The threshold is in milliseconds and must be positive when enabled.
+Its numerical default and retention limits remain open.
+
+`CoreQueryProvenance` is a core helper used by `YTDBQueryMetricsStep` after its listener guard.
+It activates whenever the captured query-listener snapshot is nonempty, including local-only capture.
+At first `hasNext()`, it derives Context from the embedded host or from root in server mode.
+It sets `GREMLIN_ORIGIN=true` and sets the traversal tag or clears an inherited `QUERY_TAG`.
+The step scopes this Context around delegated iteration and resource close.
+It restores the previous Context in `finally` on the same thread.
+SQL entry captures tag and provenance and carries them on completion details.
+The local consumer rejects SQL with the marker and keeps the outer Gremlin completion instead.
+Native SQL without the marker remains eligible, including when the OTel module is absent.
+The optional `GremlinSpanLifecycleHook` receives this core Context and adds its private buffer key.
+It preserves tag, origin and host-span parentage. Only its private key selects OTel buffering.
+Core provenance changes neither trace routing nor listener dispatch order.
+Custom listeners on this path receive the same tag inheritance without an OTel hook.
+Retain public completions only. Suppress nested implementation queries to prevent double counting.
+A fast error or heartbeat candidate does not qualify merely because OTel accepted it.
+Reject fast completions before text rendering, record construction or correlation allocation.
+Both consumers absent preserves the listener-first disabled path without new Context or allocation work.
+
+Bound record count, retained text and payload bytes per database under a process-wide ceiling.
+Keep each database's retained records separate.
+A publication may evict only older records of its own database.
+Evict only the count and bytes needed for the candidate, then attempt global reservation.
+Stop after a bounded number of failed reservations. Never empty the whole list to compete for budget.
+If admission still fails, drop the candidate and count a gap. Eviction also records visible loss.
+Global admission never exceeds the ceiling. Budget reservation acquires no database lock.
+Query, commit and storage threads use bounded non-waiting observation handoff.
+Reserve count and byte capacity before enqueue. Pending payloads count inside the global ceiling.
+Overflow drops the observation and increments a bounded loss counter that does not need queue space.
+Release reservations after consumption or drop. Numerical handoff and retry limits remain open.
+Coalesce health triggers into a bounded pending flag per owner instead of a queue of changes.
+Sanitization and serialization run outside short publication critical sections.
+**B2 Close never waits.** Every close path calls only `beginClose` on the owners it ends.
+The close paths are storage shutdown, database close, drop, idle auto-close, factory close,
+engine teardown, shutdown handlers and server `deinit()`.
+No close path waits on health work. Commit and timer paths never wait on health work either.
+The health publication attempt never waits. SDK close is the only telemetry shutdown wait.
+It waits as long as the configured SDK processor and exporter timeouts allow.
+YouTrackDB adds no further bound. A zero timeout can make that wait unbounded.
+
+**Lock ordering.** One short per-database publication guard protects records and associations.
+Eviction and correlation resolution use that same guard. There is no separate association lock.
+The health serialization guard is separate and never nests with a publication guard.
+Acquire neither guard while holding an engine-manager, storage or security lock.
+This includes `engineLock` and storage `stateLock`.
+Acquire no engine-manager or storage lock while holding health serialization.
+Call no engine manager, storage, security, exporter or other database owner under either guard.
+Global budget operations use non-waiting atomic reservation and release, with bounded retries.
+They take no locks and invoke no callbacks. Producers never wait to acquire a publication guard.
+Each owner reserves one final-transition slot when it is created.
+`beginClose` marks the owner closed to ordinary publication and correlation.
+It also sets the final-transition flag in that slot and triggers the evaluator.
+The operation is atomic, idempotent and lock-free. It never waits.
+Cleanup releases records and associations without waiting and runs outside storage locks.
+The owner's health scope stays until its flag clears or its activation ends.
+Ordinary late publication and correlation calls on a closed owner drop.
+Retained limits do not bound sanitizer working memory. Validation measures that memory separately.
+
+An immutable record captures database identity, user name, source, sanitized query text,
+summary, tag when present, timing mode, measured duration, completion timestamps,
+outcome and available row count. Capture values rather than live references.
+Outcome contains only status, error type and an optional typed error code.
+Never store exception messages or derive codes from messages.
+Retain no transaction, result set, execution plan, parameter map or deferred accessor.
+Use the existing source-appropriate sanitizers. Sanitization failure omits text.
+Never substitute raw SQL, raw Gremlin or raw scripts. Parameters remain off by default.
+Do not retain executable inputs for replay.
+Slow-query read permission reveals all records of the authorized database, including user names.
+The permission is intended for administrators because sanitized text can expose schema.
+Detailed access enforcement is later Track 104 design work.
+
+### Optional trace correlation
+
+Core stores an opaque association separately from the immutable record.
+Core never depends on the OTel module or creates an SDK span to obtain an identifier.
+Only admitted records create association work and pending state.
+Rejected completions allocate neither correlation work nor pending state.
+Use a completion identity to reconcile local admission with OTel publication in either listener order.
+An OTel callback that runs first must not create pending state for an unadmitted completion.
+Admission and publication must reconcile the actual outcome without depending on listener order.
+The correlation lifetime and exact bounded reconciliation mechanism remain open.
+
+| Current association | Observation | Next association |
+|---|---|---|
+| pending | Actual emitted query-span trace identifier published | available |
+| pending | No query span will be published or association expires | terminal unavailable |
+| available or terminal unavailable | Duplicate or late resolution | unchanged |
+| Any | Record evicted or owner closed | association released, late updates dropped |
+
+Keep pending state bounded by admitted retained state and its expiry.
+An association must resolve unavailable for gate rejection, non-publication or expiry.
+Existing late span construction, parent retention and SDK sampling still apply.
+Available means a confirmed query-span association, not confirmed backend retention.
+Label ambient host correlation separately. Never predict a trace identifier.
+An event snapshots both record and correlation at creation.
+Later correlation never mutates an event payload or its replay.
+No update resurrects evicted records or retains expired association state.
+
+### Health evaluation and ordered publication
+
+A bounded evaluator runs on coalesced observation changes or at a bounded interval outside queries.
+All readers receive the latest evaluated result. Reader count never causes more evaluation.
+Use lifecycle readiness and explicit storage or database failures where available.
+Use runtime observations only when their meaning and freshness are authoritative.
+Slow-query volume does not prove corruption. Absent telemetry does not prove database failure.
+
+| State | Meaning |
+|---|---|
+| unhealthy | A confirmed observed failure applies |
+| degraded | An authoritative degradation rule applies without confirmed failure |
+| unknown | Required observations are absent or stale and no confirmed failure or degradation takes precedence |
+| healthy | All required observations are current and successful |
+
+Report incomplete coverage separately even when failure or degradation takes precedence.
+A result carries state, reasons, observation freshness, state version, generation and position.
+One serialization point per scope assigns state version, transition position and timestamp together.
+Publish current result and immutable history as one atomic pair after preparing both.
+A reader never sees a current position before that position exists in its paired history.
+Readers see a result paired with the exact generation and position it reflects.
+Assigned position defines order even when wall clocks move or export completes out of order.
+Prepare observations before health serialization without retaining engine-manager or storage locks.
+Never hold health serialization across calls into the engine manager, storage, security or export.
+Export the current result as an OTel metric and transitions as structured OTel log events.
+Carry assigned generation, version, position and timestamp through export.
+**B4 Order.** A consumer drops a non-final result whose owner is already closed.
+Each OTel health consumer keeps, per scope, the result with the highest
+generation and position. An older result never replaces a newer one in the metric.
+Transition log events still export with their assigned order.
+A closed scope's final result stays until one metric collection reports it or the SDK closes.
+Keep state and reason payloads bounded. Reasons contain fixed reason codes, status,
+error type and optional typed error codes only. Never include exception messages or raw query values.
+Final metric encoding and authoritative rules remain open.
+Signal enable flags still govern export. No exporter callback reevaluates health.
+Ordinary log capture and histogram contracts remain unchanged.
+Health-transition retention has separate count and byte bounds under the process-wide ceiling.
+Slow-query retention and volume cannot consume that separate history capacity.
+
+### Generations, history and shutdown
+
+A generation identifies a position sequence. Allocate a never-reused generation whenever
+positions restart, including close, drop, re-create and process restart.
+Within one process, generations increase in allocation order.
+A history cursor binds generation, position, scope and filter context.
+A cursor provides no authority and cannot restore revoked access.
+Concurrent publication gives a consistent page boundary without skipping later admitted records.
+Foreign generations, future positions and expired positions return explicit reset or gap answers.
+History is bounded in memory. No durable ledger, exactly-once delivery or restart persistence exists.
+Track 104 will define the access interface. Track 105 will define MCP event adaptation.
+
+**B3 Final publication.** Any thread that holds a scope's health serialization and finds
+its final-transition flag set publishes the final not-ready result and history as one pair.
+It clears the flag in the same critical section. The evaluator does this on its next run.
+The export handoff runs after the guard is released and never waits.
+A handoff failure is logged and stops nothing. Publication works without the OTel module.
+Export never evaluates health. Cleanup releases records and associations without waiting.
+The owner's health scope stays until its flag clears or its activation ends.
+
+**B5 One attempt before SDK close.** Before the facade exit hook closes a YTDB-owned SDK,
+it calls `beginClose` on every owner of the current activation.
+Every facade close path then makes one final publication pass.
+For each set flag, the pass tries the scope's health serialization without waiting.
+If the guard is free, the pass publishes as in B3. If it is busy, the pass skips that scope.
+The facade then hands off and closes.
+Explicit `shutdown()` runs the same pass but begins no close.
+The pass and the close run outside facade resolution synchronization and outside every
+engine, factory, `YouTrackDBImpl`, storage and monitoring lock.
+The handoff never takes facade resolution synchronization.
+Server `deinit()` calls `beginClose` on the server factory's owners before `gremlinServer.stop()`.
+When `shutdownEngineOnExit && !registerByPath` holds, it also covers the process owner
+and every owner of the activation. It then stops Gremlin and calls `onBeforeDeactivate`.
+That callback invokes facade shutdown, which makes the pass and closes the owned SDK.
+An ordinary embedded close and idle auto-close leave final publication to the evaluator.
+
+**B6 SDK ownership and one close.** Core never closes an SDK.
+Engine shutdown leaves it open for a later activation.
+The facade closes a YTDB-owned SDK from that instance's exit hook or explicit `shutdown()`.
+Replacement through `setOpenTelemetry` also uses explicit `shutdown()`.
+Each instance has a close-once flag. A later or concurrent caller returns at once
+and does not close it again. Closing one SDK never prevents a later SDK from closing.
+YTDB-owned construction disables the SDK's own hook and registers that instance's facade hook.
+`YouTrackDBEnginesManager.removeShutdownHook()` does not remove the facade hook.
+The facade never closes a host-owned SDK and adds no host lifecycle obligation.
+Do not rely on the relative order of independent Java Virtual Machine (JVM) shutdown hooks.
+
+**B7 Best effort.** YouTrackDB tries to export the final not-ready state.
+It never guarantees that export.
+Hook order, a busy scope, explicit shutdown while the engine runs, a host-owned SDK,
+a removed core hook and backend failure can each lose it.
+Explicit shutdown of a YTDB-owned SDK closes it at once even while the engine runs.
+A handoff to a closed SDK drops.
+
+**B8 Readers.** Not-ready is a readiness observation mapped to one of the four health states.
+The authoritative lifecycle rule maps it to healthy, degraded, unhealthy or unknown.
+Readers show unknown when samples stop or become stale.
+A stopped process cannot report its own health.
+Shutdown closes owners and releases retained records, histories and associations.
+Validation covers close versus publication, drop versus correlation, reopen isolation,
+generation resets, atomic health and history reads, cursor races and budget exhaustion.
+Exercise correlation resolution versus eviction under the shared publication guard.
+Exercise storage close while health evaluation runs and assert that close never waits on it.
+Race engine shutdown with evaluation and assert shutdown never waits on health serialization.
+Assert evaluation never acquires an engine-manager or storage lock under health serialization.
+- **T1:** Run the core hook before the facade hook, and in reverse.
+  Assert no close path waits on health work, the pass never waits and the SDK closes once.
+- **T2:** Exercise the signal path, then `System.exit`, then the facade hook.
+  Assert the pass never waits and the SDK closes once.
+- **T3:** Run a server under `ServerShutdownHook`.
+  Assert `beginClose` runs before `onBeforeDeactivate`, then one pass and one close.
+  Assert engine teardown handoffs after SDK close drop without error.
+- **T4:** Run `YouTrackDBServer(false)` and shut down the server while the engine runs.
+  Assert the SDK closes at server shutdown. Label the process-owner final as best effort.
+- **T5:** Run engine-manager `shutdown()`, then `startup()`, then exit.
+  Assert fresh owners, a higher generation and a reused SDK.
+  Assert a delayed old final does not replace the new result.
+- **T6:** Deliver a delayed ready V10 handoff after final not-ready V11 in the same generation.
+  Assert the consumer keeps V11. V10 and V11 identify successive health-result positions.
+- **T7:** Hold health serialization during the pass.
+  Assert the pass skips that scope without waiting and the SDK closes.
+- **T8:** Make a handoff throw.
+  Assert the failure is logged, the SDK closes and no thread blocks on health work.
+- **T9:** Run replacement while another thread resolves the facade and the evaluator hands off.
+  Assert no deadlock and one close outside resolution synchronization.
+- **T10:** Run concurrent explicit shutdown and the exit hook.
+  Assert one SDK close and that the caller that does not close returns at once.
+- **T11:** Exercise a host-owned SDK and a removed core hook.
+  Label export best effort. Assert the facade never closes a host-owned SDK.
+- **T12:** Exercise `closeAll()` under `engineLock` and idle auto-close under the monitor.
+  Assert they call only `beginClose` and never wait on health work.
+- **T13:** Close a scope and collect its kept metric value.
+  Assert the kept value is released after one collection.
+  Then deliver a delayed ready result published before the owner closed.
+  Assert the consumer drops it and keeps no metric value for that closed scope.
+
+Exercise competing database reservations and assert bounded retries and same-database eviction.
+Exercise handoff overflow and coalesced health triggers without exceeding pending-memory bounds.
+Check tagged and untagged Path B capture without the OTel module.
+Retain only the outer Gremlin completion while native SQL remains eligible.
+Include concurrent eviction, cursor reads and slow-consumer pressure without growing per-reader queues.
+
+### Open questions
+
+1. Which numerical slow-capture limits should ship?
+   Capture stays off by default with a positive threshold and bounded count, text and bytes.
+2. Which correlation lifetime and expiry limits should ship?
+   Keep admitted-only work, immutable event snapshots and listener-order independence.
+3. Which health observations and state rules are authoritative?
+   Confirm freshness limits and unknown coverage before runtime-derived degradation rules.
+
+### References
+
+- Constraints: independent local monitoring, non-waiting handoff and bounded ownership.
+- Deferred design: Track 104 access and presentation, Track 105 MCP, Track 106 implementation plan.
 
 ## Slow-query threshold gating
 
@@ -256,10 +537,11 @@ Context, start timestamp, fixed query name, a bounded list of `PendingSqlSpan` v
 flag. `PendingSqlSpan` holds captured SQL completion data, not an SDK span. A sealed buffer is
 closed to all further offers. It rejects subsequent candidates as `traversal_closed`. This flag
 is separate from Java sealed interfaces. A private OTel-module Context key carries the state.
-`GremlinSpanLifecycleHook.onFirstHasNext` returns a Context derived from the embedded host, or
-from root in server mode, with
-this key, `QUERY_TAG` and `GREMLIN_ORIGIN`. It adds no span. The step installs that Context only
-around delegated database calls and closes each scope in `finally` on the thread that opened it.
+Core `CoreQueryProvenance` first supplies `QUERY_TAG` and `GREMLIN_ORIGIN` after the listener guard.
+`GremlinSpanLifecycleHook.onFirstHasNext` preserves that Context and adds this private key.
+The base Context derives from the embedded host or from root in server mode. It adds no span.
+The step installs that Context only around delegated database calls.
+It closes each scope in `finally` on the thread that opened it.
 Server execution derives traversal state from `Context.root()` on the Gremlin executor worker,
 including per-session workers. It ignores ambient worker spans. The outer request span uses
 `SERVER` with `setNoParent()`. Buffered SQL uses `INTERNAL` with its real late Gremlin parent.
@@ -975,8 +1257,8 @@ Version exact query strings, the dataset generator, expected result counts, cach
 tag lengths, ordered rule expressions and match distribution with each fixture. Publish them
 as fixture metadata.
 
-Use six scenario families:
-1. Off: timing mode not applicable. No query or commit listener and no log hook. Run tiny queries
+Use seven scenario families:
+1. Off: timing mode not applicable. No telemetry or local-capture listener and no log hook. Run tiny queries
    and scans in candidate and base revisions. A no-op SDK with registered listeners is not off.
 2. Mostly rejected: threshold `100` ms, heartbeat `0`, short successful queries. Run LIGHTWEIGHT
    and EXACT for direct SQL, Path A and Path B. Check that at least 99% of completions fail their
@@ -1000,7 +1282,22 @@ Use six scenario families:
    exception and message-body opt-in off. Use an admitting, non-noop SLF4J provider with a local
    discard sink. Run 1 and 8 threads. Off performs the same local log call without the OTel hook.
 
-Only timing mode differs between each workload's LIGHTWEIGHT and EXACT arms. Keep thresholds,
+7. Local capture only: OTel off, no SDK, no OTel listener and no histograms. Enable local capture
+   with a positive threshold and LIGHTWEIGHT timing for the same tiny SQL, Path A and Path B
+   fixtures. Verify at least 99% rejected completions. Fast rejection precedes text rendering,
+   record construction and correlation allocation. Use the matched off denominator.
+   The accepted throughput-loss budget is 10%, copied from the LIGHTWEIGHT OTel arm with
+   slow-query filtering. Numerical capture defaults remain open.
+
+Measure local capture alone, OTel alone and both together against matched baselines.
+Existing OTel fixtures keep local capture off. The combined arm has no new numerical budget.
+Local-only and combined slowdown estimates remain unestimated until measured.
+Report throughput, tail latency, allocation and retained-memory behavior separately.
+Validate concurrent publication, eviction, cursor reads and slow-consumer pressure.
+Health evaluation is bounded outside queries and independent of reader count.
+No query completion performs network requests, backend queries or event delivery.
+
+Only timing mode differs between each OTel workload's LIGHTWEIGHT and EXACT arms. Keep thresholds,
 rejection checks, SQL children, buffer size and histograms identical. EXACT uses paired
 `System.nanoTime()` reads per delegated `hasNext()` and `next()` call. Short queries with few
 rows add few pairs. SQL and Path A pay one timing layer. Path B with SQL children pays two.
@@ -1008,7 +1305,7 @@ Each EXACT arm shares its LIGHTWEIGHT arm's candidate-off denominator. Reports s
 side by side for each path and workload. Report their throughput-loss gap without a gap budget.
 Accepted risk: the gate grows by nine arms, which adds benchmark time per run.
 
-Each enabled query fixture enables metrics and the queries group. Keep the histogram dimension
+Each OTel-enabled query fixture enables metrics and the queries group. Keep the histogram dimension
 schema unchanged and report cache hit or collision pressure as fixture metadata. Warm the cache
 for the repeated-dimension fixture. Include a separate collision-heavy diagnostic variant.
 The logs fixture enables SDK metrics to observe queue losses. Other signal switches match each
@@ -1041,7 +1338,8 @@ profiles or merge data from different configurations into one score.
 
 Throughput loss is `100 * (1 - Qscenario / Qoff)`, where Q is operations per second. Candidate-off
 uses base-off as its denominator. All enabled scenarios use their own candidate-off fixture.
-The accepted alert budgets are 1% for off, 10% for LIGHTWEIGHT mostly rejected, 35% for
+The accepted alert budgets are 1% for off, 10% for LIGHTWEIGHT mostly rejected,
+10% for local-capture-only mostly rejected with OTel off, 35% for
 LIGHTWEIGHT emit-all SQL and Path A, 40% for LIGHTWEIGHT emit-all Path B, 30% for single-layer
 EXACT scans, 45% for layered EXACT scans, 15% for LIGHTWEIGHT concurrent tags and 50% for logs.
 New arm estimates and budgets below are proposals pending user confirmation. Estimates describe
@@ -1106,13 +1404,39 @@ by this design edit. Measured reports must distinguish this policy from correctn
 
 ## Quick-start observability stack
 
-The quick-start docker-compose example assembles five containerized services into one Collector pipeline plus three viewer backends, with Grafana provisioning the operator-facing UI surface. The deep mechanism here covers what the upstream tools do, how the Collector pipeline routes the three signals, and what the smoke script actually verifies — material that does not belong in design.md because it is upstream-tool-specific operational detail, not YTDB design.
+The local Docker Compose setup runs a pinned, tested grafana/otel-lgtm release beside
+YouTrackDB and the later web application. LGTM supplies Loki, Grafana, Tempo and Prometheus.
+Choose the exact release during packaging and verify its collection and provisioning behavior.
+The complete delivery needs database monitoring and later application capabilities.
+Example files alone are not the delivery boundary. Keep setup files outside module JAR resources.
 
-Grafana is the chosen operator UI, self-hosted or Grafana Cloud. YouTrackDB does not embed or depend on Grafana. The default YTDB-owned pipeline exports OTLP to an OTel Collector. Standard exporter-selection settings can select other exporters. Production routes traces to Tempo, logs to Loki and metrics to Prometheus or a compatible store such as Mimir or Grafana Cloud metrics. Other backends work through exporter settings or a host-owned SDK. Shipped dashboards and first-class setup documentation target Grafana only. The rejected alternative is backend-neutral documentation with no shipped dashboards, which leaves operators to assemble the UI. The planned user manual includes "Connect to Grafana" for self-hosted and Cloud endpoints, headers and dashboard import. Other hosted backends have no first-class setup documentation in this deliverable. When the YTDB exporter endpoint is unset, grpc defaults to `http://localhost:4317` and http/protobuf to `http://localhost:4318` with signal-specific `/v1/{signal}` paths.
+The later web application embeds Grafana panels. Core stays independent of Grafana.
+Track 104 defines application access, login and embedding. Track 105 defines optional MCP access.
+This section defines neither interface. Production may run telemetry stores separately.
+Exporter selection, host-owned SDK support and unset-endpoint behavior remain unchanged.
+Publish only OTLP receivers and the later application entry port, with loopback-only host mappings.
+Keep Grafana, Loki, Prometheus and Tempo ports internal. Do not add diagnostic host mappings.
+Smoke checks run against internal container-network endpoints.
+Set `GF_AUTH_ANONYMOUS_ENABLED=false` explicitly to override the LGTM image default.
+Reach Grafana only through the later gateway. Track 104 defines access and login details.
+Generate credentials at first start into untracked `secrets/` beside the Compose file.
+Use owner-only permissions on that directory and its credential files.
+Mount each file only into services that need it. Keep fixed credentials out of example files.
+Never print credentials in container output, `scripts/logs.sh` output or exported telemetry.
+Document file locations, permissions and non-disclosure in the example README.
+Do not use shared administrator credentials as the application login.
 
 ### Collector pipeline shape
 
-The Collector config (`otel-collector-config.yaml`) defines three pipelines on one process, each consuming the same OTLP receiver pair and routing through shared processors to a signal-specific exporter:
+LGTM's collection layer routes OTLP traces to Tempo, logs to Loki and metrics to Prometheus.
+The selected release determines concrete internal endpoints and collection configuration.
+The following local example shows logical routing with separate container services.
+It is not an extra quick-start service or a claim about LGTM's internal configuration.
+It uses plaintext and unauthenticated container-network traffic and is not a production configuration.
+Production requires Transport Layer Security (TLS) and client authentication at receivers.
+Production also requires authenticated TLS connections to telemetry backends.
+All receiver addresses below are container-internal. Publish OTLP receivers on loopback only.
+Keep backend and scrape endpoints internal without host mappings.
 
 ```yaml
 receivers:
@@ -1138,8 +1462,8 @@ processors:
         action: upsert
 
 exporters:
-  otlp/jaeger:
-    endpoint: jaeger:4317
+  otlp/tempo:
+    endpoint: tempo:4317
     tls:
       insecure: true
   otlphttp/loki:
@@ -1155,7 +1479,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
-      exporters: [otlp/jaeger]
+      exporters: [otlp/tempo]
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch, resource]
@@ -1170,19 +1494,21 @@ Three details matter:
 
 1. **`memory_limiter` runs first** in every pipeline. Order matters — the limiter must see batches before the `batch` processor accumulates them, otherwise a runaway emit overruns the limit before the limiter rejects it.
 2. **`resource` modifies each resource group.** Batching does not change resource-attribute scope or merge distinct resources into one resource. Running `batch` before `resource` is an example pipeline choice. It is not a requirement for resource-level attribute placement.
-3. **Prometheus is pull-not-push**. The Collector's `prometheus` exporter exposes a `/metrics` HTTP endpoint on `:8889`; Prometheus scrapes it at the 15 s interval configured in `prometheus.yml`. The other two exporters push (`otlp/jaeger` to Jaeger's OTLP receiver on `:4317`; `otlphttp/loki` to Loki's OTLP HTTP path on `:3100/otlp`).
+3. **Prometheus collection.** The separate Collector example exposes metrics on `:8889` for scraping. Traces and logs use push export. Validate the selected LGTM release's actual metrics path and scrape cadence before fixing smoke timing.
 
 ### Grafana datasource provisioning and correlator wiring
 
-Grafana provisions the three datasources at startup via `grafana/provisioning/datasources/datasources.yml`. The quick-start uses Jaeger. Production uses Tempo. Both trace data sources link to Loki and Prometheus-compatible metrics through their supported correlation settings. The local Jaeger configuration is:
+Provision Tempo, Loki and Prometheus data sources using the selected LGTM release's endpoints.
+Link Tempo traces to Loki and Prometheus with supported correlation settings.
+The following shape shows a separate-service deployment. Resolve internal URLs for LGTM.
 
 ```yaml
 apiVersion: 1
 datasources:
-  - name: Jaeger
-    type: jaeger
-    uid: jaeger
-    url: http://jaeger:16686
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    url: http://tempo:3200
     jsonData:
       tracesToLogsV2:
         datasourceUid: loki
@@ -1206,15 +1532,30 @@ datasources:
     url: http://prometheus:9090
 ```
 
-The `tracesToLogsV2` correlator wires Jaeger's span-detail panel "Logs for this span" button to a Loki query filtered by `trace_id` resolved from the span's trace context. The 2-minute window on either side of the span absorbs clock skew between the YTDB host and the Loki ingester; tightening the window risks missing logs emitted near the span boundary. The `filterByTraceID: true` setting tells Grafana to add `|= "<traceId>"` to the Loki LogQL, scoping the result to one trace.
+The `tracesToLogsV2` settings link a Tempo span to Loki logs by trace identifier.
+The example's two-minute shifts accommodate clock skew. Verify correlation with the pinned release.
+Logs carry the host span current at emission. Completion-built query and commit spans never
+become current and never rewrite earlier log correlation.
 
-The `tracesToMetrics` correlator points at Prometheus and joins on `service.name`. Operators clicking the "Metrics for this service" link in Jaeger land in a Prometheus panel filtered to `youtrackdb` metrics within the same 2-minute window.
+The `tracesToMetrics` settings join Prometheus measurements by `service.name`.
+The link does not imply that a local slow-query record has a retained backend trace.
 
 ### Dashboard placeholder strategy
 
-The same three dashboard JSON files serve the quick-start, self-hosted production and Grafana Cloud. Their data source inputs select a Jaeger or Tempo trace source, a Loki log source and a Prometheus-compatible metrics source. Trace views use the selected trace source. Latency, rate and count panels query Prometheus metrics. Dashboard import maps these inputs to local UIDs. Quick-start provisioning supplies the local defaults. Exported instance UIDs must not become fixed dependencies of the committed JSON.
+Provision five JSON dashboards: overview, queries, storage, logs and health.
+JSON means JavaScript Object Notation. Use Tempo, Loki and Prometheus data source inputs.
+Import maps those inputs to local unique identifiers (UIDs).
+Do not commit fixed instance UIDs.
+The logs dashboard searches exported Loki content within bounded time ranges.
+The health dashboard shows exported state, reasons, freshness and structured transitions.
+Missing or stale authority shows unknown. Local current health and history do not depend on export.
+The later application presents local health and slow queries. Track 104 defines that presentation.
 
-The author workflow for any dashboard edit: bring the stack up, open Grafana, edit the dashboard in the UI, export via "Share → Export → Save to file", run `scripts/normalize-dashboard.sh <file>` to replace the captured UIDs with the placeholder strings, commit. The normalize script is a thin `jq` wrapper that operates on the exported JSON deterministically.
+Dashboard authoring uses the authenticated gateway defined by the later Track 104 design.
+Bring the stack up and open Grafana through that gateway, not through a host Grafana port.
+Edit the dashboard in the user interface and export through "Share → Export → Save to file".
+Run `scripts/normalize-dashboard.sh <file>` to replace captured UIDs with placeholder strings.
+Commit the normalized file. The normalize script is a thin `jq` wrapper with deterministic output.
 
 ### Smoke-script verification semantics
 
@@ -1222,21 +1563,32 @@ The author workflow for any dashboard edit: bring the stack up, open Grafana, ed
 
 1. **Bring up the stack** if not already healthy (`docker compose up -d --wait`).
 2. **Run a minimal embedded YTDB query** via a one-shot `java -jar` invocation against the Maven-built artifact. The sample settings and smoke invocation set `OPENTELEMETRY_ENABLED=true`, `OPENTELEMETRY_LOGS_ENABLED=true` and `OPENTELEMETRY_METRICS_ENABLED=true`, with the local Collector endpoint. Other settings keep their shipped defaults. These example overrides do not change product defaults. The query is a fixed `SELECT FROM OUser LIMIT 1` against an in-memory database — small, deterministic, exercises the SQL pillar through `db.query(...)`.
-3. **Poll Jaeger** at `http://localhost:16686/api/services` until `youtrackdb` appears, then `http://localhost:16686/api/traces?service=youtrackdb&limit=1` until at least one trace lands. 30 s timeout per pillar.
-4. **Poll Loki** at `http://localhost:3100/loki/api/v1/labels` until `service_name` appears, then `http://localhost:3100/loki/api/v1/query?query={service_name="youtrackdb"}` until at least one log record returns.
-5. **Poll Prometheus** at `http://localhost:9090/api/v1/label/service_name/values` until `youtrackdb` appears, then `http://localhost:9090/api/v1/query?query=db_client_operation_duration_seconds_count{service_name="youtrackdb"}` until at least one sample returns.
-6. **Exit 0** when all three polls succeed. **Exit non-zero with a diagnostic message naming the missing pillar** when any poll times out at 30 s.
+3. **Check Tempo** through the pinned release's supported trace search and lookup paths. Confirm the known query trace arrives within the existing 30-second per-signal timeout. Use internal container-network endpoints without host mappings.
+4. **Poll Loki** over the container network at the selected release's internal `/loki/api/v1/labels` endpoint until `service_name` appears, then `/loki/api/v1/query?query={service_name="youtrackdb"}` until at least one log record returns.
+5. **Poll Prometheus** over the container network at the selected release's internal `/api/v1/label/service_name/values` endpoint until `youtrackdb` appears, then `/api/v1/query?query=db_client_operation_duration_seconds_count{service_name="youtrackdb"}` until at least one sample returns.
+6. **Check monitoring capabilities**: bounded log search, metric graphs, trace lookup,
+   current health, health transitions and retained slow queries.
+   Explicitly enable local capture and execute a query above its configured positive threshold.
+   This test override keeps the product capture default off.
+   Check authenticated panels once Track 104 defines access.
+   Stop collection or disable export and confirm local monitoring still works.
+7. **Exit 0** only when all checks pass. Exit non-zero with a diagnostic naming each missing
+   signal or capability. Preserve the existing 30-second per-signal timeout.
 
-The 30 s timeout is the load-bearing constant. It must be longer than the Collector's `batch` timeout (1 s) plus the worst-case exporter push interval plus the Prometheus scrape interval (15 s), with margin for cold-start container readiness. Shorter timeouts cause false negatives on under-resourced CI runners; longer timeouts mask actual failures by retrying until the optional CI job's outer timeout kicks in.
+Validate collection, export and scrape intervals against that timeout for the pinned release.
+Do not assume that startup readiness means telemetry has arrived.
 
 ### Edge cases / Gotchas
 
 - **Loki OTLP HTTP path mismatch**. Loki 3.x accepts OTLP on `/otlp/v1/logs`, not the bare `/otlp` path Loki 2.x advertised. The Collector config writes the full path explicitly (`http://loki:3100/otlp`) and the Collector appends `/v1/logs` per OTLP spec. A common operator surprise on a stale Loki version: logs land in Loki but the OTLP receiver returns 404 because the path resolver fell through. The README troubleshooting section names this case and points at the matching image tag.
-- **Prometheus scrape lag on a fresh stack**. The first scrape happens 15 s after Prometheus starts. The smoke script's 30 s timeout absorbs this; an operator running queries immediately after bring-up may see "no data" in Grafana for up to 15 s. Documented behavior, not a bug.
+- **Fresh-stack lag**. Use the selected release's actual scrape cadence when diagnosing missing measurements. Startup and export readiness are separate.
 - **Collector resource attribute vs span attribute precedence**. The `resource` processor sets `deployment.environment.name=local` as a resource attribute, which Grafana surfaces alongside span attributes in the trace-detail panel. A host-side `OPENTELEMETRY_SERVICE_NAME` override propagates into the same resource attribute set via the autoconfigure builder; the Collector's `resource` processor upserts `deployment.environment.name=local`, replacing an existing environment value. It does not modify `service.name` because no action targets that key. Use `insert` instead to preserve a supplied environment value.
-- **Jaeger Elasticsearch backend swap (out-of-scope)**. The example uses Jaeger's all-in-one binary with in-memory storage, which loses traces on container restart. Operators who want persistence beyond a workstation demo migrate to Jaeger's Elasticsearch backend; the swap is a Jaeger config change and the YTDB side does not move. Documented in the README's "production tightening" section as a pointer.
-- **Cardinality blow-up via per-tenant span names**. Default span-name format `commit <dbName>` produces one span name per database. Multi-tenant hosts with thousands of databases hit Jaeger's span-name aggregation limits; the design's `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME=false` switch drops dbName from the span name, moving identity to the `db.namespace` attribute where Jaeger indexes it cheaply. The example does not flip the switch (single-database demo), but the README points at the operator-facing tuning.
+- **Development storage**. Document LGTM retention and restart loss for the selected release. Local packaging provides no production storage or security guarantees.
+- **Span-name cardinality**. Keep the existing `OPENTELEMETRY_COMMIT_SPAN_NAME_INCLUDES_DBNAME` contract. Backend choice does not remove cardinality costs.
 
 ### References
-- D-records: D41 (Quick-start observability stack lands inside YTDB-496 PR as example-files-only deliverable; rationale and alternatives in implementation-plan.md)
-- Invariants: example-files-only (no source-code edits in `core`, `server`, or the OTel module), pinned image versions only (no `latest` tags; periodic refresh tracked under follow-up ticket `YTDB-OTel-EXAMPLE-VERSIONS`), Maven `<resources>` exclusion (example never ships inside the built JAR)
+- D-records: D41 (LGTM, five dashboards and later unified application capabilities define delivery).
+- Invariants: pinned tested releases, loopback-only entry ports and internal telemetry stores.
+- Credentials: generated at first start in owner-only files and excluded from logs and telemetry.
+- Packaging: example files stay outside Maven resources and the module JAR.
+- No alerting rules, remediation or tuning recommendations are added.
