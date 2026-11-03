@@ -2061,6 +2061,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       throw new IllegalArgumentException("Invalid useWal boolean");
     }
     pos++;
+    // Require all four binary version bytes before the integer read.
+    // Otherwise the read can fail with an error that is not a configuration error.
     if (property.length - pos < IntegerSerializer.INT_SIZE) {
       throw new IllegalArgumentException("Truncated collection binary version");
     }
@@ -2070,9 +2072,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       throw new IllegalArgumentException("Unknown collection binary version: " + binaryVersion);
     }
     pos += IntegerSerializer.INT_SIZE;
-    pos = strictStringEnd(property, pos);
-    pos = strictStringEnd(property, pos);
-    pos = strictStringEnd(property, pos);
+    pos = strictStringEnd(property, pos); // Skip optional encryption.
+    pos = strictStringEnd(property, pos); // Skip optional conflict strategy.
+    pos = strictStringEnd(property, pos); // Skip optional compression.
     if (pos != property.length - 1) {
       throw new IllegalArgumentException("Truncated or trailing collection bytes");
     }
