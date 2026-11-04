@@ -23,7 +23,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.listener.ProgressListener;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
-import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -81,8 +80,6 @@ import javax.annotation.Nullable;
  */
 public class IndexManagerEmbedded extends IndexManagerAbstract {
 
-  private volatile Thread recreateIndexesThread = null;
-
   /** Test-only fault seam fired after each reconciled lookup-map publication step. */
   private volatile Runnable reconciledIndexPublicationTestHook;
 
@@ -90,8 +87,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   public void setReconciledIndexPublicationTestHook(Runnable hook) {
     reconciledIndexPublicationTestHook = hook;
   }
-
-  volatile boolean rebuildCompleted = false;
 
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
 
@@ -162,21 +157,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   @Override
   public void load(DatabaseSessionEmbedded session) {
-    if (!autoRecreateIndexesAfterCrash(session)) {
-      session.executeInTxInternal(transaction -> {
-        acquireExclusiveLock(transaction);
-        try {
-          indexManagerIdentity =
-              RecordIdInternal.fromString(
-                  session.getStorage().getIndexMgrRecordId(),
-                  false);
-          var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
-          load(transaction, entity);
-        } finally {
-          releaseExclusiveLock(session, false);
-        }
-      });
-    }
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        indexManagerIdentity =
+            RecordIdInternal.fromString(
+                session.getStorage().getIndexMgrRecordId(),
+                false);
+        var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
+        load(transaction, entity);
+      } finally {
+        releaseExclusiveLock(session, false);
+      }
+    });
   }
 
   @Override
@@ -1758,76 +1751,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         applied.index().addCollectionInMemoryAtCommit(applied.collectionName());
       }
     }
-  }
-
-  public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionEmbedded session) {
-    acquireSharedLock();
-    try {
-      return indexes.values().stream()
-          .map(index -> index.getConfiguration(session))
-          .collect(Collectors.toList());
-    } finally {
-      releaseSharedLock();
-    }
-  }
-
-  public void recreateIndexes(DatabaseSessionEmbedded session) {
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        if (recreateIndexesThread != null && recreateIndexesThread.isAlive())
-        // BUILDING ALREADY IN PROGRESS
-        {
-          return;
-        }
-
-        Runnable recreateIndexesTask = new RecreateIndexesTask(this, session.getSharedContext());
-        recreateIndexesThread = new Thread(recreateIndexesTask, "YouTrackDB rebuild indexes");
-        recreateIndexesThread.setUncaughtExceptionHandler(new UncaughtExceptionHandler());
-        recreateIndexesThread.start();
-      } finally {
-        releaseExclusiveLock(session, true);
-      }
-    });
-
-    if (session
-        .getConfiguration()
-        .getValueAsBoolean(GlobalConfiguration.INDEX_SYNCHRONOUS_AUTO_REBUILD)) {
-      waitTillIndexRestore();
-      session.getMetadata().reload();
-    }
-  }
-
-  public void waitTillIndexRestore() {
-    if (recreateIndexesThread != null && recreateIndexesThread.isAlive()) {
-      if (Thread.currentThread().equals(recreateIndexesThread)) {
-        return;
-      }
-
-      LogManager.instance().info(this, "Wait till indexes restore after crash was finished.");
-      while (recreateIndexesThread.isAlive()) {
-        try {
-          recreateIndexesThread.join();
-          LogManager.instance().info(this, "Indexes restore after crash was finished.");
-        } catch (InterruptedException e) {
-          LogManager.instance().info(this, "Index rebuild task was interrupted.", e);
-        }
-      }
-    }
-  }
-
-  public boolean autoRecreateIndexesAfterCrash(DatabaseSessionEmbedded session) {
-    if (rebuildCompleted) {
-      return false;
-    }
-
-    final var storage = session.getStorage();
-    if (storage instanceof AbstractStorage paginatedStorage) {
-      return paginatedStorage.wereDataRestoredAfterOpen()
-          && paginatedStorage.wereNonTxOperationsPerformedInPreviousOpen();
-    }
-
-    return false;
   }
 
   /**

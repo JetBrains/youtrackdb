@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -42,7 +43,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SequentialTest.class)
 public class WOWCacheTestIT {
 
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
@@ -54,6 +57,8 @@ public class WOWCacheTestIT {
 
   private static CASDiskWriteAheadLog writeAheadLog;
   private static final ByteBufferPool bufferPool = new ByteBufferPool(pageSize);
+  private static Object previousExclusiveFileAccess;
+  private static Object previousFileLock;
   private static Path storagePath;
   private static WOWCache wowCache;
   private static String storageName;
@@ -62,6 +67,8 @@ public class WOWCacheTestIT {
 
   @BeforeClass
   public static void beforeClass() {
+    previousExclusiveFileAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -117,13 +124,14 @@ public class WOWCacheTestIT {
 
   @AfterClass
   public static void afterClass() throws IOException {
-    deleteCacheAndDeleteFile();
-
-    Files.deleteIfExists(storagePath);
-    bufferPool.clear();
-
-    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(true);
-    GlobalConfiguration.FILE_LOCK.setValue(true);
+    try {
+      deleteCacheAndDeleteFile();
+      Files.deleteIfExists(storagePath);
+      bufferPool.clear();
+    } finally {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   private void initBuffer() throws IOException, InterruptedException {

@@ -39,6 +39,10 @@ public final class MetaDataRecord extends AbstractWALRecord {
     final var metadataLen = IntegerSerializer.deserializeNative(content, offset);
     offset += IntegerSerializer.INT_SIZE;
 
+    // Validate the payload length before allocating from persisted data.
+    if (metadataLen < 0 || metadataLen > content.length - offset) {
+      throw new IllegalArgumentException("Metadata length exceeds WAL record content");
+    }
     metadata = new byte[metadataLen];
     System.arraycopy(content, offset, metadata, 0, metadataLen);
     return offset + metadataLen;

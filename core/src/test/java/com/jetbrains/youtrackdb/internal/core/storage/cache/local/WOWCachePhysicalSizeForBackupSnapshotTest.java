@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import static org.junit.Assert.assertEquals;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -24,6 +25,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Contract pin for {@link WOWCache#physicalSizeForBackupSnapshot(long)} on the disk
@@ -39,6 +41,8 @@ import org.junit.Test;
  * size, same checksum mode). The helper itself does not depend on checksum mode, but
  * keeping the scaffolding aligned avoids accidental divergence in cleanup ordering.
  */
+// The fixture changes process-global file access flags.
+@Category(SequentialTest.class)
 public class WOWCachePhysicalSizeForBackupSnapshotTest {
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
@@ -47,6 +51,8 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
   private static final long EXCLUSIVE_WRITE_CACHE_MAX_SIZE = 100L;
   private static final String FILE_NAME = "wowCachePhysicalSizeForBackupSnapshot.tst";
 
+  private static boolean previousExclusiveFileAccess;
+  private static boolean previousFileLock;
   private static Path storagePath;
   private static String storageName;
   private static final ByteBufferPool bufferPool = new ByteBufferPool(PAGE_SIZE);
@@ -60,6 +66,9 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
 
   @BeforeClass
   public static void beforeClass() {
+    previousExclusiveFileAccess =
+        GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValueAsBoolean();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValueAsBoolean();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -69,7 +78,12 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
 
   @AfterClass
   public static void afterClass() {
-    bufferPool.clear();
+    try {
+      bufferPool.clear();
+    } finally {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before
