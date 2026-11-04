@@ -164,6 +164,10 @@ public final class YTDBGraphStepStrategy
 
           // if we've replaced all HasContainers, then we want to remove the original step
           removeOriginalStep = hch.getHasContainers().isEmpty();
+          if (removeOriginalStep) {
+            // Labels belong at the end of the filter, after every extracted label condition.
+            current.getLabels().forEach(current.getPreviousStep()::addLabel);
+          }
         }
 
         if (removeOriginalStep) {
