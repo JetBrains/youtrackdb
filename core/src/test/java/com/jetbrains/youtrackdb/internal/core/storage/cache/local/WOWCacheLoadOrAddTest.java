@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -63,6 +64,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.mockito.Mockito;
 
 /**
@@ -82,6 +84,8 @@ import org.mockito.Mockito;
  * branch is therefore deferred to the dedicated cache-coverage test track that introduces
  * the necessary seams.
  */
+// The fixture changes process-global file access flags.
+@Category(SequentialTest.class)
 public class WOWCacheLoadOrAddTest {
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
@@ -90,6 +94,8 @@ public class WOWCacheLoadOrAddTest {
   private static final long EXCLUSIVE_WRITE_CACHE_MAX_SIZE = 100L;
   private static final String FILE_NAME = "wowCacheLoadOrAdd.tst";
 
+  private static boolean previousExclusiveFileAccess;
+  private static boolean previousFileLock;
   private static Path storagePath;
   private static String storageName;
   private static final ByteBufferPool bufferPool = new ByteBufferPool(PAGE_SIZE);
@@ -104,6 +110,9 @@ public class WOWCacheLoadOrAddTest {
 
   @BeforeClass
   public static void beforeClass() {
+    previousExclusiveFileAccess =
+        GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValueAsBoolean();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValueAsBoolean();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -113,7 +122,12 @@ public class WOWCacheLoadOrAddTest {
 
   @AfterClass
   public static void afterClass() {
-    bufferPool.clear();
+    try {
+      bufferPool.clear();
+    } finally {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before
@@ -1285,8 +1299,7 @@ public class WOWCacheLoadOrAddTest {
    * <p><b>Scenario.</b> {@code loadOrAdd}'s extend and gap-fill branches submit an
    * {@link EnsurePageIsValidInFileTask} to the commit executor and return without waiting for
    * it, so the stamp write is asynchronous with respect to the allocation. If the file is
-   * removed in the interval — {@code deleteFile}, or {@code replaceFileId}, which unregisters
-   * both ids from {@code files} while it rebinds them, or a backup restore — the queued task
+   * deleted in the interval by {@code deleteFile}, the queued task
    * runs against a fileId that {@code files.acquire} no longer resolves and returns
    * {@code null} for. This test drives that state deterministically: allocate and flush page 0
    * (so the file genuinely exists on disk), delete the file, then invoke
@@ -1298,8 +1311,7 @@ public class WOWCacheLoadOrAddTest {
    * The fix logs at WARN and returns.
    *
    * <p><b>Assertions.</b> The call must not throw, and it must not resurrect the deleted file
-   * on disk — a stamp write here would recreate a file the storage believes is gone (or, on the
-   * {@code replaceFileId} path, write into a fileId that now belongs to another component).
+   * on disk — a stamp write here would recreate a file the storage believes is gone.
    */
   @Test
   public void writeValidPageInFileSkipsStampWhenFileWasAlreadyRemoved() throws IOException {

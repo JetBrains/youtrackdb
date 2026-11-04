@@ -530,9 +530,13 @@ public enum GlobalConfiguration {
       40,
       true),
 
+  /**
+   * @deprecated This setting has no effect.
+   */
+  @Deprecated
   INDEX_SYNCHRONOUS_AUTO_REBUILD(
       "youtrackdb.index.auto.synchronousAutoRebuild",
-      "Synchronous execution of auto rebuilding of indexes, in case of a DB crash",
+      "This setting has no effect.",
       Boolean.class,
       true),
 

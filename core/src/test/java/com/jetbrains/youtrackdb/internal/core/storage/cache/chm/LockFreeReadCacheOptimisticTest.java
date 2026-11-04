@@ -313,7 +313,7 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override
@@ -482,10 +482,6 @@ public class LockFreeReadCacheOptimisticTest {
 
     @Override
     public void open() throws IOException {
-    }
-
-    @Override
-    public void replaceFileId(long fileId, long newFileId) {
     }
 
     @Override

@@ -435,6 +435,28 @@ public class FileUtils {
     }
   }
 
+  /**
+   * Publishes already-forced content with a Windows write-through replacement. This method has no
+   * portable fallback and does not force the source again. The caller owns the content barrier.
+   */
+  public static void windowsWriteThroughMove(Path source, Path target) throws IOException {
+    windowsWriteThroughMove(source, target, WindowsDurableMove.BINDING);
+  }
+
+  static void windowsWriteThroughMove(Path source, Path target, WindowsMoveBinding binding)
+      throws IOException {
+    var move = binding.nativeMove();
+    if (move == null) {
+      throw new IOException("Windows write-through move unavailable", binding.loadFailure());
+    }
+    move.move(source, target);
+  }
+
+  /** Reports the process-memorized availability of the Windows write-through replacement. */
+  public static boolean windowsWriteThroughMoveAvailable() {
+    return WindowsDurableMove.BINDING.nativeMove() != null;
+  }
+
   private static void forceDirectory(final Path directory) throws IOException {
     try (var channel = FileChannel.open(directory, StandardOpenOption.READ)) {
       channel.force(true);
