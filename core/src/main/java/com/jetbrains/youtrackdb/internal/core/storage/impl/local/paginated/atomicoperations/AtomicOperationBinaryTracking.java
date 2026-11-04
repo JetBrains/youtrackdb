@@ -56,6 +56,9 @@ import it.unimi.dsi.fastutil.ints.IntSets;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
@@ -1002,6 +1005,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
 
+      final var commitPages = new CommitPageSet(fileChanges.size());
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
@@ -1016,16 +1020,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
         }
 
-        if (nonDurable) {
-          // Skip WAL logging for non-durable files. Page changes are applied
-          // to cache below and empty entries are cleaned up in the cache loop.
-          continue;
-        }
-
         // Only changed new pages determine the highest new index. Applying that index
         // extends the physical file through every intervening index, even if an
         // intervening allocation had no changes and was removed from this map.
         long highestNewPage = -1;
+        LongArrayList changedPages = null;
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
             fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
         while (filePageChangesIterator.hasNext()) {
@@ -1036,6 +1035,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
           if (filePageChanges.changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();
+
+            // Create the per-file list only on the first change, then reuse it.
+            if (changedPages == null) {
+              changedPages = commitPages.addFile(fileId);
+            }
+            changedPages.add(pageIndex);
+            if (nonDurable) {
+              continue;
+            }
 
             // All durable page types must register PageOperations, which are
             // flushed to WAL at component boundaries by flushPendingOperations().
@@ -1122,7 +1130,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // perform no readCache calls in the section below, so bumping the epoch for them
       // would only spuriously invalidate every concurrently overlapping optimistic
       // read in the storage.
-      final var mutatesSharedCache = commitMutatesSharedCache();
+      final var mutatesSharedCache = commitMutatesSharedCache(commitPages);
       var enteredComponentCount = 0;
       var standaloneEpochEntered = false;
       try {
@@ -1171,31 +1179,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           // and updateDirtyPagesTable (Track 4) skips them regardless.
           final var fileStartLSN = nonDurable ? null : startLSN;
 
-          // Snapshot the test hook once per file so a concurrent (test-side) uninstall
-          // cannot switch paths mid-file. Null in production — the fast path below is
-          // byte-for-byte the pre-seam loop.
+          // Both paths consume the exact set built during WAL validation. No page
+          // opened only for write can reach cache application.
+          final var pages = commitPages.pages(fileId);
           final var hook = pageApplyHook;
           if (hook == null) {
-            final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-                fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-            while (filePageChangesIterator.hasNext()) {
-              final var filePageChangesEntry =
-                  filePageChangesIterator.next();
-
-              if (filePageChangesEntry.getValue().changes.hasChanges()) {
-                applyPageChangesToCache(
-                    fileId,
-                    filePageChangesEntry.getLongKey(),
-                    filePageChangesEntry.getValue(),
-                    nonDurable,
-                    fileStartLSN,
-                    txEndLsn);
-              } else {
-                filePageChangesIterator.remove();
-              }
+            for (var i = 0; i < pages.size(); i++) {
+              final var pageIndex = pages.getLong(i);
+              applyPageChangesToCache(fileId, pageIndex,
+                  fileChanges.pageChangesMap.get(pageIndex), nonDurable, fileStartLSN, txEndLsn);
             }
           } else {
-            applyPageChangesWithHook(hook, fileId, fileChanges, nonDurable, fileStartLSN,
+            applyPageChangesWithHook(hook, fileId, fileChanges, pages, nonDurable, fileStartLSN,
                 txEndLsn);
           }
         }
@@ -1211,6 +1206,34 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return txEndLsn;
     } finally {
       active = false;
+    }
+  }
+
+  /**
+   * Commit-local page identities grouped by file, in the original map iteration order.
+   * Only real changes enter this set. Allocation gaps are physical file extent, not
+   * changed pages. File deletion removes the file's changes before collection.
+   */
+  private static final class CommitPageSet {
+    private final Long2ObjectOpenHashMap<LongArrayList> pagesByFile;
+
+    CommitPageSet(int fileCount) {
+      pagesByFile = new Long2ObjectOpenHashMap<>(fileCount);
+    }
+
+    LongArrayList addFile(long fileId) {
+      final var pages = new LongArrayList();
+      pagesByFile.put(fileId, pages);
+      return pages;
+    }
+
+    LongList pages(long fileId) {
+      final var pages = pagesByFile.get(fileId);
+      return pages == null ? LongLists.EMPTY_LIST : pages;
+    }
+
+    boolean isEmpty() {
+      return pagesByFile.isEmpty();
     }
   }
 
@@ -1284,19 +1307,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * changes. Zero-change commits (read-only atomic operations) return {@code false}
    * and skip the apply-phase epoch bracket entirely.
    */
-  private boolean commitMutatesSharedCache() {
-    if (!deletedFiles.isEmpty()) {
+  private boolean commitMutatesSharedCache(final CommitPageSet commitPages) {
+    if (!deletedFiles.isEmpty() || !commitPages.isEmpty()) {
       return true;
     }
     for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
       final var changes = fileChangesEntry.getValue();
       if (changes.isNew) {
         return true;
-      }
-      for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
-        if (pageEntry.getValue().changes.hasChanges()) {
-          return true;
-        }
       }
     }
     return false;
@@ -1305,8 +1323,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   /**
    * TEST-ONLY variant of the per-file page-apply loop, active only when a
    * {@link PageApplyHook} is installed. Applies the file's changed pages in the order
-   * chosen by {@link PageApplyHook#orderPageApplications} (default: the map's native
-   * order) and invokes {@link PageApplyHook#beforePageApply} before each application.
+   * chosen by {@link PageApplyHook#orderPageApplications} (default: the commit-set
+   * order collected during the WAL phase) and invokes {@link PageApplyHook#beforePageApply}
+   * before each application.
    * Runs inside the apply-phase epoch bracket, so a hook that throws still triggers the
    * bracket's finally-exit (the epoch can never be left permanently "in apply").
    */
@@ -1314,10 +1333,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       final PageApplyHook hook,
       final long fileId,
       final FileChanges fileChanges,
+      final LongList pages,
       final boolean nonDurable,
       @Nullable final LogSequenceNumber fileStartLSN,
       @Nullable final LogSequenceNumber txEndLsn) throws IOException {
-    var pageIndexes = fileChanges.pageChangesMap.keySet().toLongArray();
+    var pageIndexes = pages.toLongArray();
     final var reordered = hook.orderPageApplications(fileId, pageIndexes.clone());
     if (reordered != null) {
       // Enforce the "complete permutation" contract: an unknown
@@ -1349,18 +1369,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     for (final var pageIndex : pageIndexes) {
       final var filePageChanges = fileChanges.pageChangesMap.get(pageIndex);
-      // The permutation validation above (and keySet origin on the default path)
+      // The permutation validation above (and commit-set origin on the default path)
       // guarantees every index resolves; this is a defensive invariant only.
       assert filePageChanges != null
           : "page changes vanished for page index " + pageIndex + " in file " + fileId;
 
-      if (filePageChanges.changes.hasChanges()) {
-        hook.beforePageApply(fileId, pageIndex);
-        applyPageChangesToCache(fileId, pageIndex, filePageChanges, nonDurable, fileStartLSN,
-            txEndLsn);
-      } else {
-        fileChanges.pageChangesMap.remove(pageIndex);
-      }
+      hook.beforePageApply(fileId, pageIndex);
+      applyPageChangesToCache(fileId, pageIndex, filePageChanges, nonDurable, fileStartLSN,
+          txEndLsn);
     }
   }
 
@@ -1390,8 +1406,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     /**
      * Returns the order in which the given changed pages of {@code fileId} should be
-     * applied, or {@code null} to keep the default (map iteration) order. The returned
-     * array must be a COMPLETE permutation of {@code pageIndexes}: unknown indexes,
+     * applied, or {@code null} to keep the commit-set order collected during the WAL
+     * phase. The returned array must be a COMPLETE permutation of {@code pageIndexes}:
+     * unknown indexes,
      * duplicates, and omissions all fail the commit with
      * {@link IllegalStateException} (an omission would otherwise silently drop a
      * WAL-committed page's changes from the cache).

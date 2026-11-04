@@ -3,7 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
@@ -17,7 +22,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -28,7 +36,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +48,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
  * Tests for the TEST-ONLY {@link PageApplyHook} seam in
@@ -164,6 +175,271 @@ public class CommitChangesPageApplyHookTest {
     }
     op.flushPendingOperations();
     return fileId;
+  }
+
+  /** Durable new-file gaps are declared in WAL but only changed pages enter the apply set. */
+  @Test
+  public void testChangedSetForNewDurableFile() throws IOException {
+    assertChangedSetMatchesApply(true, false, true);
+  }
+
+  /** Non-durable new-file pages need the same exact set without WAL records. */
+  @Test
+  public void testChangedSetForNewNonDurableFile() throws IOException {
+    assertChangedSetMatchesApply(true, true, true);
+  }
+
+  /** Existing durable files reuse the set in the production path without a test hook. */
+  @Test
+  public void testChangedSetForExistingDurableFileWithoutHook() throws IOException {
+    assertChangedSetMatchesApply(false, false, false);
+  }
+
+  /** Existing non-durable files exclude unchanged allocations even with hook ordering. */
+  @Test
+  public void testChangedSetForExistingNonDurableFile() throws IOException {
+    assertChangedSetMatchesApply(false, true, true);
+  }
+
+  private void assertChangedSetMatchesApply(boolean newFile, boolean nonDurable, boolean hook)
+      throws IOException {
+    var op = createOperation();
+    long fileId = composeFileId(100, STORAGE_ID);
+    when(writeCache.isNonDurable(fileId)).thenReturn(nonDurable);
+    if (newFile) {
+      when(writeCache.bookFileId("set.dat")).thenReturn(fileId);
+      Assert.assertEquals(fileId, op.addFile("set.dat", nonDurable));
+    } else {
+      when(writeCache.loadFile("set.dat")).thenReturn(fileId);
+      Assert.assertEquals(fileId, op.loadFile("set.dat"));
+      when(writeCache.getFilledUpTo(fileId)).thenReturn(1L);
+      var existingPage = newCacheEntry(fileId, 0);
+      when(readCache.loadForRead(fileId, 0, writeCache, true)).thenReturn(existingPage);
+    }
+
+    // Page 1 is an allocation gap and page 3 is an unused tail. Neither is changed.
+    for (int i = 0; i < 4; i++) {
+      var page = !newFile && i == 0 ? op.loadPageForWrite(fileId, i, 1, true)
+          : op.allocatePageForWrite(fileId, i);
+      if (i == 0 || i == 2) {
+        page.getChanges().setByteValue(null, (byte) (i + 1), 100);
+        page.setInitialLSN(new LogSequenceNumber(-1, -1));
+        if (!nonDurable) {
+          op.registerPageOperation(fileId, i,
+              new TestPageOperation(i, fileId, 0, new LogSequenceNumber(0, 0), i));
+        }
+      }
+    }
+
+    var released = new ArrayList<Long>();
+    doAnswer(invocation -> {
+      var entry = invocation.getArgument(0, CacheEntry.class);
+      Assert.assertEquals(fileId, entry.getFileId());
+      Assert.assertEquals(entry.getPageIndex() + 1,
+          entry.getCachePointer().getBuffer().get(100));
+      released.add((long) entry.getPageIndex());
+      return null;
+    }).when(readCache).releaseFromWrite(any(), eq(writeCache), eq(true));
+
+    var offered = new ArrayList<Long>();
+    if (hook) {
+      op.setPageApplyHook(new PageApplyHook() {
+        @Override
+        public long[] orderPageApplications(long id, long[] pages) {
+          Assert.assertEquals(fileId, id);
+          var sorted = pages.clone();
+          java.util.Arrays.sort(sorted);
+          Assert.assertArrayEquals(new long[] {0, 2}, sorted);
+          for (long page : pages) {
+            offered.add(page);
+          }
+          return new long[] {2, 0};
+        }
+      });
+    }
+
+    var end = op.commitChanges(42, wal);
+    Assert.assertEquals(!nonDurable, end != null);
+    var sortedApplied = new ArrayList<>(appliedPageOrder);
+    Collections.sort(sortedApplied);
+    Assert.assertEquals(List.of(0L, 2L), sortedApplied);
+    Assert.assertEquals(appliedPageOrder, released);
+    if (hook) {
+      Collections.sort(offered);
+      Assert.assertEquals(sortedApplied, offered);
+      Assert.assertEquals(List.of(2L, 0L), appliedPageOrder);
+    }
+    if (nonDurable) {
+      verify(wal, never()).log(any());
+    } else {
+      var records = ArgumentCaptor.forClass(WriteableWALRecord.class);
+      verify(wal, atLeastOnce()).log(records.capture());
+      Assert.assertEquals(newFile ? List.of(0L, 1L, 2L) : List.of(1L, 2L),
+          records.getAllValues().stream()
+              .filter(PageAllocatedWALRecord.class::isInstance)
+              .map(PageAllocatedWALRecord.class::cast)
+              .map(PageAllocatedWALRecord::getPageIndex).toList());
+    }
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  /** Deleted-file changes never enter the set or apply, while deletion still brackets the epoch. */
+  @Test
+  public void testDeletedFileHasNoPagesToApply() throws IOException {
+    var op = createOperation();
+    long fileId = composeFileId(100, STORAGE_ID);
+    when(writeCache.loadFile("deleted.dat")).thenReturn(fileId);
+    when(writeCache.fileNameById(fileId)).thenReturn("deleted.dat");
+    op.loadFile("deleted.dat");
+    op.allocatePageForWrite(fileId, 0).getChanges().setByteValue(null, (byte) 1, 100);
+    op.deleteFile(fileId);
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long id, long[] pages) {
+        Assert.fail("Deleted files must not offer pages");
+        return null;
+      }
+    });
+
+    Assert.assertNotNull(op.commitChanges(42, wal));
+    Assert.assertTrue(appliedPageOrder.isEmpty());
+    verify(readCache).deleteFile(fileId, writeCache);
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  /**
+   * Same-name recreation reuses the loaded file without physical deletion or creation.
+   * Only the changed allocation is applied, not the unchanged tail allocation.
+   */
+  @Test
+  public void testDeletedThenRecreatedSameNameAppliesChangedPage() throws IOException {
+    var op = createOperation();
+    long fileId = composeFileId(100, STORAGE_ID);
+    when(writeCache.loadFile("recreated.dat")).thenReturn(fileId);
+    when(writeCache.fileNameById(fileId)).thenReturn("recreated.dat");
+    Assert.assertEquals(fileId, op.loadFile("recreated.dat"));
+    op.deleteFile(fileId);
+    Assert.assertEquals(fileId, op.addFile("recreated.dat"));
+    var page = op.allocatePageForWrite(fileId, 0);
+    page.getChanges().setByteValue(null, (byte) 7, 100);
+    page.setInitialLSN(new LogSequenceNumber(-1, -1));
+    op.registerPageOperation(fileId, 0,
+        new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 0));
+    op.allocatePageForWrite(fileId, 1);
+
+    var offered = new HashMap<Long, List<Long>>();
+    observePerFileSet(op, offered);
+    Assert.assertNotNull(op.commitChanges(42, wal));
+    Assert.assertEquals(Map.of(fileId, List.of(0L)), offered);
+    Assert.assertEquals(List.of(0L), appliedPageOrder);
+    verify(readCache).loadOrAddForWrite(eq(fileId), eq(0L), eq(writeCache),
+        anyBoolean(), any());
+    verify(readCache, never()).deleteFile(anyLong(), eq(writeCache));
+    verify(readCache, never()).addFile(any(), anyLong(), eq(writeCache), anyBoolean());
+    var records = ArgumentCaptor.forClass(WriteableWALRecord.class);
+    verify(wal, atLeastOnce()).log(records.capture());
+    Assert.assertTrue(records.getAllValues().stream().noneMatch(
+        record -> record instanceof FileDeletedWALRecord
+            || record instanceof FileCreatedWALRecord));
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  /**
+   * A mixed commit applies exactly each surviving file's changed pages, excludes the
+   * deleted file, and logs deletion before creation of the fresh durable file.
+   */
+  @Test
+  public void testMixedFilesApplyPerFileSetsAndDeleteBeforeCreate() throws IOException {
+    var op = createOperation();
+    long deletedId = composeFileId(99, STORAGE_ID);
+    when(writeCache.loadFile("deleted.dat")).thenReturn(deletedId);
+    when(writeCache.fileNameById(deletedId)).thenReturn("deleted.dat");
+    op.loadFile("deleted.dat");
+    op.allocatePageForWrite(deletedId, 4).getChanges().setByteValue(null, (byte) 9, 100);
+    op.deleteFile(deletedId);
+
+    long durableId = setupNewFileWithPages(op, "durable.dat", 2);
+    long nonDurableId = composeFileId(101, STORAGE_ID);
+    when(writeCache.bookFileId("non-durable.dat")).thenReturn(nonDurableId);
+    Assert.assertEquals(nonDurableId, op.addFile("non-durable.dat", true));
+    op.allocatePageForWrite(nonDurableId, 2).getChanges()
+        .setByteValue(null, (byte) 3, 100);
+    op.allocatePageForWrite(nonDurableId, 3);
+
+    var offered = new HashMap<Long, List<Long>>();
+    observePerFileSet(op, offered);
+    Assert.assertNotNull(op.commitChanges(42, wal));
+    var expected = Map.of(durableId, List.of(0L, 1L), nonDurableId, List.of(2L));
+    Assert.assertEquals(expected, offered);
+
+    var files = ArgumentCaptor.forClass(Long.class);
+    var pages = ArgumentCaptor.forClass(Long.class);
+    verify(readCache, org.mockito.Mockito.times(3)).loadOrAddForWrite(
+        files.capture(), pages.capture(), eq(writeCache), anyBoolean(), any());
+    var applied = new HashMap<Long, List<Long>>();
+    for (int i = 0; i < files.getAllValues().size(); i++) {
+      applied.computeIfAbsent(files.getAllValues().get(i), id -> new ArrayList<>())
+          .add(pages.getAllValues().get(i));
+    }
+    applied.values().forEach(Collections::sort);
+    Assert.assertEquals(expected, applied);
+    verify(readCache).deleteFile(deletedId, writeCache);
+    var records = ArgumentCaptor.forClass(WriteableWALRecord.class);
+    verify(wal, atLeastOnce()).log(records.capture());
+    Assert.assertEquals(List.of(FileDeletedWALRecord.class, FileCreatedWALRecord.class),
+        records.getAllValues().stream()
+            .filter(record -> record instanceof FileDeletedWALRecord
+                || record instanceof FileCreatedWALRecord)
+            .map(Object::getClass).toList());
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  private static void observePerFileSet(
+      AtomicOperationBinaryTracking op, Map<Long, List<Long>> offered) {
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long fileId, long[] pages) {
+        var sorted = pages.clone();
+        java.util.Arrays.sort(sorted);
+        var indexes = new ArrayList<Long>();
+        for (long page : sorted) {
+          indexes.add(page);
+        }
+        Assert.assertNull("Each file is offered once", offered.put(fileId, indexes));
+        return null;
+      }
+    });
+  }
+
+  /** Opened-but-unchanged non-durable pages produce an empty set and no epoch entry. */
+  @Test
+  public void testUnchangedExistingFileDoesNotApplyOrEnterEpoch() throws IOException {
+    var op = createOperation();
+    long fileId = composeFileId(100, STORAGE_ID);
+    when(writeCache.isNonDurable(fileId)).thenReturn(true);
+    when(writeCache.loadFile("unchanged.dat")).thenReturn(fileId);
+    op.loadFile("unchanged.dat");
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(1L);
+    var existingPage = newCacheEntry(fileId, 0);
+    when(readCache.loadForRead(fileId, 0, writeCache, true)).thenReturn(existingPage);
+    Assert.assertNotNull(op.loadPageForWrite(fileId, 0, 1, true));
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long id, long[] pages) {
+        Assert.assertEquals(fileId, id);
+        Assert.assertArrayEquals(new long[0], pages);
+        return null;
+      }
+    });
+
+    Assert.assertNull(op.commitChanges(42, wal));
+    Assert.assertTrue(appliedPageOrder.isEmpty());
+    Assert.assertEquals(0, epoch.enterSeq());
+    Assert.assertEquals(0, epoch.exitSeq());
   }
 
   @Test
