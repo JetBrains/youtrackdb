@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
@@ -219,6 +221,73 @@ public class GraphStepStrategyTest extends GraphBaseTest {
           assertEquals(1, step.getPredicates().size());
           return step.getPredicates().getFirst().getValue();
         }).toList());
+  }
+
+  /** A replaced label filter keeps both aliases for select in polymorphic and exact modes. */
+  @Test
+  public void replacedLabelFilterKeepsAllAliasesForSelect() {
+    var fixture = createLabelFixture();
+    for (var polymorphic : List.of(true, false)) {
+      var selected = graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
+          .V(fixture.groupId()).out("Member").hasLabel("Employee")
+          .as("member", "alias").select("member", "alias").by(T.id).toList();
+      assertEquals(List.of(Map.of(
+          "member", fixture.employeeId(), "alias", fixture.employeeId())), selected);
+      assertEquals(polymorphic ? Set.of(fixture.employeeId(), fixture.contractorId()) : Set.of(),
+          graph.traversal().with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
+              .V(fixture.groupId()).out("Member").hasLabel("User").as("member")
+              .select("member").by(T.id).toSet());
+    }
+  }
+
+  /** Multiple containers put aliases only on the last replacement and retain them in paths. */
+  @Test
+  public void replacedLabelIntersectionKeepsAliasesOnLastStepForPath() {
+    var fixture = createLabelFixture();
+    for (var polymorphic : List.of(true, false)) {
+      var traversal = graph.traversal()
+          .with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
+          .V(fixture.groupId()).out("Member").hasLabel("Employee").hasLabel("User")
+          .as("member", "alias").path().by(T.id).asAdmin();
+      var hasStep = (HasStep<?>) traversal.getSteps().stream()
+          .filter(HasStep.class::isInstance).findFirst().orElseThrow();
+      assertEquals(2, hasStep.getHasContainers().size());
+      YTDBGraphStepStrategy.instance().apply(traversal);
+      var replacements = traversal.getSteps().stream()
+          .filter(YTDBHasLabelStep.class::isInstance).toList();
+      assertEquals(2, replacements.size());
+      assertEquals(Set.of(), replacements.getFirst().getLabels());
+      assertEquals(Set.of("member", "alias"), replacements.getLast().getLabels());
+      var paths = traversal.toList();
+      assertEquals(polymorphic ? 1 : 0, paths.size());
+      for (var path : paths) {
+        assertEquals(fixture.employeeId(), path.get("member"));
+        assertEquals(fixture.employeeId(), path.get("alias"));
+        assertEquals(List.of(fixture.groupId(), fixture.employeeId()), path.objects());
+      }
+    }
+  }
+
+  /** A mixed filter retains aliases on the property step and still rejects other members. */
+  @Test
+  public void mixedLabelAndPropertyFilterKeepsAliasesOnOriginalStep() {
+    var fixture = createLabelFixture();
+    for (var polymorphic : List.of(true, false)) {
+      var traversal = graph.traversal()
+          .with(YTDBQueryConfigParam.polymorphicQuery, polymorphic)
+          .V(fixture.groupId()).out("Member").hasLabel("User").has("name", "Alice")
+          .as("member", "alias").select("member", "alias").by(T.id).asAdmin();
+      YTDBGraphStepStrategy.instance().apply(traversal);
+      var propertyStep = traversal.getSteps().stream().filter(HasStep.class::isInstance)
+          .findFirst().orElseThrow();
+      assertEquals(Set.of("member", "alias"), propertyStep.getLabels());
+      var labelStep = traversal.getSteps().stream().filter(YTDBHasLabelStep.class::isInstance)
+          .findFirst().orElseThrow();
+      assertEquals(Set.of(), labelStep.getLabels());
+      assertEquals(polymorphic ? List.of(Map.of(
+          "member", fixture.employeeId(), "alias", fixture.employeeId())) : List.of(),
+          traversal.toList());
+    }
   }
 
   private LabelFixture createLabelFixture() {
