@@ -37,7 +37,7 @@ import org.junit.Test;
 
 /**
  * Unit tests for {@link IndexManagerEmbedded} covering collection management, index lifecycle,
- * crash-recovery flag logic, and property-index lookup methods.
+ * metadata loading and property-index lookup methods.
  */
 public class IndexManagerEmbeddedTest extends DbTestBase {
 
@@ -219,57 +219,6 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
 
     // IDX should still be in the manager.
     assertNotNull("Index should still exist after no-op remove", mgr.getIndex(IDX));
-  }
-
-  // -----------------------------------------------------------------------
-  //  getIndexesConfiguration
-  // -----------------------------------------------------------------------
-
-  /**
-   * getIndexesConfiguration must return one config map per registered index. Each map
-   * must contain at least the 'type' key.
-   */
-  @Test
-  public void getIndexesConfiguration_returnsConfigForAllIndexes() {
-    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
-    var configs = mgr.getIndexesConfiguration(session);
-
-    assertFalse("Configuration list must not be empty", configs.isEmpty());
-    for (var cfg : configs) {
-      assertNotNull("Each config map must have a 'type' entry", cfg.get(Index.CONFIG_TYPE));
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  //  autoRecreateIndexesAfterCrash
-  // -----------------------------------------------------------------------
-
-  /**
-   * For a freshly created in-memory database there was no crash, so
-   * autoRecreateIndexesAfterCrash must return false.
-   */
-  @Test
-  public void autoRecreateIndexesAfterCrash_freshMemoryDb_returnsFalse() {
-    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
-    // A fresh memory DB: wereDataRestoredAfterOpen() = false → returns false.
-    assertFalse("No crash recovery needed for a fresh memory database",
-        mgr.autoRecreateIndexesAfterCrash(session));
-  }
-
-  // -----------------------------------------------------------------------
-  //  waitTillIndexRestore
-  // -----------------------------------------------------------------------
-
-  /**
-   * waitTillIndexRestore must return immediately when no recreate-indexes thread is running
-   * (recreateIndexesThread is null). This covers the early-return path.
-   */
-  @Test
-  public void waitTillIndexRestore_noActiveThread_returnsImmediately() {
-    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
-    // No thread was started — the null-check branch is taken and the method returns at once.
-    mgr.waitTillIndexRestore();
-    // If we reach here without hanging, the test passes.
   }
 
   // -----------------------------------------------------------------------

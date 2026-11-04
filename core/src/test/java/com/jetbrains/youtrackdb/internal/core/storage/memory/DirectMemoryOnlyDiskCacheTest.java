@@ -138,7 +138,7 @@ public class DirectMemoryOnlyDiskCacheTest {
     cache.flush(fileId);
     cache.close(fileId, true);
     cache.flush();
-    cache.syncDataFiles(0L);
+    cache.syncDataFiles();
     cache.flushTillSegment(0L);
     cache.changeMaximumAmountOfMemory(Long.MAX_VALUE);
     cache.recordOptimisticAccess(fileId, 0L);
@@ -701,14 +701,6 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
   // Unsupported-operation stubs
   // ---------------------------------------------------------------------------
-
-  /**
-   * Verifies that {@code replaceFileId()} throws {@link UnsupportedOperationException}.
-   */
-  @Test(expected = UnsupportedOperationException.class)
-  public void testReplaceFileIdThrows() {
-    cache.replaceFileId(1L, 2L);
-  }
 
   /**
    * Verifies that {@code store()} throws {@link UnsupportedOperationException}.

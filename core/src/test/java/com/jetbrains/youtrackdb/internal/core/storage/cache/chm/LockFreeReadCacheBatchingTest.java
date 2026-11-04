@@ -2400,7 +2400,7 @@ public class LockFreeReadCacheBatchingTest {
     }
 
     @Override
-    public void syncDataFiles(long segmentId) {
+    public void syncDataFiles() {
     }
 
     @Override
@@ -2644,10 +2644,6 @@ public class LockFreeReadCacheBatchingTest {
 
     @Override
     public void open() throws IOException {
-    }
-
-    @Override
-    public void replaceFileId(long fileId, long newFileId) {
     }
 
     @Override

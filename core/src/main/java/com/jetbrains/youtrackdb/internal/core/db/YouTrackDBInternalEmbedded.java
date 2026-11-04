@@ -359,7 +359,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         var storage = getAndOpenStorage(name, config);
         embedded = newSessionInstance(storage, config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(user, "nopwd", false);
       embedded.callOnOpenListeners();
       return embedded;
@@ -401,7 +400,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         var storage = getAndOpenStorage(name, config);
         embedded = newSessionInstance(storage, config);
       }
-      embedded.rebuildIndexes();
       embedded.callOnOpenListeners();
       return embedded;
     } catch (Exception e) {
@@ -425,7 +423,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
 
         embedded = newSessionInstance(storage, (YouTrackDBConfigImpl) config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(user, password);
       embedded.callOnOpenListeners();
       return embedded;
@@ -452,7 +449,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
             (YouTrackDBConfigImpl) config);
         embedded = newSessionInstance(storage, (YouTrackDBConfigImpl) config);
       }
-      embedded.rebuildIndexes();
       embedded.internalOpen(authenticationInfo);
       embedded.callOnOpenListeners();
       return embedded;
@@ -637,7 +633,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         throw e;
       }
     }
-    embedded.rebuildIndexes();
     embedded.internalOpen(user, password);
     embedded.callOnOpenListeners();
     return embedded;
@@ -659,7 +654,6 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
       }
     }
 
-    embedded.rebuildIndexes();
     embedded.internalOpen(user, "nopwd", false);
     embedded.callOnOpenListeners();
 

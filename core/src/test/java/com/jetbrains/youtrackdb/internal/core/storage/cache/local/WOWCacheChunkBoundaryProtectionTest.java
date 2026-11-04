@@ -106,8 +106,11 @@ public class WOWCacheChunkBoundaryProtectionTest {
 
   @AfterClass
   public static void restoreLocking() {
-    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(savedExclusiveFileAccess);
-    GlobalConfiguration.FILE_LOCK.setValue(savedFileLock);
+    try {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(savedExclusiveFileAccess);
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(savedFileLock);
+    }
   }
 
   @Before
