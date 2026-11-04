@@ -31,9 +31,11 @@ import java.nio.ByteBuffer;
  * memory buffer pointing to the start of the record content (after the entry header
  * and metadata header). {@code contentLength} is the number of content bytes.
  *
- * <p>After reading, the caller must check that the cached entry is still alive and holds
- * this frame, then validate the frame's stamp. If either check fails, the caller falls
- * back to the byte[]-based {@link RawBuffer} path.
+ * <p>After reading, the caller checks that the cached entry is still alive and holds this
+ * frame, then validates the frame's stamp. The lazy entity path from DatabaseSessionEmbedded
+ * to EntityImpl.fillFromPage checks only the stamp. The read's final identity check already
+ * passed. See the lazy validation comment in EntityImpl. If a required check fails, the caller
+ * falls back to the byte[]-based {@link RawBuffer} path.
  *
  * @param pageFrame the PageFrame containing the record data
  * @param stamp the optimistic read stamp obtained when the page was read
@@ -82,8 +84,8 @@ public record RawPageBuffer(
    * Returns an independent ByteBuffer view covering exactly the record content bytes.
    * The returned buffer has position 0 and limit equal to {@code contentLength}.
    *
-   * <p>The returned buffer shares native memory with the PageFrame — the caller must
-   * validate cached-frame identity and the stamp after reading from this buffer.
+   * <p>The returned buffer shares native memory with the PageFrame. The caller follows
+   * the validation rules above, including the lazy entity exception.
    */
   public ByteBuffer sliceContent() {
     return pageFrame.getBuffer().slice(contentOffset, contentLength);

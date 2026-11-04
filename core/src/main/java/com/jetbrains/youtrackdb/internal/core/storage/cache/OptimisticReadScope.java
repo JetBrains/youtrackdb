@@ -127,9 +127,11 @@ public final class OptimisticReadScope {
    * Used during traversals to catch stale pointers before following a child pointer read
    * from a potentially evicted page. Does not check the apply-phase epoch.
    *
+   * <p>Requires at least one recorded page. An assertion checks this precondition.
+   *
    * @throws OptimisticReadFailedException if the last entry is no longer alive or no longer
    *                                      holds its recorded frame, or the last stamp is invalid
-   * @throws IllegalStateException         if no stamps have been recorded
+   * @throws AssertionError if no page has been recorded and assertions are enabled
    */
   public void validateLastOrThrow() {
     assert count > 0 : "No stamps recorded — cannot validate last";

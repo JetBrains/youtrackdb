@@ -681,7 +681,7 @@ public class DirectMemoryOnlyDiskCacheTest {
    * cache does not support lock-free optimistic reads.
    */
   @Test
-  public void testGetPageFrameOptimisticAlwaysNull() {
+  public void testGetCacheEntryOptimisticAlwaysNull() {
     var fileId = cache.addFile("opt.cf");
     assertNull(cache.getCacheEntryOptimistic(fileId, 0));
   }

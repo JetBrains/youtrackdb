@@ -264,7 +264,7 @@ public class OptimisticReadScopeTest {
   }
 
   @Test
-  public void testValidateLastOrThrowIsStampOnly() {
+  public void testValidateLastOrThrowSkipsEpochCheck() {
     // validateLastOrThrow() checks cached-frame identity and the stamp during traversal.
     // It leaves the epoch check to validateOrThrow(). With an apply phase in flight,
     // validateLastOrThrow must pass for a live entry with a valid stamp, while

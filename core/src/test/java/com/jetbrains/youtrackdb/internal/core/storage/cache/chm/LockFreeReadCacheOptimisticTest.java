@@ -204,10 +204,9 @@ public class LockFreeReadCacheOptimisticTest {
 
   @Test
   public void testConcurrentEvictionDuringOptimisticLookup() throws Exception {
-    // Exercises the TOCTOU window between isAlive() and getCachePointer() in
-    // getCacheEntryOptimistic(): one thread reads optimistically while another
-    // thread evicts by loading pages beyond cache capacity. The method must
-    // return either a valid PageFrame or null — never a stale pointer.
+    // One thread calls getCacheEntryOptimistic() while another forces eviction by
+    // loading pages beyond cache capacity. Lookup returns an unpinned CacheEntry or null.
+    // Eviction can follow the liveness check, so the later identity check is required.
     int iterations = 200;
     long fileId = 0;
     int targetPage = 0;
