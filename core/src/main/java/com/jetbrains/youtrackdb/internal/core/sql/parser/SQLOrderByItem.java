@@ -1,8 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
-import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.common.comparator.GremlinOrderComparator;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
+import com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -12,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.Locale;
@@ -181,27 +183,19 @@ public class SQLOrderByItem {
    *     and the read takes a storage lock.
    */
   public int compare(Result a, Result b, CommandContext ctx, ResolvedOrderByNullsPlacement nullsDefault) {
+    // Direct reads avoid stored-key dispatch overhead. Equivalence tests guard both paths.
     Object aVal = null;
     Object bVal = null;
     if (rid != null) {
       throw new UnsupportedOperationException("ORDER BY " + rid + " is not supported yet");
     }
-
-    var result = 0;
     if (recordAttr != null) {
       aVal = a.getProperty(recordAttr);
       bVal = b.getProperty(recordAttr);
     } else if (alias != null) {
       if (isEdge) {
-        var aElement = (Vertex) a.asEntityOrNull();
-        var aIter =
-            aElement != null ? aElement.getVertices(Direction.OUT, alias).iterator() : null;
-        aVal = (aIter != null && aIter.hasNext()) ? aIter.next() : null;
-
-        var bElement = (Vertex) b.asEntityOrNull();
-        var bIter =
-            bElement != null ? bElement.getVertices(Direction.OUT, alias).iterator() : null;
-        bVal = (bIter != null && bIter.hasNext()) ? bIter.next() : null;
+        aVal = readRaw(a);
+        bVal = readRaw(b);
       } else {
         if (a.hasProperty(alias)) {
           aVal = a.getProperty(alias);
@@ -219,29 +213,171 @@ public class SQLOrderByItem {
       aVal = modifier.execute(a, aVal, ctx);
       bVal = modifier.execute(b, bVal, ctx);
     }
+    return compareValues(aVal, bVal, ctx, nullsDefault);
+  }
+
+  /** Only modifier execution and edge traversal benefit from execution-local key storage. */
+  public boolean needsStoredKey() {
+    return modifier != null || isEdge;
+  }
+
+  private Object readRaw(Result row) {
+    if (rid != null) {
+      throw new UnsupportedOperationException("ORDER BY " + rid + " is not supported yet");
+    }
+    if (recordAttr != null) {
+      return row.getProperty(recordAttr);
+    }
+    if (alias == null) {
+      return null;
+    }
+    if (isEdge) {
+      var element = (Vertex) row.asEntityOrNull();
+      var iter = element == null ? null : element.getVertices(Direction.OUT, alias).iterator();
+      return iter != null && iter.hasNext() ? iter.next() : null;
+    }
+    return row.hasProperty(alias) ? row.getProperty(alias) : null;
+  }
+
+  /** Execution-local state for one row occurrence and one item, never stored on an AST node. */
+  public static final class SortKey {
+    private boolean rawRead;
+    private boolean rawNull;
+    private Object raw;
+    private Object metadata;
+    private boolean metadataRead;
+    private boolean rawComputed;
+    private boolean metadataComputed;
+
+    private void read(SQLOrderByItem item, Result row) {
+      if (!rawRead) {
+        raw = item.readRaw(row);
+        rawNull = raw == null;
+        rawRead = true;
+      }
+    }
+
+    private void compact(SQLOrderByItem item) {
+      // Resolve explicit collation at its original comparison boundary before choosing storage.
+      // Only the exact built-in policies guarantee identity comparison for a graph record.
+      var policy = item.comparisonCollate().getClass();
+      if (item.isEdge && item.modifier == null && raw instanceof Vertex vertex
+          && (item.collate == null || item.collateStrategy != null)
+          && (policy == DefaultCollate.class || policy == CaseInsensitiveCollate.class)) {
+        raw = vertex.getIdentity();
+      }
+    }
+
+    /** Releases values before this transient slot is reused for another row occurrence. */
+    public void reset() {
+      rawRead = false;
+      rawNull = false;
+      raw = null;
+      metadata = null;
+      metadataRead = false;
+      rawComputed = false;
+      metadataComputed = false;
+    }
+
+    private void readMetadata(SQLOrderByItem item, Result row) {
+      if (!metadataRead) {
+        metadata = ((ResultInternal) row).getMetadata(item.alias);
+        metadataRead = true;
+      }
+    }
+
+    private Object value(SQLOrderByItem item, Result row, boolean useMetadata,
+        CommandContext ctx) {
+      if (useMetadata) {
+        if (!metadataComputed) {
+          metadata = item.modifier == null ? metadata : item.modifier.execute(row, metadata, ctx);
+          metadataComputed = true;
+        }
+        return metadata;
+      }
+      if (!rawComputed) {
+        raw = item.modifier == null ? raw : item.modifier.execute(row, raw, ctx);
+        rawComputed = true;
+      }
+      return raw;
+    }
+  }
+
+  /** Keeps pairwise metadata selection and acquisition order identical to direct comparison. */
+  public int compareKeys(Result a, SortKey aKey, Result b, SortKey bKey,
+      CommandContext ctx, ResolvedOrderByNullsPlacement nullsDefault) {
+    // Null slots are direct reads. Keep one acquisition sequence for both caller contracts.
+    var aVal = rawValue(a, aKey);
+    var bVal = rawValue(b, bKey);
+    boolean metadata = (aKey == null ? aVal == null : aKey.rawNull)
+        && (bKey == null ? bVal == null : bKey.rawNull);
+    if (metadata) {
+      aVal = metadataValue(a, aKey);
+      bVal = metadataValue(b, bKey);
+    }
+    aVal = aKey == null ? applyModifier(a, aVal, ctx) : aKey.value(this, a, metadata, ctx);
+    bVal = bKey == null ? applyModifier(b, bVal, ctx) : bKey.value(this, b, metadata, ctx);
+    int result = compareValues(aVal, bVal, ctx, nullsDefault);
+    if (aKey != null) {
+      aKey.compact(this);
+    }
+    if (bKey != null) {
+      bKey.compact(this);
+    }
+    return result;
+  }
+
+  private Object rawValue(Result row, SortKey key) {
+    if (key == null) {
+      return readRaw(row);
+    }
+    key.read(this, row);
+    return key.raw;
+  }
+
+  private Object metadataValue(Result row, SortKey key) {
+    if (key == null) {
+      return ((ResultInternal) row).getMetadata(alias);
+    }
+    key.readMetadata(this, row);
+    return key.metadata;
+  }
+
+  private Object applyModifier(Result row, Object value, CommandContext ctx) {
+    return modifier == null ? value : modifier.execute(row, value, ctx);
+  }
+
+  // Keep cold collation lookup separate so the shared comparison fits the JIT inline limit.
+  private void resolveCollateStrategy(CommandContext ctx) {
+    var collateVal = collate.execute(new ResultInternal(ctx.getDatabaseSession()), ctx);
+    if (collateVal == null) {
+      collateVal = collate.toString();
+      if (collateVal.equals("null")) {
+        collateVal = null;
+      }
+    }
+    if (collateVal != null) {
+      collateStrategy = SQLEngine.getCollate(String.valueOf(collateVal));
+      if (collateStrategy == null) {
+        collateStrategy =
+            SQLEngine.getCollate(String.valueOf(collateVal).toUpperCase(Locale.ENGLISH));
+      }
+      if (collateStrategy == null) {
+        collateStrategy =
+            SQLEngine.getCollate(String.valueOf(collateVal).toLowerCase(Locale.ENGLISH));
+      }
+      if (collateStrategy == null) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Invalid collate for ORDER BY: " + collateVal);
+      }
+    }
+  }
+
+  private int compareValues(Object aVal, Object bVal, CommandContext ctx,
+      ResolvedOrderByNullsPlacement nullsDefault) {
+    var result = 0;
     if (collate != null && collateStrategy == null) {
-      var collateVal = collate.execute(new ResultInternal(ctx.getDatabaseSession()), ctx);
-      if (collateVal == null) {
-        collateVal = collate.toString();
-        if (collateVal.equals("null")) {
-          collateVal = null;
-        }
-      }
-      if (collateVal != null) {
-        collateStrategy = SQLEngine.getCollate(String.valueOf(collateVal));
-        if (collateStrategy == null) {
-          collateStrategy =
-              SQLEngine.getCollate(String.valueOf(collateVal).toUpperCase(Locale.ENGLISH));
-        }
-        if (collateStrategy == null) {
-          collateStrategy =
-              SQLEngine.getCollate(String.valueOf(collateVal).toLowerCase(Locale.ENGLISH));
-        }
-        if (collateStrategy == null) {
-          throw new CommandExecutionException(ctx.getDatabaseSession(),
-              "Invalid collate for ORDER BY: " + collateVal);
-        }
-      }
+      resolveCollateStrategy(ctx);
     }
 
     // Null placement is absolute once resolved (explicit clause or global default composed with

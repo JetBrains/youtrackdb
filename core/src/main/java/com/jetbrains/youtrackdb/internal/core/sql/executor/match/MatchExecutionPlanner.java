@@ -985,7 +985,7 @@ public class MatchExecutionPlanner {
 
       SelectExecutionPlanner.optimizeQuery(info, context);
       // addOrderByProjections may replace ORDER BY items with minted aliases; rebind the hint so
-      // OrderByStep.copy() still finds primaryKeySortedInput inside the cached plan's orderBy.
+      // the hint continues to identify item zero in the optimized ORDER BY clause.
       if (info.primaryKeySortedInput != null
           && info.orderBy != null
           && !info.orderBy.getItems().isEmpty()
