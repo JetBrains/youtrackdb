@@ -14,9 +14,15 @@
 package com.jetbrains.youtrackdb.internal.core.engine.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.WTinyLFUPolicy;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -34,6 +40,38 @@ import org.junit.experimental.categories.Category;
  */
 @Category(SequentialTest.class)
 public class EngineLocalPaginatedTest {
+
+  private Object originalCacheSize;
+  private boolean cacheSizeChanged;
+  private Object originalWriteCachePart;
+  private boolean writeCachePartChanged;
+
+  @Before
+  public void configureDeterministicCacheSize() {
+    originalCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
+    cacheSizeChanged = GlobalConfiguration.DISK_CACHE_SIZE.isChanged();
+    originalWriteCachePart = GlobalConfiguration.DISK_WRITE_CACHE_PART.getValue();
+    writeCachePartChanged = GlobalConfiguration.DISK_WRITE_CACHE_PART.isChanged();
+
+    // A total of 1024 pages leaves 768 read-cache pages and a fixed budget of seven pins.
+    GlobalConfiguration.DISK_CACHE_SIZE.setValue(
+        GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger());
+    GlobalConfiguration.DISK_WRITE_CACHE_PART.setValue(25);
+  }
+
+  @After
+  public void restoreCacheConfiguration() {
+    if (cacheSizeChanged) {
+      GlobalConfiguration.DISK_CACHE_SIZE.setValue(originalCacheSize);
+    } else {
+      GlobalConfiguration.DISK_CACHE_SIZE.resetToDefault();
+    }
+    if (writeCachePartChanged) {
+      GlobalConfiguration.DISK_WRITE_CACHE_PART.setValue(originalWriteCachePart);
+    } else {
+      GlobalConfiguration.DISK_WRITE_CACHE_PART.resetToDefault();
+    }
+  }
 
   /**
    * The {@link EngineLocalPaginated#NAME} constant is what {@code YouTrackDBEnginesManager} uses
@@ -111,28 +149,61 @@ public class EngineLocalPaginatedTest {
   }
 
   /**
-   * <b>COVERAGE-ONLY:</b> this test verifies the no-throw contract on {@code changeCacheSize}
-   * against a started engine; the resulting cache capacity is not directly observable through
-   * public API. A regression that silently no-ops the resize is not detected here. WHEN-FIXED:
-   * future tracker issue — once {@code ReadCache} exposes a public size getter (or a probe
-   * helper is added), upgrade this test to assert the post-call capacity.
-   *
-   * <p>{@code changeCacheSize} on a started engine forwards to {@code ReadCache.
-   * changeMaximumAmountOfMemory}. We don't assert the resulting size (it's an internal calculation
-   * involving {@code GlobalConfiguration.DISK_WRITE_CACHE_PART}); we only verify that the call
-   * does not throw.
+   * Halving the total cache leaves 384 read-cache pages, enough for the seven-pin budget fixed
+   * at startup. The same cache must remain installed and its policy must expose the new capacity.
    */
   @Test
-  public void changeCacheSizeOnStartedEngineDoesNotThrow() {
+  public void changeCacheSizeWithValidFixedPinBudgetUpdatesCapacity() throws Exception {
     var engine = new EngineLocalPaginated();
     engine.startup();
     try {
-      // Picking a small value to stay well clear of OOM during the test JVM.
-      engine.changeCacheSize(32L * 1024 * 1024);
-      assertThat(engine.getReadCache()).isNotNull();
+      var cache = engine.getReadCache();
+      assertThat(cache).isNotNull();
+      var policy = readCachePolicy(cache);
+      assertThat(policy.getMaxSize()).isEqualTo(768);
+      long pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsLong() * 1024;
+
+      engine.changeCacheSize(512L * pageSize);
+
+      assertThat(engine.getReadCache()).isSameAs(cache);
+      assertThat(policy.getMaxSize()).isEqualTo(384);
     } finally {
       engine.shutdown();
     }
+  }
+
+  /**
+   * Shrinking to 48 read-cache pages cannot accommodate the fixed seven-pin budget. Rejection
+   * must leave the same cache installed with its original capacity, not partially apply the resize.
+   */
+  @Test
+  public void changeCacheSizeWithInvalidFixedPinBudgetPreservesCapacity() throws Exception {
+    var engine = new EngineLocalPaginated();
+    engine.startup();
+    try {
+      var cache = engine.getReadCache();
+      assertThat(cache).isNotNull();
+      var policy = readCachePolicy(cache);
+      int capacityBefore = policy.getMaxSize();
+      assertThat(capacityBefore).isEqualTo(768);
+      long pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsLong() * 1024;
+
+      assertThatThrownBy(() -> engine.changeCacheSize(64L * pageSize))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("Invalid commit pin budget 7 for cache size 48 pages");
+
+      assertThat(engine.getReadCache()).isSameAs(cache);
+      assertThat(policy.getMaxSize()).isEqualTo(capacityBefore);
+    } finally {
+      engine.shutdown();
+    }
+  }
+
+  private static WTinyLFUPolicy readCachePolicy(ReadCache cache) throws Exception {
+    // ReadCache exposes used memory, not capacity. Read the policy through its existing accessor.
+    var field = LockFreeReadCache.class.getDeclaredField("policy");
+    field.setAccessible(true);
+    return (WTinyLFUPolicy) field.get(cache);
   }
 
   /**
