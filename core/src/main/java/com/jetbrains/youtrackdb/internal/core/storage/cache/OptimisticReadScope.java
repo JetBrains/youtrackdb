@@ -90,9 +90,10 @@ public final class OptimisticReadScope {
 
   /**
    * Validates all accumulated stamps, then the apply-phase epoch. Throws
-   * {@link OptimisticReadFailedException} if any stamp is invalid (page was evicted or
-   * modified) or if a commit-time apply phase overlapped the read window (the pages may
+   * {@link OptimisticReadFailedException} if any stamp is invalid (a writer or frame-pool reuse
+   * invalidated it) or if a commit-time apply phase overlapped the read window (the pages may
    * individually be intact yet form an inconsistent mix of pre- and post-commit state).
+   * Eviction alone need not invalidate stamps. Cached-frame identity belongs in final validation.
    */
   public void validateOrThrow() {
     for (int i = 0; i < count; i++) {

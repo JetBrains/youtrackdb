@@ -69,15 +69,14 @@ public class LockFreeReadCacheFileOpsTest {
    * {@code changeMaximumAmountOfMemory(newMax)} must update the eviction policy's maximum size
    * so subsequent loads are evicted once the new threshold is crossed.
    *
-   * <p>{@link WTinyLFUPolicy#setMaxSize(int)} throws {@link IllegalStateException} when the
-   * requested limit is smaller than the number of entries already present. Therefore the test
-   * reduces the limit only after ensuring the current entry count does not exceed the new limit:
-   * load 2 pages, reduce the maximum to 2 pages (2 ≤ 2 — allowed), then load 20 additional
-   * distinct pages to drive eviction and confirm that used memory stays at or below the new limit.
+   * <p>The two-page cache has no commit pin budget. Load two pages, reduce the maximum to two
+   * pages, then load more distinct pages to drive eviction. Unpinned entries must fit the limit.
    */
   @Test
   public void testChangeMaximumAmountOfMemoryReducesLimit() {
-    // Pre-load 2 pages — exactly at the new limit, so setMaxSize(2) is permitted.
+    // A two-page cache requires a zero commit budget. Test eviction independently of that bound.
+    readCache = new LockFreeReadCache(bufferPool, 1024L * PAGE_SIZE, PAGE_SIZE, 0);
+    // Pre-load two pages, then shrink to their size.
     for (int i = 0; i < 2; i++) {
       final var entry = readCache.loadForRead(0, i, writeCache, false);
       readCache.releaseFromRead(entry);

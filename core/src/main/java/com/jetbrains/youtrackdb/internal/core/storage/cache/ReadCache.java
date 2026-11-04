@@ -93,6 +93,34 @@ public interface ReadCache {
 
   void releaseFromWrite(CacheEntry cacheEntry, WriteCache writeCache, boolean changed);
 
+  /**
+   * Reserves commit pins before any page load. Null selects the caller's fallback protocol.
+   * Implementations without a disk page cache do not support reservations.
+   */
+  @Nullable default WriteReservation tryReserveWritePins(int pages) {
+    return null;
+  }
+
+  /**
+   * Thread-confined resources for page-set application. The caller chooses and orders pages.
+   * Load every pin before locking any page. Call markChanged before touching page content.
+   * Close unlocks every page before releasing pins. A failed publish keeps its pin and budget.
+   */
+  interface WriteReservation extends AutoCloseable {
+    CacheEntry pin(long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums);
+
+    void lock(CacheEntry entry);
+
+    void prepare(CacheEntry entry, LogSequenceNumber startLSN, LogSequenceNumber endLSN);
+
+    void markChanged(CacheEntry entry);
+
+    void publishAndUnlock(CacheEntry entry);
+
+    @Override
+    void close();
+  }
+
   long getUsedMemory();
 
   void clear();
@@ -146,7 +174,8 @@ public interface ReadCache {
    * pinning. Returns null on cache miss, evicted entry, or null CachePointer.
    *
    * <p>The caller must take an optimistic stamp from the returned PageFrame and validate
-   * it after reading data to ensure the page was not evicted or modified.
+   * it after reading data to detect writers and frame-pool reuse. Eviction alone need not
+   * invalidate stamps. The reader final check also needs cached-frame identity.
    */
   @Nullable PageFrame getPageFrameOptimistic(long fileId, long pageIndex);
 

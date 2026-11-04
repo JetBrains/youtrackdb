@@ -621,8 +621,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * Executes a read operation using the optimistic (no-CAS) path, falling back to the
    * CAS-pinned path if validation fails.
    *
-   * <p>The optimistic lambda reads data without pinning pages. If any page is evicted or
-   * modified during the read, the scope validation fails and the pinned lambda runs
+   * <p>The optimistic lambda reads data without pinning pages. Writers and frame-pool reuse invalidate stamps.
+   * Eviction alone needs a cached-frame identity check in final validation. If validation fails and the pinned lambda runs
    * instead (under the component's shared lock).
    *
    * <p>Reentrancy note: acquireSharedLock() is safe even if the current thread already

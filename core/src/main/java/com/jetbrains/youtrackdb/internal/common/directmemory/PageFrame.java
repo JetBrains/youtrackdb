@@ -18,8 +18,7 @@ import java.util.concurrent.locks.StampedLock;
  *   <li><b>Shared lock</b> — {@link #acquireSharedLock()} / {@link #releaseSharedLock(long)}.
  *       Used by the CAS-pinned fallback read path and WOWCache copy-then-verify.</li>
  *   <li><b>Exclusive lock</b> — {@link #acquireExclusiveLock()} /
- *       {@link #releaseExclusiveLock(long)}. Used by write operations, eviction (to invalidate
- *       stamps), and pool acquire/release (stamp invalidation barrier).</li>
+ *       {@link #releaseExclusiveLock(long)}. Used by write operations and pool acquire/release to invalidate stamps.</li>
  * </ul>
  *
  * <p>Page coordinates ({@code fileId}, {@code pageIndex}) are set under exclusive lock when
@@ -63,7 +62,7 @@ public final class PageFrame {
     return stampedLock.validate(stamp);
   }
 
-  // --- Exclusive Lock API (for writes and eviction) ---
+  // --- Exclusive Lock API (for writes and pool reuse) ---
 
   /**
    * Acquires the exclusive lock, blocking until available. Returns a stamp for use in
