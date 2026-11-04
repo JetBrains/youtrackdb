@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -100,17 +101,17 @@ public class StorageComponentOptimisticReadTest {
   public void testSharedFailureCountersAreExclusiveAndSuccessIsFree() {
     var before = counterSnapshot();
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
     scope.reset();
     component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
     scope.validateLastOrThrow();
     scope.validateOrThrow();
     assertCounterDelta(before, null);
 
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(null);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(null);
     assertCountedFailure(Cause.LOOKUP_MISS,
         () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
     when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(true);
     assertCountedFailure(Cause.LOCAL_CHANGES,
         () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
@@ -182,7 +183,7 @@ public class StorageComponentOptimisticReadTest {
   public void testLoadPageOptimisticHappyPath() {
     // When the page is in cache with valid stamp, loadPageOptimistic returns a PageView.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     PageView view = component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
 
@@ -197,7 +198,7 @@ public class StorageComponentOptimisticReadTest {
   public void testExecuteOptimisticStorageReadHappyPath() throws IOException {
     // When optimistic read succeeds, the result is returned without fallback.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -217,7 +218,7 @@ public class StorageComponentOptimisticReadTest {
   @Test
   public void testFallbackOnCacheMiss() throws IOException {
     // When the page is not in cache, falls back to the pinned path.
-    when(mockReadCache.getPageFrameOptimistic(anyLong(), anyLong())).thenReturn(null);
+    when(mockReadCache.getCacheEntryOptimistic(anyLong(), anyLong())).thenReturn(null);
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -235,7 +236,7 @@ public class StorageComponentOptimisticReadTest {
     // When a page's stamp is invalidated (exclusive lock from another thread),
     // validation fails and we fall back to the pinned path.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -277,7 +278,7 @@ public class StorageComponentOptimisticReadTest {
     // When the frame's coordinates don't match (frame reused for another page),
     // loadPageOptimistic throws and we fall back.
     var frame = acquireFrameWithCoordinates(FILE_ID, 999); // Wrong page index
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -299,8 +300,9 @@ public class StorageComponentOptimisticReadTest {
     // succeeds. If reset is missing, the stale frame1 stamp fails validation.
     var frame1 = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
     var frame2 = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX + 1);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame1);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX + 1)).thenReturn(frame2);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame1));
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX + 1))
+        .thenReturn(cacheEntry(frame2));
 
     // First call — records frame1
     String result1 = component.testExecuteOptimisticStorageRead(
@@ -345,7 +347,7 @@ public class StorageComponentOptimisticReadTest {
     // When the exclusive lock is held on the frame at the time of tryOptimisticRead(),
     // the stamp is 0, loadPageOptimistic throws, and we fall back to the pinned path.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     // Hold exclusive lock on this thread — tryOptimisticRead() will return 0
     long exclusiveStamp = frame.acquireExclusiveLock();
@@ -369,7 +371,7 @@ public class StorageComponentOptimisticReadTest {
   public void testVoidVariant() throws IOException {
     // The void variant should work the same way, just without a return value.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     final boolean[] optimisticRan = {false};
 
@@ -393,7 +395,7 @@ public class StorageComponentOptimisticReadTest {
     // loadPageOptimistic forces a fallback to the pinned path to avoid reading stale
     // committed data.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
     when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(true);
 
     String result = component.testExecuteOptimisticStorageRead(
@@ -407,7 +409,7 @@ public class StorageComponentOptimisticReadTest {
     assertEquals("pinned-result", result);
     // Cache must never be consulted when hasChangesForPage returns true —
     // the guard must short-circuit before the cache lookup.
-    verify(mockReadCache, never()).getPageFrameOptimistic(FILE_ID, PAGE_INDEX);
+    verify(mockReadCache, never()).getCacheEntryOptimistic(FILE_ID, PAGE_INDEX);
     releaseFrame(frame);
   }
 
@@ -416,7 +418,7 @@ public class StorageComponentOptimisticReadTest {
     // When the current AtomicOperation has no local WAL changes for the page,
     // the optimistic path proceeds normally.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
     when(mockAtomicOp.hasChangesForPage(FILE_ID, PAGE_INDEX)).thenReturn(false);
 
     String result = component.testExecuteOptimisticStorageRead(
@@ -455,7 +457,7 @@ public class StorageComponentOptimisticReadTest {
   @Test
   public void testVoidVariantFallback() throws IOException {
     // Void variant falls back when optimistic fails.
-    when(mockReadCache.getPageFrameOptimistic(anyLong(), anyLong())).thenReturn(null);
+    when(mockReadCache.getCacheEntryOptimistic(anyLong(), anyLong())).thenReturn(null);
 
     final boolean[] pinnedRan = {false};
 
@@ -538,9 +540,9 @@ public class StorageComponentOptimisticReadTest {
     var frame1 = acquireFrameWithCoordinates(FILE_ID, 0);
     var frame2 = acquireFrameWithCoordinates(FILE_ID, 1);
     var frame3 = acquireFrameWithCoordinates(FILE_ID, 2);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 0)).thenReturn(frame1);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 1)).thenReturn(frame2);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, 2)).thenReturn(frame3);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 0)).thenReturn(cacheEntry(frame1));
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 1)).thenReturn(cacheEntry(frame2));
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 2)).thenReturn(cacheEntry(frame3));
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -618,7 +620,7 @@ public class StorageComponentOptimisticReadTest {
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     epoch.enterApplyPhase();
     try {
@@ -649,7 +651,7 @@ public class StorageComponentOptimisticReadTest {
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -682,7 +684,7 @@ public class StorageComponentOptimisticReadTest {
     Assume.assumeTrue("Nesting detection requires -ea", assertionsEnabled);
 
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     final boolean[] outerPinnedRan = {false};
     try {
@@ -728,7 +730,7 @@ public class StorageComponentOptimisticReadTest {
     // "Nested optimistic read attempt" AssertionError. The finally-based cleanup must
     // close the attempt on this path too.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     try {
       component.testExecuteOptimisticStorageRead(
@@ -760,7 +762,7 @@ public class StorageComponentOptimisticReadTest {
     // Void-overload twin of the test above — both overloads carry their own copy of
     // the enter/exit attempt protocol and must both be exception-complete.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     try {
       component.testExecuteOptimisticStorageReadVoid(
@@ -840,7 +842,7 @@ public class StorageComponentOptimisticReadTest {
     // never runs.
     final int[] pinnedRuns = {0};
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
     String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
         mockAtomicOp,

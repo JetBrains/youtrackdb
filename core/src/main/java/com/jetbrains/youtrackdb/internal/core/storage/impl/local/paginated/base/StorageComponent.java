@@ -567,7 +567,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   /**
    * Performs an optimistic cache lookup: returns a {@link PageView} for the given page
    * without CAS-based pinning. The caller must read data from the PageView's buffer and
-   * validate the stamp afterward (via {@link OptimisticReadScope#validateOrThrow()} or
+   * validate cached-frame identity and the stamp afterward (via
+   * {@link OptimisticReadScope#validateOrThrow()} or
    * {@link OptimisticReadScope#validateLastOrThrow()}).
    *
    * <p>Throws {@link OptimisticReadFailedException} on cache miss, stamp == 0 (exclusive
@@ -594,7 +595,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
           .failure(OptimisticReadFailureCounters.Cause.LOCAL_CHANGES);
     }
 
-    final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
+    final var entry = readCache.getCacheEntryOptimistic(fileId, pageIndex);
+    final var pointer = entry == null ? null : entry.getCachePointer();
+    final PageFrame frame = pointer == null ? null : pointer.getPageFrame();
     if (frame == null) {
       throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.LOOKUP_MISS);
     }
@@ -612,18 +615,19 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     }
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.record(frame, stamp);
+    scope.record(frame, stamp, entry);
 
-    return new PageView(frame.getBuffer(), frame, stamp);
+    return new PageView(frame.getBuffer(), frame, stamp, entry);
   }
 
   /**
    * Executes a read operation using the optimistic (no-CAS) path, falling back to the
    * CAS-pinned path if validation fails.
    *
-   * <p>The optimistic lambda reads data without pinning pages. Writers and frame-pool reuse invalidate stamps.
-   * Eviction alone needs a cached-frame identity check in final validation. If validation fails and the pinned lambda runs
-   * instead (under the component's shared lock).
+   * <p>The optimistic lambda reads data without pinning pages. Writers and frame-pool reuse
+   * invalidate stamps. Final validation also checks cached-frame identity, because eviction
+   * alone need not invalidate stamps. If validation fails, the pinned lambda runs instead
+   * under the component's shared lock.
    *
    * <p>Reentrancy note: acquireSharedLock() is safe even if the current thread already
    * holds the exclusive lock on this component — SharedResourceAbstract's lock tracking
@@ -755,8 +759,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * <p>Decision rules:
    *
    * <ul>
-   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (per-page
-   *       stamps AND epoch both validated) and {@code recheckTrigger} accepts the result
+   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (cached-frame
+   *       identity, stamps, and epoch validated) and {@code recheckTrigger} accepts the result
    *       (typically: the lookup came back null). It NEVER triggers after the pinned fallback
    *       ran — the fallback's result is already authoritative, and re-checking it would make
    *       every legitimate miss pay the pinned cost twice more.

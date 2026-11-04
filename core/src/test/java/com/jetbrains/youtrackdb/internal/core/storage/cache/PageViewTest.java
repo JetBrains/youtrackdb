@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
@@ -43,7 +44,7 @@ public class PageViewTest {
     long stamp = frame.tryOptimisticRead();
     var buffer = frame.getBuffer();
 
-    var pageView = new PageView(buffer, frame, stamp);
+    var pageView = new PageView(buffer, frame, stamp, cacheEntry(frame));
 
     assertSame(buffer, pageView.buffer());
     assertSame(frame, pageView.pageFrame());
@@ -58,7 +59,7 @@ public class PageViewTest {
     var frame = pool.acquire(true, Intention.TEST);
     long stamp = frame.tryOptimisticRead();
 
-    var pageView = new PageView(frame.getBuffer(), frame, stamp);
+    var pageView = new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame));
     assertTrue(pageView.validateStamp());
 
     releaseFrame(frame);
@@ -70,7 +71,7 @@ public class PageViewTest {
     var frame = pool.acquire(true, Intention.TEST);
     long stamp = frame.tryOptimisticRead();
 
-    var pageView = new PageView(frame.getBuffer(), frame, stamp);
+    var pageView = new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame));
 
     // Invalidate the stamp
     long writeStamp = frame.acquireExclusiveLock();

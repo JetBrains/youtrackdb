@@ -5,7 +5,11 @@ import java.util.Arrays;
 
 /**
  * Tracks page frames and their optimistic stamps accumulated during a multi-page read
- * operation (e.g., B-tree traversal). Validation is two-layered:
+ * operation (e.g., B-tree traversal). Validation checks cached-frame identity, per-page
+ * stamps, and the apply-phase epoch:
+ *
+ * <p>Each recorded entry must still be alive and point to the recorded frame. Eviction
+ * alone need not invalidate a stamp.
  *
  * <ul>
  *   <li><b>Per-page stamps</b> — a purely <em>temporal</em> check: each stamp proves the
@@ -29,12 +33,13 @@ public final class OptimisticReadScope {
 
   private static final int INITIAL_CAPACITY = 8;
 
-  // Private default for standalone stamp-only use. Production attempts replace the active
+  // Private default for standalone identity and stamp checks. Production attempts replace the active
   // epoch at reset with their StorageComponent's logical lock-domain epoch.
   private final ApplyPhaseEpoch defaultApplyPhaseEpoch;
   private ApplyPhaseEpoch applyPhaseEpoch;
 
   private PageFrame[] frames;
+  private CacheEntry[] entries;
   private long[] stamps;
   private int count;
 
@@ -56,8 +61,9 @@ public final class OptimisticReadScope {
   /**
    * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
    * with concurrent writers: allocates a private {@link ApplyPhaseEpoch} that no writer
-   * ever bumps, so epoch validation trivially passes and only per-page stamp validation
-   * applies. Production code supplies a component epoch to {@link #reset(ApplyPhaseEpoch)}.
+   * ever bumps, so epoch validation trivially passes. Cached-frame identity and per-page
+   * stamps are still checked. Production code supplies a component epoch to
+   * {@link #reset(ApplyPhaseEpoch)}.
    */
   public OptimisticReadScope() {
     this(new ApplyPhaseEpoch());
@@ -68,38 +74,38 @@ public final class OptimisticReadScope {
     this.defaultApplyPhaseEpoch = applyPhaseEpoch;
     this.applyPhaseEpoch = applyPhaseEpoch;
     this.frames = new PageFrame[INITIAL_CAPACITY];
+    this.entries = new CacheEntry[INITIAL_CAPACITY];
     this.stamps = new long[INITIAL_CAPACITY];
     this.count = 0;
   }
 
   /**
-   * Records a page frame and its optimistic stamp. Called by
+   * Records a page frame, its optimistic stamp, and its cached-frame identity. Called by
    * {@code StorageComponent.loadPageOptimistic()} for each page accessed.
    */
-  public void record(PageFrame frame, long stamp) {
+  public void record(PageFrame frame, long stamp, CacheEntry entry) {
+    java.util.Objects.requireNonNull(entry, "Cache entry must not be null");
     assert frame != null : "PageFrame must not be null";
     assert stamp != 0 : "Stamp must not be zero (exclusive lock was held)";
 
     if (count == frames.length) {
       grow();
     }
+    entries[count] = entry;
     frames[count] = frame;
     stamps[count] = stamp;
     count++;
   }
 
   /**
-   * Validates all accumulated stamps, then the apply-phase epoch. Throws
-   * {@link OptimisticReadFailedException} if any stamp is invalid (a writer or frame-pool reuse
-   * invalidated it) or if a commit-time apply phase overlapped the read window (the pages may
-   * individually be intact yet form an inconsistent mix of pre- and post-commit state).
-   * Eviction alone need not invalidate stamps. Cached-frame identity belongs in final validation.
+   * Validates cached-frame identity and the stamp for every recorded page, then the
+   * apply-phase epoch. Throws {@link OptimisticReadFailedException} if an entry is no longer
+   * alive or no longer holds its recorded frame, if a stamp is invalid, or if a commit-time
+   * apply phase overlapped the read window. Eviction alone need not invalidate stamps.
    */
   public void validateOrThrow() {
     for (int i = 0; i < count; i++) {
-      if (!frames[i].validate(stamps[i])) {
-        throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
-      }
+      validatePageOrThrow(frames[i], stamps[i], entries[i]);
     }
     // Epoch check placement: the essential requirement is only that this check runs
     // AFTER all page reads of the attempt — which holds structurally, because the
@@ -117,16 +123,34 @@ public final class OptimisticReadScope {
   }
 
   /**
-   * Validates only the most recently recorded stamp. Used during traversals to catch stale
-   * pointers early — before following a child pointer read from a potentially evicted page.
+   * Validates cached-frame identity and the stamp for the most recently recorded page.
+   * Used during traversals to catch stale pointers before following a child pointer read
+   * from a potentially evicted page. Does not check the apply-phase epoch.
    *
-   * @throws OptimisticReadFailedException if the last stamp is invalid
+   * @throws OptimisticReadFailedException if the last entry is no longer alive or no longer
+   *                                      holds its recorded frame, or the last stamp is invalid
    * @throws IllegalStateException         if no stamps have been recorded
    */
   public void validateLastOrThrow() {
     assert count > 0 : "No stamps recorded — cannot validate last";
 
-    if (!frames[count - 1].validate(stamps[count - 1])) {
+    validatePageOrThrow(frames[count - 1], stamps[count - 1], entries[count - 1]);
+  }
+
+  /**
+   * Checks identity before the stamp. An entry never becomes alive again after freeze.
+   * If eviction follows the liveness read, a passing stamp proves the content was intact at
+   * that read. Pool reuse between the identity read and stamp validation invalidates the stamp.
+   * File close, clearFile, and file delete must not overlap an optimistic read of the
+   * same file. These lifecycle operations can remove the map entry before freezing it.
+   */
+  public static void validatePageOrThrow(PageFrame frame, long stamp, CacheEntry entry) {
+    final var pointer = entry.getCachePointer();
+    if (!entry.isAlive() || pointer == null || pointer.getPageFrame() != frame) {
+      throw OptimisticReadFailureCounters.failure(
+          OptimisticReadFailureCounters.Cause.FRAME_IDENTITY);
+    }
+    if (!frame.validate(stamp)) {
       throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
     }
   }
@@ -169,6 +193,7 @@ public final class OptimisticReadScope {
 
     // Null out frame references to prevent GC retention
     Arrays.fill(frames, 0, count, null);
+    Arrays.fill(entries, 0, count, null);
     count = 0;
   }
 
@@ -226,6 +251,7 @@ public final class OptimisticReadScope {
   private void grow() {
     int newCapacity = frames.length * 2;
     frames = Arrays.copyOf(frames, newCapacity);
+    entries = Arrays.copyOf(entries, newCapacity);
     stamps = Arrays.copyOf(stamps, newCapacity);
   }
 }

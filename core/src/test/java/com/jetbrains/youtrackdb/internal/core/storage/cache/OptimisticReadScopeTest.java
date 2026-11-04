@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -51,8 +52,8 @@ public class OptimisticReadScopeTest {
     long stamp1 = frame1.tryOptimisticRead();
     long stamp2 = frame2.tryOptimisticRead();
 
-    scope.record(frame1, stamp1);
-    scope.record(frame2, stamp2);
+    scope.record(frame1, stamp1, cacheEntry(frame1));
+    scope.record(frame2, stamp2, cacheEntry(frame2));
 
     assertEquals(2, scope.count());
     // Should not throw — all stamps are still valid
@@ -69,7 +70,7 @@ public class OptimisticReadScopeTest {
     var frame = pool.acquire(true, Intention.TEST);
 
     long stamp = frame.tryOptimisticRead();
-    scope.record(frame, stamp);
+    scope.record(frame, stamp, cacheEntry(frame));
 
     // Invalidate by acquiring and releasing the exclusive lock
     long writeStamp = frame.acquireExclusiveLock();
@@ -86,8 +87,8 @@ public class OptimisticReadScopeTest {
     var frame1 = pool.acquire(true, Intention.TEST);
     var frame2 = pool.acquire(true, Intention.TEST);
 
-    scope.record(frame1, frame1.tryOptimisticRead());
-    scope.record(frame2, frame2.tryOptimisticRead());
+    scope.record(frame1, frame1.tryOptimisticRead(), cacheEntry(frame1));
+    scope.record(frame2, frame2.tryOptimisticRead(), cacheEntry(frame2));
 
     // Should not throw — the last stamp is valid
     scope.validateLastOrThrow();
@@ -103,8 +104,8 @@ public class OptimisticReadScopeTest {
     var frame1 = pool.acquire(true, Intention.TEST);
     var frame2 = pool.acquire(true, Intention.TEST);
 
-    scope.record(frame1, frame1.tryOptimisticRead());
-    scope.record(frame2, frame2.tryOptimisticRead());
+    scope.record(frame1, frame1.tryOptimisticRead(), cacheEntry(frame1));
+    scope.record(frame2, frame2.tryOptimisticRead(), cacheEntry(frame2));
 
     // Invalidate only frame2
     long writeStamp = frame2.acquireExclusiveLock();
@@ -119,7 +120,7 @@ public class OptimisticReadScopeTest {
     var scope = new OptimisticReadScope();
     var frame = pool.acquire(true, Intention.TEST);
 
-    scope.record(frame, frame.tryOptimisticRead());
+    scope.record(frame, frame.tryOptimisticRead(), cacheEntry(frame));
     assertEquals(1, scope.count());
 
     scope.reset();
@@ -139,7 +140,7 @@ public class OptimisticReadScopeTest {
 
     for (int i = 0; i < 12; i++) {
       frames[i] = pool.acquire(true, Intention.TEST);
-      scope.record(frames[i], frames[i].tryOptimisticRead());
+      scope.record(frames[i], frames[i].tryOptimisticRead(), cacheEntry(frames[i]));
     }
 
     assertEquals(12, scope.count());
@@ -167,7 +168,7 @@ public class OptimisticReadScopeTest {
     var frame = pool.acquire(true, Intention.TEST);
 
     long stamp = frame.tryOptimisticRead();
-    scope.record(frame, stamp);
+    scope.record(frame, stamp, cacheEntry(frame));
 
     var latch = new CountDownLatch(1);
     var error = new AtomicReference<Throwable>();
@@ -204,12 +205,12 @@ public class OptimisticReadScopeTest {
     var scope = new OptimisticReadScope();
     var frame = pool.acquire(true, Intention.TEST);
 
-    scope.record(frame, frame.tryOptimisticRead());
+    scope.record(frame, frame.tryOptimisticRead(), cacheEntry(frame));
     scope.validateOrThrow();
     scope.reset();
 
     // Record a fresh stamp and validate again
-    scope.record(frame, frame.tryOptimisticRead());
+    scope.record(frame, frame.tryOptimisticRead(), cacheEntry(frame));
     assertEquals(1, scope.count());
     scope.validateOrThrow();
 
@@ -224,8 +225,8 @@ public class OptimisticReadScopeTest {
     var frame1 = pool.acquire(true, Intention.TEST);
     var frame2 = pool.acquire(true, Intention.TEST);
 
-    scope.record(frame1, frame1.tryOptimisticRead());
-    scope.record(frame2, frame2.tryOptimisticRead());
+    scope.record(frame1, frame1.tryOptimisticRead(), cacheEntry(frame1));
+    scope.record(frame2, frame2.tryOptimisticRead(), cacheEntry(frame2));
 
     // Invalidate only frame1
     long writeStamp = frame1.acquireExclusiveLock();
@@ -246,7 +247,7 @@ public class OptimisticReadScopeTest {
     var frame = pool.acquire(true, Intention.TEST);
 
     scope.reset(); // capture the quiescent epoch
-    scope.record(frame, frame.tryOptimisticRead());
+    scope.record(frame, frame.tryOptimisticRead(), cacheEntry(frame));
 
     // A writer enters the apply phase mid-read; the frame's stamp is untouched.
     epoch.enterApplyPhase();
@@ -264,20 +265,20 @@ public class OptimisticReadScopeTest {
 
   @Test
   public void testValidateLastOrThrowIsStampOnly() {
-    // validateLastOrThrow() is a mid-traversal early check and deliberately stays
-    // stamp-only — the epoch is checked exactly once per attempt, in validateOrThrow().
-    // With an apply phase in flight, validateLastOrThrow must still pass for a valid
-    // stamp while validateOrThrow on the same scope must fail.
+    // validateLastOrThrow() checks cached-frame identity and the stamp during traversal.
+    // It leaves the epoch check to validateOrThrow(). With an apply phase in flight,
+    // validateLastOrThrow must pass for a live entry with a valid stamp, while
+    // validateOrThrow on the same scope must fail.
     var epoch = new ApplyPhaseEpoch();
     var scope = new OptimisticReadScope(epoch);
     var frame = pool.acquire(true, Intention.TEST);
 
     scope.reset();
-    scope.record(frame, frame.tryOptimisticRead());
+    scope.record(frame, frame.tryOptimisticRead(), cacheEntry(frame));
 
     epoch.enterApplyPhase();
     try {
-      // Stamp-only check: passes even though an apply phase is in flight.
+      // Identity and stamp checks pass even though an apply phase is in flight.
       scope.validateLastOrThrow();
 
       try {

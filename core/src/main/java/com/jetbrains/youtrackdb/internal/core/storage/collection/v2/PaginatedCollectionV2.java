@@ -1096,7 +1096,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
     return new RawPageBuffer(
         pageView.pageFrame(), pageView.stamp(),
-        contentOffset, contentLength, recordVersion, recordType);
+        contentOffset, contentLength, recordVersion, recordType, pageView.cacheEntry());
   }
 
   @Nonnull

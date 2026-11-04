@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -49,7 +50,7 @@ public class DurablePageSpeculativeReadTest {
     // the correct buffer, null cacheEntry, and null changes.
     var frame = acquireFrameWithCoordinates(1, 42);
     long stamp = frame.tryOptimisticRead();
-    var pageView = new PageView(frame.getBuffer(), frame, stamp);
+    var pageView = new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame));
 
     var page = new DurablePage(pageView);
 
@@ -66,7 +67,7 @@ public class DurablePageSpeculativeReadTest {
     // guardSize should not throw for sizes within [0, buffer.capacity()].
     var frame = acquireFrameWithCoordinates(1, 0);
     long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
     // These should not throw
     page.guardSize(0);
@@ -82,7 +83,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.guardSize(-1);
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -99,7 +100,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.guardSize(PAGE_SIZE + 1);
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -116,7 +117,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.guardSize(Integer.MIN_VALUE);
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -132,7 +133,7 @@ public class DurablePageSpeculativeReadTest {
     // Verifies that getPageIndex() returns the value from the PageFrame.
     var frame = acquireFrameWithCoordinates(5, 123);
     long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
     assertEquals(123, page.getPageIndex());
 
@@ -144,7 +145,7 @@ public class DurablePageSpeculativeReadTest {
     // LSN is not available without a CacheEntry.
     var frame = acquireFrameWithCoordinates(1, 0);
     long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
     assertNull(page.getLsn());
 
@@ -156,7 +157,7 @@ public class DurablePageSpeculativeReadTest {
     // toString() should handle null cacheEntry gracefully.
     var frame = acquireFrameWithCoordinates(1, 0);
     long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
     assertNotNull(page.toString());
 
@@ -171,7 +172,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.getIntValue(PAGE_SIZE); // offset + 4 > capacity
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -188,7 +189,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.getLongValue(-1);
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -205,7 +206,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.getShortValue(PAGE_SIZE - 1); // offset + 2 > capacity
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -222,7 +223,7 @@ public class DurablePageSpeculativeReadTest {
     var frame = acquireFrameWithCoordinates(1, 0);
     try {
       long stamp = frame.tryOptimisticRead();
-      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+      var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
       page.getByteValue(-1);
       throw new AssertionError("Expected OptimisticReadFailedException");
@@ -238,7 +239,7 @@ public class DurablePageSpeculativeReadTest {
     // Valid offsets within buffer bounds should not throw in speculative mode.
     var frame = acquireFrameWithCoordinates(1, 0);
     long stamp = frame.tryOptimisticRead();
-    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp));
+    var page = new DurablePage(new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame)));
 
     // These should not throw (reading zero-filled buffer is fine)
     page.getIntValue(0);

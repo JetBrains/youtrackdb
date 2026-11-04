@@ -1,10 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -14,14 +19,28 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
+import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.memory.MemoryFile;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
@@ -29,8 +48,9 @@ import org.junit.Test;
 
 /**
  * Tests for the optimistic (no-CAS) page lookup methods in LockFreeReadCache:
- * getPageFrameOptimistic() and recordOptimisticAccess().
+ * getCacheEntryOptimistic() and recordOptimisticAccess().
  */
+@org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
 public class LockFreeReadCacheOptimisticTest {
 
   private static final int PAGE_SIZE = 4 * 1024;
@@ -75,14 +95,14 @@ public class LockFreeReadCacheOptimisticTest {
     var entry = readCache.loadForRead(0, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
-    PageFrame frame = readCache.getPageFrameOptimistic(0, 0);
+    PageFrame frame = lookupFrame(0, 0);
     assertNotNull("Cache hit should return a non-null PageFrame", frame);
   }
 
   @Test
   public void testCacheMissReturnsNull() {
     // Look up a page that was never loaded — should return null.
-    PageFrame frame = readCache.getPageFrameOptimistic(0, 99);
+    PageFrame frame = lookupFrame(0, 99);
     assertNull("Cache miss should return null", frame);
   }
 
@@ -108,7 +128,7 @@ public class LockFreeReadCacheOptimisticTest {
     // policy chose to evict from.
     int nullCount = 0;
     for (int i = 0; i < totalPages; i++) {
-      if (readCache.getPageFrameOptimistic(0, i) == null) {
+      if (lookupFrame(0, i) == null) {
         nullCount++;
       }
     }
@@ -130,7 +150,7 @@ public class LockFreeReadCacheOptimisticTest {
     var entry = readCache.loadForRead(0, 0, writeCache, false);
     readCache.releaseFromRead(entry);
 
-    PageFrame frame = readCache.getPageFrameOptimistic(0, 0);
+    PageFrame frame = lookupFrame(0, 0);
     assertNotNull(frame);
 
     long stamp = frame.tryOptimisticRead();
@@ -145,7 +165,7 @@ public class LockFreeReadCacheOptimisticTest {
     PageFrame pinnedFrame = entry.getCachePointer().getPageFrame();
     readCache.releaseFromRead(entry);
 
-    PageFrame optimisticFrame = readCache.getPageFrameOptimistic(0, 0);
+    PageFrame optimisticFrame = lookupFrame(0, 0);
     assertSame("Optimistic and pinned lookups should return the same PageFrame",
         pinnedFrame, optimisticFrame);
   }
@@ -177,7 +197,7 @@ public class LockFreeReadCacheOptimisticTest {
     }
 
     for (int i = 0; i < 10; i++) {
-      PageFrame frame = readCache.getPageFrameOptimistic(0, i);
+      PageFrame frame = lookupFrame(0, i);
       assertNotNull("Page " + i + " should be found", frame);
     }
   }
@@ -185,7 +205,7 @@ public class LockFreeReadCacheOptimisticTest {
   @Test
   public void testConcurrentEvictionDuringOptimisticLookup() throws Exception {
     // Exercises the TOCTOU window between isAlive() and getCachePointer() in
-    // getPageFrameOptimistic(): one thread reads optimistically while another
+    // getCacheEntryOptimistic(): one thread reads optimistically while another
     // thread evicts by loading pages beyond cache capacity. The method must
     // return either a valid PageFrame or null — never a stale pointer.
     int iterations = 200;
@@ -215,7 +235,7 @@ public class LockFreeReadCacheOptimisticTest {
     Thread reader = new Thread(() -> {
       try {
         for (int i = 0; i < iterations; i++) {
-          PageFrame frame = readCache.getPageFrameOptimistic(fileId, targetPage);
+          PageFrame frame = lookupFrame(fileId, targetPage);
           // frame is either null (evicted) or a valid PageFrame with a live StampedLock
           if (frame != null) {
             long stamp = frame.tryOptimisticRead();
@@ -241,9 +261,261 @@ public class LockFreeReadCacheOptimisticTest {
     }
   }
 
+  /** Eviction leaves a referenced frame's stamp valid, but a reload changes the cached identity. */
+  @Test
+  public void testEvictionThenReloadRejectsOldFrame() {
+    var old = evictedFrame();
+    try {
+      var replacement = readCache.loadForRead(0, old.entry().getPageIndex(), writeCache, false);
+      try {
+        assertNotSame(old.frame(), replacement.getCachePointer().getPageFrame());
+        long lock = replacement.acquireExclusiveLock();
+        replacement.getCachePointer().getPageFrame().getBuffer().putInt(0, 123);
+        replacement.releaseExclusiveLock();
+        assertTrue(lock != 0);
+      } finally {
+        readCache.releaseFromRead(replacement);
+      }
+      assertTrue(old.frame().validate(old.stamp()));
+      assertIdentityFailure(old.scope());
+    } finally {
+      old.pointer().decrementReadersReferrer();
+    }
+  }
+
+  /** A lookup suspended before stamp acquisition must reject an already-evicted retained frame. */
+  @Test
+  public void testStampAfterEvictionAndLaterDropRejectsOldFrame() {
+    var old = evictedFrame();
+    var scope = new OptimisticReadScope();
+    scope.record(old.frame(), old.frame().tryOptimisticRead(), old.entry());
+    try {
+      var replacement = readCache.loadForRead(0, old.entry().getPageIndex(), writeCache, false);
+      assertNotSame(old.frame(), replacement.getCachePointer().getPageFrame());
+      readCache.releaseFromRead(replacement);
+    } finally {
+      old.pointer().decrementReadersReferrer();
+    }
+    assertIdentityFailure(scope);
+  }
+
+  /** A disk frame reused by the pool for another page must fail identity, not just its stamp. */
+  @Test
+  public void testPoolReuseForAnotherPageRejectsOldFrame() {
+    var old = evictedFrame();
+    var parked = drainPool();
+    old.pointer().decrementReadersReferrer();
+    var reused = pageFramePool.acquire(false, Intention.TEST);
+    try {
+      assertSame(old.frame(), reused);
+      new CachePointer(reused, pageFramePool, 99, 123);
+      assertIdentityFailure(old.scope());
+    } finally {
+      pageFramePool.release(reused);
+      parked.forEach(pageFramePool::release);
+    }
+  }
+
+  /**
+   * MemoryFile and disk storage zero share the pool. Even a fresh stamp on a reused
+   * frame with matching coordinates must not make the suspended disk lookup succeed.
+   */
+  @Test
+  public void testMemoryFileReuseWithMatchingCoordinatesRejectsDiskRead() {
+    readCache.clear();
+    bufferPool = ByteBufferPool.instance(null);
+    pageFramePool = bufferPool.pageFramePool();
+    int pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+    readCache = new LockFreeReadCache(bufferPool, 1024L * pageSize, pageSize);
+    writeCache = new PageFrameWriteCache(pageFramePool);
+    var old = evictedFrame();
+    var memoryFile = new MemoryFile(0, 0);
+    for (int i = 0; i < old.entry().getPageIndex(); i++) {
+      memoryFile.addNewPage(readCache);
+    }
+    var parked = drainPool();
+    old.pointer().decrementReadersReferrer();
+    try {
+      var memoryEntry = memoryFile.addNewPage(readCache);
+      assertSame(old.frame(), memoryEntry.getCachePointer().getPageFrame());
+      var lateScope = new OptimisticReadScope();
+      lateScope.record(old.frame(), old.frame().tryOptimisticRead(), old.entry());
+      assertEquals(0, old.frame().getFileId());
+      assertEquals(old.entry().getPageIndex(), old.frame().getPageIndex());
+      assertIdentityFailure(lateScope);
+    } finally {
+      memoryFile.clear();
+      parked.forEach(pageFramePool::release);
+    }
+  }
+
+  /** Unchanged live entries pass both scope checks and zero-copy validation without counter work. */
+  @Test
+  public void testUnchangedCachedFramePassesWithoutFailureCount() {
+    long before = OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY);
+    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var frame = entry.getCachePointer().getPageFrame();
+    var scope = new OptimisticReadScope();
+    scope.record(frame, frame.tryOptimisticRead(), entry);
+    readCache.releaseFromRead(entry);
+    scope.validateLastOrThrow();
+    scope.validateOrThrow();
+    new RawPageBuffer(frame, frame.tryOptimisticRead(), 0, 4, 0, (byte) 0, entry).toRawBuffer();
+    assertEquals(before, OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY));
+  }
+
+  /** Zero-copy extraction must repeat identity validation after the optimistic scope closes. */
+  @Test
+  public void testZeroCopyRejectsEvictedRetainedFrame() {
+    var old = evictedFrame();
+    try {
+      long before = OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY);
+      var result = new RawPageBuffer(old.frame(), old.stamp(), 0, 4, 0, (byte) 0, old.entry());
+      assertThrows(OptimisticReadFailedException.class, result::toRawBuffer);
+      assertEquals(before + 1, OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY));
+    } finally {
+      old.pointer().decrementReadersReferrer();
+    }
+  }
+
+  private record Evicted(CacheEntry entry, CachePointer pointer, PageFrame frame, long stamp,
+      OptimisticReadScope scope) {
+  }
+
+  private Evicted evictedFrame() {
+    // Capture every page before eviction. At least one must leave a 1024-page cache,
+    // independent of the admission sketch's random seed. Extra references model backup.
+    var captured = new ArrayList<Evicted>();
+    for (int i = 0; i < 1100; i++) {
+      var entry = readCache.loadForRead(0, i, writeCache, false);
+      var pointer = entry.getCachePointer();
+      pointer.incrementReadersReferrer();
+      var frame = pointer.getPageFrame();
+      var scope = new OptimisticReadScope();
+      long stamp = frame.tryOptimisticRead();
+      scope.record(frame, stamp, entry);
+      captured.add(new Evicted(entry, pointer, frame, stamp, scope));
+      readCache.releaseFromRead(entry);
+    }
+    readCache.assertSize();
+    var evicted = captured.stream().filter(e -> !e.entry().isAlive()).findFirst().orElseThrow();
+    captured.stream().filter(e -> e != evicted)
+        .forEach(e -> e.pointer().decrementReadersReferrer());
+    assertNull(lookupFrame(0, evicted.entry().getPageIndex()));
+    assertTrue(evicted.frame().validate(evicted.stamp()));
+    return evicted;
+  }
+
+  private PageFrame lookupFrame(long fileId, long pageIndex) {
+    var entry = readCache.getCacheEntryOptimistic(fileId, pageIndex);
+    var pointer = entry == null ? null : entry.getCachePointer();
+    return pointer == null ? null : pointer.getPageFrame();
+  }
+
+  /** clearFile freezes a removed entry while a backup reference retains its valid frame. */
+  @Test
+  public void testClearFileRejectsRetainedFrame() {
+    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    var pointer = entry.getCachePointer();
+    pointer.incrementReadersReferrer();
+    var frame = pointer.getPageFrame();
+    var scope = new OptimisticReadScope();
+    long stamp = frame.tryOptimisticRead();
+    scope.record(frame, stamp, entry);
+    readCache.releaseFromRead(entry);
+    try {
+      readCache.closeFile(0, false, writeCache);
+      assertTrue(frame.validate(stamp));
+      assertIdentityFailure(scope);
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+  }
+
+  /** A write-cache hit can reload the same frame under a new read-cache entry. */
+  @Test
+  public void testSameFrameReloadUnderNewEntryRejectsOldEntry() throws IOException {
+    var old = evictedFrame();
+    var retainingWriteCache = mock(WriteCache.class);
+    when(retainingWriteCache.loadOrAdd(eq(0L), eq((long) old.entry().getPageIndex()), eq(false)))
+        .thenAnswer(invocation -> {
+          old.pointer().incrementReadersReferrer();
+          return old.pointer();
+        });
+    try {
+      var replacement = readCache.loadForRead(
+          0, old.entry().getPageIndex(), retainingWriteCache, false);
+      assertNotSame(old.entry(), replacement);
+      assertSame(old.frame(), replacement.getCachePointer().getPageFrame());
+      readCache.releaseFromRead(replacement);
+      assertTrue(old.frame().validate(old.stamp()));
+      assertIdentityFailure(old.scope());
+    } finally {
+      old.pointer().decrementReadersReferrer();
+    }
+  }
+
+  /** Production lookup must record identity because capacity eviction preserves retained stamps. */
+  @Test
+  public void testStorageComponentLookupRejectsEvictedRetainedPage() {
+    var storage = mock(AbstractStorage.class);
+    var manager = mock(AtomicOperationsManager.class);
+    when(storage.getReadCache()).thenReturn(readCache);
+    when(storage.getWriteCache()).thenReturn(writeCache);
+    when(storage.getAtomicOperationsManager()).thenReturn(manager);
+    when(manager.getApplyPhaseEpoch("test")).thenReturn(new ApplyPhaseEpoch());
+    var component = new LookupComponent(storage);
+    var captured = new ArrayList<Evicted>();
+    try {
+      for (int i = 0; i < 1100; i++) {
+        var entry = readCache.loadForRead(0, i, writeCache, false);
+        var pointer = entry.getCachePointer();
+        pointer.incrementReadersReferrer();
+        readCache.releaseFromRead(entry);
+        var scope = new OptimisticReadScope();
+        var op = mock(AtomicOperation.class);
+        when(op.getOptimisticReadScope()).thenReturn(scope);
+        var view = component.lookup(op, i);
+        captured.add(new Evicted(entry, pointer, view.pageFrame(), view.stamp(), scope));
+      }
+      readCache.assertSize();
+      var removed = captured.stream().filter(e -> !e.entry().isAlive()).findFirst().orElseThrow();
+      assertTrue(removed.frame().validate(removed.stamp()));
+      assertIdentityFailure(removed.scope());
+    } finally {
+      captured.forEach(e -> e.pointer().decrementReadersReferrer());
+    }
+  }
+
+  private static final class LookupComponent extends StorageComponent {
+
+    private LookupComponent(AbstractStorage storage) {
+      super(storage, "test", ".test", "test", true);
+    }
+
+    private PageView lookup(AtomicOperation op, int pageIndex) {
+      return loadPageOptimistic(op, 0, pageIndex);
+    }
+  }
+
+  private ArrayList<PageFrame> drainPool() {
+    var parked = new ArrayList<PageFrame>();
+    while (pageFramePool.getPoolSize() > 0) {
+      parked.add(pageFramePool.acquire(false, Intention.TEST));
+    }
+    return parked;
+  }
+
+  private static void assertIdentityFailure(OptimisticReadScope scope) {
+    long before = OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY);
+    assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+    assertThrows(OptimisticReadFailedException.class, scope::validateLastOrThrow);
+    assertEquals(before + 2, OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY));
+  }
+
   /**
    * A WriteCache mock that creates PageFrame-backed CachePointers, enabling
-   * getPageFrameOptimistic() to return non-null PageFrame references.
+   * getCacheEntryOptimistic() to return entries with PageFrame-backed pointers.
    */
   private record PageFrameWriteCache(PageFramePool framePool) implements WriteCache {
 

@@ -21,7 +21,10 @@ public final class OptimisticReadFailureCounters {
     LOOKUP_MISS,
     /** The transaction has private changes, so shared contents cannot serve the read. */
     LOCAL_CHANGES,
-    /** Reserved for the final cached-frame identity check. */
+    /**
+     * The recorded cache entry is no longer alive or no longer holds the frame used by the
+     * read. Checked before the stamp, including when eviction and pool reuse both occurred.
+     */
     FRAME_IDENTITY
   }
 

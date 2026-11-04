@@ -677,13 +677,13 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that {@code getPageFrameOptimistic()} always returns {@code null} — the in-memory
+   * Verifies that {@code getCacheEntryOptimistic()} always returns {@code null} — the in-memory
    * cache does not support lock-free optimistic reads.
    */
   @Test
   public void testGetPageFrameOptimisticAlwaysNull() {
     var fileId = cache.addFile("opt.cf");
-    assertNull(cache.getPageFrameOptimistic(fileId, 0));
+    assertNull(cache.getCacheEntryOptimistic(fileId, 0));
   }
 
   /**

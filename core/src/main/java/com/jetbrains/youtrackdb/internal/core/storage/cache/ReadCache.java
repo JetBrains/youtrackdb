@@ -19,7 +19,6 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
-import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import javax.annotation.Nullable;
@@ -170,19 +169,19 @@ public interface ReadCache {
   void changeMaximumAmountOfMemory(long calculateReadCacheMaxMemory);
 
   /**
-   * Optimistic cache lookup: returns the PageFrame for the given page without CAS-based
-   * pinning. Returns null on cache miss, evicted entry, or null CachePointer.
-   *
-   * <p>The caller must take an optimistic stamp from the returned PageFrame and validate
-   * it after reading data to detect writers and frame-pool reuse. Eviction alone need not
-   * invalidate stamps. The reader final check also needs cached-frame identity.
+   * Returns an unpinned identity token for final optimistic validation, or null on miss.
+   * The caller records this entry with its frame and stamp. Final validation checks
+   * that the recorded entry is alive and still holds that frame, without another lookup.
+   * Implementations without optimistic reads return null.
    */
-  @Nullable PageFrame getPageFrameOptimistic(long fileId, long pageIndex);
+  @Nullable default CacheEntry getCacheEntryOptimistic(long fileId, long pageIndex) {
+    return null;
+  }
 
   /**
    * Records a successful optimistic read access for the given page, updating the
-   * frequency sketch used by the eviction policy. Call this after stamp validation
-   * succeeds, to keep eviction decisions accurate.
+   * frequency sketch used by the eviction policy. Call this after cached-frame identity,
+   * stamps, and the apply-phase epoch have passed validation.
    *
    * <p>If the entry has been evicted between validation and this call, the access
    * is silently skipped (acceptable — one missed frequency bump is harmless).
