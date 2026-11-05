@@ -3088,7 +3088,10 @@ public class IncrementalBackupExtensionTest {
       long empty = cache.addFile("empty.tst");
       long removed = cache.addFile("removed.tst");
       long truncated = cache.addFile("truncated.tst");
-      writeEvidencePage(storage, truncated, 7, 77);
+      // Initialize every page in order so full backup never depends on asynchronous gap stamping.
+      for (int page = 0; page <= 7; page++) {
+        writeEvidencePage(storage, truncated, page, page == 7 ? 77 : 0);
+      }
       for (int page = 0; page < 128; page++) {
         writeEvidencePage(storage, file, page, page);
       }
