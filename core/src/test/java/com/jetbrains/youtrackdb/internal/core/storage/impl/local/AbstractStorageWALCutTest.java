@@ -116,6 +116,7 @@ public class AbstractStorageWALCutTest {
       setPrivateField(storage, field,
           mock(AbstractStorage.class.getDeclaredField(field).getType()));
     }
+    setPrivateField(storage, "commitWindowDepth", ThreadLocal.withInitial(() -> new int[1]));
     setPrivateField(storage, "checkpointFloorTestAction", new AtomicReference<>());
     setPrivateField(storage, "afterCloseAtomicTestAction", new AtomicReference<>());
     setPrivateField(storage, "beforeMaintenanceFloorReadTestAction", new AtomicReference<>());

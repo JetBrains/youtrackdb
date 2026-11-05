@@ -1101,24 +1101,25 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(engineIdentifierForRebuildTail());
-        if (engine instanceof BTreeIndexEngine btreeEngine) {
-          if (btreeEngine.getHistogramManager() != null) {
-            try {
-              storage.getAtomicOperationsManager()
-                  .executeInsideAtomicOperation(
-                      atomicOperation -> btreeEngine
-                          .buildInitialHistogram(atomicOperation));
-            } catch (IOException e) {
-              // Histogram build failure must not fail the index rebuild.
-              // The histogram will be built lazily on the next rebalance.
-              LogManager.instance().warn(
-                  IndexAbstract.this,
-                  "Failed to build initial histogram for index '%s': %s",
-                  im.getName(), e.getMessage());
+        // Keep state protection through atomic completion, including the post-commit hooks.
+        storage.callIndexEngine(true, engineIdentifierForRebuildTail(), engine -> {
+          if (engine instanceof BTreeIndexEngine btreeEngine) {
+            if (btreeEngine.getHistogramManager() != null) {
+              try {
+                storage.getAtomicOperationsManager()
+                    .executeInsideAtomicOperation(btreeEngine::buildInitialHistogram);
+              } catch (IOException e) {
+                // Histogram build failure must not fail the index rebuild.
+                // The histogram will be built lazily on the next rebalance.
+                LogManager.instance().warn(
+                    IndexAbstract.this,
+                    "Failed to build initial histogram for index '%s': %s",
+                    im.getName(), e.getMessage());
+              }
             }
           }
-        }
+          return null;
+        });
         break;
       } catch (InvalidIndexEngineIdException ignore) {
         if (recovered) {

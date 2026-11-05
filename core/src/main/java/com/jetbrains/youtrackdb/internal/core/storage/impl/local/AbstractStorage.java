@@ -2105,11 +2105,18 @@ public abstract class AbstractStorage
    * Closes the session, or shuts down the storage when {@code force} is true.
    *
    * <p>Forced close waits for admitted commits and running fuzzy checkpoints or WAL vacuum that
-   * hold the storage state read lock. The caller must not hold the storage state lock in read or
-   * write mode, including an open commit window, because {@link ScalableRWLock} is non-reentrant.
+   * hold the storage state read lock, including the histogram rebuild tail. This method throws
+   * {@link StorageStateContextException} when {@code force} is true and the caller holds the state
+   * lock in read or write mode, or has an open commit window, because {@link ScalableRWLock} is
+   * non-reentrant. This caller check does not apply to {@link #shutdown()}.
    */
   @Override
   public final void close(DatabaseSessionEmbedded database, final boolean force) {
+    // Reject caller misuse before lock acquisition and outside storage error handling.
+    if (force && callerOwnsStateProtection()) {
+      throw new StorageStateContextException(
+          "Forced close requires a caller without the storage state lock or an open commit window");
+    }
     try {
       if (!force) {
         close(database);
@@ -4896,8 +4903,8 @@ public abstract class AbstractStorage
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
       // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
-      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
+      // and index tree component lock through Hook B. The histogram rebuild tail retains state
+      // read protection through its callIndexEngine callback, but not the tree component lock.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4967,8 +4974,8 @@ public abstract class AbstractStorage
       var engineId = entry.getKey();
       var delta = entry.getValue();
       // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
-      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
+      // and index tree component lock through Hook B. The histogram rebuild tail retains state
+      // read protection through its callIndexEngine callback, but not the tree component lock.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
