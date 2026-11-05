@@ -139,6 +139,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -1330,6 +1331,22 @@ public abstract class AbstractStorage
       return -1;
     }
     return parsed;
+  }
+
+  /** Requires caller-owned exclusion through the end of a metadata atomic operation. */
+  public void requireFileStateWriterExclusion() {
+    if (!stateLock.isWriteLockedByCurrentThread()) {
+      throw new IllegalStateException("File-state preparation requires the storage write lock");
+    }
+  }
+
+  /** Resolves the live collection domain without another lock or a configuration lookup. */
+  public String collectionFileStateLockName(int id, String entryName) {
+    requireFileStateWriterExclusion();
+    if (id < collections.size() && collections.get(id) instanceof StorageComponent component) {
+      return component.getLockName();
+    }
+    return entryName + PaginatedCollection.DEF_EXTENSION;
   }
 
   /**

@@ -305,24 +305,32 @@ public class CollectionEntryTest {
             assertEquals(format.layoutVersion(), ops.calculateInsideAtomicOperation(
                 config::getVersion).intValue());
             assertTrue(config.getCollections().stream().filter(c -> c != null).count() > 0);
-            for (var collection : config.getCollections()) {
-              if (collection == null) {
-                continue;
-              }
-              ops.executeInsideAtomicOperation(op -> {
-                var raw = raw(config, collection.id(), op);
-                assertEquals(format == StorageFormat.LAYOUT_25 ? 0 : 1, raw.second);
-                var entry =
-                    decodeCollectionEntry(collection.id(), raw.first, raw.second, format, null);
-                assertEquals(CollectionFileState.ALL_CREATED, entry.state());
-                if (format == StorageFormat.LAYOUT_26) {
-                  assertEquals(31, raw.first[raw.first.length - 1]);
+            var stateLock =
+                (com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock) field(storage,
+                    "stateLock", AbstractStorage.class);
+            stateLock.writeLock().lock();
+            try {
+              for (var collection : config.getCollections()) {
+                if (collection == null) {
+                  continue;
                 }
-                config.updateCollection(op, collection);
-                var rewritten = raw(config, collection.id(), op);
-                assertArrayEquals(raw.first, rewritten.first);
-                assertEquals(raw.second, rewritten.second);
-              });
+                ops.executeInsideAtomicOperation(op -> {
+                  var raw = raw(config, collection.id(), op);
+                  assertEquals(format == StorageFormat.LAYOUT_25 ? 0 : 1, raw.second);
+                  var entry =
+                      decodeCollectionEntry(collection.id(), raw.first, raw.second, format, null);
+                  assertEquals(CollectionFileState.ALL_CREATED, entry.state());
+                  if (format == StorageFormat.LAYOUT_26) {
+                    assertEquals(31, raw.first[raw.first.length - 1]);
+                  }
+                  config.updateCollection(op, collection);
+                  var rewritten = raw(config, collection.id(), op);
+                  assertArrayEquals(raw.first, rewritten.first);
+                  assertEquals(raw.second, rewritten.second);
+                });
+              }
+            } finally {
+              stateLock.writeLock().unlock();
             }
             // Name enumeration does not accept or decode the stored entry.
             var first =

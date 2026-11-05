@@ -162,6 +162,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private ContextConfiguration configuration;
   private boolean validation;
 
+  private final CommittedFileStates<CollectionFileState> committedCollections =
+      new CommittedFileStates<>();
+  private final CommittedFileStates<IndexEngineFileState> committedEngines =
+      new CommittedFileStates<>();
+
   private final BTree<String> btree;
   private final PaginatedCollection collection;
 
@@ -1479,7 +1484,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public void deleteIndexEngine(AtomicOperation atomicOperation, final String name) {
     lock.writeLock().lock();
     try {
+      // Deletion must also accept missing or unreadable entries. The committed target retains
+      // its reader domains, so removal does not need to decode the record being discarded.
       dropProperty(atomicOperation, ENGINE_PREFIX_PROPERTY + name);
+      committedEngines.prepareRemoval(name, atomicOperation, storage);
     } finally {
       lock.writeLock().unlock();
     }
@@ -1613,6 +1621,35 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  /** No lookup or lock. The caller validates its own component read attempt. */
+  public CollectionFileState getCommittedCollectionFileState(int id) {
+    return committedCollections.get(Integer.toString(id));
+  }
+
+  /** No lookup or lock. Null distinguishes a missing engine from a live zero mask. */
+  public IndexEngineFileState getCommittedIndexEngineFileState(String name) {
+    return committedEngines.get(name);
+  }
+
+  private void prepareCollectionState(int id, String name, CollectionFileState state,
+      AtomicOperation op) {
+    committedCollections.prepare(Integer.toString(id), state, op, storage,
+        storage.collectionFileStateLockName(id, name),
+        com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared
+            .generateLockName(id));
+  }
+
+  private void prepareEngineState(String name, IndexEngineEntry entry, IndexEngineFileState state,
+      AtomicOperation op) {
+    var stem = AbstractStorage.indexEngineFileStem(entry.data().getFileBaseId());
+    if (entry.data().isMultivalue()) {
+      committedEngines.prepare(name, state, op, storage, stem + ".cbt", stem + ".ixs",
+          stem + AbstractStorage.NULL_TREE_SUFFIX + ".cbt");
+    } else {
+      committedEngines.prepare(name, state, op, storage, stem + ".cbt", stem + ".ixs");
+    }
+  }
+
   /** Reads operation-visible flags directly from the stored entry, without a storage lock. */
   public CollectionFileState getCollectionFileState(int id, AtomicOperation op) {
     lock.readLock().lock();
@@ -1670,6 +1707,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         var bytes = raw.first.clone();
         bytes[bytes.length - 1] = (byte) state.bits();
         storeProperty(op, COLLECTIONS_PREFIX_PROPERTY + id, bytes, raw.second);
+      } else {
+        prepareCollectionState(id, entry.configuration().name(), state, op);
       }
     } finally {
       lock.writeLock().unlock();
@@ -1692,6 +1731,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         var bytes = raw.first.clone();
         bytes[bytes.length - 1] = (byte) state.bits();
         storeProperty(op, ENGINE_PREFIX_PROPERTY + name, bytes, raw.second);
+      } else {
+        prepareEngineState(name, entry, state, op);
       }
     } finally {
       lock.writeLock().unlock();
@@ -1855,7 +1896,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         collections.set(collectionId, null);
       }
 
+      // Failed-create cleanup can reach here after the entry has already rolled back.
       dropProperty(atomicOperation, COLLECTIONS_PREFIX_PROPERTY + collectionId);
+      committedCollections.prepareRemoval(Integer.toString(collectionId), atomicOperation, storage);
     } finally {
       lock.writeLock().unlock();
     }
@@ -2474,6 +2517,20 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         } else {
           pausedNotificationsState.pendingChanges++;
         }
+      }
+      // Decode the final stored payload, never the nontransactional property cache.
+      // The explicit foreign-version test seam is not a valid lifecycle writer.
+      if (name.startsWith(COLLECTIONS_PREFIX_PROPERTY)) {
+        var id = Integer.parseInt(name.substring(COLLECTIONS_PREFIX_PROPERTY.length()));
+        var entry = decodeCollectionEntry(id, property, propertyBinaryVersion,
+            storage.getStorageFormat(), null, storage.getName());
+        prepareCollectionState(id, entry.configuration().name(), entry.state(), atomicOperation);
+      } else if (name.startsWith(ENGINE_PREFIX_PROPERTY)
+          && propertyBinaryVersion == indexEngineEntryVersion(storage.getStorageFormat())) {
+        var engineName = name.substring(ENGINE_PREFIX_PROPERTY.length());
+        var entry = decodeIndexEngineEntry(engineName, property, -1, propertyBinaryVersion,
+            storage.getStorageFormat(), storage.getName(), null);
+        prepareEngineState(engineName, entry, entry.state(), atomicOperation);
       }
     } catch (Exception e) {
       cache.clear();

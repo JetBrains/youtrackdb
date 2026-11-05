@@ -318,10 +318,20 @@ public class IndexEngineFileBaseIdTest {
           (byte) 0, (byte) 0, false,
           new PropertyTypeInternal[] {PropertyTypeInternal.STRING},
           true, 1, null, null, null);
-      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-          op -> config.storeIndexEngineEntryForTesting(op, "revertprobe", ownedData, 2));
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> config.storeIndexEngineEntryForTesting(op, "revertprobe", ownedData, 2));
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
 
-      storage.revertCreatedIndexEngineStructure(owned);
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.revertCreatedIndexEngineStructure(owned);
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
 
       final var afterRevert =
           storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
@@ -446,8 +456,13 @@ public class IndexEngineFileBaseIdTest {
           (byte) 0, (byte) 0, false,
           new PropertyTypeInternal[] {PropertyTypeInternal.STRING},
           true, 1, null, null, null);
-      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-          op -> config.storeIndexEngineEntryForTesting(op, "staleprobe", staleData, 1));
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> config.storeIndexEngineEntryForTesting(op, "staleprobe", staleData, 1));
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
 
       try {
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(
@@ -458,8 +473,14 @@ public class IndexEngineFileBaseIdTest {
       }
 
       // Remove the poisoned entry so the storage close/teardown does not trip over it.
-      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-          op -> config.deleteIndexEngine(op, "staleprobe"));
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> config.deleteIndexEngine(op, "staleprobe"));
+        assertNull(config.getCommittedIndexEngineFileState("staleprobe"));
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
     }
   }
 
