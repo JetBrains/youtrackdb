@@ -617,15 +617,9 @@ public class LdbcGremlinShapeTranslationTest {
    * Shape 11 — IS1's full projection translates on, runs natively off, and returns Alice's first
    * name beside Zurich's id on both arms.
    *
-   * <p>The shape was written as a declining one, on the reading that {@code select("p", "city")}
-   * could not resolve a user {@code as(...)} label. Both labels resolve now that the {@code has}
-   * recogniser binds them, so the group flipped and the assertion with it — which is the tripwire
-   * the declining group was built to fire.
-   *
-   * <p>The two arms agree here. They need not everywhere: a spelling whose label is dropped by the
-   * native graph-step fold answers {@code []} natively while the translated arm answers correctly,
-   * and that family is asserted against a hand-computed oracle in {@code core} rather than against
-   * native. This shape is not in it — {@code as("p")} sits on the {@code has} step and survives.
+   * <p>Both {@code as(...)} labels resolve through {@code select("p", "city")}. The {@code has}
+   * recogniser binds them on the translated arm, and the native graph-step fold preserves them.
+   * The related label-after-hop case in {@code core} checks both arms against an explicit oracle.
    */
   @Test
   public void is1FullProfileTranslatesOnAndRunsNativeOff() {
