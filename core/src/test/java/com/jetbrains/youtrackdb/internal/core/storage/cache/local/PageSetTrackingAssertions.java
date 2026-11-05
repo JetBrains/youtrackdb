@@ -36,6 +36,15 @@ public final class PageSetTrackingAssertions {
     return result;
   }
 
+  /** Injects only the incremental backup mark, inside the real dirty-table update. */
+  public static void failBackupMark(ChangedPageTracker tracker, int file, long page,
+      Throwable failure, java.util.List<String> events) {
+    org.mockito.Mockito.doAnswer(call -> {
+      events.add("backup failure");
+      throw failure;
+    }).when(tracker).mark(file, page);
+  }
+
   public static void assertPages(ChangedPageTracker tracker, int file, long... expected) {
     var actual = new ArrayList<Long>();
     tracker.saveOrderLock().lock();

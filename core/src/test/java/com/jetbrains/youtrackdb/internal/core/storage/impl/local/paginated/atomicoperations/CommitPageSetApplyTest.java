@@ -4,7 +4,10 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -66,7 +69,7 @@ public class CommitPageSetApplyTest {
     final ByteBufferPool pool = new ByteBufferPool(DurablePage.MAX_PAGE_SIZE_BYTES);
     final LockFreeReadCache read = spy(new LockFreeReadCache(pool,
         128L * DurablePage.MAX_PAGE_SIZE_BYTES, DurablePage.MAX_PAGE_SIZE_BYTES, 4));
-    final ChangedPageTracker tracker = new ChangedPageTracker();
+    final ChangedPageTracker tracker = spy(new ChangedPageTracker());
     final WriteAheadLog wal = mock(WriteAheadLog.class);
     final java.util.concurrent.ExecutorService io = Executors.newCachedThreadPool();
     final ApplyPhaseEpoch epoch = new ApplyPhaseEpoch();
@@ -397,6 +400,340 @@ public class CommitPageSetApplyTest {
           }
           verify(f.read, times(enabled ? 1 : 0)).tryReserveWritePins(1);
           assertEquals(0, f.read.reservedWritePins());
+        }
+      }
+    }
+  }
+
+  // A real miss acquires a pin before overflow checking. Interruption on the second miss
+  // returns both that pin and the earlier reservation pin without entering the lock phase.
+  @Test
+  public void interruptedCacheMissRestoresInterruptAndReturnsAllPins() throws Exception {
+    try (var f = new Fixture()) {
+      long file = f.write.addFile("interrupted-miss");
+      var op = f.operation(true);
+      op.loadFile("interrupted-miss");
+      f.change(op, file, 0, false);
+      f.change(op, file, 1, false);
+      f.read.clear();
+      assertNull(f.read.getCacheEntryOptimistic(file, 0));
+      assertNull(f.read.getCacheEntryOptimistic(file, 1));
+      var interrupted = new InterruptedException("overflow");
+      var checks = new AtomicInteger();
+      clearInvocations(f.read);
+      doAnswer(call -> {
+        if (checks.incrementAndGet() == 2) {
+          throw interrupted;
+        }
+        return call.callRealMethod();
+      }).when(f.write).checkCacheOverflow();
+      try {
+        var thrown = assertThrows(
+            com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException.class,
+            () -> op.commitChanges(42, f.wal));
+        assertSame(interrupted, thrown.getCause());
+        assertEquals(0, thrown.getSuppressed().length);
+        assertTrue(Thread.currentThread().isInterrupted());
+        assertEquals(2, checks.get());
+        assertEquals(0, f.read.reservedWritePins());
+        verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
+            anyBoolean(), any());
+        verify(f.write, never()).store(anyLong(), anyLong(), any());
+        for (int page = 0; page < 2; page++) {
+          var entry = f.read.getCacheEntryOptimistic(file, page);
+          assertNotNull(entry);
+          assertNotEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+          com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageSetEntryAssertions
+              .assertPins(entry, 0);
+        }
+      } finally {
+        Thread.interrupted();
+      }
+    }
+  }
+
+  private enum FailureStep {
+    PIN_FIRST, PIN_MIDDLE, PIN_LAST, DUPLICATE, LOCK, END_LSN, DIRTY, BACKUP, CONTENT, PUBLISH, CLOSE_PUBLISH, PUBLISH_UNLOCK, CLOSE_PUBLISH_UNLOCK, UNLOCK, CLOSE_UNLOCK, RELEASE
+  }
+
+  // Each injected exit reaches the commit caller with exact error identity. Real frames,
+  // pins, write-cache records and backup candidates must agree after either throwable route.
+  @Test
+  public void everyFailureExitBalancesRealFramesPinsAndBudget() throws Exception {
+    for (var step : FailureStep.values()) {
+      for (boolean error : new boolean[] {false, true}) {
+        checkFailureExit(step, error, false);
+      }
+    }
+  }
+
+  // Reusing the body throwable during cleanup requires a fresh suppressed aggregate.
+  @Test
+  public void bodyFailureOwnsCleanupAggregateIncludingReusedThrowable() throws Exception {
+    for (var step : new FailureStep[] {FailureStep.UNLOCK, FailureStep.RELEASE}) {
+      for (boolean error : new boolean[] {false, true}) {
+        checkFailureExit(step, error, true);
+      }
+    }
+  }
+
+  private void checkFailureExit(FailureStep step, boolean error, boolean bodyFails)
+      throws Exception {
+    try {
+      runFailureExit(step, error, bodyFails);
+    } catch (Throwable failure) {
+      throw new AssertionError("step=" + step + ", error=" + error + ", bodyFails=" + bodyFails,
+          failure);
+    }
+  }
+
+  private void runFailureExit(FailureStep step, boolean error, boolean bodyFails)
+      throws Exception {
+    boolean combined = step == FailureStep.PUBLISH_UNLOCK
+        || step == FailureStep.CLOSE_PUBLISH_UNLOCK;
+    try (var f = new Fixture()) {
+      long a = f.write.addFile("failure-first");
+      long b = f.write.addFile("failure-second");
+      long first = Math.min(a, b);
+      long second = Math.max(a, b);
+      long[] files = {first, first, second, second};
+      int[] pages = {0, 1, 0, 1};
+      var originals = new CacheEntry[4];
+      var entries = new CacheEntry[4];
+      // Clean preloads leave operation content private and dirty-table assertions unambiguous.
+      for (int i = 0; i < 4; i++) {
+        originals[i] = f.read.loadForRead(files[i], pages[i], f.write, false);
+        f.read.releaseFromRead(originals[i]);
+      }
+      var op = f.operation(true);
+      op.loadFile("failure-second");
+      op.loadFile("failure-first");
+      for (int i : new int[] {3, 0, 2, 1}) {
+        f.change(op, files[i], pages[i], false);
+      }
+      var contentEntry = (CacheEntryChanges) op.loadPageForWrite(first, 1, 1, false);
+      op.releasePageFromWrite(contentEntry);
+      for (int i = 0; i < 4; i++) {
+        entries[i] = spy(originals[i]);
+        com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageSetEntryAssertions
+            .replace(f.read, entries[i]);
+      }
+      Throwable failure = error ? new AssertionError(step.name())
+          : new IllegalStateException(step.name());
+      // Exercise distinct failures and the self-suppression guard on both publication routes.
+      Throwable unlockFailure = error ? new IllegalStateException("unlock") : failure;
+      var injected = new AtomicInteger();
+      var stores = new ArrayList<CacheEntry>();
+      var dirty = new ArrayList<CacheEntry>();
+      var reservationRef = new ReadCache.WriteReservation[1];
+      try {
+        clearInvocations(f.read, f.write);
+        doAnswer(call -> {
+          var pointer = call.getArgument(0,
+              com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+          var entry = Arrays.stream(entries).filter(e -> e.getCachePointer() == pointer)
+              .findFirst().orElseThrow();
+          if (entry == entries[1] && step == FailureStep.DIRTY) {
+            injected.incrementAndGet();
+            throw failure;
+          }
+          var result = call.callRealMethod();
+          dirty.add(entry);
+          return result;
+        }).when(f.write).updateDirtyPagesTable(any(), any());
+        doAnswer(call -> {
+          var pointer = call.getArgument(2,
+              com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+          var entry = Arrays.stream(entries).filter(e -> e.getCachePointer() == pointer)
+              .findFirst().orElseThrow();
+          assertEquals(0, pointer.getPageFrame().tryOptimisticRead());
+          stores.add(entry);
+          var result = call.callRealMethod();
+          if ((step == FailureStep.PUBLISH || step == FailureStep.CLOSE_PUBLISH || combined)
+              && entry == entries[1]) {
+            // Store may install its reference before throwing. Keep the reservation pin.
+            injected.incrementAndGet();
+            throw failure;
+          }
+          return result;
+        }).when(f.write).store(anyLong(), anyLong(), any());
+        doAnswer(call -> {
+          var reservation = spy((ReadCache.WriteReservation) call.callRealMethod());
+          reservationRef[0] = reservation;
+          if (step == FailureStep.CLOSE_UNLOCK || step == FailureStep.CLOSE_PUBLISH
+              || step == FailureStep.CLOSE_PUBLISH_UNLOCK) {
+            // Leave all prepared pages to the real close implementation.
+            org.mockito.Mockito.doNothing().when(reservation).publishAndUnlock(any());
+          }
+          var pinIndex = new AtomicInteger();
+          doAnswer(c -> {
+            int index = pinIndex.getAndIncrement();
+            f.events.add("pin " + index);
+            int failIndex = step == FailureStep.PIN_FIRST ? 0
+                : step == FailureStep.PIN_MIDDLE ? 2 : 3;
+            if ((step == FailureStep.PIN_FIRST || step == FailureStep.PIN_MIDDLE
+                || step == FailureStep.PIN_LAST) && index == failIndex) {
+              doAnswer(acquisition -> {
+                injected.incrementAndGet();
+                throw failure;
+              }).when(entries[index]).acquireEntry();
+            }
+            if (step == FailureStep.DUPLICATE && index == 1) {
+              injected.incrementAndGet();
+              return reservation.pin(first, 0, f.write, false);
+            }
+            return c.callRealMethod();
+          }).when(reservation).pin(anyLong(), anyLong(), any(), anyBoolean());
+          return reservation;
+        }).when(f.read).tryReserveWritePins(4);
+        if (step == FailureStep.LOCK) {
+          doAnswer(c -> {
+            injected.incrementAndGet();
+            throw failure;
+          }).when(entries[1]).acquireExclusiveLock();
+        }
+        if (step == FailureStep.END_LSN) {
+          doAnswer(c -> {
+            injected.incrementAndGet();
+            throw failure;
+          }).when(entries[1]).setEndLSN(any());
+        }
+        if (step == FailureStep.BACKUP) {
+          PageSetTrackingAssertions.failBackupMark(f.tracker, f.write.internalFileId(first), 1,
+              failure, f.events);
+        }
+        if (step == FailureStep.CONTENT || bodyFails) {
+          var content = spy(contentEntry.changes);
+          var field = CacheEntryChanges.class.getDeclaredField("changes");
+          field.setAccessible(true);
+          field.set(contentEntry, content);
+          doAnswer(c -> {
+            assertEquals(0, entries[1].getCachePointer().getPageFrame().tryOptimisticRead());
+            assertTrue(dirty.contains(entries[1]));
+            c.getArgument(0, java.nio.ByteBuffer.class).put(100, (byte) 99);
+            injected.incrementAndGet();
+            throw failure;
+          }).when(content).applyChanges(any());
+        }
+        if (step == FailureStep.UNLOCK || step == FailureStep.CLOSE_UNLOCK || combined) {
+          doAnswer(c -> {
+            c.callRealMethod();
+            injected.incrementAndGet();
+            throw combined ? unlockFailure : failure;
+          }).when(entries[bodyFails || combined ? 1 : 3]).releaseExclusiveLock();
+        }
+        if (step == FailureStep.RELEASE) {
+          for (int releaseIndex : new int[] {2, 3}) {
+            doAnswer(c -> {
+              for (var entry : entries) {
+                assertNotEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+              }
+              injected.incrementAndGet();
+              throw failure;
+            }).when(entries[releaseIndex]).releaseEntry();
+          }
+        }
+        var thrown = assertThrows(Throwable.class, () -> op.commitChanges(42, f.wal));
+        assertEquals(step.name(), step == FailureStep.BACKUP ? 1 : 0,
+            f.events.stream().filter("backup failure"::equals).count());
+        assertEquals(step.name(), step == FailureStep.BACKUP ? 0
+            : (bodyFails ? 1 : 0) + (step == FailureStep.RELEASE || combined ? 2 : 1),
+            injected.get());
+        if (step == FailureStep.DUPLICATE) {
+          assertEquals(IllegalArgumentException.class, thrown.getClass());
+          assertEquals("Page is already pinned by this reservation", thrown.getMessage());
+          assertEquals(0, thrown.getSuppressed().length);
+        } else if ((step == FailureStep.RELEASE || step == FailureStep.CLOSE_UNLOCK
+            || step == FailureStep.CLOSE_PUBLISH
+            || step == FailureStep.CLOSE_PUBLISH_UNLOCK) && !bodyFails) {
+          assertNotSame(failure, thrown);
+          assertSame(failure, thrown.getCause());
+          assertEquals(error, thrown instanceof Error);
+          assertArrayEquals(step == FailureStep.RELEASE ? new Throwable[] {failure}
+              : new Throwable[] {}, thrown.getSuppressed());
+        } else {
+          assertSame(failure, thrown);
+          if (bodyFails) {
+            assertEquals(1, thrown.getSuppressed().length);
+            var aggregate = thrown.getSuppressed()[0];
+            assertNotSame(failure, aggregate);
+            assertSame(failure, aggregate.getCause());
+            assertEquals(error, aggregate instanceof Error);
+            assertArrayEquals(step == FailureStep.RELEASE ? new Throwable[] {failure}
+                : new Throwable[] {}, aggregate.getSuppressed());
+          } else {
+            assertArrayEquals(combined && error ? new Throwable[] {unlockFailure}
+                : new Throwable[] {}, thrown.getSuppressed());
+          }
+        }
+        if (combined) {
+          assertEquals(error, thrown instanceof Error);
+          assertArrayEquals(error ? new Throwable[] {unlockFailure} : new Throwable[] {},
+              failure.getSuppressed());
+        }
+        verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
+            anyBoolean(), any());
+        verify(reservationRef[0]).close();
+        int prepared = switch (step) {
+          case PIN_FIRST, PIN_MIDDLE, PIN_LAST, DUPLICATE, LOCK -> 0;
+          case END_LSN, DIRTY, BACKUP -> 1;
+          case CONTENT, PUBLISH, PUBLISH_UNLOCK -> 2;
+          case UNLOCK, CLOSE_UNLOCK, CLOSE_PUBLISH, CLOSE_PUBLISH_UNLOCK, RELEASE ->
+              bodyFails ? 2 : 4;
+        };
+        int changed = prepared;
+        assertEquals(prepared, stores.size());
+        assertEquals(prepared, dirty.size());
+        assertEquals(step == FailureStep.RELEASE ? 2
+            : step == FailureStep.PUBLISH || step == FailureStep.CLOSE_PUBLISH || combined ? 1 : 0,
+            f.read.reservedWritePins());
+        for (int i = 0; i < 4; i++) {
+          var entry = entries[i];
+          assertNotEquals("frame " + i, 0,
+              entry.getCachePointer().getPageFrame().tryOptimisticRead());
+          com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageSetEntryAssertions
+              .assertPins(entry, ((step == FailureStep.PUBLISH
+                  || step == FailureStep.CLOSE_PUBLISH || combined) && i == 1)
+                  || (step == FailureStep.RELEASE && i >= 2) ? 1 : 0);
+          assertEquals(i < prepared, stores.contains(entry));
+          assertEquals(i < prepared, dirty.contains(entry));
+          assertEquals(i == 1 && (step == FailureStep.CONTENT || bodyFails) ? 99
+              : i < changed ? pages[i] + 21 : 0,
+              entry.getCachePointer().getBuffer().get(100));
+          assertEquals(i < changed && !(i == 1 && (step == FailureStep.CONTENT || bodyFails))
+              ? 7 : -1, new DurablePage(entry).getLsn().getSegment());
+          var records = PageSetTrackingAssertions.dirtyPages(f.write,
+              f.write.internalFileId(files[i]));
+          assertEquals(i < prepared, records.containsKey((long) pages[i]));
+          if (i < prepared) {
+            assertEquals(new LogSequenceNumber(7, 1), records.get((long) pages[i]));
+          }
+          // END_LSN fails before the setter. DIRTY and BACKUP fail after it, so the
+          // unchanged page keeps the transaction boundary without a dirty-table record.
+          if (i < prepared || (i == 1
+              && (step == FailureStep.DIRTY || step == FailureStep.BACKUP))) {
+            assertEquals(new LogSequenceNumber(7, f.lsn.get() - 1), entry.getEndLSN());
+          } else {
+            assertNull(entry.getEndLSN());
+          }
+        }
+        PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(first),
+            prepared == 0 ? new long[] {} : prepared == 1 ? new long[] {0}
+                : new long[] {0, 1});
+        PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(second),
+            prepared <= 2 ? new long[] {} : new long[] {0, 1});
+      } finally {
+        // A killed mutation must not hang fixture cleanup on its deliberately leaked lock.
+        for (int i = 0; i < 4; i++) {
+          org.mockito.Mockito.reset(entries[i]);
+          if (entries[i].getCachePointer().getPageFrame().tryOptimisticRead() == 0) {
+            entries[i].releaseExclusiveLock();
+          }
+          while (!entries[i].isReleased()) {
+            entries[i].releaseEntry();
+          }
+          com.jetbrains.youtrackdb.internal.core.storage.cache.chm.PageSetEntryAssertions
+              .replace(f.read, originals[i]);
         }
       }
     }

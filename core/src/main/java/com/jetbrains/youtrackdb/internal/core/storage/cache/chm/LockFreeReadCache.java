@@ -698,6 +698,7 @@ public final class LockFreeReadCache implements ReadCache {
     }
 
     private void finish(PinnedPage pin) {
+      Throwable publishFailure = null;
       try {
         if (pin.prepared) {
           // Set retention first because store can fail after partially installing its reference.
@@ -706,10 +707,25 @@ public final class LockFreeReadCache implements ReadCache {
           pin.entry.clearAllocationFlag();
           pin.retained = false;
         }
+      } catch (RuntimeException | Error failure) {
+        publishFailure = failure;
+        throw failure;
       } finally {
-        pin.entry.releaseExclusiveLock();
-        pin.locked = false;
-        pin.finished = true;
+        try {
+          pin.entry.releaseExclusiveLock();
+        } catch (RuntimeException | Error unlockFailure) {
+          // Publication owns propagation, including its Error route, across unlock cleanup.
+          if (publishFailure == null) {
+            throw unlockFailure;
+          }
+          if (unlockFailure != publishFailure) {
+            publishFailure.addSuppressed(unlockFailure);
+          }
+        } finally {
+          // Do not retry publication or unlock if release reports a cleanup failure.
+          pin.locked = false;
+          pin.finished = true;
+        }
       }
     }
 
