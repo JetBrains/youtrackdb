@@ -1,0 +1,20 @@
+{
+  "archive": "full-93aba32c93",
+  "sources": {
+    "B-f0/indexed/results.jsonl": "ca4d048b298a85fca4660000e1860d6f1722fc4af6e9870ee0bc83190e03e49a",
+    "B-f0/no-index/results.jsonl": "6f126cdd5bbbf695f547df55f5bd12624f03b3b646a49d9b2765cc86b28bfbbc",
+    "B-f1/indexed/results.jsonl": "8d1a572f56aa0d9c232ae2c7e31146f5be1b3a2aad0f97a8c82712e4fe14532a",
+    "B-f1/no-index/results.jsonl": "8fd67a11f927eb5ceea197ac6ed7701466a86b71ffb01b17a15cf555614b1483",
+    "run-metadata/harness-source/WhereHarness.java": "85e7e27da65abcdd7a28f7e6f42f613bc82c4985173ef0f180bedd526718f0cb",
+    "B-f0/fixture.tsv": "2e41a745a5a2048e0ca059d285862986618e0fecbe17df864f826e23eb10f114",
+    "B-f0/indexed/witnesses.jsonl": "de398056e984155161b922ee5f59576b17b10298a89b94ee64648a1261cfe04e",
+    "B-f0/no-index/witnesses.jsonl": "d61f8e2f8a2647963af609dfc3774d3c9156ca3198f8237b6350e7a65e31aede",
+    "B-f1/fixture.tsv": "2e41a745a5a2048e0ca059d285862986618e0fecbe17df864f826e23eb10f114",
+    "B-f1/indexed/witnesses.jsonl": "c47811be7b86ef989b4f224994169aa483f75a11e4f7dbd4df3acad6a219b978",
+    "B-f1/no-index/witnesses.jsonl": "467bff4f01b3d2d76981782549fbed889a4616d4239a459a7e18098d00f8ad3a"
+  },
+  "membership": "All q5/H/U2 bindings, both U1 variants, both CONTROL variants. LONG is new, not archived.",
+  "longTraversal": "g.V().hasLabel(\"Category\").has(\"uid\",\"u997\") + 12 * .in(\"category_link\").out(\"category_link\") + .fold(0,(n,v)->n+1)",
+  "longClassification": "whole-decline at seeded FoldStep after 24 supported hops",
+  "expected": "Logical class/property identities. Archive physical RIDs are not executable bindings. LONG returns Integer 1."
+}
