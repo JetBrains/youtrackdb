@@ -1,134 +1,105 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import com.jetbrains.youtrackdb.api.DatabaseType;
+import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
-import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import org.junit.After;
-import org.junit.Before;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
-/**
- * Verifies that {@link IndexesSnapshot} is cleared when the underlying index engine's
- * {@code delete()} is invoked via DROP INDEX. Both {@code indexesSnapshot} and
- * {@code versionIndex} are cleared by {@link IndexesSnapshot#clear()}.
- */
-public class IndexesSnapshotClearTest {
+/** DROP retains history while a reader pins it, then ordinary LWM eviction reclaims it. */
+@RunWith(Parameterized.class)
+public class IndexesSnapshotClearTest extends DbTestBase {
 
-  private YouTrackDBImpl youTrackDB;
-  private DatabaseSessionEmbedded db;
-
-  @Before
-  public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb("test", DatabaseType.MEMORY, getClass());
-    db = youTrackDB.open("test", "admin", DbTestBase.ADMIN_PASSWORD);
+  @Parameterized.Parameters(name = "{0}_nullKey_{1}")
+  public static Object[][] parameters() {
+    return new Object[][] {
+        {INDEX_TYPE.UNIQUE, false}, {INDEX_TYPE.UNIQUE, true},
+        {INDEX_TYPE.NOTUNIQUE, false}, {INDEX_TYPE.NOTUNIQUE, true}};
   }
 
-  @After
-  public void after() {
-    db.close();
-    youTrackDB.close();
+  private final INDEX_TYPE type;
+  private final Object key;
+
+  public IndexesSnapshotClearTest(INDEX_TYPE type, boolean nullKey) {
+    this.type = type;
+    key = nullKey ? null : "key";
   }
 
-  // ========================================================================
-  //  UNIQUE index (BTreeSingleValueIndexEngine)
-  // ========================================================================
+  @Override
+  protected YouTrackDBImpl createContext() {
+    dbPath = getBaseDirectoryPathStr(getClass()) + "-" + UUID.randomUUID();
+    return (YouTrackDBImpl) YourTracks.instance(dbPath, createConfig());
+  }
 
-  /**
-   * DROP INDEX calls delete() on the UNIQUE index engine.
-   * After drop, the IndexesSnapshot for that index must be empty.
-   */
+  /** Both history maps and the shared counter survive DROP and return to baseline after eviction. */
   @Test
-  public void uniqueIndex_dropIndex_clearsSnapshot() throws Exception {
-    SchemaClass cls = db.createVertexClass("PersonUD");
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("PersonUD_name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
-
-    // Insert a record
-    db.begin();
-    var e1 = (EntityImpl) db.newVertex("PersonUD");
-    e1.setProperty("name", "Alice");
-    db.commit();
-
-    // Update to populate the snapshot (old version tracked)
-    db.begin();
-    var tx = db.getActiveTransaction();
-    e1 = tx.load(e1);
-    e1.setProperty("name", "Bob");
-    db.commit();
-
-    var snapshot = getSnapshotForIndex("PersonUD_name");
-    assertFalse(
-        "Snapshot should have entries after update",
-        snapshot.allEntries().isEmpty());
-
-    // Drop index triggers delete() → indexesSnapshot.clear()
-    db.execute("drop index PersonUD_name");
-
-    assertTrue(
-        "indexesSnapshot must be empty after drop index",
-        snapshot.allEntries().isEmpty());
-  }
-
-  // ========================================================================
-  //  NOT UNIQUE index (BTreeMultiValueIndexEngine)
-  // ========================================================================
-
-  /**
-   * DROP INDEX calls delete() on the NOT UNIQUE index engine.
-   * After drop, the IndexesSnapshot for that index must be empty.
-   */
-  @Test
-  public void notUniqueIndex_dropIndex_clearsSnapshot() throws Exception {
-    SchemaClass cls = db.createVertexClass("PersonNUD");
-    cls.createProperty("name", PropertyType.STRING);
-    cls.createIndex("PersonNUD_name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
-
-    // Insert a record
-    db.begin();
-    var e1 = (EntityImpl) db.newVertex("PersonNUD");
-    e1.setProperty("name", "Alice");
-    db.commit();
-
-    // Delete to populate the snapshot (tombstone created)
-    db.begin();
-    var tx = db.getActiveTransaction();
-    e1 = tx.load(e1);
-    e1.delete();
-    db.commit();
-
-    var snapshot = getSnapshotForIndex("PersonNUD_name");
-    assertFalse(
-        "Snapshot should have entries after delete",
-        snapshot.allEntries().isEmpty());
-
-    // Drop index triggers delete() → indexesSnapshot.clear()
-    db.execute("drop index PersonNUD_name");
-
-    assertTrue(
-        "indexesSnapshot must be empty after drop index",
-        snapshot.allEntries().isEmpty());
-  }
-
-  // ========================================================================
-  //  Helper
-  // ========================================================================
-
-  /**
-   * Gets the IndexesSnapshot for a given index by resolving the external index ID
-   * to the internal engine ID via {@code getIndexEngine().getId()}.
-   */
-  private IndexesSnapshot getSnapshotForIndex(String indexName)
-      throws InvalidIndexEngineIdException {
-    var storage = db.getStorage();
-    int internalId = IndexEngineTestSupport.internalIdentifier(db, indexName);
-    return storage.subIndexSnapshot(internalId);
+  public void dropRetainsPinnedHistoryUntilLowWaterMarkCleanup() throws Exception {
+    var cls = session.createClass("Indexed");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("dropped", type, "value");
+    var index = session.getIndex("dropped");
+    session.begin();
+    var rid = session.newEntity().getIdentity();
+    session.commit();
+    session.begin();
+    index.put(session.getTransactionInternal(), key, rid);
+    session.commit();
+    var storage = session.getStorage();
+    var history = type == INDEX_TYPE.NOTUNIQUE && key == null
+        ? storage.getNullIndexSnapshotByEngineName("dropped")
+        : storage.getIndexSnapshotByEngineName("dropped");
+    try (var reader = openDatabase()) {
+      reader.begin();
+      try (var rids = index.getRids(reader, key)) {
+        assertThat(rids.toList()).containsExactly(rid);
+      }
+      session.activateOnCurrentThread();
+      session.begin();
+      index.remove(session.getTransactionInternal(), key, rid);
+      session.commit();
+      var retained = List.copyOf(history.allEntries());
+      assertThat(retained).hasSize(2);
+      var count = storage.getIndexesSnapshotEntriesCount().get();
+      session.executeInTx(tx -> session.getSharedContext().getIndexManager()
+          .dropIndex(session, "dropped"));
+      assertThat(history.allEntries()).containsExactlyElementsOf(retained);
+      assertThat(storage.getIndexesSnapshotEntriesCount().get()).isEqualTo(count);
+      // Serialize both cleanup checks against background passes that can capture an older LWM.
+      var field = AbstractStorage.class.getDeclaredField("snapshotCleanupLock");
+      field.setAccessible(true);
+      var lock = (ReentrantLock) field.get(storage);
+      assertThat(lock.tryLock(10, TimeUnit.SECONDS)).isTrue();
+      try {
+        storage.getContextConfiguration()
+            .setValue(GlobalConfiguration.STORAGE_SNAPSHOT_INDEX_CLEANUP_THRESHOLD, 0);
+        // Explicit cleanup runs even though the reader keeps this thread's activeTxCount nonzero.
+        var cleanup = AbstractStorage.class.getDeclaredMethod("cleanupSnapshotIndex");
+        cleanup.setAccessible(true);
+        cleanup.invoke(storage);
+        assertThat(history.allEntries()).containsExactlyElementsOf(retained);
+        assertThat(storage.getIndexesSnapshotEntriesCount().get()).isEqualTo(count);
+        reader.activateOnCurrentThread();
+        reader.rollback();
+        session.activateOnCurrentThread();
+        session.executeInTx(tx -> session.newEntity());
+        assertThat(history.allEntries()).isEmpty();
+        assertThat(storage.getIndexesSnapshotEntriesCount().get()).isZero();
+      } finally {
+        lock.unlock();
+      }
+    } finally {
+      session.activateOnCurrentThread();
+    }
   }
 }

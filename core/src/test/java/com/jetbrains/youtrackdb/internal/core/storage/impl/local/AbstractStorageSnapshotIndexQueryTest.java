@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -8,9 +11,12 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
+import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.locks.ReadWriteLock;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -137,7 +143,7 @@ public class AbstractStorageSnapshotIndexQueryTest {
     db.commit();
 
     var storage = (AbstractStorage) db.getStorage();
-    long internalEngineId = resolveInternalEngineId("PersonAQ3_v");
+    long internalEngineId = resolveFileBaseId("PersonAQ3_v");
 
     assertThat(storage.hasActiveIndexSnapshotEntriesById(
         internalEngineId, false, new CompositeKey("P"), 0L))
@@ -166,7 +172,7 @@ public class AbstractStorageSnapshotIndexQueryTest {
     db.commit();
 
     var storage = (AbstractStorage) db.getStorage();
-    long internalEngineId = resolveInternalEngineId("PersonAQ4_v");
+    long internalEngineId = resolveFileBaseId("PersonAQ4_v");
 
     assertThat(storage.hasActiveIndexSnapshotEntriesById(
         internalEngineId, false, new CompositeKey("UntouchedPrefix"), 0L))
@@ -186,7 +192,7 @@ public class AbstractStorageSnapshotIndexQueryTest {
     cls.createIndex("PersonAQ5_v", SchemaClass.INDEX_TYPE.UNIQUE, "v");
 
     var storage = (AbstractStorage) db.getStorage();
-    long internalEngineId = resolveInternalEngineId("PersonAQ5_v");
+    long internalEngineId = resolveFileBaseId("PersonAQ5_v");
 
     assertThat(storage.hasActiveIndexSnapshotEntriesById(
         internalEngineId, true, new CompositeKey(new Object[] {null}), 0L))
@@ -231,7 +237,7 @@ public class AbstractStorageSnapshotIndexQueryTest {
     // backing entries collection is empty (the null-snapshot map is empty under this setup).
     long internalEngineId;
     try {
-      internalEngineId = resolveInternalEngineId("PersonAQNull_name");
+      internalEngineId = resolveFileBaseId("PersonAQNull_name");
     } catch (Exception e) {
       throw new AssertionError("failed to resolve engine id for null-snapshot routing test", e);
     }
@@ -265,7 +271,7 @@ public class AbstractStorageSnapshotIndexQueryTest {
     cls.createIndex("PersonAQ6_v", SchemaClass.INDEX_TYPE.UNIQUE, "v");
 
     var storage = (AbstractStorage) db.getStorage();
-    long internalEngineId = resolveInternalEngineId("PersonAQ6_v");
+    long internalEngineId = resolveFileBaseId("PersonAQ6_v");
 
     var snapshot = storage.subIndexSnapshot(internalEngineId);
     assertThat(snapshot).isNotNull();
@@ -310,17 +316,55 @@ public class AbstractStorageSnapshotIndexQueryTest {
     assertThat(secondRead).isGreaterThanOrEqualTo(firstRead);
   }
 
+  /** Non-B-tree engines must fail explicitly, never select a slot or report empty history. */
+  @Test
+  @SuppressWarnings("unchecked")
+  public void snapshotQueriesRejectEnginesWithoutFileBaseIdentity() throws Exception {
+    var storage = db.getStorage();
+    var engine = mock(BaseIndexEngine.class);
+    when(engine.getName()).thenReturn("unsupported");
+    var mapField = AbstractStorage.class.getDeclaredField("indexEngineNameMap");
+    mapField.setAccessible(true);
+    var engines = (Map<String, BaseIndexEngine>) mapField.get(storage);
+    var lockField = AbstractStorage.class.getDeclaredField("stateLock");
+    lockField.setAccessible(true);
+    var lock = (ReadWriteLock) lockField.get(storage);
+    lock.writeLock().lock();
+    try {
+      engines.put("unsupported", engine);
+    } finally {
+      lock.writeLock().unlock();
+    }
+    try {
+      assertThrows(IllegalArgumentException.class,
+          () -> storage.getIndexSnapshotByEngineName("unsupported"));
+      assertThrows(IllegalArgumentException.class,
+          () -> storage.getNullIndexSnapshotByEngineName("unsupported"));
+      assertThrows(IllegalArgumentException.class,
+          () -> storage.hasActiveIndexSnapshotEntries("unsupported", new CompositeKey("k"), 0));
+    } finally {
+      lock.writeLock().lock();
+      try {
+        engines.remove("unsupported");
+      } finally {
+        lock.writeLock().unlock();
+      }
+    }
+  }
+
   // ---- helpers ----
 
   /**
-   * Resolves the internal engine id for an index by name. The internal id is
-   * the integer that {@code subIndexSnapshot} / {@code hasActiveIndexSnapshotEntriesById}
-   * expect (NOT the external id with the engine version bits set).
+   * Resolves the never-reused file base id expected by snapshot queries, not the slot id.
    */
-  private long resolveInternalEngineId(String indexName)
+  private long resolveFileBaseId(String indexName)
       throws InvalidIndexEngineIdException {
-    return com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
-        .internalIdentifier(db, indexName);
+    var index = db.getIndex(indexName);
+    var engine = (com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine) db
+        .getStorage().getIndexEngine(
+            com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport
+                .externalIdentifier(index));
+    return engine.getFileBaseId();
   }
 
 }

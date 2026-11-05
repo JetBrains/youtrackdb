@@ -120,10 +120,10 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private final BinarySerializerFactory serializerFactory;
   private volatile PropertyTypeInternal[] keyTypes;
 
-  // Cached engine ID for lock-free snapshot queries during GC.
-  // Set by the owning index engine after construction via setEngineId().
-  // -1 means not set (GC will skip snapshot-entry checks).
-  private volatile long engineId = -1;
+  // Cached, never-reused file base id for lock-free snapshot queries during GC.
+  // Set by the owning index engine via setHistoryFileBaseId().
+  // -1 means not set (GC conservatively preserves snapshot markers).
+  private volatile long historyFileBaseId = -1;
 
   // Whether this tree is a multi-value engine's dedicated null-key tree. Explicit identity set
   // by the owning engine via setNullTree() — the component name is a file key
@@ -162,14 +162,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   /**
-   * Sets the cached engine ID for this BTree, used during tombstone GC to
+   * Sets the cached history file base id for this BTree, used during tombstone GC to
    * perform lock-free snapshot queries via
    * {@link AbstractStorage#hasActiveIndexSnapshotEntriesById}.
    * Must be called by the owning index engine after construction.
    */
   @Override
-  public void setEngineId(long engineId) {
-    this.engineId = engineId;
+  public void setHistoryFileBaseId(long fileBaseId) {
+    this.historyFileBaseId = fileBaseId;
   }
 
   @Override
@@ -2867,16 +2867,16 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   /**
    * Checks whether any active snapshot entries exist for the given
-   * user-key prefix, using the cached {@link #engineId} for a lock-free
+   * user-key prefix, using the cached {@link #historyFileBaseId} for a lock-free
    * lookup. Falls back to {@code true} (safe: never demotes) if the
-   * engine ID was not set.
+   * history file base id was not set.
    *
    * @param isNullTree pre-computed flag for null-tree detection
    */
   private boolean hasActiveSnapshotEntries(
       CompositeKey compositeKey, boolean isNullTree, long lwm) {
-    if (engineId < 0) {
-      // engineId not set — conservatively assume active entries exist,
+    if (historyFileBaseId < 0) {
+      // History file base id not set — conservatively assume active entries exist,
       // so markers are not demoted.
       return true;
     }
@@ -2884,7 +2884,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     var userKeyPrefix = new CompositeKey(
         allKeys.subList(0, allKeys.size() - 1));
     return storage.hasActiveIndexSnapshotEntriesById(
-        engineId, isNullTree, userKeyPrefix, lwm);
+        historyFileBaseId, isNullTree, userKeyPrefix, lwm);
   }
 
   /**

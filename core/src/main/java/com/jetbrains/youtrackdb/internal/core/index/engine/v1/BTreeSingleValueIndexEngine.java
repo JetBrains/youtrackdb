@@ -93,10 +93,10 @@ public final class BTreeSingleValueIndexEngine
           new BTree<>(
               AbstractStorage.indexEngineFileStem(fileBaseId),
               DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
-      this.sbTree.setEngineId(id);
+      this.sbTree.setHistoryFileBaseId(this.fileBaseId);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
       this.sbTree.setDisplayName(name);
-      indexesSnapshot = storage.subIndexSnapshot(id);
+      indexesSnapshot = storage.subIndexSnapshot(this.fileBaseId);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -152,7 +152,8 @@ public final class BTreeSingleValueIndexEngine
   public void delete(final @Nonnull AtomicOperation atomicOperation) {
     try {
       doClearTree(atomicOperation);
-      indexesSnapshot.clear();
+      // Retain history for failed-DROP reconstruction under the same file base id.
+      // Low-water-mark eviction reclaims it after the last reader finishes.
       sbTree.delete(atomicOperation);
       var mgr = histogramManager;
       if (mgr != null) {
@@ -298,7 +299,8 @@ public final class BTreeSingleValueIndexEngine
       assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
           : "clear() snapshot invariant violated on engine=" + name + " id=" + id
               + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
-      indexesSnapshot.clear();
+      // Keep history for readers if this atomic operation rolls back. LWM eviction
+      // reclaims it once no running transaction needs it.
       // Mixed-mode encoding (replaces the prior pure-delta encoding that wrote
       // totalDelta=-currentTotal through persistCountDelta and silently dropped
       // nullDelta because the single-value engine stores nulls and non-nulls

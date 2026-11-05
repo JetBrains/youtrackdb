@@ -543,7 +543,7 @@ public abstract class AbstractStorage
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
 
-  // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
+  // Indexes snapshot: CompositeKey(historyFileBaseId, userKey..., version) → RID (tombstone or plain).
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
@@ -4443,6 +4443,7 @@ public abstract class AbstractStorage
    * reads is the pre-commit state again; a fresh engine is reconstructed from the captured durable
    * {@link IndexEngineData} through the same {@code Indexes.createIndexEngine} + {@code engine.load}
    * path {@link #openIndexes} uses at startup, and re-registered at the original slot.
+   * The captured file base id also reconnects it to the history retained by engine delete.
    *
    * <p>A fresh engine object is rebuilt rather than re-publishing the torn one: {@code
    * deleteIndexEngineInCommitWindow} ran the engine's own {@code delete}, which for a B-tree engine
@@ -10888,13 +10889,16 @@ public abstract class AbstractStorage
     // entries whose snapshotData was already cleaned are removed from versionIdx.
     for (var it = stale.entrySet().iterator(); it.hasNext();) {
       var entry = it.next();
-      snapshotData.remove(entry.getKey());
+      // For pairs with no shared entries, remove the tombstone before its guard so
+      // readers in a CLEAR/reinsert gap cannot see the old RID between removals.
+      // Chained updates share keys and have a separate eviction defect (YTDB-1490).
       snapshotData.remove(entry.getValue());
+      snapshotData.remove(entry.getKey());
       it.remove();
       evicted += 2;
     }
     if (evicted > 0) {
-      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // Clamp to zero: explicit snapshot utility clear() and eviction may both decrement
       // for the same entries (ConcurrentSkipListMap.remove is idempotent
       // but both callers counted entries during their own iteration pass).
       final long delta = evicted;
@@ -10934,16 +10938,16 @@ public abstract class AbstractStorage
     }
   }
 
-  public IndexesSnapshot subIndexSnapshot(long indexId) {
+  public IndexesSnapshot subIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        indexId);
+        historyFileBaseId);
   }
 
-  public IndexesSnapshot subNullIndexSnapshot(long indexId) {
+  public IndexesSnapshot subNullIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        indexId);
+        historyFileBaseId);
   }
 
   /**
@@ -10956,6 +10960,7 @@ public abstract class AbstractStorage
    * within BTree code paths instead.
    *
    * @return the scoped snapshot, or {@code null} if no engine with this name exists
+   * @throws IllegalArgumentException if the registered engine has no B-tree file base id
    */
   @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
     stateLock.readLock().lock();
@@ -10964,7 +10969,7 @@ public abstract class AbstractStorage
       if (engine == null) {
         return null;
       }
-      return subIndexSnapshot(engine.getId());
+      return subIndexSnapshot(requireHistoryFileBaseId(engine));
     } finally {
       stateLock.readLock().unlock();
     }
@@ -10980,6 +10985,7 @@ public abstract class AbstractStorage
    * lock ordering inversion.
    *
    * @return the scoped null snapshot, or {@code null} if no engine with this name exists
+   * @throws IllegalArgumentException if the registered engine has no B-tree file base id
    */
   @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
     stateLock.readLock().lock();
@@ -10988,7 +10994,7 @@ public abstract class AbstractStorage
       if (engine == null) {
         return null;
       }
-      return subNullIndexSnapshot(engine.getId());
+      return subNullIndexSnapshot(requireHistoryFileBaseId(engine));
     } finally {
       stateLock.readLock().unlock();
     }
@@ -11007,7 +11013,7 @@ public abstract class AbstractStorage
    * an intermediate {@link IndexesSnapshot} instance.
    *
    * <p><b>Note:</b> This method acquires {@code stateLock.readLock()} to resolve
-   * the engine name to an ID. If the caller already knows the engine ID (e.g.,
+   * the engine name to a file base id. If the caller already knows that id (e.g.,
    * from a cached field), prefer {@link #hasActiveIndexSnapshotEntriesById} to
    * avoid the lock acquisition.
    *
@@ -11033,60 +11039,75 @@ public abstract class AbstractStorage
 
     // indexEngineNameMap is a plain HashMap — guard with stateLock.readLock()
     // to avoid racing with concurrent index creation/deletion.
-    final long indexId;
+    final long historyFileBaseId;
     stateLock.readLock().lock();
     try {
       var engine = indexEngineNameMap.get(resolvedName);
       if (engine == null) {
         return false;
       }
-      indexId = engine.getId();
+      historyFileBaseId = requireHistoryFileBaseId(engine);
     } finally {
       stateLock.readLock().unlock();
     }
 
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
   }
 
   /**
    * Lock-free variant of {@link #hasActiveIndexSnapshotEntries} that accepts a
-   * pre-resolved engine ID and a flag to select the snapshot map. This avoids
+   * pre-resolved, never-reused file base id and a flag to select the snapshot map. This avoids
    * acquiring {@code stateLock.readLock()} for the {@code indexEngineNameMap}
    * lookup, eliminating the lock-ordering inversion when called while holding
    * a BTree component lock.
    *
-   * @param indexId the pre-resolved index engine ID
+   * @param historyFileBaseId the pre-resolved engine file base id, never the reusable registry slot
    * @param useNullSnapshot {@code true} to query the null-key snapshot map
    * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
    * @param lwm the global low-water mark
    * @return {@code true} if at least one snapshot entry exists with version >= lwm
    */
   public boolean hasActiveIndexSnapshotEntriesById(
-      long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
-    assert indexId >= 0 : "indexId must be non-negative, got " + indexId;
+      long historyFileBaseId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    assert historyFileBaseId >= 0
+        : "historyFileBaseId must be non-negative, got " + historyFileBaseId;
     final NavigableMap<CompositeKey, RID> snapshotMap =
         useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
+  }
+
+  /**
+   * Snapshot history belongs only to B-tree engines. Reject other engines, including test
+   * stubs, rather than treating a reusable slot as history identity or reporting no history.
+   * A false empty result could let tombstone GC demote a marker that a reader still needs.
+   */
+  private static int requireHistoryFileBaseId(BaseIndexEngine engine) {
+    if (engine instanceof BTreeIndexEngine bTreeEngine) {
+      return bTreeEngine.getFileBaseId();
+    }
+    throw new IllegalArgumentException(
+        "Index snapshot history requires a B-tree engine: " + engine.getName());
   }
 
   private static final Long LONG_MAX_VALUE = Long.MAX_VALUE;
 
   private static boolean hasActiveSnapshotEntriesInMap(
       NavigableMap<CompositeKey, RID> snapshotMap,
-      long indexId,
+      long historyFileBaseId,
       CompositeKey userKeyPrefix,
       long lwm) {
     assert lwm >= 0 : "LWM must be non-negative, got " + lwm;
     var prefixKeys = userKeyPrefix.getKeys();
-    var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
-    var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);
+    var lower = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, lwm);
+    var upper = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, LONG_MAX_VALUE);
     return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
   }
 
+  // The leading bound element is the never-reused file base id, not a registry slot.
   private static CompositeKey buildSnapshotBoundKey(
-      long indexId, List<Object> prefixKeys, long version) {
+      long historyFileBaseId, List<Object> prefixKeys, long version) {
     var key = new CompositeKey(prefixKeys.size() + 2);
-    key.addKey(indexId);
+    key.addKey(historyFileBaseId);
     for (var pk : prefixKeys) {
       key.addKey(pk);
     }

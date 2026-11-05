@@ -75,6 +75,53 @@ public class IndexesSnapshotCleanupTest {
         lwm, nullSnapshotData, nullVersionIndex, sizeCounter);
   }
 
+  /**
+   * Reproduce the CLEAR/reinsert gap with disjoint history pairs. Execute a reader
+   * synchronously after each map removal, including the half-evicted state. The
+   * reader in the gap must never see the pre-CLEAR RID. Cover both engines' regular
+   * and null-key layouts without a production hook or a timing-dependent race.
+   */
+  @Test
+  public void evictionKeepsAbsentIntervalInvisibleBetweenPairRemovals() {
+    var oldRid = new RecordId(1, 100L);
+    var newRid = new RecordId(1, 200L);
+    for (var prefix : new CompositeKey[] {
+        new CompositeKey("key"), new CompositeKey((Object) null),
+        new CompositeKey("key", oldRid), new CompositeKey(oldRid)}) {
+      var checks = new AtomicLong();
+      var reader = new AtomicReference<Runnable>();
+      var data = new ConcurrentSkipListMap<CompositeKey, RID>() {
+        @Override
+        public RID remove(Object key) {
+          var result = super.remove(key);
+          reader.get().run();
+          checks.incrementAndGet();
+          return result;
+        }
+      };
+      var versions = new ConcurrentSkipListMap<CompositeKey, CompositeKey>(
+          AbstractStorage.INDEX_SNAPSHOT_VERSION_COMPARATOR);
+      var counter = new AtomicLong();
+      var snapshot = new IndexesSnapshot(data, versions, counter, INDEX_ID);
+      snapshot.addSnapshotPair(new CompositeKey(prefix, 10L),
+          new CompositeKey(prefix, 20L), oldRid);
+      // CLEAR is at 22, reinsert at 30, and update at 40. No pairs overlap.
+      snapshot.addSnapshotPair(new CompositeKey(prefix, 30L),
+          new CompositeKey(prefix, 40L), newRid);
+      reader.set(() -> assertThat(snapshot.checkVisibility(new CompositeKey(prefix, 40L),
+          new TombstoneRID(newRid), 25L, new it.unimi.dsi.fastutil.longs.LongOpenHashSet()))
+          .as("reader in the CLEAR/reinsert gap, including half-eviction")
+          .isNull());
+
+      AbstractStorage.evictStaleIndexesSnapshotEntries(25L, data, versions, counter);
+
+      assertThat(checks.get()).isEqualTo(2);
+      assertThat(data).hasSize(2);
+      assertThat(versions).hasSize(1);
+      assertThat(counter.get()).isEqualTo(2);
+    }
+  }
+
   // --- sizeCounter tracking ---
 
   /**
@@ -716,7 +763,7 @@ public class IndexesSnapshotCleanupTest {
   // --- clear() isolation between sub-snapshots ---
 
   /**
-   * Clearing one sub-snapshot (e.g., when an index engine is deleted) must not affect
+   * Explicitly clearing one utility sub-snapshot must not affect
    * entries or versionIndex mappings belonging to other sub-snapshots. The shared
    * versionIndex must only lose the entries owned by the cleared sub-snapshot.
    */
@@ -744,7 +791,7 @@ public class IndexesSnapshotCleanupTest {
     assertThat(data).hasSize(4);
     assertThat(verIdx).hasSize(2);
 
-    // Clear engine A's sub-snapshot (simulates DROP INDEX for index A)
+    // Explicit utility clear of A. Engine DROP retains history for LWM eviction.
     subA.clear();
 
     assertThat(subA.allEntries()).isEmpty();
