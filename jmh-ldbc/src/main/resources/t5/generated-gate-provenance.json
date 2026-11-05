@@ -1,0 +1,117 @@
+{
+  "archiveRoot": "/tmp/route-exp/full-93aba32c93",
+  "selection": "untranslatable OR router sample translationHits == 0, minus archived T5.7 identities; both forks agree",
+  "identity": "Logical ids execute. Archived RIDs identify only the original database. Archive result encodings are not typed expected answers.",
+  "sources": [
+    {
+      "path": "A-n20000-skewed-f0/results.jsonl",
+      "bytes": 1194559,
+      "sha256": "0a6538fcbb3add1ed200e8812a15979b7b8e89130b907033deabb8eb525a3560"
+    },
+    {
+      "path": "A-n20000-skewed-f1/results.jsonl",
+      "bytes": 1194813,
+      "sha256": "9fc1968587cede9dde9cf87309310cac30cc28d4dbb7a2772da3816cbe7d7143"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n20000-skewed/rids.bin",
+      "bytes": 179344,
+      "sha256": "ba08086db6396c58a1ddf1542357075aad0cd4819da4117cf6111d607d7d8d2f"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n20000-skewed/manifest.json",
+      "bytes": 542,
+      "sha256": "e6a7f3cd85a53e166ef81b8e745517e142293b9c41d6574a18998d73b48043e2"
+    },
+    {
+      "path": "A-n20000-uniform-f0/results.jsonl",
+      "bytes": 1193148,
+      "sha256": "59fbc6899fd571649393d0c52987392f92c21aba24430346fa3209d290015531"
+    },
+    {
+      "path": "A-n20000-uniform-f1/results.jsonl",
+      "bytes": 1192693,
+      "sha256": "ca01fb81fedd1548379e130a7b7e8a275c12e199373f120adec2a14203f44a12"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n20000-uniform/rids.bin",
+      "bytes": 179279,
+      "sha256": "0d93730988b9a90a796bc6ae1200c0219363a1bc1c9998df4904bfd109089c06"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n20000-uniform/manifest.json",
+      "bytes": 538,
+      "sha256": "4070a533bec69cfcbe9faafc783e8118e0e096233d5143a4c81a21a3290ac0c2"
+    },
+    {
+      "path": "A-n200000-skewed-f0/results.jsonl",
+      "bytes": 1201026,
+      "sha256": "154e535f2c306fde9f67dfcd19455c28e49557df1a2cc0f6185a7e0f399b391e"
+    },
+    {
+      "path": "A-n200000-skewed-f1/results.jsonl",
+      "bytes": 1201325,
+      "sha256": "dbe04224bf404d62e64669575bcbad1c5a14f4a0e1dd6db4d7d5175e2d45756c"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n200000-skewed/rids.bin",
+      "bytes": 1991789,
+      "sha256": "48497508ecc1d77373dc5296c1582cdb9b9a647545d4c9fffdeb275549c9d74e"
+    },
+    {
+      "path": "/tmp/route-exp/graphs/n200000-skewed/manifest.json",
+      "bytes": 552,
+      "sha256": "99c109c7282a06c50e94c9d5edab4092a2d8183536f01bc3581c3ca9b8c56586"
+    },
+    {
+      "path": "run-metadata/harness-source/QueryGrammar.java",
+      "bytes": 8434,
+      "sha256": "10dc1455f213425957500c3660a8cf446b958429e0ac16673d96595339518d76"
+    },
+    {
+      "path": "run-metadata/harness-source/GraphData.java",
+      "bytes": 10537,
+      "sha256": "6325ebad69995579101485f96392b3b1354b4c355098354634bb21a5287b5832"
+    },
+    {
+      "path": "run-metadata/harness-source/RouteMeasure.java",
+      "bytes": 10393,
+      "sha256": "5464f4e8b1dc086ef3810d6e4e8633a0d0e2c276523ca147bca5f4f9223e0db5"
+    },
+    {
+      "path": "run-metadata/harness-source/RouteA.java",
+      "bytes": 1618,
+      "sha256": "a94ae54994d6c87ae590c6480041cff238dd1dd57ab9d904aa7d5f1a2ba3709e"
+    },
+    {
+      "path": "A-n20000-skewed-f0/witnesses.jsonl",
+      "bytes": 136818904,
+      "sha256": "a31bed7e7ad28063fe1e55a568c890db2a51d3f02718cdfe9a1b91fe2fc70e4b"
+    },
+    {
+      "path": "A-n20000-skewed-f1/witnesses.jsonl",
+      "bytes": 136819008,
+      "sha256": "b3ca2cc253541a8fbb2c6b7d13b723960fc34b908ed2bf7d840140fb21935ba5"
+    },
+    {
+      "path": "A-n20000-uniform-f0/witnesses.jsonl",
+      "bytes": 11101635,
+      "sha256": "697a362440bcb662900a05d28fd917609a1afd484e94dacc08585e07557019f6"
+    },
+    {
+      "path": "A-n20000-uniform-f1/witnesses.jsonl",
+      "bytes": 11101728,
+      "sha256": "30282153b40ab05e03b32042d4f7d4d8f31bf8f5f7f78935e3daec98c6f5f5bb"
+    },
+    {
+      "path": "A-n200000-skewed-f0/witnesses.jsonl",
+      "bytes": 607022745,
+      "sha256": "f1e56cab573ec14765480912fee8700b2d81b3d140c11b9742d3de000be76513"
+    },
+    {
+      "path": "A-n200000-skewed-f1/witnesses.jsonl",
+      "bytes": 607022441,
+      "sha256": "6b26448619a1f4ea6c3373d96f46ba90cfea7320104e5027a4e29777e2cb27d5"
+    }
+  ]
+}
