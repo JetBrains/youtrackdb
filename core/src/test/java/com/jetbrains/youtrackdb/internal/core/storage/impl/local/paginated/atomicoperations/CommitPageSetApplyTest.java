@@ -40,10 +40,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryOnlyDiskCache;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -67,8 +69,7 @@ public class CommitPageSetApplyTest {
   // The WAL is deterministic so legacy and page-set output can be compared byte for byte.
   private final class Fixture implements AutoCloseable {
     final ByteBufferPool pool = new ByteBufferPool(DurablePage.MAX_PAGE_SIZE_BYTES);
-    final LockFreeReadCache read = spy(new LockFreeReadCache(pool,
-        128L * DurablePage.MAX_PAGE_SIZE_BYTES, DurablePage.MAX_PAGE_SIZE_BYTES, 4));
+    final LockFreeReadCache read;
     final ChangedPageTracker tracker = spy(new ChangedPageTracker());
     final WriteAheadLog wal = mock(WriteAheadLog.class);
     final java.util.concurrent.ExecutorService io = Executors.newCachedThreadPool();
@@ -79,6 +80,14 @@ public class CommitPageSetApplyTest {
     final List<CacheEntry> pinned = new ArrayList<>();
 
     Fixture() throws Exception {
+      this(4);
+    }
+
+    Fixture(int pinBudget) throws Exception {
+      // Keep the reservation budget below the cache's forced-drain safety margin.
+      read = spy(new LockFreeReadCache(pool,
+          Math.max(128L, 32L * pinBudget) * DurablePage.MAX_PAGE_SIZE_BYTES,
+          DurablePage.MAX_PAGE_SIZE_BYTES, pinBudget));
       YouTrackDBEnginesManager.startUp(false);
       when(wal.end()).thenReturn(new LogSequenceNumber(7, 100));
       when(wal.logAtomicOperationStartRecord(anyBoolean(), anyLong()))
@@ -90,7 +99,7 @@ public class CommitPageSetApplyTest {
         return result;
       });
       write = spy(new WOWCache(DurablePage.MAX_PAGE_SIZE_BYTES, false, pool, wal,
-          new DoubleWriteLogNoOP(), 0, 10000, 128L * DurablePage.MAX_PAGE_SIZE_BYTES,
+          new DoubleWriteLogNoOP(), 0, 10000, 4096L * DurablePage.MAX_PAGE_SIZE_BYTES,
           directory.newFolder().toPath(), "page-set", new ClosableLinkedContainer<Long, File>(128),
           1, ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, ChecksumMode.StoreAndVerify,
           null, null, false, io, tracker));
@@ -104,7 +113,9 @@ public class CommitPageSetApplyTest {
           new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
           new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(), epoch);
       op.startToApplyOperations(42);
-      op.setPageSetApplyForTesting(enabled);
+      if (!enabled) {
+        op.setForceEpochApplyForTesting(true);
+      }
       return op;
     }
 
@@ -148,7 +159,7 @@ public class CommitPageSetApplyTest {
           assertEquals(4, events.stream().filter(e -> e.startsWith("lock")).count());
           var entry = c.getArgument(0, CacheEntry.class);
           assertEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
-          assertEquals(1, epoch.enterSeq());
+          assertEquals(0, epoch.enterSeq());
           assertEquals(0, epoch.exitSeq());
           assertEquals(write.isNonDurable(entry.getFileId()) ? null
               : new LogSequenceNumber(7, 1), c.getArgument(1));
@@ -228,7 +239,8 @@ public class CommitPageSetApplyTest {
         PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(second), 2);
         PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(ephemeral));
         assertEquals(0, f.read.reservedWritePins());
-        assertEquals(1, f.epoch.exitSeq());
+        assertEquals(enabled ? 0 : 1, f.epoch.enterSeq());
+        assertEquals(enabled ? 0 : 1, f.epoch.exitSeq());
         var bytes = new ArrayList<byte[]>();
         for (long[] identity : new long[][] {{first, 0}, {first, 3}, {second, 2}, {ephemeral, 1}}) {
           var entry = f.read.loadForRead(identity[0], identity[1], f.write, false);
@@ -271,17 +283,17 @@ public class CommitPageSetApplyTest {
   // operation still commits normally, with no attempt to pin a partial page set.
   @Test
   public void deniedAndOversizedSetsFallBackBeforeLoading() throws Exception {
-    for (int mode = 0; mode < 3; mode++) {
+    for (int mode = 0; mode < 4; mode++) {
       try (var f = new Fixture()) {
         long file = f.write.addFile("fallback");
         var op = f.operation(true);
         op.loadFile("fallback");
-        int count = mode == 0 ? 5 : mode == 1 ? 2 : 1;
+        int count = mode == 0 ? 5 : mode == 1 ? 2 : mode == 3 ? 1025 : 1;
         for (int i = 0; i < count; i++) {
           f.change(op, file, i, false);
         }
-        if (mode == 1) {
-          doReturn(1).when(f.read).writePinBudget();
+        if (mode == 1 || mode == 3) {
+          doReturn(mode == 1 ? 1 : 2048).when(f.read).writePinBudget();
         }
         var held = mode == 2 ? f.read.tryReserveWritePins(4) : null;
         clearInvocations(f.read, f.write);
@@ -302,6 +314,138 @@ public class CommitPageSetApplyTest {
           }
         }
         assertEquals(0, f.read.reservedWritePins());
+        assertEquals(1, f.epoch.enterSeq());
+        assertEquals(1, f.epoch.exitSeq());
+      }
+    }
+  }
+
+  // Exactly 1024 changed pages fit the internal limit with a real reservation budget.
+  // The neighboring 1025-page rejection above must not turn this boundary into fallback.
+  @Test
+  public void exactPageSetLimitUsesPageSetApply() throws Exception {
+    try (var f = new Fixture(2048)) {
+      long file = f.write.addFile("boundary");
+      var op = f.operation(true);
+      op.loadFile("boundary");
+      for (int i = 0; i < 1024; i++) {
+        f.change(op, file, i, false);
+      }
+      clearInvocations(f.read);
+      assertNotNull(op.commitChanges(42, f.wal));
+      verify(f.read).tryReserveWritePins(1024);
+      verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
+          anyBoolean(), any());
+      assertEquals(0, f.epoch.enterSeq());
+      assertEquals(0, f.epoch.exitSeq());
+      assertEquals(0, f.read.reservedWritePins());
+      var entry = f.read.loadForRead(file, 1023, f.write, false);
+      try {
+        assertEquals((byte) (1023 + 21), entry.getCachePointer().getBuffer().get(100));
+      } finally {
+        f.read.releaseFromRead(entry);
+      }
+    }
+  }
+
+  // A real disk operation is page-set eligible until bridge hook installation forces
+  // fallback. The hook must run inside the epoch without an explicit forceEpochApply call.
+  @Test
+  public void bridgeHookInstallationForcesEpochApply() throws Exception {
+    try (var f = new Fixture()) {
+      long file = f.write.addFile("hook");
+      var op = f.operation(true);
+      op.loadFile("hook");
+      f.change(op, file, 0, false);
+      var calls = new AtomicInteger();
+      AtomicOperationTestBridge.installPageApplyHook(op,
+          new AtomicOperationTestBridge.TestPageApplyHook() {
+            @Override
+            public void beforePageApply(long fileId, long pageIndex) {
+              assertEquals(file, fileId);
+              assertEquals(0, pageIndex);
+              assertEquals(1, f.epoch.enterSeq());
+              assertEquals(0, f.epoch.exitSeq());
+              calls.incrementAndGet();
+            }
+          });
+      assertNotNull(op.commitChanges(42, f.wal));
+      assertEquals(1, calls.get());
+      assertEquals(1, f.epoch.enterSeq());
+      assertEquals(1, f.epoch.exitSeq());
+      verify(f.read, never()).tryReserveWritePins(anyInt());
+      assertEquals(0, f.read.reservedWritePins());
+    }
+  }
+
+  // Real disk selection bypasses every registered component epoch. Forced fallback
+  // brackets each registered domain exactly once.
+  @Test
+  public void protocolSelectionCoversRegisteredComponentEpochs() throws Exception {
+    for (boolean pageSet : new boolean[] {true, false}) {
+      try (var f = new Fixture()) {
+        long file = f.write.addFile("components");
+        var op = f.operation(pageSet);
+        var epochs = new ApplyPhaseEpoch[] {new ApplyPhaseEpoch(), new ApplyPhaseEpoch()};
+        for (var epoch : epochs) {
+          var component = mock(StorageComponent.class);
+          when(component.getApplyPhaseEpoch()).thenReturn(epoch);
+          op.addLockedComponent(component);
+        }
+        op.loadFile("components");
+        f.change(op, file, 0, false);
+        clearInvocations(f.read, f.write);
+        doAnswer(c -> {
+          verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
+              anyBoolean(), any());
+          verify(f.read, never()).loadForRead(anyLong(), anyLong(), any(), anyBoolean());
+          verify(f.write, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+          return c.callRealMethod();
+        }).when(f.read).tryReserveWritePins(anyInt());
+        assertNotNull(op.commitChanges(42, f.wal));
+        for (var epoch : epochs) {
+          assertEquals(pageSet ? 0 : 1, epoch.enterSeq());
+          assertEquals(pageSet ? 0 : 1, epoch.exitSeq());
+        }
+        assertEquals(0, f.read.reservedWritePins());
+      }
+    }
+  }
+
+  // The actual in-memory cache keeps its zero-budget default. A content-changing
+  // operation therefore uses fallback and balances its epoch without a test override.
+  @Test
+  public void inMemoryCommitUsesFallback() throws Exception {
+    var constructor = DirectMemoryOnlyDiskCache.class
+        .getDeclaredConstructor(int.class, int.class, String.class);
+    constructor.setAccessible(true);
+    var cache = constructor.newInstance(DurablePage.MAX_PAGE_SIZE_BYTES, 1, "selection");
+    try (var f = new Fixture()) {
+      try {
+        long file = cache.addFile("memory");
+        var op = new AtomicOperationBinaryTracking(cache, cache, f.wal, 1,
+            new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
+            new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
+            new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
+            f.epoch);
+        op.startToApplyOperations(42);
+        op.loadFile("memory");
+        var page = op.allocatePageForWrite(file, 0);
+        page.getChanges().setByteValue(null, (byte) 31, 100);
+        op.registerPageOperation(file, 0,
+            new TestPageOperation(0, file, 0, new LogSequenceNumber(0, 0), 0));
+        op.releasePageFromWrite(page);
+        assertNotNull(op.commitChanges(42, f.wal));
+        assertEquals(1, f.epoch.enterSeq());
+        assertEquals(1, f.epoch.exitSeq());
+        var entry = cache.loadForRead(file, 0, cache, false);
+        try {
+          assertEquals(31, entry.getCachePointer().getBuffer().get(100));
+        } finally {
+          cache.releaseFromRead(entry);
+        }
+      } finally {
+        cache.delete();
       }
     }
   }
@@ -315,6 +459,8 @@ public class CommitPageSetApplyTest {
       var empty = f.operation(true);
       empty.loadFile("nondurable");
       assertNull(empty.commitChanges(42, f.wal));
+      assertEquals(0, f.epoch.enterSeq());
+      assertEquals(0, f.epoch.exitSeq());
       verify(f.read, never()).tryReserveWritePins(anyInt());
       var changed = f.operation(true);
       changed.loadFile("nondurable");
@@ -674,6 +820,8 @@ public class CommitPageSetApplyTest {
         verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
             anyBoolean(), any());
         verify(reservationRef[0]).close();
+        assertEquals(0, f.epoch.enterSeq());
+        assertEquals(0, f.epoch.exitSeq());
         int prepared = switch (step) {
           case PIN_FIRST, PIN_MIDDLE, PIN_LAST, DUPLICATE, LOCK -> 0;
           case END_LSN, DIRTY, BACKUP -> 1;
@@ -760,6 +908,8 @@ public class CommitPageSetApplyTest {
         }
         assertNotNull(op.commitChanges(42, f.wal));
         verify(f.read, times(mode == 0 ? 1 : 0)).tryReserveWritePins(anyInt());
+        assertEquals(mode == 0 ? 0 : 1, f.epoch.enterSeq());
+        assertEquals(mode == 0 ? 0 : 1, f.epoch.exitSeq());
         assertEquals(0, f.read.reservedWritePins());
       }
     }

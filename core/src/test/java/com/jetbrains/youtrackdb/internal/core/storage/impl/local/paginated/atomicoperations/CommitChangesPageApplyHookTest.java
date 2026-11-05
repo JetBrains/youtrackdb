@@ -55,7 +55,7 @@ import org.mockito.ArgumentCaptor;
  * {@link AtomicOperationBinaryTracking#commitChanges} and for the apply-phase epoch
  * bracket around the page-apply loop (YTDB-1178).
  *
- * <p>The seam exists because the production page-apply order is fastutil hash order,
+ * <p>The zero-budget mock cache selects fallback. Its default apply order is unspecified,
  * which makes the mixed-state race (a reader overlapping a partially applied commit)
  * practically impossible to reproduce. These tests verify that:
  *

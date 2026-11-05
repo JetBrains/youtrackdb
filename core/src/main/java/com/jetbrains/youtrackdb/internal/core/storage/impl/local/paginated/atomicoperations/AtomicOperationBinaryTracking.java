@@ -86,11 +86,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   static final int PAGE_SET_APPLY_LIMIT = 1024;
 
-  // Instance-local and default off. Only tests select the page-set protocol.
-  private boolean pageSetApplyForTesting;
+  // Instance-local test override. Production selects the protocol before any page load.
+  private boolean forceEpochApplyForTesting;
 
-  void setPageSetApplyForTesting(boolean enabled) {
-    pageSetApplyForTesting = enabled;
+  void setForceEpochApplyForTesting(boolean forced) {
+    forceEpochApplyForTesting = forced;
   }
 
   private final int storageId;
@@ -177,8 +177,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // separate writer thread.
   @Nullable private volatile PageApplyHook pageApplyHook;
 
-  // Standalone test/tooling fallback. Production writers bracket the stable epochs of
-  // their locked logical components instead.
+  // Standalone test/tooling fallback. Production fallback commits bracket the stable
+  // epochs of their locked logical components. Page-set commits enter no epoch.
   @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
 
   /**
@@ -1160,12 +1160,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         flushEdgeSnapshotBuffers();
       }
 
-      // Apply-phase epoch bracket: enter every locked logical component before the first
-      // shared-cache mutation, then exit all of them after the complete apply section.
-      // This covers file deletion and both apply protocols: the per-file iterator
-      // and the test-selected page-set path. The iterator publishes one page at a time.
-      // A concurrent optimistic reader can see mixed pre- and post-commit pages with
-      // valid per-page stamps. The component epoch detects overlap with either protocol.
+      // Choose before any page load. tryApplyPageSet owns a successful reservation
+      // immediately and closes it on every exit. A failure propagates, never falls back.
+      // Page-set commits lock every frame before the first change. Frame stamps,
+      // cached-frame identity and the pinned-load rules protect optimistic readers.
+      if (!forceEpochApplyForTesting && !hasFileLifecycleChanges
+          && tryApplyPageSet(commitPages, nonDurableFlags, txEndLsn)) {
+        return txEndLsn;
+      }
+
+      // The epoch protects readers against fallback commits only. Enter every locked
+      // logical component before the first shared-cache mutation, including file
+      // lifecycle changes, then exit all of them after the complete fallback apply.
       // Entry happens inside the try so partial entry is unwound if a later component
       // cannot be entered. Exits remain in finally to balance apply-time exceptions.
       // Rolled-back operations never reach commitChanges (see the gate in
@@ -1197,10 +1203,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             standaloneApplyPhaseEpoch.enterApplyPhase();
             standaloneEpochEntered = true;
           }
-        }
-        if (pageSetApplyForTesting && !hasFileLifecycleChanges
-            && tryApplyPageSet(commitPages, nonDurableFlags, txEndLsn)) {
-          return txEndLsn;
         }
         deletedFilesIterator = deletedFiles.longIterator();
         while (deletedFilesIterator.hasNext()) {
@@ -1498,7 +1500,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   /**
    * TEST-ONLY seam into the commit-time page-apply loop of {@link #commitChanges}
-   * (YTDB-1178). The page-apply order is normally fastutil hash order, which makes
+   * (YTDB-1178). The fallback page-apply order follows the collected page set, which makes
    * mixed-state races (a reader overlapping a partially applied commit) practically
    * impossible to reproduce deterministically. This hook lets a test (a) dictate the
    * order in which a file's changed pages are applied and (b) block at a barrier between

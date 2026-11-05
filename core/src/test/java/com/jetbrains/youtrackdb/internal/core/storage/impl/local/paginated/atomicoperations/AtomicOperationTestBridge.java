@@ -12,7 +12,8 @@ import javax.annotation.Nullable;
  * <ul>
  *   <li>{@link AtomicOperationBinaryTracking.PageApplyHook} installation on a live
  *       atomic operation, so an integration test can dictate the commit-time page-apply
- *       order and pause the writer mid-apply inside the epoch bracket;
+ *       order and pause the writer in the existing apply step under the epoch.
+ *       Installing a hook forces that fallback step. Page-set apply does not call it;
  *   <li>the per-logical-component {@link ApplyPhaseEpoch} owned by
  *       {@link AtomicOperationsManager}, so a test can make baseline-relative assertions.
  * </ul>
@@ -48,7 +49,9 @@ public final class AtomicOperationTestBridge {
 
   /**
    * Installs (or clears, with {@code null}) a page-apply hook on the given atomic
-   * operation. The operation must be an {@link AtomicOperationBinaryTracking} instance
+   * operation. Installing a non-null hook forces the existing apply step under the
+   * epoch. Clearing the hook leaves the fallback override in place.
+   * The operation must be an {@link AtomicOperationBinaryTracking} instance
    * (the only production implementation, produced by
    * {@link AtomicOperationsManager#startAtomicOperation()}).
    */
@@ -59,6 +62,7 @@ public final class AtomicOperationTestBridge {
       tracking.setPageApplyHook(null);
       return;
     }
+    tracking.setForceEpochApplyForTesting(true);
     tracking.setPageApplyHook(new AtomicOperationBinaryTracking.PageApplyHook() {
       @Override
       public long[] orderPageApplications(final long fileId, final long[] pageIndexes) {
@@ -70,6 +74,11 @@ public final class AtomicOperationTestBridge {
         hook.beforePageApply(fileId, pageIndex);
       }
     });
+  }
+
+  /** Forces this operation to use the fallback protocol and its page-apply hook. */
+  public static void forceEpochApply(final AtomicOperation operation) {
+    ((AtomicOperationBinaryTracking) operation).setForceEpochApplyForTesting(true);
   }
 
   /** Returns the apply epoch for one logical lock-name domain. */

@@ -15,13 +15,15 @@ import java.util.Arrays;
  *   <li><b>Per-page stamps</b> — a purely <em>temporal</em> check: each stamp proves the
  *       individual page was not modified between being read and being validated. Stamps
  *       alone do NOT guarantee that the pages form a mutually consistent snapshot: a
- *       committing transaction applies its changes page-by-page, so a reader overlapping
+ *       fallback commit applies its changes page-by-page, so a reader overlapping
  *       that apply window can see a mix of pre- and post-commit pages while every stamp
  *       stays valid.
- *   <li><b>Apply-phase epoch</b> — the cross-page consistency guarantee. {@link #reset()}
+ *   <li><b>Apply-phase epoch</b> — detects overlapping fallback commits. {@link #reset()}
  *       captures the logical component's {@link ApplyPhaseEpoch} counters and
  *       {@link #validateOrThrow()} re-checks them after the stamp loop; the read fails if
- *       any commit-time apply phase overlapped the read window.
+ *       any fallback apply phase overlapped the read window. Page-set commits lock every
+ *       frame before the first change. Frame stamps, cached-frame identity and the
+ *       pinned-load rules protect readers against those commits.
  * </ul>
  *
  * <p>Stored in {@code AtomicOperation} and reused across optimistic read attempts within
@@ -98,7 +100,7 @@ public final class OptimisticReadScope {
    * Validates cached-frame identity and the stamp for every recorded page, then the
    * apply-phase epoch. Throws {@link OptimisticReadFailedException} if an entry is no longer
    * alive or no longer holds its recorded frame, if a stamp is invalid, or if a commit-time
-   * apply phase overlapped the read window. Eviction alone need not invalidate stamps.
+   * fallback apply phase overlapped the read window. Eviction alone need not invalidate stamps.
    */
   public void validateOrThrow() {
     checkFailed();

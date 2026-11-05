@@ -774,8 +774,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * belt-and-braces hardening for the apply-phase epoch (YTDB-1178). The historical failure
    * mode this guards against is a <em>false null</em>: an optimistic B-tree descent composing
    * a per-page-valid but mutually inconsistent view and concluding "absent" for a present
-   * key. The epoch closes that race; this re-check is an independent second line of defense
-   * plus a live detector for any unmodeled anomaly.
+   * key. The epoch protects against fallback commits. Page-set commits lock every frame
+   * before the first change, so frame stamps, cached-frame identity and the pinned-load
+   * rules protect readers. This re-check is an independent second line of defense and
+   * a live detector for any unmodeled anomaly.
    *
    * <p>Decision rules:
    *
@@ -792,7 +794,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    *       ERROR is emitted and the pinned result is returned. If the pinned result is null too,
    *       the null is confirmed and returned silently.
    *   <li>The trigger fires only on the load-bearing NULL by design: stale validated
-   *       NON-null results are guaranteed consistent by the apply-phase epoch, and
+   *       NON-null results are guaranteed consistent by the validation protocol, and
    *       re-verifying them would double the pinned cost of every successful lookup.
    * </ul>
    *
