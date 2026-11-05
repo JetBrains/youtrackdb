@@ -200,6 +200,8 @@ public class WOWCacheQuarantineTest {
               0, 0));
       realReadCache.releaseFromWrite(entry, wowCache, true);
     }
+    // Drain queued page-initialization calls on the spy before installing the answer.
+    wowCache.pauseBackgroundFlush();
     doAnswer(call -> {
       final var field = WOWCache.class.getDeclaredField("writeCachePages");
       field.setAccessible(true);

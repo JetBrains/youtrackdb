@@ -2265,7 +2265,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   Path createQuarantineDirectory() throws IOException {
-    final var parent = storagePath.resolve("orphans");
+    final var parent = storagePath.resolve(StorageFileNames.ORPHANS_DIRECTORY);
     Files.createDirectories(parent);
     while (true) {
       final var target = parent.resolve(quarantineFolderName());
@@ -2278,8 +2278,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   String quarantineFolderName() {
-    return java.time.format.DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmssSSS'Z'")
-        .withZone(java.time.ZoneOffset.UTC).format(java.time.Instant.now())
+    return StorageFileNames.QUARANTINE_TIMESTAMP.format(java.time.Instant.now())
         + "-" + java.util.UUID.randomUUID().toString().replace("-", "");
   }
 

@@ -198,6 +198,12 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
+  STORAGE_ORPHANS_RETENTION_DAYS(
+      "youtrackdb.storage.orphans.retentionDays",
+      "Retention of quarantined orphan component folders in days. Zero or less disables deletion.",
+      Integer.class,
+      180),
+
   STORAGE_ENCRYPTION_KEY(
       "youtrackdb.storage.encryptionKey",
       "Contains the storage encryption key. This setting is hidden",

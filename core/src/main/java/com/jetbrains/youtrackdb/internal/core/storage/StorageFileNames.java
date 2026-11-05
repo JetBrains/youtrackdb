@@ -11,7 +11,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -31,6 +35,9 @@ public final class StorageFileNames {
   public static final String BOOTSTRAP_TEMP_EXTENSION = BOOTSTRAP_EXTENSION + TEMP_SUFFIX;
   public static final String BOOTSTRAP_LOCK_EXTENSION = ".bsml";
   public static final String ORPHANS_DIRECTORY = "orphans";
+  public static final DateTimeFormatter QUARANTINE_TIMESTAMP =
+      DateTimeFormatter.ofPattern("uuuuMMdd'T'HHmmssSSS'Z'", Locale.ROOT)
+          .withResolverStyle(ResolverStyle.STRICT).withZone(ZoneOffset.UTC);
   public static final String WAL_RESTORE_DIRECTORY = "walIncrementalBackupRestoreDirectory";
   public static final String INDEX_DATA_EXTENSION = BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION;
   public static final String INDEX_NULL_EXTENSION =
