@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBag
 import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -27,6 +28,16 @@ public interface AtomicOperation {
   AtomicOperationsSnapshot getAtomicOperationsSnapshot();
 
   void deactivate();
+
+  /**
+   * Prepares a volatile reference store after all pages apply and before the reader epochs exit.
+   * The target is the publication key. Repeated preparation keeps its final value.
+   * Callers finish allocation, validation and identity resolution before registering.
+   * They must hold writer exclusion through operation completion for every affected domain.
+   * Registration acquires no lock. At least one reader domain is required.
+   */
+  <T> void preparePublication(AtomicReference<T> target, T value,
+      StorageComponent... readerDomains);
 
   long getCommitTs();
 

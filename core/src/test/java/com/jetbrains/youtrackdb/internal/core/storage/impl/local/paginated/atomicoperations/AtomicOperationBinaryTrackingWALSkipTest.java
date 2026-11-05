@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -22,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -45,6 +47,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -154,17 +157,29 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
    * A durable page with WAL changes but no PageOperation registration (changeLSN
    * not set by flushPendingOperations) must cause commitChanges to throw
    * StorageException. This is the safety guard that catches missing PageOperation
-   * registration for any page type.
+   * registration for any page type. A prepared publication must remain unchanged, and no
+   * WAL commit record may be emitted when this validation fails.
    */
   @Test
   public void durablePageWithoutPageOpsThrowsStorageException() throws IOException {
     var op = createOperation();
     long fileId = setupNewFileWithPage(op, "durable-file.dat", false);
+    var published = new AtomicReference<>("old");
+    var domain = mock(StorageComponent.class);
+    when(domain.getLockName()).thenReturn("publication");
+    var epoch = new ApplyPhaseEpoch();
+    when(domain.getApplyPhaseEpoch()).thenReturn(epoch);
+    op.preparePublication(published, "discarded", domain);
 
     assertThatThrownBy(() -> op.commitChanges(42L, wal))
         .isInstanceOf(StorageException.class)
         .hasMessageContaining("missing PageOperation registration")
         .hasMessageContaining("Durable page");
+    assertThat(published.get()).isEqualTo("old");
+    assertThat(epoch.enterSeq()).isZero();
+    assertThat(loggedRecords).noneMatch(record -> record instanceof AtomicUnitEndRecord);
+    assertThatThrownBy(() -> op.preparePublication(published, "late", domain))
+        .isInstanceOf(RuntimeException.class);
   }
 
   /**

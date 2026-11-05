@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -315,6 +316,11 @@ public class CommitChangesPageApplyHookTest {
     // optimistic reads are not permanently disabled by the failed commit.
     var op = createOperation();
     setupNewFileWithPages(op, "hook-throws.dat", 2);
+    var published = new AtomicReference<>("old");
+    var domain = mock(StorageComponent.class);
+    when(domain.getLockName()).thenReturn("publication");
+    when(domain.getApplyPhaseEpoch()).thenReturn(epoch);
+    op.preparePublication(published, "discarded", domain);
 
     op.setPageApplyHook(new PageApplyHook() {
       @Override
@@ -330,6 +336,8 @@ public class CommitChangesPageApplyHookTest {
       Assert.assertEquals("test hook failure", e.getMessage());
     }
 
+    // Incomplete page application must not publish prepared state.
+    Assert.assertEquals("old", published.get());
     // Bracket balanced despite the exception — a fresh reader capture passes.
     Assert.assertEquals(1, epoch.enterSeq());
     Assert.assertEquals(1, epoch.exitSeq());
@@ -348,7 +356,9 @@ public class CommitChangesPageApplyHookTest {
     var firstEpoch = new ApplyPhaseEpoch();
     var secondEpoch = new ApplyPhaseEpoch();
     var first = mock(StorageComponent.class);
+    when(first.getLockName()).thenReturn("first");
     var second = mock(StorageComponent.class);
+    when(second.getLockName()).thenReturn("second");
     when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
     when(second.getApplyPhaseEpoch()).thenReturn(secondEpoch);
     op.addLockedComponent(first);
@@ -506,7 +516,9 @@ public class CommitChangesPageApplyHookTest {
     var secondEpoch = new ApplyPhaseEpoch();
     var unrelatedEpoch = new ApplyPhaseEpoch();
     var first = mock(StorageComponent.class);
+    when(first.getLockName()).thenReturn("first");
     var second = mock(StorageComponent.class);
+    when(second.getLockName()).thenReturn("second");
     when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
     when(second.getApplyPhaseEpoch()).thenReturn(secondEpoch);
     op.addLockedComponent(first);
@@ -537,16 +549,20 @@ public class CommitChangesPageApplyHookTest {
 
   @Test
   public void testPartialComponentEntryIsUnwoundBeforeCacheApply() throws IOException {
-    // Failure while obtaining a later domain must balance every earlier successful enter
+    // Failure while entering a later domain must balance every earlier successful enter
     // and must occur before the first shared-cache mutation.
     var op = createOperation();
     setupNewFileWithPages(op, "partial-entry.dat", 1);
 
     var firstEpoch = new ApplyPhaseEpoch();
     var first = mock(StorageComponent.class);
+    when(first.getLockName()).thenReturn("first");
     var failing = mock(StorageComponent.class);
+    when(failing.getLockName()).thenReturn("second");
     when(first.getApplyPhaseEpoch()).thenReturn(firstEpoch);
-    when(failing.getApplyPhaseEpoch()).thenThrow(new IllegalStateException("entry failure"));
+    var failingEpoch = mock(ApplyPhaseEpoch.class);
+    when(failing.getApplyPhaseEpoch()).thenReturn(failingEpoch);
+    doThrow(new IllegalStateException("entry failure")).when(failingEpoch).enterApplyPhase();
     op.addLockedComponent(first);
     op.addLockedComponent(failing);
 

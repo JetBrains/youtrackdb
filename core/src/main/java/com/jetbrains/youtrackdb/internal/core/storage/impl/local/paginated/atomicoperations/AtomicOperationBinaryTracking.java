@@ -66,9 +66,11 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -84,6 +86,32 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private long operationCommitTs = -1;
 
   private boolean rollback;
+
+  private final Map<AtomicReference<?>, PreparedPublication<?>> publications =
+      new LinkedHashMap<>();
+  private final TreeMap<String, ApplyPhaseEpoch> publicationEpochs = new TreeMap<>();
+
+  private record PreparedPublication<T>(AtomicReference<T> target, T value) {
+
+    private void publish() {
+      target.set(value);
+    }
+  }
+
+  @Override
+  public <T> void preparePublication(AtomicReference<T> target, T value,
+      StorageComponent... readerDomains) {
+    checkIfActive();
+    Objects.requireNonNull(target);
+    if (readerDomains.length == 0) {
+      throw new IllegalArgumentException("Publication needs a reader domain");
+    }
+    for (var domain : readerDomains) {
+      publicationEpochs.put(domain.getLockName(),
+          Objects.requireNonNull(domain.getApplyPhaseEpoch()));
+    }
+    publications.put(target, new PreparedPublication<>(target, value));
+  }
 
   private final Map<String, ComponentLockMode> lockedObjects = new HashMap<>();
   private final ArrayList<StorageComponent> lockedComponents = new ArrayList<>();
@@ -964,6 +992,20 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     try {
       LogSequenceNumber txEndLsn;
 
+      // Resolve and allocate the complete apply plan before the WAL commit record.
+      // Epoch entry only increments counters and never waits on another committer.
+      final var mutatesSharedCache = commitMutatesSharedCache();
+      final var epochs = new TreeMap<>(publicationEpochs);
+      if (mutatesSharedCache || !publications.isEmpty()) {
+        for (var component : lockedComponents) {
+          epochs.put(component.getLockName(), component.getApplyPhaseEpoch());
+        }
+      }
+      final var useStandaloneEpoch = mutatesSharedCache && lockedComponents.isEmpty()
+          && standaloneApplyPhaseEpoch != null && !epochs.containsValue(standaloneApplyPhaseEpoch);
+      final var applyEpochs = epochs.values().toArray(ApplyPhaseEpoch[]::new);
+      final var preparedPublications = publications.values().toArray(PreparedPublication<?>[]::new);
+
       // Precompute non-durable classification once per file to guarantee
       // consistent classification between the WAL phase and cache application
       // phase. Reading the volatile nonDurableFileIds twice could see different
@@ -1117,29 +1159,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // bracketed — they do not mutate shared cache pages (snapshot-index entries are
       // SI-filtered on read).
       //
-      // The bracket is gated on the commit actually having shared-cache mutations:
-      // zero-change commits — read-only atomic operations, pure metadata ops —
-      // perform no readCache calls in the section below, so bumping the epoch for them
-      // would only spuriously invalidate every concurrently overlapping optimistic
-      // read in the storage.
-      final var mutatesSharedCache = commitMutatesSharedCache();
+      // Copy-only commits also invalidate state-only optimistic attempts.
+      // Sorted lock names give deterministic entry order and deduplicate shared domains.
       var enteredComponentCount = 0;
       var standaloneEpochEntered = false;
       try {
-        if (mutatesSharedCache) {
-          // lockedComponents already preserves entry order for the operation. Reuse it
-          // with a successful-entry count so cleanup needs no per-commit collection.
-          for (final var component : lockedComponents) {
-            component.getApplyPhaseEpoch().enterApplyPhase();
-            enteredComponentCount++;
-          }
-          // Standalone operations used by low-level tests and tooling have no component
-          // lock registration. Preserve their explicit fallback epoch without weakening
-          // the production rule that cache mutations are protected by locked domains.
-          if (lockedComponents.isEmpty() && standaloneApplyPhaseEpoch != null) {
-            standaloneApplyPhaseEpoch.enterApplyPhase();
-            standaloneEpochEntered = true;
-          }
+        for (final var epoch : applyEpochs) {
+          epoch.enterApplyPhase();
+          enteredComponentCount++;
+        }
+        // Low-level standalone operations can supply an explicit fallback epoch.
+        if (useStandaloneEpoch) {
+          standaloneApplyPhaseEpoch.enterApplyPhase();
+          standaloneEpochEntered = true;
         }
         deletedFilesIterator = deletedFiles.longIterator();
         while (deletedFilesIterator.hasNext()) {
@@ -1199,18 +1231,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
                 txEndLsn);
           }
         }
+        // This closed action type only stores precomputed references. It cannot call user code.
+        for (final var publication : preparedPublications) {
+          publication.publish();
+        }
       } finally {
         if (standaloneEpochEntered) {
           standaloneApplyPhaseEpoch.exitApplyPhase();
         }
         for (var i = enteredComponentCount - 1; i >= 0; i--) {
-          lockedComponents.get(i).getApplyPhaseEpoch().exitApplyPhase();
+          applyEpochs[i].exitApplyPhase();
         }
       }
 
       return txEndLsn;
     } finally {
-      active = false;
+      deactivate();
     }
   }
 
@@ -1281,8 +1317,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   /**
    * Returns whether this commit will mutate shared read-cache state in the apply
    * section: any file deletion, any new file, or any page with accumulated
-   * changes. Zero-change commits (read-only atomic operations) return {@code false}
-   * and skip the apply-phase epoch bracket entirely.
+   * changes. Zero-change commits return {@code false} here. Prepared publications
+   * independently force entry into the apply-phase epoch bracket.
    */
   private boolean commitMutatesSharedCache() {
     if (!deletedFiles.isEmpty()) {
@@ -1419,6 +1455,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Override
   public void deactivate() {
+    publications.clear();
+    publicationEpochs.clear();
     active = false;
   }
 
