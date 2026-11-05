@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ListShapingOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.OrderClassResolver;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -13,6 +14,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchProjectionBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
@@ -61,6 +64,7 @@ final class WalkerContext implements RecognitionContext {
    *  Merged with the builder's own alias filters at result-build time; entries here override builder
    *  entries on the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+  final Map<String, Set<String>> promotedPresenceKeys = new LinkedHashMap<>();
 
   /**
    * Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
@@ -174,6 +178,9 @@ final class WalkerContext implements RecognitionContext {
 
   /** {@code ORDER BY} clause for {@code order()} terminators. */
   @Nullable SQLOrderBy orderBy;
+
+  // Separate metadata for comparison only. Pattern classes and plan fingerprints do not read it.
+  final Map<String, List<String>> orderCollationClasses = new LinkedHashMap<>();
 
   /**
    * Alias the captured {@code ORDER BY} was keyed on, or {@code null} when none is captured. A hop
@@ -706,48 +713,7 @@ final class WalkerContext implements RecognitionContext {
 
   static String leastCommonVertexAncestor(List<String> classNames,
       java.util.function.Function<String, SchemaClass> resolve) {
-    if (classNames == null || classNames.isEmpty()) {
-      return null;
-    }
-    var current = resolve.apply(classNames.getFirst());
-    if (current == null || !current.isVertexType()) {
-      return null;
-    }
-    for (int i = 1; i < classNames.size(); i++) {
-      var other = resolve.apply(classNames.get(i));
-      if (other == null || !other.isVertexType()) {
-        return null;
-      }
-      current = leastCommonAncestor(current, other);
-      if (current == null) {
-        return VERTEX_ROOT_CLASS;
-      }
-    }
-    return current.getName();
-  }
-
-  /**
-   * Most specific common ancestor of {@code a} and {@code b}, or {@code null} when they only share
-   * the implicit {@code V} root (caller maps that to {@link #VERTEX_ROOT_CLASS}).
-   */
-  private static @Nullable SchemaClass leastCommonAncestor(SchemaClass a, SchemaClass b) {
-    if (a.equals(b) || b.isSubClassOf(a)) {
-      return a;
-    }
-    if (a.isSubClassOf(b)) {
-      return b;
-    }
-    SchemaClass best = null;
-    for (var ancestor : a.getAllSuperClasses()) {
-      if (!ancestor.isVertexType() || !b.isSubClassOf(ancestor)) {
-        continue;
-      }
-      // Prefer the more specific ancestor when several supers of {@code a} also cover {@code b}.
-      if (best == null || ancestor.isSubClassOf(best)) {
-        best = ancestor;
-      }
-    }
-    return best;
+    return OrderClassResolver.labelClass(classNames, resolve);
   }
 
   @Override
@@ -1111,7 +1077,7 @@ final class WalkerContext implements RecognitionContext {
     }
     if (presenceDropAlias != null) {
       for (var key : shaping.presencePropertyKeys()) {
-        ByModulatorPresence.requireProjectedProperty(this, presenceDropAlias, key);
+        promotePresence(presenceDropAlias, key);
       }
       // dropOnAbsent stays on: after the conjunct no row lacking the key survives, so the shaping
       // drop is redundant, but it cannot remove a row the conjunct left.
@@ -1128,9 +1094,34 @@ final class WalkerContext implements RecognitionContext {
         continue;
       }
       var internalAlias = internalAliasFromPresenceEntityColumn(presence.entityColumnAlias());
-      ByModulatorPresence.requireProjectedProperty(this, internalAlias, presence.propertyKey());
+      promotePresence(internalAlias, presence.propertyKey());
     }
     return true;
+  }
+
+  private void promotePresence(String alias, String key) {
+    // Existing user or ordering presence stays estimate-visible. Only a newly added conjunct
+    // belongs to the projection-promotion origin map.
+    var filter = aliasFilters.get(alias);
+    // Edge predicates join alias filters only when inputs are built. Inspect both stores so
+    // a user's AND-spine presence guard cannot acquire projection-promotion origin.
+    var edgeFilter = edgeFilters.get(alias);
+    if (!hasPresenceConjunct(alias, key)
+        && (filter == null || !containsPresence(filter.getBaseExpression(), key))
+        && (edgeFilter == null || !containsPresence(edgeFilter.getBaseExpression(), key))) {
+      ByModulatorPresence.requireProjectedProperty(this, alias, key);
+      promotedPresenceKeys.computeIfAbsent(alias, ignored -> new LinkedHashSet<>()).add(key);
+    }
+  }
+
+  private static boolean containsPresence(SQLBooleanExpression expression, String key) {
+    if (expression.equals(WHERE.isDefined(key))) {
+      return true;
+    }
+    if (expression instanceof SQLAndBlock and) {
+      return and.getSubBlocks().stream().anyMatch(child -> containsPresence(child, key));
+    }
+    return false;
   }
 
   private static String internalAliasFromPresenceEntityColumn(String entityColumnAlias) {

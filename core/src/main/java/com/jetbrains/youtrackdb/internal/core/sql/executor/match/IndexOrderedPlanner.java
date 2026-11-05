@@ -104,6 +104,7 @@ public final class IndexOrderedPlanner {
   @Nullable private final Pattern pattern;
   private final Map<String, String> aliasClasses;
   private final Map<String, SQLWhereClause> aliasFilters;
+  private Map<String, SQLWhereClause> estimateFilters;
   // Pinned RIDs per alias — explicit {rid:} pattern pins plus promoted
   // @rid = / @rid IN filters (develop's aliasPinnedRids). Single-source mode is
   // gated on a single pin (size()==1): a multi-RID pin (@rid IN [...]) yields
@@ -139,6 +140,7 @@ public final class IndexOrderedPlanner {
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
     this.aliasFilters = aliasFilters;
+    this.estimateFilters = aliasFilters;
     this.aliasPinnedRids = aliasPinnedRids;
     this.orderBy = orderBy;
     this.skip = skip;
@@ -327,6 +329,7 @@ public final class IndexOrderedPlanner {
         aliasClasses.put(targetAlias, inferred);
       }
     }
+    // LINK inference supplies prefetch and later cost inputs before index collation matching.
     if (targetClassName == null) {
       return null;
     }
@@ -812,6 +815,12 @@ public final class IndexOrderedPlanner {
     };
   }
 
+  /** Shared estimate-only predicates, separate from executable index-scan constraints. */
+  IndexOrderedPlanner estimateFilters(Map<String, SQLWhereClause> filters) {
+    this.estimateFilters = filters;
+    return this;
+  }
+
   /**
    * Plan-time cost check for FILTERED modes. Uses estimated cardinality and default fan-out to
    * predict whether the index scan is likely to beat load-and-sort.
@@ -856,7 +865,7 @@ public final class IndexOrderedPlanner {
     long indexSize = matchedIndex.size(session);
     int defaultFanOut =
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
-    if (aliasFilters.get(sourceAlias) == null) {
+    if (estimateFilters.get(sourceAlias) == null) {
       if (sourceConstrainedByEarlierEdges) {
         var upstreamAlias =
             immediateUpstreamAlias(sourceAlias, sortedEdges, matchedEdge);

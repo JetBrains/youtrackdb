@@ -24,10 +24,11 @@ import org.javatuples.Pair;
  * {@link OrderLocalStep} with wrapped framework {@link Order#asc} / {@link Order#desc}
  * comparators so null placement matches YQL {@code ORDER BY}.
  *
- * <p>Runs after {@link GremlinToMatchStrategy}, {@link YTDBOrderRidTieBreakStrategy}, and
- * {@link YTDBStandardOrderSemanticsStrategy}. A recognized shape loses its order step to the MATCH
- * splice. Earlier native strategies must finish the sort slots and missing-key behavior before
- * comparator wrapping.
+ * <p>Runs after {@link GremlinToMatchStrategy}, {@link YTDBOrderRidTieBreakStrategy},
+ * {@link YTDBStandardOrderSemanticsStrategy}, and {@link YTDBOrderCollationStrategy}. Collation must
+ * inspect the framework comparator identities before null placement wraps them. A recognized shape
+ * loses its order step to the MATCH splice. Earlier native strategies must finish the sort slots
+ * and missing-key behavior before comparator wrapping.
  *
  * <p>Only the two framework order constants are wrapped. {@link Order#shuffle} and caller-supplied
  * comparators keep their own null handling. The strategy does not walk nested traversals: the

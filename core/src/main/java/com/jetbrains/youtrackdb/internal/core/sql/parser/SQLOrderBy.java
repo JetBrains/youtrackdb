@@ -86,6 +86,44 @@ public class SQLOrderBy extends SimpleNode {
     return 0;
   }
 
+  /** Counts dense key slots without allocating storage for cheap items. */
+  public int storedKeyCount() {
+    int count = 0;
+    for (int i = 0; i < items.size(); i++) {
+      if (items.get(i).needsStoredKey()) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /** Compares dense work-item slots, or rows directly when either slot array is absent. */
+  public int compareKeys(Result a, SQLOrderByItem.SortKey[] aKeys,
+      Result b, SQLOrderByItem.SortKey[] bKeys, CommandContext ctx,
+      ResolvedOrderByNullsPlacement nullsDefault) {
+    int slot = 0;
+    for (int i = 0; i < items.size(); i++) {
+      var item = items.get(i);
+      int result;
+      if (aKeys == null || bKeys == null || !item.needsStoredKey()) {
+        result = item.compare(a, b, ctx, nullsDefault);
+      } else {
+        if (aKeys[slot] == null) {
+          aKeys[slot] = new SQLOrderByItem.SortKey();
+        }
+        if (bKeys[slot] == null) {
+          bKeys[slot] = new SQLOrderByItem.SortKey();
+        }
+        result = item.compareKeys(a, aKeys[slot], b, bKeys[slot], ctx, nullsDefault);
+        slot++;
+      }
+      if (result != 0) {
+        return result > 0 ? 1 : -1;
+      }
+    }
+    return 0;
+  }
+
   @Override
   public SQLOrderBy copy() {
     var result = new SQLOrderBy(-1);

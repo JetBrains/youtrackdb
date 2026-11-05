@@ -954,6 +954,15 @@ public abstract class IndexAbstract implements Index {
   @Override
   public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
+    try {
+      return rebuildAndFill(session, progressListener);
+    } finally {
+      invalidatePlansAfterFill(session);
+    }
+  }
+
+  private long rebuildAndFill(DatabaseSessionEmbedded session,
+      final ProgressListener progressListener) {
     long entitiesIndexed;
 
     acquireExclusiveLock();
@@ -1036,7 +1045,7 @@ public abstract class IndexAbstract implements Index {
     // computes all statistics from scratch (exact NDV, accurate frequencies).
     setBulkLoading(true);
     try {
-      entitiesIndexed = fillIndex(session, progressListener);
+      entitiesIndexed = fillIndex(session, progressListener, false);
     } finally {
       // Always disable bulk-load mode, even on failure, to avoid
       // permanently suppressing delta accumulation if the engine survives.
@@ -1132,6 +1141,11 @@ public abstract class IndexAbstract implements Index {
 
   public long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener) {
+    return fillIndex(session, progressListener, true);
+  }
+
+  private long fillIndex(DatabaseSessionEmbedded session,
+      ProgressListener progressListener, boolean invalidate) {
     long entitiesIndexed;
     acquireSharedLock();
     try {
@@ -1164,8 +1178,23 @@ public abstract class IndexAbstract implements Index {
           e, session);
     } finally {
       releaseSharedLock();
+      if (invalidate) {
+        invalidatePlansAfterFill(session);
+      }
     }
     return entitiesIndexed;
+  }
+
+  /** Reuse metadata generations so late publications from the fill interval are rejected too. */
+  private void invalidatePlansAfterFill(DatabaseSessionEmbedded session) {
+    var shared = session.getSharedContext();
+    for (var listener : shared.browseListeners()) {
+      try {
+        listener.onIndexManagerUpdate(session, session.getDatabaseName(), shared.getIndexManager());
+      } catch (Exception failure) {
+        LogManager.instance().error(this, "Error notifying index fill completion", failure);
+      }
+    }
   }
 
   private long doFillIndex(DatabaseSessionEmbedded session,

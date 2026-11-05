@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionExceptio
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
@@ -81,11 +82,9 @@ public class OrderByStep extends AbstractExecutionStep {
   @Nullable private final SQLLimit limitClause;
 
   /**
-   * When non-null, the input stream is known to be sorted by this ORDER BY
-   * item (typically the first field). In the bounded heap path, the heap
-   * can stop reading when this item's value is strictly "worse" (sorts
-   * later) than the worst element in the heap — because all subsequent
-   * items will also be worse.
+   * When non-null, identifies the first ORDER BY item by position. The input stream is known
+   * to be sorted by that item. The bounded heap can stop reading when the first key sorts
+   * strictly later than the worst retained row's first key.
    *
    * <p>Set by the MATCH planner when IndexOrderedEdgeStep produces results
    * sorted by the primary ORDER BY field, enabling early termination for
@@ -141,6 +140,8 @@ public class OrderByStep extends AbstractExecutionStep {
     this.fixedMaxResults = null;
     this.skipClause = skipClause;
     this.limitClause = limitClause;
+    assert primaryKeySortedInput == null
+        || primaryKeySortedInput.equals(orderBy.getItems().getFirst());
     this.primaryKeySortedInput = primaryKeySortedInput;
     this.indexOrderedUpstream = indexOrderedUpstream;
     this.timeoutMillis = timeoutMillis;
@@ -148,8 +149,8 @@ public class OrderByStep extends AbstractExecutionStep {
 
   /**
    * @param primaryKeySortedInput when non-null, enables early termination in
-   *        the bounded heap: stop reading when this item's value is strictly
-   *        worse than the worst in the heap.
+   *        the bounded heap: stop reading when item zero is strictly
+   *        worse than the worst retained row's first key.
    * @param indexOrderedUpstream when true, check runtime context for pre-sorted
    *        signal from IndexOrderedEdgeStep; if sorted, pass through without sorting
    */
@@ -166,6 +167,8 @@ public class OrderByStep extends AbstractExecutionStep {
     this.fixedMaxResults = maxResults != null && maxResults >= 0 ? maxResults : null;
     this.skipClause = null;
     this.limitClause = null;
+    assert primaryKeySortedInput == null
+        || primaryKeySortedInput.equals(orderBy.getItems().getFirst());
     this.primaryKeySortedInput = primaryKeySortedInput;
     this.indexOrderedUpstream = indexOrderedUpstream;
     this.timeoutMillis = timeoutMillis;
@@ -252,9 +255,44 @@ public class OrderByStep extends AbstractExecutionStep {
         upstream.close(ctx);
         return Collections.emptyList();
       }
-      return initBoundedHeap(upstream, ctx, timeoutBegin, maxResults);
+      int workItems = orderBy.storedKeyCount();
+      return workItems == 0 ? initDirectBoundedHeap(upstream, ctx, timeoutBegin, maxResults)
+          : initBoundedHeap(upstream, ctx, timeoutBegin, maxResults, workItems);
     }
-    return initUnbounded(upstream, ctx, timeoutBegin);
+    int workItems = orderBy.storedKeyCount();
+    return workItems == 0 ? initDirectUnbounded(upstream, ctx, timeoutBegin)
+        : initUnbounded(upstream, ctx, timeoutBegin, workItems);
+  }
+
+  private static final class SortRow {
+    private Result row;
+    private final SQLOrderByItem.SortKey[] keys;
+
+    private SortRow(Result row, int items) {
+      this.row = row;
+      keys = new SQLOrderByItem.SortKey[items];
+    }
+
+    private SQLOrderByItem.SortKey key(int index) {
+      if (keys[index] == null) {
+        keys[index] = new SQLOrderByItem.SortKey();
+      }
+      return keys[index];
+    }
+
+    private void reset(Result row) {
+      this.row = row;
+      for (var key : keys) {
+        if (key != null) {
+          key.reset();
+        }
+      }
+    }
+  }
+
+  private int compare(SortRow a, SortRow b, CommandContext ctx,
+      ResolvedOrderByNullsPlacement nullsDefault) {
+    return orderBy.compareKeys(a.row, a.keys, b.row, b.keys, ctx, nullsDefault);
   }
 
   /**
@@ -264,7 +302,8 @@ public class OrderByStep extends AbstractExecutionStep {
    * worst kept element, enabling O(1) comparison for each incoming row.
    */
   private List<Result> initBoundedHeap(
-      ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults) {
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults,
+      int workItems) {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
     try {
@@ -282,8 +321,10 @@ public class OrderByStep extends AbstractExecutionStep {
       var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
 
       // Reversed comparator: peek() returns the element that sorts LAST (worst in top-N).
-      var heap = new PriorityQueue<Result>(
-          maxResults, (a, b) -> orderBy.compare(b, a, ctx, nullsDefault));
+      var heap = new PriorityQueue<SortRow>(
+          maxResults, (a, b) -> compare(b, a, ctx, nullsDefault));
+      // A rejected candidate reuses its storage. Only rows admitted to the heap retain keys.
+      SortRow candidate = null;
 
       // Early-termination eligibility is fixed for the whole scan:
       // IndexOrderedEdgeStep sets VAR_INDEX_ORDERED_PRE_SORTED before this step
@@ -301,6 +342,11 @@ public class OrderByStep extends AbstractExecutionStep {
           sendTimeout();
         }
         var item = upstream.next(ctx);
+        if (candidate == null) {
+          candidate = new SortRow(item, workItems);
+        } else {
+          candidate.reset(item);
+        }
 
         // Early termination: when the input is sorted by the primary ORDER BY
         // field and the heap is full, stop reading as soon as the primary key
@@ -310,21 +356,25 @@ public class OrderByStep extends AbstractExecutionStep {
         // when the fallback (unsorted) path was taken, cutoff is unsafe.
         if (earlyTerminationEnabled
             && heap.size() >= maxResults
-            && primaryKeySortedInput.compare(item, heap.peek(), ctx, nullsDefault) > 0) {
+            && orderBy.getItems().getFirst().compareKeys(
+                candidate.row, primarySlot(candidate), heap.peek().row, primarySlot(heap.peek()),
+                ctx, nullsDefault) > 0) {
           break;
         }
 
         if (heap.size() < maxResults) {
-          heap.offer(item);
-        } else if (orderBy.compare(item, heap.peek(), ctx, nullsDefault) < 0) {
-          heap.poll();
-          heap.offer(item);
+          heap.offer(candidate);
+          candidate = null;
+        } else if (compare(candidate, heap.peek(), ctx, nullsDefault) < 0) {
+          var evicted = heap.poll();
+          heap.offer(candidate);
+          candidate = evicted;
         }
       }
 
       var result = new LinkedList<Result>();
       while (!heap.isEmpty()) {
-        result.addFirst(heap.poll());
+        result.addFirst(heap.poll().row);
       }
       return result;
     } finally {
@@ -337,10 +387,10 @@ public class OrderByStep extends AbstractExecutionStep {
    * Enforces {@code QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP}.
    */
   private List<Result> initUnbounded(
-      ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int workItems) {
     var maxElementsAllowed =
         GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
-    List<Result> cachedResult = new ArrayList<>();
+    List<SortRow> cachedResult = new ArrayList<>();
     // Fix placement when the sort starts, before a potentially long upstream drain.
     var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
     try {
@@ -349,12 +399,93 @@ public class OrderByStep extends AbstractExecutionStep {
           sendTimeout();
         }
         var item = upstream.next(ctx);
-        cachedResult.add(item);
+        cachedResult.add(new SortRow(item, workItems));
         if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
           throw new CommandExecutionException(ctx.getDatabaseSession(),
               "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
                   + maxElementsAllowed
                   + ") . You can set "
+                  + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+                  + " to increase this limit");
+        }
+      }
+      cachedResult.sort((a, b) -> compare(a, b, ctx, nullsDefault));
+      // The returned stream owns rows only, so no key remains reachable downstream.
+      var result = new ArrayList<Result>(cachedResult.size());
+      for (var item : cachedResult) {
+        result.add(item.row);
+      }
+      return result;
+    } finally {
+      upstream.close(ctx);
+    }
+  }
+
+  private SQLOrderByItem.SortKey primarySlot(SortRow row) {
+    return orderBy.getItems().getFirst().needsStoredKey() ? row.key(0) : null;
+  }
+
+  // All-cheap sorts use row-only selection and output algorithms, without key wrappers.
+  private List<Result> initDirectBoundedHeap(
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    try {
+      if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
+        throw new CommandExecutionException(ctx.getDatabaseSession(),
+            "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+                + maxElementsAllowed + ") . You can set "
+                + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
+                + " to increase this limit");
+      }
+      var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+      var heap = new PriorityQueue<Result>(
+          maxResults, (a, b) -> orderBy.compare(b, a, ctx, nullsDefault));
+      boolean earlyTerminationEnabled = primaryKeySortedInput != null && indexOrderedUpstream
+          && Boolean.TRUE.equals(ctx.getSystemVariable(
+              CommandContext.VAR_INDEX_ORDERED_PRE_SORTED));
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var item = upstream.next(ctx);
+        if (earlyTerminationEnabled && heap.size() >= maxResults
+            && orderBy.getItems().getFirst().compare(item, heap.peek(), ctx, nullsDefault) > 0) {
+          break;
+        }
+        if (heap.size() < maxResults) {
+          heap.offer(item);
+        } else if (orderBy.compare(item, heap.peek(), ctx, nullsDefault) < 0) {
+          heap.poll();
+          heap.offer(item);
+        }
+      }
+      var result = new LinkedList<Result>();
+      while (!heap.isEmpty()) {
+        result.addFirst(heap.poll());
+      }
+      return result;
+    } finally {
+      upstream.close(ctx);
+    }
+  }
+
+  private List<Result> initDirectUnbounded(
+      ExecutionStream upstream, CommandContext ctx, long timeoutBegin) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    List<Result> cachedResult = new ArrayList<>();
+    var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+    try {
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        cachedResult.add(upstream.next(ctx));
+        if (maxElementsAllowed >= 0 && maxElementsAllowed < cachedResult.size()) {
+          throw new CommandExecutionException(ctx.getDatabaseSession(),
+              "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+                  + maxElementsAllowed + ") . You can set "
                   + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
                   + " to increase this limit");
         }
@@ -391,21 +522,8 @@ public class OrderByStep extends AbstractExecutionStep {
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     var copiedOrderBy = orderBy.copy();
-    // Derive hint from copied orderBy: find the same item by index position
-    // to avoid stale reference to the original AST node.
-    SQLOrderByItem copiedHint = null;
-    if (primaryKeySortedInput != null) {
-      int idx = orderBy.getItems().indexOf(primaryKeySortedInput);
-      // Enforced unconditionally (not via assert, which is off in production):
-      // primaryKeySortedInput is always one of orderBy's items, so a negative
-      // index signals a construction bug and must fail loudly rather than
-      // producing an obscure IndexOutOfBounds from get(-1) below.
-      if (idx < 0) {
-        throw new IllegalStateException(
-            "primaryKeySortedInput not found in orderBy items");
-      }
-      copiedHint = copiedOrderBy.getItems().get(idx);
-    }
+    // The cutoff always uses item zero, including after a cached plan is copied.
+    var copiedHint = primaryKeySortedInput == null ? null : copiedOrderBy.getItems().getFirst();
     if (limitClause != null) {
       return new OrderByStep(
           copiedOrderBy, skipClause == null ? null : skipClause.copy(), limitClause.copy(),
