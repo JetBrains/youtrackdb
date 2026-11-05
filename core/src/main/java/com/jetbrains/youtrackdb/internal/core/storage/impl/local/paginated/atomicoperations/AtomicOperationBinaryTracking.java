@@ -91,28 +91,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       new LinkedHashMap<>();
   private final TreeMap<String, ApplyPhaseEpoch> publicationEpochs = new TreeMap<>();
 
-  private record PreparedPublication<T>(AtomicReference<T> target, T value) {
-
-    private void publish() {
-      target.set(value);
-    }
-  }
-
-  @Override
-  public <T> void preparePublication(AtomicReference<T> target, T value,
-      StorageComponent... readerDomains) {
-    checkIfActive();
-    Objects.requireNonNull(target);
-    if (readerDomains.length == 0) {
-      throw new IllegalArgumentException("Publication needs a reader domain");
-    }
-    for (var domain : readerDomains) {
-      publicationEpochs.put(domain.getLockName(),
-          Objects.requireNonNull(domain.getApplyPhaseEpoch()));
-    }
-    publications.put(target, new PreparedPublication<>(target, value));
-  }
-
   private final Map<String, ComponentLockMode> lockedObjects = new HashMap<>();
   private final ArrayList<StorageComponent> lockedComponents = new ArrayList<>();
   @Nullable private Long2ObjectOpenHashMap<LongOpenHashSet> touchedPages;
@@ -1532,6 +1510,28 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   @Override
   public Iterable<StorageComponent> lockedComponents() {
     return lockedComponents;
+  }
+
+  @Override
+  public <T> void preparePublication(AtomicReference<T> target, T value,
+      StorageComponent... readerDomains) {
+    checkIfActive();
+    Objects.requireNonNull(target);
+    if (readerDomains.length == 0) {
+      throw new IllegalArgumentException("Publication needs a reader domain");
+    }
+    for (var domain : readerDomains) {
+      publicationEpochs.put(domain.getLockName(),
+          Objects.requireNonNull(domain.getApplyPhaseEpoch()));
+    }
+    publications.put(target, new PreparedPublication<>(target, value));
+  }
+
+  private record PreparedPublication<T>(AtomicReference<T> target, T value) {
+
+    private void publish() {
+      target.set(value);
+    }
   }
 
   @Override
