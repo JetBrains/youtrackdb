@@ -584,6 +584,11 @@ public final class LockFreeReadCache implements ReadCache {
     }
   }
 
+  @Override
+  public int writePinBudget() {
+    return pinBudget;
+  }
+
   public int reservedWritePins() {
     return reservedPins.get();
   }
@@ -597,12 +602,16 @@ public final class LockFreeReadCache implements ReadCache {
     if (pages <= 0) {
       throw new IllegalArgumentException("Pin reservation must be positive");
     }
-    // Allocate before the CAS so allocation failure cannot leak a successful reservation.
-    var reservation = new Reservation(pages);
     int current = reservedPins.get();
     while (pages <= pinBudget - current) {
       if (reservedPins.compareAndSet(current, current + pages)) {
-        return reservation;
+        try {
+          return new Reservation(pages);
+        } catch (RuntimeException | Error failure) {
+          // Construction owns no pins yet. Return the budget if allocation fails.
+          reservedPins.addAndGet(-pages);
+          throw failure;
+        }
       }
       current = reservedPins.get();
     }
@@ -611,13 +620,13 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final class Reservation implements WriteReservation {
     private final int pages;
-    private final java.util.IdentityHashMap<CacheEntry, PinnedPage> pins =
-        new java.util.IdentityHashMap<>();
+    private final java.util.IdentityHashMap<CacheEntry, PinnedPage> pins;
     private boolean locking;
     private boolean closed;
 
     Reservation(int pages) {
       this.pages = pages;
+      pins = new java.util.IdentityHashMap<>(pages);
     }
 
     private PinnedPage page(CacheEntry entry) {

@@ -112,6 +112,11 @@ public interface ReadCache {
     return null;
   }
 
+  /** Cache-wide commit pin capacity. Zero disables page-set application. */
+  default int writePinBudget() {
+    return 0;
+  }
+
   /**
    * Thread-confined resources for page-set application. The caller chooses and orders pages.
    * Load every pin before locking any page. Call markChanged before touching page content.
