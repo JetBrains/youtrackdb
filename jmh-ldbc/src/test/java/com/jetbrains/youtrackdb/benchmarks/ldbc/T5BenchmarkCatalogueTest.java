@@ -104,6 +104,41 @@ public class T5BenchmarkCatalogueTest {
     }
   }
 
+  @Test
+  public void bArchiveMembershipBindingsAndIdentityMultiplicityAreBytePinned() throws Exception {
+    try (var provenance = getClass().getResourceAsStream("/t5/where-gate-provenance.json")) {
+      assertEquals("ef0d2a178721137c7ede531ca61b7a4cde3441bd73d571a4715e9924fec5fd85",
+          java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+              .digest(provenance.readAllBytes())));
+    }
+    var forms = T5BenchmarkCatalogue.loadWhere();
+    assertEquals(32, forms.size());
+    assertEquals(32,
+        forms.stream().map(T5BenchmarkCatalogue.WhereForm::identity).distinct().count());
+    for (String variant : List.of("indexed", "no-index")) {
+      var selected = forms.stream().filter(c -> c.variant().equals(variant)).toList();
+      assertEquals(16, selected.size());
+      assertEquals(variant.equals("indexed") ? 14 : 13,
+          selected.stream().filter(T5BenchmarkCatalogue.WhereForm::archivedBypass).count());
+      assertEquals(Map.of("5", 4L, "H", 5L, "U2", 4L, "U1", 1L, "CONTROL", 1L, "LONG", 1L),
+          selected.stream().collect(Collectors.groupingBy(T5BenchmarkCatalogue.WhereForm::q,
+              Collectors.counting())));
+      assertEquals(List.of("e2@test", "e1@test", "e99998@test", "e0@test"), selected.stream()
+          .filter(c -> c.q().equals("U2")).map(T5BenchmarkCatalogue.WhereForm::email).toList());
+    }
+    byte[] bytes;
+    try (var input = getClass().getResourceAsStream("/t5/where-gate.json")) {
+      bytes = input.readAllBytes();
+    }
+    fields(new ObjectMapper().readTree(bytes), new ObjectMapper().valueToTree(forms));
+    for (String changed : List.of(new String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+        .replace("e2@test", "e3@test"), "[]")) {
+      assertThrows(IllegalStateException.class, () -> T5BenchmarkCatalogue.decodeWhere(
+          changed.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+    assertThrows(UnsupportedOperationException.class, () -> forms.getFirst().expected().clear());
+  }
+
   private static T5BenchmarkCatalogue.Form probe(String start, List<String> hops,
       String filter, String terminal) {
     return new T5BenchmarkCatalogue.Form("probe", terminal,
