@@ -41,7 +41,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.junit.After;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -668,67 +667,58 @@ public class StorageComponentOptimisticReadTest {
     releaseFrame(frame);
   }
 
+  /** Nested success preserves outer stamps, and inner failure reaches only the outer fallback. */
   @Test
-  public void testNestedOptimisticReadSurfacesAssertionError() throws IOException {
-    // Nested executeOptimisticStorageRead calls are a programming error: the inner
-    // reset() wipes the outer scope's stamps, silently voiding the outer validation.
-    // Detection is -ea-only and involves TWO AssertionErrors: the INNER call's
-    // enterAttempt() assert ("... attempt ...") fires first, but it is thrown inside
-    // the outer optimistic lambda and swallowed by the outer fallback catch; the
-    // violation latched in the scope then fails the OUTER catch's exitAttempt() assert,
-    // and THAT error ("... detected ...") is what escapes to the caller — before the
-    // outer pinned lambda gets a chance to run.
-    var assertionsEnabled = false;
-    // Intentional side effect in assert — standard idiom to detect whether -ea is on.
-    assert assertionsEnabled = true;
-    Assume.assumeTrue("Nesting detection requires -ea", assertionsEnabled);
-
+  public void testNestedOptimisticReadPreservesOuterState() throws IOException {
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
     when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
-
-    final boolean[] outerPinnedRan = {false};
-    try {
-      component.testExecuteOptimisticStorageRead(
-          mockAtomicOp,
-          () -> component.testExecuteOptimisticStorageRead(
-              mockAtomicOp,
-              () -> "inner-optimistic",
-              () -> "inner-pinned"),
-          () -> {
-            outerPinnedRan[0] = true;
-            return "outer-pinned";
-          });
-      fail("Expected AssertionError from nested optimistic read detection");
-    } catch (AssertionError e) {
-      assertTrue(
-          "Expected the outer 'detected' assert to escape, got: " + e.getMessage(),
-          String.valueOf(e.getMessage()).contains("Nested optimistic read detected"));
-    }
-    assertEquals(false, outerPinnedRan[0]);
-
-    // exitAttempt() clears the detection state: a subsequent well-formed read on the
-    // same scope must work normally again.
-    String result = component.testExecuteOptimisticStorageRead(
-        mockAtomicOp,
-        () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
-          return "optimistic-result";
-        },
-        () -> "pinned-result");
-    assertEquals("optimistic-result", result);
-
+    String result = component.testExecuteOptimisticStorageRead(mockAtomicOp, () -> {
+      component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+      assertEquals("inner", component.testExecuteOptimisticStorageRead(
+          mockAtomicOp, () -> "inner", () -> "wrong"));
+      assertEquals(1, scope.count());
+      assertTrue(scope.isAttemptActive());
+      long lock = frame.acquireExclusiveLock();
+      frame.releaseExclusiveLock(lock);
+      return "wrong";
+    }, () -> {
+      assertFalse(scope.isAttemptActive());
+      return "outer";
+    });
+    assertEquals("outer", result);
+    result = component.testExecuteOptimisticStorageRead(mockAtomicOp,
+        () -> component.testExecuteOptimisticStorageRead(mockAtomicOp, () -> {
+          scope.fail(Cause.LOAD);
+          return "wrong";
+        }, () -> {
+          fail("Inner fallback must not run");
+          return "wrong";
+        }),
+        () -> "outer");
+    assertEquals("outer", result);
+    assertFalse(scope.isAttemptActive());
     releaseFrame(frame);
+  }
+
+  /** An inner stamp rejection must not add a second LOAD cause while unwinding. */
+  @Test
+  public void testNestedStampFailureCountsOnlyOriginalCause() throws IOException {
+    long stamps = OptimisticReadFailureCounters.count(Cause.STAMP);
+    long loads = OptimisticReadFailureCounters.count(Cause.LOAD);
+    var result = component.testExecuteOptimisticStorageRead(mockAtomicOp,
+        () -> component.testExecuteOptimisticStorageRead(mockAtomicOp, () -> {
+          throw OptimisticReadFailureCounters.failure(Cause.STAMP);
+        }, () -> "inner fallback"),
+        () -> "outer fallback");
+    assertEquals("outer fallback", result);
+    assertEquals(stamps + 1, OptimisticReadFailureCounters.count(Cause.STAMP));
+    assertEquals(loads, OptimisticReadFailureCounters.count(Cause.LOAD));
   }
 
   @Test
   public void testCheckedIOExceptionPropagatesAndDoesNotPoisonNextRead() throws IOException {
-    // Regression: a checked IOException escaping the optimistic lambda is
-    // NOT handled by the fallback catch (only RuntimeException | AssertionError route
-    // to the pinned path) — it must propagate to the caller. Before the fix, this exit
-    // path skipped exitAttempt(), leaving the -ea-only nesting state machine latched
-    // (attemptActive=true), so the NEXT read on the same scope failed with a spurious
-    // "Nested optimistic read attempt" AssertionError. The finally-based cleanup must
-    // close the attempt on this path too.
+    // A checked exception from the lambda itself propagates without fallback.
+    // Finally must close production attempt state so the next read can start normally.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
     when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
 
@@ -991,7 +981,7 @@ public class StorageComponentOptimisticReadTest {
       throws IOException {
     // The variant carries the same exception-completeness contract as the plain wrapper:
     // a checked IOException from the optimistic lambda propagates (no fallback, no
-    // re-check) and must not latch the -ea nesting state machine for the next read.
+    // re-check) and must clear production attempt state before the next read.
     try {
       component.testExecuteOptimisticStorageReadWithNullRecheck(
           mockAtomicOp,
@@ -1017,6 +1007,87 @@ public class StorageComponentOptimisticReadTest {
         Objects::isNull,
         () -> "key"));
     assertEquals(1, pinnedRuns[0]);
+  }
+
+  /**
+   * Every wrapper reports a kept failure after normal, checked, and Error exits, clears it,
+   * and never invokes its locked fallback. Validation and no-CAS loads expose only retry signals.
+   */
+  @Test
+  public void testKeptFailureWinsAtEveryWrapperExit() throws Exception {
+    for (int variant = 0; variant < 3; variant++) {
+      for (int exit = 0; exit < 3; exit++) {
+        var original = new OutOfMemoryError("kept load failure");
+        int selectedExit = exit;
+        int selectedVariant = variant;
+        var action = (StorageComponent.OptimisticReadFunction<String>) () -> {
+          scope.preserveLoadFailure(original);
+          org.junit.Assert.assertThrows(OptimisticReadFailedException.class,
+              scope::validateOrThrow);
+          org.junit.Assert.assertThrows(OptimisticReadFailedException.class,
+              scope::validateLastOrThrow);
+          org.junit.Assert.assertThrows(OptimisticReadFailedException.class,
+              () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX));
+          if (selectedExit == 1) {
+            throw new IOException("later checked exception");
+          }
+          if (selectedExit == 2) {
+            throw new LinkageError("later Error");
+          }
+          return "ignored";
+        };
+        assertSame(original, org.junit.Assert.assertThrows(OutOfMemoryError.class,
+            () -> runWrapper(selectedVariant, action)));
+        assertFalse(scope.isAttemptActive());
+        assertFalse(scope.isFailed());
+        scope.checkLoadFailure();
+        assertEquals("clean", runWrapper(variant, () -> "clean"));
+      }
+    }
+  }
+
+  /** Nested wrappers expose only a retry signal even when the outer lambda swallows it. */
+  @Test
+  public void testNestedWrappersReportKeptFailureOnlyAtOutermostExit() throws Exception {
+    for (int variant = 0; variant < 3; variant++) {
+      int selectedVariant = variant;
+      var original = new IllegalStateException("kept nested failure");
+      assertSame(original, org.junit.Assert.assertThrows(IllegalStateException.class,
+          () -> component.testExecuteOptimisticStorageRead(mockAtomicOp, () -> {
+            org.junit.Assert.assertThrows(OptimisticReadFailedException.class,
+                () -> runWrapper(selectedVariant, () -> {
+                  scope.preserveLoadFailure(original);
+                  return "ignored";
+                }));
+            assertTrue(scope.isAttemptActive());
+            assertTrue(scope.isFailed());
+            return "swallowed";
+          }, () -> {
+            throw new AssertionError("outer fallback must not run");
+          })));
+      assertFalse(scope.isAttemptActive());
+      scope.checkLoadFailure();
+    }
+  }
+
+  private String runWrapper(
+      int variant, StorageComponent.OptimisticReadFunction<String> action) throws IOException {
+    StorageComponent.PinnedReadFunction<String> fallback = () -> {
+      throw new AssertionError("fallback must not run");
+    };
+    if (variant == 0) {
+      return component.testExecuteOptimisticStorageRead(mockAtomicOp, action, fallback);
+    }
+    if (variant == 1) {
+      component.testExecuteOptimisticStorageReadVoid(mockAtomicOp, () -> {
+        action.apply();
+      }, () -> {
+        throw new AssertionError("void fallback must not run");
+      });
+      return "clean";
+    }
+    return component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp, action, fallback, Objects::isNull, () -> "key");
   }
 
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {

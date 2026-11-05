@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -308,6 +309,32 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Nullable @Override
   public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
+    final boolean attempt =
+        optimisticReadScope.isAttemptActive() && readCache.supportsOptimisticReads();
+    if (attempt && optimisticReadScope.isFailed()) {
+      return null;
+    }
+    try {
+      final var entry = loadPageForReadInternal(fileId, pageIndex);
+      if (attempt && entry == null) {
+        optimisticReadScope.fail(OptimisticReadFailureCounters.Cause.LOOKUP_MISS);
+      }
+      return entry;
+    } catch (Exception | Error failure) {
+      if (!attempt) {
+        throw failure;
+      }
+      // Errors from operation bookkeeping or a cache implementation may not be repeatable.
+      // Defer them until traversal cleanup, just like Errors kept by the shared cache.
+      if (failure instanceof Error) {
+        optimisticReadScope.preserveLoadFailure(failure);
+      }
+      optimisticReadScope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+      return null;
+    }
+  }
+
+  private CacheEntry loadPageForReadInternal(long fileId, long pageIndex) throws IOException {
     checkIfActive();
 
     fileId = checkFileIdCompatibility(fileId, storageId);
@@ -320,7 +347,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     final var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+      return loadSharedPageForRead(fileId, pageIndex);
     }
 
     if (changesContainer.isNew) {
@@ -335,20 +362,31 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
       if (checkChangesFilledUpTo(changesContainer, pageIndex)) {
         if (pageChangesContainer == null) {
-          return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+          return loadSharedPageForRead(fileId, pageIndex);
         } else {
           if (pageChangesContainer.isNew) {
             return pageChangesContainer;
           } else {
             // Need to load the page again from cache for locking reasons
-            pageChangesContainer.delegate =
-                readCache.loadForRead(fileId, pageIndex, writeCache, true);
+            final var delegate = loadSharedPageForRead(fileId, pageIndex);
+            if (delegate == null && optimisticReadScope.isAttemptActive()
+                && readCache.supportsOptimisticReads()) {
+              return null;
+            }
+            pageChangesContainer.delegate = delegate;
             return pageChangesContainer;
           }
         }
       }
     }
     return null;
+  }
+
+  private CacheEntry loadSharedPageForRead(long fileId, long pageIndex) throws IOException {
+    if (optimisticReadScope.isAttemptActive() && readCache.supportsOptimisticReads()) {
+      return readCache.loadForRead(fileId, pageIndex, writeCache, true, optimisticReadScope);
+    }
+    return readCache.loadForRead(fileId, pageIndex, writeCache, true);
   }
 
   /**

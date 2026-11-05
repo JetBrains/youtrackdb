@@ -48,15 +48,11 @@ public final class OptimisticReadScope {
   private long enterSeqAtCapture;
   private long exitSeqAtCapture;
 
-  // Nesting-detection state (-ea builds only). attemptActive is flipped exclusively
-  // by enterAttempt()/exitAttempt(), which are invoked from assert statements in
-  // StorageComponent.executeOptimisticStorageRead — with assertions disabled neither
-  // runs and both fields stay false, so production builds pay only the dead branch
-  // in reset(). A nested executeOptimisticStorageRead call inside an optimistic
-  // lambda would wipe the outer scope's stamps via reset(), silently voiding the
-  // outer validation; this state machine surfaces that as an AssertionError.
-  private boolean attemptActive;
-  private boolean nestedResetDetected;
+  // Production state shared by nested attempts on this operation.
+  private int attemptDepth;
+  private boolean failed;
+  private Throwable loadFailure;
+  private boolean[] pinned = new boolean[INITIAL_CAPACITY];
 
   /**
    * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
@@ -91,6 +87,7 @@ public final class OptimisticReadScope {
     if (count == frames.length) {
       grow();
     }
+    pinned[count] = false;
     entries[count] = entry;
     frames[count] = frame;
     stamps[count] = stamp;
@@ -104,6 +101,7 @@ public final class OptimisticReadScope {
    * apply phase overlapped the read window. Eviction alone need not invalidate stamps.
    */
   public void validateOrThrow() {
+    checkFailed();
     for (int i = 0; i < count; i++) {
       validatePageOrThrow(frames[i], stamps[i], entries[i]);
     }
@@ -134,6 +132,7 @@ public final class OptimisticReadScope {
    * @throws AssertionError if no page has been recorded and assertions are enabled
    */
   public void validateLastOrThrow() {
+    checkFailed();
     assert count > 0 : "No stamps recorded — cannot validate last";
 
     validatePageOrThrow(frames[count - 1], stamps[count - 1], entries[count - 1]);
@@ -176,15 +175,16 @@ public final class OptimisticReadScope {
    */
   public void reset(ApplyPhaseEpoch componentApplyPhaseEpoch) {
     assert componentApplyPhaseEpoch != null : "ApplyPhaseEpoch must not be null";
-    applyPhaseEpoch = componentApplyPhaseEpoch;
-
-    // Nesting detection (-ea builds only): attemptActive can be true here only when a
-    // surrounding executeOptimisticStorageRead is still in flight — i.e., this reset
-    // belongs to a nested attempt that is about to wipe the outer scope's stamps.
-    // Record the violation; the outer exitAttempt() assert will surface it.
-    if (attemptActive) {
-      nestedResetDetected = true;
+    if (attemptDepth > 0) {
+      // A nested scope cannot replace either the stamps or the outer epoch capture.
+      if (applyPhaseEpoch != componentApplyPhaseEpoch) {
+        fail(OptimisticReadFailureCounters.Cause.EPOCH);
+      }
+      return;
     }
+    failed = false;
+    loadFailure = null;
+    applyPhaseEpoch = componentApplyPhaseEpoch;
 
     // Capture the epoch. Exit is read BEFORE enter deliberately: if the two values are
     // equal, every apply phase that had entered by the time enterSeq was read had
@@ -199,39 +199,75 @@ public final class OptimisticReadScope {
     count = 0;
   }
 
-  /**
-   * Marks the start of an optimistic read attempt. Called only via {@code assert} from
-   * {@code StorageComponent.executeOptimisticStorageRead} (zero cost with assertions
-   * disabled). Returns {@code false} — failing the assert — if an attempt is already in
-   * flight, i.e., a nested executeOptimisticStorageRead call was made from inside an
-   * optimistic lambda.
-   */
-  public boolean enterAttempt() {
-    if (attemptActive) {
-      // Nested attempt: also latch the violation so the OUTER exitAttempt() fails.
-      // The AssertionError raised here (inside the outer optimistic lambda) is
-      // swallowed by the outer fallback catch, so the latch is what actually
-      // surfaces the bug to the caller.
-      nestedResetDetected = true;
-      return false;
+  /** Starts an attempt without clearing an enclosing attempt's state. */
+  public void beginAttempt(ApplyPhaseEpoch epoch) {
+    reset(epoch);
+    attemptDepth++;
+  }
+
+  /** Ends one nesting level. The outermost exit clears the failure state. */
+  public void endAttempt() {
+    if (--attemptDepth == 0) {
+      failed = false;
+      loadFailure = null;
     }
-    attemptActive = true;
-    return true;
   }
 
   /**
-   * Marks the end of an optimistic read attempt (successful or falling back). Called only
-   * via {@code assert} from {@code StorageComponent.executeOptimisticStorageRead}.
-   * Returns {@code false} — failing the assert — if the attempt was not well-formed:
-   * either it was never entered, or a nested reset was detected while it was in flight.
-   * Clears the detection state so a subsequent pinned fallback that legitimately starts
-   * a fresh optimistic read does not trip a stale flag.
+   * Latches any load Error or a post-load RuntimeException that a locked read may not repeat.
+   * Only the outermost wrapper reports it, after traversal locals have been cleaned up.
    */
-  public boolean exitAttempt() {
-    final boolean wellFormed = attemptActive && !nestedResetDetected;
-    attemptActive = false;
-    nestedResetDetected = false;
-    return wellFormed;
+  public void preserveLoadFailure(Throwable failure) {
+    failed = true;
+    if (loadFailure == null) {
+      loadFailure = failure;
+    }
+  }
+
+  /** Reports the original kept load failure at the outermost attempt boundary only. */
+  public void checkLoadFailure() {
+    if (loadFailure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (loadFailure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  public boolean isOutermostAttempt() {
+    return attemptDepth == 1;
+  }
+
+  public boolean isAttemptActive() {
+    return attemptDepth > 0;
+  }
+
+  public boolean isFailed() {
+    return failed;
+  }
+
+  /** Counts the first pinned-load failure only. Final checks do not count it again. */
+  public void fail(OptimisticReadFailureCounters.Cause cause) {
+    if (!failed) {
+      failed = true;
+      OptimisticReadFailureCounters.failure(cause);
+    }
+  }
+
+  public void checkFailed() {
+    // Traversals can still hold already-closed locals. Do not expose the original throwable here.
+    if (failed) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+  }
+
+  public void recordPinned(PageFrame frame, long stamp, CacheEntry entry) {
+    record(frame, stamp, entry);
+    pinned[count - 1] = true;
+  }
+
+  public boolean isPinned(int index) {
+    return pinned[index];
   }
 
   /**
@@ -255,5 +291,6 @@ public final class OptimisticReadScope {
     frames = Arrays.copyOf(frames, newCapacity);
     entries = Arrays.copyOf(entries, newCapacity);
     stamps = Arrays.copyOf(stamps, newCapacity);
+    pinned = Arrays.copyOf(pinned, newCapacity);
   }
 }

@@ -13,6 +13,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -196,6 +198,64 @@ public final class LockFreeReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ false);
   }
 
+  @Override
+  public boolean supportsOptimisticReads() {
+    return true;
+  }
+
+  @Override
+  public CacheEntry loadForRead(
+      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      OptimisticReadScope scope) {
+    if (scope.isFailed()) {
+      return null;
+    }
+    CacheEntry entry = null;
+    boolean handedOff = false;
+    try {
+      if (pageIndex < 0 || pageIndex > Integer.MAX_VALUE) {
+        scope.fail(
+            Cause.LOOKUP_MISS);
+        return null;
+      }
+      // A live cache entry is inside the file. Check EOF only on a miss, inside compute,
+      // so cache hits never acquire the storage-wide filesLock.
+      entry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, false, scope);
+      if (entry == null) {
+        scope.fail(
+            Cause.LOOKUP_MISS);
+        return null;
+      }
+      // doLoad returns only entries from data.get or data.compute, never silent loads.
+      // Its pin prevents eviction from freezing and removing that map entry. File lifecycle
+      // removal (including clearFile) cannot overlap an attempt on this file.
+      final var frame = entry.getCachePointer().getPageFrame();
+      final long stamp = frame.tryOptimisticRead();
+      if (stamp == 0) {
+        scope.fail(
+            Cause.STAMP);
+        return null;
+      }
+      scope.recordPinned(frame, stamp, entry);
+      handedOff = true;
+      return entry;
+    } catch (Exception | Error failure) {
+      // Errors must reach the outermost wrapper even before a pin is acquired. The locked
+      // load can take another path and succeed. doLoad preserves post-acquisition failures.
+      if (failure instanceof Error || entry != null) {
+        scope.preserveLoadFailure(failure);
+      }
+      scope.fail(
+          Cause.LOAD);
+      return null;
+    } finally {
+      // No failure escapes an attempted load, and unhanded pins remain ours to release.
+      if (entry != null && !handedOff) {
+        releaseFromRead(entry);
+      }
+    }
+  }
+
   @Nullable @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
@@ -273,6 +333,16 @@ public final class LockFreeReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final boolean forWrite) {
+    return doLoad(extFileId, pageIndex, writeCache, verifyChecksums, forWrite, null);
+  }
+
+  private CacheEntry doLoad(
+      long extFileId, int pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      boolean forWrite, OptimisticReadScope scope) {
+    final boolean nonGrowing = scope != null;
+    boolean postLoad = false;
+    CacheEntry returnedEntry = null;
+    Throwable failureInFlight = null;
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
 
     var success = false;
@@ -286,9 +356,11 @@ public final class LockFreeReadCache implements ReadCache {
 
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
+            postLoad = true;
             notifyAcquiredRead(cacheEntry);
             success = true;
 
+            returnedEntry = cacheEntry;
             return cacheEntry;
           }
         } else {
@@ -325,8 +397,17 @@ public final class LockFreeReadCache implements ReadCache {
                         // flush with no correctness impact (the page content came from
                         // disk and is unmodified).
                         final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
-                        final var pointer =
-                            writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
+                        // The size check and non-growing load are inside the map update.
+                        // A missing file has size zero. Never install a speculative new page.
+                        if (nonGrowing && pageIndex >= preCallFilledUpTo) {
+                          return null;
+                        }
+                        final var pointer = nonGrowing
+                            ? writeCache.loadIfPresent(fileId, pageIndex, verifyChecksums)
+                            : writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
+                        if (nonGrowing && pointer == null) {
+                          return null;
+                        }
                         if (pointer == null) {
                           // The disk engine's loadOrAdd is total. Fail-fast in production
                           // builds with the same diagnostic content the prior assert had so
@@ -363,7 +444,11 @@ public final class LockFreeReadCache implements ReadCache {
                     }
                   });
 
+          if (cacheEntry == null) {
+            return null;
+          }
           if (cacheEntry.acquireEntry()) {
+            postLoad = true;
             if (read[0]) {
               success = true;
               notifyAcquiredRead(cacheEntry);
@@ -372,6 +457,7 @@ public final class LockFreeReadCache implements ReadCache {
                 afterAdd(cacheEntry);
                 writeCache.checkCacheOverflow();
               } catch (final java.lang.InterruptedException e) {
+                Thread.currentThread().interrupt();
                 cacheEntry.releaseEntry();
                 throw BaseException.wrapException(
                     new ThreadInterruptedException("Check of write cache overflow was interrupted"),
@@ -382,12 +468,35 @@ public final class LockFreeReadCache implements ReadCache {
               }
             }
 
+            returnedEntry = cacheEntry;
             return cacheEntry;
           }
         }
       }
+    } catch (RuntimeException | Error failure) {
+      // Notification and overflow work happen after acquisition or installation. A fallback
+      // cache hit does not repeat these effects, so preserve the original failure instead.
+      failureInFlight = failure;
+      if (postLoad && scope != null) {
+        scope.preserveLoadFailure(failure);
+      }
+      throw failure;
     } finally {
-      cacheHitRatio.record(success);
+      try {
+        cacheHitRatio.record(success);
+      } catch (RuntimeException | Error failure) {
+        // A pending load failure owns propagation. Metrics must not replace it.
+        if (failureInFlight == null) {
+          // The caller has not received the return value yet, so we still own its pin.
+          if (returnedEntry != null) {
+            returnedEntry.releaseEntry();
+          }
+          if (postLoad && scope != null) {
+            scope.preserveLoadFailure(failure);
+          }
+          throw failure;
+        }
+      }
     }
   }
 

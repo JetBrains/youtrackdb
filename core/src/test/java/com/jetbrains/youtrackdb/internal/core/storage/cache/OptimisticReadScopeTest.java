@@ -42,6 +42,46 @@ public class OptimisticReadScopeTest {
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
   }
 
+  /** Nested starts preserve stamps and failure state without Java assertion side effects. */
+  @Test
+  public void testNestedAttemptKeepsStampsAndFailure() {
+    var scope = new OptimisticReadScope();
+    var epoch = new ApplyPhaseEpoch();
+    var frame = pool.acquire(true, Intention.TEST);
+    scope.beginAttempt(epoch);
+    scope.recordPinned(frame, frame.tryOptimisticRead(), cacheEntry(frame));
+    scope.beginAttempt(epoch);
+    assertEquals(1, scope.count());
+    scope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+    scope.beginAttempt(epoch);
+    org.junit.Assert.assertTrue(scope.isFailed());
+    scope.endAttempt();
+    scope.endAttempt();
+    org.junit.Assert.assertTrue(scope.isAttemptActive());
+    org.junit.Assert.assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+    org.junit.Assert.assertThrows(OptimisticReadFailedException.class, scope::validateLastOrThrow);
+    scope.endAttempt();
+    org.junit.Assert.assertFalse(scope.isAttemptActive());
+    org.junit.Assert.assertFalse(scope.isFailed());
+    scope.beginAttempt(epoch);
+    assertEquals(0, scope.count());
+    scope.validateOrThrow();
+    scope.endAttempt();
+    releaseFrame(frame);
+  }
+
+  /** A different nested domain fails rather than replace the outer epoch capture. */
+  @Test
+  public void testNestedDifferentDomainFails() {
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    org.junit.Assert.assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+    scope.endAttempt();
+    org.junit.Assert.assertTrue(scope.isFailed());
+    scope.endAttempt();
+  }
+
   @Test
   public void testRecordAndValidateHappyPath() {
     // Records multiple frames with valid stamps and validates all succeed.

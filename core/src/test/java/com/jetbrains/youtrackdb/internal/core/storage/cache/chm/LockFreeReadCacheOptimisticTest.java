@@ -60,6 +60,7 @@ public class LockFreeReadCacheOptimisticTest {
   private PageFramePool pageFramePool;
   private LockFreeReadCache readCache;
   private WriteCache writeCache;
+  private Object originalReadBatch;
 
   @Before
   public void setUp() {
@@ -73,7 +74,12 @@ public class LockFreeReadCacheOptimisticTest {
   }
 
   @After
-  public void tearDown() {
+  public void tearDown() throws Exception {
+    if (originalReadBatch != null) {
+      var field = LockFreeReadCache.class.getDeclaredField("readBatch");
+      field.setAccessible(true);
+      field.set(readCache, originalReadBatch);
+    }
     readCache.clear();
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
   }
@@ -486,14 +492,499 @@ public class LockFreeReadCacheOptimisticTest {
     }
   }
 
+  /** Uncached attempt loads install the map entry and detect later frame writes. */
+  @Test
+  public void testPinnedUncachedLoadRecordsStampAndIdentity() {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    var entry = readCache.loadForRead(0, 0, wc, false, scope);
+    assertNotNull(entry);
+    assertSame(entry, readCache.getCacheEntryOptimistic(0, 0));
+    assertEquals(1, scope.count());
+    assertTrue(scope.isPinned(0));
+    readCache.releaseFromRead(entry);
+    var frame = entry.getCachePointer().getPageFrame();
+    long lock = frame.acquireExclusiveLock();
+    frame.releaseExclusiveLock(lock);
+    assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+    scope.endAttempt();
+  }
+
+  /** Locked frames undo their pin, latch failure, and prohibit subsequent loads. */
+  @Test
+  public void testPinnedLockedFrameStopsAttemptWithoutPinLeak() {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    var entry = readCache.loadForRead(0, 0, wc, false);
+    readCache.releaseFromRead(entry);
+    int pins = pinState(entry);
+    long lock = entry.getCachePointer().getPageFrame().acquireExclusiveLock();
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    try {
+      assertNull(readCache.loadForRead(0, 0, wc, false, scope));
+      assertEquals(pins, pinState(entry));
+      assertTrue(scope.isFailed());
+      assertNull(readCache.loadForRead(0, 1, wc, false, scope));
+      assertNull(readCache.getCacheEntryOptimistic(0, 1));
+      assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+      assertThrows(OptimisticReadFailedException.class, scope::validateLastOrThrow);
+    } finally {
+      entry.getCachePointer().getPageFrame().releaseExclusiveLock(lock);
+      scope.endAttempt();
+    }
+  }
+
+  /** Silent-load entries stay detached and are never recorded by a pinned attempt. */
+  @Test
+  public void testPinnedLoadRejectsEntryOutsideMap() {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    var detached = readCache.silentLoadForRead(0, 0, wc, false);
+    assertNotNull(detached);
+    assertNull(readCache.getCacheEntryOptimistic(0, 0));
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    var entry = readCache.loadForRead(0, 0, wc, false, scope);
+    assertNotSame(detached, entry);
+    assertSame(entry.getCachePointer().getPageFrame(), scope.getFrame(0));
+    assertSame(entry, readCache.getCacheEntryOptimistic(0, 0));
+    readCache.releaseFromRead(entry);
+    readCache.releaseFromRead(detached);
+    assertEquals(0, pinState(entry));
+    scope.validateOrThrow();
+    scope.endAttempt();
+  }
+
+  /** A page beyond EOF at the map update must not call the extending primitive. */
+  @Test
+  public void testPinnedMissingPageDoesNotGrowFile() throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(0L);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    assertNull(readCache.loadForRead(0, 5, wc, false, scope));
+    assertTrue(scope.isFailed());
+    org.mockito.Mockito.verify(wc, org.mockito.Mockito.never()).loadOrAdd(0, 5, false);
+    assertNull(readCache.getCacheEntryOptimistic(0, 5));
+    scope.endAttempt();
+  }
+
+  /** Exceptions and Errors fail the attempt without escaping the load or leaking a pin. */
+  @Test
+  public void testPinnedFailureAndErrorCleanup() throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    org.mockito.Mockito.doThrow(new IOException("read failed"))
+        .when(wc).loadIfPresent(0, 0, false);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    assertNull(readCache.loadForRead(0, 0, wc, false, scope));
+    assertTrue(scope.isFailed());
+    scope.endAttempt();
+    var entry = readCache.loadForRead(0, 1, wc, false);
+    readCache.releaseFromRead(entry);
+    var error = new OutOfMemoryError("test");
+    failReadNotification(error);
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    assertNull(readCache.loadForRead(0, 1, wc, false, scope));
+    assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+    assertSame(error, assertThrows(OutOfMemoryError.class, scope::checkLoadFailure));
+    assertEquals(0, pinState(entry));
+    scope.endAttempt();
+  }
+
+  /** The real component wrapper repeats a failed cache load under its lock and reports I/O. */
+  @Test
+  public void testPinnedLoadFailureIsReportedByLockedFallback() throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    org.mockito.Mockito.doThrow(new IOException("broken page"))
+        .when(wc).loadIfPresent(0, 0, false);
+    org.mockito.Mockito.doThrow(new IOException("broken page"))
+        .when(wc).loadOrAdd(0, 0, false);
+    var storage = mock(AbstractStorage.class);
+    var manager = mock(AtomicOperationsManager.class);
+    when(storage.getReadCache()).thenReturn(readCache);
+    when(storage.getWriteCache()).thenReturn(wc);
+    when(storage.getAtomicOperationsManager()).thenReturn(manager);
+    when(manager.getApplyPhaseEpoch("test")).thenReturn(new ApplyPhaseEpoch());
+    var component = new LookupComponent(storage);
+    var op = mock(AtomicOperation.class);
+    var scope = new OptimisticReadScope();
+    when(op.getOptimisticReadScope()).thenReturn(scope);
+    var failure = assertThrows(RuntimeException.class, () -> component.readPinned(op, wc));
+    assertTrue(failure.getCause() instanceof IOException);
+    assertEquals("broken page", failure.getCause().getMessage());
+    org.junit.Assert.assertFalse(scope.isAttemptActive());
+    org.junit.Assert.assertFalse(scope.isFailed());
+    org.mockito.Mockito.verify(wc).loadIfPresent(0, 0, false);
+    org.mockito.Mockito.verify(wc).loadOrAdd(0, 0, false);
+    assertNull(readCache.getCacheEntryOptimistic(0, 0));
+  }
+
+  /** A pre-pin VM Error is reported unchanged, without a successful locked fallback. */
+  @Test
+  public void testPrePinOutOfMemoryErrorReachesCaller() throws Exception {
+    assertPrePinErrorReachesCaller(new OutOfMemoryError("loadIfPresent"));
+  }
+
+  /** A pre-pin AssertionError is not mistaken for a speculative-read retry signal. */
+  @Test
+  public void testPrePinAssertionErrorReachesCaller() throws Exception {
+    assertPrePinErrorReachesCaller(new AssertionError("loadIfPresent"));
+  }
+
+  private void assertPrePinErrorReachesCaller(Error error) throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    var resident = readCache.loadForRead(0, 1, wc, false);
+    readCache.releaseFromRead(resident);
+    org.mockito.Mockito.doThrow(error).when(wc).loadIfPresent(0, 0, false);
+    var storage = mock(AbstractStorage.class);
+    var manager = mock(AtomicOperationsManager.class);
+    when(storage.getReadCache()).thenReturn(readCache);
+    when(storage.getWriteCache()).thenReturn(wc);
+    when(storage.getAtomicOperationsManager()).thenReturn(manager);
+    when(manager.getApplyPhaseEpoch("test")).thenReturn(new ApplyPhaseEpoch());
+    var component = new LookupComponent(storage);
+    var op = mock(AtomicOperation.class);
+    var scope = new OptimisticReadScope();
+    when(op.getOptimisticReadScope()).thenReturn(scope);
+    var loadReturned = new boolean[1];
+    try {
+      assertSame(error, assertThrows(error.getClass(),
+          () -> component.readPrePinError(op, wc, loadReturned)));
+      assertTrue("The load must return null rather than throw", loadReturned[0]);
+      org.mockito.Mockito.verify(wc, org.mockito.Mockito.never()).loadOrAdd(0, 0, false);
+      assertNull(readCache.getCacheEntryOptimistic(0, 0));
+      assertEquals(0, pinState(resident));
+      org.junit.Assert.assertFalse(scope.isAttemptActive());
+      org.junit.Assert.assertFalse(scope.isFailed());
+      scope.checkLoadFailure();
+
+      org.mockito.Mockito.doCallRealMethod().when(wc).loadIfPresent(0, 0, false);
+      var next = component.readPinned(op, wc);
+      assertNotNull(next);
+      readCache.releaseFromRead(next);
+      assertEquals(0, pinState(next));
+      assertEquals(0, pinState(resident));
+      scope.checkLoadFailure();
+    } finally {
+      // A mutation may wrongly return a pinned fallback page to assertThrows.
+      var entry = readCache.getCacheEntryOptimistic(0, 0);
+      while (entry != null && pinState(entry) > 0) {
+        readCache.releaseFromRead(entry);
+      }
+    }
+  }
+
   private static final class LookupComponent extends StorageComponent {
 
     private LookupComponent(AbstractStorage storage) {
       super(storage, "test", ".test", "test", true);
     }
 
+    private CacheEntry readPinned(AtomicOperation op, WriteCache wc) throws IOException {
+      return executeOptimisticStorageRead(op,
+          () -> readCache.loadForRead(0, 0, wc, false, op.getOptimisticReadScope()),
+          () -> readCache.loadForRead(0, 0, wc, false));
+    }
+
+    private CacheEntry readPrePinError(
+        AtomicOperation op, WriteCache wc, boolean[] loadReturned) throws IOException {
+      return executeOptimisticStorageRead(op, () -> {
+        var entry = readCache.loadForRead(0, 0, wc, false, op.getOptimisticReadScope());
+        loadReturned[0] = entry == null;
+        return entry;
+      }, () -> readCache.loadForRead(0, 0, wc, false));
+    }
+
+    private int fallbackRuns;
+
+    private CacheEntry readSwallowing(
+        AtomicOperation op, WriteCache wc, boolean nested, boolean[] failed) throws IOException {
+      return executeOptimisticStorageRead(op, () -> {
+        try {
+          if (nested) {
+            readSwallowing(op, wc, false, failed);
+          } else {
+            var entry = readCache.loadForRead(0, 0, wc, false, op.getOptimisticReadScope());
+            if (entry != null) {
+              readCache.releaseFromRead(entry);
+            }
+          }
+          op.getOptimisticReadScope().validateOrThrow();
+        } catch (RuntimeException ignored) {
+          failed[0] = op.getOptimisticReadScope().isFailed();
+        }
+        return null;
+      }, () -> {
+        fallbackRuns++;
+        return null;
+      });
+    }
+
     private PageView lookup(AtomicOperation op, int pageIndex) {
       return loadPageOptimistic(op, 0, pageIndex);
+    }
+  }
+
+  /** Notification failure must return the sole pin and preserve the original Error. */
+  @Test
+  public void testNotificationFailureReturnsOnlyPin() throws Exception {
+    assertNotificationFailurePreservesPins(false);
+  }
+
+  /** Notification failure must not steal another owner's pin or allow eviction to freeze it. */
+  @Test
+  public void testNotificationFailurePreservesOtherPin() throws Exception {
+    assertNotificationFailurePreservesPins(true);
+  }
+
+  private void assertNotificationFailurePreservesPins(boolean holdPin) throws Exception {
+    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    if (!holdPin) {
+      readCache.releaseFromRead(entry);
+    }
+    int before = pinState(entry);
+    var error = new OutOfMemoryError("ReadBatch allocation");
+    failReadNotification(error);
+    try {
+      assertSame(error, assertThrows(OutOfMemoryError.class,
+          () -> readCache.loadForRead(0, 0, writeCache, false)));
+      assertEquals(before, pinState(entry));
+      if (holdPin) {
+        org.junit.Assert.assertFalse(entry.freeze());
+      }
+    } finally {
+      if (holdPin) {
+        readCache.releaseFromRead(entry);
+      }
+    }
+    assertEquals(0, pinState(entry));
+  }
+
+  /** Cache hits in attempts must avoid the storage-wide file-size lock entirely. */
+  @Test
+  public void testPinnedCacheHitDoesNotCheckFileSize() {
+    var entry = readCache.loadForRead(0, 0, writeCache, false);
+    readCache.releaseFromRead(entry);
+    var wc = org.mockito.Mockito.spy(writeCache);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    try {
+      var loaded = readCache.loadForRead(0, 0, wc, false, scope);
+      assertSame(entry, loaded);
+      readCache.releaseFromRead(loaded);
+      org.mockito.Mockito.verify(wc, org.mockito.Mockito.never()).getFilledUpTo(0);
+      assertEquals(0, pinState(entry));
+    } finally {
+      scope.endAttempt();
+    }
+  }
+
+  /** An overflow interrupt after installation must escape the wrapper, not become a cache hit. */
+  @Test
+  public void testOverflowInterruptIsNotLostInFallback() throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    org.mockito.Mockito.doAnswer(call -> {
+      throw new InterruptedException("overflow interrupted");
+    }).when(wc).checkCacheOverflow();
+    var storage = mock(AbstractStorage.class);
+    var manager = mock(AtomicOperationsManager.class);
+    when(storage.getReadCache()).thenReturn(readCache);
+    when(storage.getWriteCache()).thenReturn(wc);
+    when(storage.getAtomicOperationsManager()).thenReturn(manager);
+    when(manager.getApplyPhaseEpoch("test")).thenReturn(new ApplyPhaseEpoch());
+    var component = new LookupComponent(storage);
+    var op = mock(AtomicOperation.class);
+    var scope = new OptimisticReadScope();
+    when(op.getOptimisticReadScope()).thenReturn(scope);
+    try {
+      var failure = assertThrows(
+          com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException.class,
+          () -> component.readPinned(op, wc));
+      assertEquals("overflow interrupted", failure.getCause().getMessage());
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertEquals(0, pinState(readCache.getCacheEntryOptimistic(0, 0)));
+      org.junit.Assert.assertFalse(scope.isAttemptActive());
+      org.mockito.Mockito.verify(wc).checkCacheOverflow();
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  /** An installed page cannot hide an overflow AssertionError behind a successful cache hit. */
+  @Test
+  public void testPostInstallAssertionErrorReachesCaller() throws Exception {
+    assertPreservedOverflowFailure(new AssertionError("overflow assertion"), false, false);
+  }
+
+  /** A swallowed post-install failure still rejects the direct attempt and is cleared on exit. */
+  @Test
+  public void testSwallowedLoadFailureRejectsAttempt() throws Exception {
+    assertPreservedOverflowFailure(new IllegalStateException("overflow"), true, false);
+  }
+
+  /** Inner and outer catches cannot turn a preserved failure into a validated nested result. */
+  @Test
+  public void testSwallowedNestedLoadFailureRejectsAttempt() throws Exception {
+    assertPreservedOverflowFailure(new IllegalStateException("nested overflow"), true, true);
+  }
+
+  private void assertPreservedOverflowFailure(
+      Throwable failure, boolean swallow, boolean nested) throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    org.mockito.Mockito.doThrow(failure).when(wc).checkCacheOverflow();
+    var storage = mock(AbstractStorage.class);
+    var manager = mock(AtomicOperationsManager.class);
+    when(storage.getReadCache()).thenReturn(readCache);
+    when(storage.getWriteCache()).thenReturn(wc);
+    when(storage.getAtomicOperationsManager()).thenReturn(manager);
+    when(manager.getApplyPhaseEpoch("test")).thenReturn(new ApplyPhaseEpoch());
+    var component = new LookupComponent(storage);
+    var op = mock(AtomicOperation.class);
+    var scope = new OptimisticReadScope();
+    when(op.getOptimisticReadScope()).thenReturn(scope);
+    var failed = new boolean[1];
+    try {
+      assertSame(failure, assertThrows(failure.getClass(), () -> {
+        if (swallow) {
+          component.readSwallowing(op, wc, nested, failed);
+        } else {
+          var entry = component.readPinned(op, wc);
+          if (entry != null) {
+            readCache.releaseFromRead(entry);
+          }
+        }
+      }));
+      assertEquals(0, component.fallbackRuns);
+      if (swallow) {
+        assertTrue("Preservation must mark the attempt failed", failed[0]);
+      }
+      assertEquals(0, pinState(readCache.getCacheEntryOptimistic(0, 0)));
+      org.junit.Assert.assertFalse(scope.isAttemptActive());
+      org.junit.Assert.assertFalse(scope.isFailed());
+      scope.checkLoadFailure();
+      // Reuse the same scope through the real wrapper. The installed page is now a cache hit.
+      var next = component.readPinned(op, wc);
+      assertNotNull(next);
+      readCache.releaseFromRead(next);
+      scope.checkLoadFailure();
+      assertEquals(0, pinState(next));
+    } finally {
+      org.mockito.Mockito.doNothing().when(wc).checkCacheOverflow();
+    }
+  }
+
+  /** A secondary metric Error cannot replace the original post-install failure or leak its pin. */
+  @Test
+  public void testMetricFailureDoesNotReplaceLoadFailure() throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    var originalFailure = new AssertionError("overflow");
+    org.mockito.Mockito.doThrow(originalFailure).when(wc).checkCacheOverflow();
+    var field = LockFreeReadCache.class.getDeclaredField("cacheHitRatio");
+    field.setAccessible(true);
+    var originalRatio = field.get(readCache);
+    var ratio = mock(com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio.class);
+    org.mockito.Mockito.doThrow(new OutOfMemoryError("metrics")).when(ratio)
+        .record(org.mockito.ArgumentMatchers.anyBoolean());
+    field.set(readCache, ratio);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    try {
+      assertNull(readCache.loadForRead(0, 0, wc, false, scope));
+      assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+      assertSame(originalFailure, assertThrows(AssertionError.class, scope::checkLoadFailure));
+      assertEquals(0, pinState(readCache.getCacheEntryOptimistic(0, 0)));
+    } finally {
+      field.set(readCache, originalRatio);
+      scope.endAttempt();
+    }
+  }
+
+  /** Metric failure after a cache hit releases only the new pin, inside and outside attempts. */
+  @Test
+  public void testMetricFailureReturnsPinOnCacheHit() throws Exception {
+    assertMetricFailureReturnsPin(true, false);
+    assertMetricFailureReturnsPin(true, true);
+  }
+
+  /** Metric failure after installation cannot leak a pin or disappear into the locked fallback. */
+  @Test
+  public void testMetricFailureReturnsPinAfterInstall() throws Exception {
+    assertMetricFailureReturnsPin(false, false);
+    readCache.clear();
+    assertMetricFailureReturnsPin(false, true);
+  }
+
+  private void assertMetricFailureReturnsPin(boolean hit, boolean attempt) throws Exception {
+    var wc = org.mockito.Mockito.spy(writeCache);
+    when(wc.getFilledUpTo(0)).thenReturn(10L);
+    CacheEntry owner = null;
+    if (hit) {
+      owner = readCache.loadForRead(0, 0, writeCache, false);
+    }
+    var field = LockFreeReadCache.class.getDeclaredField("cacheHitRatio");
+    field.setAccessible(true);
+    var original = field.get(readCache);
+    var ratio = mock(com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio.class);
+    var error = new AssertionError("metric recording");
+    org.mockito.Mockito.doThrow(error).when(ratio)
+        .record(org.mockito.ArgumentMatchers.anyBoolean());
+    field.set(readCache, ratio);
+    var scope = new OptimisticReadScope();
+    scope.beginAttempt(new ApplyPhaseEpoch());
+    try {
+      if (attempt) {
+        assertNull(readCache.loadForRead(0, 0, wc, false, scope));
+      } else {
+        assertSame(error, assertThrows(AssertionError.class,
+            () -> readCache.loadForRead(0, 0, wc, false)));
+      }
+      assertEquals(hit ? 1 : 0, pinState(readCache.getCacheEntryOptimistic(0, 0)));
+      if (attempt) {
+        assertTrue(scope.isFailed());
+        assertThrows(OptimisticReadFailedException.class, scope::validateOrThrow);
+        assertSame(error, assertThrows(AssertionError.class, scope::checkLoadFailure));
+      }
+    } finally {
+      field.set(readCache, original);
+      scope.endAttempt();
+      if (owner != null) {
+        readCache.releaseFromRead(owner);
+      }
+      // Keep teardown useful when a mutation intentionally leaves the returned pin behind.
+      var entry = readCache.getCacheEntryOptimistic(0, 0);
+      while (entry != null && pinState(entry) > 0) {
+        readCache.releaseFromRead(entry);
+      }
+    }
+  }
+
+  private void failReadNotification(Error failure) throws Exception {
+    var field = LockFreeReadCache.class.getDeclaredField("readBatch");
+    field.setAccessible(true);
+    originalReadBatch = field.get(readCache);
+    field.set(readCache, ThreadLocal.withInitial(() -> {
+      throw failure;
+    }));
+  }
+
+  private static int pinState(CacheEntry entry) {
+    try {
+      var field = com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl.class
+          .getDeclaredField("state");
+      field.setAccessible(true);
+      return field.getInt(entry);
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError(e);
     }
   }
 

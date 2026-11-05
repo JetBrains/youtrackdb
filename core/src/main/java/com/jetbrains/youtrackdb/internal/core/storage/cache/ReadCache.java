@@ -82,6 +82,18 @@ public interface ReadCache {
       long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
       throws IOException;
 
+  /** Whether shared pinned reads participate in optimistic attempt validation. */
+  default boolean supportsOptimisticReads() {
+    return false;
+  }
+
+  /** A shared load for an attempt. Disk implementations must not extend the file. */
+  default CacheEntry loadForRead(
+      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      OptimisticReadScope scope) throws IOException {
+    return loadForRead(fileId, pageIndex, writeCache, verifyChecksums);
+  }
+
   CacheEntry silentLoadForRead(
       final long extFileId,
       final int pageIndex,

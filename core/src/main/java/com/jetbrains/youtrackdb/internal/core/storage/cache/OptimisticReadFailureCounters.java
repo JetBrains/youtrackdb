@@ -17,7 +17,7 @@ public final class OptimisticReadFailureCounters {
     EPOCH,
     /** A looked-up frame has unassigned coordinates or belongs to another page. */
     COORDINATES,
-    /** The shared cache has no live frame for the requested page. */
+    /** No page is available, including an out-of-range pinned load or a cache lookup miss. */
     LOOKUP_MISS,
     /** The transaction has private changes, so shared contents cannot serve the read. */
     LOCAL_CHANGES,
@@ -25,7 +25,12 @@ public final class OptimisticReadFailureCounters {
      * The recorded cache entry is no longer alive or no longer holds the frame used by the
      * read. Checked before the stamp, including when eviction and pool reuse both occurred.
      */
-    FRAME_IDENTITY
+    FRAME_IDENTITY,
+    /**
+     * A caught exception from a pinned load inside an attempt whose work the fallback repeats,
+     * or an uncounted nested computation failure. Post-load effects propagate without counting.
+     */
+    LOAD
   }
 
   private static final LongAdder[] COUNTS = new LongAdder[Cause.values().length];
