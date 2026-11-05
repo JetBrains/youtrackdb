@@ -125,6 +125,45 @@ public final class T5BenchmarkCatalogue {
     }
   }
 
+  /** Archive identity and logical bindings for the independent B fixture. */
+  public record WhereForm(String variant, String q, String name, int cat, String slug,
+      String email, boolean archivedBypass, List<String> expected) {
+    public WhereForm {
+      expected = List.copyOf(expected);
+    }
+
+    public String identity() {
+      return "B/" + variant + "/" + q + "-" + name;
+    }
+  }
+
+  public static List<WhereForm> loadWhere() {
+    try (var in = T5BenchmarkCatalogue.class.getResourceAsStream("/t5/where-gate.json")) {
+      if (in == null) {
+        throw new IllegalStateException("Missing B catalogue");
+      }
+      return decodeWhere(in.readAllBytes());
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  static List<WhereForm> decodeWhere(byte[] bytes) {
+    try {
+      if (!"a77a5e60ec9c4f55e3f4b827016720dc49c1c093649a8b4d8ed596d950a4ffcd".equals(
+          HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)))) {
+        throw new IllegalStateException("B catalogue digest mismatch");
+      }
+      return List.copyOf(new ObjectMapper().readValue(bytes,
+          new TypeReference<List<WhereForm>>() {
+          }));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
   private T5BenchmarkCatalogue() {
   }
 }
