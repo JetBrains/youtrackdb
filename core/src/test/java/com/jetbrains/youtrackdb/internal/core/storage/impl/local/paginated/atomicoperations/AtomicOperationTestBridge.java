@@ -62,7 +62,6 @@ public final class AtomicOperationTestBridge {
       tracking.setPageApplyHook(null);
       return;
     }
-    tracking.setForceEpochApplyForTesting(true);
     tracking.setPageApplyHook(new AtomicOperationBinaryTracking.PageApplyHook() {
       @Override
       public long[] orderPageApplications(final long fileId, final long[] pageIndexes) {

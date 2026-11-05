@@ -74,6 +74,7 @@ public class CommitPageSetApplyTest {
     final WriteAheadLog wal = mock(WriteAheadLog.class);
     final java.util.concurrent.ExecutorService io = Executors.newCachedThreadPool();
     final ApplyPhaseEpoch epoch = new ApplyPhaseEpoch();
+    final CommitProtocolCounters counters = new CommitProtocolCounters();
     final WOWCache write;
     final AtomicInteger lsn = new AtomicInteger(1);
     final List<String> events = new ArrayList<>();
@@ -111,7 +112,8 @@ public class CommitPageSetApplyTest {
       var op = new AtomicOperationBinaryTracking(read, write, wal, 1,
           new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
           new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
-          new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(), epoch);
+          new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(), epoch,
+          counters);
       op.startToApplyOperations(42);
       if (!enabled) {
         op.setForceEpochApplyForTesting(true);
@@ -301,8 +303,12 @@ public class CommitPageSetApplyTest {
           verify(f.write, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
           return c.callRealMethod();
         }).when(f.read).tryReserveWritePins(anyInt());
+        var before = snapshot(f.counters);
         try {
           assertNotNull(op.commitChanges(42, f.wal));
+          assertDelta(f.counters, before, mode == 2
+              ? CommitProtocolCounters.Outcome.RESERVATION_DENIED
+              : CommitProtocolCounters.Outcome.OVER_LIMIT);
           if (mode != 2) {
             verify(f.read, never()).tryReserveWritePins(anyInt());
           }
@@ -332,7 +338,9 @@ public class CommitPageSetApplyTest {
         f.change(op, file, i, false);
       }
       clearInvocations(f.read);
+      var before = snapshot(f.counters);
       assertNotNull(op.commitChanges(42, f.wal));
+      assertDelta(f.counters, before, CommitProtocolCounters.Outcome.PAGE_SET);
       verify(f.read).tryReserveWritePins(1024);
       verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
           anyBoolean(), any());
@@ -369,7 +377,41 @@ public class CommitPageSetApplyTest {
               calls.incrementAndGet();
             }
           });
+      var before = snapshot(f.counters);
       assertNotNull(op.commitChanges(42, f.wal));
+      assertDelta(f.counters, before, CommitProtocolCounters.Outcome.FORCED);
+      assertEquals(1, calls.get());
+      assertEquals(1, f.epoch.enterSeq());
+      assertEquals(1, f.epoch.exitSeq());
+      verify(f.read, never()).tryReserveWritePins(anyInt());
+      assertEquals(0, f.read.reservedWritePins());
+    }
+  }
+
+  // Direct hook installation on a real cache with a positive pin budget must force
+  // fallback, invoke the hook inside the epoch, and count only FORCED.
+  @Test
+  public void directHookInstallationForcesEpochApply() throws Exception {
+    try (var f = new Fixture()) {
+      long file = f.write.addFile("direct-hook");
+      var op = f.operation(true);
+      op.loadFile("direct-hook");
+      f.change(op, file, 0, false);
+      assertTrue(f.read.writePinBudget() > 0);
+      var calls = new AtomicInteger();
+      op.setPageApplyHook(new AtomicOperationBinaryTracking.PageApplyHook() {
+        @Override
+        public void beforePageApply(long fileId, long pageIndex) {
+          assertEquals(file, fileId);
+          assertEquals(0, pageIndex);
+          assertEquals(1, f.epoch.enterSeq());
+          assertEquals(0, f.epoch.exitSeq());
+          calls.incrementAndGet();
+        }
+      });
+      var before = snapshot(f.counters);
+      assertNotNull(op.commitChanges(42, f.wal));
+      assertDelta(f.counters, before, CommitProtocolCounters.Outcome.FORCED);
       assertEquals(1, calls.get());
       assertEquals(1, f.epoch.enterSeq());
       assertEquals(1, f.epoch.exitSeq());
@@ -427,7 +469,7 @@ public class CommitPageSetApplyTest {
             new AtomicOperationsSnapshot(0, 100, new LongOpenHashSet(), 100),
             new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
             new ConcurrentSkipListMap<>(), new ConcurrentSkipListMap<>(), new AtomicLong(),
-            f.epoch);
+            f.epoch, f.counters);
         op.startToApplyOperations(42);
         op.loadFile("memory");
         var page = op.allocatePageForWrite(file, 0);
@@ -435,7 +477,9 @@ public class CommitPageSetApplyTest {
         op.registerPageOperation(file, 0,
             new TestPageOperation(0, file, 0, new LogSequenceNumber(0, 0), 0));
         op.releasePageFromWrite(page);
+        var before = snapshot(f.counters);
         assertNotNull(op.commitChanges(42, f.wal));
+        assertDelta(f.counters, before, CommitProtocolCounters.Outcome.NO_PIN_BUDGET);
         assertEquals(1, f.epoch.enterSeq());
         assertEquals(1, f.epoch.exitSeq());
         var entry = cache.loadForRead(file, 0, cache, false);
@@ -595,6 +639,100 @@ public class CommitPageSetApplyTest {
       } finally {
         Thread.interrupted();
       }
+    }
+  }
+
+  private static long[] snapshot(CommitProtocolCounters counters) {
+    return Arrays.stream(CommitProtocolCounters.Outcome.values()).mapToLong(counters::count)
+        .toArray();
+  }
+
+  private static void assertDelta(CommitProtocolCounters counters, long[] before,
+      CommitProtocolCounters.Outcome expected) {
+    for (var outcome : CommitProtocolCounters.Outcome.values()) {
+      assertEquals(outcome.name(), outcome == expected ? 1 : 0,
+          counters.count(outcome) - before[outcome.ordinal()]);
+    }
+    long expectedEpoch = Arrays.stream(CommitProtocolCounters.Outcome.values())
+        .filter(o -> o != CommitProtocolCounters.Outcome.PAGE_SET
+            && o != CommitProtocolCounters.Outcome.ZERO_CHANGE)
+        .mapToLong(counters::count).sum();
+    assertEquals(expectedEpoch, counters.epochCount());
+  }
+
+  // Each selection increments only its own outcome, even when the fixture already has counts.
+  // Forced precedes lifecycle and capacity, lifecycle precedes zero budget, and zero-change
+  // overrides forced selection. Both create and delete count as lifecycle.
+  @Test
+  public void completedCommitsCountExactlyOneOutcomeWithSelectionPrecedence() throws Exception {
+    try (var f = new Fixture()) {
+      for (int mode = 0; mode < 10; mode++) {
+        String name = "counter-" + mode;
+        long file = f.write.addFile(name);
+        var op = f.operation(mode != 5 && mode != 7);
+        op.loadFile(name);
+        if (mode != 6 && mode != 7 && mode != 9) {
+          f.change(op, file, 0, false);
+        }
+        doReturn(mode == 3 || mode == 8 ? 0 : mode == 2 ? 1 : 4)
+            .when(f.read).writePinBudget();
+        if (mode == 1 || mode == 5 || mode == 8) {
+          op.addFile("new-" + mode);
+        } else if (mode == 9) {
+          op.deleteFile(file);
+        }
+        if (mode == 2) {
+          f.change(op, file, 1, false);
+        }
+        var held = mode == 4 ? f.read.tryReserveWritePins(4) : null;
+        var expected = switch (mode) {
+          case 0 -> CommitProtocolCounters.Outcome.PAGE_SET;
+          case 1, 8, 9 -> CommitProtocolCounters.Outcome.FILE_LIFECYCLE;
+          case 2 -> CommitProtocolCounters.Outcome.OVER_LIMIT;
+          case 3 -> CommitProtocolCounters.Outcome.NO_PIN_BUDGET;
+          case 4 -> CommitProtocolCounters.Outcome.RESERVATION_DENIED;
+          case 5 -> CommitProtocolCounters.Outcome.FORCED;
+          default -> CommitProtocolCounters.Outcome.ZERO_CHANGE;
+        };
+        var before = snapshot(f.counters);
+        try {
+          op.commitChanges(42, f.wal);
+          assertDelta(f.counters, before, expected);
+        } finally {
+          if (held != null) {
+            held.close();
+          }
+        }
+      }
+    }
+  }
+
+  // A throwing epoch hook must leave every count unchanged. A successful retry operation
+  // proves that the same counters still observe subsequent completed applies.
+  @Test
+  public void failedEpochApplyDoesNotCount() throws Exception {
+    try (var f = new Fixture()) {
+      long file = f.write.addFile("epoch-failure");
+      var op = f.operation(true);
+      op.loadFile("epoch-failure");
+      f.change(op, file, 0, false);
+      var failure = new IllegalStateException("apply failed");
+      AtomicOperationTestBridge.installPageApplyHook(op,
+          new AtomicOperationTestBridge.TestPageApplyHook() {
+            @Override
+            public void beforePageApply(long fileId, long pageIndex) {
+              throw failure;
+            }
+          });
+      var before = snapshot(f.counters);
+      assertSame(failure, assertThrows(IllegalStateException.class,
+          () -> op.commitChanges(42, f.wal)));
+      assertDelta(f.counters, before, null);
+      var next = f.operation(false);
+      next.loadFile("epoch-failure");
+      f.change(next, file, 0, false);
+      next.commitChanges(42, f.wal);
+      assertDelta(f.counters, before, CommitProtocolCounters.Outcome.FORCED);
     }
   }
 
@@ -779,7 +917,9 @@ public class CommitPageSetApplyTest {
             }).when(entries[releaseIndex]).releaseEntry();
           }
         }
+        var before = snapshot(f.counters);
         var thrown = assertThrows(Throwable.class, () -> op.commitChanges(42, f.wal));
+        assertDelta(f.counters, before, null);
         assertEquals(step.name(), step == FailureStep.BACKUP ? 1 : 0,
             f.events.stream().filter("backup failure"::equals).count());
         assertEquals(step.name(), step == FailureStep.BACKUP ? 0

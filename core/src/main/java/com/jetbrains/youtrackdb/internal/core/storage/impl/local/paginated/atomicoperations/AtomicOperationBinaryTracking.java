@@ -180,10 +180,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Standalone test/tooling fallback. Production fallback commits bracket the stable
   // epochs of their locked logical components. Page-set commits enter no epoch.
   @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
+  private final CommitProtocolCounters commitProtocolCounters;
 
   /**
-   * Production constructor. Optimistic scopes receive their epoch from the component
-   * starting each read, and commits receive epochs from their locked components.
+   * Standalone constructor with private counters. Optimistic scopes receive their epoch from
+   * the component starting each read, and commits receive epochs from their locked components.
    */
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -215,6 +216,28 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
       @Nonnull AtomicLong edgeSnapshotIndexSize,
       @Nullable ApplyPhaseEpoch applyPhaseEpoch) {
+    this(readCache, writeCache, writeAheadLog, storageId, snapshot, sharedSnapshotIndex,
+        sharedVisibilityIndex, snapshotIndexSize, sharedEdgeSnapshotIndex,
+        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, applyPhaseEpoch,
+        new CommitProtocolCounters());
+  }
+
+  /** Production construction receives the owning storage manager's shared counters. */
+  AtomicOperationBinaryTracking(
+      final ReadCache readCache,
+      final WriteCache writeCache,
+      @Nullable final WriteAheadLog writeAheadLog,
+      final int storageId,
+      @Nonnull AtomicOperationsSnapshot snapshot,
+      @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex,
+      @Nonnull AtomicLong snapshotIndexSize,
+      @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
+      @Nonnull AtomicLong edgeSnapshotIndexSize,
+      @Nullable ApplyPhaseEpoch applyPhaseEpoch,
+      @Nonnull CommitProtocolCounters commitProtocolCounters) {
+    this.commitProtocolCounters = commitProtocolCounters;
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -1164,8 +1187,15 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // immediately and closes it on every exit. A failure propagates, never falls back.
       // Page-set commits lock every frame before the first change. Frame stamps,
       // cached-frame identity and the pinned-load rules protect optimistic readers.
-      if (!forceEpochApplyForTesting && !hasFileLifecycleChanges
-          && tryApplyPageSet(commitPages, nonDurableFlags, txEndLsn)) {
+      // WAL collection already identifies every file lifecycle and changed page.
+      // Reuse those facts so zero-change selection needs no file-map scan.
+      final var mutatesSharedCache = hasFileLifecycleChanges || commitPages.pageCount > 0;
+      final var outcome = forceEpochApplyForTesting ? CommitProtocolCounters.Outcome.FORCED
+          : hasFileLifecycleChanges ? CommitProtocolCounters.Outcome.FILE_LIFECYCLE
+              : tryApplyPageSet(commitPages, nonDurableFlags, txEndLsn);
+      if (outcome == CommitProtocolCounters.Outcome.PAGE_SET) {
+        commitProtocolCounters.record(mutatesSharedCache ? outcome
+            : CommitProtocolCounters.Outcome.ZERO_CHANGE);
         return txEndLsn;
       }
 
@@ -1185,7 +1215,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // perform no readCache calls in the section below, so bumping the epoch for them
       // would only spuriously invalidate every concurrently overlapping optimistic
       // read in the storage.
-      final var mutatesSharedCache = commitMutatesSharedCache(commitPages);
       var enteredComponentCount = 0;
       var standaloneEpochEntered = false;
       try {
@@ -1258,6 +1287,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         }
       }
 
+      commitProtocolCounters.record(mutatesSharedCache ? outcome
+          : CommitProtocolCounters.Outcome.ZERO_CHANGE);
       return txEndLsn;
     } finally {
       active = false;
@@ -1288,28 +1319,28 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       final var pages = pagesByFile.get(fileId);
       return pages == null ? LongLists.EMPTY_LIST : pages;
     }
-
-    boolean isEmpty() {
-      return pagesByFile.isEmpty();
-    }
   }
 
   /**
-   * Returns false for normal fallback, before loading any page. Once reserved, failures
-   * propagate through reservation cleanup and never select the legacy protocol.
+   * Returns the selected outcome. Fallback is selected before loading any page. Once reserved,
+   * failures propagate through reservation cleanup and never select the epoch protocol.
    */
-  private boolean tryApplyPageSet(CommitPageSet pages,
+  private CommitProtocolCounters.Outcome tryApplyPageSet(CommitPageSet pages,
       Long2BooleanOpenHashMap nonDurableFlags, @Nullable LogSequenceNumber txEndLsn) {
-    final int limit = Math.min(PAGE_SET_APPLY_LIMIT, readCache.writePinBudget());
-    if (pages.pageCount > limit) {
-      return false;
-    }
+    final int budget = readCache.writePinBudget();
+    final int limit = Math.min(PAGE_SET_APPLY_LIMIT, budget);
     if (pages.pageCount == 0) {
-      return true;
+      return CommitProtocolCounters.Outcome.PAGE_SET;
+    }
+    if (budget == 0) {
+      return CommitProtocolCounters.Outcome.NO_PIN_BUDGET;
+    }
+    if (pages.pageCount > limit) {
+      return CommitProtocolCounters.Outcome.OVER_LIMIT;
     }
     try (final var reservation = readCache.tryReserveWritePins((int) pages.pageCount)) {
       if (reservation == null) {
-        return false;
+        return CommitProtocolCounters.Outcome.RESERVATION_DENIED;
       }
       // Sort primitive identities only. All loads and possible eviction finish before
       // the first frame lock. The entry array reuses the loaded entries during apply.
@@ -1349,7 +1380,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         reservation.publishAndUnlock(entry);
       }
     }
-    return true;
+    return CommitProtocolCounters.Outcome.PAGE_SET;
   }
 
   private static void restorePageContent(CacheEntry entry, CacheEntryChanges changes,
@@ -1408,25 +1439,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     } finally {
       readCache.releaseFromWrite(cacheEntry, writeCache, true);
     }
-  }
-
-  /**
-   * Returns whether this commit will mutate shared read-cache state in the apply
-   * section: any file deletion, any new file, or any page with accumulated
-   * changes. Zero-change commits (read-only atomic operations) return {@code false}
-   * and skip the apply-phase epoch bracket entirely.
-   */
-  private boolean commitMutatesSharedCache(final CommitPageSet commitPages) {
-    if (!deletedFiles.isEmpty() || !commitPages.isEmpty()) {
-      return true;
-    }
-    for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
-      final var changes = fileChangesEntry.getValue();
-      if (changes.isNew) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -1493,9 +1505,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * Installs the TEST-ONLY page-apply hook (see {@link PageApplyHook}). Must never be
    * called from production code — the hook exists solely so tests can deterministically
    * order and pause the commit-time page-apply loop inside the apply-phase epoch bracket.
+   * A non-null hook forces epoch apply. Clearing the hook keeps that override in place.
    */
   void setPageApplyHook(@Nullable final PageApplyHook hook) {
     this.pageApplyHook = hook;
+    if (hook != null) {
+      forceEpochApplyForTesting = true;
+    }
   }
 
   /**

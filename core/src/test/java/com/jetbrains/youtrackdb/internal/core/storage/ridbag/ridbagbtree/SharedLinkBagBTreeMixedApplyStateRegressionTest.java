@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationTestBridge;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CommitProtocolCounters;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -148,6 +149,22 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
         reference.put(position, i + 1);
       }
     });
+  }
+
+  // Snapshot after setup and before teardown so only this storage's target commit contributes.
+  // The production manager must inject its own counters into the operation it creates.
+  @Test
+  public void managerCountersReflectRealStorageCommit() throws Exception {
+    var counters = atomicOperationsManager.getCommitProtocolCounters();
+    var before = Arrays.stream(CommitProtocolCounters.Outcome.values())
+        .mapToLong(counters::count).toArray();
+    atomicOperationsManager.executeInsideAtomicOperation(op -> bTree.put(op,
+        new EdgeKey(RID_BAG_ID, TARGET_COLLECTION, 0, 0L),
+        new LinkBagValue(999, 0, 0, false)));
+    for (var outcome : CommitProtocolCounters.Outcome.values()) {
+      assertEquals(outcome.name(), outcome == CommitProtocolCounters.Outcome.PAGE_SET ? 1 : 0,
+          counters.count(outcome) - before[outcome.ordinal()]);
+    }
   }
 
   @After
