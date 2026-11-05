@@ -28,9 +28,14 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertiesStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class GeneratedDedupCatalogueTest {
+
+  @Rule
+  public TemporaryFolder temporaryFolder = TemporaryFolder.builder().assureDeletion().build();
 
   private static final Map<String, List<Integer>> IDS = Map.of(
       "count", List.of(11, 35, 59, 83, 107, 131, 155, 179, 203, 227, 251, 275, 299),
@@ -188,7 +193,7 @@ public class GeneratedDedupCatalogueTest {
   }
 
   @Test
-  public void bareLimitCapsSixteenDistinctResultsInBothTranslatorModes() {
+  public void bareLimitCapsSixteenDistinctResultsInBothTranslatorModes() throws Exception {
     // q167 has no hops and selects a 16-id last-name window. A lost limit returns all 16.
     var f = GeneratedDedupCatalogue.load().stream()
         .filter(form -> form.family().equals("bareLimit") && form.definition().id() == 167)
@@ -196,7 +201,8 @@ public class GeneratedDedupCatalogueTest {
     var p = f.parameters().getFirst();
     boolean flag =
         GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
-    try (var db = YourTracks.instance("memory:bare-limit-boundary")) {
+    try (
+        var db = YourTracks.instance(temporaryFolder.newFolder("bare-limit-boundary").toString())) {
       db.create("catalogue", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var g = db.openTraversal("catalogue", "admin", "admin")) {
         g.executeInTx(t -> {
@@ -247,7 +253,7 @@ public class GeneratedDedupCatalogueTest {
     }
     boolean flag =
         GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
-    try (var db = YourTracks.instance("memory:generated-dedup")) {
+    try (var db = YourTracks.instance(temporaryFolder.newFolder("generated-dedup").toString())) {
       db.create("catalogue", DatabaseType.MEMORY, "admin", "admin", "admin");
       try (var g = db.openTraversal("catalogue", "admin", "admin")) {
         var rids = new HashMap<Long, Object>();

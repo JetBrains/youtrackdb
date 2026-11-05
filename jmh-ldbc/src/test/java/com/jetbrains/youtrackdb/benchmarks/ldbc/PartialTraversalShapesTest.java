@@ -16,17 +16,24 @@ import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 /** Independent expected answers distinguish membership, path duplicates, empty maps and fallbacks. */
 public class PartialTraversalShapesTest {
+
+  // The class rule deletes the directory only after @AfterClass closes the shared graph and DB.
+  @ClassRule
+  public static TemporaryFolder temporaryFolder =
+      TemporaryFolder.builder().assureDeletion().build();
 
   private static YouTrackDB db;
   private static YTDBGraphTraversalSource g;
 
   @BeforeClass
-  public static void createGraph() {
-    db = YourTracks.instance("memory:partial-shapes");
+  public static void createGraph() throws Exception {
+    db = YourTracks.instance(temporaryFolder.newFolder("partial-shapes").toString());
     db.create("partial", DatabaseType.MEMORY, "admin", "admin", "admin");
     g = db.openTraversal("partial", "admin", "admin");
     g.executeInTx(t -> {
