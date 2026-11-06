@@ -297,6 +297,15 @@ public class FrontendTransactionImpl implements
     assertOnOwningThread();
     checkTransactionValid();
 
+    if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
+      if (status == TXSTATUS.ROLLBACKING) {
+        rollbackInternal();
+      }
+
+      throw new RollbackException(
+          "Given transaction was rolled back, and thus cannot be committed.");
+    }
+
     if (txStartCounter < 0) {
       throw new TransactionException(session.getDatabaseName(),
           "Invalid value of tx counter: " + txStartCounter);
