@@ -137,7 +137,15 @@ public class CommitPageSetApplyTest {
       return entry.getFileId() + ":" + entry.getPageIndex();
     }
 
+    void awaitAllocationTasks() {
+      // Allocation tasks call this WOWCache spy even while periodic flushing is paused.
+      // A fresh executor barrier drains them before Mockito installs per-mock pending answers.
+      // Fixture writers stay on this thread, so no new task is submitted during stubbing.
+      write.pauseBackgroundFlush();
+    }
+
     void observe() {
+      awaitAllocationTasks();
       doAnswer(call -> {
         var real = (ReadCache.WriteReservation) call.callRealMethod();
         assertNotNull(real);
@@ -207,6 +215,37 @@ public class CommitPageSetApplyTest {
       write.delete();
       io.shutdownNow();
       pool.clear();
+    }
+  }
+
+  // Either pause callback may fail. Cleanup releases every lock, pin and reservation,
+  // and a failed apply must not increment any completed-protocol counter.
+  @Test
+  public void throwingPageSetPauseReleasesReservation() throws Exception {
+    for (boolean published : new boolean[] {false, true}) {
+      try (var f = new Fixture()) {
+        long file = f.write.addFile("pause-failure");
+        var op = f.operation(true);
+        f.change(op, file, 0, false);
+        f.change(op, file, 1, false);
+        var failure = new IllegalStateException("pause failure");
+        AtomicOperationTestBridge.installPageSetPauseHook(op, (pages, firstPublished) -> {
+          if (firstPublished == published) {
+            throw failure;
+          }
+        });
+        assertSame(failure, assertThrows(IllegalStateException.class,
+            () -> op.commitChanges(42, f.wal)));
+        assertEquals(0, f.read.reservedWritePins());
+        for (long page = 0; page < 2; page++) {
+          var entry = f.read.getCacheEntryOptimistic(file, page);
+          assertNotEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+        }
+        for (var outcome : CommitProtocolCounters.Outcome.values()) {
+          assertEquals(0, f.counters.count(outcome));
+        }
+        AtomicOperationTestBridge.installPageSetPauseHook(op, null);
+      }
     }
   }
 
@@ -610,6 +649,7 @@ public class CommitPageSetApplyTest {
       assertNull(f.read.getCacheEntryOptimistic(file, 1));
       var interrupted = new InterruptedException("overflow");
       var checks = new AtomicInteger();
+      f.awaitAllocationTasks();
       clearInvocations(f.read);
       doAnswer(call -> {
         if (checks.incrementAndGet() == 2) {
@@ -789,6 +829,7 @@ public class CommitPageSetApplyTest {
         originals[i] = f.read.loadForRead(files[i], pages[i], f.write, false);
         f.read.releaseFromRead(originals[i]);
       }
+      f.awaitAllocationTasks();
       var op = f.operation(true);
       op.loadFile("failure-second");
       op.loadFile("failure-first");

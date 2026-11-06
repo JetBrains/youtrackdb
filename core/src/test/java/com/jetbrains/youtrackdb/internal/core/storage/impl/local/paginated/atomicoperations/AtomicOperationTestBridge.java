@@ -1,22 +1,30 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import javax.annotation.Nullable;
 
 /**
  * Test-only bridge exposing the package-private apply-phase seams of the
  * {@code atomicoperations} package to tests living in other packages (YTDB-1178).
  *
- * <p>Two seams are re-exported:
+ * <p>Three seams are re-exported:
  *
  * <ul>
  *   <li>{@link AtomicOperationBinaryTracking.PageApplyHook} installation on a live
  *       atomic operation, so an integration test can dictate the commit-time page-apply
  *       order and pause the writer in the existing apply step under the epoch.
- *       Installing a hook forces that fallback step. Page-set apply does not call it;
+ *       Installing a hook forces fallback and counts FORCED for a commit that changes pages.
+ *       Page-set apply does not call it;
+ *   <li>the page-set pause hook, which leaves protocol selection unchanged. A successful page-set
+ *       commit that changes pages counts PAGE_SET. The apply hook or force override takes
+ *       precedence, counts FORCED, and prevents the pause hook from running;
  *   <li>the per-logical-component {@link ApplyPhaseEpoch} owned by
  *       {@link AtomicOperationsManager}, so a test can make baseline-relative assertions.
  * </ul>
+ *
+ * <p>Commits without page changes or file creation/deletion count ZERO_CHANGE with either seam
+ * installed. File creation/deletion counts FILE_LIFECYCLE, or FORCED with the page-apply hook.
  */
 public final class AtomicOperationTestBridge {
 
@@ -73,6 +81,26 @@ public final class AtomicOperationTestBridge {
         hook.beforePageApply(fileId, pageIndex);
       }
     });
+  }
+
+  /**
+   * Observes the sorted commit set after all frame locks and after the first publish/unlock.
+   * The array and entries are borrowed, read-only observations. Do not load pages or take
+   * locks in the callback. A thrown failure follows reservation cleanup, not fallback.
+   */
+  public interface TestPageSetPauseHook {
+    void pause(CacheEntry[] pages, boolean firstPagePublished);
+  }
+
+  /**
+   * Installs or clears the pause seam without forcing fallback. A successful page-set commit
+   * that changes pages counts PAGE_SET. Zero-change commits count ZERO_CHANGE. The apply hook
+   * or force override takes precedence and prevents this hook from running.
+   */
+  public static void installPageSetPauseHook(AtomicOperation operation,
+      @Nullable TestPageSetPauseHook hook) {
+    ((AtomicOperationBinaryTracking) operation).setPageSetPauseHook(
+        hook == null ? null : hook::pause);
   }
 
   /** Forces this operation to use the fallback protocol and its page-apply hook. */

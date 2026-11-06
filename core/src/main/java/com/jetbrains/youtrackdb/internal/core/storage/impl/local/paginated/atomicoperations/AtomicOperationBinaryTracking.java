@@ -176,6 +176,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // because tests install the hook on the test thread while commitChanges may run on a
   // separate writer thread.
   @Nullable private volatile PageApplyHook pageApplyHook;
+  @Nullable private volatile PageSetPauseHook pageSetPauseHook;
 
   // Standalone test/tooling fallback. Production fallback commits bracket the stable
   // epochs of their locked logical components. Page-set commits enter no epoch.
@@ -1327,6 +1328,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    */
   private CommitProtocolCounters.Outcome tryApplyPageSet(CommitPageSet pages,
       Long2BooleanOpenHashMap nonDurableFlags, @Nullable LogSequenceNumber txEndLsn) {
+    final var pauseHook = pageSetPauseHook;
     final int budget = readCache.writePinBudget();
     final int limit = Math.min(PAGE_SET_APPLY_LIMIT, budget);
     if (pages.pageCount == 0) {
@@ -1367,6 +1369,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       for (final var entry : pinned) {
         reservation.lock(entry);
       }
+      // Callbacks stay inside reservation cleanup, including failures before any change.
+      if (pauseHook != null) {
+        pauseHook.pause(pinned, false);
+      }
       // No page load, eviction or freezer admission is allowed in this lock window.
       for (int i = 0; i < pinned.length; i++) {
         final var entry = pinned[i];
@@ -1378,6 +1384,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         reservation.markChanged(entry);
         restorePageContent(entry, changesByPage[i], nonDurable, txEndLsn);
         reservation.publishAndUnlock(entry);
+        if (i == 0 && pauseHook != null) {
+          pauseHook.pause(pinned, true);
+        }
       }
     }
     return CommitProtocolCounters.Outcome.PAGE_SET;
@@ -1502,10 +1511,26 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
+   * Test-only observation of the sorted commit set after all locks, then after the first
+   * publish and unlock. Callbacks must not mutate the array, load pages or acquire locks.
+   * Exceptions propagate through reservation cleanup, as other page-set failures do.
+   */
+  interface PageSetPauseHook {
+    void pause(CacheEntry[] pages, boolean firstPagePublished);
+  }
+
+  /** Leaves protocol selection unchanged, including forced overrides and zero-change commits. */
+  void setPageSetPauseHook(@Nullable PageSetPauseHook hook) {
+    pageSetPauseHook = hook;
+  }
+
+  /**
    * Installs the TEST-ONLY page-apply hook (see {@link PageApplyHook}). Must never be
    * called from production code — the hook exists solely so tests can deterministically
    * order and pause the commit-time page-apply loop inside the apply-phase epoch bracket.
-   * A non-null hook forces epoch apply. Clearing the hook keeps that override in place.
+   * A non-null hook forces epoch apply and counts FORCED for a commit that changes pages.
+   * Zero-change commits count ZERO_CHANGE. Clearing keeps the override. The override takes
+   * precedence over the page-set pause hook, which is not called on the forced path.
    */
   void setPageApplyHook(@Nullable final PageApplyHook hook) {
     this.pageApplyHook = hook;
