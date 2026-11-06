@@ -314,20 +314,20 @@ public class OrphanRetentionTest {
   public void disabledAndHugeRetention() throws Exception {
     final var path = folder(OLD);
     final var ops = new AtomicInteger();
-    final var retention = new OrphanRetention(Clock.fixed(EXPIRES, ZoneOffset.UTC),
-        () -> 0, () -> false) {
-      @Override
-      BasicFileAttributes readAttributes(Path entry, SecureDirectoryStream<Path> parent)
-          throws IOException {
-        ops.incrementAndGet();
-        return super.readAttributes(entry, parent);
-      }
-    };
-    retention.run(storage(), null, 0);
-    retention.run(storage(), null, -1);
-    retention.run(storage(), null, Integer.MIN_VALUE);
+    for (int days : new int[] {0, -1, Integer.MIN_VALUE}) {
+      final var retention = new OrphanRetention(Clock.fixed(EXPIRES, ZoneOffset.UTC),
+          () -> 0, () -> false) {
+        @Override
+        BasicFileAttributes readAttributes(Path entry, SecureDirectoryStream<Path> parent)
+            throws IOException {
+          ops.incrementAndGet();
+          return super.readAttributes(entry, parent);
+        }
+      };
+      retention.run(storage(), null, days);
+    }
     assertEquals(0, ops.get());
-    retention.run(storage(), null, Integer.MAX_VALUE);
+    pass(EXPIRES).run(storage(), null, Integer.MAX_VALUE);
     assertTrue(Files.exists(path));
     pass(CREATED.plus(Integer.MAX_VALUE, java.time.temporal.ChronoUnit.DAYS))
         .run(storage(), null, Integer.MAX_VALUE);

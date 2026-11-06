@@ -16,6 +16,9 @@ import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayDeque;
 import java.util.Iterator;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
@@ -24,7 +27,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * One lock-free retention pass. Inputs belong to the submitting physical open, not mutable storage
- * state. This class owns no thread and does not change storage lifecycle state.
+ * state. This class owns no thread and does not change storage lifecycle state. Each instance
+ * serves exactly one run. A second run call, including a concurrent one, throws IllegalStateException.
  */
 public class OrphanRetention {
   private static final Logger logger = LoggerFactory.getLogger(OrphanRetention.class);
@@ -35,11 +39,34 @@ public class OrphanRetention {
   private final Clock wallClock;
   private final LongSupplier nanoTime;
   private final BooleanSupplier stop;
+  private final AtomicBoolean runClaimed = new AtomicBoolean();
+  private final CountDownLatch completed = new CountDownLatch(1);
+  private volatile boolean stopRequested;
+
+  public OrphanRetention(Clock wallClock, LongSupplier nanoTime) {
+    this(wallClock, nanoTime, () -> false);
+  }
 
   public OrphanRetention(Clock wallClock, LongSupplier nanoTime, BooleanSupplier stop) {
     this.wallClock = wallClock;
     this.nanoTime = nanoTime;
     this.stop = stop;
+  }
+
+  /**
+   * Requests stop without waiting. An operation starts at its preceding stop-flag read, so one
+   * operation can still finish after this call. Already-open handles are always closed.
+   */
+  public void requestStop() {
+    stopRequested = true;
+  }
+
+  /**
+   * Returns whether the single run ended, including all handle cleanup. A timeout does not cancel
+   * the signal. Before run is called there is no completion, even if stop has been requested.
+   */
+  public boolean awaitCompletion(long timeout, TimeUnit unit) throws InterruptedException {
+    return completed.await(timeout, unit);
   }
 
   /** Returns null for anything outside the complete, strict producer grammar. */
@@ -55,6 +82,18 @@ public class OrphanRetention {
   }
 
   public void run(Path storagePath, String currentFolderName, int retentionDays) {
+    if (!runClaimed.compareAndSet(false, true)) {
+      throw new IllegalStateException("OrphanRetention instances are single-use");
+    }
+    try {
+      runOnce(storagePath, currentFolderName, retentionDays);
+    } finally {
+      // All traversal and try-with-resources cleanup finishes before waiters are released.
+      completed.countDown();
+    }
+  }
+
+  private void runOnce(Path storagePath, String currentFolderName, int retentionDays) {
     final long started = nanoTime.getAsLong();
     if (retentionDays <= 0) {
       return;
@@ -137,6 +176,7 @@ public class OrphanRetention {
   private void deleteFolder(Path folder, SecureDirectoryStream<Path> parent, Budget budget) {
     final var stack = new ArrayDeque<Frame>();
     long deletedFiles = 0;
+    Throwable uncheckedFailure = null;
     try {
       budget.check();
       stack.push(new Frame(folder, parent, openDirectory(folder, parent)));
@@ -186,6 +226,11 @@ public class OrphanRetention {
       // The selected folder disappeared before opening.
     } catch (IOException failure) {
       warn(folder, failure);
+    } catch (Stopped stopped) {
+      // Stop is control flow. Cleanup failures must propagate rather than be suppressed by it.
+      throw stopped;
+    } catch (RuntimeException | Error failure) {
+      uncheckedFailure = failure;
     } finally {
       // Closing already-open handles releases resources even after stop or the deadline.
       for (var frame : stack) {
@@ -193,7 +238,20 @@ public class OrphanRetention {
           frame.entries.close();
         } catch (IOException failure) {
           warn(frame.path, failure);
+        } catch (RuntimeException | Error failure) {
+          // One failed close must not prevent release of the remaining ancestor handles.
+          if (uncheckedFailure == null) {
+            uncheckedFailure = failure;
+          } else if (uncheckedFailure != failure) {
+            uncheckedFailure.addSuppressed(failure);
+          }
         }
+      }
+      if (uncheckedFailure instanceof RuntimeException failure) {
+        throw failure;
+      }
+      if (uncheckedFailure instanceof Error failure) {
+        throw failure;
       }
     }
   }
@@ -255,7 +313,8 @@ public class OrphanRetention {
     }
 
     private void check() {
-      if (stop.getAsBoolean() || nanoTime.getAsLong() - started >= RUN_LIMIT_NANOS) {
+      if (stopRequested || stop.getAsBoolean()
+          || nanoTime.getAsLong() - started >= RUN_LIMIT_NANOS) {
         throw new Stopped();
       }
     }
@@ -280,7 +339,19 @@ public class OrphanRetention {
       this.parent = parent;
       this.handle = parent == null ? null : secure(entries);
       this.entries = entries;
-      this.iterator = entries.iterator();
+      try {
+        this.iterator = entries.iterator();
+      } catch (RuntimeException | Error failure) {
+        // The frame is not on the traversal stack yet, so it still owns this stream.
+        try {
+          entries.close();
+        } catch (IOException | RuntimeException | Error closeFailure) {
+          if (failure != closeFailure) {
+            failure.addSuppressed(closeFailure);
+          }
+        }
+        throw failure;
+      }
     }
   }
 }
