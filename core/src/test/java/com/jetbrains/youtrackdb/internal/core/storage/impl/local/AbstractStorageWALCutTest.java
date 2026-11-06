@@ -75,7 +75,10 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-/** Verifies checkpoint WAL retention, force ordering, and maintenance failure handling. */
+/**
+ * Verifies checkpoint WAL cut caps, operation/cache recovery ownership, force ordering,
+ * and maintenance failure handling.
+ */
 public class AbstractStorageWALCutTest {
 
   @Rule
@@ -113,6 +116,7 @@ public class AbstractStorageWALCutTest {
       setPrivateField(storage, field,
           mock(AbstractStorage.class.getDeclaredField(field).getType()));
     }
+    setPrivateField(storage, "commitWindowDepth", ThreadLocal.withInitial(() -> new int[1]));
     setPrivateField(storage, "checkpointFloorTestAction", new AtomicReference<>());
     setPrivateField(storage, "afterCloseAtomicTestAction", new AtomicReference<>());
     setPrivateField(storage, "beforeMaintenanceFloorReadTestAction", new AtomicReference<>());
@@ -177,6 +181,125 @@ public class AbstractStorageWALCutTest {
     verify(writeAheadLog, never()).cutTill(any());
     assertPublishedCoverage(checkpointLsn.getSegment());
     verify(storage).clearStorageDirty();
+  }
+
+  /** A cache owner newer than the pre-table active segment cannot raise the cut or clear recovery. */
+  @Test
+  public void fullCheckpointCapsLaterCacheOwnerAtPreTableActiveSegment() throws Exception {
+    when(writeAheadLog.activeSegment()).thenReturn(25L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(30L);
+
+    storage.flushAllData();
+
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(25L);
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(storage, never()).clearStorageDirty();
+  }
+
+  /** An operation owner newer than the pre-table active segment is capped without a cache owner. */
+  @Test
+  public void fullCheckpointCapsLaterOperationOwnerAtPreTableActiveSegment() throws Exception {
+    when(writeAheadLog.activeSegment()).thenReturn(23L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(25L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.flushAllData();
+
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(23L);
+    verify(writeAheadLog, never()).cutTill(any());
+    verify(storage, never()).clearStorageDirty();
+  }
+
+  /** The pre-table active segment caps a later cache owner, independently of the WAL end. */
+  @Test
+  public void fuzzyCheckpointCapsLaterCacheOwnerAtPreTableActiveSegment() throws Exception {
+    prepareOnlineMaintenance();
+    when(writeAheadLog.begin()).thenReturn(new LogSequenceNumber(1, 1));
+    when(writeAheadLog.end()).thenReturn(new LogSequenceNumber(25, 1));
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(30L);
+
+    storage.makeFuzzyCheckpoint();
+
+    var sampleOrder = inOrder(writeAheadLog, atomicOperationsTable, writeCache, storage);
+    sampleOrder.verify(writeAheadLog).end();
+    sampleOrder.verify(writeAheadLog).activeSegment();
+    sampleOrder.verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
+    sampleOrder.verify(writeCache).getMinimalNotFlushedSegment();
+    sampleOrder.verify(storage).saveCheckpointFloor(0L);
+    sampleOrder.verify(writeCache).syncDataFiles();
+    sampleOrder.verify(storage).checkpointChangedPages(20L);
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+  }
+
+  /** An earlier operation owner wins over both the WAL cap and a later cache owner. */
+  @Test
+  public void fuzzyCheckpointRetainsEarlierOperationOwner() throws Exception {
+    prepareOnlineMaintenance();
+    when(writeAheadLog.begin()).thenReturn(new LogSequenceNumber(1, 1));
+    when(writeAheadLog.end()).thenReturn(checkpointLsn);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(7L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(30L);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles();
+    verify(storage).checkpointChangedPages(7L);
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(7L);
+  }
+
+  /** With no cache owner, the pre-table active segment still caps a later WAL end. */
+  @Test
+  public void fuzzyCheckpointWithoutCacheOwnerCapsWalEndAtPreTableActiveSegment() throws Exception {
+    prepareOnlineMaintenance();
+    when(writeAheadLog.begin()).thenReturn(new LogSequenceNumber(1, 1));
+    when(writeAheadLog.end()).thenReturn(new LogSequenceNumber(25, 1));
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(writeCache).syncDataFiles();
+    verify(storage).checkpointChangedPages(20L);
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+  }
+
+  /** An empty WAL supplies no cut cap, so fuzzy checkpoint cannot attempt maintenance. */
+  @Test
+  public void fuzzyCheckpointWithoutWalEndDoesNotAttemptCut() throws Exception {
+    prepareOnlineMaintenance();
+    when(writeAheadLog.end()).thenReturn(null);
+    // An empty WAL has no cache owner. Mockito otherwise supplies a boxed zero boundary.
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);
+
+    storage.makeFuzzyCheckpoint();
+
+    verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
+    verify(writeCache, never()).syncDataFiles();
+    verify(storage, never()).checkpointChangedPages(anyLong());
+    verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+  }
+
+  /** A final cache sample newer than vacuum's early active segment cannot raise the cut cap. */
+  @Test
+  public void vacuumCapsLaterCacheOwnerAtPreTableActiveSegment() throws Exception {
+    prepareOnlineMaintenance();
+    when(writeAheadLog.nonActiveSegments()).thenReturn(new long[] {3L});
+    when(writeAheadLog.activeSegment()).thenReturn(20L);
+    when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
+    when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null, null, 30L);
+
+    storage.runWALVacuum();
+
+    var sampleOrder = inOrder(writeAheadLog, atomicOperationsTable, writeCache, storage);
+    sampleOrder.verify(writeAheadLog, times(3)).activeSegment();
+    sampleOrder.verify(atomicOperationsTable).getSegmentEarliestNotPersistedOperation();
+    sampleOrder.verify(writeCache).getMinimalNotFlushedSegment();
+    sampleOrder.verify(writeCache).syncDataFiles();
+    sampleOrder.verify(storage).checkpointChangedPages(20L);
+    verify(writeAheadLog).cutAllSegmentsSmallerThan(20L);
+    verify(writeAheadLog, times(3)).activeSegment();
   }
 
   /** A protected checkpoint saves the floor before pruning WAL and retains the dirty flag. */
@@ -1056,6 +1179,14 @@ public class AbstractStorageWALCutTest {
     verify(writeAheadLog).cutAllSegmentsSmallerThan(6);
     verify(writeAheadLog, never()).cutTill(any());
     verify(storage, never()).clearStorageDirty();
+  }
+
+  /** Installs constructor-owned online maintenance fields on the real-method mock. */
+  private void prepareOnlineMaintenance() throws Exception {
+    setPrivateField(storage, "stateLock", new ScalableRWLock());
+    setPrivateField(storage, "walVacuumInProgress", new AtomicBoolean(true));
+    setPrivateField(storage, "indexEngines", new java.util.ArrayList<>());
+    storage.status = Storage.STATUS.OPEN;
   }
 
   /** Counts WAL cuts without changing Mockito verification state inside a checkpoint hook. */

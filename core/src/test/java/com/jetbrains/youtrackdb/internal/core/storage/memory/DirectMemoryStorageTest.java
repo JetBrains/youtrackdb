@@ -124,8 +124,19 @@ public class DirectMemoryStorageTest {
       try {
         manager.create(name, DatabaseType.MEMORY, "admin", "admin", "admin");
         DirectMemoryStorage storage;
+        com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal recordId;
+        byte[] recordBytes;
         try (var opened = manager.open(name, "admin", "admin")) {
+          opened.createClassIfNotExist("MemoryCloseRecord");
+          opened.begin();
+          var entity = opened.newEntity("MemoryCloseRecord");
+          entity.setProperty("value", "retained");
+          opened.commit();
+          recordId =
+              (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) entity.getIdentity();
           storage = (DirectMemoryStorage) opened.getStorage();
+          recordBytes = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> storage.readRecord(recordId, op).toRawBuffer().buffer());
           verify(storage).initWalAndDiskCache(any(ContextConfiguration.class));
           // The inherited protected hook is inspected without adding a production accessor.
           var openInit = AbstractStorage.class.getDeclaredMethod("initWalAndDiskCacheOnOpen",
@@ -146,6 +157,10 @@ public class DirectMemoryStorageTest {
         openInit.invoke(verify(storage), any(ContextConfiguration.class));
         assertSame(wal, storage.getWALInstance());
         assertSame(cache, storage.getWriteCache());
+        // Read the user record through the reopened storage, without reusing a closed session context.
+        var reopenedBytes = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+            op -> storage.readRecord(recordId, op).toRawBuffer().buffer());
+        assertArrayEquals(recordBytes, reopenedBytes);
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(operation -> {
           // Reopened memory storage must complete an operation without unsupported WAL reads.
         });
