@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.IndexEngineCallback;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.lang.reflect.InvocationTargetException;
@@ -198,7 +199,7 @@ public class IndexRecoveryPathsTest {
     return List.of(
         path("setBulkLoading", "getIndexEngine",
             fixture -> invokePrivate(fixture.index, "setBulkLoading", boolean.class, true)),
-        path("buildHistogramAfterFill", "getIndexEngine",
+        path("buildHistogramAfterFill", "callIndexEngine",
             fixture -> invokePrivate(fixture.index, "buildHistogramAfterFill")),
         path("doDelete", "deleteIndexEngine",
             fixture -> fixture.index.doDelete(fixture.transaction)),
@@ -281,6 +282,12 @@ public class IndexRecoveryPathsTest {
       if (methodName.equals("getIndexEngine")
           || methodName.equals("getIndexEngineWithStateLock")) {
         return engine;
+      }
+      if (methodName.equals("callIndexEngine")) {
+        // Execute the protected callback only after the stale-identifier check above.
+        IndexEngineCallback<?> callback =
+            invocation.getArgument(invocation.getArguments().length - 1);
+        return callback.callEngine(engine);
       }
       if (Stream.class.isAssignableFrom(invocation.getMethod().getReturnType())) {
         return Stream.empty();

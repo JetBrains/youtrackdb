@@ -123,6 +123,11 @@ public class CASDiskWriteAheadLogLifecycleTest {
 
   private CASDiskWriteAheadLog createWAL(String storageName, byte[] key, boolean filterWALFiles)
       throws IOException {
+    return createWAL(storageName, key, filterWALFiles, Integer.MAX_VALUE, -1, false);
+  }
+
+  private CASDiskWriteAheadLog createWAL(String storageName, byte[] key, boolean filterWALFiles,
+      long maxSegmentSize, long walSizeLimit, boolean keepSingleWALSegment) throws IOException {
     // Wait for concurrent engine startup to install the metrics registry used by the WAL.
     YouTrackDBEnginesManager.startUp(false);
     return new CASDiskWriteAheadLog(
@@ -135,13 +140,13 @@ public class CASDiskWriteAheadLogLifecycleTest {
         key,
         key == null ? null : new byte[16],
         Integer.MAX_VALUE, // segmentsInterval
-        Integer.MAX_VALUE, // maxSegmentSize
+        maxSegmentSize,
         20, // commitDelay (ms)
         filterWALFiles,
         Locale.US,
-        -1, // walSizeHardLimit (disabled)
+        walSizeLimit,
         1000, // fsyncInterval (ms)
-        false, // keepSingleWALSegment
+        keepSingleWALSegment,
         false, // callFsync
         false, // printPerformanceStatistic
         10); // statisticPrintInterval
@@ -1010,9 +1015,8 @@ public class CASDiskWriteAheadLogLifecycleTest {
    * pass.
    *
    * <p>The configured WAL has {@code keepSingleWALSegment=false} and {@code walSizeLimit=-1},
-   * so the production paths that drive {@code requestCheckpoint()} (in {@code log()} on lines
-   * 1016-1024) are inert; we cannot trigger a real checkpoint without a heavyweight invasive
-   * setup, hence the structural check on the listener list itself.
+   * so the production paths that drive {@code requestCheckpoint()} in {@code log()} are
+   * inert. The structural check isolates listener registration from the trigger tests below.
    */
   @Test
   public void addAndRemoveCheckpointListener() throws IOException, ReflectiveOperationException {
@@ -1047,6 +1051,96 @@ public class CASDiskWriteAheadLogLifecycleTest {
       assertEquals(0, requestCount.get());
     } finally {
       wal.close();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tests: WAL size checkpoint triggers
+  // ---------------------------------------------------------------------------
+
+  // With the single-segment trigger off, multiple segments below the size limit stay quiet.
+  // Crossing the limit must synchronously request a checkpoint on that append.
+  @Test
+  public void exceedingWalSizeLimitRequestsCheckpoint() throws IOException {
+    final long sizeLimit = 16 * 1024;
+    try (var wal = createWAL("sizeLimitTrigger", null, true, 4 * 1024, sizeLimit, false)) {
+      var requests = new AtomicInteger();
+      wal.addCheckpointListener(requests::incrementAndGet);
+      assertTrue(wal.size() < sizeLimit);
+
+      for (int i = 0; i < 64 && wal.size() <= sizeLimit; i++) {
+        assertEquals("No request before crossing the size limit", 0, requests.get());
+        wal.log(record(1024, i));
+        if (wal.size() <= sizeLimit) {
+          assertEquals("No request at or below the size limit", 0, requests.get());
+        }
+      }
+
+      assertTrue("Bounded appends must cross the size limit", wal.size() > sizeLimit);
+      assertTrue("Size trigger needs multiple segments",
+          wal.end().getSegment() > wal.begin().getSegment());
+      assertTrue("Crossing the size limit must request a checkpoint", requests.get() > 0);
+    }
+  }
+
+  // Multiple segments alone must not request checkpoints when the size limit has headroom
+  // and the independent single-segment trigger is disabled.
+  @Test
+  public void walBelowSizeLimitDoesNotRequestCheckpoint() throws IOException {
+    final long sizeLimit = 1024 * 1024;
+    try (var wal = createWAL("belowSizeLimit", null, true, 4 * 1024, sizeLimit, false)) {
+      var requests = new AtomicInteger();
+      wal.addCheckpointListener(requests::incrementAndGet);
+      for (int i = 0; i < 32; i++) {
+        wal.log(record(1024, i));
+      }
+
+      assertTrue("Fixture must retain multiple segments",
+          wal.end().getSegment() > wal.begin().getSegment());
+      assertTrue("Fixture must stay below the size limit", wal.size() < sizeLimit);
+      assertEquals("WAL below the size limit must not request checkpoints", 0, requests.get());
+    }
+  }
+
+  // With the size trigger disabled, one segment stays quiet. Automatic rotation to a second
+  // segment must synchronously request a checkpoint when keepSingleWALSegment is enabled.
+  @Test
+  public void keepingSingleSegmentRequestsCheckpointWhenSecondSegmentAppears() throws IOException {
+    try (var wal = createWAL("singleSegmentTrigger", null, true, 4 * 1024, -1, true)) {
+      var requests = new AtomicInteger();
+      wal.addCheckpointListener(requests::incrementAndGet);
+      var firstSegment = wal.begin().getSegment();
+      assertEquals(firstSegment, wal.end().getSegment());
+      assertEquals(0, requests.get());
+
+      for (int i = 0; i < 16 && wal.end().getSegment() == firstSegment; i++) {
+        assertEquals("One segment must not request checkpoints", 0, requests.get());
+        wal.log(record(1024, i));
+        if (wal.end().getSegment() == firstSegment) {
+          assertEquals("One segment must not request checkpoints", 0, requests.get());
+        }
+      }
+
+      assertTrue("Bounded appends must create a second segment",
+          wal.end().getSegment() > firstSegment);
+      assertTrue("Second segment must request a checkpoint", requests.get() > 0);
+    }
+  }
+
+  // With both triggers disabled, automatic rotation must not request checkpoints.
+  @Test
+  public void multipleSegmentsDoNotRequestCheckpointWhenKeepingSingleSegmentIsDisabled()
+      throws IOException {
+    try (var wal = createWAL("singleSegmentDisabled", null, true, 4 * 1024, -1, false)) {
+      var requests = new AtomicInteger();
+      wal.addCheckpointListener(requests::incrementAndGet);
+      for (int i = 0; i < 16; i++) {
+        wal.log(record(1024, i));
+      }
+
+      assertTrue("Fixture must retain multiple segments",
+          wal.end().getSegment() > wal.begin().getSegment());
+      assertEquals("Disabled triggers must not request checkpoints", 0, requests.get());
     }
   }
 

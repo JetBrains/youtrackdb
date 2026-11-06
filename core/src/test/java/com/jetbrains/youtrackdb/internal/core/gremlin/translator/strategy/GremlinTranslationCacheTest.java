@@ -805,7 +805,11 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
                   .contains(GremlinPredicateAdapter.SlotRole.PREFIX));
           // A fingerprint includes every emitted MATCH filter and path item, not extraction slots.
           var sql = GremlinPlanFingerprint.fingerprint(walked.inputs(), walked.shaping());
-          assertThat(sqlDigest(sql)).as(kind + " SQL fingerprint after hop-gate reset")
+          assertThat(walked.inputs().promotedPresenceKeys()).isEmpty();
+          assertThat(sql).containsOnlyOnce("|promotedPresence=");
+          // Pin MATCH structure independently of the empty translator-origin metadata section.
+          assertThat(sqlDigest(sql.replace("|promotedPresence=", "")))
+              .as(kind + " SQL fingerprint after hop-gate reset")
               .isEqualTo(baselineSqlDigest(kind, prefix));
           if (firstSql == null) {
             firstSql = sql;

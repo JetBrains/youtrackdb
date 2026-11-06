@@ -75,7 +75,15 @@ final class GremlinPlanFingerprint {
   static String fingerprint(@Nonnull MatchPlanInputs inputs, @Nonnull ResultShaping shaping) {
     var sb = new StringBuilder(INITIAL_KEY_CAPACITY);
     appendPattern(sb, inputs);
+    appendOrderCollationClasses(sb, inputs.orderCollationClasses());
     appendAliasFilters(sb, inputs.aliasFilters());
+    sb.append("|promotedPresence=");
+    inputs.promotedPresenceKeys().entrySet().stream().sorted(Map.Entry.comparingByKey())
+        .forEach(entry -> {
+          appendToken(sb, entry.getKey());
+          entry.getValue().stream().sorted().forEach(key -> appendToken(sb, key));
+          sb.append(';');
+        });
     appendMatchExpressions(sb, inputs.matchExpressions());
     appendNotExpressions(sb, inputs.notMatchExpressions());
     appendExistsExpressions(sb, inputs.existsMatchExpressions());
@@ -108,6 +116,21 @@ final class GremlinPlanFingerprint {
     var scratch = new StringBuilder();
     render.accept(scratch);
     appendToken(sb, scratch.toString());
+  }
+
+  private static void appendOrderCollationClasses(StringBuilder sb,
+      Map<String, List<String>> classes) {
+    if (classes.isEmpty()) {
+      return;
+    }
+    sb.append(";OC:");
+    // Schema enumeration and map insertion order do not change the comparison contract.
+    for (var entry : new java.util.TreeMap<>(classes).entrySet()) {
+      appendToken(sb, entry.getKey());
+      sb.append(entry.getValue().size()).append('[');
+      entry.getValue().stream().sorted().forEach(name -> appendToken(sb, name));
+      sb.append(']');
+    }
   }
 
   private static void appendPattern(StringBuilder sb, MatchPlanInputs inputs) {
