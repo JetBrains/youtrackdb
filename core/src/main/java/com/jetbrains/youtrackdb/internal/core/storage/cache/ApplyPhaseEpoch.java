@@ -3,23 +3,25 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Per-logical-component epoch bracketing the commit-time page-apply phase of atomic operations.
+ * Per-logical-component epoch bracketing the fallback commit-time apply phase.
  *
  * <p>Optimistic multi-page reads validate each page individually via {@link
  * com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame} stamps, but per-page
  * stamps are a purely <em>temporal</em> check: they prove each page was not modified while
  * it was being read, not that the set of pages formed a mutually consistent snapshot. A
- * committing transaction applies its page changes to the read cache one page at a time
- * (in hash order, see {@code AtomicOperationBinaryTracking.commitChanges}), so a reader
+ * fallback commit applies its changes to the read cache one page at a time, so a reader
  * overlapping that apply window can observe a mix of pre- and post-commit pages with every
  * individual stamp still valid — e.g., a B-tree leaf already shrunk by a split while its
  * new right sibling is not yet visible, producing a false "key absent" result.
  *
- * <p>This class closes that gap with two monotonic counters:
+ * <p>This class closes that gap for fallback commits with two monotonic counters.
+ * Page-set commits do not enter the epoch. They lock every frame of the set before the
+ * first change. Frame stamps, cached-frame identity validation and the pinned-load rules
+ * protect readers against those commits.
  *
  * <ul>
  *   <li>{@code applyEnterSeq} — incremented immediately <em>before</em> a committing
- *       operation starts mutating shared cache state (file deletion/creation/truncation
+ *       operation starts mutating shared cache state (file deletion/creation
  *       and the per-page apply loop);
  *   <li>{@code applyExitSeq} — incremented immediately <em>after</em> that section
  *       completes (in a {@code finally} block, so an escaping exception cannot leave the
@@ -50,7 +52,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * any page mutation it performs, and every mutation happens-before its
  * {@code exitApplyPhase()} increment; a reader that observes {@code enter == exit} with an
  * unchanged {@code enterSeq} therefore observed either none or all of any committed
- * apply's effects — never a partial mix.
+ * fallback apply's effects — never a partial mix.
  *
  * <p>Ownership: one stable instance per {@code (storage, lockName)} logical component,
  * owned by {@code AtomicOperationsManager}. Components sharing a lock name, such as a

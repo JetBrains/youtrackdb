@@ -51,6 +51,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
@@ -158,6 +159,14 @@ import org.slf4j.LoggerFactory;
  */
 public final class WOWCache extends AbstractWriteCache
     implements WriteCache, CachePointer.WritersListener {
+
+  private final PageCacheCounters.Flush pageCacheCounters =
+      new PageCacheCounters.Flush();
+
+  public PageCacheCounters.Flush
+      pageCacheCounters() {
+    return pageCacheCounters;
+  }
 
   private static final Logger logger = LoggerFactory.getLogger(WOWCache.class);
 
@@ -1053,7 +1062,6 @@ public final class WOWCache extends AbstractWriteCache
     // Commit-time cache application runs before AtomicOperationsManager ends its freezer entry.
     // TRANSIENT_QUIESCE therefore waits for this mark, not just for the page exclusive lock.
     // Recovery and restore use lifecycle exclusion instead. Mark again even if still dirty.
-    changedPageTracker.mark(intFileId, pageIndex);
     final var pageKey = new PageKey(intFileId, pageIndex);
 
     LogSequenceNumber dirtyLSN;
@@ -1067,6 +1075,7 @@ public final class WOWCache extends AbstractWriteCache
       dirtyLSN = new LogSequenceNumber(0, 0);
     }
 
+    changedPageTracker.mark(intFileId, pageIndex);
     dirtyPages.merge(
         pageKey,
         dirtyLSN,
@@ -1886,10 +1895,9 @@ public final class WOWCache extends AbstractWriteCache
    * caller's release path balances correctly.
    */
   private CachePointer newEmptyCachePointer(final long fileId, final long pageIndex) {
-    // Use ADD_NEW_PAGE_IN_DISK_CACHE to match the legacy read-cache install pattern in
-    // LockFreeReadCache.addNewPagePointerToTheCache; the disk-stamp executor path uses
-    // ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse memory-accounting
-    // buckets in profiling.
+    // Use ADD_NEW_PAGE_IN_DISK_CACHE for cache page allocation. The disk-stamp executor
+    // path uses ADD_NEW_PAGE_IN_FILE separately, and mixing the two would collapse
+    // memory-accounting buckets in profiling.
     final var pageFrame =
         pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
     DurablePage.setLogSequenceNumberForPage(
@@ -4194,7 +4202,7 @@ public final class WOWCache extends AbstractWriteCache
     // sweep has moved past it, both by way of decrementReadersReferrer -> addOnlyWriters:
     //   * shrinkFile ordering — the read cache is still populated while the purge
     //     runs, so an ordinary release or an eviction
-    //     (WTinyLFUPolicy.invalidateStampsAndRelease) can fire the callback for a page whose
+    //     (WTinyLFUPolicy.releaseCacheReference) can fire the callback for a page whose
     //     listener this method had not yet nulled.
     //   * closeFile/deleteFile ordering — eviction IS excluded here (clearFile ran first and
     //     WTinyLFUPolicy skips dead entries), but LockFreeReadCache.silentLoadForRead is a
@@ -4546,6 +4554,7 @@ public final class WOWCache extends AbstractWriteCache
             lastFileId = pageKey.fileId;
           }
         } else {
+          pageCacheCounters.recordFlushSkip();
           if (!chunk.isEmpty()) {
             chunks.add(chunk);
             chunksSize += chunk.size();
@@ -5400,6 +5409,7 @@ public final class WOWCache extends AbstractWriteCache
             lastFileId = pointer.getFileId();
             lastPageIndex = pointer.getPageIndex();
           } else {
+            pageCacheCounters.recordFlushSkip();
             if (!chunk.isEmpty()) {
               chunks.add(chunk);
               prevChunksSize += chunk.size();
@@ -5529,6 +5539,7 @@ public final class WOWCache extends AbstractWriteCache
         try {
           long sharedStamp = pagePointer.tryAcquireSharedLock();
           if (sharedStamp == 0) {
+            pageCacheCounters.recordFlushSkip();
             continue;
           }
           try {

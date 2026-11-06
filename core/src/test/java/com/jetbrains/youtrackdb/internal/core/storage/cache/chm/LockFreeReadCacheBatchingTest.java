@@ -515,9 +515,8 @@ public class LockFreeReadCacheBatchingTest {
    * the breakage as an opaque NPE several frames downstream.
    *
    * <p>The mock's {@link MockedWriteCache#setLoadOrAddReturnsNull} toggle drives the
-   * primitive into the contract-violating state in isolation; a regression that
-   * re-introduced the legacy {@code addNewPagePointerToTheCache} fallback (or otherwise
-   * silently masked the null) would let {@code loadOrAddForWrite} return a non-null
+   * primitive into the contract-violating state in isolation. Silently masking the null
+   * with a fresh-page fallback would let {@code loadOrAddForWrite} return a non-null
    * {@code CacheEntry}, failing this test.
    *
    * <p>The exception message must name both {@code fileId} and {@code pageIndex} so an
@@ -2285,9 +2284,8 @@ public class LockFreeReadCacheBatchingTest {
     /**
      * When set, {@link #loadOrAdd} returns {@code null} instead of allocating a fresh pointer.
      * Used to force a totality-contract violation so the fail-fast {@link IllegalStateException}
-     * thrown by {@code LockFreeReadCache.doLoad} can be exercised in isolation — a future
-     * regression that silently masked the null (for example, by re-introducing the legacy
-     * {@code addNewPagePointerToTheCache} fallback) would surface a passing test here.
+     * thrown by {@code LockFreeReadCache.doLoad} can be exercised in isolation. The regression
+     * test must reject any fresh-page fallback that silently masks the null.
      */
     private volatile boolean loadOrAddReturnsNull;
     /**

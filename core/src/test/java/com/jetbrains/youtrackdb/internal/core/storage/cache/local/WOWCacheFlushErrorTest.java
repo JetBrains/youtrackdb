@@ -1517,6 +1517,9 @@ public class WOWCacheFlushErrorTest {
    */
   private static void invokeFlushWriteCacheFromMinLSN(
       WOWCache cache, long segStart, long segEnd, int pagesFlushLimit) throws Exception {
+    // CALLS_REAL_METHODS bypasses construction, including the striped counters initializer.
+    setField(cache, "pageCacheCounters",
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters.Flush());
     Method method =
         WOWCache.class.getDeclaredMethod(
             "flushWriteCacheFromMinLSN", long.class, long.class, int.class);

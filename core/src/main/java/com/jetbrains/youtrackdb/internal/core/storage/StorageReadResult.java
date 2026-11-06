@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
-import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 
 /**
  * Sealed result of a storage read operation. Two variants:
@@ -55,15 +55,13 @@ public sealed interface StorageReadResult permits RawBuffer, RawPageBuffer {
         var bytes = new byte[slice.remaining()];
         slice.get(bytes);
 
-        // Validate the stamp after extracting bytes. The RawPageBuffer was created
+        // Validate cached-frame identity and the stamp after extracting bytes. The result was created
         // inside the optimistic read window (before scope.validateOrThrow()), but
         // the actual byte extraction happens AFTER the optimistic scope closes.
         // Without this validation, a concurrent page modification between
         // scope.validateOrThrow() and sliceContent().get() would silently produce
         // corrupt data.
-        if (!pb.pageFrame().validate(pb.stamp())) {
-          throw OptimisticReadFailedException.INSTANCE;
-        }
+        OptimisticReadScope.validatePageOrThrow(pb.pageFrame(), pb.stamp(), pb.cacheEntry());
         yield new RawBuffer(bytes, pb.recordVersion(), pb.recordType());
       }
     };
