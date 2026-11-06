@@ -5,6 +5,32 @@ between your current version and your target version.
 
 ## Unreleased
 
+### Disk page-set commit settings
+
+Two process-wide settings control page-set commits for disk storage:
+- `youtrackdb.storage.diskCache.commitPageLimit` limits changed pages per commit.
+  The default is 1024 pages. The valid range is 1 to 2147483647.
+  Its environment variable is `YOUTRACKDB_DISK_CACHE_COMMIT_PAGE_LIMIT`.
+- `youtrackdb.storage.diskCache.commitPinBudgetPercent` sets the shared pin budget as a
+  decimal percent of read-cache pages. The default is 1.0. The valid range is 0 to 15
+  inclusive. NaN and infinity are not valid.
+  Its environment variable is `YOUTRACKDB_DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT`.
+
+The budget rounds down to whole pages. The effective commit limit is the smaller of
+the page limit and the budget. A zero budget turns the page-set protocol off.
+A positive percent that rounds down to zero pages also turns it off and logs a startup
+warning with the setting, percent and cache page count. An invalid value stops engine startup.
+
+Set these values for the whole Java process through system properties or environment
+variables. The engine reads them once at startup. They are not changeable at runtime.
+A value in a per-database-factory `YouTrackDBConfig` has no effect.
+The in-memory engine does not use these settings, but embedded startup also starts the disk
+engine and validates them.
+
+A large budget can keep the cache above its configured size while pages stay pinned.
+The frame pool can keep freed memory. The automatic cache size leaves little free memory,
+so choose a large budget only when the server has enough memory.
+
 ### Storage format 25 requires export and import
 
 Storage format 25 persists link-collection allocation state. The state prevents identifier reuse after an empty live collection survives a restart.

@@ -19,8 +19,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
-import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.WTinyLFUPolicy;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,8 +44,19 @@ public class EngineLocalPaginatedTest {
   private Object originalWriteCachePart;
   private boolean writeCachePartChanged;
 
+  private Object originalLimit;
+  private boolean limitChanged;
+  private Object originalPercent;
+  private boolean percentChanged;
+
   @Before
   public void configureDeterministicCacheSize() {
+    originalLimit = GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getValue();
+    limitChanged = GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.isChanged();
+    originalPercent = GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.getValue();
+    percentChanged = GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.isChanged();
+    GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.setValue(1024);
+    GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.setValue(1.0);
     originalCacheSize = GlobalConfiguration.DISK_CACHE_SIZE.getValue();
     cacheSizeChanged = GlobalConfiguration.DISK_CACHE_SIZE.isChanged();
     originalWriteCachePart = GlobalConfiguration.DISK_WRITE_CACHE_PART.getValue();
@@ -61,6 +70,9 @@ public class EngineLocalPaginatedTest {
 
   @After
   public void restoreCacheConfiguration() {
+    restore(GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT, originalLimit, limitChanged);
+    restore(GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT, originalPercent,
+        percentChanged);
     if (cacheSizeChanged) {
       GlobalConfiguration.DISK_CACHE_SIZE.setValue(originalCacheSize);
     } else {
@@ -130,80 +142,96 @@ public class EngineLocalPaginatedTest {
     }
   }
 
-  /**
-   * {@link EngineLocalPaginated#changeCacheSize} on a not-yet-started engine (read cache still
-   * null) is a documented no-op — the comment states: "otherwise memory size will be set during
-   * cache initialization." Pin the no-op so a future refactor that throws NPE on null read cache
-   * fails loudly.
-   */
-  @Test
-  public void changeCacheSizeOnNotStartedEngineIsNoOp() {
-    var engine = new EngineLocalPaginated();
-    assertThat(engine.getReadCache()).isNull();
-
-    // Must not throw — the early-return path simply defers cache sizing to startup.
-    engine.changeCacheSize(64L * 1024 * 1024);
-
-    // The read cache must still be null afterwards.
-    assertThat(engine.getReadCache()).isNull();
-  }
-
-  /**
-   * Halving the total cache leaves 384 read-cache pages, enough for the seven-pin budget fixed
-   * at startup. The same cache must remain installed and its policy must expose the new capacity.
-   */
-  @Test
-  public void changeCacheSizeWithValidFixedPinBudgetUpdatesCapacity() throws Exception {
-    var engine = new EngineLocalPaginated();
-    engine.startup();
-    try {
-      var cache = engine.getReadCache();
-      assertThat(cache).isNotNull();
-      var policy = readCachePolicy(cache);
-      assertThat(policy.getMaxSize()).isEqualTo(768);
-      long pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsLong() * 1024;
-
-      engine.changeCacheSize(512L * pageSize);
-
-      assertThat(engine.getReadCache()).isSameAs(cache);
-      assertThat(policy.getMaxSize()).isEqualTo(384);
-    } finally {
-      engine.shutdown();
+  private static void restore(GlobalConfiguration setting, Object value, boolean changed) {
+    if (changed) {
+      setting.setValue(value);
+    } else {
+      setting.resetToDefault();
     }
   }
 
-  /**
-   * Shrinking to 48 read-cache pages cannot accommodate the fixed seven-pin budget. Rejection
-   * must leave the same cache installed with its original capacity, not partially apply the resize.
-   */
+  // Each setting rejects its own out-of-range values before the engine starts.
   @Test
-  public void changeCacheSizeWithInvalidFixedPinBudgetPreservesCapacity() throws Exception {
-    var engine = new EngineLocalPaginated();
-    engine.startup();
-    try {
-      var cache = engine.getReadCache();
-      assertThat(cache).isNotNull();
-      var policy = readCachePolicy(cache);
-      int capacityBefore = policy.getMaxSize();
-      assertThat(capacityBefore).isEqualTo(768);
-      long pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsLong() * 1024;
-
-      assertThatThrownBy(() -> engine.changeCacheSize(64L * pageSize))
-          .isInstanceOf(IllegalArgumentException.class)
-          .hasMessageContaining("Invalid commit pin budget 7 for cache size 48 pages");
-
-      assertThat(engine.getReadCache()).isSameAs(cache);
-      assertThat(policy.getMaxSize()).isEqualTo(capacityBefore);
-    } finally {
-      engine.shutdown();
+  public void invalidCommitSettingsStopStartupWithKeyValueAndRange() {
+    var limit = GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT;
+    for (int value : new int[] {0, -1}) {
+      limit.setValue(value);
+      var engine = new EngineLocalPaginated();
+      assertThatThrownBy(engine::startup).isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining(limit.getKey()).hasMessageContaining("=" + value)
+          .hasMessageContaining("1 to 2147483647");
+      assertThat(engine.isRunning()).isFalse();
+      assertThat(engine.getReadCache()).isNull();
+    }
+    limit.setValue(1024);
+    var percent = GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT;
+    for (double value : new double[] {-0.01, 15.01, Double.NaN,
+        Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
+      percent.setValue(value);
+      var engine = new EngineLocalPaginated();
+      assertThatThrownBy(engine::startup).isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining(percent.getKey()).hasMessageContaining("=" + value)
+          .hasMessageContaining("0 to 15");
+      assertThat(engine.isRunning()).isFalse();
+      assertThat(engine.getReadCache()).isNull();
     }
   }
 
-  private static WTinyLFUPolicy readCachePolicy(ReadCache cache) throws Exception {
-    // ReadCache exposes used memory, not capacity. Read the policy through its existing accessor.
-    var field = LockFreeReadCache.class.getDeclaredField("policy");
-    field.setAccessible(true);
-    return (WTinyLFUPolicy) field.get(cache);
+  // Both valid bounds are independent. Changing globals after startup cannot change this cache.
+  @Test
+  public void startupCapturesValidBoundsWithoutCrossValidationOrRuntimeChanges() {
+    for (int limit : new int[] {1, Integer.MAX_VALUE}) {
+      for (double percent : new double[] {0, 15}) {
+        GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.setValue(limit);
+        GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.setValue(percent);
+        var engine = new EngineLocalPaginated();
+        engine.startup();
+        try {
+          assertThat(engine.getReadCache().commitPageLimit()).isEqualTo(limit);
+          assertThat(engine.getReadCache().writePinBudget()).isEqualTo(percent == 0 ? 0 : 115);
+          GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.setValue(42);
+          GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.setValue(2.0);
+          assertThat(engine.getReadCache().commitPageLimit()).isEqualTo(limit);
+          assertThat(engine.getReadCache().writePinBudget()).isEqualTo(percent == 0 ? 0 : 115);
+        } finally {
+          engine.shutdown();
+        }
+      }
+    }
+  }
+
+  // Exact decimal multiplication must not lose a page at integer boundaries.
+  @Test
+  public void pinBudgetRoundsDownWithoutBinaryFloatingPointLoss() {
+    assertThat(EngineLocalPaginated.commitPinBudgetPages(100, 1.0)).isEqualTo(1);
+    assertThat(EngineLocalPaginated.commitPinBudgetPages(99, 1.0)).isZero();
+    assertThat(EngineLocalPaginated.commitPinBudgetPages(100000, 14.99)).isEqualTo(14990);
+    assertThat(EngineLocalPaginated.commitPinBudgetPages(100000, 1.0)).isEqualTo(1000);
+    assertThat(EngineLocalPaginated.commitPinBudgetPages(768, 1.0)).isEqualTo(7);
+  }
+
+  // A positive percent below one page disables the protocol and reports the exact inputs.
+  @Test
+  public void startupWarnsWhenPositivePercentRoundsToZero() {
+    GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.setValue(0.01);
+    var logger = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.common.log.LogManager.class);
+    try (var logs = org.mockito.Mockito.mockStatic(
+        com.jetbrains.youtrackdb.internal.common.log.LogManager.class)) {
+      logs.when(com.jetbrains.youtrackdb.internal.common.log.LogManager::instance)
+          .thenReturn(logger);
+      var engine = new EngineLocalPaginated();
+      engine.startup();
+      try {
+        assertThat(engine.getReadCache().writePinBudget()).isZero();
+        org.mockito.Mockito.verify(logger).warn(engine,
+            "%s=%s rounds down to zero pages for a read cache of %d pages."
+                + " The page-set protocol is off.",
+            GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.getKey(), 0.01, 768);
+      } finally {
+        engine.shutdown();
+      }
+    }
   }
 
   /**

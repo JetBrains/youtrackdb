@@ -142,23 +142,15 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
     }
   }
 
-  // Bounds reject invalid startup and resize values. Small caches retain the legacy path.
+  // Reservation misuse cannot leak or return budget units twice.
   // Misuse cannot load a page in the frame-lock window or return a budget unit twice.
   @Test
-  public void budgetBoundsAndReservationStateAreChecked() throws Exception {
-    LockFreeReadCache.validatePinBudget(1, 0);
-    assertThrows(IllegalArgumentException.class, () -> LockFreeReadCache.validatePinBudget(0, 0));
-    assertThrows(IllegalArgumentException.class,
-        () -> LockFreeReadCache.validatePinBudget(128, -1));
-    assertThrows(IllegalArgumentException.class, () -> LockFreeReadCache.validatePinBudget(128, 8));
+  public void reservationStateIsChecked() throws Exception {
     var pool = new ByteBufferPool(4096);
     var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
     var write = loadingCache(pool);
     assertThrows(IllegalArgumentException.class, () -> read.tryReserveWritePins(0));
     org.junit.Assert.assertNull(read.tryReserveWritePins(4));
-    assertThrows(IllegalArgumentException.class,
-        () -> read.changeMaximumAmountOfMemory(4096));
-    read.changeMaximumAmountOfMemory(256L * 4096);
     var pins = read.tryReserveWritePins(1);
     var entry = pins.pin(1, 0, write, false);
     assertThrows(IllegalStateException.class, () -> pins.pin(1, 1, write, false));

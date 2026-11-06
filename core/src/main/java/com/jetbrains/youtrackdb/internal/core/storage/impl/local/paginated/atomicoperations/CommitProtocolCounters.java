@@ -18,7 +18,7 @@ public final class CommitProtocolCounters {
     PAGE_SET,
     /** Epoch apply because at least one file is created or deleted. */
     FILE_LIFECYCLE,
-    /** Epoch apply because page count exceeds min(1024, positive write-pin budget). */
+    /** Epoch apply because page count exceeds min(configured commit page limit, positive write-pin budget). */
     OVER_LIMIT,
     /** Epoch apply because write-pin budget is zero, including the in-memory engine. */
     NO_PIN_BUDGET,

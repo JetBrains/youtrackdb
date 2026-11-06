@@ -24,7 +24,7 @@ import org.junit.Test;
 /**
  * Tests for file-lifecycle methods of {@link LockFreeReadCache}:
  * {@code closeFile()}, {@code deleteFile()}, {@code shrinkFile()},
- * {@code changeMaximumAmountOfMemory()}, and {@code silentLoadForRead()}.
+ * and {@code silentLoadForRead()}.
  *
  * <p>These methods delegate to {@code clearFile()} internally and route to the WriteCache
  * for the final file-system operation. The tests verify:
@@ -32,7 +32,6 @@ import org.junit.Test;
  *   <li>Cache entries for the target file are evicted from the read cache.</li>
  *   <li>Entries for other files remain untouched.</li>
  *   <li>The WriteCache receives the correct file-system call.</li>
- *   <li>{@code changeMaximumAmountOfMemory()} updates the eviction policy's max-size.</li>
  *   <li>{@code silentLoadForRead()} returns an entry on miss (loads from WriteCache) and
  *       null when the WriteCache returns null for the page.</li>
  * </ul>
@@ -63,68 +62,13 @@ public class LockFreeReadCacheFileOpsTest {
     }
   }
 
-  // ---- changeMaximumAmountOfMemory ----
-
-  /**
-   * {@code changeMaximumAmountOfMemory(newMax)} must update the eviction policy's maximum size
-   * so subsequent loads are evicted once the new threshold is crossed.
-   *
-   * <p>The two-page cache has no commit pin budget. Load two pages, reduce the maximum to two
-   * pages, then load more distinct pages to drive eviction. Unpinned entries must fit the limit.
-   */
+  /** The default cache constructor uses the page limit declared in global configuration. */
   @Test
-  public void testChangeMaximumAmountOfMemoryReducesLimit() {
-    // A two-page cache requires a zero commit budget. Test eviction independently of that bound.
-    readCache = new LockFreeReadCache(bufferPool, 1024L * PAGE_SIZE, PAGE_SIZE, 0);
-    // Pre-load two pages, then shrink to their size.
-    for (int i = 0; i < 2; i++) {
-      final var entry = readCache.loadForRead(0, i, writeCache, false);
-      readCache.releaseFromRead(entry);
-    }
-    Assert.assertEquals("sanity: 2 pages must be in cache before resize",
-        2L * PAGE_SIZE, readCache.getUsedMemory());
-
-    // Reduce the maximum to 2 pages (current count == new limit — just within the allowed range).
-    readCache.changeMaximumAmountOfMemory(2L * PAGE_SIZE);
-
-    // Load 20 more distinct pages to drive eviction well past the new limit.
-    for (int i = 2; i < 22; i++) {
-      final var entry = readCache.loadForRead(0, i, writeCache, false);
-      readCache.releaseFromRead(entry);
-    }
-
-    // The used memory must not exceed 2 pages now that the policy limit has been applied.
-    Assert.assertTrue(
-        "After changeMaximumAmountOfMemory(2 pages) + 20 additional loads, "
-            + "used memory must be ≤ 2 pages; actual=" + readCache.getUsedMemory(),
-        readCache.getUsedMemory() <= 2L * PAGE_SIZE);
-
-    readCache.assertSize();
-    readCache.assertConsistency();
-  }
-
-  /**
-   * {@code changeMaximumAmountOfMemory()} with a value larger than the current cache size must
-   * be accepted without error and must not evict any existing entries.
-   */
-  @Test
-  public void testChangeMaximumAmountOfMemoryIncreaseIsAccepted() {
-    // Load 10 pages.
-    for (int i = 0; i < 10; i++) {
-      final var entry = readCache.loadForRead(0, i, writeCache, false);
-      readCache.releaseFromRead(entry);
-    }
-    final long usedBefore = readCache.getUsedMemory();
-    Assert.assertEquals("sanity: 10 pages loaded", 10L * PAGE_SIZE, usedBefore);
-
-    // Increase the limit — must not throw and must not evict.
-    readCache.changeMaximumAmountOfMemory(2048L * PAGE_SIZE);
+  public void defaultCommitPageLimitMatchesConfigurationDefault() {
     Assert.assertEquals(
-        "changeMaximumAmountOfMemory(larger) must not evict existing entries",
-        usedBefore, readCache.getUsedMemory());
-
-    readCache.assertSize();
-    readCache.assertConsistency();
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT
+            .getDefValue(),
+        Integer.valueOf(readCache.commitPageLimit()));
   }
 
   // ---- closeFile ----

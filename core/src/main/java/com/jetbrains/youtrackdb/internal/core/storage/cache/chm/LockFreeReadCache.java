@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
@@ -68,6 +69,7 @@ public final class LockFreeReadCache implements ReadCache {
   private static final double FORCED_DRAIN_MARGIN = 0.07;
   private volatile int maxCacheSize;
   private final int pinBudget;
+  private final int commitPageLimit;
   private final AtomicInteger reservedPins = new AtomicInteger();
   private final PageCacheCounters.Eviction counters =
       new PageCacheCounters.Eviction();
@@ -99,7 +101,13 @@ public final class LockFreeReadCache implements ReadCache {
 
   public LockFreeReadCache(final ByteBufferPool bufferPool, final long maxCacheSizeInBytes,
       final int pageSize, final int pinBudget) {
-    validatePinBudget((int) (maxCacheSizeInBytes / pageSize), pinBudget);
+    this(bufferPool, maxCacheSizeInBytes, pageSize, pinBudget,
+        (Integer) GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getDefValue());
+  }
+
+  public LockFreeReadCache(final ByteBufferPool bufferPool, final long maxCacheSizeInBytes,
+      final int pageSize, final int pinBudget, final int commitPageLimit) {
+    this.commitPageLimit = commitPageLimit;
     this.pinBudget = pinBudget;
     evictionLock.lock();
     try {
@@ -501,19 +509,6 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public void changeMaximumAmountOfMemory(final long maxMemory) {
-    evictionLock.lock();
-    try {
-      final int pages = (int) (maxMemory / pageSize);
-      validatePinBudget(pages, pinBudget);
-      policy.setMaxSize(pages);
-      maxCacheSize = pages;
-    } finally {
-      evictionLock.unlock();
-    }
-  }
-
-  @Override
   @Nullable public CacheEntry getCacheEntryOptimistic(final long fileId, final long pageIndex) {
     final var entry = data.get(fileId, (int) pageIndex);
     return entry == null || !entry.isAlive() ? null : entry;
@@ -573,15 +568,9 @@ public final class LockFreeReadCache implements ReadCache {
     return cachePages / 100;
   }
 
-  public static void validatePinBudget(int cachePages, int budget) {
-    // Leave one percent for non-commit pins, below the seven percent forced-drain margin.
-    long outsidePins = cachePages / 100;
-    long margin = (long) Math.ceil(cachePages * FORCED_DRAIN_MARGIN);
-    if (cachePages <= 0 || budget < 0 || budget + outsidePins >= margin) {
-      throw new IllegalArgumentException("Invalid commit pin budget " + budget
-          + " for cache size " + cachePages + " pages. Budget plus non-commit room "
-          + outsidePins + " must be below forced-drain margin " + margin);
-    }
+  @Override
+  public int commitPageLimit() {
+    return commitPageLimit;
   }
 
   @Override

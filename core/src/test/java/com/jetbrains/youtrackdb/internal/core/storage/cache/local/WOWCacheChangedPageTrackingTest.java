@@ -923,6 +923,7 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
+  // The forced-drain point is fixed at 107 percent independently of the commit pin budget.
   // A real disk load crosses forced drain with every resident page pinned and must finish.
   // After release, the next real add must retry eviction and restore the capacity bound.
   @Test(timeout = 30000)

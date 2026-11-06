@@ -85,10 +85,14 @@ public class CommitPageSetApplyTest {
     }
 
     Fixture(int pinBudget) throws Exception {
-      // Keep the reservation budget below the cache's forced-drain safety margin.
+      this(pinBudget, 1024);
+    }
+
+    Fixture(int pinBudget, int pageLimit) throws Exception {
+      // Keep enough cache capacity for the test pages independently of protocol selection.
       read = spy(new LockFreeReadCache(pool,
           Math.max(128L, 32L * pinBudget) * DurablePage.MAX_PAGE_SIZE_BYTES,
-          DurablePage.MAX_PAGE_SIZE_BYTES, pinBudget));
+          DurablePage.MAX_PAGE_SIZE_BYTES, pinBudget, pageLimit));
       YouTrackDBEnginesManager.startUp(false);
       when(wal.end()).thenReturn(new LogSequenceNumber(7, 100));
       when(wal.logAtomicOperationStartRecord(anyBoolean(), anyLong()))
@@ -329,7 +333,10 @@ public class CommitPageSetApplyTest {
         long file = f.write.addFile("fallback");
         var op = f.operation(true);
         op.loadFile("fallback");
-        int count = mode == 0 ? 5 : mode == 1 ? 2 : mode == 3 ? 1025 : 1;
+        int count = mode == 0 ? 5 : mode == 1 ? 2 : mode == 3 ? 4 : 1;
+        if (mode == 3) {
+          doReturn(3).when(f.read).commitPageLimit();
+        }
         for (int i = 0; i < count; i++) {
           f.change(op, file, i, false);
         }
@@ -365,30 +372,49 @@ public class CommitPageSetApplyTest {
     }
   }
 
-  // Exactly 1024 changed pages fit the internal limit with a real reservation budget.
-  // The neighboring 1025-page rejection above must not turn this boundary into fallback.
+  // A real disk cache with zero budget selects NO_PIN_BUDGET before the limit or reservation.
+  @Test
+  public void zeroDiskBudgetDisablesPageSetApply() throws Exception {
+    try (var f = new Fixture(0, 1)) {
+      long file = f.write.addFile("disabled");
+      var op = f.operation(true);
+      op.loadFile("disabled");
+      f.change(op, file, 0, false);
+      f.change(op, file, 1, false);
+      clearInvocations(f.read);
+      var before = snapshot(f.counters);
+      assertNotNull(op.commitChanges(42, f.wal));
+      assertDelta(f.counters, before, CommitProtocolCounters.Outcome.NO_PIN_BUDGET);
+      verify(f.read, never()).tryReserveWritePins(anyInt());
+      assertEquals(1, f.epoch.enterSeq());
+      assertEquals(1, f.epoch.exitSeq());
+    }
+  }
+
+  // Exactly three changed pages fit the configured limit with a larger real pin budget.
+  // The neighboring four-page rejection above must not turn this boundary into fallback.
   @Test
   public void exactPageSetLimitUsesPageSetApply() throws Exception {
-    try (var f = new Fixture(2048)) {
+    try (var f = new Fixture(8, 3)) {
       long file = f.write.addFile("boundary");
       var op = f.operation(true);
       op.loadFile("boundary");
-      for (int i = 0; i < 1024; i++) {
+      for (int i = 0; i < 3; i++) {
         f.change(op, file, i, false);
       }
       clearInvocations(f.read);
       var before = snapshot(f.counters);
       assertNotNull(op.commitChanges(42, f.wal));
       assertDelta(f.counters, before, CommitProtocolCounters.Outcome.PAGE_SET);
-      verify(f.read).tryReserveWritePins(1024);
+      verify(f.read).tryReserveWritePins(3);
       verify(f.read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(),
           anyBoolean(), any());
       assertEquals(0, f.epoch.enterSeq());
       assertEquals(0, f.epoch.exitSeq());
       assertEquals(0, f.read.reservedWritePins());
-      var entry = f.read.loadForRead(file, 1023, f.write, false);
+      var entry = f.read.loadForRead(file, 2, f.write, false);
       try {
-        assertEquals((byte) (1023 + 21), entry.getCachePointer().getBuffer().get(100));
+        assertEquals((byte) (2 + 21), entry.getCachePointer().getBuffer().get(100));
       } finally {
         f.read.releaseFromRead(entry);
       }

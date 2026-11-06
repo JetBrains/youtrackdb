@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import javax.annotation.Nullable;
@@ -112,6 +113,11 @@ public interface ReadCache {
     return null;
   }
 
+  /** Per-commit page limit captured when the shared cache is created. */
+  default int commitPageLimit() {
+    return (Integer) GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getDefValue();
+  }
+
   /** Cache-wide commit pin capacity. Zero disables page-set application. */
   default int writePinBudget() {
     return 0;
@@ -182,8 +188,6 @@ public interface ReadCache {
    * @param writeCache Write cache to close.
    */
   void closeStorage(WriteCache writeCache) throws IOException;
-
-  void changeMaximumAmountOfMemory(long calculateReadCacheMaxMemory);
 
   /**
    * Returns an unpinned identity token for final optimistic validation, or null on miss.

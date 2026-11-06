@@ -499,10 +499,6 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void changeMaximumAmountOfMemory(final long calculateReadCacheMaxMemory) {
-  }
-
-  @Override
   @Nullable public CacheEntry getCacheEntryOptimistic(final long fileId, final long pageIndex) {
     // In-memory cache does not support optimistic reads — always returns null
     // so the caller falls back to the CAS-pinned path.

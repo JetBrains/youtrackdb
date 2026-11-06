@@ -13,6 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class WTinyLFUPolicy {
 
   private static final int EDEN_PERCENT = 20;
+
+  /**
+   * Maximum commit pin budget as a percent of the cache. With {@link #EDEN_PERCENT} at 20,
+   * this leaves five percent of the cache (25 percent of eden) for non-commit pins.
+   * Revisit this bound if EDEN_PERCENT changes.
+   */
+  public static final int MAX_COMMIT_PIN_BUDGET_PERCENT = 15;
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;

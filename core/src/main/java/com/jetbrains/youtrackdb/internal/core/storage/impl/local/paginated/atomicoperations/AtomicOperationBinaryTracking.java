@@ -84,8 +84,6 @@ import javax.annotation.Nullable;
  */
 final class AtomicOperationBinaryTracking implements AtomicOperation {
 
-  static final int PAGE_SET_APPLY_LIMIT = 1024;
-
   // Instance-local test override. Production selects the protocol before any page load.
   private boolean forceEpochApplyForTesting;
 
@@ -1330,7 +1328,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       Long2BooleanOpenHashMap nonDurableFlags, @Nullable LogSequenceNumber txEndLsn) {
     final var pauseHook = pageSetPauseHook;
     final int budget = readCache.writePinBudget();
-    final int limit = Math.min(PAGE_SET_APPLY_LIMIT, budget);
+    final int limit = Math.min(readCache.commitPageLimit(), budget);
     if (pages.pageCount == 0) {
       return CommitProtocolCounters.Outcome.PAGE_SET;
     }
