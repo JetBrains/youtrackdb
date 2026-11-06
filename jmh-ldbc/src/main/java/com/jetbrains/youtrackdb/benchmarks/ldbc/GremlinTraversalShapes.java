@@ -5,11 +5,15 @@ import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -1080,6 +1084,138 @@ public final class GremlinTraversalShapes {
         .out(HAS_CREATOR_LABEL)
         .optional(__.out(KNOWS_LABEL))
         .values("firstName");
+  }
+
+  /** Exact two-hop valueMap forms for the G6 measurement gate. No form adds a barrier itself. */
+  public enum BulkingForm {
+    DUPLICATE, ONE_ROW, UNIQUE, MOSTLY_UNIQUE;
+
+    public YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource g, long id) {
+      return switch (this) {
+        case DUPLICATE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).out(KNOWS_LABEL).valueMap("id", "firstName", "lastName");
+        case ONE_ROW -> g.V().hasLabel(MESSAGE_LABEL).has("id", id)
+            .out(HAS_CREATOR_LABEL).out(IS_LOCATED_IN_LABEL).valueMap("name");
+        case UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).in(HAS_CREATOR_LABEL).valueMap("id", "creationDate", "length");
+        case MOSTLY_UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(LIKES_LABEL).out(HAS_CREATOR_LABEL).valueMap("id", "firstName", "lastName");
+      };
+    }
+
+    /** Cross-label forms keep a non-plain filter before the native grouping boundary. */
+    public YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource g, long id, boolean crossLabel) {
+      if (!crossLabel) {
+        return traversal(g, id);
+      }
+      return switch (this) {
+        case DUPLICATE -> g.V().hasLabel(PERSON_LABEL).has("id", id).as("a")
+            .out(KNOWS_LABEL).out(KNOWS_LABEL).where(P.neq("a"))
+            .valueMap("id", "firstName", "lastName");
+        case ONE_ROW -> g.V().hasLabel(MESSAGE_LABEL).has("id", id).as("a")
+            .out(HAS_CREATOR_LABEL).out(IS_LOCATED_IN_LABEL).where(P.neq("a"))
+            .valueMap("name");
+        case UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id).as("a")
+            .out(KNOWS_LABEL).in(HAS_CREATOR_LABEL).where(P.neq("a"))
+            .valueMap("id", "creationDate", "length");
+        case MOSTLY_UNIQUE -> throw new IllegalArgumentException(
+            "No cross-label benchmark for " + this);
+      };
+    }
+
+    /** Rejects empty feeds and feeds that do not exercise the named duplicate or control case. */
+    void requireCounts(long id, int rows, int distinct) {
+      boolean valid = rows > 0 && switch (this) {
+        case DUPLICATE -> distinct < rows;
+        case ONE_ROW -> rows == 1;
+        case UNIQUE -> distinct == rows;
+        case MOSTLY_UNIQUE -> true;
+      };
+      if (!valid) {
+        throw new IllegalStateException(
+            "G6 " + this + " parameter " + id + ": invalid feed, rows=" + rows
+                + ", distinct elements=" + distinct);
+      }
+    }
+  }
+
+  /** Requires a native bulking barrier immediately before the actual valueMap, not another hop. */
+  static void requireNativeValueMapBarrier(String shape, Traversal.Admin<?, ?> nativeTraversal) {
+    requireNotTranslated(shape, nativeTraversal);
+    var projection = nativeTraversal.getEndStep();
+    if (!(projection instanceof PropertyMapStep)
+        || !(projection.getPreviousStep() instanceof NoOpBarrierStep)) {
+      throw new IllegalStateException(
+          "G6 " + shape + ": no native barrier before valueMap. Steps: "
+              + nativeTraversal.getSteps());
+    }
+  }
+
+  /** Checks the measured pipelines, then counts element identities before map construction. */
+  static void checkBulkingForm(BulkingForm form, long id,
+      Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal) {
+    checkBulkingForm(form, id, translated, nativeTraversal, false);
+  }
+
+  /** Wider forms require actual native label retraction and optional core-capacity evidence. */
+  static void checkBulkingForm(BulkingForm form, long id,
+      Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal, boolean crossLabel) {
+    translated.applyStrategies();
+    requireTranslated("G6 " + form, translated);
+    if (crossLabel) {
+      requireBulkingCapacityIfAvailable(translated.getStartStep());
+    }
+    // Clone before strategies lock the walk and drop only valueMap. Counting maps would conflate
+    // different elements with equal properties and could hide a defective duplicate feed.
+    var elements = nativeTraversal.clone();
+    elements.removeStep(elements.getSteps().size() - 1);
+    nativeTraversal.applyStrategies();
+    requireNativeValueMapBarrier(form.toString(), nativeTraversal);
+    if (crossLabel) {
+      var barrier = (NoOpBarrierStep<?>) nativeTraversal.getEndStep().getPreviousStep();
+      if (!(barrier.getPreviousStep() instanceof WherePredicateStep<?> where)
+          || where.getKeepLabels() == null || !where.getKeepLabels().isEmpty()
+          || !where.getLabels().isEmpty() || !barrier.getLabels().isEmpty()
+          || !nativeTraversal.getEndStep().getLabels().isEmpty()) {
+        throw new IllegalStateException("G6 " + form + ": no native empty-path retraction");
+      }
+      // Inspect the actual barrier output on a clone, leaving the caller's map traversal unused.
+      var probe = nativeTraversal.clone();
+      var nativeBarrier = (NoOpBarrierStep<?>) probe.getEndStep().getPreviousStep();
+      try {
+        while (nativeBarrier.hasNext()) {
+          if (!nativeBarrier.next().path().isEmpty()) {
+            throw new IllegalStateException("G6 " + form + ": labelled path at native barrier");
+          }
+        }
+      } finally {
+        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.closeIterator(probe);
+      }
+    }
+    var identities = new HashSet<Object>();
+    var rows = elements.toList();
+    for (var row : rows) {
+      identities.add(((Vertex) row).id());
+    }
+    form.requireCounts(id, rows.size(), identities.size());
+    System.out.println("G6 " + form + " parameter " + id + ": MATCH, native barrier, rows="
+        + rows.size() + ", distinct elements=" + identities.size());
+  }
+
+  /** Track 6 has no accessor. Reflection keeps the identical benchmark module usable on both cores. */
+  static void requireBulkingCapacityIfAvailable(Object boundary) {
+    try {
+      var accessor = boundary.getClass().getMethod("getPropertyMapBulkingCapacity");
+      if (((Number) accessor.invoke(boundary)).intValue() <= 0) {
+        throw new IllegalStateException("G6 cross-label: core capacity must be positive");
+      }
+    } catch (NoSuchMethodException ignored) {
+      // The G6-off core has no capacity API. All other preflight checks still apply.
+    } catch (ReflectiveOperationException error) {
+      throw new IllegalStateException("G6 cross-label: cannot read core capacity", error);
+    }
   }
 
   // ---------------------------------------------------------------------------------------------

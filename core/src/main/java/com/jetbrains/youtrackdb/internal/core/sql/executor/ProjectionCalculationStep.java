@@ -44,6 +44,11 @@ import java.util.Map;
  */
 public class ProjectionCalculationStep extends AbstractExecutionStep {
 
+  /** Read-only planning evidence. Callers must not mutate the returned AST. */
+  public SQLProjection getProjection() {
+    return projection;
+  }
+
   /** The projection definition (list of expressions with aliases). */
   protected final SQLProjection projection;
 

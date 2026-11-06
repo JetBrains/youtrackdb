@@ -611,6 +611,10 @@ final class GremlinStepWalker {
         || !ctx.shaping().accumulateMap()) {
       ctx.shaping = ctx.shaping().withPropertyGroupCount(null);
     }
+    if (childScopeBoundary == NO_CHILD_SCOPE) {
+      ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
+          PropertyMapBulkingAdmission.capacity(traversal));
+    }
     return buildResult(ctx);
   }
 

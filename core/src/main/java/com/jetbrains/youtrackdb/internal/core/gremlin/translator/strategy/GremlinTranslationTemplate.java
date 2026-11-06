@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision;
 import java.util.List;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.structure.Element;
@@ -10,7 +11,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 /**
  * Cached outcome of a Gremlin-to-MATCH walk, keyed by {@link GremlinStepWalker#extractShape}. A hit
  * skips the walker: {@link Decline} returns from {@code apply} immediately, and {@link Translate}
- * splices the stored plan template with this invocation's harvested bindings.
+ * uses the stored plain-plan decision to keep native execution or splice the stored template with
+ * this invocation's harvested bindings. The decision has exactly the plan entry's validity.
  *
  * <p>The plan template is the closed copy {@link GremlinPlanCache} already stores. The boundary
  * step must not execute or close it; it copies on first {@code openArming()}.
@@ -33,7 +35,8 @@ sealed interface GremlinTranslationTemplate {
       @Nonnull Class<? extends Element> returnClass,
       @Nonnull ResultShaping shaping,
       int bindingCount,
-      @Nonnull List<HasBindingContext.Contribution> hasContributions)
+      @Nonnull List<HasBindingContext.Contribution> hasContributions,
+      @Nonnull PlainPlanDecision decision)
       implements GremlinTranslationTemplate {
   }
 }

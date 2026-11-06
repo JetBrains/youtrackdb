@@ -152,13 +152,10 @@ public final class MatchWhereBuilder {
     if (typeNames == null || typeNames.isEmpty()) {
       throw new IllegalArgumentException("type guard needs at least one type name");
     }
-    var names = new ArrayList<SQLExpression>(typeNames.size());
-    for (var name : typeNames) {
-      names.add(stringExpression(name));
-    }
     var condition = new SQLInCondition(-1);
     condition.setLeft(ProjectionExpressionFactories.propertyMethodCall(field, "type"));
-    condition.setRightMathExpression(literalCollectionExpression(names));
+    // The list is invariant. Keep SQL IN semantics without evaluating seven literals per row.
+    condition.setRightMathExpression(collectionExpression(new TypeNamesCollection(typeNames)));
     condition.setOperator(new SQLInOperator(-1));
     return condition;
   }
@@ -609,6 +606,10 @@ public final class MatchWhereBuilder {
     for (var v : values) {
       coll.add(v);
     }
+    return collectionExpression(coll);
+  }
+
+  private static SQLBaseExpression collectionExpression(SQLCollection coll) {
     var levelZero = new SQLLevelZeroIdentifier(-1);
     levelZero.setCollection(coll);
     var ident = new SQLBaseIdentifier(-1);
