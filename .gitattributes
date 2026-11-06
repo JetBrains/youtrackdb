@@ -1,4 +1,7 @@
 * text=auto
+jmh-ldbc/src/main/resources/t5/ldbc-gate.json text eol=lf
+jmh-ldbc/src/main/resources/t5/ldbc-archive.json text eol=lf
+jmh-ldbc/src/main/resources/t5/ldbc-provenance.json text eol=lf
 jmh-ldbc/src/main/resources/t5/where-gate.json text eol=lf
 jmh-ldbc/src/main/resources/t5/where-gate-provenance.json text eol=lf
 jmh-ldbc/src/main/resources/t5/generated-dedup.json text eol=lf
