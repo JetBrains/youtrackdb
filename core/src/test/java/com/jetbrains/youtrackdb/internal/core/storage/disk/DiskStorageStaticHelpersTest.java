@@ -295,6 +295,37 @@ public class DiskStorageStaticHelpersTest {
     }
   }
 
+  // A directory with only a layout 26 disk name is visible and the fallback sweep removes it.
+  // Legacy omissions and foreign files remain untouched.
+  @Test
+  public void computedDiskNamesAreStorageEvidenceAndFallbackDeletionTargets() throws IOException {
+    for (var role : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole
+        .values()) {
+      var identity =
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+              role, 7);
+      var diskName =
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+              .layout26DiskName(identity);
+      var page = Files.createFile(testDir.resolve(diskName));
+      assertTrue(DiskStorage.exists(testDir));
+      DiskStorage.deleteFilesFromDisc("computed", 1, 0, testDir.toString());
+      assertFalse(Files.exists(page));
+      assertFalse(Files.exists(testDir));
+      Files.createDirectories(testDir);
+    }
+    for (String retained : new String[] {"orders.dpb", "config.fcm", "config.dcm",
+        "foreign.txt", "foreign.p26", "ytdb-collection-7-record-data_1.p26",
+        "ytdb-collection-7-record-data.p26"}) {
+      Files.createFile(testDir.resolve(retained));
+    }
+    assertFalse(DiskStorage.exists(testDir));
+    DiskStorage.deleteFilesFromDisc("retained", 1, 0, testDir.toString());
+    try (var files = Files.list(testDir)) {
+      assertEquals(7, files.count());
+    }
+  }
+
   private static void setField(DiskStorage storage, String name, Object value) throws Exception {
     var field = DiskStorage.class.getDeclaredField(name);
     field.setAccessible(true);

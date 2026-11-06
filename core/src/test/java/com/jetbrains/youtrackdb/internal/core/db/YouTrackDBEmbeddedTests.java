@@ -22,6 +22,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageDoesNotExistExcep
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.Transaction;
+import java.nio.file.Files;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -33,6 +35,7 @@ import org.junit.After;
 import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.rules.TemporaryFolder;
 
 @Category(SequentialTest.class)
 public class YouTrackDBEmbeddedTests {
@@ -124,6 +127,28 @@ public class YouTrackDBEmbeddedTests {
       var databases = youTrackDb.listDatabases();
       assertEquals(1, databases.size());
       assertTrue(databases.contains("test"));
+    }
+  }
+
+  // Listing finds a database with only a canonical layout 26 disk name.
+  // Foreign extensions and a layout 26 name with the wrong suffix do not identify a database.
+  @Test
+  public void listLayout26DatabaseButNotForeignDirectories() throws Exception {
+    var folder = new TemporaryFolder();
+    folder.create();
+    try {
+      var root = folder.getRoot().toPath();
+      var database = Files.createDirectory(root.resolve("layout26"));
+      Files.createFile(database.resolve("ytdb-collection-0-record-data_268435456.p26"));
+      var foreign = Files.createDirectory(root.resolve("foreign"));
+      Files.createFile(foreign.resolve("foreign.p26"));
+      var wrongSuffix = Files.createDirectory(root.resolve("wrongSuffix"));
+      Files.createFile(wrongSuffix.resolve("ytdb-collection-0-record-data_268435457.p26"));
+      try (var youTrackDb = YourTracks.instance(root)) {
+        assertEquals(Set.of("layout26"), Set.copyOf(youTrackDb.listDatabases()));
+      }
+    } finally {
+      folder.delete();
     }
   }
 
