@@ -449,6 +449,49 @@ The generated dataset directory must contain `static/` and `dynamic/` subdirecto
 
 > **Note**: The SURF Data Repository (`repository.surfsara.nl`) hosts LDBC datasets on tape storage. It provides the CsvComposite format (v0.3.5), **not** CsvCompositeMergeForeign. Do not use SURF datasets with this benchmark — the column layouts are incompatible.
 
+## Archived generated gate replay
+
+`T5BenchmarkCatalogue.load()` contains 366 additional archived A forms and 1,830 bindings.
+Each graph keeps its own 122 forms. T5.7 supplies the other 38 archived gate identities
+and 12 separate bare-limit counterparts per graph. Selection uses archived declines or
+zero router sample cache hits, not measured speed. Families retain their terminal names.
+`generated-gate-provenance.json` pins the source files and external answer witnesses.
+Archived answers use physical RIDs and a lossy encoding. They are provenance, not typed oracles.
+
+Create an empty database, then call `new T5GeneratedFixture(n, 20261020L, distribution)`
+and `populate(g, batch)` without an active transaction. Use `fixture::rid` with
+`form.traversal(g, parameter, fixture::rid)`. Logical ids resolve in the replay database.
+The archived regimes are 20,000 uniform, 20,000 skewed and 200,000 skewed vertices.
+The fixture preserves the generic label topology, properties and class-local indexes.
+Archive decline and bypass flags do not prove current admission, cache behavior or benefit.
+The complete cut, result and baseline freeze requires the remaining T5 catalogue units.
+
+## Archived B native controls
+
+`T5BenchmarkCatalogue.loadWhere()` pins 32 B cases with logical bindings and answers.
+Both index variants retain q5, H and U2 separately. Indexed U1 is an archived bypass.
+Its no-index counterpart is retained, but is not marked as a bypass. Each variant also
+has `CONTROL-warm-native` (`g.V().hasLabel("Category")`) and `LONG-late-seeded-fold`.
+The provenance resource pins the original harness and both forks' result files.
+
+Create an empty database with no active transaction, then call
+`new T5WhereFixture().populate(g)`. This creates 1,000 categories, 1,000 users and
+100,000 each of Article, JPEmailContact and OrderedItem, with original properties,
+links, skew, singletons and missing target. Use `fixture.traversal(g, form)`.
+After indexed replay, call `fixture.dropIndexes(g)`. Category.uid remains indexed.
+Population restores the process-wide collection-count setting even on failure.
+Run setup serially and close the caller-owned traversal source and manager on failure.
+Physical archive RIDs never substitute for replay-local category or user ids.
+
+LONG starts at Category uid `u997`, performs twelve
+`.in("category_link").out("category_link")` pairs, then `.fold(0,(n,v)->n+1)`.
+The singleton bounds every hop to one result. Its answer is Integer 1 and its
+whole-traversal classification is decline at the seeded FoldStep. Tests require the
+entire prefix to translate, and require CONTROL to take native routing on an actual
+translation-cache hit. These are untimed checks, not performance evidence.
+Typed full-scale comparisons, prepared-cut declarations and baseline execution belong
+to the remaining catalogue and runner units. This is not a completed benchmark freeze.
+
 ## Project Structure
 
 ```
