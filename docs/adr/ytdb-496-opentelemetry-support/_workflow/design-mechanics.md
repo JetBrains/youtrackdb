@@ -109,7 +109,7 @@ Never substitute raw SQL, raw Gremlin or raw scripts. Parameters remain off by d
 Do not retain executable inputs for replay.
 Slow-query read permission reveals all records of the authorized database, including user names.
 The permission is intended for administrators because sanitized text can expose schema.
-Detailed access enforcement is later Track 104 design work.
+Administration access enforces this visibility contract through current database permissions.
 
 ### Optional trace correlation
 
@@ -187,7 +187,8 @@ A cursor provides no authority and cannot restore revoked access.
 Concurrent publication gives a consistent page boundary without skipping later admitted records.
 Foreign generations, future positions and expired positions return explicit reset or gap answers.
 History is bounded in memory. No durable ledger, exactly-once delivery or restart persistence exists.
-Track 104 will define the access interface. Track 105 will define MCP event adaptation.
+Administration access provides bounded snapshots, cursor pages and streams.
+Track 105 defines MCP event adaptation.
 
 **B3 Final publication.** Any thread that holds a scope's health serialization and finds
 its final-transition flag set publishes the final not-ready result and history as one pair.
@@ -291,7 +292,7 @@ Include concurrent eviction, cursor reads and slow-consumer pressure without gro
 ### References
 
 - Constraints: independent local monitoring, non-waiting handoff and bounded ownership.
-- Deferred design: Track 104 access and presentation, Track 105 MCP, Track 106 implementation plan.
+- Deferred design: Track 105 MCP and Track 106 implementation plan.
 
 ## Slow-query threshold gating
 
@@ -1402,23 +1403,414 @@ evidence gets an explicit warning and a rerun recommendation. Execution and arti
 failures keep the workflows' existing failure behavior. No benchmark code or workflow is added
 by this design edit. Measured reports must distinguish this policy from correctness tests.
 
+## Administration API and web application
+
+### Listener and service boundary
+
+The server adds an optional administration HTTP listener under `/admin/v1`.
+HTTP means Hypertext Transfer Protocol. JSON means JavaScript Object Notation.
+TLS means Transport Layer Security. Serve credentials and protected resources only over TLS.
+Configure bind address, port, certificate and private key independently from Gremlin.
+Start only after security services are ready. Stop admissions before server deactivation.
+Stop timers and streams on listener close. Cancel requests and release buffers outside lifecycle locks.
+This listener does not close monitoring owners or alter best-effort telemetry shutdown.
+
+Use the server's Netty transport facilities and Jackson JSON support where compatible.
+Do not share an unbounded execution queue with Gremlin or database producers.
+Bound header bytes, body bytes, JSON depth, collection sizes and decoded string lengths.
+Reject unsupported content types and ambiguous duplicate JSON keys before dispatch.
+Parse only bounded bodies. Never enable polymorphic Java object deserialization.
+One bounded listener executor handles transport and snapshot work.
+A separate bounded executor handles database planning and execution.
+A dedicated bounded backend executor handles Loki, Prometheus and Tempo adapter calls.
+Schedule lease revalidation and deadline timers independently of listener and backend pools.
+These executors and administration event loops are separate from Gremlin's Netty groups.
+A stalled backend must not starve transport, authorization or deadline tasks.
+No network callback, response serialization or security call runs under monitoring guards.
+
+AdministrationService is the shared service boundary for scoped reads and execution.
+BrowserSessionService owns sessions and current authorization leases.
+QueryInvestigationService owns query validation, execution admission and cleanup.
+These names identify internal responsibilities, not supported public Java API classes.
+Future MCP access delegates to these services. Its token and event protocol remain deferred.
+
+### Resource contract and JSON shapes
+
+| Method and path under `/admin/v1` | Required authority | Result |
+|---|---|---|
+| POST `/session` | Credentials for an explicit user type and scope | Cookie and CSRF token |
+| GET `/session` | Valid browser session | Typed identity, expiry and CSRF token |
+| DELETE `/session` | Valid browser session | Invalidate session and clear cookie |
+| GET `/capabilities` | Valid identity | Permitted features and configured limits |
+| GET `/health` | Server health read | Process health snapshot |
+| GET `/databases/{database}/health` | Database health read | Database health snapshot |
+| GET `/databases/{database}/slow-queries` | Database slow-query read | Bounded recent records |
+| GET `/health/events` | Server health read | Process transition page |
+| GET `/databases/{database}/health/events` | Database health read | Database transition page |
+| GET `/databases/{database}/slow-queries/events` | Database slow-query read | Admission event page |
+| GET an event resource plus `/stream` | Same as the event resource | Bounded event stream |
+| POST `/telemetry/logs` | Server telemetry read | Bounded Loki search |
+| POST `/telemetry/metrics` | Server telemetry read | Bounded Prometheus query |
+| GET `/telemetry/traces/{traceId}` | Server telemetry read | Bounded Tempo lookup |
+| POST `/databases/{database}/explain` | Explain plus underlying query access | Bounded plan |
+| POST `/databases/{database}/profile` | Profile plus underlying query access | Plan and timings |
+
+A health snapshot carries state, reasons, freshness, coverage, generation and position.
+A page carries items, its captured upper position, next cursor and explicit loss status.
+Slow-query records expose only the accepted immutable safe fields and correlation snapshot.
+The current record view can show a later association. Replayed events never change.
+Use canonical decimal strings for positions so browser number precision cannot lose an event.
+A cursor encodes generation, last scanned position, immutable database identity, kind and filters.
+Continuation reads strictly after that position. Only copied or filtered-out events count as scanned.
+The page byte limit must fit the largest retained event. A snapshot or start-from-now cursor uses its head.
+Encode bounded cursor data with integrity protection and reject malformed or oversized values.
+The cursor has no authority. A forged or copied cursor cannot bypass current role checks.
+
+Use 400 for malformed requests, 401 for invalid sessions and 403 for denied authority.
+Use 409 for reset or gap, with the current generation, oldest retained position and head where safe.
+Authenticate and authorize before revealing those boundaries. Use 429 for admission exhaustion.
+Use explicit timeout and unavailable errors for backend failure. Never return an empty success.
+Distinguish result truncation from history loss. Include the reached execution limit in rerun results.
+Errors use stable codes and bounded safe messages. Do not echo executable inputs or stack traces.
+Disable shared caching with `Cache-Control: no-store` for all sensitive responses.
+
+### Typed identities and role checks
+
+The login request explicitly chooses system-user or database-user authentication.
+For system users, authenticate with server security against the system database.
+For database users, authenticate only in the named database using the database security service.
+Return a typed identity with immutable user identity and database identity.
+Never search another user type if that authentication fails.
+A database drop and re-create invalidates identities bound to the old database instance.
+Never authorize by an unqualified user name.
+
+Branch evidence: `YTDBSimpleAuthenticator.authenticate` at lines 53 to 99 returns an
+AuthenticatedUser based on a name after trying system and database authentication.
+`YTDBServerCommandsOpProcessor.checkServerRole` at lines 366 to 384 authorizes a server resource.
+Reuse their underlying security services rather than copying the name-only protocol identity.
+The existing Gremlin identity issue stays outside this change.
+
+Add explicit resources for database health read, database slow-query read, server health read,
+server telemetry read, database Explain and database Profile using existing role mechanisms.
+Final resource identifiers must follow the existing resource registry during implementation.
+Default-deny these resources. Do not automatically widen the existing monitor role.
+Slow-query read grants all retained records of that database, including every captured user name.
+Document this permission as administrator-facing because sanitized text can reveal schema.
+Server health reasons and shared Loki, Prometheus and Tempo access require server-wide authority.
+A database role cannot obtain shared telemetry by supplying a database label or filter.
+Explain and Profile also check the caller's current ordinary query and record permissions.
+Do not execute through a hidden privileged database account.
+
+### Sessions, request expiry and idle revocation
+
+POST `/session` receives credentials only over TLS and only from the configured application origin.
+Bound login attempts by source and typed identity. Return a generic authentication failure.
+The gateway strips caller-supplied forwarding headers on `/admin/v1` and supplies the client address.
+Accept that address only over the configured gateway's mutually authenticated TLS connection.
+Otherwise use the direct peer address. Per-identity limits slow attempts without locking the account.
+Do not retain passwords or use them as a connection-pool key for later requests.
+Generate an unpredictable opaque credential. Store its verifier and bounded session metadata.
+Metadata binds user type, immutable identities, absolute expiry, idle expiry and revocation state.
+Rotate the cookie at login. Do not accept a session identifier supplied by a caller.
+Set a host-only cookie with `Secure`, `HttpOnly`, `SameSite=Strict` and `Path=/`.
+Use no Domain attribute. Bound active session count per identity and per server.
+A successful admitted request can advance idle expiry, but never absolute expiry.
+Stream admission counts as activity. Periodic revalidation, event delivery and heartbeats do not.
+A watching tab needs a new successful admitted request to extend idle expiry.
+Internal gateway revalidation calls also do not count as activity.
+Logout removes authority before cookie clearing. A replay of the cookie stays invalid.
+Never persist credentials in browser storage, URLs, telemetry or gateway logs.
+
+CSRF means cross-site request forgery. Validate the configured Origin on login and API requests.
+Reject a supplied Origin that does not match exactly. Do not trust a caller-supplied Host value.
+For a cookie-authenticated GET without Origin, require `Sec-Fetch-Site: same-origin`
+and a Referer from the configured origin. Reject missing or contradictory evidence.
+API fetch requests additionally send the session-bound CSRF token as a custom header.
+GET `/session` bootstraps that token only after the same-origin checks.
+Iframe Grafana requests cannot add that header, so enforce the metadata checks on every route.
+Streams use authenticated fetch with the token rather than a bearer credential in the URL.
+Do not enable permissive cross-origin resource sharing. Static login assets need no session.
+Use a restrictive content security policy and escape all query text, log content and plan fields.
+Permit frames only from the configured application origin and its own Grafana path.
+
+Let R be the finite positive maximum authorization lease duration.
+Choose its numerical value with the session-limit open question, not as an implicit default.
+Each successful validation returns an authorization decision with a deadline.
+The deadline is at most check-start plus R and at most both session expiry times.
+A slow security lookup must not issue a fresh lease based on its completion time alone.
+If its deadline is already reached, discard the decision.
+Revalidate user existence, suspension, current database identity and required permissions.
+Request checks and cursor checks use this same routine.
+
+Before releasing a page, plan, event or proxied response chunk, check the lease deadline.
+An idle timer schedules revalidation before the deadline.
+An independent deadline task aborts the stream or response transport at lease expiry.
+The gateway must distinguish this abnormal close from a normal end of response.
+Only a completed successful revalidation before expiry can replace that deadline.
+Blocked security calls cannot keep authority alive. Use bounded security-call workers and timeouts.
+The gateway obtains route authority through internal POST `/admin/v1/gateway/authorize`.
+Expose this operation only on a mutually authenticated TLS connection from the configured gateway.
+It accepts the browser cookie and the normalized route and query budget, never a caller identity header.
+The server validates the session, current route permission and shared admission limits.
+It returns an expiring permit bound to that identity, route, query budget and lease deadline.
+A gateway service credential alone cannot obtain user authority. Require the browser session too.
+GET `/session` exposes metadata only and grants no telemetry authority.
+Release permits on completion or deadline. Native backend caps still count work after cancellation.
+Do not cache decisions beyond their deadlines. The gateway may only shorten the server lease.
+A revoked permission ends delivery within R, even when no events flow.
+Logout propagates cancellation to local session requests. Other instances still expire within R.
+Cancel active execution, discard unsent payloads and close all streams on expiry or revocation.
+Network delivery already accepted before revocation cannot be recalled.
+Do not claim immediate termination for work between database cancellation checkpoints.
+
+### Cursor ordering and stream ownership
+
+Use one event kind and one monitoring scope per stream.
+Database streams bind the owner instance rather than resolving a name on every page.
+Current health and history use the accepted atomic state-position pair.
+A snapshot position can therefore start history strictly after that observation without a race.
+A missing cursor starts at the current head. Explicit recent mode starts a bounded history page.
+A continuation must use the same canonical filter and scope or fail validation.
+
+After current authorization, capture head position H under the owner's guard.
+Copy at most the configured page count and byte limit from positions after the cursor through H.
+Release the guard before serialization, security recheck and socket writes.
+An event counts as scanned only if copied into the page or filtered out.
+The page byte limit must fit the largest retained event.
+Advance the next cursor to the last scanned position, even if a filter hides every scanned event.
+An event deferred by the byte limit remains unscanned and eligible for the next page.
+If the page limit stops scanning before H, advance only through the scanned prefix.
+Later publications have positions above H and remain eligible for the next page.
+If unread positions were evicted, return a gap rather than advancing silently.
+Never turn a loss counter into a claim of lossless delivery.
+Foreign generations and positions above the head require reset.
+Close, drop, re-create or reopen never moves a client silently to the next owner.
+After reset the caller explicitly requests recent history or start-from-now.
+Cursor verification never takes security locks while holding a publication guard.
+
+Server-Sent Events is the UTF-8 streaming format. Browser fetch reads and parses its frames.
+Data frames contain immutable event snapshots and generation-position identifiers.
+Control frames describe gap, reset and resumption choices. Heartbeats carry no monitoring authority.
+Bound per-identity and global stream count, queued bytes and in-flight page count.
+Keep only a cursor and a bounded output page per reader instead of duplicating retained histories.
+If transport cannot flush within its bounded allowance, disconnect the slow reader.
+Send a control frame only if space and authorization remain. Otherwise close without adding data.
+Client reconnect uses its last delivered position and can receive duplicates or a gap.
+Disconnect and listener shutdown release reader reservations and cancel recheck tasks.
+Closed owners end their streams. Publication never waits for a stream reader.
+This is the administration protocol only. No SEP-3415 mapping is defined here.
+
+### One gateway and protected Grafana
+
+The web container serves React and TypeScript static assets and one small gateway.
+Use the configured external origin for `/`, `/admin/v1` and `/grafana`.
+The gateway forwards administration requests without adding database authority.
+Bound its outbound buffer per response. Drop unsent bytes only on reset, revocation or deadline abort.
+A normal end of response does not trigger a drop. Delivery still requires an unexpired lease.
+The listener aborts streams at the lease deadline with a distinguishable abnormal close.
+The gateway cannot retain output after that abort.
+Do not accept arbitrary proxy destinations or user-supplied backend URLs.
+Keep application sessions in the server. The gateway is not a second identity store.
+
+Every Grafana route validates the browser session and server-wide telemetry permission.
+Strip incoming Grafana identity headers, Authorization and forwarding headers case-insensitively.
+Also strip the administration session cookie and CSRF header on every `/grafana` route.
+Replace identity and transport headers with gateway-derived values only.
+Map immutable typed user identity to a stable Grafana login. Equal names in different scopes stay distinct.
+Do not forward browser cookies, passwords or CSRF tokens to telemetry stores.
+Configure Grafana auth proxy to trust only the gateway connection and assign Viewer role.
+Disable anonymous access, direct login, Grafana session-token shortcuts and unused authentication paths.
+Do not let a Grafana cookie bypass gateway checks. Keep internal service credentials server-side.
+Use isolated connections to Grafana with TLS outside the local isolated development network.
+Publish no Grafana or telemetry-store host port. Only the gateway reaches Grafana in the quick start.
+Network policy denies Grafana any path to the administration listener.
+Configure embedding and framing for the single application origin. No third-party cookies are needed.
+
+Pin Grafana route compatibility to the tested quick-start version.
+Allowlist the read routes required by panels and bounded exploration.
+Reject unknown routes, plugin resources, data-source identifiers and all administration or write routes.
+The gateway validates `/api/ds/query` batches and every permitted data-source resource route.
+Bound total queries in a batch rather than counting a batch as one query.
+Validate query time ranges, metrics steps, log result limits, payload bytes and timeout values.
+Enforce per-identity and global rates and concurrent requests across administration and Grafana traffic.
+Use one policy and accounting boundary for these paths. A later MCP path must join that boundary.
+Bound response bytes and streamed chunks. Cancel upstream work on disconnect or lease expiry.
+No server background Grafana jobs may bypass this admitted interactive path.
+
+Grafana Viewer permits arbitrary queries to the configured data sources.
+The allowlist does not attempt to turn Viewer into a provisioned-query-only role.
+Backend-native limits bound Loki scanned work, time range, results and concurrency.
+Prometheus limits bound samples, time range, resolution, query time and concurrency.
+Tempo lookup has timeout and response-size limits. Disable unsupported expensive search routes.
+Set backend-wide caps covering both Grafana-originated queries and administration adapters.
+Native backend credentials or labels do not imply database-level isolation.
+If the selected version cannot enforce a required limit, disable that query route until it can.
+Document backend retention and redaction duties because exported errors may contain sensitive text.
+
+### Fresh read-only query investigation and SE6
+
+The user supplies a complete inner YQL query and typed parameter map for Explain or Profile.
+YQL means YouTrackDB query language. Retained sanitized text supplies diagnostic context only.
+Validate parameter types and required bindings without guessing values removed by sanitization.
+Reject missing bindings before execution. Do not archive input statements or parameters.
+The Profile confirmation names the database, supplied statement, mode and active execution limits.
+A request without confirmation is rejected. Selection and Explain never imply Profile consent.
+Do not retry Profile automatically after timeout, disconnect or an ambiguous response.
+
+Verified branch evidence for SE6:
+- `SQLProfileStatement.isIdempotent()` at lines 159 to 161 returns true unconditionally.
+- Its positional execute overload at lines 64 to 68 can execute an UpdateExecutionPlan.
+- Its execute overloads consume their internal result sets before returning the plan.
+- `SQLExplainStatement.isIdempotent()` at lines 122 to 124 also returns true unconditionally.
+- `DatabaseSessionEmbedded.query` at lines 833 to 845 calls beginReadOnly then checks the wrapper.
+- `beginReadOnly` at lines 2579 to 2589 returns when the current transaction is already active.
+- `FrontendTransactionImpl.addRecordOperation` at lines 619 to 623 rejects writes in read-only mode.
+These checks do not prove that DDL or callable functions are safe. DDL enforcement is unverified.
+
+QueryInvestigationService parses exactly one inner query before constructing a wrapper.
+Parsing must bypass the shared statement cache. Planning must neither read nor fill the shared plan cache
+at any nesting level. Propagate an explicit no-cache flag through every nested planner.
+A top-level `createExecutionPlanNoCache` call alone does not enforce this requirement.
+
+Verified branch evidence for cache isolation:
+- Explain passes enableProfiling=false. Profile passes true in both execute overloads.
+- `SQLSelectStatement.createExecutionPlan` at lines 335 to 337 passes useCache=true.
+  SelectExecutionPlanner gates plan-cache reads and writes with useCache && !enableProfiling.
+- `executor/match/MatchExecutionPlanner` calls nested SELECT createExecutionPlan at lines 2619,
+  2674, 2914, 6247 and 6369. It passes the profiling flag, but not the outer no-cache flag.
+  Profile therefore bypasses these plan-cache accesses today. Explain does not.
+- `SQLEngine.parse` at lines 77 to 78 calls YqlStatementCache.get.
+  With a session and enabled cache, getCached uses cache.get with a parsing loader.
+  Neither wrapper's planning flag bypasses this statement cache. Parsing needs a separate bypass.
+
+Validate the abstract syntax tree, including nested statements, against an explicit query-only allowlist.
+Initially admit supported SELECT, MATCH and TRAVERSE forms only when all their operations are proven read-only.
+Reject INSERT, UPDATE, DELETE, DDL, scripts, transaction commands and nested Explain or Profile wrappers.
+Reject unknown statement forms and functions with unproven side effects or cancellation behavior.
+Wrapper isIdempotent and a read-only transaction are defense layers, not the admission test.
+Keep this validation in a shared server service, not in generated parser files or the browser.
+
+Open a fresh session as the verified typed caller with no active transaction.
+Use the server's security context to bind that identity without retaining the login password.
+Apply that user's security policies to every database access. Do not impersonate an administrator.
+Never reuse the caller's active read-write transaction. Begin a read-only transaction explicitly.
+Recheck current execution and ordinary database permissions before planning and execution.
+Build the Explain or Profile wrapper on the validated inner query only.
+Explain plans without consuming the query. Profile consumes it and returns timings.
+The current Profile implementation consumes results internally, so an outer HTTP row cap is insufficient.
+Apply time and consumed-row limits inside execution and Profile's internal consumption loop.
+Apply one per-investigation memory budget across planning and all materializing execution steps.
+Materializing steps retain rows or derived state before producing output.
+Enforce the budget inside aggregate, group, sort, distinct and every other state-retaining step.
+Account for keys, values, accumulator growth and intermediate copies before allocating them.
+An output-row cap or a per-step element count alone does not bound this memory.
+Enable an admitted query form only after tests verify its memory and other limit enforcement.
+Bound plan traversal, nesting and serialized bytes before rendering results.
+
+Verified branch evidence for materialization limits:
+- `QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP` is read by OrderByStep, DistinctExecutionStep
+  and `executor/match/IndexOrderedEdgeStep`, but not AggregateProjectionCalculationStep.
+- `AggregateProjectionCalculationStep.executeAggregation` at lines 123 to 155 builds a group map
+  and a result list before returning output. Its aggregate method grows per-group state.
+- The existing per-operation element limit therefore does not prove a per-investigation memory bound.
+
+Always close result sets, roll back the investigation transaction and close the session in finally cleanup.
+Keep executable inputs out of trace text, error messages, monitoring records and request-body logs.
+Instrumentation on this path must omit query text rather than expose request-local literals.
+Return plans and timing fields as sensitive escaped data with no shared cache.
+
+Reserve per-identity and server-wide execution capacity atomically before starting work.
+Use bounded non-waiting admission. Reject saturation rather than enqueue an unbounded request.
+Parsing and planning share the request deadline and their own bounded input and plan limits.
+Cancellation applies to execution and lock waits through verified safe checkpoints.
+Reject modes or operations that cannot honor the required limits before enabling them.
+On deadline, disconnect or revoked authority, signal cancellation and discard unsent results.
+Keep the capacity reservation until the worker has ended and all cleanup completes.
+Do not free capacity merely because the HTTP response closed. Never share a session across workers.
+Profile limits count consumed rows and work, not only the small timing result that it returns.
+
+### Application composition and verification cases
+
+The application owns the health indicator, freshness display, health history and recent-query list.
+It embeds provisioned Grafana log and runtime-graph panels.
+Logs use bounded Loki text search. Measurements use bounded Prometheus queries.
+Trace links stay on protected Grafana paths. Missing traces and backend errors are explicit states.
+Local monitoring remains usable when Grafana, Loki, Prometheus or Tempo is unavailable.
+Never infer healthy from an empty graph or heartbeat. Unreachable or stale local authority means unknown.
+
+Use capability-driven navigation and independently registered view components.
+Keep API clients and panel embedding behind separate presentation interfaces.
+The future query console, cluster view and security editor have no executable routes in this delivery.
+Report cluster capability unavailable. Do not infer a one-node distributed topology.
+Build static assets into the web image. Keep toolchains out of the running database process.
+The local example generates credentials at first start and publishes only loopback TLS entry points.
+Document local certificate trust. Do not disable browser TLS validation to make panels work.
+
+Required implementation verification covers:
+- Same-name system and database users never share authority. Drop and re-create invalidate scope.
+- Slow-query read returns other users' records only with that database's administrator permission.
+- CSRF rejection covers login, GET, Profile, idle streams and every Grafana route.
+- Caller identity headers, encoded route variants and alternate Grafana entry points cannot bypass checks.
+- Logout, suspension and permission removal stop idle delivery within R, including stalled rechecks.
+- Session absolute and idle expiry race page flush, Profile completion and Grafana response chunks.
+- Stream revalidation, delivery, heartbeats and gateway checks never extend idle expiry.
+  A fresh successful admitted request extends idle expiry but never absolute expiry.
+- A stalled telemetry backend cannot starve health reads, gateway authorization or lease timers.
+- Gateway buffers stay bounded and discard unsent bytes on reset, revocation or deadline abort.
+  Listener deadline aborts are distinguishable from normal response completion.
+  A complete normal response flushes without loss while its lease remains valid.
+- Forged forwarding headers cannot change the login source. Identity throttling never locks an account.
+- Grafana receives no administration session cookie or CSRF header and cannot connect to the listener.
+- Cursor continuation races publication, eviction and owner close without skipping later admitted events.
+  With head 100 and page limit 10, scanning positions 1 to 10 returns cursor 10, never 100.
+  Copied and filtered-out events count as scanned. An event deferred by the byte limit does not.
+  The byte limit fits the largest retained event. The unscanned suffix remains eligible.
+- Slow readers, reconnects and filtered empty pages remain bounded and expose gaps or resets.
+- Batch and plugin query attempts cannot evade per-identity or global backend limits.
+- Backend failure preserves local views and never appears as an empty successful query.
+- PROFILE of writes, DDL, scripts, nested wrappers and side-effecting functions is rejected before planning.
+- A pre-existing read-write transaction is never reused. Ordinary database policies still apply.
+- Cancellation retains its slot until cleanup. Plan, execution and byte limits apply inside Profile.
+- `PROFILE SELECT k, count(*) FROM V GROUP BY k` over many distinct keys stops at the
+  investigation memory bound before unbounded group state accumulates, even before its first output.
+  Profile aggregate, sort, distinct and nested materialization share the same budget.
+  Explain planning uses that budget without executing the query.
+- Distinct investigation inputs never read, populate or evict production statement or plan cache entries.
+- Inputs and credentials do not enter persistent browser state, logs, traces or local retained records.
+
+### Open questions
+
+Root question 4 stays open for numerical session lifetimes, R, session and stream counts,
+login rates, request rates, backend time ranges, query-cost caps and response-size limits.
+All enabled paths require finite configured bounds. There is no unlimited fallback.
+Root question 5 stays open for numerical parse, plan, time, consumed-row, memory, byte and concurrency limits.
+The query-only validator and cancellation checkpoints need implementation evidence before enablement.
+No additional performance budget or numerical default is approved by this design.
+Root questions 1 to 3 remain in local monitoring. Question 6 belongs to Track 105.
+
+### References
+
+- Constraints: approved root K4 to K8, SE3, SE4, SE7, CN-7 and PF5.
+- Carried implementation finding: SE6 requires query-only admission inside Explain and Profile.
+- Deferred work: MCP protocol and the whole implementation plan.
+
 ## Quick-start observability stack
 
 The local Docker Compose setup runs a pinned, tested grafana/otel-lgtm release beside
-YouTrackDB and the later web application. LGTM supplies Loki, Grafana, Tempo and Prometheus.
+YouTrackDB and the web application. LGTM supplies Loki, Grafana, Tempo and Prometheus.
 Choose the exact release during packaging and verify its collection and provisioning behavior.
-The complete delivery needs database monitoring and later application capabilities.
+The complete delivery includes database monitoring and the web application.
 Example files alone are not the delivery boundary. Keep setup files outside module JAR resources.
 
-The later web application embeds Grafana panels. Core stays independent of Grafana.
-Track 104 defines application access, login and embedding. Track 105 defines optional MCP access.
-This section defines neither interface. Production may run telemetry stores separately.
+The web application embeds Grafana panels through its authenticated gateway.
+Core stays independent of Grafana. Track 105 defines optional MCP access.
+Production may run telemetry stores separately.
 Exporter selection, host-owned SDK support and unset-endpoint behavior remain unchanged.
-Publish only OTLP receivers and the later application entry port, with loopback-only host mappings.
+Publish only OTLP receivers and the application TLS entry port, with loopback-only host mappings.
 Keep Grafana, Loki, Prometheus and Tempo ports internal. Do not add diagnostic host mappings.
 Smoke checks run against internal container-network endpoints.
 Set `GF_AUTH_ANONYMOUS_ENABLED=false` explicitly to override the LGTM image default.
-Reach Grafana only through the later gateway. Track 104 defines access and login details.
+Reach Grafana only through the same-origin gateway with current telemetry permission.
 Generate credentials at first start into untracked `secrets/` beside the Compose file.
 Use owner-only permissions on that directory and its credential files.
 Mount each file only into services that need it. Keep fixed credentials out of example files.
@@ -1549,11 +1941,10 @@ Do not commit fixed instance UIDs.
 The logs dashboard searches exported Loki content within bounded time ranges.
 The health dashboard shows exported state, reasons, freshness and structured transitions.
 Missing or stale authority shows unknown. Local current health and history do not depend on export.
-The later application presents local health and slow queries. Track 104 defines that presentation.
+The application presents local health, freshness, history and slow queries independently of Grafana.
 
-Dashboard authoring uses the authenticated gateway defined by the later Track 104 design.
-Bring the stack up and open Grafana through that gateway, not through a host Grafana port.
-Edit the dashboard in the user interface and export through "Share → Export → Save to file".
+Operators edit dashboard JSON files outside the gateway.
+The gateway remains Viewer-only and exposes no dashboard editing route.
 Run `scripts/normalize-dashboard.sh <file>` to replace captured UIDs with placeholder strings.
 Commit the normalized file. The normalize script is a thin `jq` wrapper with deterministic output.
 
@@ -1570,7 +1961,7 @@ Commit the normalized file. The normalize script is a thin `jq` wrapper with det
    current health, health transitions and retained slow queries.
    Explicitly enable local capture and execute a query above its configured positive threshold.
    This test override keeps the product capture default off.
-   Check authenticated panels once Track 104 defines access.
+   Check authenticated panels, denied telemetry access and idle-stream revocation.
    Stop collection or disable export and confirm local monitoring still works.
 7. **Exit 0** only when all checks pass. Exit non-zero with a diagnostic naming each missing
    signal or capability. Preserve the existing 30-second per-signal timeout.

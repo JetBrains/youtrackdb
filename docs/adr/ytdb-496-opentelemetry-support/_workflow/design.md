@@ -15,15 +15,18 @@ Existing query gates, timing meanings, late spans, histograms and SDK ownership 
 SDK means software development kit.
 
 The unified monitoring direction places local state beside exported telemetry.
-The quick start uses grafana/otel-lgtm with Tempo, YouTrackDB and a later web application.
-The application will embed Grafana panels. The core database stays independent of Grafana.
-Track 104 defines administration access, the web application and embedding later.
+The quick start uses grafana/otel-lgtm with Tempo, YouTrackDB and a web application.
+The application embeds Grafana panels behind one same-origin gateway.
+A separate administration HTTP listener serves authorized local reads and explicit query reruns.
+Browser sessions and YouTrackDB roles protect both the API and Grafana.
+The core database stays independent of Grafana.
 Track 105 defines optional Model Context Protocol (MCP) access later.
-Track 106 rebuilds the implementation plan. These tracks add no design detail here.
+Track 106 rebuilds the implementation plan. Neither deferred track adds design detail here.
 
 The companion `design-mechanics.md` holds detailed mechanisms under matching topic names.
 References go from this document to the companion. Shared diagrams must agree.
-The document covers concepts, classes, workflows, capture, local monitoring, export and setup.
+The document covers concepts, classes, workflows, capture, local monitoring, export,
+administration access, query investigation and setup.
 
 ## Core Concepts
 
@@ -80,10 +83,11 @@ When enabled in embedded mode, the `YouTrackDBOpenTelemetry` facade resolves the
 The quick start under `youtrackdb-opentelemetry/examples/docker-compose/` uses a pinned,
 tested `grafana/otel-lgtm` release with Loki logs, Grafana, Tempo traces and Prometheus metrics.
 LGTM names those four telemetry components. The complete stack also needs YouTrackDB and the
-web application that Track 104 will design. Example files alone are not the delivery boundary.
+web application described under Administration API and web application.
+Example files alone are not the delivery boundary.
 Publish host ports on loopback only and generate credentials at first start.
 Provision overview, queries, storage, logs and health dashboards.
-Core stays independent of Grafana. The later application will embed Grafana panels.
+Core stays independent of Grafana. The application embeds Grafana panels.
 Production can operate the backends and collectors separately.
 A planned `scripts/smoke.sh` checks exported signals and independent local monitoring.
 A separate user manual is planned at `docs/opentelemetry.md`.
@@ -143,6 +147,18 @@ A current result includes the position needed to resume history reads. → §"Lo
 **Correlation association.** A bounded link from an admitted local record to an optional
 real query trace identifier. Pending becomes available or terminal unavailable.
 Events keep immutable correlation snapshots. → §"Local monitoring".
+
+**Administration session.** A server-managed browser credential bound to a typed YouTrackDB
+identity and bounded lifetime. It provides no authority beyond current roles.
+The browser holds only a protected cookie. → §"Administration API and web application".
+
+**Same-origin gateway.** The web container serves static assets, forwards administration requests
+and authenticates Grafana requests. One browser origin avoids a separate Grafana login.
+It is not a second database backend. → §"Administration API and web application".
+
+**Rerun.** A fresh read-only YQL Explain or Profile request with user-entered inputs.
+YQL means YouTrackDB query language. Retained sanitized text is diagnostic context only.
+This operation is separate from Gremlin plan rendering. → §"Administration API and web application".
 
 ## Class Design
 
@@ -1643,8 +1659,8 @@ flowchart TB
   P --> L[Loki logs]
   P --> R[Prometheus metrics]
   P --> T[Tempo traces]
-  D -.-> A[Track 104: administration and web application design]
-  A -.-> G[Track 104: embedded Grafana panels]
+  D --> A[Administration API and web application]
+  A --> G[Embedded Grafana panels through the gateway]
   A -.-> M[Track 105: optional MCP design]
 ```
 
@@ -1678,7 +1694,7 @@ Keep parameters off by default and do not retain raw executable inputs for repla
 
 **Visibility.** Slow-query read permission exposes every record of the authorized database.
 The permission is intended for administrators because sanitized text can reveal schema.
-Track 104 will define access enforcement. This section defines only the data visibility contract.
+Administration access enforces this contract through current database permissions.
 
 Keep the immutable record separate from its bounded correlation association.
 Only admitted records create pending state or correlation work. Rejected completions create neither.
@@ -1781,7 +1797,7 @@ Open questions remain:
 
 - Local retention, trace sampling and backend retention are independent.
 - Limits on retained text do not establish a bound on sanitizer working memory.
-- Later access and stream design belongs to Track 104. MCP event adaptation belongs to Track 105.
+- Administration access serves bounded snapshots and streams. MCP adaptation belongs to Track 105.
 - Health transitions describe observations. They are not alerts or remediation instructions.
 
 ### References
@@ -2108,14 +2124,214 @@ The full sem-conv v1.33.0 / `youtrackdb.*` counter inventory (two tables with st
 - Mechanics: [`design-mechanics.md §"Metrics integration"`](design-mechanics.md),
   [`design-mechanics.md §"JMH benchmark gate"`](design-mechanics.md#jmh-benchmark-gate)
 
+## Administration API and web application
+
+**TL;DR.** A separate server HTTP listener exposes local monitoring and explicit query investigation.
+One web container serves React and TypeScript assets and a same-origin gateway.
+The gateway also authenticates Grafana access. YouTrackDB owns identity and permissions.
+All access paths have resource limits and a finite authorization lifetime.
+
+### Components and request flow
+
+HTTP means Hypertext Transfer Protocol. JSON means JavaScript Object Notation.
+TLS means Transport Layer Security. The listener uses versioned JSON resources under `/admin/v1`.
+It is disabled unless configured and does not replace the Gremlin protocol.
+Configure its bind address, port, TLS certificate and private key independently.
+Require TLS for credentials and sessions. The local example also uses TLS with local trust setup.
+Keep the listener on an internal network behind the gateway in the quick start.
+No database query, storage or commit thread serves HTTP or waits for a browser.
+Use bounded listener workers, request bodies, JSON depth, response bytes and connection counts.
+Database execution uses a separate bounded pool, but shares CPU, read cache and I/O.
+Concurrency slots bound investigation pressure on these shared resources. Never queue unbounded work.
+
+```mermaid
+classDiagram
+  class BrowserSessionService {
+    +validate(cookie) authorizationLease
+  }
+  AdministrationHttpListener --> AdministrationService
+  AdministrationHttpListener --> BrowserSessionService
+  AdministrationService --> QueryInvestigationService
+  WebGateway --> AdministrationHttpListener
+```
+
+The server owns authorization, monitoring reads and execution. The gateway owns browser routing.
+
+| Resource under `/admin/v1` | Operation and result |
+|---|---|
+| `/session` | POST logs in, GET returns current session metadata, DELETE logs out |
+| `/capabilities` | GET returns permitted functions and configured request limits |
+| `/health` | GET returns permitted process health with generation, position and freshness |
+| `/databases/{database}/health` | GET returns the authorized database health and position |
+| `/databases/{database}/slow-queries` | GET returns a bounded recent page or cursor continuation |
+| `/health/events`, `/databases/{database}/health/events` | GET returns a bounded history page |
+| `/databases/{database}/slow-queries/events` | GET returns immutable admission event pages |
+| Each event resource with `/stream` appended | GET streams cursor-based events and control frames |
+| `/telemetry/logs`, `/telemetry/metrics`, `/telemetry/traces/{traceId}` | POST searches, POST queries or GET looks up bounded shared telemetry |
+| `/databases/{database}/explain`, `/databases/{database}/profile` | POST runs a fresh authorized read-only YQL investigation |
+
+Responses contain bounded data and explicit unavailable, reset, gap or truncated status as applicable.
+Use HTTP 401 for invalid sessions, 403 for denied scope and 429 for exhausted admission limits.
+Malformed inputs get 400. A cursor reset or gap is an explicit 409 response, not an empty success.
+Backend timeouts and unavailability do not become empty data or healthy state.
+All sensitive responses use `Cache-Control: no-store`. Errors omit credentials and executable inputs.
+
+### Permissions, sessions and revocation
+
+Bind identity to user type, immutable user identity and database scope rather than username alone.
+System users authenticate through server security. Database users authenticate in the named database.
+Never fall back from one identity type to the other. Reuse security services, not the Gremlin username result.
+Introduce separate role resources for health read, slow-query read, telemetry read, Explain and Profile.
+Database health and slow-query resources require the corresponding database permission.
+Slow-query read reveals all records and user names of that database. It is an administrator permission.
+Process health and shared telemetry require explicit server-wide permissions.
+No database filter, dashboard variable or Grafana Viewer role grants database isolation.
+No existing monitor role receives new permissions automatically.
+Both execution permissions also require the underlying current query permissions.
+The browser requires Profile permission and explicit confirmation of each Profile request.
+
+POST `/session` accepts credentials, user type and database scope over TLS.
+Passwords exist only for authentication and are not retained by the gateway or session service.
+Issue a random opaque session cookie with `Secure`, `HttpOnly`, `SameSite=Strict` and `Path=/`.
+Use a host-only cookie. Rotate its value at login. Store only a verifier server-side.
+Apply absolute and idle expiry. Stream rechecks and heartbeats never count as activity.
+Bound sessions per identity and globally. Login limits slow attempts without locking accounts.
+Trust forwarded client addresses only from the mutually authenticated gateway, which strips caller headers.
+Logout invalidates server state before clearing the cookie.
+No credential or session identifier enters browser persistent storage, URLs, logs or telemetry.
+
+CSRF means cross-site request forgery. Protect every cookie-authenticated route, including reads.
+Require the configured origin on login and on requests that carry an Origin header.
+For same-origin GET requests without Origin, require same-origin browser metadata and Referer.
+API requests also carry a session-bound CSRF token in a custom header.
+Iframe Grafana requests and browser event streams use the same-origin metadata check.
+Reject missing origin evidence rather than allowing a cookie alone. Disable cross-origin API access.
+Never place CSRF tokens in stream URLs. Serve only the configured application origin in frames.
+
+An authorization lease is valid only until the earliest session expiry or finite recheck deadline.
+Revalidate user status, database identity and permissions on requests, continuations and stream timers.
+Check the lease deadline before releasing each page, response chunk or stream frame.
+Let R denote the configured maximum revocation interval. R must be finite and positive.
+A recheck starts before its lease expires. A slow or failed check never extends the old lease.
+At lease expiry, the listener aborts the stream or response even with no events.
+Logout, suspension and permission loss therefore stop delivery within R.
+Cancel active execution and discard unsent results on expiry or revocation.
+Already delivered bytes cannot be recalled. Cancellation does not promise immediate query termination.
+The gateway bounds buffers to the lease and distinguishes this abort from normal completion.
+It drops unsent bytes on reset, revocation or deadline abort, never on normal completion.
+
+### Cursors and bounded streams
+
+Use one database owner and one event kind per stream. Process health has its own scope.
+Cursors bind generation, last scanned position, database identity, event kind and canonical filters.
+They contain no authority. Validate scope and current permission before inspecting retained history.
+Capture an upper position and copy a bounded page after the cursor under the owner guard.
+Serialize outside the guard. An event counts as scanned only if copied into the page or filtered out.
+The page byte limit must fit the largest retained event. Advance only through scanned positions.
+At a page limit, stop at the scanned prefix. Never advance past an unscanned suffix.
+If eviction removes unread positions, return a gap with an explicit resumption choice.
+A closed or replaced owner requires reset. Never switch silently to a reopened database.
+A health snapshot's generation and position resume from that exact observation.
+A missing cursor starts at the current head. Explicit recent-history mode returns a bounded page.
+
+Streams use Server-Sent Events, a UTF-8 HTTP event format, through authenticated browser fetch.
+Frames carry immutable payloads, generation and position. Control frames carry reset or gap details.
+Heartbeat frames maintain transport only. They neither prove health nor renew authorization.
+Readers catch up from retained cursors. Bound subscribers, per-user connections and queued bytes.
+Do not allocate a growing event queue per subscriber. Disconnect a slow reader with resumption advice.
+Security checks, network writes and serialization never run under monitoring publication guards.
+
+### Gateway, panels and telemetry limits
+
+The web container serves React and TypeScript assets, `/admin/v1` and `/grafana` on one origin.
+It has no database password store and no independent administration business logic.
+For each Grafana request, validate the session through the listener and require telemetry permission.
+An internal authorization operation requires both gateway mutual TLS and the browser session.
+It returns an expiring permit bound to identity, route and query budget after shared admission checks.
+Session metadata alone grants no telemetry authority. Release the permit on completion or deadline.
+Strip caller identity, authorization and forwarding headers before adding trusted values.
+On Grafana routes, also strip the session cookie and CSRF header. Grafana cannot reach the listener.
+Derive the Grafana identity from the typed user identity, not a caller header or username alone.
+Grafana accepts the identity only from the isolated gateway connection and assigns Viewer access.
+Disable anonymous access, direct login and alternate entry points in this embedded deployment.
+Keep Grafana service credentials server-side. Restrict its framing policy to the application origin.
+
+Allow only the Grafana routes needed by the pinned panels and bounded telemetry exploration.
+Reject unknown data-source identifiers, plugins, write operations and arbitrary destinations.
+Validate every data-source query route, including batch and resource requests.
+Enforce per-identity rates, query count, time range, result bytes, timeout and concurrent requests.
+Apply a process-wide ceiling too. Backend native limits bound scanned work and query cost.
+A Viewer can submit arbitrary queries within these enforced limits. Viewer is not a query restriction.
+Use the same limit policy for direct administration queries and Grafana queries.
+Fail closed if a route or backend cannot enforce a required limit.
+
+The application renders local health, freshness, health events and recent slow queries itself.
+Embed provisioned log and runtime-graph panels. Keep log search time-bounded in Loki.
+Trace links use protected Grafana paths. A missing trace is not proof of missing local capture.
+Backend failure leaves local monitoring usable. Show unavailable telemetry separately from unknown health.
+Render query text, logs and plans as escaped untrusted content.
+Navigation and capability interfaces allow future query-console, cluster and security extensions.
+Do not implement those features. The cluster capability reports unavailable.
+
+### Explicit query investigation
+
+The browser asks for a full statement and typed parameters. Sanitized text is a reference only.
+Missing inputs disable execution. Send a mode and inner query, not user-supplied wrapper commands.
+Accept exactly one supported read-only query statement inside server-built Explain or Profile.
+Check the parsed statement tree, nested statements and callable functions conservatively.
+Reject writes, DDL, scripts, nested wrappers and operations whose read-only safety is unproven.
+Wrapper `isIdempotent()` is not sufficient. Use a fresh session with no active transaction.
+Begin a read-only transaction and apply current database authorization without an elevated account.
+
+Explain returns a bounded plan without running the result query. Profile executes real database work.
+The Profile confirmation names the database, supplied query and applicable limits.
+No automatic retry, background replay or execution on selection is allowed.
+Bypass shared statement and plan caches at all depths. Bound time, consumed rows, plan size and bytes.
+Enforce a per-investigation memory bound inside all steps that retain rows or aggregate state.
+Reserve per-identity and process-wide execution slots before work. Reject saturation rather than queue it.
+Retain a slot until execution and cleanup actually end, even after cancellation or client disconnect.
+Close result sets and roll back the investigation transaction on every exit.
+Parameters stay request-local and are not added to monitoring records, logs or traces.
+Enable query forms only after tests verify all limits and read-only enforcement.
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant G as Web gateway
+  participant A as Administration service
+  participant D as Fresh database session
+  B->>G: Submit inputs and explicit Profile confirmation
+  G->>A: Forward protected request
+  A->>A: Check current permissions, query safety and capacity
+  A->>D: Begin read-only transaction as caller
+  A->>D: Profile validated query within execution limits
+  D-->>A: Bounded plan and timings
+  A->>D: Close results, roll back and close session
+  A-->>G: Return only while authorization is valid
+  G-->>B: Deliver bounded sensitive response
+```
+
+### Edge cases / Gotchas
+
+- Idle streams lose authority at their lease deadline even if security or network calls stall.
+- Rerun limits count consumed work, not only returned plan rows. Profile can exhaust resources.
+- Numerical lifetimes, R, telemetry caps and execution caps remain explicit open questions.
+- Local monitoring ownership and best-effort shutdown keep the accepted Track 103 rules.
+
+### Decisions & invariants
+
+- Constraints: K4 to K8 of the approved root design and accepted SE3, SE4, SE7, CN-7 and PF5.
+- Invariants: current scoped authorization, finite leases, bounded work and query-only rerun.
+- Mechanics: `design-mechanics.md §"Administration API and web application"`.
+
 ## Quick-start observability stack (operator example)
 
 **TL;DR.** A pinned `grafana/otel-lgtm` release collects logs, metrics and Tempo traces.
-YouTrackDB and the later web application run beside it.
+YouTrackDB and the web application run beside it.
 Local state works independently of export. Provision five Grafana dashboards.
-Track 104 will design the application and Grafana embedding. Core stays independent of Grafana.
+The web container provides the application and Grafana gateway. Core stays independent of Grafana.
 
-The complete delivery includes database monitoring and later administration and application work.
+The complete delivery includes database monitoring, the administration API and the web application.
 The setup files live under `youtrackdb-opentelemetry/examples/docker-compose/`.
 Keep example files outside Maven resources and the module JAR.
 An optional label-gated CI smoke workflow checks the assembled stack.
@@ -2125,8 +2341,8 @@ Use owner-only permissions on that directory and its credential files.
 Mount credential files only into services that need them. Do not commit fixed credentials.
 Never print credentials in container output, `scripts/logs.sh` output or exported telemetry.
 Set `GF_AUTH_ANONYMOUS_ENABLED=false` explicitly. Do not publish Grafana's port on the host.
-Reach Grafana only through the later gateway. Track 104 defines that gateway's access model.
-Track 104 owns login and embedding details. No login model is defined here.
+Reach Grafana only through the authenticated same-origin gateway.
+Use the administration session and telemetry permission for all Grafana entry points.
 
 Use pinned, tested releases and health checks. Select the exact LGTM release during packaging.
 Do not invent a release tag before compatibility testing.
@@ -2135,10 +2351,10 @@ Do not invent a release tag before compatibility testing.
 |---|---|---|
 | LGTM | `grafana/otel-lgtm`, pinned tested release | OTLP collection, Loki, Grafana, Tempo and Prometheus |
 | YouTrackDB | Matching database build | Local state and explicitly enabled telemetry |
-| Web application | Later Track 104 design | Unified monitoring entry point |
+| Web application | React and TypeScript assets with one gateway | Unified monitoring entry point |
 
 OTLP ports `4317` and `4318` bind to `127.0.0.1` on the host when published.
-Publish the later application's entry port on loopback only.
+Publish the application's TLS entry port on loopback only.
 Keep Grafana, Loki, Prometheus and Tempo ports internal with no host mappings.
 Smoke checks use internal container-network endpoints, not direct host store access.
 
@@ -2146,7 +2362,7 @@ Smoke checks use internal container-network endpoints, not direct host store acc
 The local stack uses Tempo for traces, Loki for logs and Prometheus for metrics.
 Production may operate these services separately or use compatible managed stores.
 Exporter selection and host-owned SDK support remain unchanged.
-The later application embeds Grafana panels. The database core does not depend on Grafana.
+The application embeds Grafana panels. The database core does not depend on Grafana.
 Shipped dashboards and first-class setup documentation target Grafana.
 
 Five dashboard JSON files serve the quick start, self-hosted production and Grafana Cloud.
@@ -2154,6 +2370,7 @@ JSON means JavaScript Object Notation. Import maps data source inputs to the tar
 Trace views use Tempo. Latency, rate and count panels query Prometheus metrics.
 Keep instance-specific unique identifiers (UIDs) out of committed JSON.
 
+Operators author dashboard JSON outside the gateway. The gateway exposes no editing routes.
 Provision these dashboards under `grafana/dashboards/`:
 
 - **Overview** — metric-backed public-query throughput, P50 / P95 / P99 latency, error rate and top 10 collections by query count. The selected trace source shows the top 10 slowest emitted queries. Loki supplies error-log rate and severity distribution.
@@ -2176,7 +2393,7 @@ Operator deliverables alongside the stack:
   Also check log search, metric graphs, trace lookup, health state and events, and local slow queries.
   Explicitly enable local capture for that check and run a query above its configured positive threshold.
   The test override does not change the off-by-default capture policy.
-  Check authenticated panels once Track 104 defines access.
+  Check authenticated panels, denied telemetry access and idle-stream revocation.
   Disable export or stop collection and confirm local monitoring still works.
   Fail with a diagnostic naming each missing capability.
 
@@ -2236,7 +2453,7 @@ Choose grafana/otel-lgtm for the local collection and viewer stack.
 Tempo provides trace lookup in the approved Grafana direction.
 Loki retains exported logs and scans matching content in a bounded time range.
 Prometheus supplies observed runtime measurements.
-The complete quick start depends on the later application and administration capabilities.
+The complete quick start includes the application and administration capabilities.
 Production can operate the same backends separately. Local packaging is not a production platform.
 
 ### Edge cases / Gotchas
@@ -2550,17 +2767,7 @@ The [SDK sampling contract](design-mechanics.md#sdk-sampling-contract) defines t
 SDK autoconfiguration supplies the YTDB-owned processor pipeline. Hosts configure their own
 pipelines. Listener insertion order does not override an SDK sampler decision.
 
-### Edge cases / Gotchas
-
-- Concurrent `register` and transaction `doOpen`: the registry uses `CopyOnWriteArrayList`, so a `doOpen` reads a consistent snapshot even if a `register` is in flight. The behavior is "either the listener is in the snapshot or it isn't", deterministic per transaction.
-- A listener implementation that holds a reference to the YTDB transaction: the listener outlives the transaction (it lives in the global registry). The listener MUST NOT cache transaction-scoped state; if it needs per-TX state, use `TransactionDetails.getTransactionTrackingId()` as the keying value.
-- Duplicate registration of the same listener instance: the registry deduplicates by reference identity. A second `register` of the same instance is a no-op.
-
-### References
-- D-records: D1
-- Mechanics: [SDK sampling contract](design-mechanics.md#sdk-sampling-contract)
-
-## Exception isolation contract
+### Exception isolation contract
 
 **TL;DR.** Every listener callback fires inside a try/catch in the YTDB firing site. Listener failures covered by `Exception | LinkageError | AssertionError` are logged at WARN and swallowed. `VirtualMachineError`, including `OutOfMemoryError`, and `ThreadDeath` propagate.
 
@@ -2575,10 +2782,13 @@ When one listener in the snapshot throws, subsequent listeners in the iteration 
 
 ### Edge cases / Gotchas
 
+- Concurrent `register` and transaction `doOpen`: the registry uses `CopyOnWriteArrayList`, so a `doOpen` reads a consistent snapshot even if a `register` is in flight. The behavior is "either the listener is in the snapshot or it isn't", deterministic per transaction.
+- A listener implementation that holds a reference to the YTDB transaction: the listener outlives the transaction (it lives in the global registry). The listener MUST NOT cache transaction-scoped state; if it needs per-TX state, use `TransactionDetails.getTransactionTrackingId()` as the keying value.
+- Duplicate registration of the same listener instance: the registry deduplicates by reference identity. A second `register` of the same instance is a no-op.
 - A listener that throws on every call generates one log line per call. At LDBC benchmark loads (~10k qps) this is a log flood. Acceptable in YTDB-496; if it becomes operationally painful, a follow-up adds rate limiting on the log.
 - An exception in `OpenTelemetrySdk.close()` during server shutdown is logged but not propagated; the server shutdown completes regardless.
 
 ### References
-- D-records: D11 (wrapper widened from `Exception` to the union `Exception | LinkageError | AssertionError`)
+- D-records: D1, D11 (wrapper widened from `Exception` to the union `Exception | LinkageError | AssertionError`)
 - Invariants: Listener exception isolation
-- Mechanics: none
+- Mechanics: [SDK sampling contract](design-mechanics.md#sdk-sampling-contract)
