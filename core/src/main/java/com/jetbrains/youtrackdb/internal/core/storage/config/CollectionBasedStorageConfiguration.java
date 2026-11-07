@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -95,6 +96,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private static final String COLLECTIONS_PREFIX_PROPERTY = "collection_";
   private static final int COLLECTIONS_PROPERTY_VERSION = 0;
+  // Version 1 appends a component id to the unchanged version 0 fields.
+  private static final int COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION = 1;
   private static final String PROPERTY_PREFIX_PROPERTY = "property_";
 
   private static final String ENGINE_PREFIX_PROPERTY = "engine_";
@@ -1653,6 +1656,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       AtomicOperation atomicOperation, final StorageCollectionConfiguration config) {
     lock.writeLock().lock();
     try {
+      final var paginated = (StoragePaginatedCollectionConfiguration) config;
+      final var entryVersion = paginated.getComponentId() == null
+          ? COLLECTIONS_PROPERTY_VERSION : COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION;
+      final var property = updateCollectionConfig(config);
+      final var identity = btree.get(COLLECTIONS_PREFIX_PROPERTY + config.id(), atomicOperation);
+      // storeProperty preserves an existing tag. Reject format changes before touching either
+      // the cache or the payload, including when JVM assertions are disabled.
+      if (identity != null && identity.getCollectionId() != entryVersion) {
+        throw new StorageException(storage.getName(),
+            "Cannot change entry version for collection '" + config.name() + "' from "
+                + identity.getCollectionId() + " to " + entryVersion);
+      }
       @SuppressWarnings("unchecked")
       final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
@@ -1671,8 +1686,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       storeProperty(
           atomicOperation,
           COLLECTIONS_PREFIX_PROPERTY + config.id(),
-          updateCollectionConfig(config),
-          COLLECTIONS_PROPERTY_VERSION);
+          property,
+          entryVersion);
     } finally {
       lock.writeLock().unlock();
     }
@@ -1714,10 +1729,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       collections.add(null);
                     }
 
-                    collections.add(deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.add(deserializeStorageCollectionConfig(
+                        id, buffer.buffer(), entry.second().getCollectionId()));
                     assert id == collections.size() - 1;
                   } else {
-                    collections.set(id, deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.set(id, deserializeStorageCollectionConfig(
+                        id, buffer.buffer(), entry.second().getCollectionId()));
                   }
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
@@ -2014,15 +2031,31 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     entries.add(compression);
     totalSize += compression.length;
 
+    final var componentId = paginatedCollectionConfiguration.getComponentId();
+    if (componentId != null) {
+      PageFileNames.validateLayout26ComponentIdEvidence(
+          componentId, "collection '" + collection.name() + "'");
+      final var componentData = new byte[IntegerSerializer.INT_SIZE];
+      IntegerSerializer.serializeNative(componentId, componentData, 0);
+      entries.add(componentData);
+      totalSize += componentData.length;
+    }
+
     return mergeBinaryEntries(totalSize, entries);
   }
 
   private StorageCollectionConfiguration deserializeStorageCollectionConfig(
-      final int id, final byte[] property) {
+      final int id, final byte[] property, final int entryVersion) {
     var pos = 0;
 
     final var name = deserializeStringValue(property, pos);
     pos += getSerializedStringSize(property, pos);
+
+    if (entryVersion != COLLECTIONS_PROPERTY_VERSION
+        && entryVersion != COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION) {
+      throw new StorageException(storage.getName(),
+          "Unknown entry version " + entryVersion + " for collection '" + name + "'");
+    }
 
     final var useWal = (property[pos] == 1);
     pos++;
@@ -2037,6 +2070,20 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     pos += getSerializedStringSize(property, pos);
 
     final var compression = deserializeStringValue(property, pos);
+    Integer componentId = null;
+    if (entryVersion == COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION) {
+      pos += getSerializedStringSize(property, pos);
+      if (property.length - pos < IntegerSerializer.INT_SIZE) {
+        throw new StorageException(storage.getName(),
+            "Missing component id for collection '" + name + "'");
+      }
+      if (property.length - pos > IntegerSerializer.INT_SIZE) {
+        throw new StorageException(storage.getName(),
+            "Trailing bytes after component id for collection '" + name + "'");
+      }
+      componentId = IntegerSerializer.deserializeNative(property, pos);
+      PageFileNames.validateLayout26ComponentIdEvidence(componentId, "collection '" + name + "'");
+    }
 
     return new StoragePaginatedCollectionConfiguration(
         id,
@@ -2049,7 +2096,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         encryption,
         configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
         conflictStrategy,
-        binaryVersion);
+        binaryVersion,
+        componentId);
   }
 
   private void dropProperty(final AtomicOperation atomicOperation, final String name) {

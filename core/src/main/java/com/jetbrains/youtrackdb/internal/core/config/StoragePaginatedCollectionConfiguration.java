@@ -39,6 +39,8 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
   public boolean useWal = true;
   public String conflictStrategy;
   private final int binaryVersion;
+  // Null denotes an entry without layout 26 component identity evidence.
+  private final Integer componentId;
 
   public StoragePaginatedCollectionConfiguration(
       final int id,
@@ -52,6 +54,24 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
       final String iEncryptionKey,
       final String conflictStrategy,
       int binaryVersion) {
+    this(id, name, location, useWal, recordOverflowGrowFactor, recordGrowFactor, compression,
+        iEncryption, iEncryptionKey, conflictStrategy, binaryVersion, null);
+  }
+
+  public StoragePaginatedCollectionConfiguration(
+      final int id,
+      final String name,
+      final String location,
+      final boolean useWal,
+      final float recordOverflowGrowFactor,
+      final float recordGrowFactor,
+      final String compression,
+      final String iEncryption,
+      final String iEncryptionKey,
+      final String conflictStrategy,
+      final int binaryVersion,
+      final Integer componentId) {
+    this.componentId = componentId;
     this.id = id;
     this.name = name;
     this.location = location;
@@ -63,6 +83,11 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
     this.encryptionKey = iEncryptionKey;
     this.conflictStrategy = conflictStrategy;
     this.binaryVersion = binaryVersion;
+  }
+
+  /** Returns the stored component id, or null for entries without component identity. */
+  public Integer getComponentId() {
+    return componentId;
   }
 
   @Override

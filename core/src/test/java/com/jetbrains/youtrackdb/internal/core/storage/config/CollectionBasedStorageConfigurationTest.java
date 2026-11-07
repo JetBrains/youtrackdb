@@ -19,10 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.config;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -31,13 +33,23 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
+import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
@@ -70,6 +82,7 @@ public class CollectionBasedStorageConfigurationTest {
   private AbstractStorage storage;
   private AtomicOperationsManager atomicOps;
   private CollectionBasedStorageConfiguration config;
+  private AtomicOperation collectionTestOperation;
 
   @Before
   public void setUp() throws Exception {
@@ -126,6 +139,221 @@ public class CollectionBasedStorageConfigurationTest {
       } finally {
         youTrackDB.close();
       }
+    }
+  }
+
+  // Version 0 fixture: name=x, WAL=false, binaryVersion=7, encryption=e,
+  // conflictStrategy=s, compression=c. String bytes are UTF-16 with a BOM.
+  // Only the five native-endian integer fields differ between architectures.
+  private static byte[] legacyCollectionBytes() {
+    var bytes = HexFormat.of().parseHex(
+        "0104000000feff007800070000000104000000feff00650104000000feff0073"
+            + "0104000000feff0063");
+    if (ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN) {
+      for (var offset : new int[] {1, 10, 15, 24, 33}) {
+        for (var i = 0; i < 2; i++) {
+          var value = bytes[offset + i];
+          bytes[offset + i] = bytes[offset + 3 - i];
+          bytes[offset + 3 - i] = value;
+        }
+      }
+    }
+    return bytes;
+  }
+
+  private static StoragePaginatedCollectionConfiguration collectionEntry(
+      int id, Integer componentId) {
+    return new StoragePaginatedCollectionConfiguration(
+        id, "x", null, false, 0, 0, "c", "e", null, "s", 7, componentId);
+  }
+
+  private Object invokeConfig(String method, Class<?>[] types, Object... args) throws Exception {
+    var target = CollectionBasedStorageConfiguration.class.getDeclaredMethod(method, types);
+    target.setAccessible(true);
+    try {
+      return target.invoke(config, args);
+    } catch (InvocationTargetException e) {
+      if (e.getCause() instanceof Exception cause) {
+        throw cause;
+      }
+      throw e;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private RawPairObjectInteger<byte[]> storedCollection(int id) throws Exception {
+    return (RawPairObjectInteger<byte[]>) invokeConfig("readProperty",
+        new Class<?>[] {String.class, AtomicOperation.class},
+        "collection_" + id, collectionTestOperation);
+  }
+
+  private void preloadCollections() throws Exception {
+    invokeConfig("preloadCollections", new Class<?>[] {AtomicOperation.class},
+        collectionTestOperation);
+  }
+
+  private void storeCollectionBytes(byte[] bytes, int version) throws Exception {
+    invokeConfig("storeProperty",
+        new Class<?>[] {AtomicOperation.class, String.class, byte[].class, int.class},
+        collectionTestOperation, "collection_80", bytes, version);
+  }
+
+  private static void assertCollectionFields(StorageCollectionConfiguration entry,
+      Integer componentId) {
+    var paginated = (StoragePaginatedCollectionConfiguration) entry;
+    assertEquals(80, paginated.id());
+    assertEquals("x", paginated.name());
+    assertFalse(paginated.useWal);
+    assertEquals(7, paginated.getBinaryVersion());
+    assertEquals("e", paginated.encryption);
+    assertEquals("s", paginated.conflictStrategy);
+    assertEquals("c", paginated.compression);
+    assertEquals(componentId, paginated.getComponentId());
+  }
+
+  @Test
+  public void testLegacyCollectionEntryKeepsLiteralBytesAndVersionZero() throws Exception {
+    // Existing callers without a component id keep version 0, even on repeated updates.
+    atomicOps.executeInsideAtomicOperation(op -> {
+      collectionTestOperation = op;
+      config.updateCollection(op, collectionEntry(80, null));
+      config.updateCollection(op, collectionEntry(80, null));
+      var stored = storedCollection(80);
+      assertEquals(0, stored.second);
+      assertArrayEquals(legacyCollectionBytes(), stored.first);
+      preloadCollections();
+      assertCollectionFields(config.getCollections().get(80), null);
+    });
+  }
+
+  @Test
+  public void testComponentEntryRoundTripsLiteralIdsAndVersionOne() throws Exception {
+    // Boundary and middle ids survive encoding, same-version updates and tag-driven reload.
+    // The same scan also contains a legacy entry. It must not infer the format from the image.
+    for (var componentId : new int[] {1, 1234567, 33554431, 0}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        config.dropCollection(op, 80);
+        config.updateCollection(op, collectionEntry(79, null));
+        config.updateCollection(op, collectionEntry(80, componentId));
+        config.updateCollection(op, collectionEntry(80, componentId));
+        var stored = storedCollection(80);
+        assertEquals(1, stored.second);
+        var expected = ByteBuffer.allocate(legacyCollectionBytes().length + 4)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(componentId)
+            .array();
+        assertArrayEquals(expected, stored.first);
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), componentId);
+        assertNull(((StoragePaginatedCollectionConfiguration) config.getCollections().get(79))
+            .getComponentId());
+      });
+    }
+  }
+
+  @Test
+  public void testCollectionVersionChangesFailBeforeChangingBytesTagOrCache() throws Exception {
+    // Both upgrade and downgrade must fail explicitly, not depend on storeProperty's assert.
+    for (var componentId : new Integer[] {null, 1234567}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        config.dropCollection(op, 80);
+        var original = collectionEntry(80, componentId);
+        config.updateCollection(op, original);
+        var before = storedCollection(80);
+        var replacement = collectionEntry(80, componentId == null ? 1 : null);
+        var error = assertThrows(StorageException.class, () -> config.updateCollection(op,
+            replacement));
+        assertEquals("Cannot change entry version for collection 'x' from "
+            + (componentId == null ? "0 to 1" : "1 to 0")
+            + "\r\n\tDB Name=\"configTest\"", error.getMessage());
+        var after = storedCollection(80);
+        assertEquals(before.second, after.second);
+        assertArrayEquals(before.first, after.first);
+        assertEquals(original, config.getCollections().get(80));
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), componentId);
+      });
+    }
+  }
+
+  @Test
+  public void testInvalidComponentEvidenceFailsWithExactCollectionMessage() throws Exception {
+    // Invalid evidence fails in both the writer and the tag-driven decoder without a default.
+    for (var componentId : new int[] {-1, 33554432}) {
+      var message = "Component id " + componentId
+          + " in collection 'x' is outside the layout 26 range 0..33554431";
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var writerError = assertThrows(StorageException.class,
+            () -> config.updateCollection(op, collectionEntry(80, componentId)));
+        assertEquals(message, writerError.getMessage());
+        var bytes = ByteBuffer.allocate(legacyCollectionBytes().length + 4)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(componentId)
+            .array();
+        storeCollectionBytes(bytes, 1);
+        assertEquals(message, assertThrows(StorageException.class,
+            this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+  }
+
+  @Test
+  public void testMissingComponentIdAndUnknownEntryVersionFailWithExactMessages() throws Exception {
+    // A version 1 payload needs all four id bytes. Unknown tags must not use a known decoder.
+    for (var missingBytes : new int[] {4, 3, 2, 1}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        storeCollectionBytes(Arrays.copyOf(legacyCollectionBytes(),
+            legacyCollectionBytes().length + 4 - missingBytes), 1);
+        assertEquals("Missing component id for collection 'x'\r\n\tDB Name=\"configTest\"",
+            assertThrows(StorageException.class, this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+    atomicOps.executeInsideAtomicOperation(op -> {
+      collectionTestOperation = op;
+      storeCollectionBytes(legacyCollectionBytes(), 99);
+      assertEquals("Unknown entry version 99 for collection 'x'\r\n\tDB Name=\"configTest\"",
+          assertThrows(StorageException.class, this::preloadCollections).getMessage());
+      config.dropCollection(op, 80);
+    });
+  }
+
+  @Test
+  public void testComponentEntryRejectsOneAndFourTrailingBytesWithExactMessage() throws Exception {
+    // Version 1 must end after its valid component id, even with just one trailing byte.
+    for (var trailingBytes : new int[] {1, 4}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var bytes = ByteBuffer.allocate(legacyCollectionBytes().length + 4 + trailingBytes)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(1234567)
+            .array();
+        Arrays.fill(bytes, bytes.length - trailingBytes, bytes.length, (byte) 0x5a);
+        storeCollectionBytes(bytes, 1);
+        assertEquals(
+            "Trailing bytes after component id for collection 'x'\r\n\tDB Name=\"configTest\"",
+            assertThrows(StorageException.class, this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+  }
+
+  @Test
+  public void testLegacyCollectionEntryStillAcceptsOneAndFourTrailingBytes() throws Exception {
+    // Version 0 ignores trailing bytes and must retain every decoded legacy field.
+    for (var trailingBytes : new int[] {1, 4}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var bytes = Arrays.copyOf(legacyCollectionBytes(),
+            legacyCollectionBytes().length + trailingBytes);
+        Arrays.fill(bytes, bytes.length - trailingBytes, bytes.length, (byte) 0x5a);
+        storeCollectionBytes(bytes, 0);
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), null);
+        config.dropCollection(op, 80);
+      });
     }
   }
 
