@@ -15,9 +15,8 @@ public final class PageFileNames {
       ".bd", ".nd", ".cbt", ".nbt", ".mbt", ".ixs", ".dwl", ".fsm", ".bsm",
       ".bsm.tmp", ".bsml");
 
-  private static final String EXTENSION_26 = ".p26";
   private static final Pattern NAME_26 = Pattern.compile(
-      "ytdb-(collection|index|configuration)-([0-9]+)-([a-z-]+)(?:_([0-9]+))?\\.p26");
+      "ytdb-p26-(collection|index|configuration)-([0-9]+)-([a-z-]+)(?:_([0-9]+))?\\.[a-z]+");
   private static final Pattern INDEX_STEM = Pattern.compile("ie_([0-9]+)(\\$null)?");
   private static final Pattern BAG_STEM = Pattern.compile("global_collection_([0-9]+)");
 
@@ -100,15 +99,16 @@ public final class PageFileNames {
   }
 
   public static String layout26(PageFileIdentity identity) {
-    return "ytdb-" + identity.kind().label() + "-" + identity.componentId() + "-"
-        + identity.role().label() + EXTENSION_26;
+    return "ytdb-p26-" + identity.kind().label() + "-" + identity.componentId() + "-"
+        + identity.role().label() + identity.role().layout26Extension();
   }
 
   /** The write cache inserts the internal id before the final extension. */
   public static String layout26DiskName(PageFileIdentity identity) {
     var logical = layout26(identity);
-    return logical.substring(0, logical.length() - EXTENSION_26.length())
-        + "_" + identity.internalId() + EXTENSION_26;
+    var extension = identity.role().layout26Extension();
+    return logical.substring(0, logical.length() - extension.length())
+        + "_" + identity.internalId() + extension;
   }
 
   public static Optional<PageFileIdentity> parseLayout26(String name) {
@@ -132,7 +132,7 @@ public final class PageFileNames {
       for (var role : PageFileRole.values()) {
         if (role.kind().label().equals(match.group(1)) && role.label().equals(match.group(3))) {
           var identity = new PageFileIdentity(role, componentId);
-          // Canonical equality rejects leading zeros and a suffix for a different identity.
+          // Canonical equality checks the role extension, numeric spelling and internal id.
           var canonical = disk ? layout26DiskName(identity) : layout26(identity);
           return canonical.equals(name) ? Optional.of(identity) : Optional.empty();
         }

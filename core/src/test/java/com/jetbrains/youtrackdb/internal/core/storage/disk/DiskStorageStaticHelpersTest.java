@@ -315,8 +315,8 @@ public class DiskStorageStaticHelpersTest {
       Files.createDirectories(testDir);
     }
     for (String retained : new String[] {"orders.dpb", "config.fcm", "config.dcm",
-        "foreign.txt", "foreign.p26", "ytdb-collection-7-record-data_1.p26",
-        "ytdb-collection-7-record-data.p26"}) {
+        "foreign.txt", "foreign.rec", "ytdb-p26-collection-7-record-data_1.rec",
+        "ytdb-p26-collection-7-record-data.rec"}) {
       Files.createFile(testDir.resolve(retained));
     }
     assertFalse(DiskStorage.exists(testDir));
@@ -344,9 +344,9 @@ public class DiskStorageStaticHelpersTest {
 
   private void assertParentSweepRetainsLayout26Files(Path databasePath) throws IOException {
     var firstPage = Files.createFile(
-        testDir.resolve("ytdb-collection-0-record-data_268435456.p26"));
+        testDir.resolve("ytdb-p26-collection-0-record-data_268435456.rec"));
     var secondPage = Files.createFile(
-        testDir.resolve("ytdb-collection-7-record-data_268435463.p26"));
+        testDir.resolve("ytdb-p26-collection-7-record-data_268435463.rec"));
     var legacy = Files.createFile(testDir.resolve("legacy.cm"));
     var foreign = Files.createFile(testDir.resolve("foreign.txt"));
 
