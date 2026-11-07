@@ -1029,8 +1029,10 @@ public class DiskStorage extends AbstractStorage {
   public static void deleteFilesFromDisc(
       final String name, final int maxRetries, final int waitTime, final String databaseDirectory) {
     var dbDir = new java.io.File(databaseDirectory);
+    var usingParentDirectory = false;
     if (!dbDir.exists() || !dbDir.isDirectory()) {
       dbDir = dbDir.getParentFile();
+      usingParentDirectory = true;
     }
 
     // RETRIES
@@ -1054,7 +1056,9 @@ public class DiskStorage extends AbstractStorage {
             }
             continue;
           }
-          if (PageFileNames.parseLayout26DiskName(f.getName()).isPresent()) {
+          // The parent is not the storage directory, so layout 26 files there are not ours.
+          if (!usingParentDirectory
+              && PageFileNames.parseLayout26DiskName(f.getName()).isPresent()) {
             if (!f.delete()) {
               notDeletedFiles++;
             }

@@ -326,6 +326,38 @@ public class DiskStorageStaticHelpersTest {
     }
   }
 
+  // A missing database directory must not make the parent sweep delete layout 26 files.
+  // The legacy .cm deletion and foreign-file retention still apply in that parent.
+  @Test
+  public void missingDatabaseDirectoryRetainsParentLayout26Files() throws IOException {
+    assertParentSweepRetainsLayout26Files(testDir.resolve("missing-database"));
+  }
+
+  // A plain file used as the database path has the same parent-sweep boundary.
+  // Layout 26 files and unrelated files survive, while the legacy .cm file is deleted.
+  @Test
+  public void plainFileDatabasePathRetainsParentLayout26Files() throws IOException {
+    var databasePath = Files.createFile(testDir.resolve("database-path"));
+    assertParentSweepRetainsLayout26Files(databasePath);
+    assertTrue(Files.exists(databasePath));
+  }
+
+  private void assertParentSweepRetainsLayout26Files(Path databasePath) throws IOException {
+    var firstPage = Files.createFile(
+        testDir.resolve("ytdb-collection-0-record-data_268435456.p26"));
+    var secondPage = Files.createFile(
+        testDir.resolve("ytdb-collection-7-record-data_268435463.p26"));
+    var legacy = Files.createFile(testDir.resolve("legacy.cm"));
+    var foreign = Files.createFile(testDir.resolve("foreign.txt"));
+
+    DiskStorage.deleteFilesFromDisc("parentSweep", 1, 0, databasePath.toString());
+
+    assertTrue(Files.exists(firstPage));
+    assertTrue(Files.exists(secondPage));
+    assertTrue(Files.exists(foreign));
+    assertFalse(Files.exists(legacy));
+  }
+
   private static void setField(DiskStorage storage, String name, Object value) throws Exception {
     var field = DiskStorage.class.getDeclaredField(name);
     field.setAccessible(true);
