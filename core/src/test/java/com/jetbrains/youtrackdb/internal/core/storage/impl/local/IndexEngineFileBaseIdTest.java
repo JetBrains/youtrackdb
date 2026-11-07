@@ -38,7 +38,7 @@ import org.junit.Test;
  *
  * <p>Uses DISK databases with a full {@code YourTracks}-instance close between phases, because
  * the seeding and the format gate both run only on a real storage open
- * ({@code CollectionBasedStorageConfiguration.load} / {@code AbstractStorage.openIndexes}) —
+ * ({@code CollectionBasedStorageConfiguration.load} / {@code AbstractStorage.seedComponentIds}) —
  * closing a session alone leaves the storage open and would exercise nothing.
  */
 public class IndexEngineFileBaseIdTest {
@@ -123,7 +123,7 @@ public class IndexEngineFileBaseIdTest {
     }
 
     // Full instance close: the storage really closes, so the next open re-runs load() (the
-    // format gate) and openIndexes (the seeding).
+    // format gate) and seedComponentIds before loading components.
     ytdb.close();
     ytdb = (YouTrackDBImpl) YourTracks.instance(testDir);
 

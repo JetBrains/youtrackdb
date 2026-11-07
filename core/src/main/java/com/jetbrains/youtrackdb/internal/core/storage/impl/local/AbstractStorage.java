@@ -132,6 +132,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -416,9 +417,9 @@ public abstract class AbstractStorage
    * operation) reverts with the files, but on the in-memory profile a rolled-back create's eager
    * file install survives, so a reverting allocator would re-issue the burned id and wedge every
    * subsequent create against the surviving orphan. Burning the value instead keeps allocation
-   * collision-free on both profiles. Seeded at {@link #openIndexes} from
-   * max(persisted floor, max persisted engine {@code fileBaseId}, max swept
-   * {@code ie_<n>} file stem) — see {@link #seedIndexEngineFileBaseIdHwm}.
+   * collision-free on both profiles. Seeded before component load by {@link #seedComponentIds}
+   * from the persisted floor, persisted engine entries and registered file names. Layout 26
+   * also includes its persisted per-kind counter.
    * Layout 25 allocations stop at {@link Integer#MAX_VALUE}. Layout 26 uses the 25-bit
    * component-id ceiling through the per-kind allocator.
    */
@@ -965,6 +966,7 @@ public abstract class AbstractStorage
                 }
 
                 initConfiguration(contextConfiguration, atomicOperation);
+                seedComponentIds(atomicOperation);
               });
 
           atomicOperationsManager.executeInsideAtomicOperation(
@@ -1198,13 +1200,6 @@ public abstract class AbstractStorage
       throw new StorageException(name, "Storage '" + name + "' is not properly initialized");
     }
 
-    // Seed the file-base-id allocator before any engine loads: openIndexes is on every path that
-    // brings persisted engines back to life (normal open and the incremental-restore reopen), so
-    // seeding here guarantees no later allocation can collide with a persisted or orphaned file
-    // base id.
-    seedComponentIdCounters(atomicOperation);
-    seedIndexEngineFileBaseIdHwm(atomicOperation);
-
     final var indexNames = configuration.indexEngines(atomicOperation);
     var counter = 0;
 
@@ -1238,8 +1233,9 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Seeds the in-process file-base-id high-water mark from every durable trace an allocation can
-   * leave, taking the max of three inputs:
+   * Seeds live allocation marks after configuration load and before any component load.
+   * The caller owns the storage write lock. Configuration load must have released its own lock.
+   * This hook writes no counters and never lowers a live mark. Index evidence includes:
    *
    * <ol>
    *   <li>the persisted floor — the last successfully committed allocation;
@@ -1253,24 +1249,44 @@ public abstract class AbstractStorage
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
    * incremental restore into an already-open storage) keeps the monotonicity guarantee.
    */
-  private void seedIndexEngineFileBaseIdHwm(final AtomicOperation atomicOperation) {
-    long seed = ((CollectionBasedStorageConfiguration) configuration)
-        .getIndexEngineFileBaseIdFloor(atomicOperation);
+  protected final void seedComponentIds(final AtomicOperation atomicOperation) {
+    assert stateLock.isWriteLockedByCurrentThread();
+    final var layout26 = storageFormat == StorageFormat.LAYOUT_26;
+    final var config = (CollectionBasedStorageConfiguration) configuration;
+    if (layout26) {
+      for (var kind : PageFileKind.values()) {
+        componentIdHwm(kind).accumulateAndGet(
+            config.getComponentIdCounter(kind, atomicOperation), Math::max);
+      }
+    }
+    long seed = config.getIndexEngineFileBaseIdFloor(atomicOperation);
 
     for (final var engineName : configuration.indexEngines(atomicOperation)) {
       final var engineData = configuration.getIndexEngine(engineName, -1, atomicOperation);
-      if (engineData != null && engineData.getFileBaseId() > seed) {
-        seed = engineData.getFileBaseId();
+      if (engineData != null) {
+        validateComponentIdEvidence(engineData.getFileBaseId(), "index entry '" + engineName + "'");
+        seed = Math.max(seed, engineData.getFileBaseId());
       }
     }
 
     final var wc = writeCache;
     if (wc != null) {
       for (final var fileName : wc.files().keySet()) {
-        final var swept = parseIndexEngineFileBaseId(fileName);
-        if (swept > seed) {
-          seed = swept;
+        if (layout26) {
+          final var identity = PageFileNames.parseLayout26(fileName);
+          if (identity.isPresent()) {
+            final var file = identity.get();
+            componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
+            continue;
+          }
+          if (fileName.startsWith("ytdb-p26-")) {
+            throw new StorageException(name,
+                "Invalid layout 26 registered page-file name '" + fileName + "'");
+          }
         }
+        // Keep the staging-era legacy accepted set, including leading zeros and $null.ixs.
+        final var swept = parseIndexEngineFileBaseId(fileName, layout26);
+        seed = Math.max(seed, swept);
       }
     }
 
@@ -1301,6 +1317,11 @@ public abstract class AbstractStorage
    * colliding with a future engine's family.
    */
   private static long parseIndexEngineFileBaseId(final String fileName) {
+    return parseIndexEngineFileBaseId(fileName, false);
+  }
+
+  private static long parseIndexEngineFileBaseId(
+      final String fileName, final boolean layout26Evidence) {
     final var extensionStart = fileName.lastIndexOf('.');
     if (extensionStart <= 0) {
       return -1;
@@ -1329,8 +1350,17 @@ public abstract class AbstractStorage
     try {
       parsed = Long.parseLong(digits);
     } catch (final NumberFormatException ignore) {
-      // More digits than a long can carry — certainly not an allocated id.
+      if (layout26Evidence) {
+        throw new StorageException(null,
+            "Component id " + digits + " in registered file '" + fileName
+                + "' exceeds the layout 26 bound " + PageFileIdentity.MAX_COMPONENT_ID);
+      }
+      // More digits than a long can carry — certainly not an allocated layout 25 id.
       return -1;
+    }
+    // Validate numeric evidence before the legacy int ceiling can turn it into a nonmatch.
+    if (layout26Evidence) {
+      validateLayout26ComponentIdEvidence(parsed, "registered file '" + fileName + "'");
     }
     if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
       return -1;
@@ -1375,13 +1405,17 @@ public abstract class AbstractStorage
     return (int) allocated;
   }
 
-  private void seedComponentIdCounters(AtomicOperation atomicOperation) {
+  private void validateComponentIdEvidence(long componentId, String entry) {
     if (storageFormat == StorageFormat.LAYOUT_26) {
-      final var config = (CollectionBasedStorageConfiguration) configuration;
-      for (var kind : PageFileKind.values()) {
-        final var counter = config.getComponentIdCounter(kind, atomicOperation);
-        componentIdHwm(kind).accumulateAndGet(counter, Math::max);
-      }
+      validateLayout26ComponentIdEvidence(componentId, entry);
+    }
+  }
+
+  private static void validateLayout26ComponentIdEvidence(long componentId, String entry) {
+    if (componentId < 0 || componentId > PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(null,
+          "Component id " + componentId + " in " + entry
+              + " is outside the layout 26 range 0.." + PageFileIdentity.MAX_COMPONENT_ID);
     }
   }
 
@@ -1730,7 +1764,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .create(atomicOperation, contextConfiguration);
           configuration.setUuid(atomicOperation, uuid.toString());
-          seedComponentIdCounters(atomicOperation);
+          seedComponentIds(atomicOperation);
 
           var binaryFormatVersion = atomicOperationsManager.calculateInsideAtomicOperation(
               configuration::getBinaryFormatVersion);
