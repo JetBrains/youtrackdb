@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
@@ -280,6 +281,135 @@ public class PageFileNamesTest {
       assertFalse(String.valueOf(invalid), PageFileNames.parseLayout26(invalid).isPresent());
       assertFalse(String.valueOf(invalid),
           PageFileNames.parseLayout26DiskName(invalid).isPresent());
+    }
+  }
+
+  // Each legacy engine extension accepts both suffix forms, including the non-role $null.ixs.
+  @Test
+  public void legacyIndexEvidenceAcceptsEveryExtensionAndNullSuffixInBothLayouts() {
+    for (var layout26 : new boolean[] {false, true}) {
+      for (var name : new String[] {
+          "ie_7.cbt", "ie_7.nbt", "ie_7.ixs",
+          "ie_7$null.cbt", "ie_7$null.nbt", "ie_7$null.ixs"}) {
+        assertEquals(name, 7,
+            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(name, layout26));
+      }
+    }
+  }
+
+  // Numeric spelling is not canonicalized. Leading zeros are evidence, but zero burns no id.
+  @Test
+  public void legacyIndexEvidenceRetainsLeadingZerosAndSharedBoundaries() {
+    for (var layout26 : new boolean[] {false, true}) {
+      assertEquals(1, PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence("ie_1.cbt", layout26));
+      assertEquals(7,
+          PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence("ie_0007$null.ixs", layout26));
+      assertEquals(1, PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(
+          "ie_0000000000000000000000000000000000000001.nbt", layout26));
+      assertEquals(-1,
+          PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence("ie_0.ixs", layout26));
+      assertEquals(-1,
+          PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence("ie_000$null.cbt", layout26));
+      assertEquals(-1, PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(
+          "ie_0000000000000000000000000000000000000000.nbt", layout26));
+      assertEquals(33554431,
+          PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence("ie_33554431.cbt", layout26));
+    }
+  }
+
+  // Bounds differ between layouts. Literal messages pin normalized numeric and raw overflow forms.
+  @Test
+  public void legacyIndexEvidencePreservesLayoutSpecificBoundsAndExactErrors() {
+    var names = new String[] {
+        "ie_33554432.cbt", "ie_00033554432$null.nbt", "ie_2147483647.ixs",
+        "ie_2147483648$null.ixs", "ie_9223372036854775807.cbt",
+        "ie_9223372036854775808.nbt", "ie_999999999999999999999999$null.ixs"
+    };
+    var layout25Results = new long[] {33554432, 33554432, 2147483647, -1, -1, -1, -1};
+    var messages = new String[] {
+        "Component id 33554432 in registered file 'ie_33554432.cbt'"
+            + " is outside the layout 26 range 0..33554431",
+        "Component id 33554432 in registered file 'ie_00033554432$null.nbt'"
+            + " is outside the layout 26 range 0..33554431",
+        "Component id 2147483647 in registered file 'ie_2147483647.ixs'"
+            + " is outside the layout 26 range 0..33554431",
+        "Component id 2147483648 in registered file 'ie_2147483648$null.ixs'"
+            + " is outside the layout 26 range 0..33554431",
+        "Component id 9223372036854775807 in registered file 'ie_9223372036854775807.cbt'"
+            + " is outside the layout 26 range 0..33554431",
+        "Component id 9223372036854775808 in registered file 'ie_9223372036854775808.nbt'"
+            + " exceeds the layout 26 bound 33554431",
+        "Component id 999999999999999999999999 in registered file"
+            + " 'ie_999999999999999999999999$null.ixs' exceeds the layout 26 bound 33554431"
+    };
+    for (int i = 0; i < names.length; i++) {
+      var name = names[i];
+      assertEquals(name, layout25Results[i],
+          PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(name, false));
+      var error = assertThrows(name, StorageException.class,
+          () -> PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(name, true));
+      assertEquals(name, messages[i], error.getMessage());
+    }
+  }
+
+  // Shape and extension failures return -1 before bounds, even for oversized digit sequences.
+  @Test
+  public void legacyIndexEvidenceRejectsForeignAndMalformedNamesBeforeBoundsInBothLayouts() {
+    for (var layout26 : new boolean[] {false, true}) {
+      for (var name : new String[] {
+          "", ".cbt", "ie_7", "ie_7.", "ie_7.pcl", "ie_7.CBT", "ie_7.cbt.tmp",
+          "other_7.cbt", "IE_7.cbt", "ie_.cbt", "ie_$null.nbt", "ie_+7.cbt", "ie_-7.nbt",
+          "ie_\u0667.cbt", "ie_\uff17.nbt", "ie_7x.cbt", "ie_7$nullx.cbt", "ie_7$null$null.cbt",
+          "ie_7.0.cbt", "ie_ 7.cbt", "ie_7 .cbt", "/ie_7.cbt", "ie_7/8.cbt",
+          "ie_7\\8.cbt", "ie_7_123.cbt", "ie_33554432.pcl", "ie_33554432",
+          "other_33554432.cbt", "ie_33554432x.cbt", "ie_-33554432.cbt",
+          "ie_999999999999999999999999.pcl", "ie_999999999999999999999999",
+          "other_999999999999999999999999.cbt", "ie_999999999999999999999999x.cbt"}) {
+        assertEquals(name, -1,
+            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(name, layout26));
+      }
+    }
+  }
+
+  // The shared family predicate accepts only the three exact legacy engine extensions.
+  @Test
+  public void legacyIndexEngineExtensionFamilyRejectsForeignAndNearMissExtensions() {
+    for (var extension : new String[] {".cbt", ".nbt", ".ixs"}) {
+      assertTrue(extension, PageFileNames.isIndexEngineFileExtension(extension));
+    }
+    for (var extension : new String[] {null, "", "cbt", ".CBT", ".pcl", ".cbt.tmp"}) {
+      assertFalse(String.valueOf(extension), PageFileNames.isIndexEngineFileExtension(extension));
+    }
+  }
+
+  // Persisted index entries and registered files share bounds and byte-exact range messages.
+  @Test
+  public void layout26ComponentIdEvidenceSharesBoundsAndExactMessagesForBothSources() {
+    PageFileNames.validateLayout26ComponentIdEvidence(0, "index entry 'orders'");
+    PageFileNames.validateLayout26ComponentIdEvidence(33554431,
+        "registered file 'ie_33554431.cbt'");
+    var indexError = assertThrows(StorageException.class,
+        () -> PageFileNames.validateLayout26ComponentIdEvidence(
+            33554432, "index entry 'orders'"));
+    assertEquals("Component id 33554432 in index entry 'orders'"
+        + " is outside the layout 26 range 0..33554431", indexError.getMessage());
+    var fileError = assertThrows(StorageException.class,
+        () -> PageFileNames.validateLayout26ComponentIdEvidence(
+            33554432, "registered file 'ie_33554432.cbt'"));
+    assertEquals("Component id 33554432 in registered file 'ie_33554432.cbt'"
+        + " is outside the layout 26 range 0..33554431", fileError.getMessage());
+    var negativeError = assertThrows(StorageException.class,
+        () -> PageFileNames.validateLayout26ComponentIdEvidence(-1, "index entry 'orders'"));
+    assertEquals("Component id -1 in index entry 'orders'"
+        + " is outside the layout 26 range 0..33554431", negativeError.getMessage());
+  }
+
+  // Unlike the canonical role parsers, the legacy evidence parser requires a non-null name.
+  @Test
+  public void legacyIndexEvidenceRetainsNullInputFailureInBothLayouts() {
+    for (var layout26 : new boolean[] {false, true}) {
+      assertThrows(NullPointerException.class,
+          () -> PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(null, layout26));
     }
   }
 

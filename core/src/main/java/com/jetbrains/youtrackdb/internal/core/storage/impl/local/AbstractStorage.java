@@ -300,7 +300,7 @@ public abstract class AbstractStorage
           o -> o.record.getIdentity());
 
   /** Suffix appended to index engine names for null-key trees. */
-  public static final String NULL_TREE_SUFFIX = "$null";
+  public static final String NULL_TREE_SUFFIX = PageFileNames.NULL_TREE_SUFFIX;
 
   /**
    * The stem prefix of file-base-id-keyed index-engine files ({@code ie_<fileBaseId>} plus the
@@ -309,7 +309,8 @@ public abstract class AbstractStorage
    * rolled-back create on the in-memory profile (whose eager cache install does not revert) can
    * never have its file base id handed out again.
    */
-  public static final String INDEX_ENGINE_FILE_STEM_PREFIX = "ie_";
+  public static final String INDEX_ENGINE_FILE_STEM_PREFIX =
+      PageFileNames.INDEX_ENGINE_FILE_STEM_PREFIX;
 
   /**
    * The storage-component name stem of the engine with the given stable file base id — the
@@ -1285,87 +1286,14 @@ public abstract class AbstractStorage
           }
         }
         // Keep the staging-era legacy accepted set, including leading zeros and $null.ixs.
-        final var swept = parseIndexEngineFileBaseId(fileName, layout26);
+        final var swept =
+            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(fileName, layout26);
         seed = Math.max(seed, swept);
       }
     }
 
     final var finalSeed = seed;
     indexEngineFileBaseIdHwm.updateAndGet(current -> Math.max(current, finalSeed));
-  }
-
-  /**
-   * Extracts the file base id from an engine file name of the shape
-   * {@code ie_<n>[$null].<engine extension>}, or {@code -1} when the name cannot be an engine
-   * file. Three rejection filters keep foreign artifacts from polluting the HWM seed:
-   *
-   * <ul>
-   *   <li>the extension must belong to the engine family ({@code .cbt}/{@code .nbt}/{@code .ixs})
-   *       — a user collection legally named {@code ie_123} produces files with collection
-   *       extensions and is ignored;
-   *   <li>the id must be pure digits — names with signs or other characters are not ours;
-   *   <li>the id must fit the allocator's {@code (0, Integer.MAX_VALUE]} range — an
-   *       out-of-range value cannot have been allocated, and accepting it would push the
-   *       high-water mark past the persistable ceiling and permanently brick index creation.
-   * </ul>
-   *
-   * <p>Accepted matches can still include a crash-window orphan: a kill between the physical
-   * file creation inside {@code commitChanges} and the WAL end-record becoming durable leaves a
-   * registered empty {@code ie_*} file whose atomic unit is discarded on replay. That file leaks
-   * (bounded, one family per crashed create, never collected) and its id is burned by this sweep
-   * — accepted behavior: burning the id is exactly what keeps the leaked file from ever
-   * colliding with a future engine's family.
-   */
-  private static long parseIndexEngineFileBaseId(final String fileName) {
-    return parseIndexEngineFileBaseId(fileName, false);
-  }
-
-  private static long parseIndexEngineFileBaseId(
-      final String fileName, final boolean layout26Evidence) {
-    final var extensionStart = fileName.lastIndexOf('.');
-    if (extensionStart <= 0) {
-      return -1;
-    }
-    if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
-      return -1;
-    }
-    var stem = fileName.substring(0, extensionStart);
-    if (stem.endsWith(NULL_TREE_SUFFIX)) {
-      stem = stem.substring(0, stem.length() - NULL_TREE_SUFFIX.length());
-    }
-    if (!stem.startsWith(INDEX_ENGINE_FILE_STEM_PREFIX)) {
-      return -1;
-    }
-    final var digits = stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length());
-    if (digits.isEmpty()) {
-      return -1;
-    }
-    for (var i = 0; i < digits.length(); i++) {
-      final var c = digits.charAt(i);
-      if (c < '0' || c > '9') {
-        return -1;
-      }
-    }
-    final long parsed;
-    try {
-      parsed = Long.parseLong(digits);
-    } catch (final NumberFormatException ignore) {
-      if (layout26Evidence) {
-        throw new StorageException(null,
-            "Component id " + digits + " in registered file '" + fileName
-                + "' exceeds the layout 26 bound " + PageFileIdentity.MAX_COMPONENT_ID);
-      }
-      // More digits than a long can carry — certainly not an allocated layout 25 id.
-      return -1;
-    }
-    // Validate numeric evidence before the legacy int ceiling can turn it into a nonmatch.
-    if (layout26Evidence) {
-      validateLayout26ComponentIdEvidence(parsed, "registered file '" + fileName + "'");
-    }
-    if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
-      return -1;
-    }
-    return parsed;
   }
 
   /**
@@ -1407,15 +1335,7 @@ public abstract class AbstractStorage
 
   private void validateComponentIdEvidence(long componentId, String entry) {
     if (storageFormat == StorageFormat.LAYOUT_26) {
-      validateLayout26ComponentIdEvidence(componentId, entry);
-    }
-  }
-
-  private static void validateLayout26ComponentIdEvidence(long componentId, String entry) {
-    if (componentId < 0 || componentId > PageFileIdentity.MAX_COMPONENT_ID) {
-      throw new StorageException(null,
-          "Component id " + componentId + " in " + entry
-              + " is outside the layout 26 range 0.." + PageFileIdentity.MAX_COMPONENT_ID);
+      PageFileNames.validateLayout26ComponentIdEvidence(componentId, entry);
     }
   }
 
@@ -4708,9 +4628,9 @@ public abstract class AbstractStorage
    * surviving stem match is exactly an orphan to clean up.
    *
    * <p>Matching is restricted to the engine file-extension family (see
-   * {@link #isIndexEngineFileExtension}): a user artifact whose name happens to share the stem
-   * shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions) must
-   * never false-positive the cleanup arm into a spurious delete attempt.
+   * {@link PageFileNames#isIndexEngineFileExtension}): a user artifact whose name happens to share
+   * the stem shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions)
+   * must never false-positive the cleanup arm into a spurious delete attempt.
    *
    * <p>Package-private for tests.
    *
@@ -4729,7 +4649,7 @@ public abstract class AbstractStorage
       if (extensionStart <= 0) {
         continue;
       }
-      if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
+      if (!PageFileNames.isIndexEngineFileExtension(fileName.substring(extensionStart))) {
         continue;
       }
       final var fileStem = fileName.substring(0, extensionStart);
@@ -4738,19 +4658,6 @@ public abstract class AbstractStorage
       }
     }
     return false;
-  }
-
-  /**
-   * Whether {@code extension} (with the leading dot) is one an {@code ie_<fileBaseId>}-stemmed
-   * engine file can carry: the B-tree data file, its null bucket, or the histogram stats file.
-   * Both the open-time HWM sweep and the failed-commit file-presence check are restricted to
-   * this family so files of other components (or user artifacts) that merely share the stem
-   * shape are never mistaken for engine files.
-   */
-  private static boolean isIndexEngineFileExtension(final String extension) {
-    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
-        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
-        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
   }
 
   /**

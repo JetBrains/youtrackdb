@@ -1,11 +1,20 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
 /** Builds logical page-file names and recognizes the retained write-cache disk-name form. */
 public final class PageFileNames {
+
+  /** Stem prefix for legacy index-engine files keyed by their stable file base id. */
+  public static final String INDEX_ENGINE_FILE_STEM_PREFIX = "ie_";
+
+  /** Suffix appended to legacy index-engine stems for null-key trees. */
+  public static final String NULL_TREE_SUFFIX = "$null";
 
   // This is the layout 25 fallback policy, not the set of all page-file extensions.
   // Keep the legacy and control entries. The omitted .dpb, .fcm and .dcm are intentional.
@@ -17,7 +26,9 @@ public final class PageFileNames {
 
   private static final Pattern NAME_26 = Pattern.compile(
       "ytdb-p26-(collection|index|configuration)-([0-9]+)-([a-z-]+)(?:_([0-9]+))?\\.[a-z]+");
-  private static final Pattern INDEX_STEM = Pattern.compile("ie_([0-9]+)(\\$null)?");
+  private static final Pattern INDEX_STEM = Pattern.compile(
+      Pattern.quote(INDEX_ENGINE_FILE_STEM_PREFIX) + "([0-9]+)("
+          + Pattern.quote(NULL_TREE_SUFFIX) + ")?");
   private static final Pattern BAG_STEM = Pattern.compile("global_collection_([0-9]+)");
 
   private PageFileNames() {
@@ -46,7 +57,8 @@ public final class PageFileNames {
     }
     var nullKey = role == PageFileRole.NULL_KEY_DATA
         || role == PageFileRole.NULL_KEY_NULL_BUCKET;
-    return "ie_" + fileBaseId + (nullKey ? "$null" : "") + role.layout25Extension();
+    return INDEX_ENGINE_FILE_STEM_PREFIX + fileBaseId
+        + (nullKey ? NULL_TREE_SUFFIX : "") + role.layout25Extension();
   }
 
   public static String layout25Configuration(PageFileRole role) {
@@ -54,6 +66,101 @@ public final class PageFileNames {
       throw new IllegalArgumentException("Not a configuration page role: " + role);
     }
     return "config" + role.layout25Extension();
+  }
+
+  /**
+   * Reads legacy index allocation evidence from {@code ie_<digits>[$null]} names with a
+   * {@code .cbt}, {@code .nbt} or {@code .ixs} extension, including {@code $null.ixs}.
+   * Digits must be ASCII. Leading zeros are allowed. Shape and extension are checked before
+   * numeric bounds, so unrelated names return {@code -1} even if they contain large numbers.
+   *
+   * <p>Layout 25 accepts ids in {@code (0, Integer.MAX_VALUE]} and returns {@code -1} for
+   * other values, including long overflow. With {@code layout26Evidence}, numeric evidence
+   * above {@link PageFileIdentity#MAX_COMPONENT_ID} throws {@link StorageException},
+   * including long overflow. Zero returns {@code -1} in both layouts.
+   *
+   * <p>A crash-window orphan is still evidence: burning its id prevents a future engine
+   * from colliding with its registered files. This is not canonical page-role parsing.
+   *
+   * @param fileName the registered logical file name
+   * @param layout26Evidence whether to enforce the layout 26 evidence bound
+   * @return the positive file base id, or {@code -1} for a nonmatch
+   * @throws StorageException if layout 26 numeric evidence exceeds its bound
+   * @throws NullPointerException if {@code fileName} is null
+   */
+  public static long parseLegacyIndexEngineFileBaseIdEvidence(
+      final String fileName, final boolean layout26Evidence) {
+    final var extensionStart = fileName.lastIndexOf('.');
+    if (extensionStart <= 0) {
+      return -1;
+    }
+    final var extension = fileName.substring(extensionStart);
+    if (!isIndexEngineFileExtension(extension)) {
+      return -1;
+    }
+    var stem = fileName.substring(0, extensionStart);
+    if (stem.endsWith(NULL_TREE_SUFFIX)) {
+      stem = stem.substring(0, stem.length() - NULL_TREE_SUFFIX.length());
+    }
+    if (!stem.startsWith(INDEX_ENGINE_FILE_STEM_PREFIX)) {
+      return -1;
+    }
+    final var digits = stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length());
+    if (digits.isEmpty()) {
+      return -1;
+    }
+    for (var i = 0; i < digits.length(); i++) {
+      final var c = digits.charAt(i);
+      if (c < '0' || c > '9') {
+        return -1;
+      }
+    }
+    final long parsed;
+    try {
+      parsed = Long.parseLong(digits);
+    } catch (final NumberFormatException ignore) {
+      if (layout26Evidence) {
+        throw new StorageException(null,
+            "Component id " + digits + " in registered file '" + fileName
+                + "' exceeds the layout 26 bound " + PageFileIdentity.MAX_COMPONENT_ID);
+      }
+      // More digits than a long can carry — certainly not an allocated layout 25 id.
+      return -1;
+    }
+    // Validate numeric evidence before the legacy int ceiling can turn it into a nonmatch.
+    if (layout26Evidence) {
+      validateLayout26ComponentIdEvidence(parsed, "registered file '" + fileName + "'");
+    }
+    if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
+      return -1;
+    }
+    return parsed;
+  }
+
+  /**
+   * Whether {@code extension}, including its leading dot, belongs to the legacy index-engine
+   * family. Both allocation evidence and failed-commit file-presence checks use this family
+   * so other components that share the stem shape are not mistaken for engine files.
+   */
+  public static boolean isIndexEngineFileExtension(final String extension) {
+    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
+        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
+        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
+  }
+
+  /**
+   * Validates numeric component-id evidence against the layout 26 range.
+   *
+   * @param componentId the id from persisted evidence
+   * @param entry the evidence description included verbatim in the error message
+   * @throws StorageException if the id is outside the layout 26 range
+   */
+  public static void validateLayout26ComponentIdEvidence(long componentId, String entry) {
+    if (componentId < 0 || componentId > PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(null,
+          "Component id " + componentId + " in " + entry
+              + " is outside the layout 26 range 0.." + PageFileIdentity.MAX_COMPONENT_ID);
+    }
   }
 
   /** Parses logical names only. Layout 25 component ids retain their existing allocation bounds. */
