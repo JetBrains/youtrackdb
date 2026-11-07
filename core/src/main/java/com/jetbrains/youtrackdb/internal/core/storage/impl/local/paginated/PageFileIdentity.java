@@ -9,6 +9,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
  */
 public record PageFileIdentity(PageFileRole role, int componentId) {
 
+  /** The configuration identity is available before its counters can be read. */
+  public static final int CONFIGURATION_COMPONENT_ID = 0;
+
   public static final int MAX_COMPONENT_ID = (1 << 25) - 1;
 
   public PageFileIdentity {

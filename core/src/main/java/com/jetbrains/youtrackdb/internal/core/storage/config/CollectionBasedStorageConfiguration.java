@@ -31,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -306,6 +308,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       // error against a layout these binaries cannot know.
       checkStorageLayoutVersionConsistency();
 
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+        for (var kind : PageFileKind.values()) {
+          readComponentIdCounter(kind, atomicOperation);
+        }
+      }
       readConfiguration(atomicOperation);
 
       preloadStringProperties(atomicOperation);
@@ -1512,6 +1519,52 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  /** Reads the highest issued component id from transactional bytes, never from the cache. */
+  public int getComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try {
+      return readComponentIdCounter(kind, atomicOperation);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  private int readComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation) {
+    final var key = componentIdCounterKey(kind);
+    final var pair = readProperty(key, atomicOperation);
+    if (pair == null || pair.first.length != Integer.BYTES) {
+      throw new StorageException(storage.getName(),
+          "Missing or malformed component counter: " + key);
+    }
+    final var value = IntegerSerializer.deserializeNative(pair.first, 0);
+    if (value < 0 || value > PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(storage.getName(), "Component counter out of range: " + key
+          + " = " + value);
+    }
+    return value;
+  }
+
+  /** Writes the highest issued id in the caller's component creation operation. */
+  public void setComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation, int value) {
+    lock.writeLock().lock();
+    try {
+      updateIntProperty(atomicOperation, componentIdCounterKey(kind), value);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  private String componentIdCounterKey(PageFileKind kind) {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
+      throw new StorageException(storage.getName(), "Component counters require storage layout 26");
+    }
+    return switch (kind) {
+      case COLLECTION -> "collectionComponentIdCounter";
+      case CONFIGURATION -> "configurationComponentIdCounter";
+      case INDEX_ENGINE -> INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY;
+    };
+  }
+
   /**
    * Stores an index-engine entry under an explicit property version tag — FOR TESTS ONLY.
    * Production engine entries are always written at {@link #INDEX_ENGINE_PROPERTY_VERSION}; this
@@ -2219,6 +2272,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     // open, or a genesis-bootstrap allocation on this virgin configuration) finds a durable
     // value; a missing floor on a v24 database reads as corruption.
     updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, 0);
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+      updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.COLLECTION), 0);
+      updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.CONFIGURATION),
+          PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    }
   }
 
   private void autoInitCollections() {

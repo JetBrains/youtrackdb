@@ -130,6 +130,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -417,8 +419,12 @@ public abstract class AbstractStorage
    * collision-free on both profiles. Seeded at {@link #openIndexes} from
    * max(persisted floor, max persisted engine {@code fileBaseId}, max swept
    * {@code ie_<n>} file stem) — see {@link #seedIndexEngineFileBaseIdHwm}.
+   * Layout 25 allocations stop at {@link Integer#MAX_VALUE}. Layout 26 uses the 25-bit
+   * component-id ceiling through the per-kind allocator.
    */
   private final AtomicLong indexEngineFileBaseIdHwm = new AtomicLong();
+  private final AtomicLong collectionComponentIdHwm = new AtomicLong();
+  private final AtomicLong configurationComponentIdHwm = new AtomicLong();
 
   /**
    * Storage-level shared cache for histogram snapshots, keyed by engine ID.
@@ -1196,6 +1202,7 @@ public abstract class AbstractStorage
     // brings persisted engines back to life (normal open and the incremental-restore reopen), so
     // seeding here guarantees no later allocation can collide with a persisted or orphaned file
     // base id.
+    seedComponentIdCounters(atomicOperation);
     seedIndexEngineFileBaseIdHwm(atomicOperation);
 
     final var indexNames = configuration.indexEngines(atomicOperation);
@@ -1338,17 +1345,22 @@ public abstract class AbstractStorage
    * {@link #indexEngineFileBaseIdHwm}), and the floor write makes the allocation durable together
    * with the engine files it is for.
    *
-   * <p>Must be called with {@code stateLock.writeLock()} held (both engine-create paths — the
-   * public {@link #addIndexEngine(IndexMetadata, Map)} and the commit-window
-   * {@link #createIndexEngineInCommitWindow}) — hold it): the exclusive lock serializes the
-   * increment-then-persist pair against concurrent creates. The lock carries no owner, so the
-   * assert can only check that the exclusive window is held by somebody; a caller that must
-   * itself hold the lock cannot race another holder anyway.
+   * <p>The calling thread must own the storage write lock. Both the public
+   * {@link #addIndexEngine(IndexMetadata, Map)} path and the commit-window
+   * {@link #createIndexEngineInCommitWindow} path hold it. The exclusive lock serializes the
+   * mark update and floor write against concurrent creates. Commit-window acquisition through
+   * {@code exclusiveLockWithAbort} also records the current thread as the write owner.
+   *
+   * <p>Layout 25 allocations stop at {@link Integer#MAX_VALUE}. Layout 26 delegates to the
+   * per-kind allocator with the 25-bit component-id ceiling.
    *
    * <p>Package-private for tests.
    */
   int allocateIndexEngineFileBaseId(final AtomicOperation atomicOperation) {
-    assert stateLock.isWriteLocked()
+    if (storageFormat == StorageFormat.LAYOUT_26) {
+      return allocateComponentId(PageFileKind.INDEX_ENGINE, atomicOperation);
+    }
+    assert stateLock.isWriteLockedByCurrentThread()
         : "index-engine file-base-id allocation requires stateLock.writeLock(): the high-water"
             + " mark increment and the floor write must be serialized against concurrent engine"
             + " creates";
@@ -1361,6 +1373,45 @@ public abstract class AbstractStorage
     ((CollectionBasedStorageConfiguration) configuration)
         .setIndexEngineFileBaseIdFloor(atomicOperation, (int) allocated);
     return (int) allocated;
+  }
+
+  private void seedComponentIdCounters(AtomicOperation atomicOperation) {
+    if (storageFormat == StorageFormat.LAYOUT_26) {
+      final var config = (CollectionBasedStorageConfiguration) configuration;
+      for (var kind : PageFileKind.values()) {
+        final var counter = config.getComponentIdCounter(kind, atomicOperation);
+        componentIdHwm(kind).accumulateAndGet(counter, Math::max);
+      }
+    }
+  }
+
+  private AtomicLong componentIdHwm(PageFileKind kind) {
+    return switch (kind) {
+      case COLLECTION -> collectionComponentIdHwm;
+      case INDEX_ENGINE -> indexEngineFileBaseIdHwm;
+      case CONFIGURATION -> configurationComponentIdHwm;
+    };
+  }
+
+  /**
+   * Allocates within the caller's exclusive storage window and atomic operation.
+   * Rollback restores the counter bytes but leaves the live mark advanced.
+   * Configuration bootstrap uses the fixed identity instead of this allocator.
+   */
+  int allocateComponentId(PageFileKind kind, AtomicOperation atomicOperation) {
+    assert stateLock.isWriteLockedByCurrentThread()
+        : "Component allocation requires the current thread to own the storage write lock";
+    final var config = (CollectionBasedStorageConfiguration) configuration;
+    final var counter = config.getComponentIdCounter(kind, atomicOperation);
+    final var hwm = componentIdHwm(kind);
+    final var floor = Math.max(hwm.get(), counter);
+    if (floor >= PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(name, "The " + kind + " component-id space is exhausted");
+    }
+    final var allocated = (int) (floor + 1);
+    hwm.set(allocated);
+    config.setComponentIdCounter(kind, atomicOperation, allocated);
+    return allocated;
   }
 
   /**
@@ -1679,6 +1730,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .create(atomicOperation, contextConfiguration);
           configuration.setUuid(atomicOperation, uuid.toString());
+          seedComponentIdCounters(atomicOperation);
 
           var binaryFormatVersion = atomicOperationsManager.calculateInsideAtomicOperation(
               configuration::getBinaryFormatVersion);
