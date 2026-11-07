@@ -295,6 +295,69 @@ public class DiskStorageStaticHelpersTest {
     }
   }
 
+  // A directory with only a layout 26 disk name is visible and the fallback sweep removes it.
+  // Legacy omissions and foreign files remain untouched.
+  @Test
+  public void computedDiskNamesAreStorageEvidenceAndFallbackDeletionTargets() throws IOException {
+    for (var role : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole
+        .values()) {
+      var identity =
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+              role, 7);
+      var diskName =
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+              .layout26DiskName(identity);
+      var page = Files.createFile(testDir.resolve(diskName));
+      assertTrue(DiskStorage.exists(testDir));
+      DiskStorage.deleteFilesFromDisc("computed", 1, 0, testDir.toString());
+      assertFalse(Files.exists(page));
+      assertFalse(Files.exists(testDir));
+      Files.createDirectories(testDir);
+    }
+    for (String retained : new String[] {"orders.dpb", "config.fcm", "config.dcm",
+        "foreign.txt", "foreign.p26", "ytdb-p26-collection-7-dirty-page-bit-set_1.dpb",
+        "ytdb-p26-collection-7-dirty-page-bit-set.dpb"}) {
+      Files.createFile(testDir.resolve(retained));
+    }
+    assertFalse(DiskStorage.exists(testDir));
+    DiskStorage.deleteFilesFromDisc("retained", 1, 0, testDir.toString());
+    try (var files = Files.list(testDir)) {
+      assertEquals(7, files.count());
+    }
+  }
+
+  // A missing database directory must not make the parent sweep delete layout 26 files.
+  // The legacy .cm deletion and foreign-file retention still apply in that parent.
+  @Test
+  public void missingDatabaseDirectoryRetainsParentLayout26Files() throws IOException {
+    assertParentSweepRetainsLayout26Files(testDir.resolve("missing-database"));
+  }
+
+  // A plain file used as the database path has the same parent-sweep boundary.
+  // Layout 26 files and unrelated files survive, while the legacy .cm file is deleted.
+  @Test
+  public void plainFileDatabasePathRetainsParentLayout26Files() throws IOException {
+    var databasePath = Files.createFile(testDir.resolve("database-path"));
+    assertParentSweepRetainsLayout26Files(databasePath);
+    assertTrue(Files.exists(databasePath));
+  }
+
+  private void assertParentSweepRetainsLayout26Files(Path databasePath) throws IOException {
+    var firstPage = Files.createFile(
+        testDir.resolve("ytdb-p26-collection-0-record-data_268435456.pcl"));
+    var secondPage = Files.createFile(
+        testDir.resolve("ytdb-p26-index-7-null-key-data_603979783.cbt"));
+    var legacy = Files.createFile(testDir.resolve("legacy.cm"));
+    var foreign = Files.createFile(testDir.resolve("foreign.txt"));
+
+    DiskStorage.deleteFilesFromDisc("parentSweep", 1, 0, databasePath.toString());
+
+    assertTrue(Files.exists(firstPage));
+    assertTrue(Files.exists(secondPage));
+    assertTrue(Files.exists(foreign));
+    assertFalse(Files.exists(legacy));
+  }
+
   private static void setField(DiskStorage storage, String name, Object value) throws Exception {
     var field = DiskStorage.class.getDeclaredField(name);
     field.setAccessible(true);

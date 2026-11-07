@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.disk;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -62,6 +63,16 @@ public class DiskStorageFileExtensionsTest {
           "Each file extension must start with '.', but found: " + ext,
           ext != null && ext.startsWith("."));
     }
+  }
+
+  // The fallback list is a compatibility policy. Pin every entry and its order to base literals.
+  @Test
+  public void layout25FallbackListIsByteForByteUnchanged() {
+    assertEquals(List.of(
+        ".cm", ".ocf", ".pls", ".pcl", ".oda", ".odh", ".otx", ".ocs", ".oef", ".oem",
+        ".oet", ".fl", ".flb", ".iv", ".wal", ".wmr", ".cpm", ".grb", ".ccm", ".cd",
+        ".bd", ".nd", ".cbt", ".nbt", ".mbt", ".ixs", ".dwl", ".fsm", ".bsm",
+        ".bsm.tmp", ".bsml"), getAllFileExtensions());
   }
 
   /**

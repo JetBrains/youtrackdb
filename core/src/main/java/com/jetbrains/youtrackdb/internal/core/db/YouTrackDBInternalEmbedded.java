@@ -43,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
@@ -1739,14 +1740,14 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           if (db.isDirectory()) {
             for (var cf : db.listFiles()) {
               var fileName = cf.getName();
-              // The scanner recognizes the same bootstrap authority artifact set as the existence
-              // probe of the disk storage. A listing and an existence check therefore agree after
-              // an interrupted storage birth.
+              // Match the disk storage existence probe for bootstrap artifacts and canonical
+              // layout 26 page files. Listing also finds an interrupted storage birth.
               if (fileName.equals("database.ocf")
                   || (fileName.startsWith(CollectionBasedStorageConfiguration.COMPONENT_NAME)
                       && fileName.endsWith(
                           CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))
-                  || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)) {
+                  || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)
+                  || PageFileNames.parseLayout26DiskName(fileName).isPresent()) {
                 found.found(db.getName());
                 break;
               }
