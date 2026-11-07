@@ -1056,9 +1056,12 @@ public class DiskStorage extends AbstractStorage {
             }
             continue;
           }
-          // The parent is not the storage directory, so layout 26 files there are not ours.
-          if (!usingParentDirectory
-              && PageFileNames.parseLayout26DiskName(f.getName()).isPresent()) {
+          // Canonical layout 26 files in the parent are not ours. Skip them before the
+          // layout 25 extension rule, since both layouts use the same extensions.
+          if (PageFileNames.parseLayout26DiskName(f.getName()).isPresent()) {
+            if (usingParentDirectory) {
+              continue;
+            }
             if (!f.delete()) {
               notDeletedFiles++;
             }

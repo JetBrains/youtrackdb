@@ -16,7 +16,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.CollectionDi
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
-import java.util.HashSet;
 import org.junit.Test;
 
 public class PageFileNamesTest {
@@ -35,59 +34,59 @@ public class PageFileNamesTest {
 
   private static final String[][] BOUNDARY_DISK_NAMES = {
       {
-          "ytdb-p26-collection-0-record-data_268435456.rec",
-          "ytdb-p26-collection-0-position-map_301989888.pos",
-          "ytdb-p26-collection-0-free-space-map_335544320.fsp",
-          "ytdb-p26-collection-0-dirty-page-bit-set_369098752.dpg",
-          "ytdb-p26-collection-0-link-bag-tree_402653184.lbt",
-          "ytdb-p26-index-0-tree-data_536870912.itd",
-          "ytdb-p26-index-0-tree-null-bucket_570425344.itn",
-          "ytdb-p26-index-0-null-key-data_603979776.ind",
-          "ytdb-p26-index-0-null-key-null-bucket_637534208.inn",
-          "ytdb-p26-index-0-histogram_671088640.hgm",
-          "ytdb-p26-configuration-0-data_805306368.cfd",
-          "ytdb-p26-configuration-0-position-map_838860800.cfp",
-          "ytdb-p26-configuration-0-free-space-map_872415232.cff",
-          "ytdb-p26-configuration-0-dirty-page-bit-set_905969664.cfb",
-          "ytdb-p26-configuration-0-property-data_939524096.cpd",
-          "ytdb-p26-configuration-0-property-null-bucket_973078528.cpn"
+          "ytdb-p26-collection-0-record-data_268435456.pcl",
+          "ytdb-p26-collection-0-position-map_301989888.cpm",
+          "ytdb-p26-collection-0-free-space-map_335544320.fsm",
+          "ytdb-p26-collection-0-dirty-page-bit-set_369098752.dpb",
+          "ytdb-p26-collection-0-link-bag-tree_402653184.grb",
+          "ytdb-p26-index-0-tree-data_536870912.cbt",
+          "ytdb-p26-index-0-tree-null-bucket_570425344.nbt",
+          "ytdb-p26-index-0-null-key-data_603979776.cbt",
+          "ytdb-p26-index-0-null-key-null-bucket_637534208.nbt",
+          "ytdb-p26-index-0-histogram_671088640.ixs",
+          "ytdb-p26-configuration-0-data_805306368.cd",
+          "ytdb-p26-configuration-0-position-map_838860800.ccm",
+          "ytdb-p26-configuration-0-free-space-map_872415232.fcm",
+          "ytdb-p26-configuration-0-dirty-page-bit-set_905969664.dcm",
+          "ytdb-p26-configuration-0-property-data_939524096.bd",
+          "ytdb-p26-configuration-0-property-null-bucket_973078528.nd"
       },
       {
-          "ytdb-p26-collection-33554431-record-data_301989887.rec",
-          "ytdb-p26-collection-33554431-position-map_335544319.pos",
-          "ytdb-p26-collection-33554431-free-space-map_369098751.fsp",
-          "ytdb-p26-collection-33554431-dirty-page-bit-set_402653183.dpg",
-          "ytdb-p26-collection-33554431-link-bag-tree_436207615.lbt",
-          "ytdb-p26-index-33554431-tree-data_570425343.itd",
-          "ytdb-p26-index-33554431-tree-null-bucket_603979775.itn",
-          "ytdb-p26-index-33554431-null-key-data_637534207.ind",
-          "ytdb-p26-index-33554431-null-key-null-bucket_671088639.inn",
-          "ytdb-p26-index-33554431-histogram_704643071.hgm",
-          "ytdb-p26-configuration-33554431-data_838860799.cfd",
-          "ytdb-p26-configuration-33554431-position-map_872415231.cfp",
-          "ytdb-p26-configuration-33554431-free-space-map_905969663.cff",
-          "ytdb-p26-configuration-33554431-dirty-page-bit-set_939524095.cfb",
-          "ytdb-p26-configuration-33554431-property-data_973078527.cpd",
-          "ytdb-p26-configuration-33554431-property-null-bucket_1006632959.cpn"
+          "ytdb-p26-collection-33554431-record-data_301989887.pcl",
+          "ytdb-p26-collection-33554431-position-map_335544319.cpm",
+          "ytdb-p26-collection-33554431-free-space-map_369098751.fsm",
+          "ytdb-p26-collection-33554431-dirty-page-bit-set_402653183.dpb",
+          "ytdb-p26-collection-33554431-link-bag-tree_436207615.grb",
+          "ytdb-p26-index-33554431-tree-data_570425343.cbt",
+          "ytdb-p26-index-33554431-tree-null-bucket_603979775.nbt",
+          "ytdb-p26-index-33554431-null-key-data_637534207.cbt",
+          "ytdb-p26-index-33554431-null-key-null-bucket_671088639.nbt",
+          "ytdb-p26-index-33554431-histogram_704643071.ixs",
+          "ytdb-p26-configuration-33554431-data_838860799.cd",
+          "ytdb-p26-configuration-33554431-position-map_872415231.ccm",
+          "ytdb-p26-configuration-33554431-free-space-map_905969663.fcm",
+          "ytdb-p26-configuration-33554431-dirty-page-bit-set_939524095.dcm",
+          "ytdb-p26-configuration-33554431-property-data_973078527.bd",
+          "ytdb-p26-configuration-33554431-property-null-bucket_1006632959.nd"
       }
   };
 
   private static final String[] COMPUTED = {
-      "ytdb-p26-collection-7-record-data.rec", "ytdb-p26-collection-7-position-map.pos",
-      "ytdb-p26-collection-7-free-space-map.fsp", "ytdb-p26-collection-7-dirty-page-bit-set.dpg",
-      "ytdb-p26-collection-7-link-bag-tree.lbt", "ytdb-p26-index-7-tree-data.itd",
-      "ytdb-p26-index-7-tree-null-bucket.itn", "ytdb-p26-index-7-null-key-data.ind",
-      "ytdb-p26-index-7-null-key-null-bucket.inn", "ytdb-p26-index-7-histogram.hgm",
-      "ytdb-p26-configuration-7-data.cfd", "ytdb-p26-configuration-7-position-map.cfp",
-      "ytdb-p26-configuration-7-free-space-map.cff",
-      "ytdb-p26-configuration-7-dirty-page-bit-set.cfb",
-      "ytdb-p26-configuration-7-property-data.cpd",
-      "ytdb-p26-configuration-7-property-null-bucket.cpn"
+      "ytdb-p26-collection-7-record-data.pcl", "ytdb-p26-collection-7-position-map.cpm",
+      "ytdb-p26-collection-7-free-space-map.fsm", "ytdb-p26-collection-7-dirty-page-bit-set.dpb",
+      "ytdb-p26-collection-7-link-bag-tree.grb", "ytdb-p26-index-7-tree-data.cbt",
+      "ytdb-p26-index-7-tree-null-bucket.nbt", "ytdb-p26-index-7-null-key-data.cbt",
+      "ytdb-p26-index-7-null-key-null-bucket.nbt", "ytdb-p26-index-7-histogram.ixs",
+      "ytdb-p26-configuration-7-data.cd", "ytdb-p26-configuration-7-position-map.ccm",
+      "ytdb-p26-configuration-7-free-space-map.fcm",
+      "ytdb-p26-configuration-7-dirty-page-bit-set.dcm",
+      "ytdb-p26-configuration-7-property-data.bd",
+      "ytdb-p26-configuration-7-property-null-bucket.nd"
   };
 
-  // Independent literals cover every constructor family and keep the two languages disjoint.
+  // Independent literals cover every constructor family and its canonical extension.
   @Test
-  public void allRoleNamesMatchLiteralExpectationsAndParseOnlyInTheirOwnLayout() throws Exception {
+  public void allRoleNamesMatchLiteralExpectationsAndRoundTrip() throws Exception {
     var roles = PageFileRole.values();
     assertEquals(16, roles.length);
     var cacheName = WOWCache.class.getDeclaredMethod("createInternalFileName", String.class,
@@ -107,36 +106,29 @@ public class PageFileNamesTest {
       var identity = new PageFileIdentity(role, 7);
       assertEquals(COMPUTED[i], PageFileNames.layout26(identity));
       assertEquals(identity, PageFileNames.parseLayout26(COMPUTED[i]).orElseThrow());
-      assertFalse(PageFileNames.parseLayout25(COMPUTED[i]).isPresent());
       assertFalse(PageFileNames.parseLayout26(LEGACY[i]).isPresent());
       assertFalse(PageFileNames.parseLayout26DiskName(LEGACY[i]).isPresent());
       var disk = PageFileNames.layout26DiskName(identity);
       assertEquals(cacheName.invoke(null, COMPUTED[i], identity.internalId()), disk);
       assertEquals(identity, PageFileNames.parseLayout26DiskName(disk).orElseThrow());
-      assertFalse(PageFileNames.parseLayout25(disk).isPresent());
       assertFalse(PageFileNames.parseLayout26(disk).isPresent());
       assertFalse(PageFileNames.parseLayout26DiskName(COMPUTED[i]).isPresent());
     }
-    assertEquals("ytdb-p26-collection-7-record-data_268435463.rec",
+    assertEquals("ytdb-p26-collection-7-record-data_268435463.pcl",
         PageFileNames.layout26DiskName(new PageFileIdentity(PageFileRole.RECORD_DATA, 7)));
   }
 
-  // Each role has a unique extension outside both legacy extension sets, including omissions.
+  // Layout 25 collection display names may use the prefix and match a layout 26 name.
   @Test
-  public void layout26ExtensionsAreDistinctAndDisjointFromLegacyExtensions() {
-    var extensions = new HashSet<String>();
-    for (var role : PageFileRole.values()) {
-      var extension = role.layout26Extension();
-      assertTrue(role.name(), extensions.add(extension));
-      for (var legacy : PageFileNames.LAYOUT_25_FALLBACK_EXTENSIONS) {
-        assertFalse(extension + " overlaps " + legacy, extension.endsWith(legacy));
-      }
-      for (var legacyRole : PageFileRole.values()) {
-        assertFalse(extension + " overlaps " + legacyRole,
-            extension.endsWith(legacyRole.layout25Extension()));
-      }
-    }
-    assertEquals(16, extensions.size());
+  public void prefixedLayout25CollectionNameCanAlsoBeACanonicalLayout26Name() {
+    var name = "ytdb-p26-collection-7-record-data.pcl";
+    assertEquals(name,
+        PageFileNames.layout25Collection("ytdb-p26-collection-7-record-data",
+            PageFileRole.RECORD_DATA));
+    assertEquals(new PageFileNames.Layout25Name(PageFileRole.RECORD_DATA,
+        "ytdb-p26-collection-7-record-data"), PageFileNames.parseLayout25(name).orElseThrow());
+    assertEquals(new PageFileIdentity(PageFileRole.RECORD_DATA, 7),
+        PageFileNames.parseLayout26(name).orElseThrow());
   }
 
   // Logical and disk names cannot overlap tracker names or legacy existence evidence.
@@ -146,6 +138,10 @@ public class PageFileNamesTest {
       var identity = new PageFileIdentity(role, 7);
       for (var name : new String[] {
           PageFileNames.layout26(identity), PageFileNames.layout26DiskName(identity)}) {
+        assertTrue(name, name.startsWith("ytdb-p26-"));
+        assertFalse(name, name.startsWith("ie_"));
+        assertFalse(name, name.startsWith("config"));
+        assertFalse(name, name.startsWith("global_collection_"));
         assertFalse(name, ChangedPageTrackerFile.isTrackerFile(name));
         assertFalse(name, StorageBootstrapMetadata.isBootstrapArtifactName(name));
         for (var prefix : new String[] {"database.ocf", "config", "dirty.fl", "dirty.flb"}) {
@@ -155,7 +151,11 @@ public class PageFileNamesTest {
     }
     for (var name : new String[] {
         ChangedPageTrackerFile.FILE_NAME, ChangedPageTrackerFile.TEMPORARY_FILE_NAME,
-        "database.ocf", "config", "config.bd", "dirty.fl", "dirty.flb", "dirty.fl.tmp"}) {
+        "database.ocf", "config", "config.bd", "dirty.fl", "dirty.flb", "dirty.fl.tmp",
+        "config123.bd", "dirty.fl.extra", "storage-bootstrap-0.bsm",
+        "storage-bootstrap-1.bsm", "storage-bootstrap-2.bsm",
+        "storage-bootstrap-0.bsm.tmp", "storage-bootstrap-1.bsm.tmp",
+        "storage-bootstrap-2.bsm.tmp", "storage-bootstrap.bsml"}) {
       assertFalse(name, PageFileNames.parseLayout26(name).isPresent());
       assertFalse(name, PageFileNames.parseLayout26DiskName(name).isPresent());
     }
@@ -169,21 +169,36 @@ public class PageFileNamesTest {
       var logical = PageFileNames.layout26(identity);
       var disk = PageFileNames.layout26DiskName(identity);
       for (var other : PageFileRole.values()) {
-        if (other == role) {
+        if (other.layout25Extension().equals(role.layout25Extension())) {
           continue;
         }
         var wrongLogical = logical.substring(0, logical.lastIndexOf('.'))
-            + other.layout26Extension();
+            + other.layout25Extension();
         var wrongDisk = disk.substring(0, disk.lastIndexOf('.'))
-            + other.layout26Extension();
+            + other.layout25Extension();
         assertFalse(wrongLogical, PageFileNames.parseLayout26(wrongLogical).isPresent());
         assertFalse(wrongDisk, PageFileNames.parseLayout26DiskName(wrongDisk).isPresent());
       }
     }
+    var obsoleteExtensions = new String[] {
+        ".rec", ".pos", ".fsp", ".dpg", ".lbt", ".itd", ".itn", ".ind",
+        ".inn", ".hgm", ".cfd", ".cfp", ".cff", ".cfb", ".cpd", ".cpn"};
+    var roles = PageFileRole.values();
+    for (int i = 0; i < roles.length; i++) {
+      var identity = new PageFileIdentity(roles[i], 7);
+      var logical = PageFileNames.layout26(identity);
+      var disk = PageFileNames.layout26DiskName(identity);
+      for (var extension : new String[] {obsoleteExtensions[i], ".p26"}) {
+        assertFalse(PageFileNames.parseLayout26(
+            logical.substring(0, logical.lastIndexOf('.')) + extension).isPresent());
+        assertFalse(PageFileNames.parseLayout26DiskName(
+            disk.substring(0, disk.lastIndexOf('.')) + extension).isPresent());
+      }
+    }
     for (var obsolete : new String[] {
         "ytdb-index-7-histogram.p26", "ytdb-index-7-histogram_671088647.p26",
-        "ytdb-p26-index-7-histogram.p26", "ytdb-p26-index-7-histogram.rec",
-        "ytdb-p26-index-7-histogram_671088647.rec"}) {
+        "ytdb-p26-index-7-histogram.p26", "ytdb-p26-index-7-histogram.pcl",
+        "ytdb-p26-index-7-histogram_671088647.pcl"}) {
       assertFalse(obsolete, PageFileNames.parseLayout26(obsolete).isPresent());
       assertFalse(obsolete, PageFileNames.parseLayout26DiskName(obsolete).isPresent());
     }
@@ -253,15 +268,15 @@ public class PageFileNamesTest {
       }
     }
     for (String invalid : new String[] {null, "", "foreign.p26",
-        "ytdb-p26-collection-7-record-data.pcl", "ytdb-p26-collection-07-record-data.rec",
-        "ytdb-p26-collection--1-record-data.rec", "ytdb-p26-collection-33554432-record-data.rec",
-        "ytdb-p26-collection-999999999999999999999-record-data.rec",
-        "ytdb-p26-unknown-7-record-data.rec", "ytdb-p26-index-7-record-data.rec",
-        "ytdb-p26-collection-7-histogram.rec", "ytdb-p26-collection-7-record-data.rec.tmp",
-        "/ytdb-p26-collection-7-record-data.rec", "ytdb-p26-collection-7-record-data_1.rec",
-        "ytdb-p26-collection-7-record-data_0268435463.rec",
-        "ytdb-p26-collection-7-record-data_999999999999999999.rec",
-        "ytdb-p26-collection-7-record-data_268435463.rec.tmp"}) {
+        "ytdb-p26-collection-7-record-data.rec", "ytdb-p26-collection-07-record-data.pcl",
+        "ytdb-p26-collection--1-record-data.pcl", "ytdb-p26-collection-33554432-record-data.pcl",
+        "ytdb-p26-collection-999999999999999999999-record-data.pcl",
+        "ytdb-p26-unknown-7-record-data.pcl", "ytdb-p26-index-7-record-data.pcl",
+        "ytdb-p26-collection-7-histogram.pcl", "ytdb-p26-collection-7-record-data.pcl.tmp",
+        "/ytdb-p26-collection-7-record-data.pcl", "ytdb-p26-collection-7-record-data_1.pcl",
+        "ytdb-p26-collection-7-record-data_0268435463.pcl",
+        "ytdb-p26-collection-7-record-data_999999999999999999.pcl",
+        "ytdb-p26-collection-7-record-data_268435463.pcl.tmp"}) {
       assertFalse(String.valueOf(invalid), PageFileNames.parseLayout26(invalid).isPresent());
       assertFalse(String.valueOf(invalid),
           PageFileNames.parseLayout26DiskName(invalid).isPresent());

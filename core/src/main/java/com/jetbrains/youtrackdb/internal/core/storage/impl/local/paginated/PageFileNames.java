@@ -98,15 +98,16 @@ public final class PageFileNames {
     return Optional.empty();
   }
 
+  // The prefix separates fixed layout 25 families. A collection display name can share it.
   public static String layout26(PageFileIdentity identity) {
     return "ytdb-p26-" + identity.kind().label() + "-" + identity.componentId() + "-"
-        + identity.role().label() + identity.role().layout26Extension();
+        + identity.role().label() + identity.role().layout25Extension();
   }
 
   /** The write cache inserts the internal id before the final extension. */
   public static String layout26DiskName(PageFileIdentity identity) {
     var logical = layout26(identity);
-    var extension = identity.role().layout26Extension();
+    var extension = identity.role().layout25Extension();
     return logical.substring(0, logical.length() - extension.length())
         + "_" + identity.internalId() + extension;
   }
