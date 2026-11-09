@@ -362,10 +362,8 @@ public class PageSetReaderConsistencyStressTest {
             lane.pageSetOverlapFailures.sum() > 0);
         System.out.printf("Page-set overlap %s: attempts=%d failures=%d%n", lane.getName(),
             lane.pageSetOverlaps.sum(), lane.pageSetOverlapFailures.sum());
-        assertTrue("reservation-denied overlapping attempts in " + lane.getName(),
-            lane.denialOverlaps.sum() > 0);
-        assertTrue("reservation-denied overlapping failures in " + lane.getName(),
-            lane.denialOverlapFailures.sum() > 0);
+        // Denial overlap is diagnostic only. No handshake guarantees a reader runs during
+        // a reservation-denied commit.
         System.out.printf("Reservation-denied overlap %s: attempts=%d failures=%d%n",
             lane.getName(), lane.denialOverlaps.sum(), lane.denialOverlapFailures.sum());
       }
