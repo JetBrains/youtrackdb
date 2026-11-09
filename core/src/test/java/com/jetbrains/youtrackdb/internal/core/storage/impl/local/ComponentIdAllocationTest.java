@@ -1,22 +1,29 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
+import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
@@ -24,9 +31,12 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -110,7 +120,7 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Birth reserves configuration zero and leaves collection allocation unused in both profiles.
+  // Birth allocates distinct collection identities and reserves configuration zero in both profiles.
   @Test
   public void birthReservesFixedConfigurationIdentityInDiskAndMemory() throws Exception {
     for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
@@ -118,7 +128,17 @@ public class ComponentIdAllocationTest {
       try (var session = open()) {
         var storage = session.getStorage();
         assertEquals(26, storage.getStorageFormat().layoutVersion());
-        assertEquals(0, counter(storage, PageFileKind.COLLECTION));
+        var ids = new HashSet<Integer>();
+        for (var collection : storage.getCollectionInstances()) {
+          var entry = storedCollection(storage, collection.getId());
+          assertEquals(1, entryVersion(storage, collection.getId()));
+          assertTrue(entry.getComponentId() > 0);
+          assertTrue(ids.add(entry.getComponentId()));
+          assertEquals(entry.getComponentId(), runtimeConfig(collection).getComponentId());
+        }
+        int birthCount = ids.size();
+        assertTrue("Birth must create collections", birthCount > 0);
+        assertEquals(birthCount, counter(storage, PageFileKind.COLLECTION));
         assertEquals(0, counter(storage, PageFileKind.CONFIGURATION));
         assertTrue(counter(storage, PageFileKind.INDEX_ENGINE) > 0);
         assertEquals(0, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
@@ -127,7 +147,7 @@ public class ComponentIdAllocationTest {
             assertTrue(new PageFileIdentity(role, 0).internalId() > 0);
           }
         }
-        assertEquals(1, allocate(storage, PageFileKind.COLLECTION));
+        assertEquals(birthCount + 1, allocate(storage, PageFileKind.COLLECTION));
         assertEquals(1, allocate(storage, PageFileKind.CONFIGURATION));
       }
       ytdb.drop("counters");
@@ -171,6 +191,7 @@ public class ComponentIdAllocationTest {
     create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
     try (var session = open(); var executor = Executors.newSingleThreadExecutor()) {
       var storage = session.getStorage();
+      int before = counter(storage, PageFileKind.COLLECTION);
       storage.stateLock.writeLock().lock();
       try {
         executor.submit(() -> assertThrows(AssertionError.class,
@@ -179,15 +200,16 @@ public class ComponentIdAllocationTest {
       } finally {
         storage.stateLock.writeLock().unlock();
       }
-      assertEquals(0, counter(storage, PageFileKind.COLLECTION));
+      assertEquals(before, counter(storage, PageFileKind.COLLECTION));
       assertTrue(storage.stateLock.exclusiveLockWithAbort(() -> false, 1000000));
       try {
-        assertEquals(1, (int) storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
-            op -> storage.allocateComponentId(PageFileKind.COLLECTION, op)));
+        assertEquals(before + 1,
+            (int) storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+                op -> storage.allocateComponentId(PageFileKind.COLLECTION, op)));
       } finally {
         storage.stateLock.exclusiveUnlock();
       }
-      assertEquals(1, counter(storage, PageFileKind.COLLECTION));
+      assertEquals(before + 1, counter(storage, PageFileKind.COLLECTION));
     }
   }
 
@@ -367,7 +389,8 @@ public class ComponentIdAllocationTest {
       seed(storage);
       assertCounters(storage, counters);
       assertEquals(9000, hwm(storage, PageFileKind.INDEX_ENGINE));
-      assertEquals(0, hwm(storage, PageFileKind.COLLECTION));
+      assertEquals(counters[PageFileKind.COLLECTION.ordinal()],
+          hwm(storage, PageFileKind.COLLECTION));
       assertEquals(0, hwm(storage, PageFileKind.CONFIGURATION));
       assertEquals(9001, allocate(storage, PageFileKind.INDEX_ENGINE));
       seed(storage);
@@ -552,6 +575,297 @@ public class ComponentIdAllocationTest {
       }
       assertCounters(storage, counters);
     }
+  }
+
+  // Explicit add, metadata updates, slot reuse and cold load must preserve independent identities.
+  @Test
+  public void collectionIdentitySurvivesUpdatesSlotReuseAndReopen() throws Exception {
+    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    var expected = new HashMap<Integer, Integer>();
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int before = counter(storage, PageFileKind.COLLECTION);
+      int id = session.addCollection("identity");
+      assertEquals(before + 1, counter(storage, PageFileKind.COLLECTION));
+      assertCollectionIdentity(storage, id, before + 1, 1);
+      storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.NAME, "renamedidentity");
+      storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.CONFLICTSTRATEGY, "version");
+      assertCollectionIdentity(storage, id, before + 1, 1);
+      assertTrue(storage.dropCollection(session, id));
+      assertEquals(id, session.addCollection("replacementidentity"));
+      assertCollectionIdentity(storage, id, before + 2, 1);
+      for (var collection : storage.getCollectionInstances()) {
+        expected.put(collection.getId(),
+            storedCollection(storage, collection.getId()).getComponentId());
+      }
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      assertEquals(expected.size(), storage.getCollectionInstances().size());
+      for (var entry : expected.entrySet()) {
+        assertCollectionIdentity(storage, entry.getKey(), entry.getValue(), 1);
+      }
+    }
+  }
+
+  // Reconciliation allocates during commit, not provisional class creation. Failed apply burns ids.
+  @Test
+  public void schemaCommitAllocatesAndFailedCommitBurnsCollectionIdentities() throws Exception {
+    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int before = counter(storage, PageFileKind.COLLECTION);
+      session.begin();
+      session.getMetadata().getSchema().createClass("CommittedIdentity", 1);
+      assertEquals(before, counter(storage, PageFileKind.COLLECTION));
+      session.commit();
+      var cls = session.getMetadata().getSchema().getClass("CommittedIdentity");
+      assertEquals(1, cls.getCollectionIds().length);
+      int id = cls.getCollectionIds()[0];
+      assertCollectionIdentity(storage, id, before + 1, 1);
+      assertEquals(before + 1, counter(storage, PageFileKind.COLLECTION));
+      var names = new HashSet<>(session.getCollectionNames());
+      var burned = new HashSet<Integer>();
+      storage.setCommitWindowTestHook(() -> {
+        // The hook owns the non-reentrant state write lock. Read the stored configurations
+        // directly rather than calling a runtime accessor that acquires the state read lock.
+        for (var collection : config(storage).getCollections()) {
+          if (collection != null && !names.contains(collection.name())) {
+            burned.add(((StoragePaginatedCollectionConfiguration) collection).getComponentId());
+          }
+        }
+        throw new CommandInterruptedException("counters", "forced post-reconcile rollback");
+      });
+      try {
+        session.begin();
+        session.getMetadata().getSchema().createClass("FailedIdentity", 1);
+        assertThrows(CommandInterruptedException.class, session::commit);
+      } finally {
+        storage.setCommitWindowTestHook(null);
+      }
+      assertEquals(names, new HashSet<>(session.getCollectionNames()));
+      assertEquals(java.util.Set.of(before + 2), burned);
+      assertEquals(before + 1, counter(storage, PageFileKind.COLLECTION));
+      int next = session.addCollection("afterfailure");
+      assertCollectionIdentity(storage, next, before + 3, 1);
+    }
+  }
+
+  // A rollback after physical creation restores the persistent counter, but not the live watermark.
+  @Test
+  public void rolledBackCollectionCreationBurnsItsComponentId() throws Exception {
+    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int before = counter(storage, PageFileKind.COLLECTION);
+      var create = AbstractStorage.class.getDeclaredMethod(
+          "doCreateCollection", AtomicOperation.class, String.class, int.class);
+      create.setAccessible(true);
+      int slot = storage.getCollections();
+      storage.stateLock.writeLock().lock();
+      try {
+        assertThrows(ConfigurationException.class,
+            () -> storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+              var collection = (StorageCollection) invoke(create, storage, op, "rolledback", slot);
+              assertEquals(Integer.valueOf(before + 1), runtimeConfig(collection).getComponentId());
+              throw new ConfigurationException("forced collection rollback");
+            }));
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+      assertEquals(before, counter(storage, PageFileKind.COLLECTION));
+      assertCollectionIdentity(storage, session.addCollection("afterrollback"), before + 2, 1);
+    }
+  }
+
+  // Production layout creation and metadata updates keep version zero and never create a counter.
+  @Test
+  public void layout25CollectionCreationAndUpdatesNeverAllocateComponentIds() throws Exception {
+    create(StorageFormat.LAYOUT_25, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int id = session.addCollection("legacyidentity");
+      assertCollectionIdentity(storage, id, null, 0);
+      storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.NAME, "renamedlegacy");
+      storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.CONFLICTSTRATEGY, "version");
+      assertCollectionIdentity(storage, id, null, 0);
+      session.begin();
+      session.getMetadata().getSchema().createClass("LegacySchemaIdentity", 1);
+      session.commit();
+      for (var collection : storage.getCollectionInstances()) {
+        assertCollectionIdentity(storage, collection.getId(), null, 0);
+      }
+      assertEquals(0, hwm(storage, PageFileKind.COLLECTION));
+      var read = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
+          "readProperty", String.class, AtomicOperation.class);
+      read.setAccessible(true);
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+          op -> assertNull(invoke(read, config(storage), "collectionComponentIdCounter", op)));
+    }
+  }
+
+  // A layout 26 writer must reject an absent id before changing the stored entry or counter.
+  @Test
+  public void layout26CollectionWriteRejectsMissingIdentity() throws Exception {
+    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_26, null);
+  }
+
+  // A layout 25 writer must reject even a present zero id without changing legacy metadata.
+  @Test
+  public void layout25CollectionWriteRejectsPresentIdentity() throws Exception {
+    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_25, 0);
+  }
+
+  private void assertMismatchedCollectionWriteRejected(StorageFormat format, Integer mismatchedId)
+      throws Exception {
+    create(format, DatabaseType.DISK);
+    final int id;
+    final Integer originalId;
+    try (var session = open()) {
+      var storage = session.getStorage();
+      id = session.addCollection("mismatchedwrite");
+      var original = storedCollection(storage, id);
+      originalId = original.getComponentId();
+      int before = format == StorageFormat.LAYOUT_26
+          ? counter(storage, PageFileKind.COLLECTION) : 0;
+      var collection = storage.getCollectionInstances().stream()
+          .filter(c -> c.getId() == id).findFirst().orElseThrow();
+      var identity = collection.getClass().getDeclaredField("componentId");
+      identity.setAccessible(true);
+      var update = AbstractStorage.class.getDeclaredMethod("doSetCollectionAttributed",
+          AtomicOperation.class, StorageCollection.ATTRIBUTES.class, Object.class,
+          StorageCollection.class);
+      update.setAccessible(true);
+      var read = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
+          "readProperty", String.class, AtomicOperation.class);
+      read.setAccessible(true);
+      storage.stateLock.writeLock().lock();
+      try {
+        // Inject a writer defect without altering the durable configuration. Catch the expected
+        // refusal inside the operation so rollback cannot hide an accidental entry write.
+        identity.set(collection, mismatchedId);
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          var entryBefore = (RawPairObjectInteger<?>) invoke(read, config(storage),
+              "collection_" + id, op);
+          var failure = assertThrows(InvocationTargetException.class,
+              () -> update.invoke(storage, op, StorageCollection.ATTRIBUTES.CONFLICTSTRATEGY,
+                  "version", collection));
+          assertTrue(failure.getCause() instanceof StorageException);
+          assertEquals(new StorageException("counters",
+              "Collection 'mismatchedwrite' has an identity incompatible with storage layout "
+                  + format.layoutVersion())
+              .getMessage(), failure.getCause().getMessage());
+          assertSame(original, storedCollection(storage, id));
+          var entryAfter = (RawPairObjectInteger<?>) invoke(read, config(storage),
+              "collection_" + id, op);
+          assertEquals(entryBefore.second, entryAfter.second);
+          assertArrayEquals((byte[]) entryBefore.first, (byte[]) entryAfter.first);
+          if (format == StorageFormat.LAYOUT_26) {
+            assertEquals(before,
+                config(storage).getComponentIdCounter(PageFileKind.COLLECTION, op));
+          } else {
+            assertNull(invoke(read, config(storage), "collectionComponentIdCounter", op));
+          }
+        });
+      } finally {
+        identity.set(collection, originalId);
+        storage.stateLock.writeLock().unlock();
+      }
+      assertCollectionIdentity(storage, id, originalId, originalId == null ? 0 : 1);
+      if (format == StorageFormat.LAYOUT_26) {
+        assertEquals(before, counter(storage, PageFileKind.COLLECTION));
+      } else {
+        assertEquals(0, hwm(storage, PageFileKind.COLLECTION));
+      }
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      assertCollectionIdentity(session.getStorage(), id, originalId, originalId == null ? 0 : 1);
+    }
+  }
+
+  // Cold load rejects both directions of layout mismatch with the offending collection name.
+  @Test
+  public void coldLoadRejectsCollectionIdentityLayoutMismatch() throws Exception {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_25, StorageFormat.LAYOUT_26}) {
+      create(format, DatabaseType.DISK);
+      try (var session = open()) {
+        var storage = session.getStorage();
+        int id = session.addCollection("mismatchedidentity");
+        replaceCollectionIdentity(storage, id, format == StorageFormat.LAYOUT_26 ? null : 0);
+      }
+      ytdb.close();
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+      assertStorageFailureNames(assertThrows(DatabaseException.class, this::open),
+          "mismatchedidentity");
+      ytdb.close();
+      FileUtils.deleteDirectory(new File(directory));
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    }
+  }
+
+  // Zero is a present identity, not a missing identity. Load and update must retain it.
+  @Test
+  public void coldLoadAcceptsPresentZeroComponentIdentity() throws Exception {
+    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    final int id;
+    try (var session = open()) {
+      id = session.addCollection("zeroidentity");
+      replaceCollectionIdentity(session.getStorage(), id, 0);
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      assertCollectionIdentity(session.getStorage(), id, 0, 1);
+      session.getStorage().setCollectionAttribute(id,
+          StorageCollection.ATTRIBUTES.CONFLICTSTRATEGY, "version");
+      assertCollectionIdentity(session.getStorage(), id, 0, 1);
+    }
+  }
+
+  private static void replaceCollectionIdentity(AbstractStorage storage, int id,
+      Integer componentId)
+      throws Exception {
+    var old = storedCollection(storage, id);
+    var replacement = new StoragePaginatedCollectionConfiguration(id, old.name, old.location,
+        old.useWal, old.recordOverflowGrowFactor, old.recordGrowFactor, old.compression,
+        old.encryption, old.encryptionKey, old.conflictStrategy, old.getBinaryVersion(),
+        componentId);
+    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+      config(storage).dropCollection(op, id);
+      config(storage).updateCollection(op, replacement);
+    });
+  }
+
+  private static StoragePaginatedCollectionConfiguration
+      runtimeConfig(StorageCollection collection) {
+    return ((PaginatedCollection) collection).generateCollectionConfig();
+  }
+
+  private static StoragePaginatedCollectionConfiguration storedCollection(AbstractStorage storage,
+      int id) {
+    return (StoragePaginatedCollectionConfiguration) config(storage).getCollections().get(id);
+  }
+
+  private static int entryVersion(AbstractStorage storage, int id) throws Exception {
+    var read = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
+        "readProperty", String.class, AtomicOperation.class);
+    read.setAccessible(true);
+    return storage.getAtomicOperationsManager()
+        .calculateInsideAtomicOperation(op -> ((RawPairObjectInteger<?>) invoke(read,
+            config(storage), "collection_" + id, op)).second);
+  }
+
+  private static void assertCollectionIdentity(AbstractStorage storage, int id, Integer expected,
+      int version) throws Exception {
+    assertEquals(expected, storedCollection(storage, id).getComponentId());
+    assertEquals(version, entryVersion(storage, id));
+    var collection = storage.getCollectionInstances().stream()
+        .filter(c -> c.getId() == id).findFirst().orElseThrow();
+    assertEquals(expected, runtimeConfig(collection).getComponentId());
   }
 
   private static void registerEvidence(AbstractStorage storage, int id) throws Exception {

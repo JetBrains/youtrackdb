@@ -46,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
+import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -8659,6 +8660,7 @@ public abstract class AbstractStorage
   private int createCollectionFromConfig(final StorageCollectionConfiguration config,
       AtomicOperation atomicOperation)
       throws IOException {
+    checkCollectionIdentity(config);
     var collection = collectionMap.get(config.name().toLowerCase(Locale.ROOT));
 
     if (collection != null) {
@@ -8674,6 +8676,16 @@ public abstract class AbstractStorage
     collection.configure(this, config);
 
     return registerCollection(collection);
+  }
+
+  private void checkCollectionIdentity(final StorageCollectionConfiguration config) {
+    // Null, not zero, distinguishes a legacy entry from a component-aware entry.
+    final var componentId = ((StoragePaginatedCollectionConfiguration) config).getComponentId();
+    if ((getStorageFormat() == StorageFormat.LAYOUT_26) != (componentId != null)) {
+      throw new StorageException(name,
+          "Collection '" + config.name() + "' has an identity incompatible with storage layout "
+              + getStorageFormat().layoutVersion());
+    }
   }
 
   private void setCollection(final int id, final StorageCollection collection) {
@@ -8789,12 +8801,18 @@ public abstract class AbstractStorage
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
             this);
-    collection.configure(collectionPos, collectionName);
+    // All creation paths hold the state write lock and carry the creation atomic operation.
+    // Keep allocation here so the durable counter and collection entry commit or revert together.
+    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_26
+        ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
+    collection.configure(collectionPos, collectionName, componentId);
 
     collection.create(atomicOperation);
 
+    final var collectionConfig = collection.generateCollectionConfig();
+    checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+        .updateCollection(atomicOperation, collectionConfig);
 
     linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
 
@@ -8853,9 +8871,10 @@ public abstract class AbstractStorage
           "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
+    final var collectionConfig = ((PaginatedCollection) collection).generateCollectionConfig();
+    checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation,
-            ((PaginatedCollection) collection).generateCollectionConfig());
+        .updateCollection(atomicOperation, collectionConfig);
   }
 
   private boolean dropCollectionInternal(final AtomicOperation atomicOperation,

@@ -253,6 +253,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * "collection ID" part of a Record ID ({@code #id:collectionPosition}).
    */
   private volatile int id;
+
+  /** Stable layout 26 identity. Null for layout 25 and the configuration-owned collection. */
+  private Integer componentId;
   private volatile long approximateRecordsCount;
 
   /** Internal file ID assigned by the disk cache when the data file (.pcl) is opened/created. */
@@ -292,9 +295,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   public void configure(final int id, final String collectionName) throws IOException {
+    configure(id, collectionName, null);
+  }
+
+  @Override
+  public void configure(final int id, final String collectionName, final Integer componentId)
+      throws IOException {
     acquireExclusiveLock();
     try {
       init(id, collectionName, null);
+      this.componentId = componentId;
     } finally {
       releaseExclusiveLock();
     }
@@ -320,7 +330,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         Optional.ofNullable(recordConflictStrategy)
             .map(RecordConflictStrategy::getName)
             .orElse(null),
-        BINARY_VERSION);
+        BINARY_VERSION,
+        componentId);
   }
 
   @Override
@@ -332,6 +343,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           config.id(),
           config.name(),
           ((StoragePaginatedCollectionConfiguration) config).conflictStrategy);
+      componentId = ((StoragePaginatedCollectionConfiguration) config).getComponentId();
     } finally {
       releaseExclusiveLock();
     }
