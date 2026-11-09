@@ -58,28 +58,38 @@ public final class PageWorkloadComponent extends StorageComponent {
 
   public Read read(int[] pages) throws IOException {
     checkPages(pages);
-    return atomicOperationsManager
-        .calculateInsideAtomicOperation(op -> executeOptimisticStorageRead(op, () -> {
-          Sample[] result = new Sample[pages.length];
-          for (int i = 0; i < pages.length; i++) {
-            var view = loadPageOptimistic(op, fileId, pages[i]);
-            result[i] = new Sample(view.pageFrame().getFileId(),
-                view.pageFrame().getPageIndex(), new EntryPoint(view).getTreeSize());
+    // Read-only operations capture a snapshot without registering a write or committing.
+    var op = atomicOperationsManager.startAtomicOperation();
+    try {
+      return executeOptimisticStorageRead(op, () -> {
+        Sample[] result = new Sample[pages.length];
+        for (int i = 0; i < pages.length; i++) {
+          var view = loadPageOptimistic(op, fileId, pages[i]);
+          result[i] = new Sample(view.pageFrame().getFileId(),
+              view.pageFrame().getPageIndex(), new EntryPoint(view).getTreeSize());
+        }
+        return new Read(result, true);
+      }, () -> {
+        Sample[] result = new Sample[pages.length];
+        for (int i = 0; i < pages.length; i++) {
+          try (var entry = loadPageForRead(op, fileId, pages[i])) {
+            result[i] = sample(entry);
           }
-          return new Read(result, true);
-        }, () -> {
-          Sample[] result = new Sample[pages.length];
-          for (int i = 0; i < pages.length; i++) {
-            try (var entry = loadPageForRead(op, fileId, pages[i])) {
-              result[i] = sample(entry);
-            }
-          }
-          return new Read(result, false);
-        }));
+        }
+        return new Read(result, false);
+      });
+    } finally {
+      op.deactivate();
+    }
   }
 
   /** Returns the actual written coordinates only after the atomic operation commits. */
   public Sample[] commit(int[] pages, long value) throws IOException {
+    return commit(pages, value, null);
+  }
+
+  Sample[] commit(int[] pages, long value, java.util.function.Consumer<Object> observer)
+      throws IOException {
     checkPages(pages);
     return atomicOperationsManager.calculateInsideAtomicOperation(op -> {
       Sample[] result = new Sample[pages.length];
@@ -94,6 +104,9 @@ public final class PageWorkloadComponent extends StorageComponent {
           }
         }
       });
+      if (observer != null) {
+        observer.accept(op);
+      }
       return result;
     });
   }
