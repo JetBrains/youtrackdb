@@ -32,9 +32,16 @@ public final class T5BaselineRunner {
   public interface Workload extends AutoCloseable {
     List<Case> resolve() throws Exception;
 
+    default void prepare(Case query) throws Exception {
+    }
+
     YTDBGraphTraversalSource source();
 
     Traversal<?, ?> traversal(Case query);
+
+    default boolean wholeNative(Case query) {
+      return false;
+    }
 
     T5ResultComparison.ElementKey logicalKey(Element element);
 
@@ -54,6 +61,9 @@ public final class T5BaselineRunner {
   }
 
   public static List<T5FreezeCapture.Required> inventory(Request request) {
+    if (request.provider().equals(T5CatalogueWorkload.class.getName())) {
+      T5CatalogueWorkload.validate(request.cases());
+    }
     var result = new ArrayList<T5FreezeCapture.Required>();
     for (var c : request.cases()) {
       for (String arm : ARMS) {
@@ -150,6 +160,11 @@ public final class T5BaselineRunner {
       command.add("--add-opens=java.base/" + pkg + "=ALL-UNNAMED");
     }
     command.add("--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED");
+    for (String property : List.of("t5.dbRoot", "t5.inputs")) {
+      if (System.getProperty(property) != null) {
+        command.add("-D" + property + "=" + System.getProperty(property));
+      }
+    }
     command.addAll(List.of("-cp", classpath));
     return command;
   }
@@ -211,7 +226,9 @@ public final class T5BaselineRunner {
     GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(arm.equals("baseline"));
     try (var workload = open(request.provider())) {
       var items = new ArrayList<T5FreezeCapture.Item>();
+      inventory(request);
       for (var query : request.cases()) {
+        workload.prepare(query);
         for (var regime : T5FreezeCapture.Regime.values()) {
           var graph = (YTDBGraphInternal) workload.source().getGraph();
           graph.tx().readWrite();
@@ -254,7 +271,7 @@ public final class T5BaselineRunner {
       }
     }
     if (regime == T5FreezeCapture.Regime.WARM) {
-      try (var warm = workload.traversal(query)) {
+      try (var warm = execution(workload, query)) {
         warm.toList();
       }
     }
@@ -266,7 +283,7 @@ public final class T5BaselineRunner {
     long nativeCalls = metrics.getRuleNative();
     List<T5FreezeCapture.Value> rows;
     int boundaries;
-    try (var traversal = workload.traversal(query)) {
+    try (var traversal = execution(workload, query)) {
       traversal.asAdmin().applyStrategies();
       boundaries = GremlinTraversalShapes.countBoundarySteps(traversal.asAdmin());
       rows = traversal.toList().stream().map(v -> T5FreezeCapture.Value.of(logical(v, workload)))
@@ -288,14 +305,32 @@ public final class T5BaselineRunner {
     String outcome = metrics.getSuccesses() > successes ? "match"
         : metrics.getRuleNative() > nativeCalls ? "rule-native"
             : metrics.getDeclines() > declines ? "decline" : "native";
-    var declaration = arm.equals("native") ? declare(workload, query)
-        : new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("current-arm-only"), Map.of(),
-            Map.of("all", "Prepared declarations require current core"));
+    var declaration = workload.wholeNative(query)
+        ? new T5FreezeCapture.Declaration(
+            T5FreezeCapture.Value.of("whole-native-record-identifiers"),
+            Map.of(), Map.of("all", "Record-identifier-bearing member"))
+        : arm.equals("native") ? declare(workload, query)
+            : new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("current-arm-only"),
+                Map.of(),
+                Map.of("all", "Prepared declarations require current core"));
     return new T5FreezeCapture.Item(key(query, arm, regime), query.feeds(), query.order(), rows,
-        outcome, "boundary-count=" + boundaries, new T5FreezeCapture.Cache(revision,
+        outcome, (workload.wholeNative(query) ? "whole-native record identifiers; " : "")
+            + "boundary-count=" + boundaries,
+        new T5FreezeCapture.Cache(revision,
             "invalidate generation=" + generation + "; hits=" + hitDelta + "; misses=" + missDelta,
             observation, observation == T5FreezeCapture.Observation.BYPASS ? bypass : ""),
         declaration, false, "", "");
+  }
+
+  private static Traversal<?, ?> execution(Workload workload, Case query) {
+    var traversal = workload.traversal(query);
+    if (workload.wholeNative(query)) {
+      // Physical ids must not enter prepared identities or a translated prefix.
+      var strategies = traversal.asAdmin().getStrategies().clone();
+      strategies.removeStrategies(GremlinToMatchStrategy.class);
+      traversal.asAdmin().setStrategies(strategies);
+    }
+    return traversal;
   }
 
   static T5FreezeCapture.Observation observed(long hits, long misses) {
@@ -416,9 +451,19 @@ public final class T5BaselineRunner {
   /** CLI: check capture request, or run request native-classpath baseline-classpath scratch output. */
   public static void main(String[] args) throws Exception {
     if (args.length == 0) {
-      throw new IllegalArgumentException("Expected check, run or child");
+      throw new IllegalArgumentException("Expected capture, check, run or child");
     }
-    if (args[0].equals("check") && args.length == 3) {
+    if (args[0].equals("capture") && args.length == 10) {
+      System.setProperty("t5.dbRoot", args[1]);
+      System.setProperty("t5.inputs", args[2]);
+      var hashes = T5CatalogueWorkload.hashes(Path.of(args[2]), args[3]);
+      var request = resolve(T5CatalogueWorkload.class.getName(), hashes, args[9]);
+      inventory(request);
+      JSON.writeValue(Path.of(args[8]).toFile(), request);
+      run(request, List.of(new Arm("native", request.nativeRevision(), args[4]),
+          new Arm("baseline", BASELINE, args[5])), Path.of(args[6]), Path.of(args[7]),
+          Duration.ofHours(24));
+    } else if (args[0].equals("check") && args.length == 3) {
       var request = JSON.readValue(Path.of(args[2]).toFile(), Request.class);
       requireComplete(T5FreezeCapture.read(Path.of(args[1])), inventory(request));
     } else if (args[0].equals("child") && args.length == 5) {

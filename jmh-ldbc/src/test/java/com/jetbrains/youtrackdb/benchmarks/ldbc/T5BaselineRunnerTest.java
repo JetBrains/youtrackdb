@@ -24,7 +24,17 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class T5BaselineRunnerTest {
-  static final String REVISION = "9dd20f18edba48319cf95da8394103f9713d3e59";
+  static final String REVISION = currentRevision();
+
+  private static String currentRevision() {
+    try (var jar = new java.util.jar.JarFile(currentCore().toFile())) {
+      return java.util.Objects.requireNonNull(
+          jar.getManifest().getMainAttributes().getValue("Implementation-Build"));
+    } catch (IOException e) {
+      throw new java.io.UncheckedIOException(e);
+    }
+  }
+
   @Rule
   public TemporaryFolder temporary = TemporaryFolder.builder().assureDeletion().build();
 
@@ -83,6 +93,40 @@ public class T5BaselineRunnerTest {
     }
   }
 
+  public static class WholeNativeFixtures extends Fixtures {
+    public WholeNativeFixtures() throws Exception {
+    }
+
+    @Override
+    public boolean wholeNative(T5BaselineRunner.Case query) {
+      return true;
+    }
+  }
+
+  @Test
+  public void recordIdentifierMembersBypassTranslationAndRefuseEveryCutInBothRealArms()
+      throws Exception {
+    String baseline = System.getProperty("t5.baselineCore");
+    org.junit.Assume.assumeNotNull(baseline);
+    var request = T5BaselineRunner.resolve(WholeNativeFixtures.class.getName(),
+        Map.of("fixture", "a".repeat(64)), REVISION);
+    var capture = T5BaselineRunner.run(request, List.of(
+        new T5BaselineRunner.Arm("native", REVISION, classpath(currentCore())),
+        new T5BaselineRunner.Arm("baseline", T5BaselineRunner.BASELINE,
+            classpath(Path.of(baseline)))),
+        temporary.newFolder().toPath(), temporary.getRoot().toPath().resolve("whole-native.json"),
+        Duration.ofMinutes(2));
+    assertEquals(12, capture.items().size());
+    for (var item : capture.items()) {
+      assertEquals("native", item.outcome());
+      assertEquals(T5FreezeCapture.Observation.BYPASS, item.cache().observed());
+      assertTrue(item.reason().contains("whole-native record identifiers"));
+      assertTrue(item.declaration().cuts().isEmpty());
+      assertEquals(Map.of("all", "Record-identifier-bearing member"),
+          item.declaration().refusedCuts());
+    }
+  }
+
   static T5BaselineRunner.Request request() throws Exception {
     return T5BaselineRunner.resolve(Fixtures.class.getName(), Map.of("fixture", "a".repeat(64)),
         REVISION);
@@ -138,6 +182,25 @@ public class T5BaselineRunnerTest {
         request);
     T5BaselineRunner.main(new String[] {"check", output.toString(),
         temporary.getRoot().toPath().resolve("request.json").toString()});
+    // Exercise the real CLI exit path, not only the in-process completeness predicate.
+    var removed = new java.util.ArrayList<>(capture.items());
+    removed.removeLast();
+    var first = capture.items().getFirst();
+    var noFeed = new T5FreezeCapture.Item(first.key(), Map.of(), first.order(), first.answers(),
+        first.outcome(), first.reason(), first.cache(), first.declaration(),
+        first.knownBaselineDifference(), first.differenceReason(), first.failure());
+    var feedMissing = new java.util.ArrayList<>(capture.items());
+    feedMissing.set(0, noFeed);
+    for (var incomplete : List.of(removed, feedMissing)) {
+      var broken = temporary.newFile().toPath();
+      T5FreezeCapture.write(broken, new T5FreezeCapture.Capture(capture.version(), true,
+          capture.revisions(), capture.inputHashes(), incomplete));
+      var command = T5BaselineRunner.javaCommand(classpath(currentCore()));
+      command.addAll(List.of(T5BaselineRunner.class.getName(), "check", broken.toString(),
+          temporary.getRoot().toPath().resolve("request.json").toString()));
+      assertThrows(IOException.class, () -> T5BaselineRunner.execute(command,
+          temporary.newFile().toPath(), Duration.ofMinutes(1)));
+    }
   }
 
   @Test

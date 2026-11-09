@@ -521,8 +521,9 @@ Cold, warm, uncacheable, PF-6 and execution witnesses use the correctness runner
 Its `Workload` provider resolves cases and exact tagged feeds once in the parent.
 Children receive that request and must use its feeds without resolving them again.
 A provider supplies a traversal source, query construction, logical element keys and cleanup.
-The fixture test demonstrates both generated and WHERE populations. A complete A/B/C
-catalogue provider and the SF1 feed adapter are required before a server capture.
+The catalogue provider enumerates all 366 A identities with five archived slots, all 32 B
+identities, and all 50 C identities with 64 resolved slots. Its 5,062 bindings require 30,372
+arm/regime items. Catalogue requests are checked against this full inventory, not a caller subset.
 No completed SF1 freeze is supplied by the runner itself.
 
 Build the current checkout with `./mvnw package -DskipTests`. Build the unchanged baseline
@@ -530,22 +531,43 @@ in a separate detached worktree at `6f180c31ee4de9ddd61e88267efc65f5d03289f5`.
 For each arm, construct a classpath with its core jar first, current `jmh-ldbc/target/classes`
 and unshaded dependency jars. Do not include the shaded benchmark jar or a second core.
 The loaded core manifest must identify the exact expected build. Neither arm permits
-`FORCE_MATCH_FOR_TESTS`. The native arm disables translation. The baseline keeps its router.
+`FORCE_MATCH_FOR_TESTS`. The native arm disables translation. The baseline keeps its router
+for eligible members.
+Record-identifier-bearing members run whole-native in both arms. Their declarations refuse
+all cuts, and the capture records the explicit whole-native reason.
 
-Call `resolve(providerClass, inputSha256s, currentCoreRevision)` once and serialize the
-returned request with Jackson. Record actual input hashes, not placeholder digests.
-The provider must follow the catalogue feed rules above, including the 64-slot derived pool,
-canonical array lengths and exact derived window dates. Replay only disposable database copies.
-After separate approval for the server and SF1 input preparation, use:
+Use a disposable existing embedded SF1 database copy at `DB_ROOT/ldbc_benchmark`.
+The runner refuses a missing database and never loads data or regenerates parameters.
+Place canonical `curated-params-v3.json` and `factor-tables.json` in `INPUT_DIR`.
+The curated SHA-256 must be
+`a32c482c97899ddafe90dbe9635e4ac9732fa5c19feec90c732767ac73212f18`.
+Set `FACTOR_SHA256` to the independently verified canonical factor-table SHA-256.
+Both actual hashes and the three catalogue hashes enter the capture.
+The first 64 canonical candidates feed separate resolved Person, Message and place pools.
+Canonical query arrays cycle at their own lengths. IC2-limit and IC9 share the derived
+64-slot date pool. Archived A slots never index those pools.
+After separate approval for the server and SF1 input preparation, use this single capture command:
 
 ```bash
-java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
-  run request.json "$CURRENT_CP" "$BASELINE_CP" scratch capture.json
+JAVA_OPENS=()
+for package in java.lang java.lang.reflect java.lang.invoke java.io java.nio java.util \
+  java.util.concurrent java.util.concurrent.atomic java.net sun.nio.cs sun.security.x509; do
+  JAVA_OPENS+=("--add-opens=java.base/$package=ALL-UNNAMED")
+done
+JAVA_OPENS+=("--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED")
+java "${JAVA_OPENS[@]}" -ea -Xmx1g \
+  -Dyoutrackdb.security.createDefaultUsers=false \
+  -Dyoutrackdb.storage.diskCache.bufferSize=128 \
+  -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
+  capture "$DB_ROOT" "$INPUT_DIR" "$FACTOR_SHA256" "$CURRENT_CP" "$BASELINE_CP" \
+  scratch capture.json request.json "$CURRENT_CORE_REVISION"
 java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
   check capture.json request.json
 ```
 
-The parent runs each arm in a separate JVM with a two-hour child timeout. A nonzero exit
+The catalogue command runs each arm sequentially in a separate JVM with a 24-hour child timeout.
+The generic `run` command uses a two-hour timeout. A and B fixtures are disposable and
+populated one graph at a time. Children replay the parent's exact typed feeds. A nonzero exit
 means a failed child, timeout, malformed or partial capture, missing inventory, unexpected
 result difference or publication failure. It does not publish a new merged capture on failure.
 The output stores typed answers and feeds, loaded revisions, counter-delta cache evidence,
@@ -579,8 +601,8 @@ The singleton bounds every hop to one result. Its answer is Integer 1 and its
 whole-traversal classification is decline at the seeded FoldStep. Tests require the
 entire prefix to translate, and require CONTROL to take native routing on an actual
 translation-cache hit. These are untimed checks, not performance evidence.
-Typed full-scale comparisons, prepared-cut declarations and baseline execution belong
-to the remaining catalogue and runner units. This is not a completed benchmark freeze.
+Full-scale typed comparisons, prepared-cut declarations and baseline execution require
+the separately approved capture run. This is not a completed benchmark freeze.
 
 ## Project Structure
 
