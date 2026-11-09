@@ -50,6 +50,19 @@ import org.junit.experimental.categories.Category;
  */
 public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
 
+  /** Memory removes deleted registrations and contributes no evidence, including for bookings. */
+  @Test
+  public void memoryHasNoDeletionInventory() throws Exception {
+    final long fileId = cache.addFile(AUX, 123456);
+    cache.deleteFile(fileId);
+    assertNull(cache.registeredFileId(AUX));
+    assertTrue(cache.deletedFiles().isEmpty());
+    cache.bookFileId(OTHER, 123457, false);
+    assertEquals(Integer.valueOf(-123457), cache.registeredFileId(OTHER));
+    assertTrue(cache.deletedFiles().isEmpty());
+    assertEquals(java.util.Map.of(FILE_NAME, this.fileId), cache.files());
+  }
+
   /** All normal conflicts, including identical live and negative pairs, reject without mutation. */
   @Test
   public void suppliedBookingRejectsLiveAndNegativeConflicts() throws Exception {

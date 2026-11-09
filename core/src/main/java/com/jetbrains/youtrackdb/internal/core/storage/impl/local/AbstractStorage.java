@@ -1240,13 +1240,17 @@ public abstract class AbstractStorage
    * This hook writes no counters and never lowers a live mark. Index evidence includes:
    *
    * <ol>
-   *   <li>the persisted floor — the last successfully committed allocation;
+   *   <li>the persisted floor — the last successfully committed allocation.
    *   <li>the max {@code fileBaseId} across the persisted engine entries — defends against a
-   *       floor that lags the entries (e.g. a partially restored configuration);
+   *       floor that lags the entries (e.g. a partially restored configuration).
    *   <li>the max {@code ie_<n>} stem among the write cache's files — defends against an orphaned
    *       engine file that survived a rolled-back create on the in-memory profile (the eager
    *       cache install does not revert) and would otherwise collide with a re-issued id.
    * </ol>
+   *
+   * <p>Layout 26 also seeds per-kind marks from strict logical names in live files and the
+   * deletion inventory. Malformed live names with the reserved {@code ytdb-p26-} prefix reject
+   * open. Deletion names that fail strict parsing are ignored.
    *
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
    * incremental restore into an already-open storage) keeps the monotonicity guarantee.
@@ -1290,6 +1294,18 @@ public abstract class AbstractStorage
         final var swept =
             PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(fileName, layout26);
         seed = Math.max(seed, swept);
+      }
+    }
+
+    if (layout26 && wc != null) {
+      // Negative registrations mix deletions and bookings. Both conservatively reserve ids.
+      // Only logical names qualify. Old disk-name aliases and user tombstones are not evidence.
+      for (final var fileName : wc.deletedFiles()) {
+        final var identity = PageFileNames.parseLayout26(fileName);
+        if (identity.isPresent()) {
+          final var file = identity.get();
+          componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
+        }
       }
     }
 

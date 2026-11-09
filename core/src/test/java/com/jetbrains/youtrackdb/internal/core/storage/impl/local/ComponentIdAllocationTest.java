@@ -23,18 +23,22 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.concurrent.Executors;
@@ -377,6 +381,148 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // Append durable deletion records after closing the baseline database. No counter update or
+  // registry compaction follows these writes, as when a crash preserves only deletion evidence.
+  // Both primary-only and auxiliary-only families must protect every kind on the next cold open.
+  @Test
+  public void coldOpenSeedsDeletionOnlyFamiliesWithoutChangingLowerCounterBytes() throws Exception {
+    for (var roles : new PageFileRole[][] {
+        {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA, PageFileRole.CONFIG_DATA},
+        {PageFileRole.FREE_SPACE_MAP, PageFileRole.HISTOGRAM,
+            PageFileRole.CONFIG_FREE_SPACE_MAP}}) {
+      create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+      final WOWCache cache;
+      final int[] counters;
+      final byte[][] bytes;
+      try (var session = open()) {
+        var storage = session.getStorage();
+        cache = (WOWCache) storage.getWriteCache();
+        counters = counters(storage);
+        bytes = counterBytes(storage);
+      }
+      ytdb.close();
+      for (var role : roles) {
+        var identity = new PageFileIdentity(role, 9000);
+        appendRegistry(cache, PageFileNames.layout26(identity), -identity.internalId(), "");
+      }
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+      try (var session = open()) {
+        var storage = session.getStorage();
+        assertCounterBytes(storage, bytes);
+        for (var role : roles) {
+          var identity = new PageFileIdentity(role, 9000);
+          var name = PageFileNames.layout26(identity);
+          assertEquals(Integer.valueOf(-identity.internalId()),
+              storage.getWriteCache().registeredFileId(name));
+          assertTrue(storage.getWriteCache().deletedFiles().contains(name));
+          assertTrue(!storage.getWriteCache().files().containsKey(name));
+          assertTrue(counters[role.kind().ordinal()] < 9000);
+        }
+        assertEvidenceAndAllocate(storage, 9000, counters);
+      }
+      ytdb.drop("counters");
+    }
+  }
+
+  // A non-computed tombstone id still reserves its logical identity. Old swapped records leave
+  // a logical positive registration with a missing backing file plus a negative disk-name alias.
+  // Replay converts the former to deletion evidence, while all non-strict names stay irrelevant.
+  @Test
+  public void coldOpenCountsLogicalTombstonesButIgnoresAliasesAndMalformedNames() throws Exception {
+    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    final WOWCache cache;
+    final int[] counters;
+    final byte[][] bytes;
+    final String logical = "ytdb-p26-collection-8000-record-data.pcl";
+    final String alias = "ytdb-p26-collection-8000-record-data_123457.pcl";
+    final String nonComputed = "ytdb-p26-index-9000-tree-data.cbt";
+    final String[] ignored = {
+        "ytdb-p26-configuration-30000-data_123458.cd",
+        "ytdb-p26-configuration-33554432-data.cd",
+        "ytdb-p26-configuration-09000-data.cd",
+        "ytdb-p26-index-30000-unknown.cbt", "user-file.dat", "ie_30000.cbt"};
+    try (var session = open()) {
+      var storage = session.getStorage();
+      cache = (WOWCache) storage.getWriteCache();
+      counters = counters(storage);
+      bytes = counterBytes(storage);
+    }
+    ytdb.close();
+    appendRegistry(cache, nonComputed, -123456, "");
+    appendRegistry(cache, logical, 123457, alias);
+    appendRegistry(cache, alias, -123457, logical);
+    for (int i = 0; i < ignored.length; i++) {
+      appendRegistry(cache, ignored[i], -(123458 + i), "");
+    }
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var wc = storage.getWriteCache();
+      assertEquals(Integer.valueOf(-123456), wc.registeredFileId(nonComputed));
+      assertEquals(Integer.valueOf(-123457), wc.registeredFileId(logical));
+      assertEquals(Integer.valueOf(-123457), wc.registeredFileId(alias));
+      for (var name : ignored) {
+        assertTrue(wc.deletedFiles().contains(name));
+        assertTrue(!wc.files().containsKey(name));
+      }
+      assertCounterBytes(storage, bytes);
+      assertCounters(storage, counters);
+      assertEquals(8000, hwm(storage, PageFileKind.COLLECTION));
+      assertEquals(9000, hwm(storage, PageFileKind.INDEX_ENGINE));
+      assertEquals(counters[PageFileKind.CONFIGURATION.ordinal()],
+          hwm(storage, PageFileKind.CONFIGURATION));
+      // Ignored evidence must not relax creation conflicts, even for an old disk-name alias.
+      assertThrows(StorageException.class, () -> wc.bookFileId(alias, 123457, false));
+      assertThrows(StorageException.class, () -> wc.bookFileId(nonComputed, 123459, false));
+      assertEquals(8001, allocate(storage, PageFileKind.COLLECTION));
+      assertEquals(9001, allocate(storage, PageFileKind.INDEX_ENGINE));
+      assertEquals(counters[PageFileKind.CONFIGURATION.ordinal()] + 1,
+          allocate(storage, PageFileKind.CONFIGURATION));
+    }
+  }
+
+  private void appendRegistry(WOWCache cache, String name, int id, String physical)
+      throws Exception {
+    var entryClass = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.cache.local.NameFileIdEntry");
+    var constructor = entryClass.getDeclaredConstructor(String.class, int.class, String.class);
+    constructor.setAccessible(true);
+    var write = WOWCache.class.getDeclaredMethod("writeNameIdEntry", FileChannel.class,
+        entryClass, boolean.class);
+    write.setAccessible(true);
+    try (var channel = FileChannel.open(Path.of(directory, "counters", "name_id_map_v3.cm"),
+        StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+      invoke(write, cache, channel, constructor.newInstance(name, id, physical), true);
+    }
+  }
+
+  private static byte[][] counterBytes(AbstractStorage storage) throws Exception {
+    var read = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
+        "readProperty", String.class, AtomicOperation.class);
+    read.setAccessible(true);
+    return storage.getAtomicOperationsManager().calculateInsideAtomicOperation(op -> {
+      var result = new byte[PageFileKind.values().length][];
+      for (var kind : PageFileKind.values()) {
+        String key = switch (kind) {
+          case COLLECTION -> "collectionComponentIdCounter";
+          case INDEX_ENGINE -> "indexEngineFileBaseIdFloor";
+          case CONFIGURATION -> "configurationComponentIdCounter";
+        };
+        result[kind.ordinal()] = ((RawPairObjectInteger<byte[]>) invoke(
+            read, config(storage), key, op)).first.clone();
+      }
+      return result;
+    });
+  }
+
+  private static void assertCounterBytes(AbstractStorage storage, byte[][] expected)
+      throws Exception {
+    var actual = counterBytes(storage);
+    for (var kind : PageFileKind.values()) {
+      assertArrayEquals(expected[kind.ordinal()], actual[kind.ordinal()]);
+    }
+  }
+
   // The hook also works in memory and an index name cannot raise collection or configuration ids.
   @Test
   public void memorySeedIsKindIsolatedAndNeverLowersLiveMarks() throws Exception {
@@ -385,7 +531,8 @@ public class ComponentIdAllocationTest {
       var storage = session.getStorage();
       final var counters = counters(storage);
       assertTrue(counter(storage, PageFileKind.INDEX_ENGINE) < 9000);
-      storage.getWriteCache().addFile("ytdb-p26-index-9000-tree-data.cbt");
+      storage.getWriteCache().addFile("ytdb-p26-index-9000-tree-data.cbt",
+          new PageFileIdentity(PageFileRole.INDEX_DATA, 9000).internalId());
       seed(storage);
       assertCounters(storage, counters);
       assertEquals(9000, hwm(storage, PageFileKind.INDEX_ENGINE));
@@ -873,9 +1020,11 @@ public class ComponentIdAllocationTest {
     for (var kind : PageFileKind.values()) {
       assertTrue(counter(storage, kind) < id);
     }
-    storage.getWriteCache().addFile("ytdb-p26-collection-" + id + "-record-data.pcl");
-    storage.getWriteCache().addFile("ytdb-p26-index-" + id + "-tree-data.cbt");
-    storage.getWriteCache().addFile("ytdb-p26-configuration-" + id + "-data.cd");
+    for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+        PageFileRole.CONFIG_DATA}) {
+      var identity = new PageFileIdentity(role, id);
+      storage.getWriteCache().addFile(PageFileNames.layout26(identity), identity.internalId());
+    }
   }
 
   private static int[] counters(AbstractStorage storage) throws Exception {

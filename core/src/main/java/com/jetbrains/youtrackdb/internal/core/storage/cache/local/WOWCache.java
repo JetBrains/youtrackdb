@@ -1527,6 +1527,23 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public List<String> deletedFiles() {
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+      final var result = new ArrayList<String>();
+      for (final var entry : nameIdMap.entrySet()) {
+        if (entry.getValue() < 0) {
+          result.add(entry.getKey());
+        }
+      }
+      return result;
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
+  @Override
   public Map<String, Long> files() {
     filesLock.acquireReadLock();
     try {

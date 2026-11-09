@@ -91,6 +91,28 @@ import org.mockito.Mockito;
 @Category(SequentialTest.class)
 public class WOWCacheLoadOrAddTest {
 
+  /** Negative inventory is a detached snapshot, includes bookings, and never changes live files. */
+  @Test
+  public void deletionInventorySeparatesLiveFilesAndSurvivesReopen() throws Exception {
+    final long deleted = wowCache.addFile(AUX, 123456);
+    wowCache.deleteFile(deleted);
+    wowCache.bookFileId(OTHER, 123457, false);
+    final long live = wowCache.addFile("live.dat", 123458);
+    final var snapshot = wowCache.deletedFiles();
+    assertEquals(java.util.Set.of(AUX, OTHER), new java.util.HashSet<>(snapshot));
+    assertEquals(Map.of("live.dat", live), wowCache.files());
+    snapshot.clear();
+    assertEquals(2, wowCache.deletedFiles().size());
+    wowCache.close();
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    wowCache.loadRegisteredFiles();
+    assertEquals(java.util.Set.of(AUX, OTHER),
+        new java.util.HashSet<>(wowCache.deletedFiles()));
+    assertEquals(Map.of("live.dat", live), wowCache.files());
+    assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, deleted, false));
+  }
+
   /** All normal conflicts, including identical live and negative pairs, reject without mutation. */
   @Test
   public void suppliedBookingRejectsLiveAndNegativeConflicts() throws Exception {
@@ -165,6 +187,7 @@ public class WOWCacheLoadOrAddTest {
         Mockito.CALLS_REAL_METHODS);
     assertThrows(UnsupportedOperationException.class, () -> cache.bookFileId("a", 1, false));
     assertThrows(UnsupportedOperationException.class, () -> cache.registeredFileId("a"));
+    assertTrue(cache.deletedFiles().isEmpty());
   }
 
   /** Rejected booking never truncates an existing file or adopts an unregistered leftover. */

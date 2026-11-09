@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
@@ -475,6 +476,15 @@ public interface WriteCache {
   int getId();
 
   Map<String, Long> files();
+
+  /**
+   * Returns a snapshot of negative-registration names, separate from live {@link #files()}.
+   * Implementations may return no names. The default, used by the memory cache, is empty.
+   * The disk cache returns every negative registration, including booked ids without a file.
+   */
+  default List<String> deletedFiles() {
+    return List.of();
+  }
 
   /**
    * DO NOT DELETE THIS METHOD IT IS USED IN ENTERPRISE STORAGE
