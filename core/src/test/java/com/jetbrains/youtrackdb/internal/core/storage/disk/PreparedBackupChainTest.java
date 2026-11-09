@@ -33,7 +33,7 @@ public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
 
-  /** The descriptor is unavailable before admission and after cleanup, for either layout. */
+  /** The layout-27 descriptor is unavailable before admission and after cleanup. */
   @Test
   public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -49,7 +49,7 @@ public class PreparedBackupChainTest {
 
   private Path root;
 
-  /** Prepared restore validates mixed layouts and copies exact bytes without pair matching. */
+  /** Prepared restore accepts mixed backup encodings and copies every unit byte exactly. */
   @Test
   public void prepareMixedVersionChainPreservesBytesAndRejectsEitherHashFailure() throws Exception {
     var id = java.util.UUID.randomUUID();
@@ -234,7 +234,7 @@ public class PreparedBackupChainTest {
   public void replayOfAClosedChainIsRefused() throws Exception {
     var temporaryDirectory = Files.createDirectories(root.resolve("request"));
     var chain = new PreparedBackupChain(DATABASE, temporaryDirectory);
-    chain.completePreparation(7, StorageFormat.LAYOUT_25);
+    chain.completePreparation(7, StorageFormat.LAYOUT_27);
     chain.close();
 
     var refusal = assertThrows(IllegalStateException.class, chain::requireComplete);
@@ -278,7 +278,7 @@ public class PreparedBackupChainTest {
 
     chain.addUnit(fullBackup, true);
     chain.addUnit(increment, false);
-    chain.completePreparation(11, StorageFormat.LAYOUT_26);
+    chain.completePreparation(11, StorageFormat.LAYOUT_27);
 
     assertEquals("the chain must keep two units", 2, chain.units().size());
     assertSame("the full backup must open the chain", fullBackup, chain.units().getFirst().left());
