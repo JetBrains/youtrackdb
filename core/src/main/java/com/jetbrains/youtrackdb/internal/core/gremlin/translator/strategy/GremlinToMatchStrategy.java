@@ -345,6 +345,19 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
+    if (traversal.isRoot() && QuerySafetyAdmission.stored(traversal) == null) {
+      var options = traversal.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+      YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, traversal);
+      YTDBStrategyUtil.explicitNullPlacements(options);
+      YTDBStrategyUtil.explicitPolymorphic(options);
+    }
+    var safety = QuerySafetyAdmission.prepare(traversal);
+    var refusal = safety == null ? QuerySafetyAdmission.Reason.MISSING_ROOT_RESULT
+        : traversal.isRoot() ? safety.reason() : safety.forChild();
+    if (refusal != QuerySafetyAdmission.Reason.SAFE) {
+      GremlinTranslationMetrics.of(session).recordDecline("safety:" + refusal.name());
+      return;
+    }
     // Start-shape gate is O(1). Already-translated traversals also fail hasVertexGraphStart
     // (start is a boundary, not a GraphStep), so check containsBoundaryStep before counting a
     // decline — re-applies must stay outside attempts. Fresh edge / non-vertex starts are product
@@ -370,13 +383,6 @@ public final class GremlinToMatchStrategy
       return;
     }
     if (containsBoundaryStep(traversal)) {
-      return;
-    }
-    // Check before a template lookup: aliases cannot represent repeated path bindings or a
-    // side-effect value that belongs to this invocation.
-    if (GremlinStepWalker.hasDuplicateStepLabels(traversal)
-        || GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     for (Step<?, ?> step : traversal.getSteps()) {

@@ -259,6 +259,38 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(events).containsExactly(1);
   }
 
+  /** A deferred hop cannot add an edge after a check, at the end or before another unit. */
+  @Test
+  public void deferredSettlementRefusesCheckedEdgesWithoutReportingCompletion() {
+    for (boolean exists : List.of(false, true)) {
+      for (boolean suffix : List.of(false, true)) {
+        final WalkerContext[] captured = new WalkerContext[1];
+        StepRecogniser checkedStart = (cursor, context) -> {
+          var outcome = StartStepRecogniser.INSTANCE.recognize(cursor, context);
+          var walker = (WalkerContext) context;
+          captured[0] = walker;
+          if (exists) {
+            walker.addExistsMatchExpression(
+                new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression(-1));
+          } else {
+            walker.addBooleanCheck(
+                new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.And(
+                    List.of()));
+          }
+          return outcome;
+        };
+        var registry = new java.util.HashMap<>(GremlinStepWalker.PRODUCTION_RECOGNISERS);
+        registry.put(GraphStep.class, checkedStart);
+        var traversal = graph.traversal().V().order().by("name").out("knows");
+        var admin = (suffix ? traversal.values("name") : traversal).asAdmin();
+        var events = new java.util.ArrayList<Integer>();
+        assertThat(new GremlinStepWalker(registry).walkObserved(admin, events::add)).isNull();
+        assertThat(captured[0].patternBuilder.edgeCount()).isZero();
+        assertThat(events).containsExactly(1, 2);
+      }
+    }
+  }
+
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
 
   private final TranslatorEquivalenceSupport support =

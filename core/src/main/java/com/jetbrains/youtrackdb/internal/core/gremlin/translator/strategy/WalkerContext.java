@@ -1017,6 +1017,11 @@ final class WalkerContext implements RecognitionContext {
     if (pending == null) {
       return true;
     }
+    // A check applies to the complete positive pattern. A deferred hop obeys the same
+    // edge-admission rule as a directly recognised hop, before it can mutate that pattern.
+    if (hasExistsMatchExpressions() || booleanCheck() != null) {
+      return false;
+    }
     // Reuse the targetAlias allocated at defer time so as(...)/has filters already bound to it land
     // on the pattern node flush creates.
     GremlinPatternAssembler.appendFoldedHop(
