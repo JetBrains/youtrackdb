@@ -162,17 +162,28 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
 
   @Override
   public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
-    final int intId =
-        validateSuppliedFileId(fileName, fileId, reconstructAuxiliary, storageName);
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
     metadataLock.lock();
     try {
-      final Integer registered =
-          fileNameIdMap.containsKey(fileName) ? fileNameIdMap.getInt(fileName) : null;
+      final boolean present = fileNameIdMap.containsKey(fileName);
+      final int registered = fileNameIdMap.getInt(fileName);
       final var negativeName = fileIdNameMap.get(-intId);
+      final boolean nameRegisteredWithOtherState =
+          present && (!reconstructAuxiliary || registered != -intId);
       final boolean liveRegistrationExists = fileIdNameMap.containsKey(intId);
-      validateSuppliedFileIdConflicts(fileName, intId, registered, liveRegistrationExists,
-          negativeName, () -> false, () -> files.containsKey(intId), () -> false,
-          reconstructAuxiliary, storageName);
+      final boolean negativeIdHeldByOtherName =
+          negativeName != null && !negativeName.equals(fileName);
+      if (nameRegisteredWithOtherState || liveRegistrationExists || negativeIdHeldByOtherName
+          || files.containsKey(intId)) {
+        throw new StorageException(storageName,
+            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+      }
       fileNameIdMap.put(fileName, -intId);
       fileIdNameMap.put(-intId, fileName);
       return composeFileId(id, intId);

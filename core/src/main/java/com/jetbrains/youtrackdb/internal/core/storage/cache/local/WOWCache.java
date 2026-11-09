@@ -113,7 +113,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.BooleanSupplier;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
@@ -860,29 +859,52 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
-    final int intId =
-        validateSuppliedFileId(fileName, fileId, reconstructAuxiliary, storageName);
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
     filesLock.acquireWriteLock();
     try {
       checkForClose();
       final var registered = nameIdMap.get(fileName);
       final var liveName = idNameMap.get(intId);
       final var negativeName = idNameMap.get(-intId);
-      // Scan names too: older registries can contain several negative aliases for one id.
-      final BooleanSupplier alias = () -> nameIdMap.entrySet().stream().anyMatch(
-          entry -> Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName));
-      final BooleanSupplier openFileExists = () -> files.get(composeFileId(id, intId)) != null;
-      // An indeterminate disk probe must also prevent booking.
-      final BooleanSupplier diskFileExists =
-          () -> !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
-      validateSuppliedFileIdConflicts(fileName, intId, registered, liveName != null, negativeName,
-          alias, openFileExists, diskFileExists, reconstructAuxiliary, storageName);
+      final boolean nameRegisteredWithOtherState =
+          registered != null && (!reconstructAuxiliary || registered != -intId);
+      final boolean liveRegistrationExists = liveName != null;
+      final boolean negativeIdHeldByOtherName =
+          negativeName != null && !negativeName.equals(fileName);
+      // Keep scans and disk path construction after the cheap conflict checks.
+      if (nameRegisteredWithOtherState || liveRegistrationExists || negativeIdHeldByOtherName
+          || hasAliasForId(fileName, intId) || files.get(composeFileId(id, intId)) != null
+          || backingFileMayExist(fileName, intId)) {
+        throw new StorageException(storageName,
+            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+      }
       nameIdMap.put(fileName, -intId);
       idNameMap.put(-intId, fileName);
       return composeFileId(id, intId);
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  private boolean hasAliasForId(String fileName, int intId) {
+    // Older registries can contain several negative aliases for one id.
+    for (final var entry : nameIdMap.entrySet()) {
+      if (Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean backingFileMayExist(String fileName, int intId) {
+    // An indeterminate disk probe must also prevent booking.
+    return !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
   }
 
   @Override
