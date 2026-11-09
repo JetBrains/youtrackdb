@@ -186,15 +186,36 @@ public class T5RunnerInventoryTest {
     noFeed.set(noFeed.size() - 1, new T5BaselineRunner.Case(c.identity(), c.binding(), Map.of(),
         c.order(), c.stepLabelFixDifference()));
     assertThrows(IllegalArgumentException.class, () -> T5CatalogueWorkload.validate(noFeed));
+    // Independent literal q ids pin every positive and negative A decision in every graph.
+    Set<Integer> nativeA = java.util.Arrays.stream("""
+        0 2 8 10 14 15 20 25 26 30 32 38 40 44 45 50 55 56 60 62 65 68 70 74 75
+        80 85 86 90 92 98 100 104 105 110 115 116 120 122 128 130 134 135 140 145
+        146 150 152 158 160 164 165 170 175 176 180 182 185 188 190 194 195 200
+        205 206 210 212 218 220 224 225 230 235 236 240 242 248 250 254 255 260
+        265 266 270 272 278 280 284 285 290 295 296
+        """.strip().split("\\s+")).map(Integer::valueOf)
+        .collect(java.util.stream.Collectors.toSet());
+    Set<String> wholeNative = new HashSet<>();
+    for (String identity : expectedA) {
+      if (nativeA.contains(Integer.parseInt(identity.substring(identity.lastIndexOf("/q") + 2)))) {
+        wholeNative.add(identity);
+      }
+    }
+    for (String variant : List.of("indexed", "no-index")) {
+      for (String member : """
+          5-hub-hit 5-rare-late-hit 5-slug-miss 5-target-miss
+          H-email-miss H-hub-hit H-rare-late-hit H-unverified H-user-miss
+          U2-user-0 U2-user-997 U2-user-998 U2-user-999 LONG-late-seeded-fold
+          """.strip().split("\\s+")) {
+        wholeNative.add("B/" + variant + "/" + member);
+      }
+    }
+    wholeNative.add("C/gremlin_vertexByRid");
+    assertEquals(305, wholeNative.size());
     try (var workload = new T5CatalogueWorkload()) {
       for (var query : cases) {
-        if (query.identity().equals("C/gremlin_vertexByRid")
-            || query.identity().startsWith("B/indexed/5-")) {
-          assertTrue(workload.wholeNative(query));
-        }
-        if (query.identity().equals("C/G7/knownEndVertex")) {
-          org.junit.Assert.assertFalse(workload.wholeNative(query));
-        }
+        assertEquals(query.identity(), wholeNative.contains(query.identity()),
+            workload.wholeNative(query));
       }
     }
   }

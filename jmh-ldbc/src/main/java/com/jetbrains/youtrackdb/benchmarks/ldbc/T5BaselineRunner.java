@@ -43,6 +43,10 @@ public final class T5BaselineRunner {
       return false;
     }
 
+    default String wholeNativeReason(Case query) {
+      return wholeNative(query) ? "Record-identifier-bearing member" : "";
+    }
+
     T5ResultComparison.ElementKey logicalKey(Element element);
 
     @Override
@@ -139,7 +143,7 @@ public final class T5BaselineRunner {
       var capture = new T5FreezeCapture.Capture(1, true,
           Map.of("native", request.nativeRevision(), "baseline", BASELINE),
           request.inputHashes(), items);
-      requireComplete(capture, inventory(request));
+      check(capture, request);
       T5FreezeCapture.write(output, capture);
       return capture;
     } finally {
@@ -186,7 +190,9 @@ public final class T5BaselineRunner {
     } finally {
       if (process.isAlive()) {
         process.destroyForcibly();
-        process.waitFor();
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+          throw new IOException("Child did not end after forced termination: " + log);
+        }
       }
     }
   }
@@ -270,6 +276,8 @@ public final class T5BaselineRunner {
         throw new IllegalStateException("Schema veto did not engage");
       }
     }
+    // Include priming fallback errors, but measure cache lookups only for the recorded execution.
+    long errors = metrics.getErrors();
     if (regime == T5FreezeCapture.Regime.WARM) {
       try (var warm = execution(workload, query)) {
         warm.toList();
@@ -277,7 +285,6 @@ public final class T5BaselineRunner {
     }
     long hits = cache.getTranslationHits();
     long misses = cache.getTranslationMisses();
-    long errors = metrics.getErrors();
     long successes = metrics.getSuccesses();
     long declines = metrics.getDeclines();
     long nativeCalls = metrics.getRuleNative();
@@ -305,16 +312,15 @@ public final class T5BaselineRunner {
     String outcome = metrics.getSuccesses() > successes ? "match"
         : metrics.getRuleNative() > nativeCalls ? "rule-native"
             : metrics.getDeclines() > declines ? "decline" : "native";
-    var declaration = workload.wholeNative(query)
-        ? new T5FreezeCapture.Declaration(
-            T5FreezeCapture.Value.of("whole-native-record-identifiers"),
-            Map.of(), Map.of("all", "Record-identifier-bearing member"))
-        : arm.equals("native") ? declare(workload, query)
-            : new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("current-arm-only"),
-                Map.of(),
-                Map.of("all", "Prepared declarations require current core"));
+    var declaration = workload.wholeNative(query) || arm.equals("native")
+        ? declare(workload, query)
+        : new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("current-arm-only"),
+            Map.of(),
+            Map.of("all", "Prepared declarations require current core"));
     return new T5FreezeCapture.Item(key(query, arm, regime), query.feeds(), query.order(), rows,
-        outcome, (workload.wholeNative(query) ? "whole-native record identifiers; " : "")
+        outcome,
+        (workload.wholeNative(query) ? "whole-native: " + workload.wholeNativeReason(query) + "; "
+            : "")
             + "boundary-count=" + boundaries,
         new T5FreezeCapture.Cache(revision,
             "invalidate generation=" + generation + "; hits=" + hitDelta + "; misses=" + missDelta,
@@ -325,7 +331,7 @@ public final class T5BaselineRunner {
   private static Traversal<?, ?> execution(Workload workload, Case query) {
     var traversal = workload.traversal(query);
     if (workload.wholeNative(query)) {
-      // Physical ids must not enter prepared identities or a translated prefix.
+      // Physical ids and lambdas must not enter prepared identities or a translated prefix.
       var strategies = traversal.asAdmin().getStrategies().clone();
       strategies.removeStrategies(GremlinToMatchStrategy.class);
       traversal.asAdmin().setStrategies(strategies);
@@ -342,6 +348,10 @@ public final class T5BaselineRunner {
   }
 
   static T5FreezeCapture.Declaration declare(Workload workload, Case query) throws Exception {
+    if (workload.wholeNative(query)) {
+      return new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("whole-native"),
+          Map.of(), Map.of("all", workload.wholeNativeReason(query)));
+    }
     var captured = new ArrayList<T5PreparedShapeProbe.Declaration>();
     try (var traversal = workload.traversal(query)) {
       // Clone strategies without closing a source that owns the provider's shared graph.
@@ -448,6 +458,17 @@ public final class T5BaselineRunner {
     }
   }
 
+  static void check(T5FreezeCapture.Capture capture, Request request) throws IOException {
+    requireComplete(capture, inventory(request));
+    if (!capture.revisions()
+        .equals(Map.of("native", request.nativeRevision(), "baseline", BASELINE))
+        || !capture.inputHashes().equals(request.inputHashes())) {
+      throw new IOException("Capture provenance mismatch");
+    }
+    // Reuse the parent checks for exact feeds, order, regime parity and permitted differences.
+    markDifferences(request, capture.items());
+  }
+
   /** CLI: check capture request, or run request native-classpath baseline-classpath scratch output. */
   public static void main(String[] args) throws Exception {
     if (args.length == 0) {
@@ -465,7 +486,7 @@ public final class T5BaselineRunner {
           Duration.ofHours(24));
     } else if (args[0].equals("check") && args.length == 3) {
       var request = JSON.readValue(Path.of(args[2]).toFile(), Request.class);
-      requireComplete(T5FreezeCapture.read(Path.of(args[1])), inventory(request));
+      check(T5FreezeCapture.read(Path.of(args[1])), request);
     } else if (args[0].equals("child") && args.length == 5) {
       child(JSON.readValue(Path.of(args[1]).toFile(), Request.class), args[2], args[3],
           Path.of(args[4]));

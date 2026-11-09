@@ -231,9 +231,15 @@ final class T5CatalogueWorkload implements T5BaselineRunner.Workload {
     }
     if (query.identity().startsWith("B/")) {
       return where.stream().filter(f -> f.identity().equals(query.identity()))
-          .anyMatch(f -> List.of("5", "H", "U2").contains(f.q()));
+          .anyMatch(f -> List.of("5", "H", "U2", "LONG").contains(f.q()));
     }
     return query.feeds().containsKey("arm.personRid");
+  }
+
+  @Override
+  public String wholeNativeReason(T5BaselineRunner.Case query) {
+    return query.identity().endsWith("/LONG-late-seeded-fold")
+        ? "Lambda-bearing member" : T5BaselineRunner.Workload.super.wholeNativeReason(query);
   }
 
   @Override

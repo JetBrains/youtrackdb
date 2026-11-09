@@ -517,6 +517,17 @@ Cold, warm, uncacheable, PF-6 and execution witnesses use the correctness runner
 
 ### Internal two-arm correctness runner
 
+Required local runner verification uses an immutable baseline core jar. Missing baseline input
+fails the tests when `t5.requireBaselineCore=true`. Without that property, only baseline-dependent
+tests skip. All current-core and standalone CLI refusal checks still run.
+
+```bash
+./mvnw -pl jmh-ldbc -am package \
+  -Dtest='com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunnerTest,com.jetbrains.youtrackdb.benchmarks.ldbc.T5RunnerInventoryTest' \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dt5.baselineCore="$BASELINE_CORE_JAR" -Dt5.requireBaselineCore=true
+```
+
 `T5BaselineRunner` is a correctness-only process harness, not a JMH entry point.
 Its `Workload` provider resolves cases and exact tagged feeds once in the parent.
 Children receive that request and must use its feeds without resolving them again.
@@ -533,7 +544,7 @@ and unshaded dependency jars. Do not include the shaded benchmark jar or a secon
 The loaded core manifest must identify the exact expected build. Neither arm permits
 `FORCE_MATCH_FOR_TESTS`. The native arm disables translation. The baseline keeps its router
 for eligible members.
-Record-identifier-bearing members run whole-native in both arms. Their declarations refuse
+Record-identifier-bearing and lambda-bearing members run whole-native in both arms. Their declarations refuse
 all cuts, and the capture records the explicit whole-native reason.
 
 Use a disposable existing embedded SF1 database copy at `DB_ROOT/ldbc_benchmark`.
@@ -560,7 +571,7 @@ java "${JAVA_OPENS[@]}" -ea -Xmx1g \
   -Dyoutrackdb.storage.diskCache.bufferSize=128 \
   -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
   capture "$DB_ROOT" "$INPUT_DIR" "$FACTOR_SHA256" "$CURRENT_CP" "$BASELINE_CP" \
-  scratch capture.json request.json "$CURRENT_CORE_REVISION"
+  scratch capture.json request.json "$CURRENT_CORE_REVISION" &&
 java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
   check capture.json request.json
 ```
@@ -569,7 +580,8 @@ The catalogue command runs each arm sequentially in a separate JVM with a 24-hou
 The generic `run` command uses a two-hour timeout. A and B fixtures are disposable and
 populated one graph at a time. Children replay the parent's exact typed feeds. A nonzero exit
 means a failed child, timeout, malformed or partial capture, missing inventory, unexpected
-result difference or publication failure. It does not publish a new merged capture on failure.
+result difference or publication failure. A failed capture keeps the previous file. Capture runs the full request check before publication,
+so the separate `check` command is optional.
 The output stores typed answers and feeds, loaded revisions, counter-delta cache evidence,
 router outcome witnesses and current-core prepared declarations. Each regime invalidates
 first. WARM primes the exact query. UNCACHEABLE uses an observed schema-transaction veto

@@ -103,11 +103,50 @@ public class T5BaselineRunnerTest {
     }
   }
 
+  /** Current-core answers and whole-native refusal evidence do not require the baseline jar. */
+  @Test
+  public void currentCoreCapturesAnswersAndWholeNativeRefusalsWithoutBaseline() throws Exception {
+    for (String provider : List.of(Fixtures.class.getName(), WholeNativeFixtures.class.getName())) {
+      var request = T5BaselineRunner.resolve(provider, Map.of("fixture", "a".repeat(64)), REVISION);
+      Path input = temporary.newFile().toPath();
+      Path output = temporary.newFile().toPath();
+      T5BaselineRunner.JSON.writeValue(input.toFile(), request);
+      var command = T5BaselineRunner.javaCommand(classpath(currentCore()));
+      command.addAll(List.of(T5BaselineRunner.class.getName(), "child", input.toString(),
+          "native", REVISION, output.toString()));
+      T5BaselineRunner.execute(command, temporary.newFile().toPath(), Duration.ofMinutes(1));
+      var capture = T5FreezeCapture.read(output);
+      assertEquals(6, capture.items().size());
+      for (var item : capture.items()) {
+        assertEquals(item.key().identity().startsWith("A/") ? List.of(80L)
+            : List.of(new T5ResultComparison.ElementKey("vertex", "Category", "u997")),
+            item.expected().rows());
+        assertEquals("native", item.outcome());
+        assertEquals(T5FreezeCapture.Observation.BYPASS, item.cache().observed());
+        if (provider.equals(WholeNativeFixtures.class.getName())) {
+          assertEquals(Map.of("all", "Record-identifier-bearing member"),
+              item.declaration().refusedCuts());
+          assertTrue(item.declaration().cuts().isEmpty());
+        } else {
+          assertEquals("list", item.declaration().preparedIdentity().type());
+        }
+      }
+    }
+  }
+
+  private static String baselineCore() {
+    String baseline = System.getProperty("t5.baselineCore");
+    if (Boolean.getBoolean("t5.requireBaselineCore")) {
+      org.junit.Assert.assertNotNull("Required t5.baselineCore is absent", baseline);
+    }
+    org.junit.Assume.assumeNotNull(baseline);
+    return baseline;
+  }
+
   @Test
   public void recordIdentifierMembersBypassTranslationAndRefuseEveryCutInBothRealArms()
       throws Exception {
-    String baseline = System.getProperty("t5.baselineCore");
-    org.junit.Assume.assumeNotNull(baseline);
+    String baseline = baselineCore();
     var request = T5BaselineRunner.resolve(WholeNativeFixtures.class.getName(),
         Map.of("fixture", "a".repeat(64)), REVISION);
     var capture = T5BaselineRunner.run(request, List.of(
@@ -120,11 +159,75 @@ public class T5BaselineRunnerTest {
     for (var item : capture.items()) {
       assertEquals("native", item.outcome());
       assertEquals(T5FreezeCapture.Observation.BYPASS, item.cache().observed());
-      assertTrue(item.reason().contains("whole-native record identifiers"));
+      assertTrue(item.reason().contains("Record-identifier-bearing member"));
       assertTrue(item.declaration().cuts().isEmpty());
       assertEquals(Map.of("all", "Record-identifier-bearing member"),
           item.declaration().refusedCuts());
     }
+  }
+
+  /** The standalone CLI must reject missing items, feeds and changed provenance without a baseline. */
+  @Test
+  public void standaloneCheckRejectsIncompleteOrDifferentRequestsWithoutBaseline()
+      throws Exception {
+    var request = request();
+    var items = new java.util.ArrayList<T5FreezeCapture.Item>();
+    for (var c : request.cases()) {
+      for (String arm : T5BaselineRunner.ARMS) {
+        for (var regime : T5FreezeCapture.Regime.values()) {
+          items.add(new T5FreezeCapture.Item(new T5FreezeCapture.Key(c.identity(), c.binding(),
+              arm, regime), c.feeds(), c.order(), List.of(T5FreezeCapture.Value.of(80L)),
+              "native", "transport fixture",
+              new T5FreezeCapture.Cache(arm.equals("native") ? REVISION : T5BaselineRunner.BASELINE,
+                  "no lookup", T5FreezeCapture.Observation.BYPASS, "transport fixture"),
+              new T5FreezeCapture.Declaration(T5FreezeCapture.Value.of("fixture"), Map.of(),
+                  Map.of()),
+              false, "", ""));
+        }
+      }
+    }
+    var capture = new T5FreezeCapture.Capture(1, true,
+        Map.of("native", REVISION, "baseline", T5BaselineRunner.BASELINE),
+        request.inputHashes(), items);
+    Path output = temporary.newFile().toPath();
+    T5FreezeCapture.write(output, capture);
+    Path input = temporary.newFile().toPath();
+    T5BaselineRunner.JSON.writeValue(input.toFile(), request);
+    T5BaselineRunner.main(new String[] {"check", output.toString(), input.toString()});
+    var removed = new java.util.ArrayList<>(items);
+    removed.removeLast();
+    var first = items.getFirst();
+    var noFeed = new T5FreezeCapture.Item(first.key(), Map.of(), first.order(), first.answers(),
+        first.outcome(), first.reason(), first.cache(), first.declaration(), false, "", "");
+    var feedMissing = new java.util.ArrayList<>(items);
+    feedMissing.set(0, noFeed);
+    for (var incomplete : List.of(removed, feedMissing)) {
+      T5FreezeCapture.write(output, new T5FreezeCapture.Capture(1, true,
+          capture.revisions(), capture.inputHashes(), incomplete));
+      refuseCheck(output, input);
+    }
+    T5FreezeCapture.write(output, capture);
+    var c = request.cases().getFirst();
+    var changed = new java.util.ArrayList<>(request.cases());
+    changed.set(0, new T5BaselineRunner.Case(c.identity(), c.binding(),
+        Map.of("min", T5FreezeCapture.Value.of(99L)), c.order(), false));
+    for (var different : List.of(
+        new T5BaselineRunner.Request(request.provider(), request.cases(), request.inputHashes(),
+            "different-revision"),
+        new T5BaselineRunner.Request(request.provider(), changed, request.inputHashes(), REVISION),
+        new T5BaselineRunner.Request(request.provider(), request.cases(),
+            Map.of("fixture", "b".repeat(64)), REVISION))) {
+      T5BaselineRunner.JSON.writeValue(input.toFile(), different);
+      refuseCheck(output, input);
+    }
+  }
+
+  private void refuseCheck(Path output, Path input) throws Exception {
+    var command = T5BaselineRunner.javaCommand(classpath(currentCore()));
+    command.addAll(List.of(T5BaselineRunner.class.getName(), "check", output.toString(),
+        input.toString()));
+    assertThrows(IOException.class, () -> T5BaselineRunner.execute(command,
+        temporary.newFile().toPath(), Duration.ofMinutes(1)));
   }
 
   static T5BaselineRunner.Request request() throws Exception {
@@ -148,8 +251,7 @@ public class T5BaselineRunnerTest {
   @Test
   public void isolatedRealArmsCaptureBothFixturesAndObserveAllRegimes() throws Exception {
     // Supply the immutable baseline jar explicitly. No network or baseline build occurs in tests.
-    String baseline = System.getProperty("t5.baselineCore");
-    org.junit.Assume.assumeNotNull(baseline);
+    String baseline = baselineCore();
     var request = request();
     var output = temporary.getRoot().toPath().resolve("capture.json");
     var capture = T5BaselineRunner.run(request, List.of(
@@ -182,25 +284,6 @@ public class T5BaselineRunnerTest {
         request);
     T5BaselineRunner.main(new String[] {"check", output.toString(),
         temporary.getRoot().toPath().resolve("request.json").toString()});
-    // Exercise the real CLI exit path, not only the in-process completeness predicate.
-    var removed = new java.util.ArrayList<>(capture.items());
-    removed.removeLast();
-    var first = capture.items().getFirst();
-    var noFeed = new T5FreezeCapture.Item(first.key(), Map.of(), first.order(), first.answers(),
-        first.outcome(), first.reason(), first.cache(), first.declaration(),
-        first.knownBaselineDifference(), first.differenceReason(), first.failure());
-    var feedMissing = new java.util.ArrayList<>(capture.items());
-    feedMissing.set(0, noFeed);
-    for (var incomplete : List.of(removed, feedMissing)) {
-      var broken = temporary.newFile().toPath();
-      T5FreezeCapture.write(broken, new T5FreezeCapture.Capture(capture.version(), true,
-          capture.revisions(), capture.inputHashes(), incomplete));
-      var command = T5BaselineRunner.javaCommand(classpath(currentCore()));
-      command.addAll(List.of(T5BaselineRunner.class.getName(), "check", broken.toString(),
-          temporary.getRoot().toPath().resolve("request.json").toString()));
-      assertThrows(IOException.class, () -> T5BaselineRunner.execute(command,
-          temporary.newFile().toPath(), Duration.ofMinutes(1)));
-    }
   }
 
   @Test
@@ -266,6 +349,119 @@ public class T5BaselineRunnerTest {
         T5BaselineRunner.javaCommand("classpath").stream().anyMatch(s -> s.contains("FORCE")));
   }
 
+  /** Edge roots decline before cache extraction, even in COLD and WARM with translation enabled. */
+  @Test
+  public void edgeRootActuallyBypassesCacheRegardlessOfRegimeLabel() throws Exception {
+    var setting =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean previous = setting.getValueAsBoolean();
+    setting.setValue(true);
+    try (var workload = new Fixtures() {
+      @Override
+      public Traversal<?, ?> traversal(T5BaselineRunner.Case query) {
+        return g.E().count();
+      }
+    }) {
+      for (var regime : List.of(T5FreezeCapture.Regime.COLD, T5FreezeCapture.Regime.WARM)) {
+        var item = T5BaselineRunner.observe(workload, workload.resolve().getFirst(),
+            "baseline", REVISION, regime);
+        assertEquals(T5FreezeCapture.Observation.BYPASS, item.cache().observed());
+        assertTrue(item.cache().invalidationEvent().endsWith("hits=0; misses=0"));
+        ((com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) workload.g.getGraph())
+            .tx().rollback();
+      }
+    } finally {
+      setting.setValue(previous);
+    }
+  }
+
+  /** A one-shot predicate read failure hits the production translator safety net during priming.
+   * Native predicate evaluation still works, so only the pre-prime error baseline catches it. */
+  @Test
+  public void warmPrimingTranslationFallbackIsAVisibleFailure() throws Exception {
+    var setting =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean previous = setting.getValueAsBoolean();
+    setting.setValue(true);
+    try (var workload = new Fixtures() {
+      boolean first = true;
+
+      @Override
+      public Traversal<?, ?> traversal(T5BaselineRunner.Case query) {
+        if (first) {
+          first = false;
+          var predicate = new org.apache.tinkerpop.gremlin.process.traversal.P<Long>(
+              org.apache.tinkerpop.gremlin.process.traversal.P.<Long>gte(0L).getBiPredicate(), 0L) {
+            boolean fail = true;
+
+            @Override
+            public Long getValue() {
+              if (fail) {
+                fail = false;
+                throw new IllegalStateException("Injected priming translation failure");
+              }
+              return super.getValue();
+            }
+          };
+          return g.V().hasLabel("Person").has("id", predicate).count();
+        }
+        return super.traversal(query);
+      }
+    }) {
+      var graph =
+          (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) workload.g.getGraph();
+      graph.tx().readWrite();
+      var metrics =
+          com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
+              .of(graph.tx().getDatabaseSession());
+      long before = metrics.getErrors();
+      var error = assertThrows(IllegalStateException.class, () -> T5BaselineRunner.observe(workload,
+          workload.resolve().getFirst(), "baseline", REVISION, T5FreezeCapture.Regime.WARM));
+      assertTrue(error.getMessage().contains("Translation error"));
+      assertEquals(before + 1, metrics.getErrors());
+      graph.tx().rollback();
+    } finally {
+      setting.setValue(previous);
+    }
+  }
+
+  /** Both real catalogue LONG traversals decline in production and refuse every declaration cut. */
+  @Test
+  public void catalogueLambdaMembersDeclareWholeNativeWithoutProbe() throws Exception {
+    var setting =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean previous = setting.getValueAsBoolean();
+    setting.setValue(true);
+    try (var workload = new T5CatalogueWorkload()) {
+      for (String variant : List.of("indexed", "no-index")) {
+        var query = new T5BaselineRunner.Case("B/" + variant + "/LONG-late-seeded-fold",
+            "archive", Map.of(), T5ResultComparison.Order.MULTISET, false);
+        workload.prepare(query);
+        var graph = (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) workload
+            .source().getGraph();
+        graph.tx().readWrite();
+        var metrics =
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
+                .of(graph.tx().getDatabaseSession());
+        long declines = metrics.getDeclines();
+        // Keep the production strategy installed for this confirmation, unlike runner execution.
+        try (var traversal = workload.traversal(query)) {
+          traversal.asAdmin().applyStrategies();
+          assertEquals(0, GremlinTraversalShapes
+              .countBoundarySteps(traversal.asAdmin()));
+          assertEquals(List.of(1), traversal.toList());
+        }
+        assertTrue(metrics.getDeclines() > declines);
+        var declaration = T5BaselineRunner.declare(workload, query);
+        assertEquals(Map.of("all", "Lambda-bearing member"), declaration.refusedCuts());
+        assertTrue(declaration.cuts().isEmpty());
+        graph.tx().rollback();
+      }
+    } finally {
+      setting.setValue(previous);
+    }
+  }
+
   /** The provider violates arm isolation on purpose. The child must reject it before execution. */
   public static class ForcedFixtures extends Fixtures {
     public ForcedFixtures() throws Exception {
@@ -281,17 +477,23 @@ public class T5BaselineRunnerTest {
 
   @Test
   public void providerCannotEnableForcedMatchInEitherArm() throws Exception {
-    String baseline = System.getProperty("t5.baselineCore");
-    org.junit.Assume.assumeNotNull(baseline);
+    verifyForcedArm("baseline", Path.of(baselineCore()));
+  }
+
+  @Test
+  public void providerCannotEnableForcedMatchInCurrentArmWithoutBaseline() throws Exception {
+    verifyForcedArm("native", currentCore());
+  }
+
+  private void verifyForcedArm(String arm, Path core) throws Exception {
     var original = request();
     var request = new T5BaselineRunner.Request(ForcedFixtures.class.getName(), original.cases(),
         original.inputHashes(), REVISION);
     Path input = temporary.newFile().toPath();
     T5BaselineRunner.JSON.writeValue(input.toFile(), request);
-    for (String arm : T5BaselineRunner.ARMS) {
+    {
       Path output = temporary.getRoot().toPath().resolve(arm + ".json");
-      var command = T5BaselineRunner.javaCommand(classpath(arm.equals("native")
-          ? currentCore() : Path.of(baseline)));
+      var command = T5BaselineRunner.javaCommand(classpath(core));
       command.addAll(List.of(T5BaselineRunner.class.getName(), "child", input.toString(), arm,
           arm.equals("native") ? REVISION : T5BaselineRunner.BASELINE, output.toString()));
       var error = assertThrows(IOException.class, () -> T5BaselineRunner.execute(command,
