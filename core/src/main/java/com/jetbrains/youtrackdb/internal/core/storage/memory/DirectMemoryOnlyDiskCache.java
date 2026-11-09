@@ -170,9 +170,9 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
           fileNameIdMap.containsKey(fileName) ? fileNameIdMap.getInt(fileName) : null;
       final var negativeName = fileIdNameMap.get(-intId);
       final boolean liveRegistrationExists = fileIdNameMap.containsKey(intId);
-      final boolean openFileExists = files.containsKey(intId);
       validateSuppliedFileIdConflicts(fileName, intId, registered, liveRegistrationExists,
-          negativeName, false, openFileExists, false, reconstructAuxiliary, storageName);
+          negativeName, () -> false, () -> files.containsKey(intId), () -> false,
+          reconstructAuxiliary, storageName);
       fileNameIdMap.put(fileName, -intId);
       fileIdNameMap.put(-intId, fileName);
       return composeFileId(id, intId);

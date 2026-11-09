@@ -126,6 +126,20 @@ public class WOWCacheLoadOrAddTest {
     assertNull(wowCache.registeredFileId("invalid"));
   }
 
+  /** A legacy NUL-name booking must report its conflict before any disk path is built. */
+  @Test
+  public void suppliedBookingRejectsLegacyNulNameBeforeProbingDisk() {
+    final String name = "bad" + (char) 0 + ".dat";
+    final long booked = wowCache.bookFileId(name);
+    final int internalId = wowCache.internalFileId(booked);
+    final var failure = assertThrows(StorageException.class,
+        () -> wowCache.bookFileId(name, booked, false));
+    assertEquals(new StorageException(storageName,
+        "Conflicting registration or backing file for " + name + " and id " + internalId)
+        .getMessage(), failure.getMessage());
+    assertEquals(Integer.valueOf(-internalId), wowCache.registeredFileId(name));
+  }
+
   /** Wrong deletion entries stay visible and reject. Only a matching auxiliary may rebuild. */
   @Test
   public void suppliedBookingChecksDeletionEntriesWithoutReactivatingThem() throws Exception {

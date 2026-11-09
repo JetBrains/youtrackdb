@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import java.util.function.BooleanSupplier;
 import javax.annotation.Nullable;
 
 public class AbstractWriteCache {
@@ -38,21 +39,23 @@ public class AbstractWriteCache {
     return intId;
   }
 
-  /** The caller collects these facts and applies the rule under its metadata lock. */
+  /** The caller holds its metadata lock while this rule evaluates facts in conflict order. */
   protected static void validateSuppliedFileIdConflicts(String fileName, int intId,
       @Nullable Integer registered, boolean liveRegistrationExists, @Nullable String negativeName,
-      boolean aliasExists, boolean openFileExists, boolean diskFileExists,
+      BooleanSupplier aliasExists, BooleanSupplier openFileExists, BooleanSupplier diskFileExists,
       boolean reconstructAuxiliary, String storageName) {
     final boolean nameRegisteredWithOtherState =
         registered != null && (!reconstructAuxiliary || registered != -intId);
     final boolean idLiveUnderAnyName = liveRegistrationExists;
     final boolean negativeIdHeldByOtherName =
         negativeName != null && !negativeName.equals(fileName);
-    final boolean idHeldByAlias = aliasExists;
-    final boolean backingFileExists = openFileExists || diskFileExists;
+    final BooleanSupplier idHeldByAlias = aliasExists;
+    // Do not build a disk path when an earlier conflict already rejects the booking.
+    final BooleanSupplier backingFileExists =
+        () -> openFileExists.getAsBoolean() || diskFileExists.getAsBoolean();
 
     if (nameRegisteredWithOtherState || idLiveUnderAnyName || negativeIdHeldByOtherName
-        || idHeldByAlias || backingFileExists) {
+        || idHeldByAlias.getAsBoolean() || backingFileExists.getAsBoolean()) {
       throw new StorageException(storageName,
           "Conflicting registration or backing file for " + fileName + " and id " + intId);
     }

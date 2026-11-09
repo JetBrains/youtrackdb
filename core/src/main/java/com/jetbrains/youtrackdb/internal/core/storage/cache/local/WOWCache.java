@@ -113,6 +113,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BooleanSupplier;
 import java.util.zip.CRC32;
 import javax.annotation.Nullable;
 import javax.crypto.BadPaddingException;
@@ -868,12 +869,12 @@ public final class WOWCache extends AbstractWriteCache
       final var liveName = idNameMap.get(intId);
       final var negativeName = idNameMap.get(-intId);
       // Scan names too: older registries can contain several negative aliases for one id.
-      final boolean alias = nameIdMap.entrySet().stream().anyMatch(
+      final BooleanSupplier alias = () -> nameIdMap.entrySet().stream().anyMatch(
           entry -> Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName));
-      final boolean openFileExists = files.get(composeFileId(id, intId)) != null;
+      final BooleanSupplier openFileExists = () -> files.get(composeFileId(id, intId)) != null;
       // An indeterminate disk probe must also prevent booking.
-      final boolean diskFileExists =
-          !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
+      final BooleanSupplier diskFileExists =
+          () -> !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
       validateSuppliedFileIdConflicts(fileName, intId, registered, liveName != null, negativeName,
           alias, openFileExists, diskFileExists, reconstructAuxiliary, storageName);
       nameIdMap.put(fileName, -intId);
