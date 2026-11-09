@@ -464,7 +464,8 @@ and `populate(g, batch)` without an active transaction. Use `fixture::rid` with
 The archived regimes are 20,000 uniform, 20,000 skewed and 200,000 skewed vertices.
 The fixture preserves the generic label topology, properties and class-local indexes.
 Archive decline and bypass flags do not prove current admission, cache behavior or benefit.
-The complete cut, result and baseline freeze requires the remaining T5 catalogue units.
+Full-scale typed results and prepared-cut checks require the T5.5 correctness check
+on the timing server.
 
 ## Archived B native controls
 
@@ -492,8 +493,9 @@ ids. Tag counts use IC6 Person ids. The cycle uses resolved Person ids. Full IC5
 `ic5PersonId/ic5Date`. Known endpoint uses paired IC13 ids.
 
 `LdbcForm.traversal` binds those declarations through a caller-supplied feed resolver.
-Capture exact resolved feed values and typed SF1 answers in T5.12 on the separately approved
-server. No SF1 capture, prefix-payload capture or completed correctness freeze is supplied here.
+Capture exact resolved feed values and typed SF1 answers during the T5.5 correctness check
+on the timing server.
+No SF1 capture, prefix-payload capture or completed correctness freeze is supplied here.
 `T5ResultComparison` compares all populations through the same `Expected` contract.
 It preserves scalar types, token keys, absent versus null values, nested-list order and row
 multiplicity. Root order is explicitly sequence or multiset. The caller supplies immutable
@@ -510,10 +512,103 @@ This history is independent of strategy gates and is not proof of a safe cut. A 
 refusal records no units. Only root steps count, starting with the source as step one.
 Boundaries include transparent steps consumed by the unit, but not those skipped by the next
 unit's lookahead. Child and synthetic union-fork walks emit no events. Callback failures propagate.
-The declaration rejects typed identity drift, boundary drift and cuts inside a unit. Capture and freeze actual shapes,
-cuts and refused cuts in T5.12. This probe does not install a partial plan, prove suffix safety,
+The declaration rejects typed identity drift, boundary drift and cuts inside a unit.
+Capture actual shapes, cuts and refused cuts during the T5.5 correctness check on the timing server.
+This probe does not install a partial plan, prove suffix safety,
 prove a prefix open or establish partial engagement. Keep baseline arms free of forced MATCH.
-Cold, warm, uncacheable, PF-6 and execution witnesses remain T5.12 obligations.
+Cold, warm, uncacheable, PF-6 and execution witnesses use the correctness runner below.
+
+### Internal two-arm correctness runner
+
+Required local runner verification uses an immutable baseline core jar. Missing baseline input
+fails the tests when `t5.requireBaselineCore=true`. Without that property, only baseline-dependent
+tests skip. All current-core and standalone CLI refusal checks still run.
+
+```bash
+./mvnw -pl jmh-ldbc -am package \
+  -Dtest='com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunnerTest,com.jetbrains.youtrackdb.benchmarks.ldbc.T5RunnerInventoryTest' \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dt5.baselineCore="$BASELINE_CORE_JAR" -Dt5.requireBaselineCore=true
+```
+
+`T5BaselineRunner` is a correctness-only process harness, not a JMH entry point.
+Its `Workload` provider resolves cases and exact tagged feeds once in the parent.
+Children receive that request and must use its feeds without resolving them again.
+A provider supplies a traversal source, query construction, logical element keys and cleanup.
+The catalogue provider enumerates all 366 A identities with five archived slots, all 32 B
+identities, and all 50 C identities with 64 resolved slots. Its 5,062 bindings require 30,372
+arm/regime items. Catalogue requests are checked against this full inventory, not a caller subset.
+
+The existing runner compares typed results for every catalogue query across two arms.
+The native arm uses current code with the translator off.
+The baseline arm uses `6f180c31ee` with the translator on.
+
+At the start of T5.5, run an untimed SF1 correctness check on the timing server.
+T5.5 adds a third arm using current code with partial translation and the translator on.
+Compare its typed results with both existing arms for every catalogue query before any timing.
+A difference stops timing for that query.
+
+Keep the query set, parameters, feed rules and declared cuts fixed in code and tests before timing.
+This check records cache-regime evidence and the PF-6 obligation.
+T5.13 requires no separate SF1 capture or committed freeze data.
+
+Build the current checkout with `./mvnw package -DskipTests`. Build the unchanged baseline
+in a separate detached worktree at `6f180c31ee4de9ddd61e88267efc65f5d03289f5`.
+For each arm, construct a classpath with its core jar first, current `jmh-ldbc/target/classes`
+and unshaded dependency jars. Do not include the shaded benchmark jar or a second core.
+The loaded core manifest must identify the exact expected build. Neither arm permits
+`FORCE_MATCH_FOR_TESTS`. The native arm disables translation. The baseline keeps its router
+for eligible members.
+Record-identifier-bearing and lambda-bearing members run whole-native in both arms. Their declarations refuse
+all cuts, and the capture records the explicit whole-native reason.
+
+Use a disposable existing embedded SF1 database copy at `DB_ROOT/ldbc_benchmark`.
+The runner refuses a missing database and never loads data or regenerates parameters.
+Place canonical `curated-params-v3.json` and `factor-tables.json` in `INPUT_DIR`.
+The curated SHA-256 must be
+`a32c482c97899ddafe90dbe9635e4ac9732fa5c19feec90c732767ac73212f18`.
+Set `FACTOR_SHA256` to the independently verified canonical factor-table SHA-256.
+Both actual hashes and the three catalogue hashes enter the capture.
+The first 64 canonical candidates feed separate resolved Person, Message and place pools.
+Canonical query arrays cycle at their own lengths. IC2-limit and IC9 share the derived
+64-slot date pool. Archived A slots never index those pools.
+This command runs only the two-arm part of the untimed T5.5 check on the timing server.
+T5.5 must add the third-arm comparisons before any timing.
+
+```bash
+JAVA_OPENS=()
+for package in java.lang java.lang.reflect java.lang.invoke java.io java.nio java.util \
+  java.util.concurrent java.util.concurrent.atomic java.net sun.nio.cs sun.security.x509; do
+  JAVA_OPENS+=("--add-opens=java.base/$package=ALL-UNNAMED")
+done
+JAVA_OPENS+=("--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED")
+java "${JAVA_OPENS[@]}" -ea -Xmx1g \
+  -Dyoutrackdb.security.createDefaultUsers=false \
+  -Dyoutrackdb.storage.diskCache.bufferSize=128 \
+  -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
+  capture "$DB_ROOT" "$INPUT_DIR" "$FACTOR_SHA256" "$CURRENT_CP" "$BASELINE_CP" \
+  scratch capture.json request.json "$CURRENT_CORE_REVISION" &&
+java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
+  check capture.json request.json
+```
+
+The catalogue command runs each arm sequentially in a separate JVM with a 24-hour child timeout.
+The generic `run` command uses a two-hour timeout. A and B fixtures are disposable and
+populated one graph at a time. Children replay the parent's exact typed feeds. A nonzero exit
+means a failed child, timeout, malformed or partial capture, missing inventory, unexpected
+result difference or publication failure. A failed capture keeps the previous file. Capture runs the full request check before publication,
+so the separate `check` command is optional.
+The output stores typed answers and feeds, loaded revisions, counter-delta cache evidence,
+router outcome witnesses and current-core prepared declarations. Each regime invalidates
+first. WARM primes the exact query. UNCACHEABLE uses an observed schema-transaction veto
+and rolls back that transaction. Native execution observes no translation-cache lookups.
+Other shapes can also bypass or miss in WARM. The recorded observation is authoritative,
+not the regime name. Schema vetoes and zero-lookup bypasses have explicit reasons.
+Cuts remain `declared-not-validated`. Refused cuts retain reasons.
+Only an explicitly reviewed case may permit the known T5.6 step-label baseline difference.
+A permitted difference is recorded evidence only.
+That query remains excluded from timing until the user reviews it.
+All other native-versus-baseline or within-arm regime differences fail capture.
 
 `T5BenchmarkCatalogue.loadWhere()` pins 32 B cases with logical bindings and answers.
 Both index variants retain q5, H and U2 separately. Indexed U1 is an archived bypass.
@@ -536,8 +631,9 @@ The singleton bounds every hop to one result. Its answer is Integer 1 and its
 whole-traversal classification is decline at the seeded FoldStep. Tests require the
 entire prefix to translate, and require CONTROL to take native routing on an actual
 translation-cache hit. These are untimed checks, not performance evidence.
-Typed full-scale comparisons, prepared-cut declarations and baseline execution belong
-to the remaining catalogue and runner units. This is not a completed benchmark freeze.
+Full-scale typed comparisons, prepared-cut declarations and baseline execution require
+the T5.5 correctness check on the timing server.
+No completed correctness check or benchmark freeze is supplied here.
 
 ## Project Structure
 
