@@ -130,6 +130,57 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Deferred hops and filters report once, after range folding or a successful MATCH flush.
+   * The range also consumes its trailing values projection. End-of-walk flushes exclude trailing
+   * transparent barriers and never duplicate settled units.
+   */
+  @Test
+  public void observedOrderedHopUnitsWaitForFoldOrFlush() {
+    var shapes = List.of(
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .limit(1).values("name"),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .values("name"),
+        graph.traversal().V().order().by("name").out("knows"),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X").barrier(),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .values("name").optional(__.out()));
+    var expected = List.of(List.of(1, 2, 6), List.of(1, 2, 4, 5),
+        List.of(1, 2, 3), List.of(1, 2, 4), List.of(1, 2, 4, 5));
+    for (int i = 0; i < shapes.size(); i++) {
+      var admin = shapes.get(i).asAdmin();
+      var events = new java.util.ArrayList<Integer>();
+      var ordinary = GremlinStepWalker.production().walk(admin.clone());
+      var observed = GremlinStepWalker.production().walkObserved(admin.clone(), events::add);
+      assertThat(events).as("settled units %s", admin).isEqualTo(expected.get(i));
+      if (i == shapes.size() - 1) {
+        assertThat(ordinary).isNull();
+        assertThat(observed).isNull();
+      } else {
+        assertThat(ordinary).isNotNull();
+        assertThat(observed).usingRecursiveComparison().isEqualTo(ordinary);
+      }
+    }
+  }
+
+  /**
+   * A native-only predicate is accepted into the pending hop but refuses MATCH flush, both before
+   * a projection and at end of walk. Neither the hop nor its filter becomes a completed unit.
+   */
+  @Test
+  public void observedRefusedOrderedHopFlushKeepsOnlySettledHistory() {
+    for (boolean trailing : List.of(false, true)) {
+      var shape = graph.traversal().V().order().by("name").out("knows")
+          .hasId("not-a-rid");
+      var admin = (trailing ? shape : shape.values("name")).asAdmin();
+      var events = new java.util.ArrayList<Integer>();
+      assertThat(GremlinStepWalker.production().walk(admin.clone())).isNull();
+      assertThat(GremlinStepWalker.production().walkObserved(admin.clone(), events::add)).isNull();
+      assertThat(events).containsExactly(1, 2);
+    }
+  }
+
   /** A refused suffix retains earlier units. Preflight refusals and empty walks emit none. */
   @Test
   public void observedDeclinesKeepHistoryButNeverNotifyRefusedUnits() {

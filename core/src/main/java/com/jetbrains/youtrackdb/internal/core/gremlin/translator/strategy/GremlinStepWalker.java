@@ -698,7 +698,12 @@ final class GremlinStepWalker {
       }
       if (head == null) {
         // order().hop() with no following slice: materialise the deferred hop into MATCH.
-        return ctx.flushPendingOrderedHop();
+        boolean pendingCompletion = completion != null && ctx.pendingOrderedHop() != null;
+        boolean accepted = ctx.flushPendingOrderedHop();
+        if (accepted && pendingCompletion) {
+          completion.accept(positionBeforePeek);
+        }
+        return accepted;
       }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
@@ -712,6 +717,10 @@ final class GremlinStepWalker {
           && recogniser != HasStepRecogniser.INSTANCE) {
         if (!ctx.flushPendingOrderedHop()) {
           return false;
+        }
+        // The deferred unit is now settled, independently of the next recogniser's outcome.
+        if (completion != null) {
+          completion.accept(positionBeforePeek);
         }
       }
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
@@ -844,7 +853,8 @@ final class GremlinStepWalker {
               || (head instanceof HasStep<?> && ctx.atTraversalStart()))
               && cursor.position() < childScopeBoundary);
       // Do not peek here. A peek could absorb barriers belonging to the next unit.
-      if (completion != null) {
+      // A deferred ordered hop and its filters form one unit until folded or flushed.
+      if (completion != null && ctx.pendingOrderedHop() == null) {
         completion.accept(cursor.position());
       }
     }

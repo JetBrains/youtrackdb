@@ -65,6 +65,8 @@ public class T5PreparedShapeProbeTest {
         .asAdmin();
     probe.apply(admin);
     var first = captures.getLast();
+    ((java.util.Date) values.get(11)).setTime(200);
+    ((int[]) values.getLast())[0] = 9;
     values.clear();
     assertFalse(first.toString().contains("unsupported"));
     assertThrows(UnsupportedOperationException.class,
@@ -82,8 +84,18 @@ public class T5PreparedShapeProbeTest {
     assertThrows(IllegalArgumentException.class, () -> probe.apply(cyclicTraversal));
     assertThrows(IllegalArgumentException.class,
         () -> probe.apply(__.has("value", new Object()).asAdmin()));
-    assertEquals("The old snapshot still contains the original collection", first,
-        captures.getFirst());
+    var expected = new T5PreparedShapeProbe.Identity("list",
+        List.of("x", 1, 1L, 1.0, 1.0f, (short) 1, (byte) 1, true, 'x',
+            java.math.BigInteger.ONE, java.math.BigDecimal.ONE,
+            new T5PreparedShapeProbe.Identity("date-millis", List.of(100L)),
+            new T5PreparedShapeProbe.Identity("map", List.of(
+                new T5PreparedShapeProbe.Identity("entry", List.of("key",
+                    new T5PreparedShapeProbe.Identity("list", List.of(1L)))))),
+            new T5PreparedShapeProbe.Identity("[I", List.of(1, 2))));
+    var retainedHas = (T5PreparedShapeProbe.Identity) first.steps().getFirst().parts().get(2);
+    var retainedPredicate = (T5PreparedShapeProbe.Identity) retainedHas.parts().get(1);
+    assertEquals("The retained nested contents match independent literal values",
+        expected, retainedPredicate.parts().get(1));
   }
 
   /** Production identity-sensitive admissions and probe boundaries agree for real root inputs. */
@@ -106,6 +118,28 @@ public class T5PreparedShapeProbeTest {
             new T5PreparedShapeProbe(captures::add).apply(admin);
             assertEquals(expected, captures.getFirst().completedUnits());
           }
+        });
+      }
+    }
+  }
+
+  /** A deferred ordered-expand hop and its neighbour filter cannot be split before the range. */
+  @Test
+  public void orderedExpandCompositeRefusesInteriorCuts() throws Exception {
+    try (var db = YourTracks.instance(temporary.newFolder().toString())) {
+      db.create("ordered", DatabaseType.MEMORY, "admin", "admin", "admin");
+      try (var g = db.openTraversal("ordered", "admin", "admin")) {
+        g.executeInTx(t -> {
+          var captures = new ArrayList<T5PreparedShapeProbe.Declaration>();
+          new T5PreparedShapeProbe(captures::add).apply(t.V().order().by("name").out("knows")
+              .has("name", "X").limit(1).values("name").asAdmin());
+          var declaration = captures.getFirst();
+          assertEquals(List.of(1, 2, 6), declaration.completedUnits());
+          declaration.requireCut(declaration, 2);
+          assertThrows(IllegalArgumentException.class,
+              () -> declaration.requireCut(declaration, 3));
+          assertThrows(IllegalArgumentException.class,
+              () -> declaration.requireCut(declaration, 4));
         });
       }
     }
