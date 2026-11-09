@@ -502,6 +502,22 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting) {
+    return walkObserved(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphicSetting, null);
+  }
+
+  /** Observes only this invocation's root dispatch, after all unit admission and latch updates. */
+  @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, NO_CHILD_SCOPE, null, null, null, completion);
+  }
+
+  private @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting,
+      @Nullable java.util.function.IntConsumer completion) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -587,7 +603,7 @@ final class GremlinStepWalker {
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
-    if (!dispatchAll(cursor, ctx, recognisers, childScopeBoundary)) {
+    if (!dispatchAll(cursor, ctx, recognisers, childScopeBoundary, completion)) {
       return null;
     }
 
@@ -657,7 +673,8 @@ final class GremlinStepWalker {
       StepStreamCursor cursor,
       RecognitionContext ctx,
       Map<Class<?>, StepRecogniser> recognisers,
-      int childScopeBoundary) {
+      int childScopeBoundary,
+      @Nullable java.util.function.IntConsumer completion) {
     Step<?, ?> head;
     // The drain half of the list-shaping rule (see mayFollowListShaping): set once a recogniser that
     // is not a per-payload shaper has claimed a step while a stage was captured, after which nothing
@@ -681,7 +698,12 @@ final class GremlinStepWalker {
       }
       if (head == null) {
         // order().hop() with no following slice: materialise the deferred hop into MATCH.
-        return ctx.flushPendingOrderedHop();
+        boolean pendingCompletion = completion != null && ctx.pendingOrderedHop() != null;
+        boolean accepted = ctx.flushPendingOrderedHop();
+        if (accepted && pendingCompletion) {
+          completion.accept(positionBeforePeek);
+        }
+        return accepted;
       }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
@@ -695,6 +717,10 @@ final class GremlinStepWalker {
           && recogniser != HasStepRecogniser.INSTANCE) {
         if (!ctx.flushPendingOrderedHop()) {
           return false;
+        }
+        // The deferred unit is now settled, independently of the next recogniser's outcome.
+        if (completion != null) {
+          completion.accept(positionBeforePeek);
         }
       }
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
@@ -826,6 +852,11 @@ final class GremlinStepWalker {
           (head instanceof GraphStep<?, ?>
               || (head instanceof HasStep<?> && ctx.atTraversalStart()))
               && cursor.position() < childScopeBoundary);
+      // Do not peek here. A peek could absorb barriers belonging to the next unit.
+      // A deferred ordered hop and its filters form one unit until folded or flushed.
+      if (completion != null && ctx.pendingOrderedHop() == null) {
+        completion.accept(cursor.position());
+      }
     }
   }
 
@@ -1279,7 +1310,7 @@ final class GremlinStepWalker {
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // NO_CHILD_SCOPE, not 0: the sub-walk's adapter answers atTraversalStart() with a hard false
     // and swallows every write, so the boundary term has nothing to add here.
-    var accepted = dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE);
+    var accepted = dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE, null);
     // Slices select child rows, but their captured clauses never reach the detached expression.
     // Reducers emit a value even for empty input, so any captured hop, predicate, or nested check
     // before one cannot be committed as a filter. An unconstrained pure-filter child such as

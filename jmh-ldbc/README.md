@@ -468,6 +468,53 @@ The complete cut, result and baseline freeze requires the remaining T5 catalogue
 
 ## Archived B native controls
 
+`T5BenchmarkCatalogue.loadLdbc()` declares all 43 existing Gremlin benchmarks, including
+seven G6 forms, and the seven G7 bodies in `PartialTraversalShapes`. The three existing
+IS4, IS7 and IC1 controls retain their benchmark identities. `ldbc-archive.json` preserves
+all 215 archived C cases from each fork, including bindings rendered in the original query.
+Its rendered-answer digests and row counts are historical provenance, not typed expectations
+or current engagement. Digests use compact UTF-8 JSON arrays with non-ASCII characters unescaped.
+`ldbc-provenance.json` pins source bytes and the canonical curated-parameter digest.
+
+Feed names in `ldbc-gate.json` name exact `LdbcBenchmarkState` (`state`) and `TranslatorArm`
+(`arm`) accessors. `arm.personId` and `arm.messageId` resolve only the first 64 canonical
+Person and Message candidates and skip missing records. The Person RID feed resolves those
+same Person ids. `arm.placeName` resolves locations independently and retains the empty-string
+fallback. Canonical arrays have their own lengths, currently 500. Archived slots are only five.
+Do not conflate these populations or regenerate the curated file.
+
+Legacy IC2 uses canonical `state.ic2PersonId/ic2MaxDate`. IC2-limit and IC9 share the derived
+64-entry pool. Seed search tries IC2 slots 0–31, then IC9 slots 0–31, and takes the first Person
+with a nonempty friend-message date range. `derivedDate` declares its exact interpolation.
+IC3 and IC4 windows end exactly 2,592,000,000 milliseconds after their canonical start.
+G7 recent messages use the IC2-limit pool. Moderator and distinct-forum count use IC5 Person
+ids. Tag counts use IC6 Person ids. The cycle uses resolved Person ids. Full IC5 uses
+`ic5PersonId/ic5Date`. Known endpoint uses paired IC13 ids.
+
+`LdbcForm.traversal` binds those declarations through a caller-supplied feed resolver.
+Capture exact resolved feed values and typed SF1 answers in T5.12 on the separately approved
+server. No SF1 capture, prefix-payload capture or completed correctness freeze is supplied here.
+`T5ResultComparison` compares all populations through the same `Expected` contract.
+It preserves scalar types, token keys, absent versus null values, nested-list order and row
+multiplicity. Root order is explicitly sequence or multiset. The caller supplies immutable
+logical element keys. Parallel edges need distinct keys. Physical RIDs are not answer keys.
+B archive answers have an explicit adapter. A and C require typed captures, not string parsing.
+
+Install benchmark-only `T5PreparedShapeProbe` alongside the ordinary translator strategy for
+an untimed declaration pass. It captures the root immediately before MATCH selection and
+before native provider folding. Immutable structural snapshots retain typed bindings and full
+Date milliseconds. Unsupported identity operands are refused rather than stringified.
+Declarations are per binding. Invocation-owned observation uses the production recognisers
+without wrappers and records root dispatch history, including units before a later decline.
+This history is independent of strategy gates and is not proof of a safe cut. A walker preflight
+refusal records no units. Only root steps count, starting with the source as step one.
+Boundaries include transparent steps consumed by the unit, but not those skipped by the next
+unit's lookahead. Child and synthetic union-fork walks emit no events. Callback failures propagate.
+The declaration rejects typed identity drift, boundary drift and cuts inside a unit. Capture and freeze actual shapes,
+cuts and refused cuts in T5.12. This probe does not install a partial plan, prove suffix safety,
+prove a prefix open or establish partial engagement. Keep baseline arms free of forced MATCH.
+Cold, warm, uncacheable, PF-6 and execution witnesses remain T5.12 obligations.
+
 `T5BenchmarkCatalogue.loadWhere()` pins 32 B cases with logical bindings and answers.
 Both index variants retain q5, H and U2 separately. Indexed U1 is an archived bypass.
 Its no-index counterpart is retained, but is not marked as a bypass. Each variant also
