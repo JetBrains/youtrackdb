@@ -173,13 +173,13 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     try {
       final boolean present = fileNameIdMap.containsKey(fileName);
       final int registered = fileNameIdMap.getInt(fileName);
-      final var negativeName = fileIdNameMap.get(-intId);
+      final var bookedOrDeletedName = fileIdNameMap.get(-intId);
       final boolean nameRegisteredWithOtherState =
           present && (!reconstructAuxiliary || registered != -intId);
       final boolean liveRegistrationExists = fileIdNameMap.containsKey(intId);
-      final boolean negativeIdHeldByOtherName =
-          negativeName != null && !negativeName.equals(fileName);
-      if (nameRegisteredWithOtherState || liveRegistrationExists || negativeIdHeldByOtherName
+      final boolean idBookedOrDeletedUnderOtherName =
+          bookedOrDeletedName != null && !bookedOrDeletedName.equals(fileName);
+      if (nameRegisteredWithOtherState || liveRegistrationExists || idBookedOrDeletedUnderOtherName
           || files.containsKey(intId)) {
         throw new StorageException(storageName,
             "Conflicting registration or backing file for " + fileName + " and id " + intId);

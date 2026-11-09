@@ -871,15 +871,15 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       final var registered = nameIdMap.get(fileName);
       final var liveName = idNameMap.get(intId);
-      final var negativeName = idNameMap.get(-intId);
+      final var bookedOrDeletedName = idNameMap.get(-intId);
       final boolean nameRegisteredWithOtherState =
           registered != null && (!reconstructAuxiliary || registered != -intId);
       final boolean liveRegistrationExists = liveName != null;
-      final boolean negativeIdHeldByOtherName =
-          negativeName != null && !negativeName.equals(fileName);
+      final boolean idBookedOrDeletedUnderOtherName =
+          bookedOrDeletedName != null && !bookedOrDeletedName.equals(fileName);
       // Keep scans and disk path construction after the cheap conflict checks.
-      if (nameRegisteredWithOtherState || liveRegistrationExists || negativeIdHeldByOtherName
-          || hasAliasForId(fileName, intId) || files.get(composeFileId(id, intId)) != null
+      if (nameRegisteredWithOtherState || liveRegistrationExists || idBookedOrDeletedUnderOtherName
+          || hasOtherAliasForId(fileName, intId) || files.get(composeFileId(id, intId)) != null
           || backingFileMayExist(fileName, intId)) {
         throw new StorageException(storageName,
             "Conflicting registration or backing file for " + fileName + " and id " + intId);
@@ -892,7 +892,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private boolean hasAliasForId(String fileName, int intId) {
+  private boolean hasOtherAliasForId(String fileName, int intId) {
     // Older registries can contain several negative aliases for one id.
     for (final var entry : nameIdMap.entrySet()) {
       if (Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName)) {
