@@ -1,5 +1,87 @@
 # design.md mutation log
 
+## Mutation 112 — 2026-11-09 — structural-rewrite (design.md, design-mechanics.md)
+
+**Diff summary**: Track 105 fix round 3, child 105.1 round 1, removes password-coupled MCP revocation under the user ruling. It defines tombstone reservation timing and extends public SQL re-entry suppression to delegated lazy execution and cleanup. Fix round 4, child 105.1 round 2, aligns the cache matrix with that suppression and the log-capture overview with the one-path guidance.
+
+**Mutation choice**: structural-rewrite covers matching SQL and MCP contracts across both documents. Both workflow stamps remain unchanged. No implementation plan exists, so plan flags are omitted.
+
+**Mechanical checks** (target=both, scope=whole-doc): Fix rounds 3 and 4 PASS, zero blockers, 35 should-fix findings and two suggestions. Fix round 4 diagnostics match the fix round 3 baseline exactly. The record-only fix round 5 check also returns zero blockers, 35 should-fix findings and two suggestions. No new diagnostic appears. The SQL section remains below the 300-line cap. Git whitespace, fence balance, unchanged stamps and preserved Mutation 110 and older history checks pass.
+
+**Cold-read** (scope: whole-doc): Iteration 1 NEEDS REVISION on CR17 and CR18 should-fix findings. CR16 is resolved at the specification level. Fix round 4 addresses CR17 and the user-approved older-text correction for CR18. Iteration 2 NEEDS REVISION, with CR17 and CR18 resolved and new finding CR19 in pre-existing SQL hook text. The user defers CR19 to Track 106. The loop is closed without a third iteration because no design text changes after iteration 2.
+
+**Findings and decisions**:
+- User ruling, 2026-11-09: Remove the goal that password changes or resets revoke all MCP grants. Two fix rounds produced repeated regressions. GitHub and GitLab personal tokens survive password changes. Per-client revocation and expiry remain. MCP credentials are independent of the password, and users revoke them in the credential list.
+- RG23, RG29 and RG30 become moot. Remove the credential-version mechanism, its comparisons and its offline reset, restart and crash scenarios. Keep recent re-authentication for A creation and B consent or grant creation, with its tests. Keep current-role checks and all other revocation triggers.
+- RG31: Reserve identity tombstone capacity at admission and client slices before publishing B grants. Additional clients cannot expand the identity allocation. Preserve other identities' reserved rotation capacity and fail closed at saturation.
+- CR16, pre-existing and user-approved: Keep balanced SQL entry depth. Add balanced executing-thread depth scopes around delegated hasNext, next and close. Exclude consumer callbacks and idle periods. Suppress nested early-failure completion. Restore depth before listener dispatch and resolve cross-thread cleanup state on the completion thread. Record the added hot-path cost without changing budgets.
+- Existing waivers, ignored minors and deferred scope remain unchanged. No product code, Maven run, push, cold read or plan rebuild is included.
+
+**Fix round 4 findings and decisions**:
+- RG32 and CR17: The re-entrant WHERE-evaluation row now states that SQL depth above 1 suppresses the telemetry wrapper and nested completion. Its time belongs to the outer completion. The consistency search found no other conflicting nested public SQL completion claims in either document.
+- CR18, pre-existing and user-approved: Full host-process log capture uses the host OTel appender instead of YTDB's hook. Enable one capture path to avoid duplicate YTDB log emission. The consistency search found no other conflicting appender guidance in either document. The mechanics companion needs no edit.
+- Keep all existing waivers, ignored minors and deferred scope. Add no product code, Maven run, push, cold read or plan rebuild.
+
+**Fix round 5 record and user ruling, 2026-11-09**:
+- CR19: Pre-existing SQL hook result-set wrapper order conflicts across the diagram near design.md lines 1377 to 1379, the sentence near line 1530 and the cache-outcome rule near line 1552. Leave this finding for Track 106 with CN-11 and RG22. No design content changes in this round.
+- Track 105 does not audit older design text. This non-goal governs the CR19 deferral.
+- Close the cold-read loop after iteration 2. No third iteration is required because the design text stays unchanged.
+
+**Iterations**: 2 of 3 completed, both NEEDS REVISION. Iteration 2 resolves CR17 and CR18 and reports CR19. The user defers CR19 to Track 106 and closes the loop without a third iteration. Mutation 111 used its three-iteration budget and handed its remaining work to this mutation.
+
+## Mutation 111 — 2026-11-09 — structural-rewrite (design.md, design-mechanics.md)
+
+**Diff summary**: Track 105 defines the optional MCP module, gateway access and shared authorization adapter. The first delivery uses expiring web-issued per-client opaque tokens with verifier-only storage, MCP audience binding and current role checks. A fully specified later phase adds YouTrackDB-hosted OAuth 2.1 on the same store and adapter. Tools cover the five monitoring functions plus optional Explain and separately permitted Profile. Experimental polling and streaming use the pinned sketch. Webhook constraints do not schedule implementation.
+
+**Mutation choice**: structural-rewrite covers matching MCP sections, Overview, the monitoring diagram and minimal administration adaptations. Topic names match in both documents. Both workflow stamps remain unchanged. No implementation plan exists, so plan flags are omitted.
+
+**Mechanical checks** (target=both, scope=whole-doc): Initial delivery PASS, zero blockers, 35 should-fix findings and one suggestion. Fix round 1 PASS, zero blockers, 35 should-fix findings and two suggestions. The added suggestion reports the Administration section above the 200-line warning threshold. Fix round 2 PASS, zero blockers, 35 should-fix findings and two suggestions, unchanged from round 1. No new blocker or should-fix finding appears. Git whitespace, fence balance, unchanged stamps and preserved mutation-history checks pass.
+
+**Cold-read** (scope: whole-doc): Iteration 1 NEEDS REVISION, with CR11 major, CR12 blocker, CR13 major and CR14 minor. The user waives CR11, CR13 and older aggregated footers under CR12. Fix round 1 addresses the two scoped footers under CR12 and both CR14 references. Iteration 2 NEEDS REVISION on CR15 minor. CR12 and CR14 are resolved. The user approves the older-text correction for CR15, applied in fix round 2. Iteration 3 NEEDS REVISION on CR16 should-fix. CR15 is resolved. The three-iteration budget is used. Mutation 111 is closed with remaining work transferred to Mutation 112.
+
+**Findings and decisions**:
+- Question 6 uses A for first delivery and B as the specified follow-up phase. Track 106 plans B later.
+- MCP baseline is 2025-11-25 with Java SDK 2.1.0. The experimental repository pin is d5316be214be2e76e51462069c1d67e00a5a7619, checked on 2026-11-09.
+- MCP bearer requests do not inherit browser CSRF metadata requirements. Browser credential management and consent keep those protections.
+- Gateway MCP forwarding preserves only the intended bearer path. Grafana stripping remains separate.
+- Administration gaps keep HTTP 409. Sketch poll and push gaps use successful truncation envelopes. Owner replacement still requires explicit scope refresh.
+- The recommended client access path is a narrow gateway route. Cloud connectors require approved reachable TLS ingress and individual credentials. This choice needs user acceptance.
+- Root questions 4 and 5 stay open. CN-11 and RG22 remain deferred to Track 106.
+- No product code, Maven run, webhook implementation, newer protocol adapter or finer telemetry isolation is included.
+
+**Fix round 1 findings and decisions**:
+- RI-1, CN-14 and PL-4: Add closed-schema recent-history input, cursor continuation and explicit new-owner selection, with verification scenarios.
+- RI-2: Narrow the stale MCP deferral to OAuth delivery and webhook implementation.
+- CN-12: Every consumed refresh-token reuse, including a concurrent loser, revokes its family and linked access tokens within R. Full tombstone capacity rejects rotation without eviction.
+- CN-13: Preserve the cursor integrity key across restart. Old-owner classification precedes replaced-instance mismatch. Unrelated scopes and invalid integrity still fail with InvalidParams.
+- SE10: Require exact grants for all new default-deny resources. Database ALL and server-user `*` rules do not match them.
+- SE11: Forbid `readOnlyHint: true` on Profile and prefer host approval prompts.
+- SE12: Consent displays the redirect hostname and warns for loopback-only redirects.
+- SE13, user-approved goals: Require recent re-authentication for token creation. Password change or reset revokes every MCP grant of that typed user.
+- SE14: Strip Authorization on all non-MCP routes. Administration routes reject MCP-audience bearers even on direct access.
+- PF6: Bound authoritative validation through a synchronized in-memory index and constant-cost keyed checks. Apply failed-bearer admission before verifier work. Exclude lookup identifiers from output.
+- PF7: Add per-client sub-quotas within identity budgets and reserve browser listing and revocation capacity.
+- PF8: Run metadata fetches only after login, with source limits and a dedicated bounded executor.
+- PL-5: Explain OAuth, PKCE and S256 at first use in each document.
+- PL-6: Correct the shared-bound verification count to seven tools.
+- CR12: Use References and individually labeled invariants in the Administration and MCP sections only.
+- CR14: Replace the nonexistent Non-Goals reference with direct deferral and cite the actual step-injection heading.
+- User waivers: CR11 document length, CR13 older missing Gotchas blocks and older aggregated footers remain unchanged.
+- Orchestrator-ignored minors: SE15 administrator revocation of one grant and PL-7 summary label remain unchanged.
+- Root questions 4 and 5, Track 106, CN-11 and RG22 remain deferred. No numerical limits or other goals are added.
+
+**Fix round 2 findings and decisions**:
+- RG23: Bind A credentials and B grants and refresh families to the user's durable credential version. Every validation, continuation and current-user recheck denies a mismatch. Password and version commit together, including offline reset. Add restart and crash-between-commits scenarios. No cross-store atomic revocation is claimed.
+- RG24: Require recent re-authentication before B consent or grant creation, as for A creation. Add valid-session-only rejection scenarios. Keep the numerical window open.
+- RG25: Publish only `none` and `client_secret_post` for OAuth token and revocation endpoints. Body credentials preserve client authentication with non-MCP Authorization stripping.
+- RG26: Reserve per-client tombstone allocations within identity and server ceilings. One client cannot consume another client's allocation. Full capacity still rejects rotation without eviction.
+- RG27: Validate token records through the synchronized authoritative in-memory index. Fail closed on store or synchronization failure. Check current user security state separately.
+- RG28: Add the logical process or database selector to both administration cursor field lists. It classifies replacement and grants no authority.
+- CR15: The user approves replacing wall-clock-only threshold wording with minimum measured duration. EXACT uses active time. LIGHTWEIGHT uses wall-clock time, as in Table C.
+- Existing waivers, ignored minors and deferred scope remain unchanged.
+
+**Iterations**: 3 of 3 used, all NEEDS REVISION. Iteration 3 resolves CR15 and reports CR16. Mutation 111 is closed without acceptance. Mutation 112 takes the remaining CR16 work and the child 105.1 user rulings for RG23, RG29, RG30 and RG31.
+
 ## Mutation 110 — 2026-11-06 — structural-rewrite (design.md, design-mechanics.md)
 
 **Diff summary**: Track 104 defines the administration HTTP API, typed identities, role checks and browser sessions. One web gateway serves React and TypeScript assets and authenticates Grafana access. Finite authorization leases bound revocation, including idle streams and stalled checks. Cursor pages and streams expose gaps and resets with bounded work. Telemetry access shares admission limits across administration and Grafana routes. Explain and Profile accept a supplied query through conservative query-only admission in a fresh read-only session. Profile requires explicit browser confirmation and retains its execution slot through cleanup. A class diagram and browser Profile sequence describe these boundaries. The quick start includes the application and keeps dashboard authoring outside Viewer-only gateway routes.

@@ -20,13 +20,16 @@ The application embeds Grafana panels behind one same-origin gateway.
 A separate administration HTTP listener serves authorized local reads and explicit query reruns.
 Browser sessions and YouTrackDB roles protect both the API and Grafana.
 The core database stays independent of Grafana.
-Track 105 defines optional Model Context Protocol (MCP) access later.
-Track 106 rebuilds the implementation plan. Neither deferred track adds design detail here.
+The optional Model Context Protocol (MCP) module serves agents through the same administration services.
+Per-client MCP tokens and current roles protect tools and experimental event delivery.
+OAuth is a delegated authorization protocol for obtaining client-bound access tokens.
+A later phase adds YouTrackDB-hosted OAuth 2.1 authorization on the same token store.
+Track 106 rebuilds the implementation plan, including that later phase.
 
 The companion `design-mechanics.md` holds detailed mechanisms under matching topic names.
 References go from this document to the companion. Shared diagrams must agree.
 The document covers concepts, classes, workflows, capture, local monitoring, export,
-administration access, query investigation and setup.
+administration access, query investigation, MCP authorization and setup.
 
 ## Core Concepts
 
@@ -124,7 +127,7 @@ The capture and export concepts follow the architecture above. Each is named and
 
 Both `QueryDetails.getTransactionTrackingId(): String` and `TransactionDetails.getTransactionTrackingId(): String` read through `getTrackingId()` for the always-stable fallback; `QueryDetails.getExplicitTrackingId(): Optional<String>` (new accessor) routes through `getExplicitTrackingId()` for OTel-side gating. → §"Class Design" and §"Listener registration and ordering".
 
-**Log appender chokepoint.** YTDB's process-global `com.jetbrains.youtrackdb.internal.common.log.LogManager` extends `SLF4JLogManager`, whose single `log(...)` method funnels every log call from `core`, `embedded`, `server`, and the new `youtrackdb-opentelemetry` module into one SLF4J emit site at `SLF4JLogManager.log:98` (immediately before `logEventBuilder.log()`). `LogAppenderHook` is a public internal SPI (service provider interface) in the core logging package. It is not part of the supported public product API. The OTel module and host implementations can implement it. The OTel module installs a hook on that emit site at SDK init via `SLF4JLogManager.installAppenderHook(LogAppenderHook)`, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side changes and independent of which SLF4J binding is on the classpath (server mode runs on `slf4j-jdk14`; embedded hosts may bind Logback, `log4j-slf4j-impl`, or `slf4j-simple` — the hook fires for all of them because it sits below the facade, on the SLF4J side of every binding). The hook reads `Context.current()` at invocation time. Gremlin, SQL and commit spans are built at completion and never made current. Traversal Context values preserve the host span. Logs during traversal work carry that host span ID when present. Without a host span, they have no trace correlation. Earlier iterations of this design attempted a Java Util Logging (JUL) `Handler` on the root logger, which catches records only when the SLF4J binding routes through JUL. The hook avoids that coupling. **Scope caveat**: the hook captures YTDB's own log calls only (every emit through `LogManager.instance()`). Third-party libraries that call SLF4J directly — Jackson, Netty, Guice, Lucene, the OTel exporter itself — are NOT captured. Operators wanting full coverage of host-process logs install the OTel ecosystem path (`opentelemetry-instrumentation-logback-appender` or its log4j equivalent) on their SLF4J binding alongside YTDB's hook; the recursive-cycle guards (per-thread re-entrance + `OPENTELEMETRY_LOGS_LOGGER_EXCLUSIONS` prefix filter) keep the OTel SDK's own logs from feeding back into YTDB's hook. Replaces "logs not integrated" (prior design scope). → §"OpenTelemetry logs integration".
+**Log appender chokepoint.** YTDB's process-global `com.jetbrains.youtrackdb.internal.common.log.LogManager` extends `SLF4JLogManager`, whose single `log(...)` method funnels every log call from `core`, `embedded`, `server`, and the new `youtrackdb-opentelemetry` module into one SLF4J emit site at `SLF4JLogManager.log:98` (immediately before `logEventBuilder.log()`). `LogAppenderHook` is a public internal SPI (service provider interface) in the core logging package. It is not part of the supported public product API. The OTel module and host implementations can implement it. The OTel module installs a hook on that emit site at SDK init via `SLF4JLogManager.installAppenderHook(LogAppenderHook)`, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side changes and independent of which SLF4J binding is on the classpath (server mode runs on `slf4j-jdk14`; embedded hosts may bind Logback, `log4j-slf4j-impl`, or `slf4j-simple` — the hook fires for all of them because it sits below the facade, on the SLF4J side of every binding). The hook reads `Context.current()` at invocation time. Gremlin, SQL and commit spans are built at completion and never made current. Traversal Context values preserve the host span. Logs during traversal work carry that host span ID when present. Without a host span, they have no trace correlation. Earlier iterations of this design attempted a Java Util Logging (JUL) `Handler` on the root logger, which catches records only when the SLF4J binding routes through JUL. The hook avoids that coupling. **Scope caveat**: the hook captures YTDB's own log calls only (every emit through `LogManager.instance()`). Third-party libraries that call SLF4J directly — Jackson, Netty, Guice, Lucene, the OTel exporter itself — are NOT captured. Operators who need full host-process log coverage use the OTel ecosystem path (`opentelemetry-instrumentation-logback-appender` or its log4j equivalent) on their SLF4J binding instead of YTDB's hook. Enable only one capture path to avoid emitting each YTDB log record twice. Replaces "logs not integrated" (prior design scope). → §"OpenTelemetry logs integration".
 
 **Profiler counter bridge.** YTDB's internal `Profiler.getMetricsRegistry()` is a process-global registry of `Metric<T>` instances (concrete shapes: `Gauge<T>`, `Stopwatch`, `TimeRate`, `Ratio`) updated by storage, cache, write-ahead log (WAL), and transaction subsystems on their own threads, independent of OTel state. A new `OTelMetricsBridge` exposes profiler values through observable counters and gauges at `OPENTELEMETRY_METRICS_PERIOD_MILLIS`. Query and commit listeners record synchronous `DoubleHistogram` instruments for duration and returned rows. The metrics use sem-conv v1.33.0 names where defined, plus `youtrackdb.*` for vendor metrics. Embedded caller-facing duration and row histograms use `db.client.*`. Server execution uses `youtrackdb.server.operation.duration` and `youtrackdb.server.response.returned_rows` with the same schemas and buckets. The bridge subscribes without duplicating the underlying writer state. Subscribing is not a zero-core-change read: it requires two new public methods on `MetricsRegistry` (`forEachMetric(MetricVisitor)` for enumeration at `start()` and `addRegistrationListener(...)` for per-database metrics created after `start()`), plus a new `MetricGroup` enum on `MetricDefinition` to drive the `OPENTELEMETRY_METRICS_INCLUDED_GROUPS` filter; none of the three exist today, and §"Metrics integration" carries their shapes. Replaces "metrics not integrated" (prior design scope after M34's logs addition). → §"Metrics integration".
 
@@ -854,7 +857,8 @@ Out of MVP (high-cardinality, deferred to follow-up):
 - specific predicate values (`age > 30`, `name = "Alice"`) — every distinct literal blows up cardinality
 - specific ORDER BY columns or `by(...)` keys — user-controlled, schema-dependent
 - specific property keys read via `values(...)` or projection — same cardinality concern as ORDER BY keys
-- full execution-plan structure (per-operator timing, per-step row counts) — already covered by the § Non-Goals bullet on per-operator timing; the follow-up ticket sources data from `SQLProfiler` and emits span events rather than span attributes to avoid polluting the per-span attribute set
+- Full execution-plan structure (per-operator timing and per-step row counts) stays deferred.
+  A follow-up ticket sources `SQLProfiler` data for span events rather than span attributes.
 
 Additional completion attributes:
 
@@ -1387,9 +1391,9 @@ InternalResultSet (drained in-memory buffer)
   └─ LocalResultSetLifecycleDecorator                   // returned to the caller; no listener fires on its close
 ```
 
-**Behavior.** SQL entry checks `isQueryMetricsEnabled()` before instrumentation work. When false, it executes ordinary SQL without telemetry state and returns `inner` unchanged. Otherwise it captures one operation listener snapshot, Context, tag, provenance and mode before setup. Pass that entry state to `wrapIfListening(...)`. The wrapper inherits it without repeating listener selection, Context capture or mode resolution. A standalone factory call without entry state performs its own presence check and capture. An empty captured snapshot returns `inner`. Construction retains the entry state and prepares successful-result timing. SQL inside tagged Gremlin uses the tag rules. Direct SQL uses the per-TX default. Under `LIGHTWEIGHT` the constructor captures a wall-clock start from `GranularTicker` (no syscall on the hot path) and reads the ticker again at `close()`; the duration is the tick difference. Under `EXACT` the constructor captures the wall-clock start from one `Instant.now()` read with platform-dependent precision. During iteration each delegated `hasNext()` / `next()` call is bracketed by paired `System.nanoTime()` reads that accumulate into a per-result-set active-time total, and `close()` reports that total as `executionTimeNanos`. The constructor stores the captured Context for completion routing. Embedded direct SQL uses its captured host span as the explicit parent at completion. Server direct SQL uses explicit root parenting. Nested SQL uses the private traversal-state key to offer a snapshot. Its span is built later with `recordedHostContext.with(gremlinSpan)` as the explicit parent. See §"Span timing capture" for the full clock-source rules. Iteration: `hasNext()` / `next()` delegate to `inner`, increment a row counter, capture any thrown exception, and (under `EXACT`) feed the timing accumulator. `tryAdvance` / `forEachRemaining` route through these so `.stream()`, `.toList()`, and the other consumer patterns all see the counter and (when relevant) the accumulator. `close()` closes the delegated result set first. It preserves an earlier execution failure for telemetry and reports a close failure only if no earlier failure exists. Completion fires once after cleanup. Delegate exceptions keep their normal propagation and suppression behavior. It then computes elapsed time per the resolved mode (`endTick - startTick` under `LIGHTWEIGHT`, accumulated active-time total under `EXACT`), builds `QueryDetails` (lazy classification + sanitization, `errorType`, `resultCount`, `parentContext`), and calls `queryFinished` on every listener in the inherited operation snapshot or the standalone factory's snapshot. Listener exceptions are isolated per the existing `Exception | LinkageError | AssertionError` contract.
+**Behavior.** SQL entry checks `isQueryMetricsEnabled()` before instrumentation work. When false, it executes ordinary SQL without telemetry state and returns `inner` unchanged. Otherwise it increments the current thread's SQL entry depth and restores it in `finally`. A nested entry at depth `> 1` skips telemetry capture and emits no completion, including early failures. The outer entry captures one operation listener snapshot, Context, tag, provenance and mode before setup. Pass that entry state to `wrapIfListening(...)`. The wrapper inherits it without repeating listener selection, Context capture or mode resolution. A standalone factory call without entry state performs its own presence check and capture. An empty captured snapshot returns `inner`. Construction retains the entry state and prepares successful-result timing. SQL inside tagged Gremlin uses the tag rules. Direct SQL uses the per-TX default. Under `LIGHTWEIGHT` the constructor captures a wall-clock start from `GranularTicker` (no syscall on the hot path) and reads the ticker again at `close()`; the duration is the tick difference. Under `EXACT` the constructor captures the wall-clock start from one `Instant.now()` read with platform-dependent precision. During iteration each delegated `hasNext()` / `next()` call is bracketed by paired `System.nanoTime()` reads that accumulate into a per-result-set active-time total, and `close()` reports that total as `executionTimeNanos`. The constructor stores the captured Context for completion routing. Embedded direct SQL uses its captured host span as the explicit parent at completion. Server direct SQL uses explicit root parenting. Nested SQL uses the private traversal-state key to offer a snapshot. Its span is built later with `recordedHostContext.with(gremlinSpan)` as the explicit parent. See §"Span timing capture" for the full clock-source rules. Iteration: `hasNext()` / `next()` delegate to `inner`, increment a row counter, capture any thrown exception, and (under `EXACT`) feed the timing accumulator. `tryAdvance` / `forEachRemaining` route through these so `.stream()`, `.toList()`, and the other consumer patterns all see the counter and (when relevant) the accumulator. `close()` closes the delegated result set first. It preserves an earlier execution failure for telemetry and reports a close failure only if no earlier failure exists. Completion fires once after cleanup. Delegate exceptions keep their normal propagation and suppression behavior. It then computes elapsed time per the resolved mode (`endTick - startTick` under `LIGHTWEIGHT`, accumulated active-time total under `EXACT`), builds `QueryDetails` (lazy classification + sanitization, `errorType`, `resultCount`, `parentContext`), and calls `queryFinished` on every listener in the inherited operation snapshot or the standalone factory's snapshot. Listener exceptions are isolated per the existing `Exception | LinkageError | AssertionError` contract.
 
-Two mechanisms keep the listener firing once per outer query. Sub-plans: MATCH steps, sub-query steps, `IF` / `WHILE` flow control, and script-line steps build their own un-instrumented inner `LocalResultSet` via the existing 2-arg constructor; they never traverse the six entry points, so `wrapIfListening` does not see them. Public re-entry: a UDF, sub-query expression, or context-variable resolution that calls `db.query(...)` from inside an outer plan is suppressed by a `ThreadLocal<int[]> sqlEntryDepth` counter on `DatabaseSessionEmbedded`. After the listener-presence guard, each instrumented public entry increments the slot on entry and decrements it in `finally`; `wrapIfListening(...)` returns `inner` unchanged when the slot value is `> 1`. Inner execution time accrues to the outer span. Multi-statement scripts have one outer SQL completion site per script call. Inner statements are not separately instrumented at this layer.
+Two mechanisms keep the listener firing once per outer query. Sub-plans: MATCH steps, sub-query steps, `IF` / `WHILE` flow control, and script-line steps build their own un-instrumented inner `LocalResultSet` via the existing 2-arg constructor; they never traverse the six entry points, so `wrapIfListening` does not see them. Public re-entry: a UDF, sub-query expression, or context-variable resolution that calls `db.query(...)` from inside an outer plan is suppressed by a `ThreadLocal<int[]> sqlEntryDepth` counter on `DatabaseSessionEmbedded`. After the listener-presence guard, each instrumented public entry increments the executing thread's slot and decrements it in `finally`. `wrapIfListening(...)` returns `inner` unchanged at depth `> 1`. Each delegated `inner.hasNext()`, `inner.next()` and `inner.close()` also increments that thread's depth and restores it in `finally`. Retain no depth while the result set is idle. Consumer callbacks such as `action.accept` run outside the delegated scope. Suppressed nested entries emit no early-failure completion. Inner execution time accrues to the outer span. Multi-statement scripts have one outer SQL completion site per script call. Inner statements are not separately instrumented at this layer.
 
 SQL completion uses the captured entry or wrapper Context. Under Gremlin Path B, its private
 buffer key routes accepted SQL snapshots to the traversal state. The listener builds no SQL
@@ -1407,9 +1411,11 @@ Hook anatomy in `InstrumentedSqlResultSet` (constructor captures the start clock
 
 ```text
 wrapIfListening(inner, statement, rawSql, args, currentTx, entryState):
-1. If entryState is absent, check listener presence before capturing standalone entry state.
-2. If no non-empty operation snapshot exists: return inner.
-3. return new InstrumentedSqlResultSet(inner, statement, rawSql, args, entryState, currentTx)
+1. If entryState is absent, check listener presence. If no listeners: return inner.
+2. If sqlEntryDepth.get()[0] > 1: return inner. Do not capture nested telemetry state.
+3. If entryState is absent, capture standalone entry state.
+4. If no non-empty operation snapshot exists: return inner.
+5. return new InstrumentedSqlResultSet(inner, statement, rawSql, args, entryState, currentTx)
 
 Constructor(inner, statement, rawSql, args, entryState, currentTx):
 1. Reuse listeners, capturedContext, tag, invokedVia and mode from entryState.
@@ -1435,25 +1441,32 @@ Constructor(inner, statement, rawSql, args, entryState, currentTx):
 
 Iteration surface — `hasNext` / `next` are the row-counter, error-capture, and (under EXACT) per-call timing entry points; every other read pathway (`tryAdvance`, `forEachRemaining`, `stream`, `toList`, `findFirst`, `detach`, the inherited `Spliterator` and `Iterator` surface) routes back through `hasNext` / `next` so the same accounting runs for every consumer pattern (the dominant YTDB consumer uses `.toList()` or `.stream()`, not direct `hasNext` / `next`):
 
+   withSqlDepth(delegate):  // Pseudocode for an inline guard, with no callback allocation.
+     slot = sqlEntryDepth.get()  // Resolve on the executing thread. Never retain a slot in the wrapper.
+     slot[0]++
+     try: return delegate()
+     finally: slot[0]--
+
    next():
      if (mode == EXACT) {
        long t0 = System.nanoTime();
        try {
-         result = inner.next(...);                       // delegate
+         result = withSqlDepth(() -> inner.next(...))      // scope ends before returning to consumer
          if (result != null) rowCount++;
          return result;
        } catch (Throwable e) { caughtError = e; rethrow; }
        finally { activeNanos += System.nanoTime() - t0; } // per-call delta into accumulator
      } else {                                            // LIGHTWEIGHT
        try {
-         result = inner.next(...);
+         result = withSqlDepth(() -> inner.next(...))
          if (result != null) rowCount++;
          return result;
        } catch (Throwable e) { caughtError = e; rethrow; }
      }
-     // Hot-path cost: LIGHTWEIGHT pays one counter increment per call;
-     // EXACT adds two System.nanoTime() reads per call. Cost depends on the JVM and platform.
-     // hasNext() follows the same shape with the same per-mode timing.
+     // Hot-path cost: LIGHTWEIGHT pays the row counter plus a thread-local lookup and depth
+     // increment/decrement per delegated call. EXACT adds two System.nanoTime() reads.
+     // Approved budgets stay unchanged. Cost depends on the JVM and platform.
+     // hasNext() uses withSqlDepth(() -> inner.hasNext()) with the same per-mode timing.
 
    tryAdvance(Consumer action):
      if (!hasNext()) return false;
@@ -1465,11 +1478,12 @@ Iteration surface — `hasNext` / `next` are the row-counter, error-capture, and
 
 close():
 1. If completion already ran: return. Mark completion owned before cleanup to prevent re-entry.
-   try: inner.close()
+   try: withSqlDepth(() -> inner.close())
    catch Throwable closeFailure:
      if caughtError is null: caughtError = closeFailure
      rethrow closeFailure
-   finally: run steps 2-4 below once, after delegated cleanup.
+   finally: run steps 2-4 once, after cleanup and depth restoration.
+   // Depth is restored before step 4 dispatches listeners.
    // Keep an earlier execution failure as telemetry error. Do not replace it with closeFailure.
    // Delegate close failures still propagate. Try-with-resources keeps its normal suppression.
 2. Capture endEpochNanos from the mode's wall-clock source before listener dispatch.
@@ -1509,7 +1523,7 @@ Gremlin span as their explicit parent. `YTDBClassCountStep` and by-ID lookups cr
 child. Path A executes `SelectExecutionPlan.start()` directly and creates no SQL child.
 Embedded direct SQL uses its captured host span or becomes a root. Server direct SQL always becomes a root.
 
-**Failures before a result set exists.** Each SQL entry first applies the listener-presence guard. An empty list executes the ordinary SQL path without Context capture, clock reads, depth state or error-details allocation for instrumentation. Otherwise capture one operation listener snapshot, Context, tag, Gremlin-origin marker, timing mode and early-failure start clock before parse, setup and cache work. Pass that snapshot and captured entry state to the wrapper. It owns completion after construction and does not repeat listener selection. Successful SQL timing covers result consumption from wrapper construction through delegated close. It excludes successful parse, setup and execution work completed earlier. Early failures use the guarded entry window. A standalone factory captures its own guarded state only when no entry state exists. Their catch path emits one error completion when no wrapper owns completion, then preserves rollback and rethrows the original failure. This covers `query` overloads, `query(plan)`, `executeInternal` and `computeScript`. Missing AST data gives empty classification. Sanitization must fail closed if parsing failed. The completion carries `error.type`, explicit parent context and no returned-row sample. Error spans bypass trace gates. A wrapper that exists owns completion, including drain failures, so the entry catch cannot emit a duplicate. Close the wrapper in a `finally` path or try-with-resources after a drain failure. The early-error details carry the captured tag and provenance, with an empty returned-row sample. Nested SQL re-entry uses the same suppression rule on success and failure.
+**Failures before a result set exists.** Each SQL entry first applies the listener-presence guard. An empty list executes the ordinary SQL path without Context capture, clock reads, depth state or error-details allocation for instrumentation. Otherwise increment the executing thread's entry depth and restore it in `finally`. At depth `> 1`, execute without telemetry capture or early-failure completion. At outer depth, capture one operation listener snapshot, Context, tag, Gremlin-origin marker, timing mode and early-failure start clock before parse, setup and cache work. Pass that snapshot and captured entry state to the wrapper. It owns completion after construction and does not repeat listener selection. Successful SQL timing covers result consumption from wrapper construction through delegated close. It excludes successful parse, setup and execution work completed earlier. Early failures use the guarded entry window. A standalone factory captures its own guarded state only when no entry state exists. Their catch path emits one error completion when no wrapper owns completion, then preserves rollback and rethrows the original failure. This covers `query` overloads, `query(plan)`, `executeInternal` and `computeScript`. Missing AST data gives empty classification. Sanitization must fail closed if parsing failed. The completion carries `error.type`, explicit parent context and no returned-row sample. Error spans bypass trace gates. A wrapper that exists owns completion, including drain failures, so the entry catch cannot emit a duplicate. Close the wrapper in a `finally` path or try-with-resources after a drain failure. The early-error details carry the captured tag and provenance, with an empty returned-row sample. Nested SQL re-entry uses the same suppression rule on success and failure.
 
 ### Coordination with YTDB-820 cache contract
 
@@ -1523,7 +1537,7 @@ Placement of the wrapper as the outermost layer at each entry point is what lets
 | Splice failure fallback (planner emitted an unexpected aggregate plan) | `LocalResultSet` (cache falls back to `statement.execute(...)`) | yes |
 | Non-deterministic shape (`sysdate`, `$now`, random, uuid, per-row context variables) | `LocalResultSet` (bypassed pre-cache) | yes |
 | `NOCACHE`-hinted query | `LocalResultSet` | yes |
-| Re-entrant call under WHERE evaluation (`cacheCodeDepth > 0`) | `LocalResultSet` | yes |
+| Re-entrant call under WHERE evaluation (`cacheCodeDepth > 0`) | `LocalResultSet`, without a telemetry wrapper | no. SQL depth `> 1` suppresses the nested completion. Its time belongs to the outer completion. |
 | `youtrackdb.query.txResultCache.enabled=false` (default in v1) | `LocalResultSet` | yes |
 | `executeInternal()` non-idempotent branch (INSERT / UPDATE / DELETE / DDL / CREATE / DROP) | `original` lazy `LocalResultSet` (wrapper sits BEFORE the eager drain; consumer-facing return is a wrapper-free `LocalResultSetLifecycleDecorator(InternalResultSet)`) | yes (fires inside `executeInternal()` after the drain, before the return; not on consumer close) |
 | `computeScript()` script-engine entry (method declarations 753 + 813; returns 785 + 847) | `ResultSet` from `executor.execute(...)` decorated by `queryStartedLifecycle(original)` | yes, one outer completion per completed script call. Inner statements accrue to it. |
@@ -1601,10 +1615,10 @@ Parameter indices count only original positional input-parameter nodes, in sourc
 - Under `LIGHTWEIGHT` (default), query durations shorter than the ticker's granularity (~10 ms) round to zero or one tick. Acceptable for trace viewers, which render at millisecond resolution anyway.
 - Direct SQL has an empty query tag and uses the per-TX default. SQL inside tagged Gremlin inherits the tag and resolves both mode and threshold from it. Capture the tag before execution, including the early-error path.
 - Tag rules are immutable after process startup; mid-TX changes to the rule table are not supported in YTDB-496 (see §"Query tagging and per-tag rule resolution" Edge cases). Mid-TX changes to the per-TX default via `YTDBTransaction.withQueryMonitoringMode(...)` apply to the next query because SQL entry, or the guarded standalone factory, reads `getDefaultQueryMonitoringMode()` once per query: no snapshot, no `next begin()` cycle latency.
-- Span count depends on gates, SDK sampling and retained candidates. An accepted Path A traversal creates one Gremlin span with no SQL children. SQL re-entry suppression still excludes nested plan calls. Path B can add retained SQL children beneath its late parent. ClassCount and by-ID lookups create none. Buffered children carry sanitized SQL as diagnostic detail. Parent rejection, capacity exhaustion or late completion can discard them. Direct SQL, DDL and scripts each create one candidate per outer call.
+- Span count depends on gates, SDK sampling and retained candidates. An accepted Path A traversal creates one Gremlin span with no SQL children. SQL re-entry suppression covers eager entry and delegated lazy execution and cleanup, including failures. Consumer callbacks run outside that scope. Path B can add retained SQL children beneath its late parent. ClassCount and by-ID lookups create none. Buffered children carry sanitized SQL as diagnostic detail. Parent rejection, capacity exhaustion or late completion can discard them. Direct SQL, DDL and scripts each create one candidate per outer call.
 - Multi-statement scripts via `DatabaseSessionEmbedded.computeScript(language, script, args)` (script-engine method declarations at lines 753 and 813; returns at lines 785 and 847) produce one outer SQL completion per completed script call because the SQL execution layer hook instruments `computeScript` itself with its own `InstrumentedSqlResultSet.wrapIfListening(...)` call (the script executor builds a `ScriptExecutionPlan` and drives `ScriptLineStep` for each inner statement without re-entering the three SQL entry points, so per-script instrumentation is the correct site). Inner statements accrue to the outer span's duration; the wrapper carries `statement=null` and classification uses the complete SQL-script representation when available. Multiple statements use a generated summary and independently eligible operation and collection attributes. YTDB scripts are not sem-conv batches, and the sem-conv `BATCH` rules do not apply. SQL scripts sanitize their complete parsed script representation before the OTel query-text limit applies. Other script languages carry no query text. A null statement, missing script representation or sanitizer failure never falls back to raw script text. Per-statement breakdown of a script is a future-ticket concern.
 - Consumer patterns: every read pathway on the wrapper routes through the wrapper's own `hasNext()` / `next()`. `tryAdvance(Consumer)`, `forEachRemaining(Consumer)`, `stream()`, `toList()`, `findFirst()`, `findFirstOrNull()`, `detach()`, `toDetachedList()`, `detachedStream()`, and every other `BasicResultSet` accessor that drives the `Spliterator` / `Iterator` surface all see the wrapper's row counter and error capture. Without explicit `tryAdvance` / `forEachRemaining` overrides, the dominant YTDB consumer patterns (`.toList()`, `.stream().forEach(...)`) would silently bypass the counter and report `OptionalLong.of(0)` regardless of actual row count. The wrapper overrides both methods to route through its own `next()` / `hasNext()`.
-- Cross-thread SQL completion needs no current scope. Embedded direct SQL uses the captured host Context as its explicit parent. Server direct SQL uses root parenting. Nested SQL offers a snapshot to the captured traversal buffer. A sealed buffer rejects it as `traversal_closed`. The OTel wrapper performs no `makeCurrent()` or `Scope.close()` at completion. `OTelResultSetThreadAffinityTest` checks direct-SQL parent identity, buffered child linkage, late drops and absence of scope warnings across completion threads. This telemetry contract does not relax database transaction ownership rules.
+- Cross-thread SQL completion needs no current OTel scope. Delegated cleanup uses a fresh balanced depth scope on the completion thread. It never uses the construction thread's slot. Restore depth before listener dispatch. Embedded direct SQL uses the captured host Context as its explicit parent. Server direct SQL uses root parenting. Nested SQL offers a snapshot to the captured traversal buffer. A sealed buffer rejects it as `traversal_closed`. The OTel wrapper performs no `makeCurrent()` or `Scope.close()` at completion. `OTelResultSetThreadAffinityTest` checks direct-SQL parent identity, buffered child linkage, late drops and absence of scope warnings across completion threads. This telemetry contract does not relax database transaction ownership rules.
 
 ### References
 - D-records: D8, D9, D15, D39 (Gremlin DSL service-call SQL paths reach `executeInternal()` automatically via `session.execute(SQLStatement, Map)` / `schemaSession.command(SQLStatement, Map)`)
@@ -1617,7 +1631,7 @@ Parameter indices count only original positional input-parameter nodes, in sourc
 
 Configuration entries:
 
-- `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `0`) — global default wall-clock minimum duration in milliseconds. `0` (default) disables duration-based rejection for completions that reach the listener. Buffer retention, parent acceptance and SDK sampling still apply. Operators on read-heavy workloads opt into a positive value to reject successful completions when `executionTimeNanos < threshold`.
+- `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_MILLIS` (default `0`) — global default minimum measured duration in milliseconds. Use active time under `EXACT` and wall-clock time under `LIGHTWEIGHT`. `0` (default) disables duration-based rejection for completions that reach the listener. Buffer retention, parent acceptance and SDK sampling still apply. Operators on read-heavy workloads opt into a positive value to reject successful completions when `executionTimeNanos < threshold`.
 - `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES` (default empty) — per-tag overrides, same format as `OPENTELEMETRY_QUERY_MODE_TAG_RULES`. Comma-separated, first-wins, with `tag=ms` for exact match, `prefix:X=ms` for prefix match, `regex:X=ms` for regex match. Example: `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findActiveUsers=50,prefix:batch-=1000,regex:^report-.*$=500`. A tag whose rule matches uses that millisecond value; an unset or unmatched tag falls back to the per-TX override (`withSlowQueryThresholdMillis`) when set, else the global default.
 
 Mechanism overview: the gate sits inside `OTelQueryMetricsListener.queryFinished`, evaluated before span allocation or nested SQL buffering, reading the per-query threshold from `SlowQueryThresholdResolver.global().resolve(tag, defaultNanos)` where `tag` is the traversal tag for Gremlin, the captured `QUERY_TAG` for SQL inside Gremlin, and empty for direct SQL, and `defaultNanos` is the per-TX override (`withSlowQueryThresholdMillis`) when the transaction set one, else the cached global default — so the fallback slot below the query-tag rule is the per-TX tier. Commit uses only its separate `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` gate. Query thresholds, query tags and heartbeat do not govern commit emission.
@@ -1661,7 +1675,7 @@ flowchart TB
   P --> T[Tempo traces]
   D --> A[Administration API and web application]
   A --> G[Embedded Grafana panels through the gateway]
-  A -.-> M[Track 105: optional MCP design]
+  M[Optional MCP adapter] --> A
 ```
 
 **Capacity and eviction.** Each database bounds record count and payload bytes under a global ceiling.
@@ -1797,7 +1811,7 @@ Open questions remain:
 
 - Local retention, trace sampling and backend retention are independent.
 - Limits on retained text do not establish a bound on sanitizer working memory.
-- Administration access serves bounded snapshots and streams. MCP adaptation belongs to Track 105.
+- Administration access serves bounded snapshots and streams. MCP reuses the same services.
 - Health transitions describe observations. They are not alerts or remediation instructions.
 
 ### References
@@ -2223,7 +2237,9 @@ It drops unsent bytes on reset, revocation or deadline abort, never on normal co
 ### Cursors and bounded streams
 
 Use one database owner and one event kind per stream. Process health has its own scope.
-Cursors bind generation, last scanned position, database identity, event kind and canonical filters.
+Cursors bind generation, last scanned position, immutable database identity, event kind and canonical filters.
+They also bind the logical process or database selector to classify replacement.
+That selector cannot grant authority or silently change owners.
 They contain no authority. Validate scope and current permission before inspecting retained history.
 Capture an upper position and copy a bounded page after the cursor under the owner guard.
 Serialize outside the guard. An event counts as scanned only if copied into the page or filtered out.
@@ -2249,8 +2265,11 @@ For each Grafana request, validate the session through the listener and require 
 An internal authorization operation requires both gateway mutual TLS and the browser session.
 It returns an expiring permit bound to identity, route and query budget after shared admission checks.
 Session metadata alone grants no telemetry authority. Release the permit on completion or deadline.
-Strip caller identity, authorization and forwarding headers before adding trusted values.
-On Grafana routes, also strip the session cookie and CSRF header. Grafana cannot reach the listener.
+Strip caller identity and forwarding headers before adding trusted values.
+Strip Authorization on all non-MCP gateway routes, including browser administration routes.
+All `/admin/v1` routes, including `/admin/v1/gateway/authorize`, reject MCP-audience bearer tokens.
+The listener enforces this rejection even when clients connect directly.
+Grafana cannot reach the listener. Its routes also strip the session cookie and CSRF header.
 Derive the Grafana identity from the typed user identity, not a caller header or username alone.
 Grafana accepts the identity only from the isolated gateway connection and assigns Viewer access.
 Disable anonymous access, direct login and alternate entry points in this embedded deployment.
@@ -2318,11 +2337,205 @@ sequenceDiagram
 - Numerical lifetimes, R, telemetry caps and execution caps remain explicit open questions.
 - Local monitoring ownership and best-effort shutdown keep the accepted Track 103 rules.
 
-### Decisions & invariants
+### References
 
 - Constraints: K4 to K8 of the approved root design and accepted SE3, SE4, SE7, CN-7 and PF5.
-- Invariants: current scoped authorization, finite leases, bounded work and query-only rerun.
+- Invariant 1: Current scoped authorization applies to every administration operation.
+- Invariant 2: Finite leases bound authority, including idle delivery.
+- Invariant 3: Shared admission and output limits bound work.
+- Invariant 4: Investigation accepts only validated query-only reruns.
 - Mechanics: `design-mechanics.md §"Administration API and web application"`.
+
+## MCP module and authorization
+
+**TL;DR.** The optional Model Context Protocol (MCP) module exposes monitoring tools.
+It delegates to the administration services and uses their current permission checks.
+First delivery uses web-issued per-client tokens. A later phase adds YouTrackDB-hosted OAuth 2.1.
+Experimental events use one pinned sketch for polling and streaming, not webhook delivery.
+
+### Module and access boundary
+
+MCP is a protocol through which an agent calls tools and receives supported events.
+Keep the module optional, disabled by default and independent of OpenTelemetry.
+Register its Streamable HTTP transport at `/mcp` on the administration listener.
+Streamable HTTP carries JavaScript Object Notation Remote Procedure Call (JSON-RPC) messages.
+Use MCP specification 2025-11-25 and MCP Java SDK 2.1.0.
+Adapt the SDK to the existing Netty listener rather than opening a Servlet listener.
+Do not add another authentication store, database backend or monitoring history.
+
+Recommend a narrow `/mcp` pass-through route on the existing web gateway.
+Keep the listener internal in the quick start. Preserve TLS and bounded streaming through the gateway.
+The server, not the gateway, validates MCP tokens and makes authorization decisions.
+Strip caller identity and forwarding headers, but preserve exactly one MCP Authorization header.
+Never forward that header to Grafana, telemetry stores or browser administration routes.
+Reject cookie-only MCP requests and ambiguous credentials. Do not convert a browser session to a token.
+The gateway's mutual TLS identity authenticates transport, not the MCP user.
+
+Local command-line and editor clients can reach a loopback gateway with configured certificate trust.
+Claude cloud connectors originate outside the machine, including connectors used from Desktop.
+They cannot reach the loopback quick start. Do not publish it automatically or disable TLS validation.
+A cloud deployment needs an operator-approved reachable TLS gateway and individual user credentials.
+Shared organization header credentials do not preserve per-user identity.
+Option A needs a client that supports a private bearer header. It is not universal connector support.
+Option B supplies the standard OAuth sign-in path in its later delivery phase.
+
+Alternatives are direct listener access on a restricted network or an operator-managed ingress.
+Direct access increases the exposed listener surface and duplicates TLS operations.
+An ingress needs the same header, streaming and lease rules as the gateway.
+A local forwarding helper is not part of this delivery.
+The gateway route is the recommended access choice, subject to Track 105 acceptance.
+
+### Shared authority and token phases
+
+An authorization adapter maps a verified credential to the existing typed identity and lease.
+A typed identity distinguishes a system user from a database user with the same name.
+It includes immutable user and database identities, never a name-only fallback.
+Effective authority is the intersection of current roles, credential restrictions and request scope.
+Token possession, a cursor, a protocol session or event receipt grants no additional authority.
+Health, slow-query and telemetry permissions retain the administration contract.
+Slow-query reads remain administrator-facing across the permitted database.
+Shared telemetry still needs server-wide permission. Database labels do not establish isolation.
+
+Option A issues an opaque random token for one named client of the logged-in web user.
+The browser creates, lists and revokes its own client credentials through protected administration routes.
+Require recent re-authentication before credential creation. A session alone is insufficient.
+Root question 4 owns the numerical re-authentication window.
+MCP credentials are independent of the password. A password change does not revoke them.
+The user revokes them in the credential list.
+Show the secret once. Store only its verifier and bounded metadata.
+Bind it to the canonical MCP resource, typed identity, expiry and per-client revocation state.
+The user chooses only permitted restrictions. Creation cannot mint authority for another user.
+Require expiry. Keep passwords out of agent configuration and tokens out of URLs and logs.
+Logout ends the browser session, not every independently issued client token.
+User deletion, suspension, scope replacement and current role removal still remove MCP authority.
+Individual revocation stops that client's requests and streams within the existing lease bound.
+Describe A as custom bearer authentication, not as the MCP OAuth authorization profile.
+
+Option B makes YouTrackDB its own OAuth 2.1 authorization server for MCP.
+B is fully specified in the companion but is not part of the first MCP delivery.
+It reuses the same token store and authorization adapter, not a second permission model.
+Require the same recent re-authentication before B consent or grant creation.
+A current browser session alone is insufficient. Root question 4 owns the numerical window.
+At token and revocation endpoints, public clients use `none` and confidential clients use `client_secret_post`.
+The latter sends the client secret in the request body. Neither method needs Authorization forwarding.
+Publish only these client authentication methods. Keep non-MCP Authorization stripping.
+Use authorization code flow with Proof Key for Code Exchange (PKCE), discovery and explicit consent.
+PKCE binds a code exchange to the initiating client's secret verifier.
+The S256 method hashes that verifier with SHA-256 and encodes the digest as unpadded base64url.
+The client sends this challenge at authorization and the verifier at token exchange.
+The server recomputes the challenge and requires an exact match.
+Bind authorization codes, access tokens and rotating refresh tokens to one client grant and MCP resource.
+Support pre-registered clients and validated Client ID Metadata Documents.
+Do not add dynamic registration, an external identity provider or password grants.
+Track 106 plans this later phase. Do not advertise OAuth discovery until B is enabled.
+
+The browser token-management and OAuth consent routes keep origin and CSRF protection.
+CSRF means cross-site request forgery, where a browser sends ambient credentials for another site.
+MCP bearer requests require no browser CSRF token, Referer or fetch metadata.
+Reject an unapproved supplied Origin. An absent Origin is valid for a non-browser bearer client.
+Disable cross-origin browser MCP access. Do not accept cookies as MCP authority.
+Both phases use finite leases with independent timers and current role revalidation.
+A token's absolute expiry further shortens the lease. Delivery never extends token lifetime.
+Keep Track 104 cancellation, bounded buffers and cleanup reservations unchanged.
+CN-11 and RG22 remain deferred to Track 106.
+
+### Tools and investigation
+
+Tools cover all five monitoring functions through existing administration services.
+Declare bounded input and output schemas. Reject unknown arguments and arbitrary backend destinations.
+
+| Tool | Function and authority |
+|---|---|
+| `get_health` | Current process or database health, freshness and resumable position with health permission |
+| `list_health_history` | Bounded health transitions with scope, recent or now mode, continuation cursor and health permission |
+| `list_slow_queries` | Bounded retained records with database slow-query permission |
+| `search_logs` | Bounded Loki search with server telemetry permission |
+| `query_metrics` | Bounded Prometheus measurements with server telemetry permission |
+| `explain_query` | Optional supplied-query planning with Explain and ordinary database permissions |
+| `profile_query` | Optional supplied-query execution with Profile, MCP Profile and ordinary database permissions |
+
+Explain is available through MCP when investigation is enabled. It does not execute the query.
+MCP Profile requires a separate permission that is off by default.
+All new default-deny resources need exact grants. Database ALL and server-user `*` rules do not match.
+An explicit caller-supplied execution consent flag is required for every Profile call.
+Client hosts must obtain user consent for that exact database, query, parameters and limits.
+Never infer consent from an event, record selection, token creation or a previous call.
+The server cannot prove a human approved a client flag. The separate permission limits this risk.
+Do not retry Profile automatically after authentication, timeout or transport failure.
+Use the same query-only validator, fresh read-only session, cache bypass and execution bounds.
+Do not execute retained sanitized text or restore parameters from monitoring.
+
+Mark every tool result and event payload as untrusted data.
+Descriptions tell clients never to follow instructions in query text, logs, reasons or plans.
+Structured results carry an `untrustedData: true` marker. Text renderings repeat that warning.
+Keep metadata names static. Never interpolate retained content into tool descriptions.
+Tool annotations are hints, not authorization or proof of read-only safety.
+Never set `readOnlyHint: true` on `profile_query`. Prefer hints that make hosts ask for approval.
+
+### Experimental events
+
+Specification Enhancement Proposal (SEP) 3415 events are experimental and separately default-off.
+Pin repository `modelcontextprotocol/experimental-ext-triggers-events` at
+`d5316be214be2e76e51462069c1d67e00a5a7619`, checked on 2026-11-09.
+The contract is `docs/design-sketch-proposal.md` at that commit.
+Use its top-level `events` capability with `listChanged: false`.
+Do not claim compatibility with the later SEP text or MCP 2026-07-28.
+That revision and its extension capability and routing headers need a later adapter change.
+
+Expose `health.changed` and `slow_query.retained`, with `poll` and `push` delivery only.
+Each subscription has one authorized scope and event kind.
+Polling calls `events/poll`. Streaming calls `events/stream` and receives a POST response stream.
+Neither calls `events/subscribe` or `events/unsubscribe`. Those methods belong to deferred webhooks.
+A missing or null cursor starts now, not at recent history.
+Reuse the existing owner, generation, position, retained snapshots and cursor checks.
+Only translate the external gap envelope. Do not duplicate retention.
+
+Administration HTTP returns 409 for a history gap.
+The sketch instead returns a fresh cursor with `truncated: true` and continues.
+Poll reports this in a successful result. Push sends `notifications/events/active` on the same stream.
+A valid cursor from a replaced owner ends that subscription and requires explicit scope refresh.
+Never silently switch to a reopened database.
+A partial page uses an intermediate cursor and `hasMore: true`, not truncation.
+Heartbeats advance only through scanned positions. They neither prove health nor renew authority.
+Clients can refresh authoritative state through tools after a gap.
+No restart durability, exactly-once delivery or ordering across subscriptions is promised.
+
+Webhook implementation stays deferred.
+A future design must require authenticated ownership, HTTPS, endpoint verification and signed delivery.
+It must prevent server-side request forgery, replay, secret disclosure and cross-user subscription changes.
+It must bound destinations, payloads, retries, queues, lifetime and delivery work.
+No callback URL is accepted and no outbound webhook work starts in this delivery.
+
+```mermaid
+flowchart LR
+  C[MCP client] -->|TLS bearer requests| G[Web gateway /mcp]
+  G -->|Mutual TLS and preserved MCP bearer| M[Optional MCP adapter]
+  M --> A[Shared authorization adapter and leases]
+  M --> S[Administration services]
+  A --> T[Verifier-only token and grant store]
+  S --> L[Local health and retained histories]
+  S --> B[Bounded telemetry and investigation adapters]
+```
+
+### Edge cases / Gotchas
+
+- Stolen tokens remain useful until revocation or expiry. Finite leases bound idle delivery.
+- Agent output is hostile input, not a command, consent or execution credential.
+- An absent Origin is allowed only on the bearer path, not browser session routes.
+- SDK protocol sessions and subscription identifiers are routing state, not credentials.
+- Root questions 4 and 5 keep numerical session, telemetry and investigation limits open.
+- No new performance budget, finer telemetry isolation or webhook delivery is approved.
+
+### References
+
+- Constraints: approved root K9, SE1, SE2, CN-7, PF4 and PF5, plus the question 6 ruling.
+- Invariant 1: Browser and MCP calls use one authorization adapter.
+- Invariant 2: Finite leases and token expiry bound authority.
+- Invariant 3: Shared admission and per-client sub-quotas bound work.
+- Invariant 4: Event gaps remain explicit.
+- Baseline: [MCP 2025-11-25 authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+- Pin: [experimental sketch](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/d5316be214be2e76e51462069c1d67e00a5a7619/docs/design-sketch-proposal.md).
+- Mechanics: `design-mechanics.md §"MCP module and authorization"`.
 
 ## Quick-start observability stack (operator example)
 
@@ -2726,7 +2939,7 @@ This design changes `YTDBTransaction`'s per-TX listener fields from single-slot 
 - `withQueryListener(listener)` previously assigned `this.queryMetricsListener = listener` (overwrite). It now calls `this.queryMetricsListeners.add(listener)` (additive). Chained calls like `tx.withQueryListener(l1).withQueryListener(l2)` previously yielded a single per-TX listener `l2`; they now yield both listeners firing in insertion order.
 - Symmetric change for `withTransactionListener(listener)`.
 - `clearMonitoringState()` (called from `fireOnCommit` / `fireOnRollback`) clears the list instead of resetting a single slot.
-- `isQueryMetricsEnabled()` / `isTransactionMetricsEnabled()` return true when either the per-TX list is non-empty OR the snapshot captured at `beginInternal()` is non-empty. This is the gating-widening callers depend on (see §"YTDBQueryMetricsStrategy gating widening" below).
+- `isQueryMetricsEnabled()` / `isTransactionMetricsEnabled()` return true when either the per-TX list is non-empty OR the snapshot captured at `beginInternal()` is non-empty. This is the gating-widening callers depend on (see §"Step-injection broadening for global-only listeners" below).
 - `getQueryMetricsListener()` is replaced by `getQueryMetricsListeners(): Iterable<QueryMetricsListener>` returning the per-TX list. The merged view (snapshot + per-TX) is exposed via `FrontendTransaction.iterateAllQueryListeners()`.
 
 This is a deliberate backward-incompatible behavior change in an internal SPI. Hosts that wrote `tx.withQueryListener(custom1).withQueryListener(custom2)` expecting overwrite semantics now see both listeners fire. The change is intentional because the global registry use-case (one or more OTel listeners) composes with per-TX listeners only when both can coexist. The single-slot model was the source of the inert-flag bug the global registry exists to fix; reverting to overwrite semantics on the per-TX path would re-introduce the bug for hosts that combine the two.

@@ -351,7 +351,19 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
 }
 ```
 
-`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. SQL entry first checks the existing query-listener list through the presence check. With no listeners, it performs no telemetry Context read, clock read, snapshot or allocation. Otherwise it captures one operation listener snapshot, Context, tag, Gremlin-origin marker, mode and early-failure start time before the failing work. Pass that snapshot and captured entry state to the wrapper without repeating listener selection, Context capture or mode resolution. Successful SQL timestamps cover result consumption from wrapper construction through delegated close. They exclude successful parse, setup and execution work completed earlier. Early failures use the guarded entry window. A standalone factory captures its own guarded state only when no entry state exists. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. Close the delegated result set before capturing the endpoint and dispatching listeners once. Preserve an earlier execution failure for telemetry. Report a close failure only when no earlier failure exists. Keep delegate exception propagation and normal suppression unchanged. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
+`QueryDetails.getErrorType(): Optional<String>` is a new default-empty accessor added to the listener contract. Both query paths populate it from the caught failure. SQL entry-point catches emit one error completion when parse, setup or cache work fails before a result set exists. SQL entry first checks the existing query-listener list through the presence check. With no listeners, it performs no telemetry Context read, clock read, snapshot or allocation. For an unsuppressed outer entry, it captures one operation listener snapshot, Context, tag, Gremlin-origin marker, mode and early-failure start time before the failing work. Pass that snapshot and captured entry state to the wrapper without repeating listener selection, Context capture or mode resolution. Successful SQL timestamps cover result consumption from wrapper construction through delegated close. They exclude successful parse, setup and execution work completed earlier. Early failures use the guarded entry window. A standalone factory captures its own guarded state only when no entry state exists. They preserve rollback and rethrow the original failure. Once a wrapper exists, it owns completion and closes in a `finally` path after a drain failure. Close the delegated result set before capturing the endpoint and dispatching listeners once. Preserve an earlier execution failure for telemetry. Report a close failure only when no earlier failure exists. Keep delegate exception propagation and normal suppression unchanged. An abandoned result set without `close()` still emits nothing. The accessor exists on the listener contract so any consumer (OTel or custom) can read error state without an additional callback signature.
+
+After the listener-presence guard, SQL entry increments `sqlEntryDepth` on the executing thread
+and decrements it in `finally`. Depth `> 1` suppresses nested success and early-failure completion.
+The wrapper also increments depth around each delegated `inner.hasNext()`, `inner.next()` and
+`inner.close()`, then restores it in `finally` before listener dispatch. Retain no depth while idle.
+Run consumer callbacks such as `action.accept` outside those scopes. Cross-thread cleanup resolves
+a fresh balanced scope on the completion thread. Never reuse the construction thread's slot.
+Keep the existing per-mode timing and once-per-outer-query completion ownership.
+Verify eager re-entry and re-entry during each lazy delegate call, including failure paths.
+Each outer query completes once. Nested entries emit neither success nor early-failure completion.
+Verify depth restoration after a delegate throws and before consumer callbacks and listener dispatch.
+Verify idle result sets retain no depth and cross-thread close balances only the completion thread.
 
 Direct SQL has no query tag and uses the per-TX fallback. SQL entered inside tagged Gremlin inherits `YTDBContextKeys.QUERY_TAG` captured before execution. `GREMLIN_ORIGIN` is a boolean provenance marker set for tagged and untagged Gremlin execution. An untagged nested Gremlin traversal clears an inherited tag and still stamps `GREMLIN_ORIGIN=true`. Gremlin pins its span name at first `hasNext()` to the tag or `youtrackdb`. SQL uses the sem-conv fallback chain. The resolver reads the inherited tag, not a classifier-derived display summary.
 
@@ -1432,7 +1444,9 @@ AdministrationService is the shared service boundary for scoped reads and execut
 BrowserSessionService owns sessions and current authorization leases.
 QueryInvestigationService owns query validation, execution admission and cleanup.
 These names identify internal responsibilities, not supported public Java API classes.
-Future MCP access delegates to these services. Its token and event protocol remain deferred.
+MCP access delegates to these services through the optional module described below.
+OAuth is a delegated authorization protocol for obtaining client-bound access tokens.
+Its follow-up delivery and webhook implementation remain deferred.
 
 ### Resource contract and JSON shapes
 
@@ -1461,6 +1475,8 @@ Slow-query records expose only the accepted immutable safe fields and correlatio
 The current record view can show a later association. Replayed events never change.
 Use canonical decimal strings for positions so browser number precision cannot lose an event.
 A cursor encodes generation, last scanned position, immutable database identity, kind and filters.
+It also binds the logical process or database selector.
+Use that selector only to classify replacement, never to grant authority or silently change owners.
 Continuation reads strictly after that position. Only copied or filtered-out events count as scanned.
 The page byte limit must fit the largest retained event. A snapshot or start-from-now cursor uses its head.
 Encode bounded cursor data with integrity protection and reject malformed or oversized values.
@@ -1494,6 +1510,11 @@ Add explicit resources for database health read, database slow-query read, serve
 server telemetry read, database Explain and database Profile using existing role mechanisms.
 Final resource identifiers must follow the existing resource registry during implementation.
 Default-deny these resources. Do not automatically widen the existing monitor role.
+Every new default-deny resource requires an explicit grant for that exact resource.
+This rule covers these monitoring, Explain and Profile resources and `mcp.profile`.
+Database-role `ResourceGeneric.ALL` rules do not match them, including the default admin's ALL rule.
+For server users, a `*` resource rule also does not match them.
+Apply this exclusion before wildcard fallback in every authorization path.
 Slow-query read grants all retained records of that database, including every captured user name.
 Document this permission as administrator-facing because sanitized text can reveal schema.
 Server health reasons and shared Loki, Prometheus and Tempo access require server-wide authority.
@@ -1598,7 +1619,7 @@ Send a control frame only if space and authorization remain. Otherwise close wit
 Client reconnect uses its last delivered position and can receive duplicates or a gap.
 Disconnect and listener shutdown release reader reservations and cancel recheck tasks.
 Closed owners end their streams. Publication never waits for a stream reader.
-This is the administration protocol only. No SEP-3415 mapping is defined here.
+These are the administration wire envelopes. MCP maps the same cursor outcomes separately below.
 
 ### One gateway and protected Grafana
 
@@ -1786,13 +1807,579 @@ All enabled paths require finite configured bounds. There is no unlimited fallba
 Root question 5 stays open for numerical parse, plan, time, consumed-row, memory, byte and concurrency limits.
 The query-only validator and cancellation checkpoints need implementation evidence before enablement.
 No additional performance budget or numerical default is approved by this design.
-Root questions 1 to 3 remain in local monitoring. Question 6 belongs to Track 105.
+Root questions 1 to 3 remain in local monitoring. The MCP section resolves question 6.
 
 ### References
 
 - Constraints: approved root K4 to K8, SE3, SE4, SE7, CN-7 and PF5.
 - Carried implementation finding: SE6 requires query-only admission inside Explain and Profile.
-- Deferred work: MCP protocol and the whole implementation plan.
+- Deferred work: the whole implementation plan and the later OAuth delivery phase.
+
+## MCP module and authorization
+
+### Module, transport and credential boundary
+
+The optional MCP module registers `/mcp` on AdministrationHttpListener.
+It depends on administration service interfaces, not on OpenTelemetry or Grafana.
+Disabling it removes the route and capabilities without stopping local monitoring.
+Use MCP 2025-11-25 and MCP Java SDK 2.1.0.
+Implement a bounded Netty transport adapter for the SDK message interfaces.
+Do not start its supplied Servlet transport as an additional listener.
+Verify that adapter against SDK initialization, cancellation and Streamable HTTP behavior.
+
+The web gateway forwards only the configured `/mcp` destination.
+It preserves exactly one Authorization bearer header to the listener over mutual TLS.
+Reject duplicate, folded or conflicting Authorization fields before dispatch.
+Strip caller identity and forwarding headers. Replace forwarding values from the trusted peer only.
+Strip cookies and browser CSRF headers from MCP forwarding.
+Never translate gateway service authority or a browser cookie into MCP user authority.
+Never forward the bearer to telemetry stores or another path.
+Strip Authorization on every non-MCP gateway route.
+All `/admin/v1` routes, including `/admin/v1/gateway/authorize`, reject MCP-audience bearers.
+The listener enforces this rejection even on the direct-listener deployment alternative.
+Disable request-body and sensitive-header logging at gateway and listener.
+Use `Cache-Control: no-store` on sensitive responses. Never cache MCP results in the gateway.
+Apply the existing response-buffer and lease-deadline rules to this route too.
+
+Authenticate every HTTP request, including initialization, POST, GET and DELETE.
+Accept a token only in `Authorization: Bearer`, never query parameters, cookies or message arguments.
+Check configured external resource identity, not a caller Host or forwarding value.
+A supplied Origin must exactly match the configured application origin or be rejected.
+An absent Origin is valid for non-browser clients with a valid bearer.
+Do not require browser Referer, fetch metadata or CSRF tokens for this path.
+Do not enable cross-origin browser MCP access.
+Token creation and OAuth browser interactions remain cookie routes with all browser protections.
+
+A protocol session identifier routes messages but supplies no authority.
+Bind any SDK session to the authenticated immutable principal and client grant.
+Reject a different principal or grant attempting to resume or delete it.
+Use unpredictable identifiers, finite inactivity expiry and bounded per-identity and global counts.
+Never store tokens, statements or parameters in resumable protocol session state.
+A reconnect requires current bearer authorization even with a valid session identifier.
+Do not replay Profile requests through transport resumption.
+Event recovery uses the explicit domain cursor rather than relying on SSE transport event identifiers.
+Server-Sent Events (SSE) is the existing UTF-8 streaming response format.
+
+Local clients reach the loopback TLS gateway with explicit certificate trust.
+Cloud connectors need an operator-approved externally reachable TLS gateway.
+They do not reach loopback merely because their desktop application is local.
+Do not create a public tunnel, helper process or new deployment platform.
+The design recommends the gateway path over direct listener exposure.
+Direct restricted-network access and an operator-managed ingress remain deployment alternatives.
+Both need the same bearer, buffering, Origin and lease rules.
+Fixed organization-wide connector tokens must not impersonate individual users.
+
+### Shared authorization adapter and credential store
+
+Use the AdministrationService authorization routine for both browser and MCP calls.
+The adapter accepts a verified credential context and a required action with immutable scope.
+It returns a typed identity, effective restrictions and a finite authorization lease.
+The effective permission set is current roles intersected with grant and token restrictions.
+Database Explain and Profile additionally check ordinary query and record policies.
+Server health and shared telemetry remain server-wide resources.
+Database filters cannot narrow server-wide telemetry into proven database isolation.
+Do not automatically grant new resources to existing monitor roles.
+
+Use one server-owned store for A credentials and B client grants and tokens.
+An A record contains an unpredictable lookup identifier, token verifier, grant identifier,
+client label, typed immutable user identity, immutable database scope if applicable,
+canonical MCP resource, allowed action restrictions, absolute expiry and revocation state.
+Store a version for compare-and-update operations and a nonsecret creation timestamp.
+A B grant adds OAuth client identity, approved scopes and consent state.
+B token records distinguish access and refresh token purpose and link to that grant.
+Both token types also link to their refresh family and its revocation state.
+Authorization codes use separate short-lived verifier records in the same store boundary.
+A browser session remains in its existing session store, not this token store.
+No credential secret is recoverable from any store record.
+
+Use cryptographically secure random secrets with sufficient entropy for bearer credentials.
+Use a reviewed constant-cost keyed verifier check and constant-time comparison on bounded tokens.
+Do not run a slow password hash or password key derivation on the bearer request path.
+Separate lookup identifiers from secrets. A lookup identifier alone cannot authenticate.
+Strong random secrets remain required even with a keyed verifier.
+Keep verification keys outside records and out of logs.
+Before verifier work, rate-limit failed bearer attempts by source and bounded lookup identifier.
+Bound the limiter's state and apply source admission before allocating identifier state.
+Do not reveal lookup identifiers in tool results, events, errors or other untrusted output.
+Do not add signed self-contained tokens that bypass the revocation store.
+Issuance requires an available authoritative store. Fail closed on store failure.
+Serve token-record validation from a bounded authoritative in-memory index.
+Keep lookup and verifier work bounded. Make no per-request token-store writes or database queries.
+The current-user recheck below separately validates the user's current security state.
+Serialize security-store mutations with index updates. Commit durable changes before acknowledging them.
+Never validate against an index that has missed a committed revocation or version change.
+An unavailable or unsynchronized index denies access.
+Define store durability and migration with server security storage during implementation.
+A lost or unavailable record denies access rather than reconstructing authority from a client.
+
+Make grant creation, revocation and refresh rotation atomic.
+Validation observes the grant version and revocation state together.
+Before publishing a newly minted token, compare the live grant version again.
+A concurrent revoke must either precede issuance and reject it or invalidate its result.
+Never hold a store or security guard while calling database work, writing a socket or serializing.
+Bound records per identity, client and server, plus labels, restrictions and cleanup work.
+Use bounded expiration cleanup. Expired records deny access even before cleanup removes them.
+List only nonsecret metadata to the owning user. Do not expose verifiers.
+Audit creation, revocation, consent and refresh-reuse detection with nonsecret grant identifiers.
+Exclude token lookup identifiers from audit output as well as credentials.
+Exclude secrets, executable inputs and sensitive result content from audit events.
+
+Canonical resource is the configured external HTTPS MCP endpoint, for example
+`https://db.example.com/mcp`. The domain is illustrative, not a default deployment.
+Use a single normalized resource value with lowercase scheme and host and explicit path.
+Reject fragments, unapproved aliases and ambiguous paths. Never infer it from untrusted headers.
+A tokens and B access tokens have that exact resource audience.
+Never accept a browser session, OAuth authorization code, refresh token or unrelated access token
+as an MCP access token. Never pass an incoming MCP token to an upstream service.
+
+Let R retain Track 104's finite positive maximum authorization lease duration.
+Measure the MCP deadline from validation start, not security-lookup completion.
+Bound it by check-start plus R and token expiry.
+Recheck grant and refresh-family revocation, current user status, immutable scope and permissions.
+Recheck before each request and continuation, plus periodic stream validation.
+Check the deadline before each page, chunk, frame or tool-result release.
+Independent timers abort expired delivery even if validation, backend or output stalls.
+A recheck that finishes after its deadline cannot renew authority.
+Event delivery, heartbeat and revalidation never extend token expiry.
+No browser idle lifetime applies to an A or B bearer credential.
+SDK session activity cannot lengthen token or grant lifetime.
+On revocation or expiry, cancel work and discard unsent output under the existing rules.
+Keep execution reservations until worker cleanup ends.
+Already delivered bytes cannot be recalled.
+Browser logout does not revoke independent client grants. Explicit per-client revoke does.
+User deletion, suspension, role removal or database replacement still invalidates authority.
+MCP credentials are independent of the password. A password change does not revoke them.
+The user revokes them in the credential list.
+CN-11 and RG22 remain Track 106 findings, not new guarantees of this adapter.
+
+### Option A: first MCP delivery
+
+Add narrowly scoped self-service routes under `/admin/v1/mcp/clients`.
+POST creates one credential for the logged-in user with label, expiry and action restrictions.
+GET lists that user's nonsecret client metadata.
+DELETE `/{clientId}` revokes that user's client grant and all its credentials.
+Require a valid browser session, same-origin evidence and session-bound CSRF token on all three.
+Require at least one currently permitted MCP action before creation.
+Require recent re-authentication of the session's typed user before creating an MCP credential.
+A valid session alone is insufficient. Root question 4 owns the re-authentication window.
+Resolve typed identity and scope from the session, not a supplied username.
+Reject restrictions beyond current authority and nonpositive or unbounded expiry.
+Bound expiry by configured credential policy. Root question 4 keeps numerical values open.
+Give each client installation its own record. Do not share administrator credentials.
+These routes do not edit roles, create users or administer another user's grants.
+
+Return the token once over TLS with no-store response headers.
+The web application keeps it only long enough for explicit copy into a client's secret mechanism.
+Do not put it in persistent browser storage, generated committed configuration or telemetry.
+Show label, scope, restrictions and expiry before creation.
+Loss of the secret requires revocation and replacement, not retrieval.
+A has no refresh flow. Expiry requires a new browser-created credential.
+Creating a new credential does not implicitly revoke an older one.
+Reserve bounded admission and worker capacity for browser client listing and revocation.
+MCP calls cannot consume this reserve or exhaust those operations' admission through the identity budget.
+Keep these management operations bounded and browser-authenticated.
+DELETE commits revocation before acknowledging success.
+Best-effort local cancellation can shorten the bound. All requests still expire within R.
+Do not claim universal client interoperability or MCP OAuth profile compliance.
+A client must support a private bearer header and separate per-user secret storage.
+
+### Option B: later YouTrackDB-hosted OAuth 2.1 phase
+
+B is a follow-up delivery on the same store and adapter, not first-delivery work.
+YouTrackDB acts as both authorization server and protected MCP resource server.
+Reuse existing typed web login, browser sessions and current role checks.
+Use a maintained OAuth implementation for protocol primitives.
+Do not select a new library or identity provider in this design track.
+When B is disabled, expose no working OAuth endpoints or misleading discovery.
+A credentials remain custom credentials with their original expiry and restrictions.
+Do not exchange A credentials or browser cookies at the OAuth token endpoint.
+
+| Endpoint | Contract when B is enabled |
+|---|---|
+| `/.well-known/oauth-protected-resource/mcp` | Protected resource metadata with canonical resource, authorization server and minimal supported scopes |
+| `/.well-known/oauth-authorization-server` | Authorization server metadata for the configured HTTPS issuer |
+| `/oauth/authorize` | Authorization code request, browser login, recent re-authentication and explicit per-client consent |
+| `/oauth/token` | Authorization code exchange and refresh rotation over TLS |
+| `/oauth/revoke` | Token revocation for the authenticated or bound owning client |
+
+RFC means a numbered Internet standard document.
+Use RFC 9728 for protected resource metadata and RFC 8414 for authorization server metadata.
+Use RFC 7009 for token revocation.
+The gateway forwards these exact server-owned endpoints, not arbitrary OAuth destinations.
+Metadata is public and contains no credentials.
+Proof Key for Code Exchange (PKCE) binds a code exchange to the initiating client.
+The client generates a secret verifier. S256 derives its challenge by SHA-256 hashing the verifier
+and encoding the digest with base64url without padding.
+The authorization request carries that challenge. The token exchange supplies the verifier.
+The server recomputes the challenge and requires an exact match.
+Publish issuer, authorization endpoint, token endpoint, revocation endpoint,
+`response_types_supported: ["code"]`, authorization-code and refresh grant types,
+supported scopes, `token_endpoint_auth_methods_supported: ["none", "client_secret_post"]` and
+`revocation_endpoint_auth_methods_supported: ["none", "client_secret_post"]`.
+Publish `code_challenge_methods_supported: ["S256"]`.
+Publish `client_id_metadata_document_supported: true` only with validated support.
+Protected resource metadata names the same issuer in `authorization_servers`.
+Return a Bearer 401 challenge with its `resource_metadata` URL for missing or invalid access tokens.
+A 403 insufficient-scope challenge names the minimum scopes for the requested operation.
+Do not disclose another user's resources or automatically retry an execution after step-up.
+
+Support explicit operator pre-registration and Client ID Metadata Documents (CIMD).
+A CIMD client identifier is an HTTPS URL with a path to a metadata document.
+Require `client_id`, `client_name` and `redirect_uris`.
+The document's client identifier must exactly match the requested URL.
+Validate schema, bounded bytes, time, depth and redirect count before trusting the metadata.
+Fetch metadata only after successful browser login, with per-source admission limits.
+Use a dedicated bounded metadata-fetch executor with a global concurrency cap.
+Do not use listener, lease-revalidation or backend-adapter workers for these fetches.
+Fetch only approved public HTTPS destinations with valid certificates and no redirects.
+Block loopback, private, link-local, metadata-service and other special-purpose addresses.
+Resolve and validate every address, including on refetch, and connect only to a validated address.
+Keep original hostname verification and TLS server name. Do not trust DNS changes after validation.
+Cache bounded metadata with bounded freshness. Never accept redirects added by a stale cache.
+Display client name as untrusted text, not as proof of trust.
+Do not fetch icons or arbitrary client-linked resources.
+Dynamic Client Registration (DCR) is not supported or advertised.
+No implicit, password or client-credentials grant is supported.
+
+Map OAuth scopes to the seven tool actions and the permitted event-read actions.
+Use `health:read`, `health-history:read`, `slow-queries:read`, `logs:read`,
+`metrics:read`, `explain` and `profile` as the external scope names.
+Events require their corresponding health-history or slow-query scope and current read permission.
+Scopes restrict authority. They never assign database roles or erase the grant's immutable scope.
+Consent names typed identity, database or server scope, client, resource, actions and expiry.
+Clearly display the redirect URI hostname, independently of the untrusted client name.
+Warn when the redirect is loopback-only, since a local process can receive it.
+Do not include Profile among default requested scopes.
+Granting Profile still requires the separate default-off MCP Profile role permission.
+Check roles at consent, token exchange, refresh and every resource authorization.
+Refuse scopes outside current authority. Never silently broaden an existing grant.
+A role increase cannot exceed the user's approved grant restrictions.
+Additional scopes require a new explicit consent flow.
+
+Authorization requests require `response_type=code`, client identifier, registered redirect URI,
+canonical `resource`, requested scopes and PKCE S256 challenge.
+The client uses and validates unpredictable `state` to bind its callback to the initiating request.
+Bind the server's pending consent transaction to its browser session and validated request.
+Protect consent submission with existing origin and CSRF controls.
+Never redirect to a URI until client metadata and that exact URI pass validation.
+Match registered redirect URIs exactly, with only the OAuth native-loopback port exception.
+Require HTTPS except for permitted native loopback redirects. Forbid wildcard redirects.
+Do not allow open redirects, arbitrary return-to URLs or credentials in redirects.
+Require recent re-authentication of the session's typed user before consent or grant creation.
+Apply the same rule as option A. A current login alone is insufficient.
+Root question 4 owns the re-authentication window.
+Require explicit per-client consent even for a user with a current login.
+Encode only a short-lived single-use code and the caller's state in a successful redirect.
+Do not place access or refresh tokens there.
+Denial uses OAuth errors only after redirect validation, otherwise a local generic error.
+
+Bind the code verifier record to client, redirect URI, typed user, resource, scopes,
+grant version, PKCE challenge and finite expiry.
+The token request repeats `resource` and redirect URI and supplies the code and PKCE verifier.
+Require S256 for public and confidential clients. Do not downgrade to plain or omit PKCE.
+Public clients use registered authentication method `none`.
+Confidential pre-registered clients use `client_secret_post` at `/oauth/token` and `/oauth/revoke`.
+Validate the body-supplied secret against a securely stored client-secret verifier.
+Neither endpoint uses Authorization for client authentication. Gateway stripping still applies.
+Require the configured method. Do not embed client secrets in public clients.
+Consume the authorization code atomically once with grant-version validation.
+Reject replay, expiry, wrong verifier, changed redirect, client mismatch or resource mismatch.
+Only then issue an opaque short-lived access token and a rotating opaque refresh token.
+Return token type Bearer, granted scopes and finite `expires_in`, with no-store headers.
+Both use verifier-only records linked to the client grant.
+No ID token or other token type substitutes for an MCP access token.
+
+A refresh token has finite absolute expiry and belongs to one client, grant and resource.
+Authenticate the bound client as required and validate current user, roles and grant version.
+Require canonical resource and no scope expansion on refresh.
+Atomically consume the old refresh record and issue its replacement with a new access token.
+A refresh race has one rotation winner. Every use of the consumed token, including a concurrent
+loser, fails and revokes the whole family. Do not exempt near-simultaneous reuse.
+The winner's newly issued access and refresh tokens then lose authority too.
+Recheck family state on every access-token validation and stream revalidation.
+Family revocation ends existing access-token delivery within R and never extends token expiry.
+Keep bounded consumed-token tombstones until family expiry to detect replay.
+Reserve a fixed identity tombstone allocation from the server ceiling at identity admission,
+before admitting its first B grant. Reject admission if no allocation is available.
+Reserve each client's fixed slice within that identity allocation before publishing its first B grant.
+Additional clients cannot enlarge the identity allocation or borrow another identity's reserved capacity.
+Keep reservations while any covered family or unexpired tombstone remains.
+Reserve a slot within the client's slice before consuming a refresh token or issuing replacements.
+If capacity is full, reject rotation without issuing credentials or consuming the old token.
+Never evict an unexpired tombstone to admit a rotation.
+Clients must serialize refresh and must not blindly retry after an uncertain rotation result.
+Never resurrect a revoked family or extend its original absolute lifetime.
+Revocation of the client grant invalidates all access and refresh tokens in that grant.
+RFC 7009 revocation checks client ownership and returns a generic success for unknown tokens.
+Revoking a refresh token revokes its family. Revoking an access token invalidates that token.
+The owning user can revoke the whole grant through the same protected web self-service surface.
+Rate-limit discovery fetches, authorization attempts, token requests and revocation requests.
+Bound pending codes, consent transactions, grants and token families before allocating state.
+Return generic OAuth failures without token values or user-existence details.
+
+### Tool schemas and result mapping
+
+Use the same action and immutable scope resolution as administration routes.
+Catalog discovery reveals only permitted enabled tools and bounded schema metadata.
+A stale catalog is no authority. Recheck each call.
+All schemas are closed objects with bounded strings, arrays and nesting.
+
+| Tool | Required and optional input fields |
+|---|---|
+| `get_health` | Required `scope`: process or database, plus database identifier for database scope |
+| `list_health_history` | Same scope, optional `mode` (`now` or `recent`), `cursor` and bounded `limit` |
+| `list_slow_queries` | Required database identifier, optional cursor, limit and accepted canonical filters |
+| `search_logs` | Required bounded search expression, start and end, optional bounded limit |
+| `query_metrics` | Required bounded expression, start, end and step |
+| `explain_query` | Required database identifier, full inner query and typed parameter object |
+| `profile_query` | Same investigation inputs plus required `executionConsent: true` |
+
+Do not accept arbitrary store URLs, data-source identifiers or execution wrappers.
+For `list_health_history`, omit both cursor and mode to start now, or send `mode: "now"`.
+Send `mode: "recent"` without a cursor to start at the oldest retained transition of the current owner.
+Capture that owner's generation and head under its guard and use the bounded administration page.
+Return a continuation cursor at the last scanned position, even for an empty page.
+A continuation supplies the cursor and omits mode. Reject any cursor combined with mode.
+Keep scope and filters unchanged across continuation. Never switch owners through a continuation.
+After owner replacement, require explicit fresh scope selection and a new cursor-free request.
+The caller may then choose `mode: "recent"` for the new owner's retained history.
+The event methods' null-cursor start-now contract is unchanged.
+Tool results preserve freshness, generation, position, next cursor and explicit availability status.
+Preserve slow-record capture fields and immutable correlation snapshots.
+A trace identifier is a reference, not a new trace-read tool or automatic lookup.
+Local tools work when OpenTelemetry or telemetry stores are unavailable.
+Log and measurement tools use the existing bounded Loki and Prometheus adapters.
+Share rate and concurrency limits with browser and Grafana.
+Add per-client sub-quotas inside the shared per-identity budget, never extra identity capacity.
+Charge each grant's tools, polls and streams to both client and identity limits.
+One client cannot consume another client's share or the reserved client-management capacity.
+Also share their bounds on scanned work, time range and result bytes.
+Do not create an MCP-specific allowance that multiplies a user's backend capacity.
+Health tools serve already evaluated state. Readers never trigger health evaluation.
+
+Explain and Profile call QueryInvestigationService with current identity and action.
+Require ordinary Explain or Profile permission, plus `mcp.profile` for MCP Profile.
+The latter is an additional default-deny role resource, not a replacement for Profile permission.
+Apply query-only validation, no-cache parsing and planning, memory bounds and read-only execution.
+Require the explicit consent flag only for Profile execution, not Explain planning.
+Client documentation requires a user approval for the exact call before sending that flag.
+Do not claim that a server can verify the client's user interface.
+Never auto-retry Profile after a scope upgrade, expired token, ambiguous response or disconnect.
+Cancel on disconnect or authority loss and retain the execution slot through cleanup.
+No retained query identifier can substitute for request-local executable inputs.
+
+Return bounded structuredContent and a compatible text rendering with the same warning and fields.
+Set `untrustedData: true` on every result envelope and event data object.
+Tool descriptions and text renderings say that content is untrusted data, never instructions.
+Treat names, reasons, logs, query text and plans as escaped content.
+Do not put dynamic content into descriptions, system instructions or executable links.
+Mark monitoring tools read-only and non-destructive as advisory annotations.
+Never set `readOnlyHint: true` on `profile_query`, even for validated query-only execution.
+Set `readOnlyHint: false` and prefer advisory hints that cause hosts to ask for approval.
+No annotation bypasses permissions, consent, safety validation or limits.
+
+Authentication failures are HTTP 401 before JSON-RPC dispatch.
+Resource-level permission failures use HTTP 403 before dispatch.
+Authenticated event-method denials use the sketch's Forbidden JSON-RPC error.
+During an established event stream use its terminal notification if a safe frame can be sent.
+Malformed messages and invalid arguments use standard JSON-RPC errors.
+Unknown methods return method-not-found.
+Tool domain failures use `isError: true` with bounded safe status details.
+Map administration gap or reset to explicit tool result status rather than empty success.
+Keep unavailable telemetry distinct from an empty successful result.
+Never include credentials, full submitted query inputs or backend error bodies in failures.
+
+### Experimental events and cursor mapping
+
+Pin `modelcontextprotocol/experimental-ext-triggers-events` at
+`d5316be214be2e76e51462069c1d67e00a5a7619`, checked on 2026-11-09.
+Use `docs/design-sketch-proposal.md`, especially its method tables and Cursor Lifecycle.
+Advertise top-level `capabilities.events: {listChanged: false}` only when explicitly enabled.
+Document this as the experimental sketch adapter on MCP 2025-11-25.
+Do not use the later `capabilities.extensions` contract, `resultType`, `Mcp-Method` or `Mcp-Name`.
+MCP 2026-07-28 support is a later adapter change.
+Standard clients without event support can use the tools.
+Do not promise that the Java SDK implements the sketch without this adapter.
+
+| Method | Input | Result or delivery |
+|---|---|---|
+| `events/list` | Optional pagination cursor | Authorized descriptors and optional nextCursor |
+| `events/poll` | name, arguments, optional nullable cursor, maxAgeMs, maxEvents | events, cursor, truncated, hasMore, nextPollMs |
+| `events/stream` | name, arguments, optional nullable cursor, maxAgeMs | POST SSE response for that subscription |
+| `events/subscribe`, `events/unsubscribe` | Not offered | Method-not-found, no callback or subscription state |
+
+Descriptors have name, description, delivery, inputSchema and payloadSchema.
+Only `health.changed` and `slow_query.retained` exist, with delivery `["poll","push"]`.
+Health arguments select one process or database scope. Slow-query arguments require one database.
+Allow only the existing bounded canonical filters. Reject unknown arguments.
+Health requires the existing matching health-read permission.
+Slow queries require slow-query permission.
+Recheck current scope and grant on every poll and stream admission.
+A minimal health payload includes state, reason codes, observation time, freshness and owner position.
+A minimal slow payload includes retained record identifier, owner position and capture time.
+Clients use `list_slow_queries` for the authorized record details.
+Both data objects carry the untrusted marker and no raw query, parameters or exception text.
+
+An occurrence has stable eventId, name, ISO-8601 timestamp and object data.
+Derive eventId from immutable scope identity, owner generation, event kind and position.
+Do not expose a credential or grant identifier in eventId.
+Preserve capture-time payloads. Do not rewrite an old occurrence with later trace association.
+Poll uses a response cursor. Push occurrences also carry their after-event cursor.
+Route push notifications with `_meta["io.modelcontextprotocol/subscriptionId"]`
+equal to the parent JSON-RPC request identifier.
+
+Missing cursor equals null in either direction under the sketch.
+For these replay-capable histories always return a non-null cursor.
+An initial null poll returns no events and a fresh current position.
+An initial null stream sends active at the current position and then observes later publications.
+Ignore maxAgeMs with null. Never use it to request history before that start.
+A non-null cursor uses the shared integrity-protected scope, kind, generation and filter binding.
+Include the logical process or database selector as well as immutable database identity.
+Use that selector only to classify replacement, never to grant authority or silently change owners.
+Validate authorization before any history lookup.
+Persist the cursor integrity key in server security storage across restarts.
+A pre-restart cursor with valid integrity for the requested logical scope returns Unsupported
+with `feature: "ownerGeneration"`, because owner generations are never reused.
+Check integrity and syntax first. Malformed or tampered cursors return InvalidParams.
+Then check owner replacement for the requested logical scope before immutable-instance mismatch.
+A valid old-owner cursor for that scope returns Unsupported with `feature: "ownerGeneration"`,
+even if drop and re-create changed its immutable database identity.
+A cursor for a different logical scope or changed filters returns InvalidParams.
+Do not turn any of these errors into a successful gap.
+On Unsupported during push, terminate that subscription.
+Require explicit fresh scope selection and a null cursor.
+This preserves the administration rule against silently switching database instances.
+
+Capture head H and scan the existing retained history under its owner guard.
+Count copied and filtered-out positions as scanned, never byte-deferred entries.
+Release the guard before serialization, revalidation or output.
+Use intermediate cursors when count, scan or byte limits stop a page before H.
+Set hasMore when an unscanned suffix remains. Partial pages alone have truncated false.
+A filtered empty page can still advance through its scanned prefix.
+Quiet poll responses and push heartbeats use only positions safely scanned.
+They cannot skip an unscanned suffix to jump to H.
+
+For retention eviction, an age floor or a server replay ceiling, choose a fresh serveable position.
+Return truncated true whenever this skips possibly unread events.
+maxAgeMs moves the floor to the later of the cursor and now minus maxAgeMs.
+Bound age-floor scanning. A bounded reset to now is allowed with truncated true.
+Poll reports the gap in a successful result, never HTTP 409 or a JSON-RPC error.
+Push sends a fresh active notification with truncated true and continues on the same stream.
+Do not force reconnection merely for truncation.
+Clients persist the fresh cursor and may refresh authoritative state through tools.
+No history duplication, durable replay store or per-subscriber event queue is introduced.
+
+Start a valid stream with `notifications/events/active {cursor,truncated}`.
+Then send event, heartbeat, recoverable error or terminal terminated notifications.
+All carry subscription routing metadata.
+The final server-initiated graceful frame is the parent request result `{"_meta":{}}`.
+Client abort cannot receive that frame. Release reader reservations and timer tasks on either exit.
+Use the dedicated bounded stream quota, not ordinary short-request concurrency slots.
+Still charge per-client, per-identity and global stream counts, output pages, scan work and queued bytes.
+Exempting long-lived requests from short-request slots never means unlimited subscriptions.
+Use the existing bounded worker pools and independent lease timers.
+Do not schedule health evaluation or backend queries for heartbeats.
+Choose a finite heartbeat interval consistent with the sketch and configured transport bounds.
+Heartbeats do not prove health, renew tokens or extend authority.
+On an idle lease deadline abort, a terminal frame is best effort only.
+Do not wait for a writable socket to enforce revocation.
+
+Use the sketch's provisional event errors: InvalidParams -32602, NotFound -32023,
+Forbidden -32024, ResourceExhausted -32025 and Unsupported -32026.
+Unknown names are NotFound. Denied event arguments are Forbidden.
+Saturation is ResourceExhausted. Unsupported owner generation requires explicit reset.
+Recoverable per-occurrence errors leave the stream active.
+Revocation or event removal ends it with terminated when a safe frame can be sent.
+The existing independent deadline abort remains authoritative if no frame can be sent.
+No webhook-only CallbackEndpointError is emitted.
+No cross-subscription ordering, exactly-once or restart-durable delivery is promised.
+Client deduplication uses eventId and recovery can yield duplicates or explicit gaps.
+
+### Webhook constraints, not implementation
+
+Do not advertise webhook delivery, accept callback URLs or call outbound destinations.
+A later webhook design must authenticate the owning principal and key subscriptions by
+principal, canonical destination, event name and canonical arguments.
+A returned subscription identifier is routing state, never authority.
+Require HTTPS, certificate validation and endpoint ownership verification before activation.
+Validate destination addresses on every attempt and pin the validated connection address.
+Block private, loopback, link-local, cloud metadata and all other special-purpose destinations.
+Do not follow redirects or trust DNS rebinding.
+Bound per-destination and per-principal subscription rates before endpoint verification.
+Use per-subscription signing secrets, signed deliveries and receiver timestamp checks.
+Separate transport message identifiers from application eventId.
+Require replay detection, rotation and a bounded dual-signing overlap.
+Keep secrets out of payloads, errors, status fields, logs and telemetry.
+Use fixed delivery error categories, never endpoint response bodies or headers.
+Require finite subscription lifetime, delivery deadlines, retry count, queue bytes and payload bounds.
+Revalidate current authority before delivery and stop on revocation within the shared bound.
+Do not schedule webhook packaging, signing-key discovery or delivery implementation in Track 106.
+
+### Required implementation verification
+
+These are design requirements, not tests run by this documentation track.
+- Reject cookie-only MCP, duplicate Authorization, wrong audience and refresh-token substitution.
+- Accept valid non-browser bearer requests without Referer or CSRF. Reject unapproved Origin.
+- Keep browser creation, listing, revocation and consent protected against CSRF.
+- A credential creation and B consent or grant creation fail without recent re-authentication.
+- A valid browser session alone cannot authorize either creation path or B consent.
+- Prove that forwarding preserves MCP bearer only to `/mcp`, never to Grafana or stores.
+- Non-MCP gateway routes strip Authorization. Direct `/admin/v1` routes reject MCP-audience bearers.
+- OAuth discovery advertises only `none` and `client_secret_post` at token and revocation endpoints.
+- Confidential clients authenticate there through body credentials despite Authorization stripping.
+- Test `/admin/v1/gateway/authorize` rejection without relying on gateway header stripping.
+- Wildcard database ALL and server-user `*` grants cannot authorize any new default-deny resource.
+- An exact grant is required for monitoring, Explain, Profile and the extra `mcp.profile` resource.
+- Same-name typed users stay distinct. Foreign database and replaced-owner cursors cannot cross scope.
+- Concurrent revoke and mint cannot publish a valid token after revocation.
+- Idle streams stop within R with blocked role checks and an unwritable transport.
+- Token expiry races result flush and heartbeat. Neither can release bytes with an expired lease.
+- OAuth code replay, PKCE downgrade, resource mismatch and malicious redirects fail closed.
+- CIMD fetch rejects redirects, oversized documents, private addresses and DNS rebinding.
+- No CIMD fetch runs before login. Source limits and executor saturation reject excess fetches.
+- Consent displays the validated redirect hostname and a loopback-only warning when applicable.
+- Two refreshes have one rotation winner. The loser revokes the family, including the winner's tokens.
+- Later replay also revokes the family. Existing access-token streams end within R.
+- A full client tombstone allocation rejects rotation without consuming the old token or live state.
+- Reserve two identities' allocations before publishing their B grants. Fill one identity with clients.
+- Reject its excess client admission. The other identity can still rotate within its reserved allocation.
+- One client fills its tombstone slice. Another admitted client can still rotate within its own slice.
+- A role change restricts A, B and browser calls identically. Grant limits survive a role increase.
+- All seven tools use shared bounds. Many client tokens cannot multiply one identity's budget.
+- A runaway client's tools, polls and streams hit its sub-quota while other clients retain capacity.
+- Browser listing and revocation remain admitted through their reserve during client saturation.
+- Failed-bearer floods hit source and lookup limits before verifier work and cannot grow limiter state.
+- Validation uses bounded index reads and keyed checks, without per-request storage writes.
+- Store or index failure denies access. Concurrent index updates never miss committed revocation.
+- Profile without separate permission or explicit consent fails before planning.
+- Profile catalog annotations never advertise `readOnlyHint: true`.
+- Profile transport replay never starts a second execution. Cancellation holds capacity through cleanup.
+- Hostile tool and event content remains labelled data and never triggers automatic execution.
+- Initial null poll returns no history. Missing and null cursors behave identically.
+- Initial `list_health_history` with `mode: "recent"` retrieves retained transitions without a cursor.
+- Continuation omits mode, resumes at the scanned prefix and rejects cursor-plus-mode input.
+- After owner replacement, fresh scope selection and recent mode retrieve the new owner's history.
+- A valid pre-restart cursor returns Unsupported, not an integrity failure.
+- Old-owner classification precedes replaced-instance scope mismatch. Unrelated scope stays InvalidParams.
+- A partial page stops at the scanned prefix and hasMore does not imply truncation.
+- Retention gaps produce successful poll truncation and same-stream active truncation.
+- Owner replacement terminates instead of silently resuming another database instance.
+- Quiet heartbeats advance only through scanned positions and never extend authorization.
+- Slow readers, cancellation and malformed cursors leave no growing queue or leaked reservation.
+
+### Open questions and references
+
+Root question 6 uses A first and B as the specified follow-up phase.
+Track 106 rebuilds the plan and places B later without adding webhook implementation.
+Root questions 4 and 5 remain open for all numerical credential, lease, protocol-session,
+stream, code, refresh, request, telemetry and investigation limits.
+Require finite configured limits before enablement. No unlimited fallback is approved.
+Finer telemetry isolation and MCP 2026-07-28 remain outside this delivery.
+CN-11 and RG22 stay deferred. No new performance budget is added.
+
+- Baseline: [MCP 2025-11-25 authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+- SDK: [MCP Java SDK 2.1.0](https://github.com/modelcontextprotocol/java-sdk/releases/tag/v2.1.0).
+- Pin: [experimental sketch](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/d5316be214be2e76e51462069c1d67e00a5a7619/docs/design-sketch-proposal.md).
 
 ## Quick-start observability stack
 
@@ -1803,7 +2390,7 @@ The complete delivery includes database monitoring and the web application.
 Example files alone are not the delivery boundary. Keep setup files outside module JAR resources.
 
 The web application embeds Grafana panels through its authenticated gateway.
-Core stays independent of Grafana. Track 105 defines optional MCP access.
+Core stays independent of Grafana. Optional MCP uses the gateway and shared administration services.
 Production may run telemetry stores separately.
 Exporter selection, host-owned SDK support and unset-endpoint behavior remain unchanged.
 Publish only OTLP receivers and the application TLS entry port, with loopback-only host mappings.
