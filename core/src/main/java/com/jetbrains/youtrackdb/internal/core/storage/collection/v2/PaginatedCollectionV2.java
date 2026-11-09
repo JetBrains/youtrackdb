@@ -95,9 +95,10 @@ import javax.annotation.Nullable;
  *  |       Each bucket holds up to MAX_ENTRIES position entries:
  *  |         [status: 1B][pageIndex: 8B][recordPosition: 4B][recordVersion: 8B]
  *  |
- *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (two-level segment tree)
- *        page 0: first-level summary (max free space per second-level page)
- *        page 1..K: second-level leaves (max free space per data page)
+ *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (three-level segment tree)
+ *        page 0: root summary (max free space per middle page)
+ *        middle pages: max free space per leaf page
+ *        leaf pages: max free space per data page, in depth-first file order
  * }</pre>
  *
  * <h2>Record Storage Layout</h2>
@@ -217,8 +218,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private final CollectionPositionMapV2 collectionPositionMap;
 
   /**
-   * Two-level segment tree that tracks the maximum free space available on each data page,
-   * enabling O(log N) lookup for a page with enough room for a new record chunk.
+   * Three-level free-space map with root, middle, and leaf pages. It tracks the maximum free
+   * space on each data page for O(log N) lookup of room for a new record chunk.
    */
   private final FreeSpaceMap freeSpaceMap;
 
