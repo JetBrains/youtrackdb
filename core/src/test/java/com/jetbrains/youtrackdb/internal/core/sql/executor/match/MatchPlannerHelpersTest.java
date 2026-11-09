@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
@@ -1920,6 +1921,62 @@ public class MatchPlannerHelpersTest {
       assertThat(MatchExecutionPlanner.estimateNotPatternCardinality(exp,
           Map.of("a", "City"), Map.of(), Map.of(), ctx)).as(marker).isEqualTo(101);
     }
+  }
+
+  /** A tighter propagated estimate replaces a seeded lineage, in either schedule direction. */
+  @Test
+  public void forecastWinningEstimateCarriesRootLineageAcrossHops() throws Exception {
+    for (var forward : List.of(true, false)) {
+      for (var seededTarget : List.of(true, false)) {
+        var schedule = forecastSchedule(forward);
+        var source = forward ? "a" : "c";
+        var target = forward ? "c" : "a";
+        var estimates = new HashMap<>(Map.of(source, 1L, target, 1_000_000L));
+        if (seededTarget) {
+          estimates.put("b", 1000L);
+        }
+        stampForecasts(schedule, estimates);
+        assertThat(schedule.getFirst().getForecastN()).isEqualTo(10L);
+        assertThat(schedule.getLast().getForecastN()).isEqualTo(100L);
+        assertThat(schedule.getFirst().getRootSourceRows()).isEqualTo(1L);
+        assertThat(schedule.getLast().getRootSourceRows()).isEqualTo(1L);
+      }
+    }
+  }
+
+  /** A smaller or equal seeded estimate keeps its own lineage when propagation does not win. */
+  @Test
+  public void forecastRetainedEstimateKeepsItsRootLineage() throws Exception {
+    for (var forward : List.of(true, false)) {
+      for (var retained : List.of(5L, 10L)) {
+        var schedule = forecastSchedule(forward);
+        var source = forward ? "a" : "c";
+        var target = forward ? "c" : "a";
+        stampForecasts(schedule, Map.of(source, 1L, "b", retained, target, 1_000_000L));
+        assertThat(schedule.getFirst().getForecastN()).isEqualTo(10L);
+        assertThat(schedule.getFirst().getRootSourceRows()).isEqualTo(1L);
+        assertThat(schedule.getLast().getForecastN()).isEqualTo(retained * 10);
+        assertThat(schedule.getLast().getRootSourceRows()).isEqualTo(retained);
+      }
+    }
+  }
+
+  private static List<EdgeTraversal> forecastSchedule(boolean forward) throws Exception {
+    var schedule = forwardSchedule(parseExpression("{as:a}.out(){as:b}.out(){as:c}"));
+    if (forward) {
+      return schedule;
+    }
+    return List.of(new EdgeTraversal(schedule.getLast().edge, false),
+        new EdgeTraversal(schedule.getFirst().edge, false));
+  }
+
+  private void stampForecasts(List<EdgeTraversal> schedule, Map<String, Long> estimates)
+      throws Exception {
+    var method = MatchExecutionPlanner.class.getDeclaredMethod("stampEdgeMetadata",
+        List.class, Map.class, boolean.class, CommandContext.class);
+    method.setAccessible(true);
+    method.invoke(plannerWithDefaults(), schedule, estimates, true,
+        buildMockContext("Person", 100));
   }
 
   // ── Test helpers ────────────────────────────────────────────────────────

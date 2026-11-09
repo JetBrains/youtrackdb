@@ -4155,15 +4155,10 @@ public class MatchExecutionPlanner {
       Long existing = aliasRowEstimate.get(targetAlias);
       if (existing == null || targetRows < existing) {
         aliasRowEstimate.put(targetAlias, targetRows);
-        // Propagate the source's root sample size. If the target already
-        // had a fresher root sample size from {@code estimatedRootEntries}
-        // (e.g. it's itself a class-rooted alias), keep that — fresh
-        // class-based statistics outrank inherited lineage from a tiny
-        // upstream sample.
-        Long existingRoot = aliasRootSampleSize.get(targetAlias);
-        if (existingRoot == null && sourceRootSize != null) {
-          aliasRootSampleSize.put(targetAlias, sourceRootSize);
-        }
+        // The winning row estimate and its root lineage must move together.
+        // Fan-out does not create independent root samples for the CLT gate.
+        assert sourceRootSize != null;
+        aliasRootSampleSize.put(targetAlias, sourceRootSize);
       }
     }
   }
