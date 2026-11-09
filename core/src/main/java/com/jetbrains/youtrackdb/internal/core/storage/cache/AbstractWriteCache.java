@@ -21,8 +21,42 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import javax.annotation.Nullable;
 
 public class AbstractWriteCache {
+
+  /** Validates supplied-id booking arguments before either cache takes its metadata lock. */
+  protected static int validateSuppliedFileId(String fileName, long fileId,
+      boolean reconstructAuxiliary, String storageName) {
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
+    return intId;
+  }
+
+  /** The caller collects these facts and applies the rule under its metadata lock. */
+  protected static void validateSuppliedFileIdConflicts(String fileName, int intId,
+      @Nullable Integer registered, boolean liveRegistrationExists, @Nullable String negativeName,
+      boolean aliasExists, boolean openFileExists, boolean diskFileExists,
+      boolean reconstructAuxiliary, String storageName) {
+    final boolean nameRegisteredWithOtherState =
+        registered != null && (!reconstructAuxiliary || registered != -intId);
+    final boolean idLiveUnderAnyName = liveRegistrationExists;
+    final boolean negativeIdHeldByOtherName =
+        negativeName != null && !negativeName.equals(fileName);
+    final boolean idHeldByAlias = aliasExists;
+    final boolean backingFileExists = openFileExists || diskFileExists;
+
+    if (nameRegisteredWithOtherState || idLiveUnderAnyName || negativeIdHeldByOtherName
+        || idHeldByAlias || backingFileExists) {
+      throw new StorageException(storageName,
+          "Conflicting registration or backing file for " + fileName + " and id " + intId);
+    }
+  }
 
   /** Rejects reconstruction unless the strict logical name identifies rebuildable metadata. */
   protected static void validateAuxiliaryReconstruction(String fileName, String storageName) {

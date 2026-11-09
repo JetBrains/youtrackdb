@@ -859,13 +859,8 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
-    final int intId = extractFileId(fileId);
-    if (intId <= 0) {
-      throw new IllegalArgumentException("Internal file identifier must be positive");
-    }
-    if (reconstructAuxiliary) {
-      validateAuxiliaryReconstruction(fileName, storageName);
-    }
+    final int intId =
+        validateSuppliedFileId(fileName, fileId, reconstructAuxiliary, storageName);
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -875,13 +870,12 @@ public final class WOWCache extends AbstractWriteCache
       // Scan names too: older registries can contain several negative aliases for one id.
       final boolean alias = nameIdMap.entrySet().stream().anyMatch(
           entry -> Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName));
-      if ((registered != null && (!reconstructAuxiliary || registered != -intId))
-          || liveName != null || (negativeName != null && !negativeName.equals(fileName))
-          || alias || files.get(composeFileId(id, intId)) != null
-          || !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)))) {
-        throw new StorageException(storageName,
-            "Conflicting registration or backing file for " + fileName + " and id " + intId);
-      }
+      final boolean openFileExists = files.get(composeFileId(id, intId)) != null;
+      // An indeterminate disk probe must also prevent booking.
+      final boolean diskFileExists =
+          !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
+      validateSuppliedFileIdConflicts(fileName, intId, registered, liveName != null, negativeName,
+          alias, openFileExists, diskFileExists, reconstructAuxiliary, storageName);
       nameIdMap.put(fileName, -intId);
       idNameMap.put(-intId, fileName);
       return composeFileId(id, intId);
