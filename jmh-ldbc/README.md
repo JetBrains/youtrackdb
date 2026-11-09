@@ -513,7 +513,50 @@ unit's lookahead. Child and synthetic union-fork walks emit no events. Callback 
 The declaration rejects typed identity drift, boundary drift and cuts inside a unit. Capture and freeze actual shapes,
 cuts and refused cuts in T5.12. This probe does not install a partial plan, prove suffix safety,
 prove a prefix open or establish partial engagement. Keep baseline arms free of forced MATCH.
-Cold, warm, uncacheable, PF-6 and execution witnesses remain T5.12 obligations.
+Cold, warm, uncacheable, PF-6 and execution witnesses use the correctness runner below.
+
+### Internal two-arm correctness runner
+
+`T5BaselineRunner` is a correctness-only process harness, not a JMH entry point.
+Its `Workload` provider resolves cases and exact tagged feeds once in the parent.
+Children receive that request and must use its feeds without resolving them again.
+A provider supplies a traversal source, query construction, logical element keys and cleanup.
+The fixture test demonstrates both generated and WHERE populations. A complete A/B/C
+catalogue provider and the SF1 feed adapter are required before a server capture.
+No completed SF1 freeze is supplied by the runner itself.
+
+Build the current checkout with `./mvnw package -DskipTests`. Build the unchanged baseline
+in a separate detached worktree at `6f180c31ee4de9ddd61e88267efc65f5d03289f5`.
+For each arm, construct a classpath with its core jar first, current `jmh-ldbc/target/classes`
+and unshaded dependency jars. Do not include the shaded benchmark jar or a second core.
+The loaded core manifest must identify the exact expected build. Neither arm permits
+`FORCE_MATCH_FOR_TESTS`. The native arm disables translation. The baseline keeps its router.
+
+Call `resolve(providerClass, inputSha256s, currentCoreRevision)` once and serialize the
+returned request with Jackson. Record actual input hashes, not placeholder digests.
+The provider must follow the catalogue feed rules above, including the 64-slot derived pool,
+canonical array lengths and exact derived window dates. Replay only disposable database copies.
+After separate approval for the server and SF1 input preparation, use:
+
+```bash
+java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
+  run request.json "$CURRENT_CP" "$BASELINE_CP" scratch capture.json
+java -cp "$CURRENT_CP" com.jetbrains.youtrackdb.benchmarks.ldbc.T5BaselineRunner \
+  check capture.json request.json
+```
+
+The parent runs each arm in a separate JVM with a two-hour child timeout. A nonzero exit
+means a failed child, timeout, malformed or partial capture, missing inventory, unexpected
+result difference or publication failure. It does not publish a new merged capture on failure.
+The output stores typed answers and feeds, loaded revisions, counter-delta cache evidence,
+router outcome witnesses and current-core prepared declarations. Each regime invalidates
+first. WARM primes the exact query. UNCACHEABLE uses an observed schema-transaction veto
+and rolls back that transaction. Native execution observes no translation-cache lookups.
+Other shapes can also bypass or miss in WARM. The recorded observation is authoritative,
+not the regime name. Schema vetoes and zero-lookup bypasses have explicit reasons.
+Cuts remain `declared-not-validated`. Refused cuts retain reasons.
+Only an explicitly reviewed case may permit the known T5.6 step-label baseline difference.
+All other native-versus-baseline or within-arm regime differences fail capture.
 
 `T5BenchmarkCatalogue.loadWhere()` pins 32 B cases with logical bindings and answers.
 Both index variants retain q5, H and U2 separately. Indexed U1 is an archived bypass.
