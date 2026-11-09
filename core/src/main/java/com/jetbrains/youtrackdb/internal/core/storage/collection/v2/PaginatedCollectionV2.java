@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfigurat
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CollectionSizeLimitException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
@@ -381,6 +382,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               dataPageCount = state.getFileSize();
             }
 
+            if (dataPageCount < 0 || dataPageCount > FreeSpaceMap.MAX_DATA_PAGE_INDEX) {
+              throw new PaginatedCollectionException(storageName,
+                  "Invalid data page count " + dataPageCount + ". Maximum data page index is "
+                      + FreeSpaceMap.MAX_DATA_PAGE_INDEX + ".",
+                  this);
+            }
+
             if (freeSpaceMap.exists(atomicOperation)) {
               freeSpaceMap.open(atomicOperation);
             } else {
@@ -406,13 +414,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               // recovery-time orphan-truncation orchestrator
               // (AbstractStorage.truncateOrphansAfterRecovery), which runs after open()
               // and trims the file back to (fileSize + 1) * pageSize.
-              for (var pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
+              for (long pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
 
                 try (final var cacheEntry =
                     loadPageForRead(atomicOperation, fileId, pageIndex)) {
                   final var collectionPage = new CollectionPage(cacheEntry);
                   freeSpaceMap.updatePageFreeSpace(
-                      atomicOperation, pageIndex, collectionPage.getMaxRecordSize());
+                      atomicOperation, (int) pageIndex, collectionPage.getMaxRecordSize());
                 }
 
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
@@ -2291,6 +2299,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
+      // Refuse before allocation or logical growth. The enclosing atomic operation rolls back
+      // any earlier record chunks and position bookings.
+      if (fileSize >= FreeSpaceMap.MAX_DATA_PAGE_INDEX) {
+        throw new CollectionSizeLimitException(storageName, this, FreeSpaceMap.MAX_DATA_PAGE_INDEX);
+      }
 
       // Per-component lock + state-page write lock + monotonic logical fileSize
       // bookkeeping keep fileSize + 1 at or above the in-progress allocation

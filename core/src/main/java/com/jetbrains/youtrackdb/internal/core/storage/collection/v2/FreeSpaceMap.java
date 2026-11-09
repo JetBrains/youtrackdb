@@ -39,6 +39,14 @@ public final class FreeSpaceMap extends StorageComponent {
   static final int NORMALIZATION_INTERVAL =
       (int) Math.floor(DurablePage.MAX_PAGE_SIZE_BYTES / 256.0);
 
+  /** Largest data page index supported by both the three-level tree and int bookkeeping. */
+  static final int MAX_DATA_PAGE_INDEX = maxDataPageIndex(FreeSpaceMapPage.CELLS_PER_PAGE);
+
+  static int maxDataPageIndex(final int entriesPerPage) {
+    return (int) Math.min((long) entriesPerPage * entriesPerPage * entriesPerPage,
+        Integer.MAX_VALUE) - 1;
+  }
+
   /** Internal file ID assigned by the disk cache when the .fsm file is opened/created. */
   private volatile long fileId;
 
@@ -135,7 +143,7 @@ public final class FreeSpaceMap extends StorageComponent {
 
   static int dataPageIndex(final long leafIndex, final int entryIndex) {
     final long index = leafIndex * FreeSpaceMapPage.CELLS_PER_PAGE + entryIndex;
-    return index <= Integer.MAX_VALUE ? (int) index : -1;
+    return index <= MAX_DATA_PAGE_INDEX ? (int) index : -1;
   }
 
   /**
