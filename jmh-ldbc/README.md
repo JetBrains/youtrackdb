@@ -492,8 +492,8 @@ ids. Tag counts use IC6 Person ids. The cycle uses resolved Person ids. Full IC5
 `ic5PersonId/ic5Date`. Known endpoint uses paired IC13 ids.
 
 `LdbcForm.traversal` binds those declarations through a caller-supplied feed resolver.
-Capture exact resolved feed values and typed SF1 answers in T5.12 on the separately approved
-server. No SF1 capture, prefix-payload capture or completed correctness freeze is supplied here.
+Capture exact resolved feed values and typed SF1 answers in the separately approved capture run.
+No SF1 capture, prefix-payload capture or completed correctness freeze is supplied here.
 `T5ResultComparison` compares all populations through the same `Expected` contract.
 It preserves scalar types, token keys, absent versus null values, nested-list order and row
 multiplicity. Root order is explicitly sequence or multiset. The caller supplies immutable
@@ -510,8 +510,9 @@ This history is independent of strategy gates and is not proof of a safe cut. A 
 refusal records no units. Only root steps count, starting with the source as step one.
 Boundaries include transparent steps consumed by the unit, but not those skipped by the next
 unit's lookahead. Child and synthetic union-fork walks emit no events. Callback failures propagate.
-The declaration rejects typed identity drift, boundary drift and cuts inside a unit. Capture and freeze actual shapes,
-cuts and refused cuts in T5.12. This probe does not install a partial plan, prove suffix safety,
+The declaration rejects typed identity drift, boundary drift and cuts inside a unit.
+Capture actual shapes, cuts and refused cuts in the separately approved capture run.
+This probe does not install a partial plan, prove suffix safety,
 prove a prefix open or establish partial engagement. Keep baseline arms free of forced MATCH.
 Cold, warm, uncacheable, PF-6 and execution witnesses use the correctness runner below.
 
@@ -535,7 +536,15 @@ A provider supplies a traversal source, query construction, logical element keys
 The catalogue provider enumerates all 366 A identities with five archived slots, all 32 B
 identities, and all 50 C identities with 64 resolved slots. Its 5,062 bindings require 30,372
 arm/regime items. Catalogue requests are checked against this full inventory, not a caller subset.
-No completed SF1 freeze is supplied by the runner itself.
+
+Use the runner for an untimed SF1 correctness check at the start of T5.5 on the timing server.
+For every catalogue query, compare translator on with translator off.
+Also compare baseline `6f180c31ee` with the partial-translation code.
+A difference stops timing for that query.
+
+Keep the query set, parameters, feed rules and declared cuts fixed in code and tests before timing.
+This check records cache-regime evidence and the PF-6 obligation.
+T5.13 requires no separate SF1 capture or committed freeze data.
 
 Build the current checkout with `./mvnw package -DskipTests`. Build the unchanged baseline
 in a separate detached worktree at `6f180c31ee4de9ddd61e88267efc65f5d03289f5`.
@@ -557,7 +566,7 @@ Both actual hashes and the three catalogue hashes enter the capture.
 The first 64 canonical candidates feed separate resolved Person, Message and place pools.
 Canonical query arrays cycle at their own lengths. IC2-limit and IC9 share the derived
 64-slot date pool. Archived A slots never index those pools.
-After separate approval for the server and SF1 input preparation, use this single capture command:
+Use this capture command for the T5.5 correctness check on the timing server before any timing:
 
 ```bash
 JAVA_OPENS=()
