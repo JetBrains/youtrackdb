@@ -42,7 +42,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
@@ -54,7 +53,7 @@ import javax.annotation.Nullable;
 public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     implements ReadCache, WriteCache {
 
-  private final Lock metadataLock = new ReentrantLock();
+  private final ReentrantLock metadataLock = new ReentrantLock();
 
   private final Object2IntOpenHashMap<String> fileNameIdMap = new Object2IntOpenHashMap<>();
   private final Int2ObjectOpenHashMap<String> fileIdNameMap = new Int2ObjectOpenHashMap<>();
@@ -147,8 +146,10 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     }
   }
 
-  // The caller holds metadataLock. Supplied reservations must not move the sequential counter.
+  // The caller holds metadataLock for the whole loop.
+  // The loop skips ids already held by supplied bookings or supplied files.
   private int nextAvailableFileId() {
+    assert metadataLock.isHeldByCurrentThread();
     do {
       if (counter == Integer.MAX_VALUE) {
         throw new StorageException(storageName, "No positive file identifiers remain");
