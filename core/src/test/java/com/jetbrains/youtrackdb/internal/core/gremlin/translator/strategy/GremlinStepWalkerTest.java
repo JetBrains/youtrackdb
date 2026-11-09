@@ -93,6 +93,172 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
       new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
 
+  /** Literal root positions exclude folded interiors, children, forks and transparent-only work. */
+  @Test
+  public void observedWalkReportsOnlyAcceptedRootUnitsAndPreservesOrdinaryResults() {
+    var shapes = List.of(
+        graph.traversal().V().out("knows"),
+        graph.traversal().V().outE("knows").inV(),
+        graph.traversal().V().filter(__.out("knows")),
+        graph.traversal().V().union(__.out("knows"), __.in("knows")).count(),
+        graph.traversal().V().order().by("name").limit(2).values("name"),
+        graph.traversal().V().values("name").fold(),
+        graph.traversal().V().barrier().out("knows"),
+        graph.traversal().V().limit(2).barrier().values("name"));
+    var boundaries = List.of(List.of(1, 2), List.of(1, 3), List.of(1, 2),
+        List.of(1, 2, 3), List.of(1, 2, 3, 4), List.of(1, 2, 3), List.of(1, 3),
+        List.of(1, 2, 4));
+    for (int i = 0; i < shapes.size(); i++) {
+      var admin = shapes.get(i).asAdmin();
+      var events = new java.util.ArrayList<Integer>();
+      var ordinary = GremlinStepWalker.production().walk(admin.clone());
+      var observed = GremlinStepWalker.production().walkObserved(admin.clone(), events::add);
+      assertThat(ordinary).as("supported fixture %s", admin).isNotNull();
+      assertThat(observed).isNotNull();
+      assertThat(events).as("root units %s", admin).isEqualTo(boundaries.get(i));
+      assertThat(observed.boundaryAlias()).isEqualTo(ordinary.boundaryAlias());
+      assertThat(observed.outputType()).isEqualTo(ordinary.outputType());
+      assertThat(observed.returnClass()).isEqualTo(ordinary.returnClass());
+      assertThat(observed.isMultiPlan()).isEqualTo(ordinary.isMultiPlan());
+      if (!observed.isMultiPlan()) {
+        assertThat(observed.inputs().pattern()).usingRecursiveComparison()
+            .isEqualTo(ordinary.inputs().pattern());
+        assertThat(observed.inputs().aliasClasses()).isEqualTo(ordinary.inputs().aliasClasses());
+        assertThat(observed.inputs().aliasFilters().toString())
+            .isEqualTo(ordinary.inputs().aliasFilters().toString());
+      }
+    }
+  }
+
+  /**
+   * Deferred hops and filters report once, after range folding or a successful MATCH flush.
+   * The range also consumes its trailing values projection. End-of-walk flushes exclude trailing
+   * transparent barriers and never duplicate settled units.
+   */
+  @Test
+  public void observedOrderedHopUnitsWaitForFoldOrFlush() {
+    var shapes = List.of(
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .limit(1).values("name"),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .values("name"),
+        graph.traversal().V().order().by("name").out("knows"),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X").barrier(),
+        graph.traversal().V().order().by("name").out("knows").has("name", "X")
+            .values("name").optional(__.out()));
+    var expected = List.of(List.of(1, 2, 6), List.of(1, 2, 4, 5),
+        List.of(1, 2, 3), List.of(1, 2, 4), List.of(1, 2, 4, 5));
+    for (int i = 0; i < shapes.size(); i++) {
+      var admin = shapes.get(i).asAdmin();
+      var events = new java.util.ArrayList<Integer>();
+      var ordinary = GremlinStepWalker.production().walk(admin.clone());
+      var observed = GremlinStepWalker.production().walkObserved(admin.clone(), events::add);
+      assertThat(events).as("settled units %s", admin).isEqualTo(expected.get(i));
+      if (i == shapes.size() - 1) {
+        assertThat(ordinary).isNull();
+        assertThat(observed).isNull();
+      } else {
+        assertThat(ordinary).isNotNull();
+        assertThat(observed).usingRecursiveComparison().isEqualTo(ordinary);
+      }
+    }
+  }
+
+  /**
+   * A native-only predicate is accepted into the pending hop but refuses MATCH flush, both before
+   * a projection and at end of walk. Neither the hop nor its filter becomes a completed unit.
+   */
+  @Test
+  public void observedRefusedOrderedHopFlushKeepsOnlySettledHistory() {
+    for (boolean trailing : List.of(false, true)) {
+      var shape = graph.traversal().V().order().by("name").out("knows")
+          .hasId("not-a-rid");
+      var admin = (trailing ? shape : shape.values("name")).asAdmin();
+      var events = new java.util.ArrayList<Integer>();
+      assertThat(GremlinStepWalker.production().walk(admin.clone())).isNull();
+      assertThat(GremlinStepWalker.production().walkObserved(admin.clone(), events::add)).isNull();
+      assertThat(events).containsExactly(1, 2);
+    }
+  }
+
+  /** A refused suffix retains earlier units. Preflight refusals and empty walks emit none. */
+  @Test
+  public void observedDeclinesKeepHistoryButNeverNotifyRefusedUnits() {
+    var shapes = List.of(
+        graph.traversal().V().out("knows").optional(__.out()),
+        graph.traversal().V().limit(2).out(),
+        graph.traversal().V().values("name").fold().out(),
+        graph.traversal().V().as("same").out().as("same"),
+        graph.traversal().V().barrier(0),
+        __.start());
+    var expected = List.of(List.of(1, 2), List.of(1, 2), List.of(1, 2, 3),
+        List.of(), List.of(), List.of());
+    for (int i = 0; i < shapes.size(); i++) {
+      var events = new java.util.ArrayList<Integer>();
+      var admin = shapes.get(i).asAdmin();
+      assertThat(GremlinStepWalker.production().walk(admin.clone())).isNull();
+      assertThat(GremlinStepWalker.production().walkObserved(admin.clone(), events::add)).isNull();
+      assertThat(events).as("decline %s", admin).isEqualTo(expected.get(i));
+    }
+  }
+
+  /** Exceptions cross the observer boundary unchanged and cannot leak into another invocation. */
+  @Test
+  public void observerFailurePropagatesAndDoesNotPersistOnSingleton() {
+    var failure = new IllegalStateException("observer failed");
+    var events = new java.util.ArrayList<Integer>();
+    var walker = GremlinStepWalker.production();
+    assertThatThrownBy(() -> walker.walkObserved(graph.traversal().V().asAdmin(), p -> {
+      events.add(p);
+      throw failure;
+    })).isSameAs(failure);
+    assertThat(events).containsExactly(1);
+    assertThat(walker.walk(graph.traversal().V().asAdmin())).isNotNull();
+    assertThat(events).containsExactly(1);
+    var next = new java.util.ArrayList<Integer>();
+    assertThat(walker.walkObserved(graph.traversal().V().asAdmin(), next::add)).isNotNull();
+    assertThat(next).containsExactly(1);
+  }
+
+  /** Defensive progress, label and edge guards run before completion notification. */
+  @Test
+  public void injectedPostAcceptanceGuardsSuppressCompletion() {
+    var events = new java.util.ArrayList<Integer>();
+    var stalled = new GremlinStepWalker(Map.of(GraphStep.class,
+        (StepRecogniser) (cursor, ctx) -> Outcome.ACCEPTED));
+    assertThatThrownBy(() -> stalled.walkObserved(graph.traversal().V().asAdmin(), events::add))
+        .isInstanceOf(AssertionError.class);
+    assertThat(events).isEmpty();
+    StepRecogniser scalarThenBarrier = (cursor, ctx) -> {
+      var outcome = StartStepRecogniser.INSTANCE.recognize(cursor, ctx);
+      ctx.pinBoundary(ctx.boundaryAlias(), BoundaryOutputType.MAP, Vertex.class);
+      cursor.peek();
+      return outcome;
+    };
+    var labels = new GremlinStepWalker(Map.of(GraphStep.class, scalarThenBarrier));
+    assertThat(labels.walkObserved(graph.traversal().V().barrier().as("x").asAdmin(),
+        events::add)).isNull();
+    assertThat(events).isEmpty();
+    StepRecogniser startWithExists = (cursor, ctx) -> {
+      var outcome = StartStepRecogniser.INSTANCE.recognize(cursor, ctx);
+      ctx.addExistsMatchExpression(
+          new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression(-1));
+      return outcome;
+    };
+    StepRecogniser growsEdge = (cursor, ctx) -> {
+      cursor.take();
+      ctx.addEdge(ctx.boundaryAlias(), "guardTarget",
+          com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction.OUT,
+          new String[] {"knows"});
+      return Outcome.ACCEPTED;
+    };
+    var edges = new GremlinStepWalker(Map.of(GraphStep.class, startWithExists,
+        VertexStep.class, growsEdge));
+    assertThat(edges.walkObserved(graph.traversal().V().out("knows").asAdmin(), events::add))
+        .isNull();
+    assertThat(events).containsExactly(1);
+  }
+
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
 
   private final TranslatorEquivalenceSupport support =

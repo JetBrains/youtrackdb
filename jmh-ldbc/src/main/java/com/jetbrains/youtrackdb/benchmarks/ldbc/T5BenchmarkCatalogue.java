@@ -16,7 +16,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 
-/** Additional archived A gate forms. Archive observations do not certify current cut admission. */
+/** Shared T5 populations. Archive observations do not certify current cut admission. */
 public final class T5BenchmarkCatalogue {
   static final String SHA256 =
       "e95ee18109097d4f83a03ff8295499cb894a6d251e22b7b50c06bbb2bcae4f47";
@@ -162,6 +162,105 @@ public final class T5BenchmarkCatalogue {
     } catch (NoSuchAlgorithmException e) {
       throw new IllegalStateException(e);
     }
+  }
+
+  /** Executable C declarations. Feed names refer to the unchanged benchmark accessors. */
+  public record LdbcForm(String identity, String builder, List<String> arguments,
+      T5ResultComparison.Order order, boolean crossLabel) {
+    public LdbcForm {
+      arguments = List.copyOf(arguments);
+    }
+
+    public org.apache.tinkerpop.gremlin.process.traversal.Traversal<?, ?> traversal(
+        YTDBGraphTraversalSource g, java.util.function.Function<String, Object> feeds) {
+      var args = new java.util.ArrayList<Object>();
+      args.add(g);
+      for (String binding : arguments) {
+        boolean window = binding.endsWith("+2592000000");
+        Object value = feeds.apply(window ? binding.substring(0, binding.indexOf('+')) : binding);
+        if (window) {
+          value = new java.util.Date(Math.addExact(((java.util.Date) value).getTime(),
+              2_592_000_000L));
+        }
+        args.add(java.util.Objects.requireNonNull(value, binding));
+      }
+      if (builder.startsWith("BulkingForm.")) {
+        return GremlinTraversalShapes.BulkingForm.valueOf(builder.substring(12))
+            .traversal(g, (Long) args.get(1), crossLabel);
+      }
+      boolean partial = builder.startsWith("PartialTraversalShapes.");
+      var owner = partial ? PartialTraversalShapes.class : GremlinTraversalShapes.class;
+      String method = partial ? builder.substring(23) : builder;
+      var candidates = java.util.Arrays.stream(owner.getMethods())
+          .filter(m -> m.getName().equals(method) && m.getParameterCount() == args.size())
+          .toList();
+      if (candidates.size() != 1) {
+        throw new IllegalStateException("Ambiguous or missing builder: " + builder);
+      }
+      try {
+        return (org.apache.tinkerpop.gremlin.process.traversal.Traversal<?, ?>) candidates
+            .getFirst().invoke(null, args.toArray());
+      } catch (ReflectiveOperationException e) {
+        throw new IllegalStateException("Cannot bind " + identity, e);
+      }
+    }
+  }
+
+  public static List<LdbcForm> loadLdbc() {
+    try (var in = T5BenchmarkCatalogue.class.getResourceAsStream("/t5/ldbc-gate.json")) {
+      if (in == null) {
+        throw new IllegalStateException("Missing C declarations");
+      }
+      byte[] bytes = in.readAllBytes();
+      try {
+        if (!"000bdf69a42e0db552dc4bbf661d154e7bb5485a0f5e35bfa24c490bd9881664".equals(
+            HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)))) {
+          throw new IllegalStateException("C declaration digest mismatch");
+        }
+      } catch (NoSuchAlgorithmException e) {
+        throw new IllegalStateException(e);
+      }
+      return List.copyOf(new ObjectMapper().readValue(bytes,
+          new TypeReference<List<LdbcForm>>() {
+          }));
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  /** A and C typed captures enter the same contract. No rendered archive answer is a capture. */
+  public static T5ResultComparison.Expected expected(String identity,
+      T5ResultComparison.Order order, List<?> typedRows) {
+    return new T5ResultComparison.Expected(identity, order, typedRows);
+  }
+
+  /** B answers use explicit logical identities, not arbitrary toString conversion. */
+  public static T5ResultComparison.Expected expected(WhereForm form) {
+    var rows = form.expected().stream().map(s -> {
+      if (form.q().equals("LONG")) {
+        return (Object) Integer.valueOf(s);
+      }
+      int slash = s.indexOf('/');
+      if (slash < 1 || !List.of("Article", "Category", "JPEmailContact", "OrderedItem")
+          .contains(s.substring(0, slash))) {
+        throw new IllegalArgumentException("Unsupported archived B answer: " + s);
+      }
+      Object key = s.startsWith("OrderedItem/") ? Integer.valueOf(s.substring(slash + 1))
+          : s.substring(slash + 1);
+      return new T5ResultComparison.ElementKey("vertex", s.substring(0, slash), key);
+    }).toList();
+    return expected(form.identity(), form.q().equals("U1")
+        ? T5ResultComparison.Order.SEQUENCE : T5ResultComparison.Order.MULTISET, rows);
+  }
+
+  /** Exact formula of the shared 64-slot IC2-limit/IC9 feed, after SF1 seed resolution. */
+  public static java.util.Date derivedDate(long minMs, long maxMs, int slot) {
+    if (slot < 0 || slot >= 64 || maxMs < minMs) {
+      throw new IllegalArgumentException("Invalid derived date slot or range");
+    }
+    long span = Math.max(1L, maxMs - minMs);
+    return new java.util.Date(slot == 63 ? maxMs + 1L
+        : minMs + 1L + (span * slot) / 63);
   }
 
   private T5BenchmarkCatalogue() {
