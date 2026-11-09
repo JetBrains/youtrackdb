@@ -502,9 +502,15 @@ B archive answers have an explicit adapter. A and C require typed captures, not 
 
 Install benchmark-only `T5PreparedShapeProbe` alongside the ordinary translator strategy for
 an untimed declaration pass. It captures the root immediately before MATCH selection and
-before native provider folding. Step strings include bound values, so declarations are per
-binding. It records completed real recogniser units and rejects drift or cuts inside a unit.
-Only root steps count, starting with the source as step one. Capture and freeze actual shapes,
+before native provider folding. Immutable structural snapshots retain typed bindings and full
+Date milliseconds. Unsupported identity operands are refused rather than stringified.
+Declarations are per binding. Invocation-owned observation uses the production recognisers
+without wrappers and records root dispatch history, including units before a later decline.
+This history is independent of strategy gates and is not proof of a safe cut. A walker preflight
+refusal records no units. Only root steps count, starting with the source as step one.
+Boundaries include transparent steps consumed by the unit, but not those skipped by the next
+unit's lookahead. Child and synthetic union-fork walks emit no events. Callback failures propagate.
+The declaration rejects typed identity drift, boundary drift and cuts inside a unit. Capture and freeze actual shapes,
 cuts and refused cuts in T5.12. This probe does not install a partial plan, prove suffix safety,
 prove a prefix open or establish partial engagement. Keep baseline arms free of forced MATCH.
 Cold, warm, uncacheable, PF-6 and execution witnesses remain T5.12 obligations.

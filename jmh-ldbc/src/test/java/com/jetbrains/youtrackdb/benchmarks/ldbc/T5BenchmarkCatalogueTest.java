@@ -195,6 +195,139 @@ public class T5BenchmarkCatalogueTest {
     }
   }
 
+  // Independent literals transcribed from benchmark entry points, not catalogue arguments.
+  private static final String MAPPINGS =
+      """
+          gremlin_bulkingWhereDuplicate|BulkingForm.DUPLICATE|arm.personId|true
+          gremlin_bulkingWhereOneRow|BulkingForm.ONE_ROW|arm.messageId|true
+          gremlin_bulkingWhereUnique|BulkingForm.UNIQUE|arm.personId|true
+          gremlin_bulkingDuplicate|BulkingForm.DUPLICATE|arm.personId|false
+          gremlin_bulkingOneRow|BulkingForm.ONE_ROW|arm.messageId|false
+          gremlin_bulkingUnique|BulkingForm.UNIQUE|arm.personId|false
+          gremlin_bulkingMostlyUnique|BulkingForm.MOSTLY_UNIQUE|arm.personId|false
+          gremlin_knowsFirstNames|knowsFirstNames|arm.personId|false
+          gremlin_knowsFirstNameCount|knowsFirstNameCount|arm.personId|false
+          gremlin_knowsFirstNamesFolded|knowsFirstNamesFolded|arm.personId|false
+          gremlin_is1_personCityProfile|is1PersonCityProfile|arm.personId|false
+          gremlin_is2_personMessages|is2PersonMessages|arm.personId|false
+          gremlin_is3_friendsWithNames|is3FriendsWithNames|arm.personId|false
+          gremlin_is4_messageContent|is4MessageContent|arm.messageId|false
+          gremlin_is5_messageCreator|is5MessageCreator|arm.messageId|false
+          gremlin_is6_forumOfPost|is6ForumOfPost|arm.messageId|false
+          gremlin_is7_repliesWithAuthors|is7RepliesWithAuthors|arm.messageId|false
+          gremlin_ic1_friendsWithName|ic1FriendsWithName|state.ic1PersonId,state.ic1FirstName|false
+          gremlin_ic2_friendsMessagesOrdered|ic2FriendsMessagesOrdered|state.ic2PersonId,state.ic2MaxDate|false
+          gremlin_ic2_friendsMessagesOrderedLimit|ic2FriendsMessagesOrderedLimit|arm.ic2PersonId,arm.ic2MaxDate|false
+          gremlin_ic3_friendsMessagesInCountry|ic3FriendsMessagesInCountry|state.ic3PersonId,state.ic3CountryX,state.ic3StartDate,state.ic3StartDate+2592000000|false
+          gremlin_ic4_friendPostTags|ic4FriendPostTags|state.ic4PersonId,state.ic4StartDate,state.ic4StartDate+2592000000|false
+          gremlin_ic5_friendPostForums|ic5FriendPostForums|state.ic5PersonId|false
+          gremlin_ic6_friendPostTagCounts|ic6FriendPostTagCounts|state.ic6PersonId|false
+          gremlin_ic7_likers|ic7Likers|state.ic7PersonId|false
+          gremlin_ic8_recentRepliesOrdered|ic8RecentRepliesOrdered|state.ic8PersonId|false
+          gremlin_ic9_friendsMessagesOrdered|ic9FriendsMessagesOrdered|arm.ic9PersonId,arm.ic9MaxDate|false
+          gremlin_ic10_friendsOfFriendsInCity|ic10FriendsOfFriendsInCity|state.ic10PersonId|false
+          gremlin_ic11_friendsCompaniesInCountry|ic11FriendsCompaniesInCountry|state.ic11PersonId,state.ic11CountryName|false
+          gremlin_ic12_friendCommentPostTags|ic12FriendCommentPostTags|state.ic12PersonId|false
+          gremlin_ic13_directKnowsCount|ic13DirectKnowsCount|state.ic13Person1Id,state.ic13Person2Id|false
+          gremlin_twoHopKnows|twoHopKnows|arm.personId|false
+          gremlin_knowsFilteredByFriendFirstName|knowsFilteredByFriendFirstName|arm.personId,state.ic1FirstName|false
+          gremlin_threeHopKnowsExcludingIntermediate|threeHopKnowsExcludingIntermediate|arm.personId|false
+          gremlin_knowsGroupCountByLastName|knowsGroupCountByLastName|arm.personId|false
+          gremlin_friendsNotLocatedInPlace|friendsNotLocatedInPlace|arm.personId,arm.placeName|false
+          gremlin_mutualFriendTriangle|mutualFriendTriangle|arm.personId|false
+          gremlin_knowsOrderedPage|knowsOrderedPage|arm.personId|false
+          gremlin_vertexByRid|personByRid|arm.personRid|false
+          gremlin_is3_friendsWithDates|is3FriendsWithDates|arm.personId|false
+          gremlin_is4_coalesceMessageContentDeclines|coalesceMessageContent|arm.messageId|false
+          gremlin_is7_optionalFriendOfCreatorDeclines|optionalFriendOfCreator|arm.messageId|false
+          gremlin_ic1_repeatKnowsToThreeHopsDeclines|repeatKnowsToThreeHops|arm.personId|false
+          G7/recentFriendMessages|PartialTraversalShapes.recentFriendMessages|arm.ic2PersonId,arm.ic2MaxDate|false
+          G7/distinctForumsWithModerator|PartialTraversalShapes.distinctForumsWithModerator|state.ic5PersonId|false
+          G7/tagCounts|PartialTraversalShapes.tagCounts|state.ic6PersonId|false
+          G7/mutualFriendCycle|PartialTraversalShapes.mutualFriendCycle|arm.personId|false
+          G7/fullIc5|PartialTraversalShapes.fullIc5|state.ic5PersonId,state.ic5Date|false
+          G7/distinctForumCount|PartialTraversalShapes.distinctForumCount|state.ic5PersonId|false
+          G7/knownEndVertex|PartialTraversalShapes.knownEndVertex|state.ic13Person1Id,state.ic13Person2Id|false
+          """;
+
+  private static Map<String, String[]> independentMappings() {
+    return MAPPINGS.lines().map(line -> line.split("\\|"))
+        .collect(Collectors.toMap(row -> row[0], row -> row));
+  }
+
+  /** Distinct feed values expose accessor swaps. Build the expected body without the dispatcher. */
+  @Test
+  public void everyDispatcherMappingMatchesIndependentBuilderAndSentinelFeeds() throws Exception {
+    var expected = independentMappings();
+    var forms = T5BenchmarkCatalogue.loadLdbc();
+    assertEquals(expected.keySet(), forms.stream().map(T5BenchmarkCatalogue.LdbcForm::identity)
+        .collect(Collectors.toSet()));
+    try (var db = YourTracks.instance(temporary.newFolder().toString())) {
+      db.create("mapping", DatabaseType.MEMORY, "admin", "admin", "admin");
+      try (var g = db.openTraversal("mapping", "admin", "admin")) {
+        g.executeInTx(t -> {
+          var source = t.withoutStrategies(
+              com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy.class);
+          var rid = t.addV("V").next().id();
+          var sentinels = new java.util.LinkedHashMap<String, Object>();
+          for (var row : expected.values()) {
+            for (var argument : row[2].split(",")) {
+              String feed = argument.split("\\+")[0];
+              int n = sentinels.size() + 1;
+              sentinels.computeIfAbsent(feed, key -> key.endsWith("Date")
+                  ? new java.util.Date(100L * n) : key.endsWith("Rid") ? rid
+                      : key.endsWith("Name") || key.endsWith("CountryX") ? "feed-" + n
+                          : Long.valueOf(1000L + n));
+            }
+          }
+          for (var form : forms) {
+            var row = expected.get(form.identity());
+            var arguments = List.of(row[2].split(","));
+            assertEquals(form.identity(), row[1], form.builder());
+            assertEquals(form.identity(), arguments, form.arguments());
+            assertEquals(form.identity(), Boolean.parseBoolean(row[3]), form.crossLabel());
+            var requested = new ArrayList<String>();
+            try (var actual = form.traversal(source, feed -> {
+              requested.add(feed);
+              return sentinels.get(feed);
+            })) {
+              assertEquals(form.identity(), arguments.stream()
+                  .map(s -> s.split("\\+")[0]).toList(), requested);
+              var args = new ArrayList<Object>();
+              args.add(source);
+              for (var argument : arguments) {
+                Object value = sentinels.get(argument.split("\\+")[0]);
+                args.add(argument.contains("+")
+                    ? new java.util.Date(((java.util.Date) value).getTime() + 2_592_000_000L)
+                    : value);
+              }
+              org.apache.tinkerpop.gremlin.process.traversal.Traversal<?, ?> body;
+              if (row[1].startsWith("BulkingForm.")) {
+                body = GremlinTraversalShapes.BulkingForm.valueOf(row[1].substring(12))
+                    .traversal(source, (Long) args.get(1), Boolean.parseBoolean(row[3]));
+              } else {
+                boolean partial = row[1].startsWith("PartialTraversalShapes.");
+                var owner = partial ? PartialTraversalShapes.class : GremlinTraversalShapes.class;
+                String name = partial ? row[1].substring(23) : row[1];
+                var method = java.util.Arrays.stream(owner.getMethods())
+                    .filter(m -> m.getName().equals(name) && m.getParameterCount() == args.size())
+                    .findFirst().orElseThrow();
+                body = (org.apache.tinkerpop.gremlin.process.traversal.Traversal<?, ?>) method
+                    .invoke(null, args.toArray());
+              }
+              try (body) {
+                assertEquals(form.identity(), body.asAdmin().getBytecode(),
+                    actual.asAdmin().getBytecode());
+              }
+            } catch (Exception e) {
+              throw new IllegalStateException(form.identity(), e);
+            }
+          }
+        });
+      }
+    }
+  }
+
   /** Build every declared body on a tiny empty graph. Literal new-body results reject drift. */
   @Test
   public void cBuildersPreserveLiteralEmptyAnswersAndWindowBindings() throws Exception {
@@ -231,8 +364,10 @@ public class T5BenchmarkCatalogueTest {
                   || form.builder().equals("PartialTraversalShapes.fullIc5");
               assertEquals(form.identity(), observesOrder ? T5ResultComparison.Order.SEQUENCE
                   : T5ResultComparison.Order.MULTISET, form.order());
-              assertEquals(form.identity(), form.arguments().stream()
-                  .map(s -> s.replace("+2592000000", "")).toList(), requested);
+              assertEquals(form.identity(),
+                  List.of(independentMappings().get(form.identity())[2].split(",")).stream()
+                      .map(s -> s.replace("+2592000000", "")).toList(),
+                  requested);
               if (form.identity().startsWith("G7/")) {
                 var expected = form.identity().endsWith("distinctForumCount")
                     ? List.of(0L) : List.of();
