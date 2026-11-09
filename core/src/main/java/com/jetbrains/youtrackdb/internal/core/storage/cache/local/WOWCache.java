@@ -914,7 +914,7 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       var fileId = nameIdMap.get(fileName);
       if (fileId != null && fileId >= 0) {
-        return loadRegisteredFile(fileName, fileId);
+        return requireOpenRegisteredFile(fileName, fileId);
       }
       // Detection is state-free. Choose the ID and remove any tombstone only after fallback.
     } finally {
@@ -932,7 +932,7 @@ public final class WOWCache extends AbstractWriteCache
 
       // check that file is already registered
       if (!(fileId == null || fileId < 0)) {
-        return loadRegisteredFile(fileName, fileId);
+        return requireOpenRegisteredFile(fileName, fileId);
       }
 
       if (fileId == null) {
@@ -984,7 +984,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private long loadRegisteredFile(String fileName, int fileId) {
+  private long requireOpenRegisteredFile(String fileName, int fileId) {
     final var externalId = composeFileId(id, fileId);
     if (files.get(externalId) == null) {
       throw new StorageException(storageName,
