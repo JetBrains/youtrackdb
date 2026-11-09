@@ -39,7 +39,11 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
   public boolean useWal = true;
   public String conflictStrategy;
   private final int binaryVersion;
-  // Null denotes an entry without layout 26 component identity evidence.
+  /**
+   * The component id is never reused and identifies the collection's layout 26 page files.
+   * The collection id ({@link #id}) is part of each record id and can be reused after a drop.
+   * Null means a layout 25 entry without a component id.
+   */
   private final Integer componentId;
 
   public StoragePaginatedCollectionConfiguration(
@@ -85,7 +89,11 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
     this.binaryVersion = binaryVersion;
   }
 
-  /** Returns the stored component id, or null for entries without component identity. */
+  /**
+   * Returns the component id, which is never reused and identifies the collection's layout 26 page
+   * files. The collection id ({@link #id}) is part of each record id and can be reused after a drop.
+   * Null means a layout 25 entry without a component id.
+   */
   public Integer getComponentId() {
     return componentId;
   }

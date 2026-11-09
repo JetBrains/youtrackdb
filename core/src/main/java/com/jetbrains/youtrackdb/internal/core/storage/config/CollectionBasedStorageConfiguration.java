@@ -1659,14 +1659,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final var paginated = (StoragePaginatedCollectionConfiguration) config;
       final var entryVersion = paginated.getComponentId() == null
           ? COLLECTIONS_PROPERTY_VERSION : COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION;
-      final var property = updateCollectionConfig(config);
+      final var storedCollectionConfig = updateCollectionConfig(config);
       final var identity = btree.get(COLLECTIONS_PREFIX_PROPERTY + config.id(), atomicOperation);
       // storeProperty preserves an existing tag. Reject format changes before touching either
       // the cache or the payload, including when JVM assertions are disabled.
-      if (identity != null && identity.getCollectionId() != entryVersion) {
-        throw new StorageException(storage.getName(),
-            "Cannot change entry version for collection '" + config.name() + "' from "
-                + identity.getCollectionId() + " to " + entryVersion);
+      if (identity != null) {
+        // A configuration B-tree value's RecordId collection-id field holds the entry version tag.
+        // It is not a collection id.
+        final var storedEntryVersion = identity.getCollectionId();
+        if (storedEntryVersion != entryVersion) {
+          throw new StorageException(storage.getName(),
+              "Cannot change entry version for collection '" + config.name() + "' from "
+                  + storedEntryVersion + " to " + entryVersion);
+        }
       }
       @SuppressWarnings("unchecked")
       final var collections =
@@ -1686,7 +1691,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       storeProperty(
           atomicOperation,
           COLLECTIONS_PREFIX_PROPERTY + config.id(),
-          property,
+          storedCollectionConfig,
           entryVersion);
     } finally {
       lock.writeLock().unlock();
@@ -1722,6 +1727,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       entry.second().getCollectionPosition(), atomicOperation)
                       .toRawBuffer();
 
+                  // A configuration B-tree value's RecordId collection-id field holds the entry
+                  // version tag. It is not a collection id.
+                  final var storedEntryVersion = entry.second().getCollectionId();
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();
 
@@ -1730,11 +1738,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                     }
 
                     collections.add(deserializeStorageCollectionConfig(
-                        id, buffer.buffer(), entry.second().getCollectionId()));
+                        id, buffer.buffer(), storedEntryVersion));
                     assert id == collections.size() - 1;
                   } else {
                     collections.set(id, deserializeStorageCollectionConfig(
-                        id, buffer.buffer(), entry.second().getCollectionId()));
+                        id, buffer.buffer(), storedEntryVersion));
                   }
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
