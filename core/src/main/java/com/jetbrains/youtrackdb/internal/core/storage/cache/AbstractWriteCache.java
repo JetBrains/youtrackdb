@@ -19,7 +19,28 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+
 public class AbstractWriteCache {
+
+  /** Rejects reconstruction unless the strict logical name identifies rebuildable metadata. */
+  protected static void validateAuxiliaryReconstruction(String fileName, String storageName) {
+    final var identity = PageFileNames.parseLayout26(fileName);
+    if (identity.isPresent()) {
+      switch (identity.get().role()) {
+        case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
+            CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> {
+          return;
+        }
+        default -> {
+          // Primary data and link bags are not reconstructible cache metadata.
+        }
+      }
+    }
+    throw new StorageException(storageName,
+        "Auxiliary reconstruction requires a strict layout 26 rebuildable role: " + fileName);
+  }
 
   public static long composeFileId(int storageId, int fileId) {
     return (((long) storageId) << 32) | fileId;

@@ -29,6 +29,7 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 public interface WriteCache {
 
@@ -44,6 +45,30 @@ public interface WriteCache {
   void removePageIsBrokenListener(PageIsBrokenListener listener);
 
   long bookFileId(String fileName);
+
+  /**
+   * Books a positive supplied internal id without creating or changing a backing file.
+   * The caller holds storage creation exclusion through insertion. Normal creation rejects
+   * every existing pair, including negative bookings. Reconstruction permission is only for
+   * a rebuildable auxiliary role of an explicitly established live owner, never a link-bag.
+   * The name must be a strict layout 26 logical name for a free-space map, dirty-page bit set
+   * or histogram. It permits only a matching negative pair without a backing file.
+   * Disk caches retain deletion entries, so strict creation rejects them. Memory caches remove
+   * registrations on deletion, so strict creation may book the deleted name and id again.
+   */
+  default long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
+    throw new UnsupportedOperationException("Supplied-id booking is not supported");
+  }
+
+  /**
+   * Non-mutating registration view. Returns null for absence, a positive internal id for
+   * a live registration, or a negative internal id for deletion or booking state.
+   * Unlike fileIdByName this view does not hide a wrong negative registration.
+   * Memory caches retain negative bookings but return null after deletion.
+   */
+  @Nullable default Integer registeredFileId(String fileName) {
+    throw new UnsupportedOperationException("Registration inspection is not supported");
+  }
 
   /**
    * Registers new file in write cache and returns file id assigned to this file.

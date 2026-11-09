@@ -857,6 +857,50 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Override
+  public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      final var registered = nameIdMap.get(fileName);
+      final var liveName = idNameMap.get(intId);
+      final var negativeName = idNameMap.get(-intId);
+      // Scan names too: older registries can contain several negative aliases for one id.
+      final boolean alias = nameIdMap.entrySet().stream().anyMatch(
+          entry -> Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName));
+      if ((registered != null && (!reconstructAuxiliary || registered != -intId))
+          || liveName != null || (negativeName != null && !negativeName.equals(fileName))
+          || alias || files.get(composeFileId(id, intId)) != null
+          || !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)))) {
+        throw new StorageException(storageName,
+            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+      }
+      nameIdMap.put(fileName, -intId);
+      idNameMap.put(-intId, fileName);
+      return composeFileId(id, intId);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  @Override
+  public Integer registeredFileId(String fileName) {
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+      return nameIdMap.get(fileName);
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
   /**
    * @inheritDoc
    */
@@ -876,7 +920,7 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       var fileId = nameIdMap.get(fileName);
       if (fileId != null && fileId >= 0) {
-        return registeredFileId(fileName, fileId);
+        return loadRegisteredFile(fileName, fileId);
       }
       // Detection is state-free. Choose the ID and remove any tombstone only after fallback.
     } finally {
@@ -894,7 +938,7 @@ public final class WOWCache extends AbstractWriteCache
 
       // check that file is already registered
       if (!(fileId == null || fileId < 0)) {
-        return registeredFileId(fileName, fileId);
+        return loadRegisteredFile(fileName, fileId);
       }
 
       if (fileId == null) {
@@ -946,7 +990,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private long registeredFileId(String fileName, int fileId) {
+  private long loadRegisteredFile(String fileName, int fileId) {
     final var externalId = composeFileId(id, fileId);
     if (files.get(externalId) == null) {
       throw new StorageException(storageName,
@@ -2200,7 +2244,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
+        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -3252,6 +3296,14 @@ public final class WOWCache extends AbstractWriteCache
     final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
 
     while ((nameFileIdEntry = readNextNameIdEntryV3(nameIdMapHolder)) != null) {
+      // A deletion supersedes only the same logical name and positive id.
+      // Historical swapped records keep their distinct physical-name aliases.
+      final int recordedId = nameFileIdEntry.getFileId();
+      if (recordedId < 0
+          && nameFileIdEntry.getName().equals(idNameMap.get(-recordedId))) {
+        idNameMap.remove(-recordedId);
+        idFileNameMap.remove(-recordedId);
+      }
       final long absFileId = Math.abs(nameFileIdEntry.getFileId());
 
       if (localFileCounter < absFileId) {

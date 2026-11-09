@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.memory;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -11,7 +12,11 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.nio.ByteBuffer;
@@ -44,6 +49,170 @@ import org.junit.experimental.categories.Category;
  * engine, plus the install-then-publish atomicity contract under concurrent installers.
  */
 public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
+
+  /** All normal conflicts, including identical live and negative pairs, reject without mutation. */
+  @Test
+  public void suppliedBookingRejectsLiveAndNegativeConflicts() throws Exception {
+    final int supplied = 123456;
+    final String name = AUX;
+    assertNull(cache.registeredFileId(name));
+    final long booked = cache.bookFileId(name, supplied, false);
+    assertEquals(supplied, cache.internalFileId(booked));
+    assertEquals(Integer.valueOf(-supplied), cache.registeredFileId(name));
+    assertEquals(-1L, cache.fileIdByName(name));
+    assertThrows(StorageException.class, () -> cache.bookFileId(name, supplied, false));
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class,
+          () -> cache.bookFileId(name, supplied + 1, auxiliary));
+      assertThrows(StorageException.class,
+          () -> cache.bookFileId(OTHER, booked, auxiliary));
+    }
+    assertNull(cache.registeredFileId(OTHER));
+    assertEquals(Integer.valueOf(-supplied), cache.registeredFileId(name));
+    // Only the explicit live-owner auxiliary permission may reuse this matching negative pair.
+    assertEquals(booked, cache.bookFileId(name, booked, true));
+    cache.addFile(name, booked);
+    assertEquals(Integer.valueOf(supplied), cache.registeredFileId(name));
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class, () -> cache.bookFileId(name, booked, auxiliary));
+      assertThrows(StorageException.class, () -> cache.bookFileId(name, supplied + 1, auxiliary));
+      assertThrows(StorageException.class, () -> cache.bookFileId(OTHER, booked, auxiliary));
+    }
+    assertThrows(IllegalArgumentException.class, () -> cache.bookFileId("invalid", 0, false));
+    assertThrows(IllegalArgumentException.class, () -> cache.bookFileId("invalid", -1, false));
+    assertNull(cache.registeredFileId("invalid"));
+  }
+
+  /** A rejected booking preserves the installed memory page and its logical length. */
+  @Test
+  public void suppliedBookingPreservesPageBytesAndLength() {
+    final var pointer = cache.loadOrAdd(fileId, 0, false);
+    try {
+      pointer.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 987654);
+      assertThrows(StorageException.class,
+          () -> cache.bookFileId(FILE_NAME, fileId, false));
+      final var reloaded = cache.loadOrAdd(fileId, 0, false);
+      try {
+        assertEquals(987654, reloaded.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      } finally {
+        reloaded.decrementReadersReferrer();
+      }
+      assertEquals(1, cache.getFilledUpTo(fileId));
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+  }
+
+  /** Deletion removes memory registrations, while booked conflicts remain visible and unique. */
+  @Test
+  public void deletionAndBookingsHaveDistinctRegistrationStates() {
+    cache.deleteFile(fileId);
+    assertNull(cache.registeredFileId(FILE_NAME));
+    assertEquals(fileId, cache.bookFileId(FILE_NAME, fileId, false));
+    assertThrows(StorageException.class, () -> cache.addFile("alias.dat", fileId));
+    assertNull(cache.registeredFileId("alias.dat"));
+    assertThrows(StorageException.class, () -> cache.bookFileId("alias.dat", fileId, false));
+    assertThrows(StorageException.class, () -> cache.bookFileId(FILE_NAME, fileId + 1, false));
+    assertEquals(Integer.valueOf(-cache.internalFileId(fileId)),
+        cache.registeredFileId(FILE_NAME));
+    cache.addFile(FILE_NAME, fileId);
+    cache.deleteFile(fileId);
+    cache.bookFileId("alias.dat", fileId, false);
+    assertNull(cache.registeredFileId(FILE_NAME));
+    assertEquals(Integer.valueOf(-cache.internalFileId(fileId)),
+        cache.registeredFileId("alias.dat"));
+  }
+
+  /** Each legacy allocator skips id 1 both before and after installation and preserves its data. */
+  @Test
+  public void sequentialAllocationSkipsSuppliedReservationsAndFiles() {
+    for (boolean installed : new boolean[] {false, true}) {
+      for (boolean bookFirst : new boolean[] {false, true}) {
+        cache.delete();
+        cache = new DirectMemoryOnlyDiskCache(PAGE_SIZE, STORAGE_ID, STORAGE_NAME);
+        final long booked = cache.bookFileId(AUX, 1, false);
+        assertThrows(StorageException.class, () -> cache.addFile(AUX));
+        assertThrows(StorageException.class, () -> cache.loadFile(AUX));
+        assertThrows(StorageException.class, () -> cache.loadFile("absent"));
+        if (installed) {
+          cache.addFile(AUX, booked);
+          final var page = cache.loadOrAdd(booked, 0, false);
+          try {
+            page.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 314159);
+          } finally {
+            page.decrementReadersReferrer();
+          }
+        }
+        final long first = bookFirst ? cache.bookFileId("automatic-book.dat")
+            : cache.addFile("automatic.dat");
+        final long second = bookFirst ? cache.addFile("automatic.dat")
+            : cache.bookFileId("automatic-book.dat");
+        assertEquals(2, cache.internalFileId(first));
+        assertEquals(3, cache.internalFileId(second));
+        if (installed) {
+          final var reloaded = cache.loadOrAdd(booked, 0, false);
+          try {
+            assertEquals(314159, reloaded.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+          } finally {
+            reloaded.decrementReadersReferrer();
+          }
+          assertEquals(1, cache.getFilledUpTo(booked));
+        }
+      }
+    }
+  }
+
+  /** Direct supplied insertion protects id 1 and a large supplied id does not move the counter. */
+  @Test
+  public void sequentialAllocationSkipsDirectSuppliedInsertion() {
+    cache.delete();
+    cache = new DirectMemoryOnlyDiskCache(PAGE_SIZE, STORAGE_ID, STORAGE_NAME);
+    cache.addFile(AUX, 1);
+    cache.addFile("high.dat", 123456);
+    assertEquals(2, cache.internalFileId(cache.bookFileId("automatic-book.dat")));
+    assertEquals(3, cache.internalFileId(cache.addFile("automatic.dat")));
+  }
+
+  /** Loading any booked negative id is indistinguishable from loading an absent file. */
+  @Test
+  public void legacyLoadRejectsBookedIdBeyondSentinel() {
+    cache.bookFileId(AUX, 123456, false);
+    assertThrows(StorageException.class, () -> cache.loadFile(AUX));
+    assertThrows(StorageException.class, () -> cache.addFile(AUX));
+  }
+
+  /** Only strict layout 26 rebuildable roles authorize reconstruction, never primary data. */
+  @Test
+  public void reconstructionPermissionRequiresRebuildableLogicalRole() {
+    for (var role : PageFileRole.values()) {
+      final var identity = new PageFileIdentity(role, 99);
+      final String logical = PageFileNames.layout26(identity);
+      final boolean rebuildable = switch (role) {
+        case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
+            CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> true;
+        default -> false;
+      };
+      if (rebuildable) {
+        final long booked = cache.bookFileId(logical, identity.internalId(), true);
+        assertEquals(identity.internalId(), cache.internalFileId(booked));
+        assertEquals(booked, cache.bookFileId(logical, booked, true));
+      } else {
+        final var failure = assertThrows(StorageException.class,
+            () -> cache.bookFileId(logical, identity.internalId(), true));
+        assertTrue(failure.getMessage().contains("rebuildable role"));
+        assertNull(cache.registeredFileId(logical));
+      }
+    }
+    for (String invalid : new String[] {"legacy.fsm",
+        "ytdb-p26-collection-099-free-space-map.fsm",
+        "ytdb-p26-collection-99-free-space-map_335544419.fsm"}) {
+      assertThrows(StorageException.class, () -> cache.bookFileId(invalid, 123456, true));
+      assertNull(cache.registeredFileId(invalid));
+    }
+  }
+
+  private static final String AUX = "ytdb-p26-collection-42-free-space-map.fsm";
+  private static final String OTHER = "ytdb-p26-collection-43-free-space-map.fsm";
 
   private static final int PAGE_SIZE = 1024;
   private static final int STORAGE_ID = 17;
