@@ -128,6 +128,9 @@ refers to the server host.
 A backup header of this release also records two semantic values:
 
 - The **database format** identifies the storage features and on-disk storage layout.
+  This build creates and accepts storage layout 27 only. To use a database or backup
+  with storage layout 25 or 26, export the database with the older YouTrackDB version.
+  Import that export with the new YouTrackDB version. Direct open and restore are not supported.
 - The **creation completion evidence** states that creation of the backed-up database finished.
 
 Both values are admission conditions. Every selected unit must carry the supported database

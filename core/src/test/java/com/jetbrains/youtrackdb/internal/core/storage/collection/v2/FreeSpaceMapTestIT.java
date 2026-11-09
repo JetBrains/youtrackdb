@@ -84,8 +84,8 @@ public class FreeSpaceMapTestIT {
         });
   }
 
-  // Verifies that the two-level FSM tree correctly handles a large page index (128956),
-  // which forces expansion across multiple second-level pages.
+  // Verifies that the three-level FSM handles a large page index (128956),
+  // which forces expansion across multiple leaf pages.
   @Test
   public void findSinglePageHighIndex() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
@@ -192,7 +192,7 @@ public class FreeSpaceMapTestIT {
 
   // Populates 1000 pages, updates all of them with new random free-space values, then
   // verifies 1000 random lookups against the updated state. Ensures that updatePageFreeSpace
-  // correctly replaces previous values in the two-level tree.
+  // correctly replaces previous values in the three-level tree.
   @Test
   public void randomPagesUpdate() throws IOException {
     final var pages = 1_000;
