@@ -93,12 +93,6 @@ public class T5FreezeCaptureTest {
     }
     assertThrows(AssertionError.class, () -> T5ResultComparison.requireEqual(expected,
         List.of(1L, new Date(1000), Map.of("present", "x"), List.of(1, 2), 1L), e -> null));
-    var nullMap = new LinkedHashMap<String, Object>();
-    nullMap.put("missing", null);
-    assertThrows(AssertionError.class, () -> T5ResultComparison.requireEqual(
-        new T5ResultComparison.Expected("absent", T5ResultComparison.Order.SEQUENCE,
-            List.of(Map.of())),
-        List.of(nullMap), e -> null));
     var reversed = List.of(1L, List.of(1, 2), Map.of("present", "x"), new Date(1001), 1L);
     assertThrows(AssertionError.class,
         () -> T5ResultComparison.requireEqual(expected, reversed, e -> null));
@@ -140,6 +134,102 @@ public class T5FreezeCaptureTest {
     Files.writeString(path(),
         new ObjectMapper().writeValueAsString(capture(true, List.of(simple(), simple()))));
     assertThrows(IOException.class, () -> T5FreezeCapture.read(path()));
+  }
+
+  @Test
+  public void scalarTokensMustHaveTheirExactJsonTypes() throws Exception {
+    T5FreezeCapture.write(path(), capture(true, List.of(simple())));
+    String valid = Files.readString(path());
+    for (String invalid : List.of(
+        valid.replace("\"complete\":true", "\"complete\":2"),
+        valid.replace("\"complete\":true", "\"complete\":\"true\""),
+        valid.replace("\"knownBaselineDifference\":true", "\"knownBaselineDifference\":1"),
+        valid.replace("\"regime\":\"COLD\"", "\"regime\":0"),
+        valid.replace("\"observed\":\"BYPASS\"", "\"observed\":2"),
+        valid.replace("\"order\":\"SEQUENCE\"", "\"order\":0"),
+        valid.replace("\"version\":1", "\"version\":\"1\""),
+        valid.replace("\"scalar\":\"42\"", "\"scalar\":42"),
+        valid.replace("\"scalar\":\"42\"", "\"scalar\":42.0"),
+        valid.replace("\"scalar\":\"42\"", "\"scalar\":true"))) {
+      assertFalse("Fixture must change", valid.equals(invalid));
+      Files.writeString(path(), invalid);
+      assertThrows(invalid, IOException.class, () -> T5FreezeCapture.read(path()));
+    }
+  }
+
+  @Test
+  public void nullableValueFieldsMustBePresentEvenWhenTheirValueIsNull() throws Exception {
+    T5FreezeCapture.write(path(),
+        capture(true, List.of(item(KEY, Map.of(), Arrays.asList((Object) null), ""))));
+    String valid = Files.readString(path());
+    for (String tag : List.of("list", "null")) {
+      String invalid = valid.replace("\"type\":\"" + tag + "\",\"scalar\":null",
+          "\"type\":\"" + tag + "\"");
+      assertFalse("Fixture must change", valid.equals(invalid));
+      Files.writeString(path(), invalid);
+      assertThrows(tag, IOException.class, () -> T5FreezeCapture.read(path()));
+    }
+    // Item text fields are non-null by contract, but their presence is also required.
+    Files.writeString(path(),
+        valid.replace("\"differenceReason\":\"baseline lacks label fix\",", ""));
+    assertThrows(IOException.class, () -> T5FreezeCapture.read(path()));
+  }
+
+  @Test
+  public void absentAndNullMapValuesRemainDistinctAfterSerialization() throws Exception {
+    var nullMap = new LinkedHashMap<String, Object>();
+    nullMap.put("missing", null);
+    T5FreezeCapture.write(path(),
+        capture(true, List.of(item(KEY, Map.of(), List.of(Map.of(), nullMap), ""))));
+    var rows = T5FreezeCapture.read(path()).items().getFirst().expected().rows();
+    assertEquals(Map.of(), rows.get(0));
+    assertEquals(nullMap, rows.get(1));
+    assertFalse(((Map<?, ?>) rows.get(0)).containsKey("missing"));
+    assertTrue(((Map<?, ?>) rows.get(1)).containsKey("missing"));
+    assertThrows(AssertionError.class, () -> T5ResultComparison.requireEqual(
+        new T5ResultComparison.Expected("absent", T5ResultComparison.Order.SEQUENCE,
+            List.of(rows.get(0))),
+        List.of(rows.get(1)), e -> null));
+  }
+
+  @Test
+  public void hitAndUncacheableBypassEvidenceRoundTrips() throws Exception {
+    var base = simple();
+    var items = new java.util.ArrayList<T5FreezeCapture.Item>();
+    for (var regime : List.of(T5FreezeCapture.Regime.WARM, T5FreezeCapture.Regime.UNCACHEABLE)) {
+      var key = new T5FreezeCapture.Key(KEY.identity(), KEY.binding(), KEY.arm(), regime);
+      var cache = regime == T5FreezeCapture.Regime.WARM
+          ? new T5FreezeCapture.Cache("abc", "retained", T5FreezeCapture.Observation.HIT, "")
+          : new T5FreezeCapture.Cache("abc", "unsupported shape",
+              T5FreezeCapture.Observation.BYPASS, "uncacheable");
+      items.add(new T5FreezeCapture.Item(key, base.feeds(), base.order(), base.answers(),
+          base.outcome(), base.reason(), cache, base.declaration(), false, "", ""));
+    }
+    var source = capture(true, items);
+    T5FreezeCapture.write(path(), source);
+    assertEquals(source, T5FreezeCapture.read(path()));
+  }
+
+  @Test
+  public void publicWritePreservesOldBytesAndCleansTemporaryFileOnSerializationFailure()
+      throws Exception {
+    T5FreezeCapture.write(path(), capture(true, List.of(simple())));
+    byte[] before = Files.readAllBytes(path());
+    // Validation uses LinkedHashMap.forEach. Jackson uses entrySet after opening its output.
+    var feeds = new LinkedHashMap<String, T5FreezeCapture.Value>() {
+      @Override
+      public Set<Map.Entry<String, T5FreezeCapture.Value>> entrySet() {
+        throw new IllegalStateException("injected serialization failure");
+      }
+    };
+    feeds.put("person", T5FreezeCapture.Value.of(42L));
+    IOException failure = assertThrows(IOException.class, () -> T5FreezeCapture.write(path(),
+        capture(true, List.of(item(KEY, feeds, List.of(7L), "")))));
+    assertTrue(failure.getMessage().contains("injected serialization failure"));
+    assertTrue(Arrays.equals(before, Files.readAllBytes(path())));
+    try (var files = Files.list(folder.getRoot().toPath())) {
+      assertEquals(1L, files.count());
+    }
   }
 
   @Test
@@ -200,23 +290,32 @@ public class T5FreezeCaptureTest {
         T5FreezeCapture.check(capture(true, List.of(base, baseline)), inventory).exitCode());
     var missing = T5FreezeCapture.check(capture(true, List.of(base)), inventory);
     assertEquals(1, missing.exitCode());
-    assertTrue(missing.problems().stream().anyMatch(s -> s.contains("baseline")));
+    assertEquals(List.of("Missing identity/binding/arm/regime " + baselineKey,
+        "Missing binding " + baselineKey + ": person"), missing.problems());
     for (var key : List.of(new T5FreezeCapture.Key("A/other", "slot-0", "native", KEY.regime()),
         new T5FreezeCapture.Key(KEY.identity(), "slot-1", "native", KEY.regime()),
         new T5FreezeCapture.Key(KEY.identity(), KEY.binding(), "native",
             T5FreezeCapture.Regime.WARM))) {
-      assertEquals(1, T5FreezeCapture.check(capture(true, List.of(base)),
-          List.of(new T5FreezeCapture.Required(key, Set.of()))).exitCode());
+      var result = T5FreezeCapture.check(capture(true, List.of(base)),
+          List.of(new T5FreezeCapture.Required(key, Set.of())));
+      assertEquals(1, result.exitCode());
+      assertEquals(List.of("Missing identity/binding/arm/regime " + key, "Unexpected item " + KEY),
+          result.problems());
     }
     for (var c : List.of(capture(false, List.of(base)), capture(true, List.of()),
         capture(true, List.of(item(KEY, Map.of(), List.of(), ""))),
         capture(true, List.of(item(KEY, base.feeds(), List.of(), "arm failed"))))) {
       assertEquals(1, T5FreezeCapture.check(c, List.of(inventory.getFirst())).exitCode());
     }
+    assertEquals(List.of("Missing binding " + KEY + ": person"),
+        T5FreezeCapture.check(capture(true, List.of(item(KEY, Map.of(), List.of(), ""))),
+            List.of(inventory.getFirst())).problems());
     assertEquals(1, T5FreezeCapture.check(capture(true, List.of(base)), List.of()).exitCode());
     var allMissing = T5FreezeCapture.check(capture(true, List.of(base)),
         List.of(new T5FreezeCapture.Required(baselineKey, Set.of("person", "date"))));
-    assertEquals(4, allMissing.problems().size()); // Missing item, both feeds, unexpected native item.
+    assertEquals(Set.of("Missing identity/binding/arm/regime " + baselineKey,
+        "Missing binding " + baselineKey + ": person", "Missing binding " + baselineKey + ": date",
+        "Unexpected item " + KEY), Set.copyOf(allMissing.problems()));
     var empty = T5FreezeCapture.check(capture(false, List.of()), inventory);
     assertTrue(empty.problems().stream().anyMatch(s -> s.contains("baseline")));
     assertTrue(empty.problems().stream().anyMatch(s -> s.contains("native")));

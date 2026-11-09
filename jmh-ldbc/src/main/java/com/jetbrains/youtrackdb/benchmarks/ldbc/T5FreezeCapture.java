@@ -2,7 +2,12 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.type.LogicalType;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -21,12 +26,23 @@ import org.apache.tinkerpop.gremlin.structure.T;
 
 /** Internal, versioned correctness evidence. This format does not certify cut safety. */
 public final class T5FreezeCapture {
-  private static final ObjectMapper JSON = new ObjectMapper()
+  private static final ObjectMapper JSON = JsonMapper.builder()
       .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
       .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
       .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
       .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-      .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
+      .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+      .enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
+      .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+      .build();
+
+  static {
+    // Jackson handles textual targets separately from scalar coercion.
+    JSON.coercionConfigFor(LogicalType.Textual)
+        .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+        .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+        .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
+  }
 
   public enum Regime {
     COLD, WARM, UNCACHEABLE
