@@ -88,35 +88,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // name and internal id can reuse the booking without weakening cache conflict checks.
   private final Object2LongOpenHashMap<String> suppliedBookings = new Object2LongOpenHashMap<>();
 
-  @Override
-  public void validateCommit() {
-    checkIfActive();
-    if (suppliedFileCreated) {
-      requireCreationLock();
-    }
-  }
-
-  AtomicOperationBinaryTracking(
-      AbstractStorage storage, ReadCache readCache, WriteCache writeCache,
-      @Nullable WriteAheadLog wal, int storageId, AtomicOperationsSnapshot snapshot,
-      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshots,
-      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibility, AtomicLong snapshotSize,
-      ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> edges,
-      ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibility,
-      AtomicLong edgeSize) {
-    this(readCache, writeCache, wal, storageId, snapshot, snapshots, visibility,
-        snapshotSize, edges, edgeVisibility, edgeSize);
-    this.creationStorage = storage;
-  }
-
-  private void requireCreationLock() {
-    if (creationStorage == null || !creationStorage.isStateWriteLockedByCurrentThread()) {
-      rollbackInProgress();
-      throw new StorageException(writeCache.getStorageName(),
-          "Supplied-id creation requires the storage state write lock through commit");
-    }
-  }
-
   private long operationCommitTs = -1;
 
   private boolean rollback;
@@ -129,6 +100,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
+  // Positive committed-file IDs deleted by this operation. Cache deletion is deferred to commit.
   private final Object2LongOpenHashMap<String> deletedFileNameIdMap =
       new Object2LongOpenHashMap<>();
 
@@ -204,6 +176,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // their locked logical components instead.
   @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
 
+  AtomicOperationBinaryTracking(
+      AbstractStorage storage, ReadCache readCache, WriteCache writeCache,
+      @Nullable WriteAheadLog wal, int storageId, AtomicOperationsSnapshot snapshot,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshots,
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibility, AtomicLong snapshotSize,
+      ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> edges,
+      ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibility,
+      AtomicLong edgeSize) {
+    this(readCache, writeCache, wal, storageId, snapshot, snapshots, visibility,
+        snapshotSize, edges, edgeVisibility, edgeSize);
+    this.creationStorage = storage;
+  }
+
   /**
    * Production constructor. Optimistic scopes receive their epoch from the component
    * starting each read, and commits receive epochs from their locked components.
@@ -257,6 +242,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         applyPhaseEpoch == null ? new OptimisticReadScope()
             : new OptimisticReadScope(applyPhaseEpoch);
     this.active = true;
+  }
+
+  @Override
+  public void validateCommit() {
+    checkIfActive();
+    if (suppliedFileCreated) {
+      requireCreationLock();
+    }
+  }
+
+  private void requireCreationLock() {
+    if (creationStorage == null || !creationStorage.isStateWriteLockedByCurrentThread()) {
+      rollbackInProgress();
+      throw new StorageException(writeCache.getStorageName(),
+          "Supplied-id creation requires the storage state write lock through commit");
+    }
   }
 
   @Override
@@ -955,6 +956,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       if (deletedId != -1) {
         // Only this operation's matching committed-file deletion may bypass strict booking.
         validateIdentity(fileName, expectedId);
+        // The local deletion keeps the positive ID. Only disk cache deletion at commit negates it.
         fileId = deletedId;
         validateReuseDurability(fileId, nonDurable);
         isNew = false;
@@ -1023,7 +1025,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     if (newFileNamesId.containsKey(name)) {
       return true;
     }
-    if (deletedFileNameIdMap.containsKey(name) || suppliedBookings.containsKey(name)) {
+    if (deletedFileNameIdMap.containsKey(name)) {
+      // This operation deleted the committed file, even though its cache entry still exists.
+      return false;
+    }
+    if (suppliedBookings.containsKey(name)) {
+      // The pending file was deleted. Its retained booking reserves only the name and ID.
       return false;
     }
     return writeCache.registeredFileId(name) != null && writeCache.exists(name);
