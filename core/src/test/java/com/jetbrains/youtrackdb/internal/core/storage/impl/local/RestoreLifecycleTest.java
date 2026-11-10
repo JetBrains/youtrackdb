@@ -141,6 +141,32 @@ public class RestoreLifecycleTest {
     }
   }
 
+  /** A restored configuration replaces the target's created limit before indexes reopen. */
+  @Test
+  public void restorePublishesTheBackedUpKeyLimitInsteadOfTheTargetCreationLimit()
+      throws Exception {
+    try (var youTrackDB = openManager()) {
+      createSourceDatabase(youTrackDB);
+      var source = storageOf(youTrackDB, SOURCE);
+      assertTrue(source.getRecordedMaxIndexKeySize() > 0);
+      var configuration = (CollectionBasedStorageConfiguration) source.configuration;
+      source.getAtomicOperationsManager().executeInsideAtomicOperation(
+          op -> configuration.setMaxKeySize(op, -1));
+      assertNotNull(source.fullBackup(backupPath));
+      internalOf(youTrackDB).restore(target, backupPath.toString(), null, null);
+      assertEquals(-1, storageOf(youTrackDB, target).getRecordedMaxIndexKeySize());
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
+        assertEquals(-1,
+            ((DatabaseSessionEmbedded) session).getStorage().getRecordedMaxIndexKeySize());
+      }
+    }
+    try (var youTrackDB = openManager();
+        var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
+      assertEquals(-1,
+          ((DatabaseSessionEmbedded) session).getStorage().getRecordedMaxIndexKeySize());
+    }
+  }
+
   /**
    * A restore without any backup content creates no target at all.
    *

@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.UUID;
@@ -78,6 +79,22 @@ public class AbstractStorageForcedCloseTest {
     } finally {
       GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE.setValue(histogramMinSize);
     }
+  }
+
+  /** A closed storage retains its published limit, and reopening reloads the persisted value. */
+  @Test
+  public void recordedKeyLimitSurvivesCloseAndRefreshesOnReopen() throws Exception {
+    int recorded = storage.getRecordedMaxIndexKeySize();
+    assertThat(recorded).isEqualTo(
+        GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
+    var configuration = (CollectionBasedStorageConfiguration) storage.configuration;
+    storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+        op -> configuration.setMaxKeySize(op, -1));
+    storage.close(null, true);
+    assertThat(storage.getRecordedMaxIndexKeySize()).isEqualTo(recorded);
+    reopen();
+    assertThat(storage.getRecordedMaxIndexKeySize()).isEqualTo(-1);
+    assertRecords(1);
   }
 
   /** Each incompatible caller context rejects before lock acquisition and permits a later write. */

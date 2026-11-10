@@ -1003,6 +1003,7 @@ public class DiskStorage extends AbstractStorage {
     configuration = new CollectionBasedStorageConfiguration(this);
     ((CollectionBasedStorageConfiguration) configuration)
         .load(contextConfiguration, atomicOperation);
+    refreshRecordedMaxIndexKeySize(atomicOperation);
   }
 
   @Override
@@ -3297,6 +3298,8 @@ public class DiskStorage extends AbstractStorage {
           atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
               .load(contextConfiguration, atomicOperation));
     }
+
+    refreshRecordedMaxIndexKeySize(null);
 
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
