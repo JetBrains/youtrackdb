@@ -40,10 +40,6 @@ import org.junit.Test;
  * Unit tests for {@link DoubleWriteLogGL} and {@link DoubleWriteLogNoOP} covering the
  * surefire-reachable paths: open/write/truncate/loadPage/restoreMode/close/checkpoint.
  *
- * <p>Recovery, segment-rotation, and seal paths are shadowed by
- * {@code DoubleWriteLogGLTestIT} (failsafe-only); those branches are IT-territory and are
- * not attempted here. Branch ceiling for this package is ~70% line / ~52% branch per D4.
- *
  * <p>Every test uses a fresh temporary directory created by {@link #before()} and deleted
  * by {@link #after()}, so tests do not share on-disk state and file handles are closed
  * before the directory is removed.
@@ -217,7 +213,7 @@ public class DoubleWriteLogGLTest {
           dwl.write(
               new ArrayList<>(Collections.singleton(buffer)),
               IntArrayList.of(1),
-              IntArrayList.of(1)));
+              IntArrayList.of(1)).syncRequired());
 
       dwl.truncate();
 
@@ -256,7 +252,7 @@ public class DoubleWriteLogGLTest {
       var overflow = dwl.write(
           new ArrayList<>(Collections.singleton(buf)),
           IntArrayList.of(1),
-          IntArrayList.of(0));
+          IntArrayList.of(0)).syncRequired();
       assertFalse("First write must not signal overflow (no tail segments yet)", overflow);
     } finally {
       dwl.close();
@@ -283,14 +279,14 @@ public class DoubleWriteLogGLTest {
       randomPage(buf);
       boolean first = dwl.write(
           new ArrayList<>(Collections.singleton(buf)),
-          IntArrayList.of(1), IntArrayList.of(0));
+          IntArrayList.of(1), IntArrayList.of(0)).syncRequired();
       assertFalse(first);
 
       // Second write — segment is past the cap; a new segment was created; tail is non-empty.
       randomPage(buf);
       boolean second = dwl.write(
           new ArrayList<>(Collections.singleton(buf)),
-          IntArrayList.of(1), IntArrayList.of(1));
+          IntArrayList.of(1), IntArrayList.of(1)).syncRequired();
       assertTrue("Second write should signal overflow once tail segments exist", second);
 
       var files = listDwlFiles();
@@ -333,7 +329,7 @@ public class DoubleWriteLogGLTest {
       randomPage(buf);
       boolean result = dwl.write(
           new ArrayList<>(Collections.singleton(buf)),
-          IntArrayList.of(1), IntArrayList.of(2));
+          IntArrayList.of(1), IntArrayList.of(2)).syncRequired();
       assertFalse("write() must return false in restore mode", result);
     } finally {
       dwl.close();
@@ -364,7 +360,7 @@ public class DoubleWriteLogGLTest {
         randomPage(buf);
         boolean result = dwl.write(
             new ArrayList<>(Collections.singleton(buf)),
-            IntArrayList.of(1), IntArrayList.of(1));
+            IntArrayList.of(1), IntArrayList.of(1)).syncRequired();
         assertFalse("write() must return false during an active checkpoint", result);
       } finally {
         dwl.endCheckpoint();
@@ -773,14 +769,16 @@ public class DoubleWriteLogGLTest {
 
       randomPage(buf);
       boolean inCheckpoint = dwl.write(
-          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(1));
+          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(1))
+          .syncRequired();
       assertFalse("write() must return false while checkpoint counter > 0", inCheckpoint);
 
       dwl.endCheckpoint(); // counter = 1
 
       randomPage(buf);
       boolean stillInCheckpoint = dwl.write(
-          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(2));
+          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(2))
+          .syncRequired();
       assertFalse("write() must still return false with counter = 1", stillInCheckpoint);
 
       dwl.endCheckpoint(); // counter = 0
@@ -788,7 +786,8 @@ public class DoubleWriteLogGLTest {
       // Now tail segments exist and checkpoint is done — overflow must be signalled.
       randomPage(buf);
       boolean afterCheckpoint = dwl.write(
-          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(3));
+          new ArrayList<>(Collections.singleton(buf)), IntArrayList.of(1), IntArrayList.of(3))
+          .syncRequired();
       assertTrue("write() must return true (overflow) after all checkpoints end", afterCheckpoint);
     } finally {
       dwl.close();
@@ -811,7 +810,7 @@ public class DoubleWriteLogGLTest {
     var buf = ByteBuffer.allocate(PAGE_SIZE).order(ByteOrder.nativeOrder());
     boolean result = noOp.write(
         new ArrayList<>(Collections.singleton(buf)),
-        IntArrayList.of(1), IntArrayList.of(0));
+        IntArrayList.of(1), IntArrayList.of(0)).syncRequired();
     assertFalse("DoubleWriteLogNoOP.write() must always return false", result);
   }
 

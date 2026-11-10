@@ -3976,7 +3976,7 @@ public final class WOWCache extends AbstractWriteCache
     LogManager.instance().error(this, stringWriter.toString(), null);
   }
 
-  private void fsyncFiles() throws java.lang.InterruptedException, IOException {
+  private void fsyncFiles(long syncToken) throws java.lang.InterruptedException, IOException {
     if (callFsync) {
       for (int intFileId : idNameMap.keySet()) {
         if (intFileId >= 0) {
@@ -3998,7 +3998,8 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     // Truncate even without fsync so that the double-write log does not grow without bound.
-    doubleWriteLog.truncate();
+    doubleWriteLog.acknowledgeSync(syncToken);
+    doubleWriteLog.truncate(Set.of());
   }
 
   /**
@@ -4714,7 +4715,7 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    final boolean fsyncFiles;
+    final DoubleWriteLog.AppendResult appendResult;
 
     var flushedPages = 0;
 
@@ -4735,11 +4736,11 @@ public final class WOWCache extends AbstractWriteCache
               buffersByFileId,
               chunkPageIndexes,
               chunkFileIds);
-      fsyncFiles = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
+      appendResult = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
       writePageChunksToFiles(buffersByFileId);
-      if (fsyncFiles) {
+      if (appendResult.syncRequired()) {
         // The copies remain owned here until synchronization has completed or failed.
-        fsyncFiles();
+        fsyncFiles(appendResult.syncToken());
       }
     } catch (final Exception | Error e) {
       // Release per-page copy buffers on error to prevent direct memory leak.

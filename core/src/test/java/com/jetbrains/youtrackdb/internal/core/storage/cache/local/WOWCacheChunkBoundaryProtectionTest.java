@@ -387,7 +387,8 @@ public class WOWCacheChunkBoundaryProtectionTest {
     poolField.set(wowCache, trackedPool);
 
     final var doubleWriteLog = mock(DoubleWriteLog.class);
-    when(doubleWriteLog.write(any(), any(), any())).thenReturn(true);
+    when(doubleWriteLog.write(any(), any(), any()))
+        .thenReturn(new DoubleWriteLog.AppendResult(1L, true, 1));
     final var logField = WOWCache.class.getDeclaredField("doubleWriteLog");
     logField.setAccessible(true);
     logField.set(wowCache, doubleWriteLog);
@@ -408,7 +409,8 @@ public class WOWCacheChunkBoundaryProtectionTest {
         .hasMessageContaining("injected batch force failure");
     assertThat(flushPointer.get()).isNotNull();
     verify(trackedPool).release(same(flushPointer.get()));
-    verify(doubleWriteLog, never()).truncate();
+    verify(doubleWriteLog, never()).truncate(any());
+    verify(doubleWriteLog, never()).acknowledgeSync(org.mockito.ArgumentMatchers.anyLong());
     assertThat(wowCache.getMinimalNotFlushedSegment()).isEqualTo(FIRST_PAGE_LSN.getSegment());
   }
 

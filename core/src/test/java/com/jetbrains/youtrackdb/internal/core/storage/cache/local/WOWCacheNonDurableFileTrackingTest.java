@@ -609,7 +609,8 @@ public class WOWCacheNonDurableFileTrackingTest {
     } else {
       verify(file, never()).synch();
     }
-    verify(doubleWriteLog).truncate();
+    verify(doubleWriteLog).acknowledgeSync(1L);
+    verify(doubleWriteLog).truncate(java.util.Set.of());
   }
 
   /** A partial two-file synchronization failure prevents WAL and recovery-copy cleanup. */
@@ -708,24 +709,50 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertEquals("both paths invoked file force again", 3, attempts.get());
   }
 
-  /** A failed per-batch force cannot discard the double-write copies. */
+  /** Failed cleanup synchronization leaves a real rotation pending until a successful retry. */
   @Test
   public void testFsyncFilesFailureRetainsDwlCopies() throws Exception {
     wowCache.delete();
-    final var doubleWriteLog = mock(DoubleWriteLog.class);
+    final var doubleWriteLog =
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL(
+            Long.MAX_VALUE, 512);
     createNewCache(true, doubleWriteLog);
     final var fileId = wowCache.addFile("failedDwlSync.tst");
     final var realFile = files.remove(fileId);
     realFile.close();
     final var file = mock(File.class);
     when(file.isOpen()).thenReturn(true);
-    doThrow(new StorageException(storageName, "injected force failure")).when(file).synch();
+    final var attempts = new AtomicInteger();
+    doAnswer(invocation -> {
+      if (attempts.incrementAndGet() <= 2) {
+        throw new StorageException(storageName, "injected force failure");
+      }
+      return null;
+    }).when(file).synch();
     files.add(fileId, file);
 
-    final var invocation = assertThrows(java.lang.reflect.InvocationTargetException.class,
-        () -> invokeFsyncFilesOrMigration(wowCache, "fsyncFiles"));
-    assertTrue(invocation.getCause() instanceof StorageException);
-    verify(doubleWriteLog, never()).truncate();
+    final var buffers = new ArrayList<ByteBuffer>();
+    buffers.add(ByteBuffer.allocate(PAGE_SIZE));
+    final var ids = it.unimi.dsi.fastutil.ints.IntArrayList.of(1);
+    final var pages = it.unimi.dsi.fastutil.ints.IntArrayList.of(0);
+    assertFalse(doubleWriteLog.write(buffers, ids, pages).syncRequired());
+    doubleWriteLog.startCheckpoint();
+    doubleWriteLog.endCheckpoint();
+    final var oldSegment = storagePath.resolve(
+        ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0.dwl");
+
+    for (int i = 0; i < 2; i++) {
+      assertTrue(doubleWriteLog.write(buffers, ids, pages).syncRequired());
+      final var invocation = assertThrows(java.lang.reflect.InvocationTargetException.class,
+          () -> invokeFsyncFilesOrMigration(wowCache, "fsyncFiles"));
+      assertTrue(invocation.getCause() instanceof StorageException);
+      assertTrue(Files.exists(oldSegment));
+    }
+    assertTrue(doubleWriteLog.write(buffers, ids, pages).syncRequired());
+    invokeFsyncFilesOrMigration(wowCache, "fsyncFiles");
+    assertEquals(3, attempts.get());
+    assertFalse(Files.exists(oldSegment));
+    assertFalse(doubleWriteLog.write(buffers, ids, pages).syncRequired());
   }
 
   /** A creation-time force failure closes the file before it can be registered. */
@@ -938,9 +965,16 @@ public class WOWCacheNonDurableFileTrackingTest {
 
   private static void invokeFsyncFilesOrMigration(WOWCache cache, String methodName)
       throws Exception {
-    final Method method = WOWCache.class.getDeclaredMethod(methodName);
+    final boolean sync = methodName.equals("fsyncFiles");
+    final Method method = sync
+        ? WOWCache.class.getDeclaredMethod(methodName, long.class)
+        : WOWCache.class.getDeclaredMethod(methodName);
     method.setAccessible(true);
-    method.invoke(cache);
+    if (sync) {
+      method.invoke(cache, 1L);
+    } else {
+      method.invoke(cache);
+    }
   }
 
   private static long countInvocations(Object mock, String methodName) {

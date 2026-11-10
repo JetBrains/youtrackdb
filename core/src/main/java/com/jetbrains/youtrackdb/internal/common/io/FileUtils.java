@@ -457,7 +457,8 @@ public class FileUtils {
     return WindowsDurableMove.BINDING.nativeMove() != null;
   }
 
-  private static void forceDirectory(final Path directory) throws IOException {
+  /** Forces a directory entry before a newly created file becomes usable. */
+  public static void forceDirectory(final Path directory) throws IOException {
     try (var channel = FileChannel.open(directory, StandardOpenOption.READ)) {
       channel.force(true);
     }
