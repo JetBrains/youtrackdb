@@ -959,7 +959,7 @@ public abstract class AbstractStorage
 
           atomicOperationsManager.executeInsideAtomicOperation(
               atomicOperation -> {
-                if (CollectionBasedStorageConfiguration.exists(writeCache)) {
+                if (CollectionBasedStorageConfiguration.exists(this, atomicOperation)) {
                   configuration = new CollectionBasedStorageConfiguration(this);
                   ((CollectionBasedStorageConfiguration) configuration)
                       .load(contextConfiguration, atomicOperation);

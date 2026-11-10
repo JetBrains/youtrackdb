@@ -40,7 +40,14 @@ import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionC
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
@@ -74,6 +81,240 @@ import org.junit.Test;
  * by tearing down the database (and freeing all pages) inside {@code @After}.
  */
 public class CollectionBasedStorageConfigurationTest {
+
+  @org.junit.Rule
+  public final org.junit.rules.TemporaryFolder configurationFolder =
+      new org.junit.rules.TemporaryFolder();
+
+  /** Fixed configuration registrations survive a real disk restart and remain distinct from
+   * ordinary collections. Layout 25 retains its custom names and cache-assigned registrations. */
+  @Test
+  public void configurationRegistrationsAcrossLayoutsAndStorageKinds() throws Exception {
+    for (var format : StorageFormat.values()) {
+      for (var type : DatabaseType.values()) {
+        var root = configurationFolder.newFolder(format.name() + type).toPath();
+        try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+          try (
+              var selection =
+                  StorageBirthTestSupport.selectBirthFormat(manager, "selected", format)) {
+            manager.create("selected", type, "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+          }
+          try (var opened = (DatabaseSessionEmbedded) manager.open(
+              "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            var selected = opened.getStorage();
+            assertConfigurationRegistrations(selected, format);
+            var field = AbstractStorage.class.getDeclaredField("configuration");
+            field.setAccessible(true);
+            var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+            selected.getAtomicOperationsManager().executeInsideAtomicOperation(
+                op -> configuration.setProperty(op, "activation", "persisted"));
+          }
+        }
+        if (type == DatabaseType.DISK) {
+          try (var manager = (YouTrackDBImpl) YourTracks.instance(root);
+              var opened = (DatabaseSessionEmbedded) manager.open(
+                  "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            var selected = opened.getStorage();
+            assertConfigurationRegistrations(selected, format);
+            var field = AbstractStorage.class.getDeclaredField("configuration");
+            field.setAccessible(true);
+            var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+            assertEquals("persisted", selected.getAtomicOperationsManager()
+                .calculateInsideAtomicOperation(op -> configuration.getProperty("activation")));
+          }
+        }
+      }
+    }
+  }
+
+  /** Deleting a real configuration removes all six live registrations and disk backing files. */
+  @Test
+  public void configurationDeleteRemovesAllSixFixedIdentities() throws Exception {
+    for (var type : DatabaseType.values()) {
+      var root = configurationFolder.newFolder("delete-" + type).toPath();
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        try (var selection = StorageBirthTestSupport.selectBirthFormat(
+            manager, "selected", StorageFormat.LAYOUT_26)) {
+          manager.create("selected", type, "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+        }
+        AbstractStorage selected;
+        try (var opened = (DatabaseSessionEmbedded) manager.open(
+            "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+          selected = opened.getStorage();
+          assertConfigurationRegistrations(selected, StorageFormat.LAYOUT_26);
+        }
+        var field = AbstractStorage.class.getDeclaredField("configuration");
+        field.setAccessible(true);
+        var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+        try {
+          selected.getAtomicOperationsManager().executeInsideAtomicOperation(configuration::delete);
+          var cache = selected.getWriteCache();
+          for (var role : PageFileRole.values()) {
+            if (role.kind() != PageFileKind.CONFIGURATION) {
+              continue;
+            }
+            var identity = new PageFileIdentity(role, 0);
+            var name = PageFileNames.layout26(identity);
+            assertEquals(name, -1L, cache.fileIdByName(name));
+            assertFalse(name, cache.files().containsKey(name));
+            assertFalse(name, cache.exists(name));
+            if (type == DatabaseType.DISK) {
+              assertFalse(name, java.nio.file.Files.exists(
+                  root.resolve("selected").resolve(PageFileNames.layout26DiskName(identity))));
+            }
+          }
+        } finally {
+          // The configuration is intentionally gone. Discard the storage instead of closing it,
+          // since normal shutdown persists configuration properties.
+          selected.delete();
+        }
+      }
+    }
+  }
+
+  /** A missing configuration data owner must fail open without creating a replacement. */
+  @Test
+  public void missingConfigurationDataIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.CONFIG_DATA);
+  }
+
+  /** A missing property tree owner must fail open without creating a replacement. */
+  @Test
+  public void missingPropertyDataIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.PROPERTY_DATA);
+  }
+
+  /** A missing property null bucket must fail open without creating a replacement. */
+  @Test
+  public void missingPropertyNullBucketIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.PROPERTY_NULL_BUCKET);
+  }
+
+  private void assertMissingPrimaryIsNotRecreated(PageFileRole missingRole) throws Exception {
+    var root = configurationFolder.newFolder(missingRole.name()).toPath();
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      try (var selection = StorageBirthTestSupport.selectBirthFormat(
+          manager, "selected", StorageFormat.LAYOUT_26)) {
+        manager.create("selected", DatabaseType.DISK,
+            "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+      }
+    }
+    var directory = root.resolve("selected");
+    var missingFile = directory.resolve(
+        PageFileNames.layout26DiskName(new PageFileIdentity(missingRole, 0)));
+    java.nio.file.Files.delete(missingFile);
+    var survivingFiles = new java.util.HashMap<java.nio.file.Path, byte[]>();
+    for (var role : PageFileRole.values()) {
+      if (role.kind() == PageFileKind.CONFIGURATION && role != missingRole) {
+        var file = directory.resolve(
+            PageFileNames.layout26DiskName(new PageFileIdentity(role, 0)));
+        survivingFiles.put(file, java.nio.file.Files.readAllBytes(file));
+      }
+    }
+    java.util.Set<String> namesBefore;
+    try (var files = java.nio.file.Files.list(directory)) {
+      namesBefore = files.map(file -> file.getFileName().toString())
+          .collect(java.util.stream.Collectors.toSet());
+    }
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      assertThrows(RuntimeException.class,
+          () -> manager.open("selected", "admin", DbTestBase.ADMIN_PASSWORD));
+    }
+    assertFalse(missingRole.name(), java.nio.file.Files.exists(missingFile));
+    for (var entry : survivingFiles.entrySet()) {
+      assertArrayEquals(entry.getKey().toString(), entry.getValue(),
+          java.nio.file.Files.readAllBytes(entry.getKey()));
+    }
+    try (var files = java.nio.file.Files.list(directory)) {
+      var newConfigurationFiles = files.map(file -> file.getFileName().toString())
+          .filter(name -> name.startsWith("config.") || name.startsWith("ytdb-p26-configuration-"))
+          .filter(name -> !namesBefore.contains(name)).toList();
+      assertTrue(newConfigurationFiles.toString(), newConfigurationFiles.isEmpty());
+    }
+  }
+
+  private static void assertConfigurationRegistrations(AbstractStorage selected,
+      StorageFormat format) throws Exception {
+    var cache = selected.getWriteCache();
+    var ids = new java.util.HashSet<Long>();
+    for (var role : PageFileRole.values()) {
+      if (role.kind() != PageFileKind.CONFIGURATION) {
+        continue;
+      }
+      var identity = new PageFileIdentity(role, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+      var name = format == StorageFormat.LAYOUT_26
+          ? PageFileNames.layout26(identity) : "config" + role.layout25Extension();
+      long id = cache.fileIdByName(name);
+      assertTrue(name, id > 0);
+      assertTrue(name, ids.add(id));
+      if (format == StorageFormat.LAYOUT_26) {
+        assertEquals(name, identity.internalId(), cache.internalFileId(id));
+        assertFalse(cache.exists("config" + role.layout25Extension()));
+      }
+      assertTrue(cache.exists(name));
+    }
+    assertTrue(selected.getAtomicOperationsManager().calculateInsideAtomicOperation(
+        op -> CollectionBasedStorageConfiguration.exists(selected, op)));
+  }
+
+  /** Missing rebuildable auxiliaries are recreated on real disk reopen. A missing primary
+   * position map is rejected rather than recreated. */
+  @Test
+  public void missingConfigurationAuxiliariesRebuildButPrimaryDoesNot() throws Exception {
+    for (var role : new PageFileRole[] {PageFileRole.CONFIG_FREE_SPACE_MAP,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET, PageFileRole.CONFIG_POSITION_MAP}) {
+      var root = configurationFolder.newFolder(role.name()).toPath();
+      var identity = new PageFileIdentity(role, 0);
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        try (var selection =
+            StorageBirthTestSupport.selectBirthFormat(manager, "selected",
+                StorageFormat.LAYOUT_26)) {
+          manager.create("selected", DatabaseType.DISK,
+              "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+        }
+      }
+      // Remove only the backing file from the closed image. The registry still records its identity.
+      java.nio.file.Files.delete(root.resolve("selected")
+          .resolve(PageFileNames.layout26DiskName(identity)));
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        if (role == PageFileRole.CONFIG_POSITION_MAP) {
+          assertThrows(RuntimeException.class,
+              () -> manager.open("selected", "admin", DbTestBase.ADMIN_PASSWORD));
+        } else {
+          try (var opened = (DatabaseSessionEmbedded) manager.open(
+              "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            assertConfigurationRegistrations(opened.getStorage(), StorageFormat.LAYOUT_26);
+          }
+        }
+      }
+    }
+  }
+
+  /** Construction and presence work with no component factory or counter service available. */
+  @Test
+  public void fixedIdentityBootstrapNeedsOnlyLayoutAndCaches() {
+    var selected = org.mockito.Mockito.mock(AbstractStorage.class);
+    var cache = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class);
+    var operation = org.mockito.Mockito.mock(AtomicOperation.class);
+    org.mockito.Mockito.when(selected.getAtomicOperationsManager())
+        .thenReturn(org.mockito.Mockito.mock(AtomicOperationsManager.class));
+    org.mockito.Mockito.when(selected.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    org.mockito.Mockito.when(selected.getWriteCache()).thenReturn(cache);
+    org.mockito.Mockito.when(cache.getId()).thenReturn(17);
+    new CollectionBasedStorageConfiguration(selected);
+    var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA, 0);
+    var name = PageFileNames.layout26(identity);
+    var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+    assertFalse(CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.when(operation.isFileExists(name, id)).thenReturn(true);
+    assertTrue(CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.when(operation.isFileExists(name, id))
+        .thenThrow(new StorageException("test", "wrong registration"));
+    assertThrows(StorageException.class,
+        () -> CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).getComponentsFactory();
+  }
 
   private static final String DB_NAME = "configTest";
 

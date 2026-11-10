@@ -443,7 +443,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       "Scanning of free space for collection %s in storage %s started ...",
                       additionalArgs1);
 
-              freeSpaceMap.create(atomicOperation);
+              freeSpaceMap.reconstruct(atomicOperation);
               // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
               // Data pages live at indices 1..dataPageCount (page 0 is the state page).
               // Bounding by logical fileSize avoids reading partial-flush orphans past
@@ -481,7 +481,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             if (dirtyPageBitSet.exists(atomicOperation)) {
               dirtyPageBitSet.open(atomicOperation);
             } else {
-              dirtyPageBitSet.create(atomicOperation);
+              dirtyPageBitSet.reconstruct(atomicOperation);
             }
           } finally {
             releaseExclusiveLock();

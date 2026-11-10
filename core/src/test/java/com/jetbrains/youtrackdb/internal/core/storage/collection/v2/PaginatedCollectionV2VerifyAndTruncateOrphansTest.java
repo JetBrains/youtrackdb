@@ -197,6 +197,119 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     }
   }
 
+  // Missing explicit auxiliaries use reconstruction only after both primary handles are open.
+  @Test
+  public void configurationReopenReconstructsOnlyMissingAuxiliaries() throws IOException {
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockWriteCache.getId()).thenReturn(17);
+    var roles = new PageFileRole[] {PageFileRole.CONFIG_DATA, PageFileRole.CONFIG_POSITION_MAP,
+        PageFileRole.CONFIG_FREE_SPACE_MAP, PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET};
+    for (var role : roles) {
+      var identity = new PageFileIdentity(role, 0);
+      var name = PageFileNames.layout26(identity);
+      var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+      when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
+      when(atomicOperation.loadFile(name, id)).thenReturn(id);
+      when(atomicOperation.addFile(name, id, false, true)).thenReturn(id);
+    }
+    var owned = new PaginatedCollectionV2("config", ".cd", ".ccm", ".fcm", ".dcm",
+        mockStorage, new PageFileIdentity(PageFileRole.CONFIG_DATA, 0));
+    owned.create(atomicOperation);
+    org.mockito.Mockito.clearInvocations(atomicOperation);
+    owned.open(atomicOperation);
+    var order = org.mockito.Mockito.inOrder(atomicOperation);
+    for (int i = 0; i < roles.length; i++) {
+      var identity = new PageFileIdentity(roles[i], 0);
+      var name = PageFileNames.layout26(identity);
+      var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+      if (i < 2) {
+        order.verify(atomicOperation).loadFile(name, id);
+        verify(atomicOperation, never()).addFile(name, id, false, true);
+      } else {
+        order.verify(atomicOperation).isFileExists(name, id);
+        order.verify(atomicOperation).addFile(name, id, false, true);
+        verify(atomicOperation, never()).addFile(name, id, false, false);
+      }
+    }
+  }
+
+  // Each presence error is tested with the other auxiliary valid and present.
+  @Test
+  public void configurationReopenPropagatesFreeSpaceMapRegistrationError() throws IOException {
+    assertConfigurationRegistrationError(PageFileRole.CONFIG_FREE_SPACE_MAP);
+  }
+
+  @Test
+  public void configurationReopenPropagatesDirtyPageBitSetRegistrationError() throws IOException {
+    assertConfigurationRegistrationError(PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET);
+  }
+
+  private void assertConfigurationRegistrationError(PageFileRole failingRole) throws IOException {
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockWriteCache.getId()).thenReturn(17);
+    for (var role : new PageFileRole[] {PageFileRole.CONFIG_DATA,
+        PageFileRole.CONFIG_POSITION_MAP, PageFileRole.CONFIG_FREE_SPACE_MAP,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET}) {
+      var identity = new PageFileIdentity(role, 0);
+      var name = PageFileNames.layout26(identity);
+      var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+      when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
+      when(atomicOperation.loadFile(name, id)).thenReturn(id);
+      when(atomicOperation.isFileExists(name, id)).thenReturn(true);
+    }
+    var owned = new PaginatedCollectionV2("config", ".cd", ".ccm", ".fcm", ".dcm",
+        mockStorage, new PageFileIdentity(PageFileRole.CONFIG_DATA, 0));
+    owned.create(atomicOperation);
+    var identity = new PageFileIdentity(failingRole, 0);
+    var name = PageFileNames.layout26(identity);
+    var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+    var failure = new IllegalStateException("wrong " + failingRole + " identity");
+    when(atomicOperation.isFileExists(name, id)).thenThrow(failure);
+    org.mockito.Mockito.clearInvocations(atomicOperation);
+    var thrown = org.junit.Assert.assertThrows(
+        IllegalStateException.class, () -> owned.open(atomicOperation));
+    org.junit.Assert.assertSame(failure, thrown);
+    verify(atomicOperation).isFileExists(name, id);
+    verify(atomicOperation, never()).addFile(
+        anyString(), anyLong(), anyBoolean(), anyBoolean());
+    if (failingRole == PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET) {
+      var freeSpace = new PageFileIdentity(PageFileRole.CONFIG_FREE_SPACE_MAP, 0);
+      verify(atomicOperation).loadFile(PageFileNames.layout26(freeSpace),
+          AbstractWriteCache.composeFileId(17, freeSpace.internalId()));
+    }
+  }
+
+  // Legacy configuration creation must allocate by name in data, position, free, dirty order.
+  @Test
+  public void legacyConfigurationAuxiliariesKeepCreationOrder() throws IOException {
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_25);
+    when(atomicOperation.addFile("config.cd", false)).thenReturn(FILE_ID);
+    when(atomicOperation.addFile("config.ccm", false)).thenReturn(CPM_FILE_ID);
+    when(atomicOperation.addFile("config.fcm", false)).thenReturn(FSM_FILE_ID);
+    when(atomicOperation.addFile("config.dcm", false)).thenReturn(DPB_FILE_ID);
+    org.mockito.Mockito.clearInvocations(atomicOperation);
+    var legacy = new PaginatedCollectionV2(
+        "config", ".cd", ".ccm", ".fcm", ".dcm", mockStorage);
+    legacy.create(atomicOperation);
+    var order = org.mockito.Mockito.inOrder(atomicOperation);
+    order.verify(atomicOperation).addFile("config.cd", false);
+    order.verify(atomicOperation).addFile("config.ccm", false);
+    order.verify(atomicOperation).addFile("config.fcm", false);
+    order.verify(atomicOperation).addFile("config.dcm", false);
+  }
+
+  // Legacy reopen keeps name-based initializers for both missing auxiliaries.
+  @Test
+  public void legacyReopenRebuildsMissingAuxiliariesByName() throws IOException {
+    when(atomicOperation.loadFile(COLLECTION_NAME + ".pcl")).thenReturn(FILE_ID);
+    when(atomicOperation.loadFile(COLLECTION_NAME + ".cpm")).thenReturn(CPM_FILE_ID);
+    org.mockito.Mockito.clearInvocations(atomicOperation);
+    collection.open(atomicOperation);
+    verify(atomicOperation).addFile(COLLECTION_NAME + ".fsm", false);
+    verify(atomicOperation).addFile(COLLECTION_NAME + ".dpb", false);
+    verify(atomicOperation, never()).addFile(anyString(), anyLong(), anyBoolean(), anyBoolean());
+  }
+
   // Legacy rename must keep all four display-derived file names and update the component name.
   @Test
   public void legacyCollectionRenameMovesAllFourFiles() throws IOException {

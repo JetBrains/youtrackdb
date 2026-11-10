@@ -117,6 +117,16 @@ public final class FreeSpaceMap extends StorageComponent {
     init(atomicOperation);
   }
 
+  /** Rebuilds an absent auxiliary after its collection owner has been opened. */
+  void reconstruct(final AtomicOperation atomicOperation) throws IOException {
+    if (identity == null) {
+      create(atomicOperation);
+      return;
+    }
+    fileId = reconstructAuxiliary(atomicOperation, identity);
+    init(atomicOperation);
+  }
+
   public void open(final AtomicOperation atomicOperation) throws IOException {
     fileId = openFile(atomicOperation, getFullName(), identity);
   }

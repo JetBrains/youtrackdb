@@ -27,13 +27,16 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -189,19 +192,43 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return writeCache.exists(COMPONENT_NAME + DATA_FILE_EXTENSION);
   }
 
+  /** Presence uses the admitted layout and validates the fixed data identity before opening. */
+  public static boolean exists(AbstractStorage storage, AtomicOperation operation) {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
+      return exists(storage.getWriteCache());
+    }
+    var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA,
+        PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    return operation.isFileExists(PageFileNames.layout26(identity),
+        AbstractWriteCache.composeFileId(storage.getWriteCache().getId(), identity.internalId()));
+  }
+
   public CollectionBasedStorageConfiguration(final AbstractStorage storage) {
-    collection =
-        StorageCollectionFactory.createCollection(
-            COMPONENT_NAME,
-            PaginatedCollection.getLatestBinaryVersion(),
-            storage,
-            DATA_FILE_EXTENSION,
-            MAP_FILE_EXTENSION,
-            FREE_MAP_FILE_EXTENSION,
-            DIRTY_PAGE_FILE_EXTENSION);
-    btree =
-        new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
-            null);
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+      collection = new PaginatedCollectionV2(COMPONENT_NAME, DATA_FILE_EXTENSION,
+          MAP_FILE_EXTENSION, FREE_MAP_FILE_EXTENSION, DIRTY_PAGE_FILE_EXTENSION, storage,
+          new PageFileIdentity(PageFileRole.CONFIG_DATA,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID));
+      btree = new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION,
+          storage, null,
+          new PageFileIdentity(PageFileRole.PROPERTY_DATA,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID),
+          new PageFileIdentity(PageFileRole.PROPERTY_NULL_BUCKET,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID));
+    } else {
+      collection =
+          StorageCollectionFactory.createCollection(
+              COMPONENT_NAME,
+              PaginatedCollection.getLatestBinaryVersion(),
+              storage,
+              DATA_FILE_EXTENSION,
+              MAP_FILE_EXTENSION,
+              FREE_MAP_FILE_EXTENSION,
+              DIRTY_PAGE_FILE_EXTENSION);
+      btree =
+          new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
+              null);
+    }
     this.storage = storage;
   }
 
