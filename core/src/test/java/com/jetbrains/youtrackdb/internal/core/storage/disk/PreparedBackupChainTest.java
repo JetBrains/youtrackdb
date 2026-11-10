@@ -33,7 +33,7 @@ public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
 
-  /** The layout-27 descriptor is unavailable before admission and after cleanup. */
+  /** The source descriptor is unavailable before admission and after cleanup for either layout. */
   @Test
   public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
     for (var format : StorageFormat.values()) {

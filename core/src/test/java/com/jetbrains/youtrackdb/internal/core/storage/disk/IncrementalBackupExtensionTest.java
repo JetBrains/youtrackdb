@@ -4828,8 +4828,9 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Version 6 damaged heads belong only to their source layout, with or without continuity.
-   * A valid metadata checksum must not authorize deletion of foreign-layout bytes. The same
-   * fixture in the source layout must remain removable through both stream and tail readers.
+   * A valid metadata checksum must not authorize deletion of obsolete or opposing supported
+   * layout bytes. The same fixture in the source layout must remain removable through both
+   * stream and tail readers.
    */
   @Test
   public void version6DamagedHeadRecognitionRequiresSourceLayout() throws Exception {
@@ -4841,9 +4842,9 @@ public class IncrementalBackupExtensionTest {
         }
         for (var continuityPresent : new boolean[] {false, true}) {
           for (var plain : new boolean[] {false, true}) {
-            for (var sameLayout : new boolean[] {false, true}) {
-              var layout = sameLayout ? format.layoutVersion()
-                  : format == StorageFormat.LAYOUT_27 ? 28 : 27;
+            for (var layout : new int[] {26, format == StorageFormat.LAYOUT_27 ? 28 : 27,
+                format.layoutVersion()}) {
+              var sameLayout = layout == format.layoutVersion();
               var damaged = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
                   0, true, 6, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
               var path = backupPath.resolve(damaged);

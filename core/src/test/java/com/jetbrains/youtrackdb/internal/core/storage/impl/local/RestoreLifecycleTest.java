@@ -1281,7 +1281,7 @@ public class RestoreLifecycleTest {
     }
   }
 
-  /** Old configuration values must never activate a restored source with a layout-27 header. */
+  /** Old configuration values must never activate a restored source with either supported layout. */
   @Test
   public void oldRestoredConfigurationPreventsActivation()
       throws Exception {
