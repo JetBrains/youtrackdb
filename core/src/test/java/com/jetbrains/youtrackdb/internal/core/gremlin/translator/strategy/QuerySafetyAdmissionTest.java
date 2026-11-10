@@ -305,6 +305,91 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     assertThat(calls.get()).isZero();
   }
 
+  /** A custom buffer drops the only vertex natively and must never be erased by MATCH. */
+  @Test
+  public void customBarrierBufferStaysNativeWithoutRunningDuringAdmission() {
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.tx().commit();
+    for (boolean translated : List.of(false, true)) {
+      support.withTranslator(translated, () -> {
+        var calls = new AtomicInteger();
+        var traversal = graph.traversal().V().asAdmin();
+        var buffer = new org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet<
+            org.apache.tinkerpop.gremlin.structure.Vertex>() {
+          @Override
+          public boolean add(org.apache.tinkerpop.gremlin.process.traversal.Traverser.Admin<
+              org.apache.tinkerpop.gremlin.structure.Vertex> traverser) {
+            calls.incrementAndGet();
+            return false;
+          }
+
+          @Override
+          public boolean isEmpty() {
+            calls.incrementAndGet();
+            return super.isEmpty();
+          }
+        };
+        traversal.addStep(
+            new org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<>(
+                traversal, 2500, buffer));
+        var count = traversal.count().asAdmin();
+        count.applyStrategies();
+        if (translated) {
+          assertThat(QuerySafetyAdmission.stored(count).reason())
+              .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+        }
+        assertNoBoundary(count);
+        assertThat(calls.get()).isZero();
+        assertThat(count.toList()).containsExactly(0L);
+        assertThat(calls.get()).isPositive();
+      });
+    }
+  }
+
+  /** Exact built-in buffers, including explicitly supplied buffers, still install MATCH. */
+  @Test
+  public void builtInBarrierBuffersStillTranslate() {
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.tx().commit();
+    support.withTranslator(true, () -> {
+      for (boolean explicit : List.of(false, true)) {
+        var traversal = graph.traversal().V().asAdmin();
+        if (explicit) {
+          traversal.addStep(
+              new org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<>(
+                  traversal, 2500,
+                  new org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet<>()));
+        } else {
+          traversal.barrier(2500);
+        }
+        var count = traversal.count().asAdmin();
+        count.applyStrategies();
+        assertThat(QuerySafetyAdmission.stored(count).reason())
+            .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(count)).isEqualTo(1);
+        assertThat(count.toList()).containsExactly(1L);
+      }
+    });
+  }
+
+  /** The root veto also suppresses independent translation in both child scopes. */
+  @Test
+  public void customBarrierBuffersVetoNestedTraversals() {
+    for (boolean global : List.of(false, true)) {
+      var child = __.V().asAdmin();
+      child.addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep<>(
+          child, 2500,
+          new org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet<>() {
+            @Override
+            public boolean isEmpty() {
+              throw new AssertionError("admission must not inspect buffer contents");
+            }
+          }));
+      refused(() -> global ? graph.traversal().inject(1).union(child)
+          : graph.traversal().inject(1).map(child), QuerySafetyAdmission.Reason.USER_FUNCTION);
+    }
+  }
+
   /** Replaced aggregate components in children and clones never run during preparation. */
   @Test
   @SuppressWarnings({"rawtypes", "unchecked"})

@@ -40,6 +40,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
@@ -222,6 +223,10 @@ final class QuerySafetyAdmission {
           && step.getClass() != EdgeHopRecogniser.CONSUMED_CLOSING_STEP
           && !PURE_EXTRA.contains(step.getClass())) {
         refuse(Reason.UNKNOWN_BEHAVIOR);
+      }
+      // Translation skips this barrier, so its buffer must not carry executable overrides.
+      if (step instanceof NoOpBarrierStep<?> barrier && !barrier.hasBuiltInBuffer()) {
+        refuse(Reason.USER_FUNCTION);
       }
       if (step instanceof FoldStep<?, ?> fold && !fold.isDefaultFold()) {
         refuse(Reason.USER_FUNCTION);
