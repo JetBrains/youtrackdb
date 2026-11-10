@@ -536,19 +536,24 @@ public class DiskStorageStaticHelpersTest {
     for (var format : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
         .values()) {
       DiskStorage.validateRestoredStorageLayoutVersion("matrix", format.layoutVersion(), format);
-      for (var conflicting : new int[] {24, 25, 26, 27}) {
+      for (var conflicting : new int[] {24, 25, 26, 27, 28}) {
         if (conflicting != format.layoutVersion()) {
           var failure = assertThrows(StorageException.class,
               () -> DiskStorage.validateRestoredStorageLayoutVersion("matrix", conflicting,
                   format));
-          assertTrue(failure.getMessage().contains("admitted source carries storage layout version "
-              + format.layoutVersion()));
+          assertTrue(failure.getMessage().contains(
+              "The restored configuration reports storage layout version " + conflicting
+                  + ". The admitted source reports storage layout version "
+                  + format.layoutVersion() + ". The stored storage layout versions disagree."));
+          assertFalse(failure.getMessage().contains("Export"));
+          assertFalse(failure.getMessage().contains("Import"));
+          assertFalse(failure.getMessage().contains("A newer YouTrackDB version"));
         }
       }
     }
     DiskStorage.validateRestoredStorageLayoutVersion(
         "acceptedLayout", StorageConfiguration.CURRENT_VERSION,
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
   }
 
   /**
@@ -565,7 +570,7 @@ public class DiskStorageStaticHelpersTest {
             StorageException.class,
             () -> DiskStorage.validateRestoredStorageLayoutVersion(
                 "refusedLayout", StorageConfiguration.CURRENT_VERSION - 1,
-                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25));
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27));
 
     assertTrue(
         "the refusal must name the restored storage layout version, saw: " + refusal.getMessage(),

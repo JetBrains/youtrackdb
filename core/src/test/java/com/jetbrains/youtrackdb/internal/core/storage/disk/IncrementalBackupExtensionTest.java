@@ -4635,7 +4635,7 @@ public class IncrementalBackupExtensionTest {
     return content;
   }
 
-  /** Both real source layouts persist their identity and emit it in every independently read tail. */
+  /** Layout 27 persists its identity and emits it in every independently read backup tail. */
   @Test
   public void backupEmitsPersistedSourceLayout() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -4648,9 +4648,7 @@ public class IncrementalBackupExtensionTest {
             new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity(
                 1))
             .readActiveRequired().storageFormat().layoutVersion();
-        if (format == StorageFormat.LAYOUT_26) {
-          assertTrue("the source must really persist a non-default layout", persisted != 25);
-        }
+        assertEquals(27, persisted);
         assertEquals(format.layoutVersion(), persisted);
         storage.fullBackup(backupPath);
         for (var i = 0; i < 2; i++) {
@@ -4675,7 +4673,7 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Other-layout units never permit extension or deletion. Exercise tail admission, full
-   * fallback, and stream header admission below a valid head, in both layout directions.
+   * fallback, and stream header admission below a valid head for an obsolete layout.
    */
   @Test
   public void otherSourceLayoutKeepsEveryUnitAcrossReadModes() throws Exception {
@@ -4685,37 +4683,47 @@ public class IncrementalBackupExtensionTest {
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
           storage = createSourceDatabase(manager);
         }
-        var otherLayout = format == StorageFormat.LAYOUT_25 ? 26 : 25;
-        for (var plain : new boolean[] {false, true}) {
-          for (var belowHead : new boolean[] {false, true}) {
-            for (var validHash : new boolean[] {false, true}) {
-              for (var version : new int[] {3, 4, 5}) {
-                var foreign = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
-                    0, true, version, BackupUnitFiles.supportedFeatureFormat(), otherLayout,
-                    BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, validHash);
-                if (!validHash && version != 3) {
-                  // Force metadata-checksum fallback, including below the admitted head.
-                  var path = backupPath.resolve(foreign);
-                  var bytes = Files.readAllBytes(path);
-                  bytes[bytes.length - DiskStorage.IBU_V4_METADATA_SIZE] ^= 1;
-                  Files.write(path, bytes);
-                }
-                if (belowHead) {
-                  BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE, 1, false,
-                      5, BackupUnitFiles.supportedFeatureFormat(), format.layoutVersion(),
-                      BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
-                }
-                var before = unitContent();
-                Function<String, InputStream> reader = plain ? this::openInput
-                    : new CountingTailSupplier();
-                var refusal = assertThrows(UnsupportedBackupException.class,
-                    () -> storage.backup(this::unitIterator, reader, this::openOutput,
-                        this::removeUnit));
-                assertTrue(refusal.getMessage().contains("keeps every existing backup unit"));
-                assertEquals("every unit must remain byte-identical: " + foreign,
-                    before, unitContent());
-                for (var name : unitNames()) {
-                  Files.delete(backupPath.resolve(name));
+        for (var otherLayout : new int[] {24, 25, 26, 28}) {
+          for (var plain : new boolean[] {false, true}) {
+            for (var belowHead : new boolean[] {false, true}) {
+              for (var validHash : new boolean[] {false, true}) {
+                for (var version : new int[] {3, 4, 5}) {
+                  var foreign = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
+                      0, true, version, BackupUnitFiles.supportedFeatureFormat(), otherLayout,
+                      BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, validHash);
+                  if (!validHash && version != 3) {
+                    // Force metadata-checksum fallback, including below the admitted head.
+                    var path = backupPath.resolve(foreign);
+                    var bytes = Files.readAllBytes(path);
+                    bytes[bytes.length - DiskStorage.IBU_V4_METADATA_SIZE] ^= 1;
+                    Files.write(path, bytes);
+                  }
+                  if (belowHead) {
+                    BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE, 1, false,
+                        5, BackupUnitFiles.supportedFeatureFormat(), format.layoutVersion(),
+                        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true);
+                  }
+                  var before = unitContent();
+                  Function<String, InputStream> reader = plain ? this::openInput
+                      : new CountingTailSupplier();
+                  var refusal = assertThrows(UnsupportedBackupException.class,
+                      () -> storage.backup(this::unitIterator, reader, this::openOutput,
+                          this::removeUnit));
+                  assertTrue(refusal.getMessage().contains("keeps every existing backup unit"));
+                  if (validHash) {
+                    assertTrue(refusal.getMessage().contains(
+                        "The backup unit reports storage layout version " + otherLayout
+                            + ". The open database reports storage layout version 27."
+                            + " The stored storage layout versions disagree."));
+                  }
+                  assertFalse(refusal.getMessage().contains("Export"));
+                  assertFalse(refusal.getMessage().contains("Import"));
+                  assertFalse(refusal.getMessage().contains("A newer YouTrackDB version"));
+                  assertEquals("every unit must remain byte-identical: " + foreign,
+                      before, unitContent());
+                  for (var name : unitNames()) {
+                    Files.delete(backupPath.resolve(name));
+                  }
                 }
               }
             }
@@ -4728,13 +4736,13 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Checksum-valid v4/v5 metadata must not make damaged output of the other layout removable.
-   * Both source directions refuse with byte-identical units, through either reader and with
+   * Both obsolete layouts refuse with byte-identical units, through either reader and with
    * the damaged unit at the head or below a valid head.
    */
   @Test
   public void checksumValidOtherLayoutDamagedOutputKeepsEveryUnit() throws Exception {
-    for (var layouts : new int[][] {{25, 26}, {26, 25}}) {
-      var format = layouts[0] == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+    for (var layouts : new int[][] {{27, 25}, {27, 26}}) {
+      var format = StorageFormat.LAYOUT_27;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4770,13 +4778,13 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * The same checksum-valid, broken-full-hash fixtures are removable head candidates when their
-   * layout matches the source. Cover v4/v5, both source layouts and both readers so refusal in the
+   * layout matches the source. Cover v4/v5, layout 27 and both readers so refusal in the
    * other-layout cases cannot be explained by an unreachable damaged-output fixture.
    */
   @Test
   public void checksumValidSameLayoutDamagedOutputIsRemoved() throws Exception {
-    for (var layout : new int[] {25, 26}) {
-      var format = layout == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+    for (var layout : new int[] {27}) {
+      var format = StorageFormat.LAYOUT_27;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4829,7 +4837,7 @@ public class IncrementalBackupExtensionTest {
           for (var plain : new boolean[] {false, true}) {
             for (var sameLayout : new boolean[] {false, true}) {
               var layout = sameLayout ? format.layoutVersion()
-                  : format == StorageFormat.LAYOUT_25 ? 26 : 25;
+                  : 26;
               var damaged = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
                   0, true, 6, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
               var path = backupPath.resolve(damaged);
