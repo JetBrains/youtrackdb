@@ -469,10 +469,10 @@ public class IndexEngineFileBaseIdTest {
    *
    * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
    * with the storage layout version value. The check runs before any engine or collection
-   * component touches its files. The report keeps the export and reimport guidance.
+   * component touches its files. The report names the disagreement without migration advice.
    */
   @Test
-  public void preCurrentFormatIsRejectedAtOpenWithExportRedirect() throws Exception {
+  public void oldConfigurationLayoutIsRejectedAsDisagreement() throws Exception {
     final var dbName = "fbiGateOld";
     createDbWithTamperedVersion(dbName, StorageConfiguration.CURRENT_VERSION - 1);
 
@@ -483,7 +483,10 @@ public class IndexEngineFileBaseIdTest {
       assertLayoutVersionInconsistency(e);
       assertMessageChainContains(e, "The storage configuration reports storage layout version "
           + (StorageConfiguration.CURRENT_VERSION - 1));
-      assertMessageChainContains(e, "with the earlier version of YouTrackDB");
+      assertMessageChainContains(e,
+          "The bootstrap authority record reports storage layout version 27");
+      assertMessageChainContains(e, "The stored storage layout versions disagree.");
+      assertNoLayoutMigrationAdvice(e);
     }
   }
 
@@ -511,11 +514,11 @@ public class IndexEngineFileBaseIdTest {
    * while the bootstrap authority record carries the supported version.
    *
    * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
-   * with the storage layout version value. The message directs the operator to the matching
-   * YouTrackDB version instead of misparsing an unknown layout.
+   * with both storage layout version values. The message reports a disagreement, without
+   * claiming that a newer build created this admitted layout-27 database.
    */
   @Test
-  public void newerFormatIsRejectedAtOpenWithCeilingMessage() throws Exception {
+  public void newerConfigurationLayoutIsRejectedAsDisagreement() throws Exception {
     final var dbName = "fbiGateNew";
     createDbWithTamperedVersion(dbName, 29);
 
@@ -526,7 +529,19 @@ public class IndexEngineFileBaseIdTest {
       assertLayoutVersionInconsistency(e);
       assertMessageChainContains(e, "The storage configuration reports storage layout version "
           + 29);
-      assertMessageChainContains(e, "newer than the layout of this build");
+      assertMessageChainContains(e,
+          "The bootstrap authority record reports storage layout version 27");
+      assertMessageChainContains(e, "The stored storage layout versions disagree.");
+      assertNoLayoutMigrationAdvice(e);
+    }
+  }
+
+  private static void assertNoLayoutMigrationAdvice(Throwable failure) {
+    for (var current = failure; current != null; current = current.getCause()) {
+      var message = String.valueOf(current.getMessage());
+      org.junit.Assert.assertFalse(message.contains("Export"));
+      org.junit.Assert.assertFalse(message.contains("Import"));
+      org.junit.Assert.assertFalse(message.contains("A newer YouTrackDB version"));
     }
   }
 

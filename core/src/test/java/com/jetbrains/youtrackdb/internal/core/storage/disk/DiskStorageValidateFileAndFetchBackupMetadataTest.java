@@ -1428,7 +1428,12 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
             Assert.assertNull(result.metadata());
           }
           if (!supported && validHash) {
-            Assert.assertTrue(result.detail().contains("storage layout version: " + layout));
+            try {
+              StorageFormat.resolve(layout);
+              Assert.fail("an unsupported layout must refuse");
+            } catch (IllegalArgumentException refusal) {
+              Assert.assertEquals(refusal.getMessage(), result.detail());
+            }
           }
           var header = inspectHeader(unit, unitFileName(uuid, 1), uuid);
           Assert.assertEquals(supported ? DiskStorage.BackupUnitClassification.SUPPORTED

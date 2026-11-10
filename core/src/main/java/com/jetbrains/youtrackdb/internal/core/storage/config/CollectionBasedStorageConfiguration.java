@@ -46,7 +46,6 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -382,31 +381,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     final var version = (Integer) cache.get(VERSION_PROPERTY);
     final var imageVersion = storage.getStorageFormat().layoutVersion();
     if (version == null || version != imageVersion) {
-      var guidance = ". Open the database with the version of YouTrackDB that created it."
-          + " A direct upgrade of the storage layout is not supported.";
-      // Bounds choose operator guidance only. Agreement with the selected image is mandatory,
-      // so a value between these bounds is never accepted merely because it is in that range.
-      if (version != null) {
-        var supportedVersions = Arrays.stream(StorageFormat.values())
-            .mapToInt(StorageFormat::layoutVersion).summaryStatistics();
-        if (version < supportedVersions.getMin()) {
-          guidance = ". A direct upgrade of the storage layout is not supported. Export database '"
-              + storage.getName()
-              + "' with the earlier version of YouTrackDB, and import that export with the"
-              + " current version of YouTrackDB.";
-        } else if (version > supportedVersions.getMax()) {
-          guidance = ". The stored layout is newer than the layout of this build. Open database '"
-              + storage.getName()
-              + "' with the version of YouTrackDB that created the database.";
-        }
-      }
       throw new InconsistentStorageMetadataException(storage.getName(),
           InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
-          "Inconsistent storage metadata of database '" + storage.getName()
-              + "'. The storage configuration reports storage layout version "
-              + (version == null ? "<missing>" : version)
-              + ". The bootstrap authority record reports storage layout version "
-              + imageVersion + guidance);
+          "Inconsistent storage metadata of database '" + storage.getName() + "'. "
+              + StorageFormat.layoutVersionDisagreement("storage configuration", version,
+                  "bootstrap authority record", imageVersion));
     }
   }
 

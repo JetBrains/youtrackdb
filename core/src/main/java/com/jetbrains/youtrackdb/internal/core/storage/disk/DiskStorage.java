@@ -713,7 +713,10 @@ public class DiskStorage extends AbstractStorage {
       throw BaseException.wrapException(
           new StorageException(
               name,
-              "Cannot open database '" + name + "'. " + rejection.reason().description()),
+              "Cannot open database '" + name + "'. "
+                  + (rejection.reason()
+                      == StorageAdmissionException.Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION
+                          ? rejection.detail() : rejection.reason().description())),
           rejection,
           name);
     } catch (IOException exception) {
@@ -2251,7 +2254,9 @@ public class DiskStorage extends AbstractStorage {
       headerFormat = StorageFormat.resolve(metadataLayoutVersion);
     } catch (IllegalArgumentException unsupportedLayout) {
       headerFormat = null;
-      layoutRefusal = unsupportedLayout.getMessage();
+      layoutRefusal = sourceFormat == null ? unsupportedLayout.getMessage()
+          : StorageFormat.layoutVersionDisagreement("backup unit", metadataLayoutVersion,
+              "open database", sourceFormat.layoutVersion());
     }
     // Malformed continuity is not recognized output and can never authorize removal.
     var marker = metadataVersion == 6
@@ -2358,7 +2363,8 @@ public class DiskStorage extends AbstractStorage {
     }
     if (sourceFormat != null && sourceFormat != headerFormat) {
       return unclassifiableUnit(
-          "The header storage layout differs from the source storage layout.");
+          StorageFormat.layoutVersionDisagreement("backup unit", metadataLayoutVersion,
+              "open database", sourceFormat.layoutVersion()));
     }
 
     if (metadataCreationEvidence != CREATION_COMPLETED_EVIDENCE) {
@@ -3231,15 +3237,10 @@ public class DiskStorage extends AbstractStorage {
     if (restoredLayoutVersion != sourceFormat.layoutVersion()) {
       throw new StorageException(
           storageName,
-          "The restore of database '"
-              + storageName
-              + "' failed. The backup content carries storage layout version "
-              + restoredLayoutVersion
-              + ". The admitted source carries storage layout version "
-              + sourceFormat.layoutVersion()
-              + ". Drop database '"
-              + storageName
-              + "' to remove the unusable restore target.");
+          "The restore of database '" + storageName + "' failed. "
+              + StorageFormat.layoutVersionDisagreement("restored configuration",
+                  restoredLayoutVersion, "admitted source", sourceFormat.layoutVersion())
+              + " Drop database '" + storageName + "' to remove the unusable restore target.");
     }
   }
 

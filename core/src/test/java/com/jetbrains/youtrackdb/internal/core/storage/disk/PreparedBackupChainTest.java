@@ -33,7 +33,7 @@ public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
 
-  /** The descriptor is unavailable before admission and after cleanup, for either layout. */
+  /** The layout-27 descriptor is unavailable before admission and after cleanup. */
   @Test
   public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -49,7 +49,7 @@ public class PreparedBackupChainTest {
 
   private Path root;
 
-  /** Prepared restore validates mixed layouts and copies exact bytes without pair matching. */
+  /** Prepared restore accepts mixed backup encodings and copies every unit byte exactly. */
   @Test
   public void prepareMixedVersionChainPreservesBytesAndRejectsEitherHashFailure() throws Exception {
     var id = java.util.UUID.randomUUID();

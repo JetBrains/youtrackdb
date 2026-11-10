@@ -1703,7 +1703,7 @@ public class StorageBootstrapMetadataTest {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
-  /** Both layouts survive birth, floor updates, activation, lineage replacement, and slot reuse. */
+  /** Layout 27 survives all lifecycle publications and repair. */
   @Test
   public void publicationsAndRepairKeepLayout27() throws IOException {
     assertPublicationLayout(StorageFormat.LAYOUT_27, 27);
@@ -1755,7 +1755,7 @@ public class StorageBootstrapMetadataTest {
     assertPersistedLayout(recovered, literal);
   }
 
-  /** Fresh restore birth and its repeat-safe transition preserve each explicitly selected layout. */
+  /** Fresh restore birth and its repeat-safe transition preserve both selected layouts. */
   @Test
   public void freshRestorePublicationsKeepBothLayouts() throws IOException {
     final var root = directory;
@@ -1900,7 +1900,8 @@ public class StorageBootstrapMetadataTest {
     final var root = directory;
     try {
       for (var supported : List.of(27, 28)) {
-        for (var unsupported : List.of(-1, 0, 24, 25, 26, 29, 99)) {
+        for (var unsupported : List.of(Integer.MIN_VALUE, -1, 0, 24, 25, 26, 29, 99,
+            Integer.MAX_VALUE)) {
           directory =
               Files.createDirectory(root.resolve("unsupported-" + supported + "-" + unsupported));
           final var creator = metadata();

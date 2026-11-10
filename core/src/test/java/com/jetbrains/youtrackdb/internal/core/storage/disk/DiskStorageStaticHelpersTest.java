@@ -604,8 +604,13 @@ public class DiskStorageStaticHelpersTest {
           var failure = assertThrows(StorageException.class,
               () -> DiskStorage.validateRestoredStorageLayoutVersion("matrix", conflicting,
                   format));
-          assertTrue(failure.getMessage().contains("admitted source carries storage layout version "
-              + format.layoutVersion()));
+          assertTrue(failure.getMessage().contains(
+              "The restored configuration reports storage layout version " + conflicting
+                  + ". The admitted source reports storage layout version "
+                  + format.layoutVersion() + ". The stored storage layout versions disagree."));
+          assertFalse(failure.getMessage().contains("Export"));
+          assertFalse(failure.getMessage().contains("Import"));
+          assertFalse(failure.getMessage().contains("A newer YouTrackDB version"));
         }
       }
     }

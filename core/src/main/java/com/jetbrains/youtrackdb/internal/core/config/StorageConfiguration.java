@@ -13,8 +13,8 @@ public interface StorageConfiguration {
   String DEFAULT_CHARSET = "UTF-8";
   String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
   String DEFAULT_DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-  // Production layout. Link-collection entry points persist the global link-bag identifier counter.
-  // Admission rejects unsupported layouts without conversion.
+  // Production layout 27 uses the three-level free space map, as does test-only layout 28.
+  // Older layouts require export and import. Admission never converts an image.
   int CURRENT_VERSION = 27;
   int CURRENT_BINARY_FORMAT_VERSION = 14;
 

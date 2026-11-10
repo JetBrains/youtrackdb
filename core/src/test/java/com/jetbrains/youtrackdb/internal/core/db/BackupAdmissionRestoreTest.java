@@ -1960,7 +1960,7 @@ public class BackupAdmissionRestoreTest {
   /** Mixed layouts refuse before manager target birth. Homogeneous layout 28 prepares normally. */
   @Test
   public void preparationRequiresOneLayoutBeforeTargetBirth() throws Exception {
-    for (var firstLayout : new int[] {27, 28}) {
+    for (var firstLayout : new int[] {25, 26, 27, 28}) {
       var full = writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(),
           firstLayout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
       var increment = writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(),
@@ -1968,7 +1968,17 @@ public class BackupAdmissionRestoreTest {
       try (var manager = openManager()) {
         var refusal = assertThrows(UnsupportedBackupException.class,
             () -> internalOf(manager).restore(TARGET, syntheticBackupPath.toString(), null, null));
-        assertTrue(refusal.getMessage().contains("different storage layout versions"));
+        if (firstLayout == 27 || firstLayout == 28) {
+          assertTrue(refusal.getMessage().contains("different storage layout versions"));
+        } else {
+          try {
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+                .resolve(firstLayout);
+            fail("an old layout must refuse");
+          } catch (IllegalArgumentException classification) {
+            assertTrue(refusal.getMessage().contains(classification.getMessage()));
+          }
+        }
         assertNoTargetExists(manager);
       }
       Files.delete(syntheticBackupPath.resolve(full));

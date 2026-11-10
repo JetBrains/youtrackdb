@@ -223,13 +223,13 @@ public class MetadataConsistencyCheckTest {
     assertLayout(name, DatabaseType.MEMORY, 27);
   }
 
-  /** Both supported disagreements and a missing version fail repeatedly without repairing values. */
+  /** Supported and unsupported disagreements and missing versions fail without repairing values. */
   @Test
-  public void supportedMismatchesAndMissingConfigurationVersionRemainInvalid() throws Exception {
+  public void allMismatchesAndMissingConfigurationVersionRemainInvalid() throws Exception {
     var formats =
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.values();
     for (var format : formats) {
-      Integer[] versions = {format.layoutVersion() == 27 ? 28 : 27, null};
+      Integer[] versions = {25, 26, 29, 24, format.layoutVersion() == 27 ? 28 : 27, null};
       for (var version : versions) {
         var name = "mismatch" + format.layoutVersion() + "_" + version;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
@@ -253,15 +253,81 @@ public class MetadataConsistencyCheckTest {
           assertTrue(messageChainOf(failure).contains(
               "bootstrap authority record reports storage layout version "
                   + format.layoutVersion()));
-          if (version != null) {
-            assertFalse("a supported mismatch must not suggest an older build",
-                messageChainOf(failure).contains("with the earlier version of YouTrackDB"));
-            assertFalse("a supported mismatch must not suggest a newer build",
-                messageChainOf(failure).contains("newer than the layout of this build"));
-          }
+          assertTrue(messageChainOf(failure).contains(
+              "The stored storage layout versions disagree."));
+          assertFalse(messageChainOf(failure).contains("Export"));
+          assertFalse(messageChainOf(failure).contains("Import"));
+          assertFalse(messageChainOf(failure).contains("A newer YouTrackDB version"));
           assertEquals(format.layoutVersion(),
               new StorageBootstrapMetadata(databasesPath.resolve(name), FEATURE_FORMAT)
                   .readActiveRequired().storageFormat().layoutVersion());
+        }
+      }
+    }
+  }
+
+  /**
+   * Old layouts refuse repeatedly before repair, cleanup, startup writes, WAL or recovery.
+   * Snapshot every file byte and modification time. Only a missing empty bootstrap lock may appear.
+   */
+  @Test
+  public void oldLayoutOpenPreservesEveryFileExceptMissingEmptyLock() throws Exception {
+    for (var layout : new int[] {25, 26}) {
+      for (var missingLock : new boolean[] {false, true}) {
+        var name = "old" + layout + missingLock;
+        youTrackDB.create(name, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+        reopenContext();
+        var directory = databasesPath.resolve(name);
+        var authority = directory.resolve("storage-bootstrap-0.bsm");
+        var bytes = Files.readAllBytes(authority);
+        java.nio.ByteBuffer.wrap(bytes).putInt(28, layout);
+        java.nio.ByteBuffer.wrap(bytes).putLong(72,
+            net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+                .hash(bytes, 0, 72, 0x648B7A2195D3L));
+        Files.write(authority, bytes);
+        Files.write(directory.resolve("storage-bootstrap-2.bsm.tmp"), new byte[] {7, 8});
+        var lock = directory.resolve("storage-bootstrap.bsml");
+        if (missingLock) {
+          Files.delete(lock);
+        }
+        var content = new java.util.TreeMap<Path, String>();
+        var times = new java.util.TreeMap<Path, java.nio.file.attribute.FileTime>();
+        try (var files = Files.walk(directory)) {
+          for (var file : files.filter(Files::isRegularFile).toList()) {
+            content.put(file,
+                java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(file)));
+            times.put(file, Files.getLastModifiedTime(file));
+          }
+        }
+        String guidance;
+        try {
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+              .resolve(layout);
+          throw new AssertionError("old layout accepted");
+        } catch (IllegalArgumentException refusal) {
+          guidance = refusal.getMessage();
+        }
+        for (var attempt = 0; attempt < 2; attempt++) {
+          assertTrue(messageChainOf(openAndExpectFailure(name)).contains(guidance));
+          var actual = new java.util.TreeMap<Path, String>();
+          try (var files = Files.walk(directory)) {
+            for (var file : files.filter(Files::isRegularFile).toList()) {
+              actual.put(file,
+                  java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(file)));
+            }
+          }
+          if (missingLock && attempt == 0) {
+            assertEquals("", actual.remove(lock));
+          }
+          assertEquals(content, actual);
+          for (var entry : times.entrySet()) {
+            assertEquals(entry.getValue(), Files.getLastModifiedTime(entry.getKey()));
+          }
+          if (missingLock && attempt == 0) {
+            // The first refusal may create an empty lock. Later refusals must preserve it too.
+            content.put(lock, "");
+            times.put(lock, Files.getLastModifiedTime(lock));
+          }
         }
       }
     }

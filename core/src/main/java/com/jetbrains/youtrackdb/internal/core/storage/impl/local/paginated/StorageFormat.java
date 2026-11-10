@@ -1,10 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 /**
- * Immutable storage-layout identities understood by this build.
+ * The on-disk storage layout understood by this build.
  *
- * <p>The production creation default is independent of the supported set. This type describes
- * identity only and exposes no user-selectable storage option.
+ * <p>A storage layout version identifies the organization of database files. This type owns
+ * layout admission and its operator guidance. It exposes no user-selectable storage option.
  */
 public enum StorageFormat {
   LAYOUT_27(27), LAYOUT_28(28);
@@ -23,6 +23,18 @@ public enum StorageFormat {
   /** Returns the layout for ordinary new databases. */
   public static StorageFormat productionDefault() {
     return LAYOUT_27;
+  }
+
+  /**
+   * Reports conflicting stored values after image admission, without image migration advice.
+   * A null stored version identifies a missing configuration value.
+   */
+  public static String layoutVersionDisagreement(String storedSource, Integer storedVersion,
+      String admittedSource, int admittedVersion) {
+    return "The " + storedSource + " reports storage layout version "
+        + (storedVersion == null ? "<missing>" : storedVersion)
+        + ". The " + admittedSource + " reports storage layout version " + admittedVersion
+        + ". The stored storage layout versions disagree.";
   }
 
   /**

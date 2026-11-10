@@ -14,9 +14,8 @@ Layout 28 is selected only by tests. Stored layouts 25 and 26 are rejected witho
 in-place migration. Export with the release that created the database and import into a
 fresh database with the new release.
 
-The branch uses a two-level free-space map. Its layout 27 discriminator does not establish
-compatibility with develop's three-level free-space map. Images created before that semantic
-alignment are test-only and disposable.
+Both layouts use a three-level free-space map. Layout 27 is the production default.
+Layout 28 uses identity-owned page-file names and remains test-selected only.
 
 ## How the tools are invoked
 
