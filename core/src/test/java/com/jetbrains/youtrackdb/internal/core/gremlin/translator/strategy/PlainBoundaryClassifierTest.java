@@ -32,6 +32,37 @@ import org.junit.Test;
 /** Real translator and planner fixtures assert decisions, never engine result equality. */
 public class PlainBoundaryClassifierTest extends GraphBaseTest {
 
+  /** Exact reverse maps around one fold are neutral, but nullable unfold is not certified. */
+  @Test
+  public void nativeReverseCompositionStillRequiresTheCompletePhysicalProof() {
+    var base = translate(graph.traversal().V());
+    var context = new BasicCommandContext(session);
+    var plan = new MatchExecutionPlanner(base.inputs()).createExecutionPlan(context, false, false);
+    try {
+      for (var operations : List.of(
+          List.<ListShapingOp>of(new ReverseListShapingOp()),
+          List.<ListShapingOp>of(new ReverseListShapingOp(), new FoldListShapingOp()))) {
+        var admitted = base.withShaping(base.shaping().withListShapingOps(operations));
+        assertThat(PlainBoundaryClassifier.classify(plan, admitted, null, context, false).reason())
+            .isEqualTo(Reason.PLAIN);
+      }
+      var reversed = base.withShaping(base.shaping().withListShapingOps(
+          List.of(new FoldListShapingOp(), new ReverseListShapingOp())));
+      assertThat(PlainBoundaryClassifier.classify(plan, reversed, null, context, false).reason())
+          .isEqualTo(Reason.PLAIN);
+      var twiceFolded = base.withShaping(base.shaping().withListShapingOps(
+          List.of(new FoldListShapingOp(), new FoldListShapingOp())));
+      assertThat(PlainBoundaryClassifier.classify(plan, twiceFolded).reason())
+          .isEqualTo(Reason.BOUNDARY_OPERATION);
+      var unknown = base.withShaping(base.shaping().withListShapingOps(
+          List.of(new UnfoldListShapingOp())));
+      assertThat(PlainBoundaryClassifier.classify(plan, unknown, null, context, false).reason())
+          .isEqualTo(Reason.BOUNDARY_OPERATION);
+    } finally {
+      plan.close();
+    }
+  }
+
   @Test
   public void directElementPropertyAndMapBoundariesIncludingG6AndFoldArePlain() {
     graph.addVertex("name", "one");
@@ -115,7 +146,7 @@ public class PlainBoundaryClassifierTest extends GraphBaseTest {
   public void frozenNonPlainListFamiliesKeepTheBoundaryOperationReason() {
     var base = translate(graph.traversal().V());
     for (var type : List.of(DedupPayloadListShapingOp.class, OrderedExpandSliceListShapingOp.class,
-        ReverseListShapingOp.class, TailListShapingOp.class, UnfoldListShapingOp.class,
+        TailListShapingOp.class, UnfoldListShapingOp.class,
         ValuesFlatMapListShapingOp.class)) {
       assertThat(decision(base.withShaping(ResultShaping.NONE.withListShapingOps(
           List.of(mock(type)))))).isEqualTo(Reason.BOUNDARY_OPERATION);

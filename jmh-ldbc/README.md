@@ -71,7 +71,12 @@ A pull request head is its captured commit.
 A SHA is a full 40-character commit identifier.
 A Gremlin arm is one setting of the translator-enabled benchmark parameter.
 The enabled arm permits MATCH translation but does not force it. A supported traversal runs
-natively when its complete physical plan and boundary pass the strict plain-plan rule.
+natively when its complete physical plan and boundary pass the plain-plan rule.
+Cache-eligible equality index starts can pass with a native-equivalent source proof.
+The first call proves access with its values and stores only the immutable routing decision
+in the existing translation entry. Warm calls reuse it until metadata generation invalidation.
+Uncached index starts keep MATCH. Exact per-value reverses around at most one fold are neutral.
+Ordered pages remain a MATCH witness. Translator-enabled does not force plain shapes into MATCH.
 A filtered streaming scan or hop followed by a root slice keeps MATCH. The rule also keeps
 single-hop RID-start plans in MATCH. Translation telemetry separates rule-native choices
 from successful translations, capability declines, and errors. All four ratio metrics use

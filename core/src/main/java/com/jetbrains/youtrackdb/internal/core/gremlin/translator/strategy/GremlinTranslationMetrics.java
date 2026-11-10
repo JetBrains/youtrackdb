@@ -36,6 +36,7 @@ public final class GremlinTranslationMetrics {
   private final LongAdder declines = new LongAdder();
   private final LongAdder errors = new LongAdder();
   private final LongAdder ruleNative = new LongAdder();
+  private final LongAdder nativeProofErrors = new LongAdder();
 
   private final ConcurrentHashMap<String, LongAdder> declineShapes = new ConcurrentHashMap<>();
 
@@ -105,6 +106,16 @@ public final class GremlinTranslationMetrics {
     declineRatio.record(0, 1);
     errorRatio.record(0, 1);
     ruleNativeRatio.record(1, 1);
+  }
+
+  /** Counts failed optional proofs separately from final routing outcomes and safety-net errors. */
+  public void recordNativeProofError() {
+    nativeProofErrors.increment();
+  }
+
+  /** Lifetime optional proof failures. Warm reuse of a failed proof does not increment this. */
+  public long getNativeProofErrors() {
+    return nativeProofErrors.sum();
   }
 
   public long getRuleNative() {

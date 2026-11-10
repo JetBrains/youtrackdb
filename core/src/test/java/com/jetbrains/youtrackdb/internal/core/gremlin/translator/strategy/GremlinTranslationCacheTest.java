@@ -577,11 +577,15 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       var wrongShaping = stored.shaping().withListShapingOps(
           List.of(new OrderedExpandSliceListShapingOp(stages)));
       assertThat(OrderedFilterBinding.fromExtraction(wrongShaping, extraction)).isNull();
-      GremlinPlanCache.putTranslation(extraction.key(), new GremlinTranslationTemplate.Translate(
+      var poisoned = new GremlinTranslationTemplate.Translate(
           stored.planTemplate(), stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
-          wrongShaping, stored.bindingCount(), stored.hasContributions(), stored.decision()),
-          graphSession(),
-          GremlinPlanCache.instance(graphSession()).getGeneration());
+          wrongShaping, stored.bindingCount(), stored.hasContributions(), stored.decision());
+      var cache = GremlinPlanCache.instance(graphSession());
+      cache.invalidate();
+      GremlinPlanCache.putTranslation(extraction.key(), poisoned, graphSession(),
+          cache.getGeneration());
+      assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession()))
+          .isSameAs(poisoned);
       var walks = new AtomicInteger();
       var failures = new ArrayList<String>();
       var strategy = countingStrategy(walks, failures::add);
@@ -1146,21 +1150,27 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         GremlinPredicateAdapter.SlotRole.OPERAND));
     var wrong = new ArrayList<>(original);
     wrong.set(wrong.size() - 1, new HasBindingContext.Contribution(contribution.context(), slots));
-    GremlinPlanCache.putTranslation(key, new GremlinTranslationTemplate.Translate(
+    var poisoned = new GremlinTranslationTemplate.Translate(
         stored.planTemplate(), stored.boundaryAlias(), stored.outputType(),
-        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong, stored.decision()),
-        graphSession(),
-        GremlinPlanCache.instance(graphSession()).getGeneration());
+        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong, stored.decision());
+    var cache = GremlinPlanCache.instance(graphSession());
+    cache.invalidate();
+    GremlinPlanCache.putTranslation(key, poisoned, graphSession(), cache.getGeneration());
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isSameAs(poisoned);
     var walks = new AtomicInteger();
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =
         () -> graph.traversal().V().hasLabel("MismatchPerson")
             .has("name", TextP.startingWith("bo")).values("name");
     var failures = new ArrayList<String>();
     var nativeRows = runNativeHop(next);
-    assertThat(runCountedHop(next, countingStrategy(walks, failures::add)))
-        .containsExactlyElementsOf(nativeRows);
+    var strategy = countingStrategy(walks, failures::add);
+    assertThat(runCountedHop(next, strategy)).containsExactlyElementsOf(nativeRows);
     assertThat(walks.get()).as("equal count but wrong slot role must walk again").isEqualTo(1);
     assertThat(failures).containsExactly("Translation cache binding agreement failed");
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isNotSameAs(poisoned);
+    assertThat(runCountedHop(next, strategy)).containsExactlyElementsOf(nativeRows);
+    assertThat(walks.get()).as("the repaired slot layout must splice on the next call")
+        .isEqualTo(1);
   }
 
   /** A compiled regex must be reconstructed, not have only its P value replaced. */

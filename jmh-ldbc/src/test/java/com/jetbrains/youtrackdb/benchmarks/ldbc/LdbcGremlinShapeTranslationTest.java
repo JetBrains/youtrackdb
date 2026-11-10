@@ -173,6 +173,12 @@ public class LdbcGremlinShapeTranslationTest {
     });
 
     g.executeInTx(t -> {
+      // Keep unconstrained non-start aliases above MATCH's small-class prefetch threshold.
+      // These disconnected records do not change any rooted query's expected result.
+      for (long id = 100_000; id < 100_220; id++) {
+        insertPerson(t, id, "Padding" + id);
+        insertMessage(t, "Post", id, "padding", POST_AT);
+      }
       insertPerson(t, ALICE, "Alice");
       insertPerson(t, BOB, "Bob");
       insertPerson(t, CAROL, "Carol");
@@ -296,16 +302,10 @@ public class LdbcGremlinShapeTranslationTest {
     }
   }
 
-  /**
-   * Shape 2 — the {@code KNOWS} walk under {@code values} translates on, runs natively off, and
-   * returns exactly Alice's two friends' first names on both arms.
-   *
-   * <p>Bob's edge to Dave is in the fixture precisely so that an over-emitting plan returns three
-   * names here rather than two.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void knowsFirstNamesTranslateOnAndRunNativeOff() {
-    assertTranslates(
+  public void knowsFirstNamesRunsNativeOnBothArms() {
+    assertPlain(
         "g.V().hasLabel(Person).has(id).out(KNOWS).values(firstName)",
         t -> GremlinTraversalShapes.knowsFirstNames(t, ALICE),
         List.of("Bob", "Carol"));
@@ -323,18 +323,10 @@ public class LdbcGremlinShapeTranslationTest {
         List.of("2"));
   }
 
-  /**
-   * Shape 4 — the same walk under {@code fold()} translates on, runs natively off, and returns one
-   * list of both names on either arm.
-   *
-   * <p>The newest recogniser this class covers, and the one that makes the run's classpath visible:
-   * a {@code youtrackdb-core} without the {@code FoldStep} registry entry declines the shape and
-   * {@link GremlinTraversalShapes#requireTranslated} fails here. That is what makes the invocation
-   * note in this class's Javadoc load-bearing rather than tidy.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void knowsFirstNamesFoldedTranslateOnAndRunNativeOff() {
-    assertTranslates(
+  public void knowsFirstNamesFoldedRunsNativeOnBothArms() {
+    assertPlain(
         "…out(KNOWS).values(firstName).fold()",
         t -> GremlinTraversalShapes.knowsFirstNamesFolded(t, ALICE),
         List.of("[Bob, Carol]"));
@@ -376,15 +368,10 @@ public class LdbcGremlinShapeTranslationTest {
             "{firstName=[Carol], id=[" + CAROL + "], lastName=[Carolson]}"));
   }
 
-  /**
-   * Shape 7 — IS5 translates whole and returns the post's author, Bob.
-   *
-   * <p>Carol authored the comment that replies to this post, so a plan that walks {@code REPLY_OF}
-   * as well as {@code HAS_CREATOR} returns her too.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void is5MessageCreatorTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
+  public void is5MessageCreatorRunsNativeOnBothArms() {
+    assertPlain(
         "IS5: …hasLabel(Message).has(id).out(HAS_CREATOR).valueMap(id, firstName, lastName)",
         t -> GremlinTraversalShapes.is5MessageCreator(t, POST),
         List.of("{firstName=[Bob], id=[" + BOB + "], lastName=[Bobson]}"));
@@ -523,13 +510,10 @@ public class LdbcGremlinShapeTranslationTest {
         List.of("jazz=1", "rock=1"));
   }
 
-  /**
-   * IC7 reduced — first names of people who liked Bob's messages. Alice and Frank liked the post.
-   * A plan that walked {@code KNOWS} instead of {@code LIKES} would also return Carol and Dave.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void ic7LikersTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
+  public void ic7LikersRunsNativeOnBothArms() {
+    assertPlain(
         "IC7 reduced: …in(HAS_CREATOR).in(LIKES).values(firstName)",
         t -> GremlinTraversalShapes.ic7Likers(t, BOB),
         List.of("Alice", "Frank"));
@@ -568,30 +552,19 @@ public class LdbcGremlinShapeTranslationTest {
             "{firstName=Bob, lastName=Bobson, organizationName=Acme, personId=" + BOB + "}"));
   }
 
-  /**
-   * Shape 8 — the two-hop {@code KNOWS} walk translates and returns one name per two-hop path.
-   *
-   * <p>Three paths from Alice: Bob→Dave, Bob→Alice (the cycle, so Alice appears as her own
-   * friend-of-friend) and Carol→Erin. A plan that deduplicated vertices would return two.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void twoHopKnowsTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
+  public void twoHopKnowsRunsNativeOnBothArms() {
+    assertPlain(
         "…out(KNOWS).out(KNOWS).values(firstName)",
         t -> GremlinTraversalShapes.twoHopKnows(t, ALICE),
         List.of("Alice", "Dave", "Erin"));
   }
 
-  /**
-   * Shape 9 — the two-hop walk with a filter on the intermediate hop translates and keeps only the
-   * paths through Bob.
-   *
-   * <p>Alice's other friend Carol leads to Erin, so a plan that applied the {@code firstName} filter
-   * to the wrong alias — or after the second hop — would return Erin as well.
-   */
+  /** Proven plain index access keeps this shape native on both arms with the expected rows. */
   @Test
-  public void knowsFilteredByFriendFirstNameTranslatesOnAndRunsNativeOff() {
-    assertTranslates(
+  public void knowsFilteredByFriendFirstNameRunsNativeOnBothArms() {
+    assertPlain(
         "…out(KNOWS).has(firstName, Bob).out(KNOWS).values(firstName)",
         t -> GremlinTraversalShapes.knowsFilteredByFriendFirstName(t, ALICE, "Bob"),
         List.of("Alice", "Dave"));
@@ -773,9 +746,21 @@ public class LdbcGremlinShapeTranslationTest {
         List.of("Erin"));
   }
 
-  /** Each exact G6 form translates, has a native barrier, and preserves rows on both arms. */
+  /** The IS4 direct map uses plain native routing and preserves its complete property multiset. */
+  @Test
+  public void is4MessageContentRunsNativeOnBothArms() {
+    assertPlain("IS4 direct map", t -> GremlinTraversalShapes.is4MessageContent(t, POST),
+        List.of("{content=[post-1000], creationDate=[date:" + POST_AT + "]}"));
+  }
+
+  /** Each exact plain G6 form runs native, has a barrier, and preserves rows on both arms. */
   @Test
   public void bulkingFormsCheckPipelinesAndElementCountsBeforeValueMap() {
+    for (var form : GremlinTraversalShapes.BulkingForm.values()) {
+      long id = form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? POST : FRANK;
+      assertPlain("G6 " + form, source -> form.traversal(source, id),
+          expectedBulkingResults(form, id));
+    }
     var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
     try {
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
@@ -783,14 +768,20 @@ public class LdbcGremlinShapeTranslationTest {
         var nativeSource = t.withoutStrategies(GremlinToMatchStrategy.class);
         for (var form : GremlinTraversalShapes.BulkingForm.values()) {
           long id = form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? POST : FRANK;
-          var translated = form.traversal(t, id).asAdmin();
-          var nativeTraversal = form.traversal(nativeSource, id).asAdmin();
-          GremlinTraversalShapes.checkBulkingForm(form, id, translated, nativeTraversal);
-          var expected = expectedBulkingResults(form, id);
-          assertEquals(form.toString(), expected,
-              render(translated.toList(), Comparison.AS_MULTISET));
-          assertEquals(form.toString(), expected,
-              render(nativeTraversal.toList(), Comparison.AS_MULTISET));
+          var tx = (YTDBTransaction) t.getGraph().tx();
+          tx.readWrite();
+          com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache
+              .instance(tx.getDatabaseSession()).invalidate();
+          for (int call = 0; call < 2; call++) {
+            var translated = form.traversal(t, id).asAdmin();
+            var nativeTraversal = form.traversal(nativeSource, id).asAdmin();
+            GremlinTraversalShapes.checkBulkingForm(form, id, translated, nativeTraversal);
+            var expected = expectedBulkingResults(form, id);
+            assertEquals(form.toString(), expected,
+                render(translated.toList(), Comparison.AS_MULTISET));
+            assertEquals(form.toString(), expected,
+                render(nativeTraversal.toList(), Comparison.AS_MULTISET));
+          }
         }
       });
     } finally {
@@ -1061,10 +1052,17 @@ public class LdbcGremlinShapeTranslationTest {
         var source = t.withoutStrategies(GremlinToMatchStrategy.class);
         var form = GremlinTraversalShapes.BulkingForm.DUPLICATE;
         var untranslated = form.traversal(source, FRANK).asAdmin();
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(false);
         assertTrue(assertThrows(IllegalStateException.class,
             () -> GremlinTraversalShapes.checkBulkingForm(
                 form, FRANK, untranslated, form.traversal(source, FRANK).asAdmin()))
-            .getMessage().contains("must carry exactly one AbstractMatchPlanStep"));
+            .getMessage().contains("expected a proved rule-native decision"));
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+        assertTrue(assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.checkBulkingForm(form, FRANK,
+                t.V().hasLabel("MissingBulkingLabel").asAdmin(),
+                form.traversal(source, FRANK).asAdmin()))
+            .getMessage().contains("expected a proved rule-native decision"));
         assertTrue(assertThrows(IllegalStateException.class,
             () -> GremlinTraversalShapes.checkBulkingForm(form, ALICE,
                 form.traversal(t, ALICE).asAdmin(), form.traversal(source, ALICE).asAdmin()))
@@ -1193,6 +1191,42 @@ public class LdbcGremlinShapeTranslationTest {
     runBothArms(shape, false, Comparison.AS_MULTISET, builder, expected);
   }
 
+  /** Proves the rule-native outcome on cold and warm calls, then checks the disabled arm. */
+  private static void assertPlain(
+      String shape,
+      Function<YTDBGraphTraversalSource, Traversal<?, ?>> builder,
+      List<String> expected) {
+    var before = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+    try {
+      requireKillSwitchReachesTraversals(shape);
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+      g.executeInTx(t -> {
+        var tx = (YTDBTransaction) t.getGraph().tx();
+        tx.readWrite();
+        var session = tx.getDatabaseSession();
+        com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache
+            .instance(session).invalidate();
+        var metrics = GremlinTranslationMetrics.of(session);
+        for (int call = 0; call < 2; call++) {
+          long nativeBefore = metrics.getRuleNative();
+          long declinesBefore = metrics.getDeclines();
+          long errorsBefore = metrics.getErrors();
+          var admin = builder.apply(t).asAdmin();
+          admin.applyStrategies();
+          GremlinTraversalShapes.requireNotTranslated(shape, admin);
+          assertEquals(shape, nativeBefore + 1, metrics.getRuleNative());
+          assertEquals(shape, declinesBefore, metrics.getDeclines());
+          assertEquals(shape, errorsBefore, metrics.getErrors());
+          assertEquals(shape, expected, render(admin.toList(), Comparison.AS_MULTISET));
+        }
+      });
+      assertEquals(shape, expected,
+          runArm(shape, false, false, Comparison.AS_MULTISET, builder));
+    } finally {
+      GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(before);
+    }
+  }
+
   /**
    * Runs one shape on both kill-switch positions and checks engagement and result on each.
    *
@@ -1242,15 +1276,14 @@ public class LdbcGremlinShapeTranslationTest {
    * <p>Runs before a declining shape's arms. Without it, "no boundary step with the flag on" reads
    * the same whether the shape declined or the flag never took effect, and every declining-shape
    * assertion in this class would pass against a translator that was never installed. The witness
-   * is {@link GremlinTraversalShapes#knowsFirstNames}, whose every step has been recognised since
-   * long before the terminators.
+   * is {@link GremlinTraversalShapes#knowsOrderedPage}, whose ordered slice keeps MATCH.
    *
    * @param shape the declining shape about to be checked, so a failure names what it invalidates
    */
   private static void requireKillSwitchReachesTraversals(String shape) {
     GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
     g.executeInTx(t -> {
-      var witness = GremlinTraversalShapes.knowsFirstNames(t, ALICE).asAdmin();
+      var witness = GremlinTraversalShapes.knowsOrderedPage(t, ALICE).asAdmin();
       witness.applyStrategies();
       GremlinTraversalShapes.requireTranslated(
           "kill-switch witness for declining shape '" + shape + "'", witness);

@@ -53,7 +53,7 @@ public final class GremlinPlanCache
   }
 
   // The envelope identifies each publication, including declines with no plan payload.
-  private record StampedTranslation(GremlinTranslationTemplate template, long generation) {
+  record StampedTranslation(GremlinTranslationTemplate template, long generation) {
   }
 
   /** @param size maximum entries per map, or zero to disable caching */
@@ -131,16 +131,24 @@ public final class GremlinPlanCache
     if (db == null || shapeKey == null) {
       return null;
     }
-    return instance(db).getTranslationInternal(shapeKey, db);
+    var entry = instance(db).getTranslationEntry(shapeKey, db);
+    return entry == null ? null : entry.template();
   }
 
-  public static void putTranslation(
+  @Nullable public static GremlinTranslationTemplate putTranslation(
       String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long walkGeneration) {
     if (db == null || shapeKey == null || template == null) {
-      return;
+      return null;
     }
-    instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration);
+    return instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration);
+  }
+
+  /** Replaces only the exact rejected publication, while preserving valid concurrent winners. */
+  @Nullable static GremlinTranslationTemplate putTranslation(
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long walkGeneration, @Nullable StampedTranslation rejected) {
+    return instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration, rejected);
   }
 
   @Nullable InternalExecutionPlan putInternal(String fingerprint, InternalExecutionPlan plan,
@@ -195,6 +203,12 @@ public final class GremlinPlanCache
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
       String shapeKey, DatabaseSessionEmbedded db) {
+    var entry = getTranslationEntry(shapeKey, db);
+    return entry == null ? null : entry.template();
+  }
+
+  @Nullable StampedTranslation getTranslationEntry(
+      String shapeKey, DatabaseSessionEmbedded db) {
     if (db.getTxSchemaState() != null) {
       return null;
     }
@@ -205,21 +219,36 @@ public final class GremlinPlanCache
     var entry = translationCache.getIfPresent(shapeKey);
     if (entry != null && entry.generation() == generation.get()) {
       translationHits.increment();
-      return entry.template();
+      return entry;
     }
     translationMisses.increment();
     return null;
   }
 
-  void putTranslationInternal(String shapeKey, GremlinTranslationTemplate template,
+  @Nullable GremlinTranslationTemplate putTranslationInternal(String shapeKey,
+      GremlinTranslationTemplate template,
       DatabaseSessionEmbedded db, long walkGeneration) {
-    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
-      return;
+    return putTranslationInternal(shapeKey, template, db, walkGeneration, null);
+  }
+
+  @Nullable GremlinTranslationTemplate putTranslationInternal(String shapeKey,
+      GremlinTranslationTemplate template, DatabaseSessionEmbedded db, long walkGeneration,
+      @Nullable StampedTranslation rejected) {
+    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null
+        || walkGeneration != generation.get()) {
+      return null;
     }
     var entry = new StampedTranslation(template, walkGeneration);
-    translationCache.asMap().compute(shapeKey,
-        (key, previous) -> previous == null || previous.generation() <= walkGeneration ? entry
-            : previous);
+    // Cold proofs do not hold a lock. First publication wins unless this caller rejected
+    // that exact envelope. Identity prevents a delayed repair from replacing another winner.
+    var winner = translationCache.asMap().compute(shapeKey, (key, previous) -> {
+      if (walkGeneration != generation.get()) {
+        return previous;
+      }
+      return previous == null || previous.generation() < walkGeneration
+          || (previous == rejected && previous.generation() == walkGeneration) ? entry : previous;
+    });
+    return winner != null && winner.generation() == generation.get() ? winner.template() : null;
   }
 
   @Override

@@ -22,6 +22,10 @@ public record PlainPlanDecision(Reason reason, String offendingStepClass, Facts 
     STEP_ORDER,
     /** The root source does not prove equivalent native start access. */
     START_ACCESS,
+    /** Optional native source proof failed. The exception itself is not retained. */
+    NATIVE_PROOF_ERROR,
+    /** Metadata changed during cold routing. */
+    STALE_GENERATION,
     /** The scheduled root or a prefetch alias differs from the Gremlin start alias. */
     ROOT_CHANGED,
     /** A hop changes direction, order, access or ordinary traversal semantics. */
@@ -42,12 +46,12 @@ public record PlainPlanDecision(Reason reason, String offendingStepClass, Facts 
     MULTI_PLAN,
     /** A boundary field requests work outside direct current-row shaping. */
     BOUNDARY_SHAPE,
-    /** A list operation is not exactly one simple fold. */
+    /** List operations are not exact reverses around at most one fold. */
     BOUNDARY_OPERATION
   }
 
   public enum StartKind {
-    UNKNOWN, CLASS_SCAN, RID
+    UNKNOWN, CLASS_SCAN, RID, INDEX
   }
 
   /** Estimate dependence includes root choice and the estimate-dependent prefetch threshold. */

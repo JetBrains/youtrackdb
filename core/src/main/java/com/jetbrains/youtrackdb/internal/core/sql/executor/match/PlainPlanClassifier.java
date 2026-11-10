@@ -1,11 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromRidsStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FilterStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.NativeStartEvidence;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SkipExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.Facts;
@@ -36,7 +38,8 @@ import java.util.Set;
  * expressions, grouping, ordering and unwind inputs, exact physical step classes and order,
  * first/prefetch aliases and source plans, source class and WHERE, hop descriptors and direction,
  * boolean node roles and content, physical projection expressions, and skip/limit presence.
- * No estimates, bindings, schema, session, execution state or record contents are read. Root
+ * The baseline reads no bindings, schema, session, execution state or records. The optional
+ * native source certificate compares equality operands in an invocation-local binding context. Root
  * choice and prefetch are estimate-dependent evidence exposed in the immutable decision facts.
  * Callers must provide the inputs that produced the plan and must not mutate either during analysis.
  *
@@ -50,6 +53,23 @@ public final class PlainPlanClassifier {
   }
 
   public static PlainPlanDecision classify(InternalExecutionPlan plan, MatchPlanInputs inputs) {
+    return classify(plan, inputs, null, null);
+  }
+
+  /** The optional source certificate is valid only for this invocation's parameter context. */
+  public static PlainPlanDecision classify(InternalExecutionPlan plan, MatchPlanInputs inputs,
+      NativeStartEvidence evidence, CommandContext bindings) {
+    return classify(plan, inputs, evidence, bindings, false);
+  }
+
+  /** Structural gate only. A plain index candidate still requires invocation-local proof. */
+  public static PlainPlanDecision indexCandidate(InternalExecutionPlan plan,
+      MatchPlanInputs inputs) {
+    return classify(plan, inputs, null, null, true);
+  }
+
+  private static PlainPlanDecision classify(InternalExecutionPlan plan, MatchPlanInputs inputs,
+      NativeStartEvidence evidence, CommandContext bindings, boolean candidate) {
     var path = new ArrayList<PatternEdge>();
     var nodes = inputs.pattern().aliasToNode;
     if (nodes.isEmpty() || inputs.groupBy() != null || inputs.orderBy() != null
@@ -91,7 +111,9 @@ public final class PlainPlanClassifier {
       if (!head.alias.equals(prefetch.getAlias())) {
         return PlainPlanDecision.rejected(Reason.ROOT_CHANGED, prefetch);
       }
-      var start = start(prefetch.getSourcePlan(), inputs.aliasClasses().get(head.alias));
+      var start = start(prefetch.getSourcePlan(), inputs.aliasClasses().get(head.alias),
+          "$g2m_v0".equals(head.alias) ? evidence : null, bindings,
+          candidate && "$g2m_v0".equals(head.alias));
       if (!start.plain()) {
         return start;
       }
@@ -113,7 +135,9 @@ public final class PlainPlanClassifier {
       return PlainPlanDecision.rejected(Reason.START_ACCESS, first);
     }
     if (!prefetched) {
-      var start = start(first.getSourcePlan(), inputs.aliasClasses().get(head.alias));
+      var start = start(first.getSourcePlan(), inputs.aliasClasses().get(head.alias),
+          "$g2m_v0".equals(head.alias) ? evidence : null, bindings,
+          candidate && "$g2m_v0".equals(head.alias));
       if (!start.plain()) {
         return start;
       }
@@ -201,6 +225,10 @@ public final class PlainPlanClassifier {
       return new PlainPlanDecision(Reason.UNKNOWN_STEP, steps.get(position).getClass().getName(),
           facts);
     }
+    if (sliced && kind == StartKind.INDEX) {
+      // The equality certificate does not certify observable index order or early consumption.
+      return PlainPlanDecision.rejected(Reason.START_ACCESS, first);
+    }
     boolean sliceAfterFilter = sliced && filtered;
     boolean ridProtected = kind == StartKind.RID && vertexHops == 1;
     var reason = sliceAfterFilter ? Reason.SLICE_AFTER_FILTER
@@ -214,7 +242,18 @@ public final class PlainPlanClassifier {
         : PlainPlanDecision.rejected(Reason.UNKNOWN_STEP, steps.get(position));
   }
 
-  private static PlainPlanDecision start(InternalExecutionPlan plan, String expectedClass) {
+  private static PlainPlanDecision start(InternalExecutionPlan plan, String expectedClass,
+      NativeStartEvidence evidence, CommandContext bindings, boolean candidate) {
+    if (candidate && !plan.getSteps().isEmpty()
+        && plan.getSteps().getFirst().getClass()
+            == com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep.class) {
+      return new PlainPlanDecision(Reason.PLAIN, null,
+          new Facts(StartKind.INDEX, false, Set.of(), 0));
+    }
+    if (evidence != null && evidence.matches(plan, bindings, expectedClass)) {
+      return new PlainPlanDecision(Reason.PLAIN, null,
+          new Facts(StartKind.INDEX, false, Set.of(expectedClass), 0));
+    }
     var steps = plan.getSteps();
     if (steps.isEmpty()) {
       return PlainPlanDecision.rejected(Reason.START_ACCESS, null);

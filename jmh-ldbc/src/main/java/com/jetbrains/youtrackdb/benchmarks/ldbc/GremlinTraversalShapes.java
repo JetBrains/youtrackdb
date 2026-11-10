@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -46,11 +48,17 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * --gremlin-arms both} to {@code jmh-compare.py}. That axis is for recogniser and kill-switch work,
  * not for the default PR regression comment.
  *
- * <h2>Two shape groups</h2>
+ * <h2>Routing groups</h2>
  *
  * <p><b>Translating shapes</b> carry one {@link AbstractMatchPlanStep} with the kill-switch on. In
  * CI (translator on both sides) their head-vs-base delta is a regression on the MATCH pipeline. In
  * the optional on/off A/B, the same shape's delta is MATCH vs native on one commit.
+ *
+ * <p><b>Proven plain shapes</b> carry no boundary step with translation enabled. Equality index
+ * access is proved on the first cache-eligible call and the decision is reused by shape until
+ * metadata generation invalidation. An uncached index start keeps MATCH. Exact per-value reverses
+ * around at most one fold are neutral. Ordered pages remain MATCH witnesses. A routing change
+ * makes head-vs-base an engine-selection comparison rather than a MATCH-only comparison.
  *
  * <p><b>Declining shapes</b> carry no boundary step even with the kill-switch on — the translator
  * walks and declines, or vetoes before the walk ({@code RepeatDeclineStrategy}). Both CI arms
@@ -192,10 +200,8 @@ public final class GremlinTraversalShapes {
   /**
    * LDBC: none. Translator primitive: the {@link #knowsFirstNames} walk under {@code fold()}.
    *
-   * <p>The list-shaping terminator the boundary step drains through a {@code ListShapingOp}, and
-   * the newest recogniser this harness covers. Its assertion doubles as a classpath check: a
-   * {@code youtrackdb-core} without the {@code FoldStep} registry entry declines the shape, both
-   * arms measure the native path, and the two numbers coincide instead of failing loudly.
+   * <p>One fold is a neutral boundary operation. With proven equality index access this shape
+   * runs natively even when translation is enabled. The ordered-page shape is the MATCH witness.
    */
   public static YTDBGraphTraversal<Vertex, List<String>> knowsFirstNamesFolded(
       YTDBGraphTraversalSource g, long personId) {
@@ -1051,7 +1057,7 @@ public final class GremlinTraversalShapes {
   /**
    * LDBC: IS4 fragment — {@code coalesce(imageFile, content)}.
    *
-   * <p>Translating twin without coalesce: {@link #is4MessageContent}.
+   * <p>Recognised twin without coalesce: {@link #is4MessageContent}.
    *
    * <p>Gap (whole shape declines):
    * <ul>
@@ -1162,10 +1168,29 @@ public final class GremlinTraversalShapes {
   /** Wider forms require actual native label retraction and optional core-capacity evidence. */
   static void checkBulkingForm(BulkingForm form, long id,
       Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal, boolean crossLabel) {
+    var tx = (YTDBTransaction) translated.getGraph().orElseThrow().tx();
+    tx.readWrite();
+    var metrics = GremlinTranslationMetrics.of(tx.getDatabaseSession());
+    long nativeBefore = metrics.getRuleNative();
+    long declinesBefore = metrics.getDeclines();
+    long errorsBefore = metrics.getErrors();
     translated.applyStrategies();
-    requireTranslated("G6 " + form, translated);
     if (crossLabel) {
+      requireTranslated("G6 " + form, translated);
       requireBulkingCapacityIfAvailable(translated.getStartStep());
+    } else {
+      if (metrics.getRuleNative() != nativeBefore + 1
+          || metrics.getDeclines() != declinesBefore || metrics.getErrors() != errorsBefore) {
+        throw new IllegalStateException("G6 " + form + ": expected a proved rule-native decision");
+      }
+      // Plain G6 forms need no MATCH boundary. A retained ordered-page witness proves the
+      // enabled translator still engages rather than accepting a permanently disabled harness.
+      var witness = translated.getGraph().orElseThrow().traversal().V()
+          .hasLabel("Person").has("id", id).out("KNOWS").order().by("firstName")
+          .range(1, 3).values("firstName").asAdmin();
+      witness.applyStrategies();
+      requireTranslated("knowsOrderedPage", witness);
+      requireNotTranslated("plain G6 " + form, translated);
     }
     // Clone before strategies lock the walk and drop only valueMap. Counting maps would conflate
     // different elements with equal properties and could hide a defective duplicate feed.
@@ -1200,7 +1225,7 @@ public final class GremlinTraversalShapes {
       identities.add(((Vertex) row).id());
     }
     form.requireCounts(id, rows.size(), identities.size());
-    System.out.println("G6 " + form + " parameter " + id + ": MATCH, native barrier, rows="
+    System.out.println("G6 " + form + " parameter " + id + ": verified route, native barrier, rows="
         + rows.size() + ", distinct elements=" + identities.size());
   }
 

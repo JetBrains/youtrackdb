@@ -55,7 +55,11 @@ import org.openjdk.jmh.annotations.Warmup;
  * {@code jmh-compare.py}, pass {@code --gremlin-arms both} to include off-arm rows in the markdown
  * comment.
  *
- * <h2>Two benchmark groups, read differently</h2>
+ * <h2>Routing groups, read differently</h2>
+ *
+ * <p>Proven plain shapes run native on both arms. Equality index starts use a first-call proof
+ * cached by shape and metadata generation. The ordered-page witness keeps MATCH when enabled.
+ * Translator-enabled permits translation. It does not force plain shapes into MATCH.
  *
  * <p><b>Translating shapes</b> — in CI, head-vs-base delta is MATCH throughput. In the optional
  * on/off A/B, delta is MATCH vs native on one commit.
@@ -306,12 +310,12 @@ public class LdbcGremlinTranslatorBenchmark {
      */
     private void checkArmInstalled(LdbcBenchmarkState state) {
       state.traversal.executeInTx(t -> {
-        var translating = GremlinTraversalShapes.knowsFirstNames(t, personIds[0]).asAdmin();
+        var translating = GremlinTraversalShapes.knowsOrderedPage(t, personIds[0]).asAdmin();
         translating.applyStrategies();
         if (translatorEnabled) {
-          GremlinTraversalShapes.requireTranslated("knowsFirstNames", translating);
+          GremlinTraversalShapes.requireTranslated("knowsOrderedPage", translating);
         } else {
-          GremlinTraversalShapes.requireNotTranslated("knowsFirstNames", translating);
+          GremlinTraversalShapes.requireNotTranslated("knowsOrderedPage", translating);
         }
 
         // The anti-join is the highest decline-risk translating shape in this class: its edge-
@@ -556,8 +560,8 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under {@code fold()}. A core that
-   * predates {@code FoldStep} declines the shape and both arms run natively.
+   * LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under a neutral {@code fold()}.
+   * Proven plain access runs natively on both arms.
    */
   @Benchmark
   public List<String> gremlin_knowsFirstNamesFolded(LdbcBenchmarkState state, TranslatorArm arm) {

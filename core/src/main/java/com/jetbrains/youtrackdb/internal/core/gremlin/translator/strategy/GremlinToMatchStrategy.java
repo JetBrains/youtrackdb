@@ -14,8 +14,12 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.NativeStartEvidence;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.Reason;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.StartKind;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -192,6 +196,15 @@ public final class GremlinToMatchStrategy
     implements TraversalStrategy.ProviderOptimizationStrategy {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(GremlinToMatchStrategy.class);
+
+  // Package-private injection seam. Production always uses the planning-only builder.
+  NativeStartProver nativeStartProof = NativeStartProof::prove;
+
+  @FunctionalInterface
+  interface NativeStartProver {
+    NativeStartEvidence prove(
+        Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session);
+  }
 
   // Test-only control. Production never sets it. Thread confinement keeps parallel tests isolated.
   static final ThreadLocal<Boolean> FORCE_MATCH_FOR_TESTS = new ThreadLocal<>();
@@ -410,8 +423,13 @@ public final class GremlinToMatchStrategy
         GremlinStepWalker.extractShape(
             traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     var metrics = GremlinTranslationMetrics.of(session);
+    GremlinPlanCache.StampedTranslation rejected = null;
     if (populateTranslationCache && eligible && extraction.complete()) {
-      var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
+      var resident = cache.getTranslationEntry(extraction.key(), session);
+      var cached = resident == null ? null : resident.template();
+      if (cache.getGeneration() != generation) {
+        cached = null;
+      }
       if (cached instanceof GremlinTranslationTemplate.Decline) {
         metrics.recordDecline(stepShape(traversal));
         return;
@@ -422,7 +440,7 @@ public final class GremlinToMatchStrategy
             && extraction.propertyMapBulkingCapacity()
                 == translate.shaping().propertyMapBulkingCapacity()
                     ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
-        if (boundShaping != null) {
+        if (boundShaping != null && cache.getGeneration() == generation) {
           if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())) {
             metrics.recordRuleNative();
             return;
@@ -431,6 +449,7 @@ public final class GremlinToMatchStrategy
           metrics.recordSuccess();
           return;
         }
+        rejected = resident;
         agreementFailure.accept("Translation cache binding agreement failed");
       }
     }
@@ -440,13 +459,15 @@ public final class GremlinToMatchStrategy
     if (translation == null) {
       if (populateTranslationCache && eligible && extraction.complete()) {
         GremlinPlanCache.putTranslation(
-            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation);
+            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
+            rejected);
       }
       metrics.recordDecline(stepShape(traversal));
       return;
     }
     var cacheScope = new CacheScope(generation, eligible);
-    if (applyTranslation(traversal, session, translation, cacheScope, extraction)) {
+    if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
+        rejected)) {
       metrics.recordSuccess();
     } else {
       metrics.recordRuleNative();
@@ -603,7 +624,8 @@ public final class GremlinToMatchStrategy
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation,
       CacheScope cacheScope,
-      GremlinShapeExtractor.Extraction extraction) {
+      GremlinShapeExtractor.Extraction extraction, boolean polymorphic,
+      @Nullable GremlinPlanCache.StampedTranslation rejected) {
     if (translation.isMultiPlan()) {
       var plans = buildChildPlans(session, translation, cacheScope);
       replaceAllStepsWithBoundary(traversal, plans, translation);
@@ -614,38 +636,86 @@ public final class GremlinToMatchStrategy
     boolean transferred = false;
     Throwable failure = null;
     try {
-      var decision = PlainBoundaryClassifier.classify(plan, translation);
-      var shaping = OrderedFilterBinding.fresh(translation.shaping());
-      var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
-      // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
+      // Establish retention before optional planning. A discarded proof must not repeat on
+      // every call when extraction and translation disagree.
       boolean absenceAgrees = !extraction.orderedExpandAbsent()
           || !OrderedFilterBinding.hasOrderedExpand(translation.shaping());
       if (!absenceAgrees) {
         agreementFailure.accept("Ordered expand contradicts extraction absence");
       }
-      if (populateTranslationCache && cacheScope.eligible
-          && copyOnOpen && extraction.complete() && absenceAgrees) {
-        boolean bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
+      boolean retentionEligible = populateTranslationCache && cacheScope.eligible
+          && copyOnOpen && extraction.complete() && absenceAgrees;
+      boolean bindingsAgree = false;
+      if (retentionEligible) {
+        bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
             && matchingLayout(extraction.hasContributions(), translation.hasContributions())
             && extraction.propertyMapBulkingCapacity()
                 == translation.shaping().propertyMapBulkingCapacity()
             && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null;
         if (!bindingsAgree) {
           agreementFailure.accept("Cold translation binding agreement failed");
-        } else {
-          GremlinPlanCache.putTranslation(
-              extraction.key(),
-              new GremlinTranslationTemplate.Translate(
-                  plan,
-                  translation.boundaryAlias(),
-                  translation.outputType(),
-                  translation.returnClass(),
-                  OrderedFilterBinding.unbound(translation.shaping()),
-                  translation.inputParameters().size(),
-                  translation.hasContributions(),
-                  decision),
-              session, cacheScope.generation);
         }
+      }
+      var decision = PlainBoundaryClassifier.classify(plan, translation);
+      // The structural pass traverses the whole plan before optional native planning.
+      boolean proofEligible = retentionEligible && bindingsAgree
+          && translation.cacheEligible() && polymorphic
+          && GremlinPlanCache.instance(session).getGeneration() == cacheScope.generation;
+      if (proofEligible && !decision.plain()) {
+        var candidate = PlainBoundaryClassifier.classify(plan, translation, null, null, true);
+        if (candidate.plain()
+            && candidate.facts().startKind()
+                == StartKind.INDEX) {
+          try {
+            var evidence = nativeStartProof.prove(traversal, session);
+            var bindings = new BasicCommandContext(session);
+            bindings.setInputParameters(translation.inputParameters());
+            decision =
+                PlainBoundaryClassifier.classify(plan, translation, evidence, bindings, false);
+          } catch (ReservedAliasException | ContradictoryOrderSemanticsException e) {
+            throw e;
+          } catch (RuntimeException e) {
+            // Record only a fixed reason. Exception messages may contain predicate values.
+            GremlinTranslationMetrics.of(session).recordNativeProofError();
+            LOGGER.warn("Optional native start proof failed: NATIVE_PROOF_ERROR ({})",
+                e.getClass().getName());
+            decision = PlainPlanDecision
+                .rejected(
+                    Reason.NATIVE_PROOF_ERROR,
+                    null);
+          }
+        }
+      }
+      var shaping = OrderedFilterBinding.fresh(translation.shaping());
+      var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
+      boolean retainedDecision = false;
+      if (retentionEligible && bindingsAgree) {
+        var resident = GremlinPlanCache.putTranslation(
+            extraction.key(),
+            new GremlinTranslationTemplate.Translate(
+                plan,
+                translation.boundaryAlias(),
+                translation.outputType(),
+                translation.returnClass(),
+                OrderedFilterBinding.unbound(translation.shaping()),
+                translation.inputParameters().size(),
+                translation.hasContributions(),
+                decision),
+            session, cacheScope.generation, rejected);
+        if (resident instanceof GremlinTranslationTemplate.Translate winner) {
+          decision = winner.decision();
+          retainedDecision = true;
+        }
+      }
+      if (GremlinPlanCache.instance(session).getGeneration() != cacheScope.generation) {
+        decision = PlainPlanDecision
+            .rejected(
+                Reason.STALE_GENERATION,
+                null);
+      }
+      if (decision.plain() && decision.facts().startKind() == StartKind.INDEX
+          && !retainedDecision) {
+        decision = PlainPlanDecision.rejected(Reason.START_ACCESS, null);
       }
       // Publish before choosing native so the next invocation can reuse the same proof and plan.
       if (decision.plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())) {

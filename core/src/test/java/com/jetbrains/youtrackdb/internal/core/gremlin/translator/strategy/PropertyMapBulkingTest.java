@@ -726,8 +726,11 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
           stored.shaping().withPropertyMapBulkingCapacity(2500), stored.bindingCount(),
           stored.hasContributions(), stored.decision());
       var cache = GremlinPlanCache.instance(graphSession());
+      cache.invalidate();
       GremlinPlanCache.putTranslation(extraction.key(), poisoned, graphSession(),
           cache.getGeneration());
+      assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession()))
+          .isSameAs(poisoned);
       var walks = new AtomicInteger();
       var failures = new ArrayList<String>();
       var strategy = new GremlinToMatchStrategy(raw -> {
@@ -746,6 +749,11 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession()))
           .isNotSameAs(poisoned);
       assertThat(new ArrayList<Object>(replay.toList()))
+          .containsExactlyInAnyOrderElementsOf(expected);
+      var warm = shape.get().asAdmin();
+      strategy.apply(warm);
+      assertThat(walks.get()).as("the repaired capacity must splice on the next call").isEqualTo(1);
+      assertThat(new ArrayList<Object>(warm.toList()))
           .containsExactlyInAnyOrderElementsOf(expected);
     });
   }
