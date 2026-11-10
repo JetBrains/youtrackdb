@@ -120,6 +120,21 @@ public final class PageWorkloadComponent extends StorageComponent {
     });
   }
 
+  /** Writes a prevalidated fixed page set without coordinate samples or value read-back. */
+  void commitMeasured(int[] pages, long value) throws IOException {
+    atomicOperationsManager
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, operation -> {
+          for (int page : pages) {
+            var entry = loadPageForWrite(operation, fileId, page, true);
+            try {
+              new EntryPoint(entry).setTreeSize(value);
+            } finally {
+              releasePageFromWrite(operation, entry);
+            }
+          }
+        }));
+  }
+
   private Sample sample(CacheEntry entry) {
     return new Sample(entry.getFileId(), entry.getPageIndex(), new EntryPoint(entry).getTreeSize());
   }

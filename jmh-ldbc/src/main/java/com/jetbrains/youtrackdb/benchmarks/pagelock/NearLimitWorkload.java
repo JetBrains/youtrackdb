@@ -36,6 +36,11 @@ public final class NearLimitWorkload {
     return component.commit(pages, ++value);
   }
 
+  /** Timed path. The constructor validates this fixed page set before measurement. */
+  public void commitMeasured() throws IOException {
+    component.commitMeasured(pages, ++value);
+  }
+
   /**
    * Setup only. Both cores expose page tracking and local-change checks. Tracking alone counts
    * touches, not writes, so also check local changes and the committed coordinates and values.

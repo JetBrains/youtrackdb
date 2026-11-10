@@ -126,9 +126,15 @@ public final class RecordWorkload implements AutoCloseable {
     var settings = new WriterSettings(80, 20, 8, Integer.parseInt(args[2]), 1);
     settings.apply(writers, WriterSettings.RECORD_PAGE_BOUND);
     var root = Path.of(args[0]);
+    root = seedRoot(root, settings.pageKiB());
     prepare(root, writers, FULL_RECORD_COUNT);
-    System.out.println("record seed physicalBytes=" + physicalBytes(
+    System.out.println("record seed fileSizeBytes=" + physicalBytes(
         root.resolve("records-v1-" + writers + "-" + FULL_RECORD_COUNT)));
+  }
+
+  /** Page size is part of the closed record seed identity. */
+  static Path seedRoot(Path root, int pageKiB) {
+    return root.resolve("records-page-" + pageKiB);
   }
 
   /** Measure a closed seed, not a live database with transient checkpoint files. */
