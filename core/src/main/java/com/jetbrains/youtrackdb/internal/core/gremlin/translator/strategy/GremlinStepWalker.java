@@ -512,12 +512,46 @@ final class GremlinStepWalker {
     return walkObserved(traversal, NO_CHILD_SCOPE, null, null, null, completion);
   }
 
+  /** Inputs captured once for a private full attempt and its fresh prefix walks. */
+  record WalkInputs(Boolean polymorphic, boolean edgeVerification, Schema schema,
+      Set<String> productiveKeys, Boolean includesMissing,
+      ResolvedOrderByNullsPlacement nulls) {
+    static WalkInputs capture(Traversal.Admin<?, ?> traversal) {
+      var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+      return new WalkInputs(YTDBStrategyUtil.isPolymorphic(traversal),
+          traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent(),
+          session == null ? null : session.getSchema(),
+          traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
+              .map(ProductiveByStrategy::getProductiveKeys).orElse(null),
+          YTDBStrategyUtil.orderIncludesMissingKey(traversal),
+          YTDBStrategyUtil.orderByNullsPlacements(traversal));
+    }
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, WalkInputs inputs,
+      @Nullable java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, NO_CHILD_SCOPE, inputs.includesMissing(), inputs.nulls(),
+        inputs.polymorphic(), completion, inputs);
+  }
+
   private @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
       Traversal.Admin<?, ?> traversal, int childScopeBoundary,
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting,
       @Nullable java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphicSetting, completion, null);
+  }
+
+  private @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting,
+      @Nullable java.util.function.IntConsumer completion,
+      @Nullable WalkInputs inputs) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -559,26 +593,25 @@ final class GremlinStepWalker {
 
     // Resolve the EdgeLabelVerificationStrategy presence once too, so resolveEdgeLabel reads a
     // boolean instead of scanning the strategy list per hop.
-    boolean edgeLabelVerification =
-        traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent();
+    boolean edgeLabelVerification = inputs != null ? inputs.edgeVerification()
+        : traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent();
 
     // Resolve the schema snapshot once for the has(...) recogniser's non-String Text type gate. The
     // isPolymorphic resolution above already proved an attached YTDB session (it returns null
     // otherwise, declining the walk), so the session resolves here too; a null schema is a defensive
     // fallback that disables the type gate, translating string predicates best-effort.
-    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
-    Schema schema = session != null ? session.getSchema() : null;
+    var session = inputs == null ? YTDBStrategyUtil.resolveYtdbSession(traversal) : null;
+    Schema schema = inputs != null ? inputs.schema() : session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     ctx.setWalkedTraversal(traversal);
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
-    ctx.setProductiveByKeys(
-        traversal
-            .getStrategies()
-            .getStrategy(ProductiveByStrategy.class)
-            .map(ProductiveByStrategy::getProductiveKeys)
-            .orElse(null));
+    ctx.setProductiveByKeys(inputs != null ? inputs.productiveKeys() : traversal
+        .getStrategies()
+        .getStrategy(ProductiveByStrategy.class)
+        .map(ProductiveByStrategy::getProductiveKeys)
+        .orElse(null));
     // Resolve order behavior through the same entry points used by native execution.
     ctx.setOrderIncludesMissingKey(
         Boolean.TRUE.equals(
