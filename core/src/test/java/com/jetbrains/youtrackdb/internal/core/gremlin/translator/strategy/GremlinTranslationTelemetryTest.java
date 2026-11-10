@@ -42,14 +42,13 @@ public class GremlinTranslationTelemetryTest extends GraphBaseTest {
   }
 
   /**
-   * An unrecognized trailing step declines whole and records a decline with the step-class shape,
-   * without counting as a success or error.
+   * A user function records a structural safety refusal without a success or error.
    */
   @Test
   public void apply_unsupportedShape_recordsDecline() {
     var beforeDeclines = metrics().getDeclines();
     var beforeSuccesses = metrics().getSuccesses();
-    // Lambda map is permanently out of scope — forces a walker decline.
+    // Lambda map is refused before capability recognition.
     var admin = graph.traversal().V().map(t -> t.get()).asAdmin();
 
     GremlinToMatchStrategy.instance().apply(admin);
@@ -57,7 +56,7 @@ public class GremlinTranslationTelemetryTest extends GraphBaseTest {
     assertThat(metrics().getDeclines()).isEqualTo(beforeDeclines + 1);
     assertThat(metrics().getSuccesses()).isEqualTo(beforeSuccesses);
     assertThat(metrics().topDeclinedShapes(5))
-        .anyMatch(s -> s.shape().contains("GraphStep") && s.count() >= 1);
+        .anyMatch(s -> s.shape().equals("safety:USER_FUNCTION") && s.count() >= 1);
   }
 
   /**

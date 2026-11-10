@@ -137,13 +137,19 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
         .select("secret"), QuerySafetyAdmission.Reason.SIDE_EFFECT_NAME);
   }
 
-  /** A later reserved label remains an input error even after an unsafe step was seen. */
+  /** A safety-refused query keeps native labels, including reserved MATCH spellings. */
   @Test
   public void deliberateInputErrorsPrecedeSafetyRefusal() {
-    support.withTranslator(true,
-        () -> assertThatThrownBy(() -> graph.traversal().V().map(t -> t.get()).as("$private")
-            .asAdmin().applyStrategies())
-            .isInstanceOf(ReservedAliasException.class));
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.tx().commit();
+    support.withTranslator(true, () -> {
+      var traversal = graph.traversal().V().map(t -> t.get()).as("$private").asAdmin();
+      traversal.applyStrategies();
+      assertThat(QuerySafetyAdmission.stored(traversal).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+      assertNoBoundary(traversal);
+      assertThat(traversal.toList()).hasSize(1);
+    });
   }
 
   /** A child cannot manufacture root evidence when it is prepared out of order. */
@@ -163,17 +169,36 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     graph.addVertex(T.label, "SafetyVertex", "name", "a");
     graph.tx().commit();
     support.withTranslator(true, () -> {
-      for (int round = 0; round < 2; round++) {
-        var safe = graph.traversal().V().hasLabel("SafetyVertex").as("x").select("x")
-            .asAdmin();
-        safe.applyStrategies();
-        // Both cold and warm invocations inspect GraphStep, HasStep and SelectOneStep once.
-        assertThat(QuerySafetyAdmission.stored(safe).visitedSteps()).isEqualTo(3);
-        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(safe)).isEqualTo(1);
-        assertThat(safe.toList()).hasSize(1);
-      }
+      var cold = graph.traversal().V().filter(__.has("name", "a")).asAdmin();
+      // Direct strategy calls precede SideEffectStrategy, so register the key immediately.
+      cold.getSideEffects().register("unselected", () -> 1, null);
+      GremlinToMatchStrategy.instance().apply(cold);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(cold)).isEqualTo(1);
+      var child = org.mockito.Mockito.spy(__.has("name", "a").asAdmin());
+      var warm = graph.traversal().V().filter(child).asAdmin();
+      warm.getSideEffects().register("unselected", () -> 1, null);
+      assertThat(warm.getSideEffects().keys()).containsExactly("unselected");
+      var reads = new AtomicInteger();
+      var extractorReads = new AtomicInteger();
+      org.mockito.Mockito.doAnswer(call -> {
+        boolean extractor = java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+            .anyMatch(frame -> frame.getClassName().equals(GremlinShapeExtractor.class.getName()));
+        if (extractor) {
+          extractorReads.incrementAndGet();
+        } else {
+          reads.incrementAndGet();
+        }
+        return call.callRealMethod();
+      }).when(child).getSteps();
       var cache = GremlinPlanCache.instance(session);
       long hits = cache.getTranslationHits();
+      GremlinToMatchStrategy.instance().apply(warm);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isEqualTo(1);
+      assertThat(reads.get()).as("only admission inspects the warm nested traversal").isEqualTo(1);
+      assertThat(extractorReads.get()).isPositive();
+      assertThat(warm.toList()).hasSize(1);
+      hits = cache.getTranslationHits();
       refused(() -> graph.traversal().withSideEffect("x", 1).V().hasLabel("SafetyVertex")
           .as("x").select("x"), QuerySafetyAdmission.Reason.SIDE_EFFECT_NAME);
       assertThat(cache.getTranslationHits()).isEqualTo(hits);
@@ -239,6 +264,206 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
           ? QuerySafetyAdmission.Reason.WRITE : QuerySafetyAdmission.Reason.SAFE);
     }
     assertThat(QuerySafetyAdmission.stored(__.V().asAdmin())).isNull();
+  }
+
+  /** Every branch is inspected even though coalesce itself is a pure control-flow step. */
+  @Test
+  public void coalesceInspectsAllBranches() {
+    assertThat(QuerySafetyAdmission.prepare(__.V().coalesce(__.values("name"),
+        __.values("fallback")).asAdmin()).reason()).isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+    refused(() -> graph.traversal().V().coalesce(__.identity(), __.map(t -> t.get())),
+        QuerySafetyAdmission.Reason.USER_FUNCTION);
+    refused(() -> graph.traversal().V().coalesce(__.identity(), __.addV()),
+        QuerySafetyAdmission.Reason.WRITE);
+    support.withTranslator(true, () -> {
+      var branch = __.V().asAdmin();
+      branch.addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStep<>(
+          branch, false, "unresolved"));
+      var root = graph.traversal().V().coalesce(__.identity(), branch).asAdmin();
+      GremlinToMatchStrategy.instance().apply(root);
+      assertThat(QuerySafetyAdmission.stored(root).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SIDE_EFFECT);
+      assertNoBoundary(root);
+    });
+  }
+
+  /** Path and bulking barriers are pure, but every path by() traversal must pass admission. */
+  @Test
+  public void pathAndBarrierRemainPureWithAllPathModulatorsInspected() {
+    for (var traversal : List.of(__.V().path(), __.V().path().by("name").by(__.identity()),
+        __.V().barrier())) {
+      assertThat(QuerySafetyAdmission.prepare(traversal.asAdmin()).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+    }
+    var calls = new AtomicInteger();
+    refused(() -> graph.traversal().V().path().by("name").by(t -> {
+      calls.incrementAndGet();
+      return t;
+    }), QuerySafetyAdmission.Reason.USER_FUNCTION);
+    refused(() -> graph.traversal().V().path().by(__.addV()),
+        QuerySafetyAdmission.Reason.WRITE);
+    assertThat(calls.get()).isZero();
+  }
+
+  /** Replaced aggregate components in children and clones never run during preparation. */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void replacedAggregateComponentsVetoEveryFamily() {
+    var calls = new AtomicInteger();
+    for (Supplier<GraphTraversal<?, ?>> shape : aggregateShapes()) {
+      for (boolean seed : List.of(false, true)) {
+        var child = shape.get().asAdmin();
+        var barrier =
+            (org.apache.tinkerpop.gremlin.process.traversal.step.util.ReducingBarrierStep) child
+                .getEndStep();
+        if (seed) {
+          barrier.setSeedSupplier(() -> {
+            calls.incrementAndGet();
+            return null;
+          });
+        } else {
+          barrier.setReducingBiOperator((a, b) -> {
+            calls.incrementAndGet();
+            return a;
+          });
+        }
+        for (var candidate : List.of(child, child.clone())) {
+          refused(() -> graph.traversal().inject(1).map(candidate),
+              QuerySafetyAdmission.Reason.USER_FUNCTION);
+        }
+      }
+    }
+    assertThat(calls.get()).isZero();
+  }
+
+  private static List<Supplier<GraphTraversal<?, ?>>> aggregateShapes() {
+    return List.of(() -> __.V().count(), () -> __.V().values("n").sum(),
+        () -> __.V().values("n").min(), () -> __.V().values("n").max(),
+        () -> __.V().values("n").mean(), () -> __.V().fold(),
+        () -> __.V().group(), () -> __.V().groupCount(), () -> __.V().tree());
+  }
+
+  /** Supplier and reducer replacement changes native count results and must not be translated. */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void replacedCountPreservesNativeResults() {
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.tx().commit();
+    for (boolean seed : List.of(false, true)) {
+      support.withTranslator(true, () -> {
+        var traversal = graph.traversal().V().count().asAdmin();
+        var count =
+            (org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep) traversal
+                .getEndStep();
+        if (seed) {
+          count.setSeedSupplier(() -> 100L);
+        } else {
+          count.setReducingBiOperator((a, b) -> 0L);
+        }
+        // Isolate admission from native count optimizations that replace the entire count step.
+        GremlinToMatchStrategy.instance().apply(traversal);
+        traversal.lock();
+        assertThat(QuerySafetyAdmission.stored(traversal).reason())
+            .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+        assertNoBoundary(traversal);
+        assertThat(traversal.toList()).containsExactly(seed ? 102L : 0L);
+      });
+    }
+  }
+
+  /** A provider supplier and unknown has-container subclass cannot be erased by translation. */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void sourceIteratorAndContainerOverridesStayNative() {
+    var calls = new AtomicInteger();
+    refused(() -> {
+      var traversal = graph.traversal().V();
+      var start = (org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep) traversal
+          .asAdmin().getStartStep();
+      start.setIteratorSupplier(() -> {
+        calls.incrementAndGet();
+        return java.util.Collections.emptyIterator();
+      });
+      return traversal;
+    }, QuerySafetyAdmission.Reason.USER_FUNCTION);
+    refused(() -> {
+      var traversal = graph.traversal().V();
+      traversal.asAdmin()
+          .addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep(
+              traversal.asAdmin(),
+              new org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer(
+                  "name", P.eq("a")) {
+                @Override
+                protected boolean
+                    testValue(org.apache.tinkerpop.gremlin.structure.Property property) {
+                  calls.incrementAndGet();
+                  return true;
+                }
+              }));
+      return traversal;
+    }, QuerySafetyAdmission.Reason.UNKNOWN_BEHAVIOR);
+    assertThat(calls.get()).isZero();
+  }
+
+  /** Safety-passing roots and eligible children retain errors on cold, warm and retry calls. */
+  @Test
+  public void reservedLabelsRetainTranslationPathErrors() {
+    graph.addVertex(T.label, "SafetyVertex");
+    graph.tx().commit();
+    support.withTranslator(true, () -> {
+      for (Supplier<GraphTraversal<?, ?>> shape : List.<Supplier<GraphTraversal<?, ?>>>of(
+          () -> graph.traversal().V().as("$x"),
+          () -> graph.traversal().inject(1).local(__.V().as("$x")),
+          () -> graph.traversal().inject(1).flatMap(__.V().as("$x")))) {
+        var traversal = shape.get().asAdmin();
+        for (int retry = 0; retry < 2; retry++) {
+          assertThatThrownBy(traversal::applyStrategies).isInstanceOf(ReservedAliasException.class);
+          assertThat(QuerySafetyAdmission.stored(traversal).reason())
+              .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+        }
+      }
+      var legal = graph.traversal().V().as("legal").asAdmin();
+      legal.applyStrategies();
+      var cache = GremlinPlanCache.instance(session);
+      long hits = cache.getTranslationHits();
+      var warm = graph.traversal().V().as("legal").asAdmin();
+      warm.applyStrategies();
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      var illegal = graph.traversal().V().as("$x").asAdmin();
+      assertThatThrownBy(illegal::applyStrategies).isInstanceOf(ReservedAliasException.class);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      var oneBulk = graph.traversal().withBulk(false).inject(1)
+          .flatMap(__.V().as("$x").out()).asAdmin();
+      oneBulk.applyStrategies();
+      assertNoBoundary(oneBulk);
+      assertThat(oneBulk.toList()).isEmpty();
+    });
+  }
+
+  /** Default supported aggregates still install MATCH rather than passing only a safety check. */
+  @Test
+  public void ordinaryAggregatesEngageMatch() {
+    graph.addVertex(T.label, "SafetyVertex", "n", 2);
+    graph.addVertex(T.label, "SafetyVertex", "n", 4);
+    graph.tx().commit();
+    support.withTranslator(true, () -> {
+      for (Supplier<GraphTraversal<?, ?>> shape : List.<Supplier<GraphTraversal<?, ?>>>of(
+          () -> graph.traversal().V().count(),
+          () -> graph.traversal().V().values("n").sum(),
+          () -> graph.traversal().V().values("n").min(),
+          () -> graph.traversal().V().values("n").max(),
+          () -> graph.traversal().V().values("n").mean(),
+          () -> graph.traversal().V().fold(),
+          () -> graph.traversal().V().groupCount())) {
+        var traversal = shape.get().asAdmin();
+        traversal.applyStrategies();
+        assertThat(QuerySafetyAdmission.stored(traversal).reason())
+            .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal)).isEqualTo(1);
+        assertThat(traversal.toList()).hasSize(1);
+      }
+    });
   }
 
   /** Built-in modulators and value-producing aggregates remain pure rather than named effects. */

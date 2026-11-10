@@ -37,13 +37,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.branch.RepeatStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.IsStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CallStepContract;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.CoalesceStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.FoldStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.IdentityStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.InjectStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.sideEffect.SideEffectStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.ReducingBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.RequirementsStep;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
 import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
@@ -134,7 +138,10 @@ final class QuerySafetyAdmission {
 
   private static final Set<Class<?>> PURE_EXTRA = Set.of(InjectStep.class, IdentityStep.class,
       RepeatStep.class, RepeatStep.RepeatEndStep.class, LocalStep.class, OptionalStep.class,
-      ChooseStep.class, RequirementsStep.class, IsStep.class,
+      ChooseStep.class, CoalesceStep.class, RequirementsStep.class, IsStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.PathStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.TreeStep.class,
       org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalMapStep.class,
       org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalFlatMapStep.class,
       org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep.EndStep.class);
@@ -177,8 +184,6 @@ final class QuerySafetyAdmission {
       }
       for (Step<?, ?> step : traversal.getSteps()) {
         visited++;
-        // Keep lexical errors observable even if an earlier step already vetoed the query.
-        GremlinStepWalker.rejectReservedPrefixLabels(List.of(step));
         for (String label : GremlinStepLabels.userLabels(step)) {
           if (!labels.add(label)) {
             refuse(Reason.DUPLICATE_LABEL);
@@ -221,8 +226,22 @@ final class QuerySafetyAdmission {
       if (step instanceof FoldStep<?, ?> fold && !fold.isDefaultFold()) {
         refuse(Reason.USER_FUNCTION);
       }
+      if (step instanceof ReducingBarrierStep<?, ?> barrier
+          && !(step instanceof FoldStep<?, ?>) && !barrier.hasBuiltInFunctions()) {
+        refuse(Reason.USER_FUNCTION);
+      }
+      if (step.getClass() == GraphStep.class
+          && !((GraphStep<?, ?>) step).hasBuiltInIteratorSupplier()) {
+        refuse(Reason.USER_FUNCTION);
+      }
       if (step instanceof HasContainerHolder<?, ?> holder) {
-        holder.getHasContainers().forEach(c -> checkPredicate(c.getPredicate()));
+        holder.getHasContainers().forEach(c -> {
+          if (c.getClass() != HasContainer.class) {
+            refuse(Reason.UNKNOWN_BEHAVIOR);
+          } else {
+            checkPredicate(c.getPredicate());
+          }
+        });
       }
       if (step instanceof IsStep<?> is) {
         checkPredicate(is.getPredicate());
