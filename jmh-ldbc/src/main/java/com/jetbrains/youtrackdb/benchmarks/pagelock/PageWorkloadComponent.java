@@ -90,8 +90,17 @@ public final class PageWorkloadComponent extends StorageComponent {
 
   Sample[] commit(int[] pages, long value, java.util.function.Consumer<Object> observer)
       throws IOException {
+    return commit(pages, value, null, observer);
+  }
+
+  // Setup validation can enable page tracking before the first write on either core version.
+  Sample[] commit(int[] pages, long value, java.util.function.Consumer<Object> before,
+      java.util.function.Consumer<Object> observer) throws IOException {
     checkPages(pages);
     return atomicOperationsManager.calculateInsideAtomicOperation(op -> {
+      if (before != null) {
+        before.accept(op);
+      }
       Sample[] result = new Sample[pages.length];
       executeInsideComponentOperation(op, operation -> {
         for (int i = 0; i < pages.length; i++) {
