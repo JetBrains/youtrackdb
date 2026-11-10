@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
-/** The type of component that owns a page file. Numbers are part of layout 26. */
+/** The type of component that owns a page file. Numbers are part of layout 28. */
 public enum PageFileKind {
   COLLECTION(1, "collection"), INDEX_ENGINE(2, "index"), CONFIGURATION(3, "configuration");
 

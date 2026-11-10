@@ -67,7 +67,7 @@ public class DiskStorageFileExtensionsTest {
 
   // The fallback list is a compatibility policy. Pin every entry and its order to base literals.
   @Test
-  public void layout25FallbackListIsByteForByteUnchanged() {
+  public void layout27FallbackListIsByteForByteUnchanged() {
     assertEquals(List.of(
         ".cm", ".ocf", ".pls", ".pcl", ".oda", ".odh", ".otx", ".ocs", ".oef", ".oem",
         ".oet", ".fl", ".flb", ".iv", ".wal", ".wmr", ".cpm", ".grb", ".ccm", ".cd",

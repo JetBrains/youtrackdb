@@ -420,9 +420,9 @@ public abstract class AbstractStorage
    * file install survives, so a reverting allocator would re-issue the burned id and wedge every
    * subsequent create against the surviving orphan. Burning the value instead keeps allocation
    * collision-free on both profiles. Seeded before component load by {@link #seedComponentIds}
-   * from the persisted floor, persisted engine entries and registered file names. Layout 26
+   * from the persisted floor, persisted engine entries and registered file names. Layout 28
    * also includes its persisted per-kind counter.
-   * Layout 25 allocations stop at {@link Integer#MAX_VALUE}. Layout 26 uses the 25-bit
+   * Layout 27 allocations stop at {@link Integer#MAX_VALUE}. Layout 28 uses the 25-bit
    * component-id ceiling through the per-kind allocator.
    */
   private final AtomicLong indexEngineFileBaseIdHwm = new AtomicLong();
@@ -1248,8 +1248,8 @@ public abstract class AbstractStorage
    *       cache install does not revert) and would otherwise collide with a re-issued id.
    * </ol>
    *
-   * <p>Layout 26 also seeds per-kind marks from strict logical names in live files and the
-   * deletion inventory. Malformed live names with the reserved {@code ytdb-p26-} prefix reject
+   * <p>Layout 28 also seeds per-kind marks from strict logical names in live files and the
+   * deletion inventory. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
    * open. Deletion names that fail strict parsing are ignored.
    *
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
@@ -1257,9 +1257,9 @@ public abstract class AbstractStorage
    */
   protected final void seedComponentIds(final AtomicOperation atomicOperation) {
     assert stateLock.isWriteLockedByCurrentThread();
-    final var layout26 = storageFormat == StorageFormat.LAYOUT_26;
+    final var layout28 = storageFormat == StorageFormat.LAYOUT_28;
     final var config = (CollectionBasedStorageConfiguration) configuration;
-    if (layout26) {
+    if (layout28) {
       for (var kind : PageFileKind.values()) {
         componentIdHwm(kind).accumulateAndGet(
             config.getComponentIdCounter(kind, atomicOperation), Math::max);
@@ -1278,30 +1278,30 @@ public abstract class AbstractStorage
     final var wc = writeCache;
     if (wc != null) {
       for (final var fileName : wc.files().keySet()) {
-        if (layout26) {
-          final var identity = PageFileNames.parseLayout26(fileName);
+        if (layout28) {
+          final var identity = PageFileNames.parseLayout28(fileName);
           if (identity.isPresent()) {
             final var file = identity.get();
             componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
             continue;
           }
-          if (fileName.startsWith("ytdb-p26-")) {
+          if (fileName.startsWith("ytdb-p28-")) {
             throw new StorageException(name,
-                "Invalid layout 26 registered page-file name '" + fileName + "'");
+                "Invalid layout 28 registered page-file name '" + fileName + "'");
           }
         }
         // Keep the staging-era legacy accepted set, including leading zeros and $null.ixs.
         final var swept =
-            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(fileName, layout26);
+            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(fileName, layout28);
         seed = Math.max(seed, swept);
       }
     }
 
-    if (layout26 && wc != null) {
+    if (layout28 && wc != null) {
       // Negative registrations mix deletions and bookings. Both conservatively reserve ids.
       // Only logical names qualify. Old disk-name aliases and user tombstones are not evidence.
       for (final var fileName : wc.deletedFiles()) {
-        final var identity = PageFileNames.parseLayout26(fileName);
+        final var identity = PageFileNames.parseLayout28(fileName);
         if (identity.isPresent()) {
           final var file = identity.get();
           componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
@@ -1326,13 +1326,13 @@ public abstract class AbstractStorage
    * mark update and floor write against concurrent creates. Commit-window acquisition through
    * {@code exclusiveLockWithAbort} also records the current thread as the write owner.
    *
-   * <p>Layout 25 allocations stop at {@link Integer#MAX_VALUE}. Layout 26 delegates to the
+   * <p>Layout 27 allocations stop at {@link Integer#MAX_VALUE}. Layout 28 delegates to the
    * per-kind allocator with the 25-bit component-id ceiling.
    *
    * <p>Package-private for tests.
    */
   int allocateIndexEngineFileBaseId(final AtomicOperation atomicOperation) {
-    if (storageFormat == StorageFormat.LAYOUT_26) {
+    if (storageFormat == StorageFormat.LAYOUT_28) {
       return allocateComponentId(PageFileKind.INDEX_ENGINE, atomicOperation);
     }
     assert stateLock.isWriteLockedByCurrentThread()
@@ -1351,8 +1351,8 @@ public abstract class AbstractStorage
   }
 
   private void validateComponentIdEvidence(long componentId, String entry) {
-    if (storageFormat == StorageFormat.LAYOUT_26) {
-      PageFileNames.validateLayout26ComponentIdEvidence(componentId, entry);
+    if (storageFormat == StorageFormat.LAYOUT_28) {
+      PageFileNames.validateLayout28ComponentIdEvidence(componentId, entry);
     }
   }
 
@@ -8702,7 +8702,7 @@ public abstract class AbstractStorage
   private void checkCollectionIdentity(final StorageCollectionConfiguration config) {
     // Null, not zero, distinguishes a legacy entry from a component-aware entry.
     final var componentId = ((StoragePaginatedCollectionConfiguration) config).getComponentId();
-    if ((getStorageFormat() == StorageFormat.LAYOUT_26) != (componentId != null)) {
+    if ((getStorageFormat() == StorageFormat.LAYOUT_28) != (componentId != null)) {
       throw new StorageException(name,
           "Collection '" + config.name() + "' has an identity incompatible with storage layout "
               + getStorageFormat().layoutVersion());
@@ -8824,7 +8824,7 @@ public abstract class AbstractStorage
             this);
     // All creation paths hold the state write lock and carry the creation atomic operation.
     // Keep allocation here so the durable counter and collection entry commit or revert together.
-    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_26
+    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_28
         ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
     collection.configure(collectionPos, collectionName, componentId);
 

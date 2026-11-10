@@ -140,7 +140,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   @Test
   public void explicitFamiliesUseExactHandlesForCreateOpenPresenceAndDelete() throws IOException {
     when(mockStorage.getStorageFormat()).thenReturn(
-        StorageFormat.LAYOUT_26);
+        StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
     for (var dataRole : new PageFileRole[] {
         PageFileRole.CONFIG_DATA,
@@ -159,7 +159,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
                 owner.componentId());
         identities.add(identity);
         var name = PageFileNames
-            .layout26(identity);
+            .layout28(identity);
         var id =
             AbstractWriteCache.composeFileId(
                 17, identity.internalId());
@@ -167,10 +167,10 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
         when(atomicOperation.loadFile(name, id)).thenReturn(id);
         when(atomicOperation.isFileExists(name, id)).thenReturn(true);
       }
-      var owned = new PaginatedCollectionV2("owned", dataRole.layout25Extension(),
-          identities.get(1).role().layout25Extension(),
-          identities.get(2).role().layout25Extension(),
-          identities.get(3).role().layout25Extension(), mockStorage, owner);
+      var owned = new PaginatedCollectionV2("owned", dataRole.layout27Extension(),
+          identities.get(1).role().layout27Extension(),
+          identities.get(2).role().layout27Extension(),
+          identities.get(3).role().layout27Extension(), mockStorage, owner);
       owned.configure(7, "owned", dataRole ==
           PageFileRole.RECORD_DATA
               ? 7 : null);
@@ -183,7 +183,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
       owned.delete(atomicOperation);
       for (var identity : identities) {
         var name = PageFileNames
-            .layout26(identity);
+            .layout28(identity);
         var id =
             AbstractWriteCache.composeFileId(
                 17, identity.internalId());
@@ -200,13 +200,13 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   // Missing explicit auxiliaries use reconstruction only after both primary handles are open.
   @Test
   public void configurationReopenReconstructsOnlyMissingAuxiliaries() throws IOException {
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
     var roles = new PageFileRole[] {PageFileRole.CONFIG_DATA, PageFileRole.CONFIG_POSITION_MAP,
         PageFileRole.CONFIG_FREE_SPACE_MAP, PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET};
     for (var role : roles) {
       var identity = new PageFileIdentity(role, 0);
-      var name = PageFileNames.layout26(identity);
+      var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
       when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
       when(atomicOperation.loadFile(name, id)).thenReturn(id);
@@ -220,7 +220,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     var order = org.mockito.Mockito.inOrder(atomicOperation);
     for (int i = 0; i < roles.length; i++) {
       var identity = new PageFileIdentity(roles[i], 0);
-      var name = PageFileNames.layout26(identity);
+      var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
       if (i < 2) {
         order.verify(atomicOperation).loadFile(name, id);
@@ -245,13 +245,13 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   }
 
   private void assertConfigurationRegistrationError(PageFileRole failingRole) throws IOException {
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
     for (var role : new PageFileRole[] {PageFileRole.CONFIG_DATA,
         PageFileRole.CONFIG_POSITION_MAP, PageFileRole.CONFIG_FREE_SPACE_MAP,
         PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET}) {
       var identity = new PageFileIdentity(role, 0);
-      var name = PageFileNames.layout26(identity);
+      var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
       when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
       when(atomicOperation.loadFile(name, id)).thenReturn(id);
@@ -261,7 +261,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
         mockStorage, new PageFileIdentity(PageFileRole.CONFIG_DATA, 0));
     owned.create(atomicOperation);
     var identity = new PageFileIdentity(failingRole, 0);
-    var name = PageFileNames.layout26(identity);
+    var name = PageFileNames.layout28(identity);
     var id = AbstractWriteCache.composeFileId(17, identity.internalId());
     var failure = new IllegalStateException("wrong " + failingRole + " identity");
     when(atomicOperation.isFileExists(name, id)).thenThrow(failure);
@@ -274,7 +274,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
         anyString(), anyLong(), anyBoolean(), anyBoolean());
     if (failingRole == PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET) {
       var freeSpace = new PageFileIdentity(PageFileRole.CONFIG_FREE_SPACE_MAP, 0);
-      verify(atomicOperation).loadFile(PageFileNames.layout26(freeSpace),
+      verify(atomicOperation).loadFile(PageFileNames.layout28(freeSpace),
           AbstractWriteCache.composeFileId(17, freeSpace.internalId()));
     }
   }
@@ -282,7 +282,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   // Legacy configuration creation must allocate by name in data, position, free, dirty order.
   @Test
   public void legacyConfigurationAuxiliariesKeepCreationOrder() throws IOException {
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_25);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_27);
     when(atomicOperation.addFile("config.cd", false)).thenReturn(FILE_ID);
     when(atomicOperation.addFile("config.ccm", false)).thenReturn(CPM_FILE_ID);
     when(atomicOperation.addFile("config.fcm", false)).thenReturn(FSM_FILE_ID);
@@ -327,7 +327,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   @Test
   public void directAuxiliaryRenamePreservesExplicitFilesAndRenamesLegacyFiles()
       throws IOException {
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
     for (var role : new PageFileRole[] {
         PageFileRole.POSITION_MAP, PageFileRole.FREE_SPACE_MAP, PageFileRole.DIRTY_PAGE_BIT_SET,
@@ -335,8 +335,8 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
         PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET}) {
       for (boolean explicit : new boolean[] {true, false}) {
         var identity = explicit ? new PageFileIdentity(role, 8) : null;
-        var extension = role.layout25Extension();
-        var name = explicit ? PageFileNames.layout26(identity) : "aux" + extension;
+        var extension = role.layout27Extension();
+        var name = explicit ? PageFileNames.layout28(identity) : "aux" + extension;
         var id = explicit ? AbstractWriteCache.composeFileId(17, identity.internalId()) : 91L;
         if (explicit) {
           when(atomicOperation.loadFile(name, id)).thenReturn(id);
@@ -384,14 +384,14 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   // Position-map construction validates the role, extension and storage format.
   @Test
   public void positionMapConstructorValidatesExplicitIdentity() {
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     org.junit.Assert.assertThrows(IllegalArgumentException.class,
         () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cd",
             new PageFileIdentity(PageFileRole.CONFIG_DATA, 0)));
     org.junit.Assert.assertThrows(IllegalArgumentException.class,
         () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".wrong",
             new PageFileIdentity(PageFileRole.POSITION_MAP, 0)));
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_25);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_27);
     org.junit.Assert.assertThrows(
         com.jetbrains.youtrackdb.internal.core.exception.StorageException.class,
         () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cpm",

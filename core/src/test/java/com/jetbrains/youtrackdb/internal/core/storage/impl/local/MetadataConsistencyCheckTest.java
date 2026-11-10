@@ -156,32 +156,32 @@ public class MetadataConsistencyCheckTest {
 
   /** Both storage kinds persist the production default in configuration without a selection. */
   @Test
-  public void ordinaryBirthsUseLayout25() throws Exception {
+  public void ordinaryBirthsUseLayout27() throws Exception {
     for (var type : DatabaseType.values()) {
       var name = "ordinary" + type;
       youTrackDB.create(name, type, ADMIN, PASSWORD, ADMIN);
-      assertLayout(name, type, 25);
+      assertLayout(name, type, 27);
     }
   }
 
-  /** A selected disk birth persists 26 and open cannot replace it with an active selection. */
+  /** A selected disk birth persists 28 and open cannot replace it with an active selection. */
   @Test
   public void selectedDiskBirthReopensWithoutSelectionAndIgnoresSelectionOnOpen() throws Exception {
     assertTrue("the new layout must differ from the production layout",
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_26
-            .layoutVersion() != 25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28
+            .layoutVersion() != 27);
     var name = "selectedDisk";
     try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name,
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_26)) {
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28)) {
       youTrackDB.create(name, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
     }
-    assertLayout(name, DatabaseType.DISK, 26);
+    assertLayout(name, DatabaseType.DISK, 28);
     reopenContext();
-    assertLayout(name, DatabaseType.DISK, 26);
+    assertLayout(name, DatabaseType.DISK, 28);
     reopenContext();
     try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name,
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25)) {
-      assertLayout(name, DatabaseType.DISK, 26);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27)) {
+      assertLayout(name, DatabaseType.DISK, 28);
     }
   }
 
@@ -189,38 +189,38 @@ public class MetadataConsistencyCheckTest {
   @Test
   public void birthSelectionIsBoundedAndIsolated() throws Exception {
     var format =
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_26;
-    assertTrue("the selected value must differ from 25", format.layoutVersion() != 25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28;
+    assertTrue("the selected value must differ from 27", format.layoutVersion() != 27);
     var name = "selectedMemory";
     try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
       youTrackDB.create("otherName", DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
-      assertLayout("otherName", DatabaseType.MEMORY, 25);
+      assertLayout("otherName", DatabaseType.MEMORY, 27);
       try (var other = (YouTrackDBImpl) YourTracks.instance(
           Files.createDirectories(root.resolve("otherManager")).toString())) {
         other.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
         try (var session = (DatabaseSessionEmbedded) other.open(name, ADMIN, PASSWORD)) {
           var storage = (AbstractStorage) session.getStorage();
-          assertEquals(25, storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          assertEquals(27, storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
               storage.configuration::getVersion).intValue());
         }
       }
       java.util.concurrent.CompletableFuture.runAsync(() -> {
         youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
-        assertLayout(name, DatabaseType.MEMORY, 25);
+        assertLayout(name, DatabaseType.MEMORY, 27);
         youTrackDB.drop(name);
       }).get(60, java.util.concurrent.TimeUnit.SECONDS);
       youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
-      assertLayout(name, DatabaseType.MEMORY, 26);
+      assertLayout(name, DatabaseType.MEMORY, 28);
       youTrackDB.drop(name);
       youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
-      assertLayout(name, DatabaseType.MEMORY, 25);
+      assertLayout(name, DatabaseType.MEMORY, 27);
       youTrackDB.drop(name);
     }
     try (var unused = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
       // Closing an unused scope must also clear it.
     }
     youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
-    assertLayout(name, DatabaseType.MEMORY, 25);
+    assertLayout(name, DatabaseType.MEMORY, 27);
   }
 
   /** Both supported disagreements and a missing version fail repeatedly without repairing values. */
@@ -229,7 +229,7 @@ public class MetadataConsistencyCheckTest {
     var formats =
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.values();
     for (var format : formats) {
-      Integer[] versions = {format.layoutVersion() == 25 ? 26 : 25, null};
+      Integer[] versions = {format.layoutVersion() == 27 ? 28 : 27, null};
       for (var version : versions) {
         var name = "mismatch" + format.layoutVersion() + "_" + version;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {

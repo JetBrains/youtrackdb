@@ -26,7 +26,7 @@ public class AbstractWriteCache {
 
   /** Rejects reconstruction unless the strict logical name identifies rebuildable metadata. */
   protected static void validateAuxiliaryReconstruction(String fileName, String storageName) {
-    final var identity = PageFileNames.parseLayout26(fileName);
+    final var identity = PageFileNames.parseLayout28(fileName);
     if (identity.isPresent()) {
       switch (identity.get().role()) {
         case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
@@ -39,7 +39,7 @@ public class AbstractWriteCache {
       }
     }
     throw new StorageException(storageName,
-        "Auxiliary reconstruction requires a strict layout 26 rebuildable role: " + fileName);
+        "Auxiliary reconstruction requires a strict layout 28 rebuildable role: " + fileName);
   }
 
   public static long composeFileId(int storageId, int fileId) {

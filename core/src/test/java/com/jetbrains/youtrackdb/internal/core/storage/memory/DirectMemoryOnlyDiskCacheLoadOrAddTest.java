@@ -194,12 +194,12 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
     assertThrows(StorageException.class, () -> cache.addFile(AUX));
   }
 
-  /** Only strict layout 26 rebuildable roles authorize reconstruction, never primary data. */
+  /** Only strict layout 28 rebuildable roles authorize reconstruction, never primary data. */
   @Test
   public void reconstructionPermissionRequiresRebuildableLogicalRole() {
     for (var role : PageFileRole.values()) {
       final var identity = new PageFileIdentity(role, 99);
-      final String logical = PageFileNames.layout26(identity);
+      final String logical = PageFileNames.layout28(identity);
       final boolean rebuildable = switch (role) {
         case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
             CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> true;
@@ -217,15 +217,15 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
       }
     }
     for (String invalid : new String[] {"legacy.fsm",
-        "ytdb-p26-collection-099-free-space-map.fsm",
-        "ytdb-p26-collection-99-free-space-map_335544419.fsm"}) {
+        "ytdb-p28-collection-099-free-space-map.fsm",
+        "ytdb-p28-collection-99-free-space-map_335544419.fsm"}) {
       assertThrows(StorageException.class, () -> cache.bookFileId(invalid, 123456, true));
       assertNull(cache.registeredFileId(invalid));
     }
   }
 
-  private static final String AUX = "ytdb-p26-collection-42-free-space-map.fsm";
-  private static final String OTHER = "ytdb-p26-collection-43-free-space-map.fsm";
+  private static final String AUX = "ytdb-p28-collection-42-free-space-map.fsm";
+  private static final String OTHER = "ytdb-p28-collection-43-free-space-map.fsm";
 
   private static final int PAGE_SIZE = 1024;
   private static final int STORAGE_ID = 17;

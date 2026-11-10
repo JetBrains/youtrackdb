@@ -40,9 +40,9 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
   public String conflictStrategy;
   private final int binaryVersion;
   /**
-   * The component id is never reused and identifies the collection's layout 26 page files.
+   * The component id is never reused and identifies the collection's layout 28 page files.
    * The collection id ({@link #id}) is part of each record id and can be reused after a drop.
-   * Null means a layout 25 entry without a component id.
+   * Null means a layout 27 entry without a component id.
    */
   private final Integer componentId;
 
@@ -90,9 +90,9 @@ public class StoragePaginatedCollectionConfiguration implements StorageCollectio
   }
 
   /**
-   * Returns the component id, which is never reused and identifies the collection's layout 26 page
+   * Returns the component id, which is never reused and identifies the collection's layout 28 page
    * files. The collection id ({@link #id}) is part of each record id and can be reused after a drop.
-   * Null means a layout 25 entry without a component id.
+   * Null means a layout 27 entry without a component id.
    */
   public Integer getComponentId() {
     return componentId;

@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 /**
- * An identity for a layout 26 page file.
+ * An identity for a layout 28 page file.
  *
  * <p>The positive internal id uses bits 30..28 for kind, 27..25 for role and 24..0 for
  * component id. The sign bit stays clear. Component zero is valid because every kind is nonzero.

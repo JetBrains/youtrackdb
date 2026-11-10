@@ -130,24 +130,24 @@ public class YouTrackDBEmbeddedTests {
     }
   }
 
-  // Listing finds a database with only a canonical layout 26 disk name.
-  // Foreign extensions and a layout 26 name with the wrong suffix do not identify a database.
+  // Listing finds a database with only a canonical layout 28 disk name.
+  // Foreign extensions and a layout 28 name with the wrong suffix do not identify a database.
   @Test
-  public void listLayout26DatabaseButNotForeignDirectories() throws Exception {
+  public void listLayout28DatabaseButNotForeignDirectories() throws Exception {
     var folder = new TemporaryFolder();
     folder.create();
     try {
       var root = folder.getRoot().toPath();
-      var database = Files.createDirectory(root.resolve("layout26"));
-      Files.createFile(database.resolve("ytdb-p26-collection-0-record-data_268435456.pcl"));
-      var indexDatabase = Files.createDirectory(root.resolve("layout26Index"));
-      Files.createFile(indexDatabase.resolve("ytdb-p26-index-7-null-key-data_603979783.cbt"));
+      var database = Files.createDirectory(root.resolve("layout28"));
+      Files.createFile(database.resolve("ytdb-p28-collection-0-record-data_268435456.pcl"));
+      var indexDatabase = Files.createDirectory(root.resolve("layout28Index"));
+      Files.createFile(indexDatabase.resolve("ytdb-p28-index-7-null-key-data_603979783.cbt"));
       var foreign = Files.createDirectory(root.resolve("foreign"));
       Files.createFile(foreign.resolve("foreign.p26"));
       var wrongSuffix = Files.createDirectory(root.resolve("wrongSuffix"));
-      Files.createFile(wrongSuffix.resolve("ytdb-p26-collection-0-record-data_268435457.pcl"));
+      Files.createFile(wrongSuffix.resolve("ytdb-p28-collection-0-record-data_268435457.pcl"));
       try (var youTrackDb = YourTracks.instance(root)) {
-        assertEquals(Set.of("layout26", "layout26Index"), Set.copyOf(youTrackDb.listDatabases()));
+        assertEquals(Set.of("layout28", "layout28Index"), Set.copyOf(youTrackDb.listDatabases()));
       }
     } finally {
       folder.delete();

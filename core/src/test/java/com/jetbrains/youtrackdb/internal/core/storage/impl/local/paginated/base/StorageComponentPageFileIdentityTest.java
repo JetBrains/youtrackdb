@@ -41,7 +41,7 @@ public class StorageComponentPageFileIdentityTest {
     manager = mock(AtomicOperationsManager.class);
     when(storage.getWriteCache()).thenReturn(cache);
     when(storage.getAtomicOperationsManager()).thenReturn(manager);
-    when(storage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(storage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(cache.getId()).thenReturn(17);
   }
 
@@ -50,7 +50,8 @@ public class StorageComponentPageFileIdentityTest {
   public void roleAwareHandlesValidatePresenceOpenCreationAndDeletion() throws IOException {
     var component = new Component(PageFileRole.CONFIG_DATA);
     var identity = identity(PageFileRole.CONFIG_DATA);
-    var name = PageFileNames.layout26(identity);
+    var name = "ytdb-p28-configuration-0-data.cd";
+    assertThat(PageFileNames.layout28(identity)).isEqualTo(name);
     var id = qualified(identity);
     when(operation.addFile(name, id, false, false)).thenReturn(id);
     when(operation.loadFile(name, id)).thenReturn(id);
@@ -73,11 +74,11 @@ public class StorageComponentPageFileIdentityTest {
     for (var role : PageFileRole.values()) {
       var component = new Component(role);
       var identity = identity(role);
-      var name = "custom" + role.layout25Extension();
+      var name = "custom" + role.layout27Extension();
       switch (role) {
         case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
             CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> {
-          var canonical = PageFileNames.layout26(identity);
+          var canonical = PageFileNames.layout28(identity);
           when(operation.addFile(canonical, qualified(identity), false, true))
               .thenReturn(qualified(identity));
           assertThat(component.reconstructAuxiliary(operation, identity))
@@ -92,12 +93,12 @@ public class StorageComponentPageFileIdentityTest {
 
   // Null identities preserve all legacy name-based handles without checking the format.
   @Test
-  public void legacyAndLayout25KeepNameBasedHandles() throws IOException {
+  public void legacyAndLayout27KeepNameBasedHandles() throws IOException {
     var legacy = new Component(PageFileRole.CONFIG_DATA);
     when(operation.addFile("unusual.control", false)).thenReturn(23L);
     assertThat(legacy.addFile(operation, "unusual.control")).isEqualTo(23);
     var component = new Component(PageFileRole.CONFIG_DATA);
-    when(storage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_25);
+    when(storage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_27);
     when(operation.addFile("custom.cd", false)).thenReturn(24L);
     when(operation.loadFile("custom.cd")).thenReturn(24L);
     when(operation.isFileExists("custom.cd")).thenReturn(true);
@@ -121,8 +122,8 @@ public class StorageComponentPageFileIdentityTest {
     var property = identity(PageFileRole.PROPERTY_DATA);
     var dataEpoch = new ApplyPhaseEpoch();
     var propertyEpoch = new ApplyPhaseEpoch();
-    when(manager.getApplyPhaseEpoch(PageFileNames.layout26(data))).thenReturn(dataEpoch);
-    when(manager.getApplyPhaseEpoch(PageFileNames.layout26(property))).thenReturn(propertyEpoch);
+    when(manager.getApplyPhaseEpoch(PageFileNames.layout28(data))).thenReturn(dataEpoch);
+    when(manager.getApplyPhaseEpoch(PageFileNames.layout28(property))).thenReturn(propertyEpoch);
     var collection = new PaginatedCollectionV2("config", ".cd", ".ccm", ".fcm", ".dcm",
         storage, data);
     var tree = new BTree<>("config", ".bd", ".nd", storage,
@@ -203,7 +204,7 @@ public class StorageComponentPageFileIdentityTest {
     var component = new StorageComponent(storage, "custom", ".fsm", "domain", false) {
     };
     var identity = identity(PageFileRole.FREE_SPACE_MAP);
-    var name = PageFileNames.layout26(identity);
+    var name = PageFileNames.layout28(identity);
     var id = qualified(identity);
     when(operation.addFile(name, id, true, false)).thenReturn(id);
     when(operation.addFile(name, id, true, true)).thenReturn(id);
@@ -215,10 +216,10 @@ public class StorageComponentPageFileIdentityTest {
 
   // Every explicit constructor rejects unsupported storage formats. Null ownership stays legacy.
   @Test
-  public void explicitConstructorsRequireLayout26AndLegacyConstructorsDoNotCheckIt() {
+  public void explicitConstructorsRequireLayout28AndLegacyConstructorsDoNotCheckIt() {
     var factory =
         BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
-    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_25, null}) {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, null}) {
       when(storage.getStorageFormat()).thenReturn(format);
       assertThrows(StorageException.class, () -> new CollectionDirtyPageBitSet(
           storage, "bits", ".dpb", "domain", identity(PageFileRole.DIRTY_PAGE_BIT_SET)));
@@ -265,7 +266,7 @@ public class StorageComponentPageFileIdentityTest {
 
   private class Component extends StorageComponent {
     Component(PageFileRole role) {
-      super(StorageComponentPageFileIdentityTest.this.storage, "custom", role.layout25Extension(),
+      super(StorageComponentPageFileIdentityTest.this.storage, "custom", role.layout27Extension(),
           "explicit-domain", true);
     }
   }

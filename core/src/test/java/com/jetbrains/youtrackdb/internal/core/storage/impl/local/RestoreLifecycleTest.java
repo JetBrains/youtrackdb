@@ -1220,8 +1220,8 @@ public class RestoreLifecycleTest {
         assertRestoredLayoutAndData(manager, target, format);
       }
     }
-    assertNotEquals(StorageFormat.LAYOUT_25.layoutVersion(),
-        StorageFormat.LAYOUT_26.layoutVersion());
+    assertNotEquals(StorageFormat.LAYOUT_27.layoutVersion(),
+        StorageFormat.LAYOUT_28.layoutVersion());
   }
 
   /**
@@ -1367,7 +1367,7 @@ public class RestoreLifecycleTest {
   }
 
   private static StorageFormat opposite(StorageFormat format) {
-    return format == StorageFormat.LAYOUT_25 ? StorageFormat.LAYOUT_26 : StorageFormat.LAYOUT_25;
+    return format == StorageFormat.LAYOUT_27 ? StorageFormat.LAYOUT_28 : StorageFormat.LAYOUT_27;
   }
 
   /** Reads configuration through storage independently of both bootstrap records and the descriptor. */

@@ -122,10 +122,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (identity == null) {
       return;
     }
-    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
-      throw new StorageException(storage.getName(), "Page-file identities require layout 26");
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      throw new StorageException(storage.getName(), "Page-file identities require layout 28");
     }
-    if (!extension.equals(identity.role().layout25Extension())
+    if (!extension.equals(identity.role().layout27Extension())
         || !java.util.List.of(allowedRoles).contains(identity.role())) {
       throw new IllegalArgumentException("Page-file role does not match the component");
     }
@@ -144,7 +144,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (identity == null || !REBUILDABLE_ROLES.contains(identity.role())) {
       throw new StorageException(storage.getName(), "Not a rebuildable auxiliary: " + identity);
     }
-    return operation.addFile(PageFileNames.layout26(identity), expectedFileId(identity),
+    return operation.addFile(PageFileNames.layout28(identity), expectedFileId(identity),
         !durable, true);
   }
 
@@ -396,7 +396,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (identity == null) {
       return addFile(operation, fileName);
     }
-    return operation.addFile(PageFileNames.layout26(identity), expectedFileId(identity),
+    return operation.addFile(PageFileNames.layout28(identity), expectedFileId(identity),
         !durable, false);
   }
 
@@ -411,7 +411,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (identity == null) {
       return openFile(operation, fileName);
     }
-    return operation.loadFile(PageFileNames.layout26(identity), expectedFileId(identity));
+    return operation.loadFile(PageFileNames.layout28(identity), expectedFileId(identity));
   }
 
   protected void deleteFile(@Nonnull final AtomicOperation atomicOperation, final long fileId)
@@ -423,7 +423,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   protected void deleteFile(AtomicOperation operation, long fileId,
       @Nullable PageFileIdentity identity) throws IOException {
     if (identity != null
-        && operation.loadFile(PageFileNames.layout26(identity), expectedFileId(identity))
+        && operation.loadFile(PageFileNames.layout28(identity), expectedFileId(identity))
             != fileId) {
       throw new StorageException(storage.getName(), "Deletion handle changed");
     }
@@ -441,7 +441,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (identity == null) {
       return isFileExists(operation, fileName);
     }
-    return operation.isFileExists(PageFileNames.layout26(identity), expectedFileId(identity));
+    return operation.isFileExists(PageFileNames.layout28(identity), expectedFileId(identity));
   }
 
   // --- Recovery-time orphan-truncation template method ---

@@ -202,7 +202,7 @@ public class WOWCacheLoadOrAddTest {
         () -> wowCache.bookFileId(AUX, live, true));
     assertArrayEquals(bytes, Files.readAllBytes(backing));
     assertEquals(bytes.length, Files.size(backing));
-    final Path orphan = storagePath.resolve("ytdb-p26-collection-43-free-space-map_123457.fsm");
+    final Path orphan = storagePath.resolve("ytdb-p28-collection-43-free-space-map_123457.fsm");
     Files.write(orphan, bytes);
     for (boolean auxiliary : new boolean[] {false, true}) {
       assertThrows(StorageException.class,
@@ -266,12 +266,12 @@ public class WOWCacheLoadOrAddTest {
     assertEquals(bytes.length, Files.size(backing));
   }
 
-  /** Only strict layout 26 rebuildable roles authorize reconstruction, never primary data. */
+  /** Only strict layout 28 rebuildable roles authorize reconstruction, never primary data. */
   @Test
   public void reconstructionPermissionRequiresRebuildableLogicalRole() {
     for (var role : PageFileRole.values()) {
       final var identity = new PageFileIdentity(role, 99);
-      final String logical = PageFileNames.layout26(identity);
+      final String logical = PageFileNames.layout28(identity);
       final boolean rebuildable = switch (role) {
         case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
             CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> true;
@@ -289,15 +289,15 @@ public class WOWCacheLoadOrAddTest {
       }
     }
     for (String invalid : new String[] {"legacy.fsm",
-        "ytdb-p26-collection-099-free-space-map.fsm",
-        "ytdb-p26-collection-99-free-space-map_335544419.fsm"}) {
+        "ytdb-p28-collection-099-free-space-map.fsm",
+        "ytdb-p28-collection-99-free-space-map_335544419.fsm"}) {
       assertThrows(StorageException.class, () -> wowCache.bookFileId(invalid, 123456, true));
       assertNull(wowCache.registeredFileId(invalid));
     }
   }
 
-  private static final String AUX = "ytdb-p26-collection-42-free-space-map.fsm";
-  private static final String OTHER = "ytdb-p26-collection-43-free-space-map.fsm";
+  private static final String AUX = "ytdb-p28-collection-42-free-space-map.fsm";
+  private static final String OTHER = "ytdb-p28-collection-43-free-space-map.fsm";
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
   private static final long PAGES_FLUSH_INTERVAL = 10L;

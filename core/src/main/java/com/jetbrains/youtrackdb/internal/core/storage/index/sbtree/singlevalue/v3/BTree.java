@@ -168,7 +168,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       AbstractStorage storage, BinarySerializerFactory serializerFactory,
       PageFileIdentity dataIdentity, PageFileIdentity nullIdentity) {
     super(storage, name, dataFileExtension,
-        dataIdentity == null ? name + dataFileExtension : PageFileNames.layout26(dataIdentity),
+        dataIdentity == null ? name + dataFileExtension : PageFileNames.layout28(dataIdentity),
         true);
     validateTreeIdentities(storage, dataFileExtension, nullFileExtension, dataIdentity,
         nullIdentity);
@@ -201,7 +201,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     };
     if (bucket.role() != expected || bucket.kind() != data.kind()
         || bucket.componentId() != data.componentId()
-        || !nullExtension.equals(bucket.role().layout25Extension())) {
+        || !nullExtension.equals(bucket.role().layout27Extension())) {
       throw new IllegalArgumentException("Expected matching tree null-bucket owner and role");
     }
   }

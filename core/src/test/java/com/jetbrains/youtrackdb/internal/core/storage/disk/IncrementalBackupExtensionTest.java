@@ -4648,8 +4648,8 @@ public class IncrementalBackupExtensionTest {
             new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity(
                 1))
             .readActiveRequired().storageFormat().layoutVersion();
-        if (format == StorageFormat.LAYOUT_26) {
-          assertTrue("the source must really persist a non-default layout", persisted != 25);
+        if (format == StorageFormat.LAYOUT_28) {
+          assertTrue("the source must really persist a non-default layout", persisted != 27);
         }
         assertEquals(format.layoutVersion(), persisted);
         storage.fullBackup(backupPath);
@@ -4685,7 +4685,7 @@ public class IncrementalBackupExtensionTest {
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
           storage = createSourceDatabase(manager);
         }
-        var otherLayout = format == StorageFormat.LAYOUT_25 ? 26 : 25;
+        var otherLayout = format == StorageFormat.LAYOUT_27 ? 28 : 27;
         for (var plain : new boolean[] {false, true}) {
           for (var belowHead : new boolean[] {false, true}) {
             for (var validHash : new boolean[] {false, true}) {
@@ -4733,8 +4733,8 @@ public class IncrementalBackupExtensionTest {
    */
   @Test
   public void checksumValidOtherLayoutDamagedOutputKeepsEveryUnit() throws Exception {
-    for (var layouts : new int[][] {{25, 26}, {26, 25}}) {
-      var format = layouts[0] == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+    for (var layouts : new int[][] {{27, 28}, {28, 27}}) {
+      var format = layouts[0] == 27 ? StorageFormat.LAYOUT_27 : StorageFormat.LAYOUT_28;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4775,8 +4775,8 @@ public class IncrementalBackupExtensionTest {
    */
   @Test
   public void checksumValidSameLayoutDamagedOutputIsRemoved() throws Exception {
-    for (var layout : new int[] {25, 26}) {
-      var format = layout == 25 ? StorageFormat.LAYOUT_25 : StorageFormat.LAYOUT_26;
+    for (var layout : new int[] {27, 28}) {
+      var format = layout == 27 ? StorageFormat.LAYOUT_27 : StorageFormat.LAYOUT_28;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4829,7 +4829,7 @@ public class IncrementalBackupExtensionTest {
           for (var plain : new boolean[] {false, true}) {
             for (var sameLayout : new boolean[] {false, true}) {
               var layout = sameLayout ? format.layoutVersion()
-                  : format == StorageFormat.LAYOUT_25 ? 26 : 25;
+                  : format == StorageFormat.LAYOUT_27 ? 28 : 27;
               var damaged = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
                   0, true, 6, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
               var path = backupPath.resolve(damaged);

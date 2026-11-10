@@ -71,7 +71,7 @@ public class ComponentIdAllocationTest {
       ytdb.create("counters", type, "admin", "adminpwd", "admin");
     }
     try (var session = open()) {
-      assertEquals(format == StorageFormat.LAYOUT_26 ? 26 : 25,
+      assertEquals(format == StorageFormat.LAYOUT_28 ? 28 : 27,
           session.getStorage().getStorageFormat().layoutVersion());
     }
   }
@@ -128,10 +128,10 @@ public class ComponentIdAllocationTest {
   @Test
   public void birthReservesFixedConfigurationIdentityInDiskAndMemory() throws Exception {
     for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
-      create(StorageFormat.LAYOUT_26, type);
+      create(StorageFormat.LAYOUT_28, type);
       try (var session = open()) {
         var storage = session.getStorage();
-        assertEquals(26, storage.getStorageFormat().layoutVersion());
+        assertEquals(28, storage.getStorageFormat().layoutVersion());
         var ids = new HashSet<Integer>();
         for (var collection : storage.getCollectionInstances()) {
           var entry = storedCollection(storage, collection.getId());
@@ -158,13 +158,13 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Real engine creation must advance the file base id and durable floor together in layout 26.
+  // Real engine creation must advance the file base id and durable floor together in layout 28.
   @Test
-  public void layout26IndexCreationPersistsLiteralFileBaseIdsAndFloor() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+  public void layout28IndexCreationPersistsLiteralFileBaseIdsAndFloor() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(26, storage.getStorageFormat().layoutVersion());
+      assertEquals(28, storage.getStorageFormat().layoutVersion());
       var cls = session.getMetadata().getSchema().createClass("CounterIndex");
       cls.createProperty("first", PropertyType.STRING);
       cls.createProperty("second", PropertyType.STRING);
@@ -192,7 +192,7 @@ public class ComponentIdAllocationTest {
   // Another thread's write lock must not admit allocation. Abortable acquisition must admit its owner.
   @Test
   public void allocationRequiresCurrentWriteOwnerIncludingAbortableAcquisition() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open(); var executor = Executors.newSingleThreadExecutor()) {
       var storage = session.getStorage();
       int before = counter(storage, PageFileKind.COLLECTION);
@@ -217,13 +217,13 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Raw property reads distinguish an absent layout 25 counter from a default or cache value.
+  // Raw property reads distinguish an absent layout 27 counter from a default or cache value.
   @Test
-  public void layout25HasNoNewPropertiesAndKeepsIntegerIndexCeiling() throws Exception {
-    create(StorageFormat.LAYOUT_25, DatabaseType.DISK);
+  public void layout27HasNoNewPropertiesAndKeepsIntegerIndexCeiling() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(25, storage.getStorageFormat().layoutVersion());
+      assertEquals(27, storage.getStorageFormat().layoutVersion());
       var read = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
           "readProperty", String.class, AtomicOperation.class);
       read.setAccessible(true);
@@ -241,7 +241,7 @@ public class ComponentIdAllocationTest {
   // Every kind persists the highest issued value and a real new storage object resumes above it.
   @Test
   public void everyKindPersistsAcrossRealCloseAndReopen() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     int[] issued = new int[3];
     try (var session = open()) {
       var storage = session.getStorage();
@@ -254,7 +254,7 @@ public class ComponentIdAllocationTest {
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(26, storage.getStorageFormat().layoutVersion());
+      assertEquals(28, storage.getStorageFormat().layoutVersion());
       for (var kind : PageFileKind.values()) {
         assertEquals(issued[kind.ordinal()], counter(storage, kind));
         assertEquals(issued[kind.ordinal()] + 1, allocate(storage, kind));
@@ -265,7 +265,7 @@ public class ComponentIdAllocationTest {
   // A real atomic rollback restores each durable counter but burns the issued live value.
   @Test
   public void rollbackBurnsIdsForEveryKindInTheSameStorageObject() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       for (var kind : PageFileKind.values()) {
@@ -290,7 +290,7 @@ public class ComponentIdAllocationTest {
   // The final 25-bit id succeeds, then repeated exhaustion neither wraps nor changes the counter.
   @Test
   public void everyKindStopsAtThe25BitCeiling() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       for (var kind : PageFileKind.values()) {
@@ -308,7 +308,7 @@ public class ComponentIdAllocationTest {
   // Missing, negative and oversized values are errors for every kind, not allocation defaults.
   @Test
   public void everyKindRejectsCorruptAndMissingCounterBytes() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       var drop = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
@@ -339,11 +339,11 @@ public class ComponentIdAllocationTest {
 
   // Configuration load rejects a missing counter before it can admit component allocation.
   @Test
-  public void reopenRejectsMissingLayout26Counter() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+  public void reopenRejectsMissingLayout28Counter() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(26, storage.getStorageFormat().layoutVersion());
+      assertEquals(28, storage.getStorageFormat().layoutVersion());
       var drop = CollectionBasedStorageConfiguration.class.getDeclaredMethod(
           "dropProperty", AtomicOperation.class, String.class);
       drop.setAccessible(true);
@@ -366,7 +366,7 @@ public class ComponentIdAllocationTest {
   // Registered crash leftovers exceed every durable counter and seed all three kinds on cold open.
   @Test
   public void coldOpenSeedsEveryKindFromRegisteredNamesWithoutWritingCounters() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int[] counters;
     try (var session = open()) {
       registerEvidence(session.getStorage(), 9000);
@@ -376,7 +376,7 @@ public class ComponentIdAllocationTest {
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(26, storage.getStorageFormat().layoutVersion());
+      assertEquals(28, storage.getStorageFormat().layoutVersion());
       assertEvidenceAndAllocate(storage, 9000, counters);
     }
   }
@@ -390,7 +390,7 @@ public class ComponentIdAllocationTest {
         {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA, PageFileRole.CONFIG_DATA},
         {PageFileRole.FREE_SPACE_MAP, PageFileRole.HISTOGRAM,
             PageFileRole.CONFIG_FREE_SPACE_MAP}}) {
-      create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+      create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
       final WOWCache cache;
       final int[] counters;
       final byte[][] bytes;
@@ -403,7 +403,7 @@ public class ComponentIdAllocationTest {
       ytdb.close();
       for (var role : roles) {
         var identity = new PageFileIdentity(role, 9000);
-        appendRegistry(cache, PageFileNames.layout26(identity), -identity.internalId(), "");
+        appendRegistry(cache, PageFileNames.layout28(identity), -identity.internalId(), "");
       }
       ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
       try (var session = open()) {
@@ -411,7 +411,7 @@ public class ComponentIdAllocationTest {
         assertCounterBytes(storage, bytes);
         for (var role : roles) {
           var identity = new PageFileIdentity(role, 9000);
-          var name = PageFileNames.layout26(identity);
+          var name = PageFileNames.layout28(identity);
           assertEquals(Integer.valueOf(-identity.internalId()),
               storage.getWriteCache().registeredFileId(name));
           assertTrue(storage.getWriteCache().deletedFiles().contains(name));
@@ -429,18 +429,18 @@ public class ComponentIdAllocationTest {
   // Replay converts the former to deletion evidence, while all non-strict names stay irrelevant.
   @Test
   public void coldOpenCountsLogicalTombstonesButIgnoresAliasesAndMalformedNames() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final WOWCache cache;
     final int[] counters;
     final byte[][] bytes;
-    final String logical = "ytdb-p26-collection-8000-record-data.pcl";
-    final String alias = "ytdb-p26-collection-8000-record-data_123457.pcl";
-    final String nonComputed = "ytdb-p26-index-9000-tree-data.cbt";
+    final String logical = "ytdb-p28-collection-8000-record-data.pcl";
+    final String alias = "ytdb-p28-collection-8000-record-data_123457.pcl";
+    final String nonComputed = "ytdb-p28-index-9000-tree-data.cbt";
     final String[] ignored = {
-        "ytdb-p26-configuration-30000-data_123458.cd",
-        "ytdb-p26-configuration-33554432-data.cd",
-        "ytdb-p26-configuration-09000-data.cd",
-        "ytdb-p26-index-30000-unknown.cbt", "user-file.dat", "ie_30000.cbt"};
+        "ytdb-p28-configuration-30000-data_123458.cd",
+        "ytdb-p28-configuration-33554432-data.cd",
+        "ytdb-p28-configuration-09000-data.cd",
+        "ytdb-p28-index-30000-unknown.cbt", "user-file.dat", "ie_30000.cbt"};
     try (var session = open()) {
       var storage = session.getStorage();
       cache = (WOWCache) storage.getWriteCache();
@@ -526,12 +526,12 @@ public class ComponentIdAllocationTest {
   // The hook also works in memory and an index name cannot raise collection or configuration ids.
   @Test
   public void memorySeedIsKindIsolatedAndNeverLowersLiveMarks() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.MEMORY);
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
     try (var session = open()) {
       var storage = session.getStorage();
       final var counters = counters(storage);
       assertTrue(counter(storage, PageFileKind.INDEX_ENGINE) < 9000);
-      storage.getWriteCache().addFile("ytdb-p26-index-9000-tree-data.cbt",
+      storage.getWriteCache().addFile("ytdb-p28-index-9000-tree-data.cbt",
           new PageFileIdentity(PageFileRole.INDEX_DATA, 9000).internalId());
       seed(storage);
       assertCounters(storage, counters);
@@ -551,7 +551,7 @@ public class ComponentIdAllocationTest {
   @Test
   public void sameObjectFullAndIncrementalRestoreSeedEveryKindAndPreserveHigherMarks()
       throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     Path backup = Files.createDirectory(Path.of(directory, "seed-backup"));
     try (var session = open()) {
       var storage = session.getStorage();
@@ -559,7 +559,7 @@ public class ComponentIdAllocationTest {
       final var fullCounters = counters(storage);
       storage.backup(backup);
       storage.restoreFromBackup(backup, null);
-      assertEquals(26, storage.getStorageFormat().layoutVersion());
+      assertEquals(28, storage.getStorageFormat().layoutVersion());
       assertEvidenceAndAllocate(storage, 9000, fullCounters);
       for (var kind : PageFileKind.values()) {
         setHwm(storage, hwmField(kind), 20000);
@@ -588,21 +588,21 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Layout 25 must ignore prefix-shaped collection names and still accept legacy ids above 25 bits.
+  // Layout 27 must ignore prefix-shaped collection names and still accept legacy ids above 25 bits.
   @Test
-  public void layout25PrefixCollectionDoesNotSeedAndLegacyNameKeepsIntegerBound() throws Exception {
-    create(StorageFormat.LAYOUT_25, DatabaseType.DISK);
+  public void layout27PrefixCollectionDoesNotSeedAndLegacyNameKeepsIntegerBound() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
     long before;
     try (var session = open()) {
       var storage = session.getStorage();
       before = storage.indexEngineFileBaseIdHwmForTesting();
-      session.addCollection("ytdb-p26-collection-9000-record-data");
+      session.addCollection("ytdb-p28-collection-9000-record-data");
     }
     ytdb.close();
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(25, storage.getStorageFormat().layoutVersion());
+      assertEquals(27, storage.getStorageFormat().layoutVersion());
       assertEquals(before, hwm(storage, PageFileKind.INDEX_ENGINE));
       assertEquals(0, hwm(storage, PageFileKind.COLLECTION));
       assertEquals(0, hwm(storage, PageFileKind.CONFIGURATION));
@@ -612,7 +612,7 @@ public class ComponentIdAllocationTest {
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(25, storage.getStorageFormat().layoutVersion());
+      assertEquals(27, storage.getStorageFormat().layoutVersion());
       assertEquals(33554432, hwm(storage, PageFileKind.INDEX_ENGINE));
       assertEquals(33554433, allocate(storage, PageFileKind.INDEX_ENGINE));
     }
@@ -620,15 +620,15 @@ public class ComponentIdAllocationTest {
 
   // All reserved-prefix parse failures are visible storage errors, including every kind over bound.
   @Test
-  public void layout26ColdOpenRejectsInvalidRegisteredEvidenceWithFileName() throws Exception {
+  public void layout28ColdOpenRejectsInvalidRegisteredEvidenceWithFileName() throws Exception {
     for (String file : new String[] {
         "ie_33554432.cbt", "ie_033554432$null.ixs",
         "ie_2147483648.cbt", "ie_9223372036854775808$null.ixs",
-        "ytdb-p26-collection-33554432-record-data.pcl",
-        "ytdb-p26-index-33554432-tree-data.cbt",
-        "ytdb-p26-configuration-33554432-data.cd",
-        "ytdb-p26-index-9000-unknown.cbt"}) {
-      create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+        "ytdb-p28-collection-33554432-record-data.pcl",
+        "ytdb-p28-index-33554432-tree-data.cbt",
+        "ytdb-p28-configuration-33554432-data.cd",
+        "ytdb-p28-index-9000-unknown.cbt"}) {
+      create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
       try (var session = open()) {
         session.getStorage().getWriteCache().addFile(file);
       }
@@ -644,8 +644,8 @@ public class ComponentIdAllocationTest {
 
   // Persisted raw engine ids above 25 bits must fail before an engine attempts to open its files.
   @Test
-  public void layout26ColdOpenRejectsOversizedPersistedEngineEntry() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+  public void layout28ColdOpenRejectsOversizedPersistedEngineEntry() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       var entry = new IndexEngineData(
@@ -660,10 +660,10 @@ public class ComponentIdAllocationTest {
     assertStorageFailureNames(assertThrows(DatabaseException.class, this::open), "oversized-entry");
   }
 
-  // Overflow-shaped names remain nonmatches in layout 25, even after a real cold reopen.
+  // Overflow-shaped names remain nonmatches in layout 27, even after a real cold reopen.
   @Test
-  public void layout25ColdOpenIgnoresLegacyNumericOverflow() throws Exception {
-    create(StorageFormat.LAYOUT_25, DatabaseType.DISK);
+  public void layout27ColdOpenIgnoresLegacyNumericOverflow() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
     final long before;
     try (var session = open()) {
       var storage = session.getStorage();
@@ -675,7 +675,7 @@ public class ComponentIdAllocationTest {
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
-      assertEquals(25, storage.getStorageFormat().layoutVersion());
+      assertEquals(27, storage.getStorageFormat().layoutVersion());
       assertEquals(before, hwm(storage, PageFileKind.INDEX_ENGINE));
       assertEquals(before + 1, allocate(storage, PageFileKind.INDEX_ENGINE));
     }
@@ -683,8 +683,8 @@ public class ComponentIdAllocationTest {
 
   // A negative persisted file base id is corruption, not an absent-id sentinel.
   @Test
-  public void layout26ColdOpenRejectsNegativePersistedEngineEntry() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+  public void layout28ColdOpenRejectsNegativePersistedEngineEntry() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       var entry = new IndexEngineData(
@@ -701,8 +701,8 @@ public class ComponentIdAllocationTest {
 
   // The maximum legal evidence loads without counter writes and exhausts all three allocators.
   @Test
-  public void layout26MaximumRegisteredEvidenceLoadsAndRefusesNextAllocation() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+  public void layout28MaximumRegisteredEvidenceLoadsAndRefusesNextAllocation() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int[] counters;
     try (var session = open()) {
       var storage = session.getStorage();
@@ -727,7 +727,7 @@ public class ComponentIdAllocationTest {
   // Explicit add, metadata updates, slot reuse and cold load must preserve independent identities.
   @Test
   public void collectionIdentitySurvivesUpdatesSlotReuseAndReopen() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     var expected = new HashMap<Integer, Integer>();
     try (var session = open()) {
       var storage = session.getStorage();
@@ -760,7 +760,7 @@ public class ComponentIdAllocationTest {
   // Reconciliation allocates during commit, not provisional class creation. Failed apply burns ids.
   @Test
   public void schemaCommitAllocatesAndFailedCommitBurnsCollectionIdentities() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       int before = counter(storage, PageFileKind.COLLECTION);
@@ -803,7 +803,7 @@ public class ComponentIdAllocationTest {
   // A rollback after physical creation restores the persistent counter, but not the live watermark.
   @Test
   public void rolledBackCollectionCreationBurnsItsComponentId() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       int before = counter(storage, PageFileKind.COLLECTION);
@@ -829,8 +829,8 @@ public class ComponentIdAllocationTest {
 
   // Production layout creation and metadata updates keep version zero and never create a counter.
   @Test
-  public void layout25CollectionCreationAndUpdatesNeverAllocateComponentIds() throws Exception {
-    create(StorageFormat.LAYOUT_25, DatabaseType.DISK);
+  public void layout27CollectionCreationAndUpdatesNeverAllocateComponentIds() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
     try (var session = open()) {
       var storage = session.getStorage();
       int id = session.addCollection("legacyidentity");
@@ -853,16 +853,16 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // A layout 26 writer must reject an absent id before changing the stored entry or counter.
+  // A layout 28 writer must reject an absent id before changing the stored entry or counter.
   @Test
-  public void layout26CollectionWriteRejectsMissingIdentity() throws Exception {
-    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_26, null);
+  public void layout28CollectionWriteRejectsMissingIdentity() throws Exception {
+    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_28, null);
   }
 
-  // A layout 25 writer must reject even a present zero id without changing legacy metadata.
+  // A layout 27 writer must reject even a present zero id without changing legacy metadata.
   @Test
-  public void layout25CollectionWriteRejectsPresentIdentity() throws Exception {
-    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_25, 0);
+  public void layout27CollectionWriteRejectsPresentIdentity() throws Exception {
+    assertMismatchedCollectionWriteRejected(StorageFormat.LAYOUT_27, 0);
   }
 
   private void assertMismatchedCollectionWriteRejected(StorageFormat format, Integer mismatchedId)
@@ -875,7 +875,7 @@ public class ComponentIdAllocationTest {
       id = session.addCollection("mismatchedwrite");
       var original = storedCollection(storage, id);
       originalId = original.getComponentId();
-      int before = format == StorageFormat.LAYOUT_26
+      int before = format == StorageFormat.LAYOUT_28
           ? counter(storage, PageFileKind.COLLECTION) : 0;
       var collection = storage.getCollectionInstances().stream()
           .filter(c -> c.getId() == id).findFirst().orElseThrow();
@@ -909,7 +909,7 @@ public class ComponentIdAllocationTest {
               "collection_" + id, op);
           assertEquals(entryBefore.second, entryAfter.second);
           assertArrayEquals((byte[]) entryBefore.first, (byte[]) entryAfter.first);
-          if (format == StorageFormat.LAYOUT_26) {
+          if (format == StorageFormat.LAYOUT_28) {
             assertEquals(before,
                 config(storage).getComponentIdCounter(PageFileKind.COLLECTION, op));
           } else {
@@ -921,7 +921,7 @@ public class ComponentIdAllocationTest {
         storage.stateLock.writeLock().unlock();
       }
       assertCollectionIdentity(storage, id, originalId, originalId == null ? 0 : 1);
-      if (format == StorageFormat.LAYOUT_26) {
+      if (format == StorageFormat.LAYOUT_28) {
         assertEquals(before, counter(storage, PageFileKind.COLLECTION));
       } else {
         assertEquals(0, hwm(storage, PageFileKind.COLLECTION));
@@ -937,12 +937,12 @@ public class ComponentIdAllocationTest {
   // Cold load rejects both directions of layout mismatch with the offending collection name.
   @Test
   public void coldLoadRejectsCollectionIdentityLayoutMismatch() throws Exception {
-    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_25, StorageFormat.LAYOUT_26}) {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28}) {
       create(format, DatabaseType.DISK);
       try (var session = open()) {
         var storage = session.getStorage();
         int id = session.addCollection("mismatchedidentity");
-        replaceCollectionIdentity(storage, id, format == StorageFormat.LAYOUT_26 ? null : 0);
+        replaceCollectionIdentity(storage, id, format == StorageFormat.LAYOUT_28 ? null : 0);
       }
       ytdb.close();
       ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
@@ -957,7 +957,7 @@ public class ComponentIdAllocationTest {
   // Zero is a present identity, not a missing identity. Load and update must retain it.
   @Test
   public void coldLoadAcceptsPresentZeroComponentIdentity() throws Exception {
-    create(StorageFormat.LAYOUT_26, DatabaseType.DISK);
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int id;
     try (var session = open()) {
       id = session.addCollection("zeroidentity");
@@ -1016,14 +1016,14 @@ public class ComponentIdAllocationTest {
   }
 
   private static void registerEvidence(AbstractStorage storage, int id) throws Exception {
-    assertEquals(26, storage.getStorageFormat().layoutVersion());
+    assertEquals(28, storage.getStorageFormat().layoutVersion());
     for (var kind : PageFileKind.values()) {
       assertTrue(counter(storage, kind) < id);
     }
     for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
         PageFileRole.CONFIG_DATA}) {
       var identity = new PageFileIdentity(role, id);
-      storage.getWriteCache().addFile(PageFileNames.layout26(identity), identity.internalId());
+      storage.getWriteCache().addFile(PageFileNames.layout28(identity), identity.internalId());
     }
   }
 

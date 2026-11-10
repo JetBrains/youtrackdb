@@ -13,9 +13,9 @@ public interface StorageConfiguration {
   String DEFAULT_CHARSET = "UTF-8";
   String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
   String DEFAULT_DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-  // 25: link-collection entry points persist the global link-bag identifier counter.
-  // Pre-25 databases are rejected because empty bags carry no recoverable allocation evidence.
-  int CURRENT_VERSION = 25;
+  // Production layout. Link-collection entry points persist the global link-bag identifier counter.
+  // Admission rejects unsupported layouts without conversion.
+  int CURRENT_VERSION = 27;
   int CURRENT_BINARY_FORMAT_VERSION = 14;
 
   SimpleDateFormat getDateTimeFormatInstance();

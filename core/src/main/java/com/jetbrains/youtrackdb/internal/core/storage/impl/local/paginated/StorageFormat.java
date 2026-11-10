@@ -7,7 +7,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
  * identity only and exposes no user-selectable storage option.
  */
 public enum StorageFormat {
-  LAYOUT_25(25), LAYOUT_26(26);
+  LAYOUT_27(27), LAYOUT_28(28);
 
   private final int layoutVersion;
 
@@ -22,7 +22,7 @@ public enum StorageFormat {
 
   /** Returns the layout for ordinary new databases. */
   public static StorageFormat productionDefault() {
-    return LAYOUT_25;
+    return LAYOUT_27;
   }
 
   /**
@@ -32,10 +32,18 @@ public enum StorageFormat {
    */
   public static StorageFormat resolve(final int layoutVersion) {
     return switch (layoutVersion) {
-      case 25 -> LAYOUT_25;
-      case 26 -> LAYOUT_26;
+      case 27 -> LAYOUT_27;
+      case 28 -> LAYOUT_28;
+      case 25, 26 -> throw new IllegalArgumentException(
+          "Unsupported storage layout version: " + layoutVersion
+              + ". Export the database with the older YouTrackDB version."
+              + " Import that export with the new YouTrackDB version.");
       default -> throw new IllegalArgumentException(
-          "Unsupported storage layout version: " + layoutVersion + ". Supported versions: 25, 26");
+          "Unsupported storage layout version: " + layoutVersion
+              + (layoutVersion > 28
+                  ? ". A newer YouTrackDB version created this database."
+                      + " Open it with that version."
+                  : ". This build supports storage layout versions 27 and 28 only."));
     };
   }
 }

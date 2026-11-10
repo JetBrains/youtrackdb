@@ -317,7 +317,7 @@ public class DiskStorage extends AbstractStorage {
   protected static final String IV_NAME = "data" + IV_EXT;
 
   private static final String[] ALL_FILE_EXTENSIONS =
-      PageFileNames.LAYOUT_25_FALLBACK_EXTENSIONS.toArray(String[]::new);
+      PageFileNames.LAYOUT_27_FALLBACK_EXTENSIONS.toArray(String[]::new);
 
   private static final int ONE_KB = 1024;
 
@@ -1056,9 +1056,9 @@ public class DiskStorage extends AbstractStorage {
             }
             continue;
           }
-          // Canonical layout 26 files in the parent are not ours. Skip them before the
-          // layout 25 extension rule, since both layouts use the same extensions.
-          if (PageFileNames.parseLayout26DiskName(f.getName()).isPresent()) {
+          // Canonical layout 28 files in the parent are not ours. Skip them before the
+          // layout 27 extension rule, since both layouts use the same extensions.
+          if (PageFileNames.parseLayout28DiskName(f.getName()).isPresent()) {
             if (usingParentDirectory) {
               continue;
             }
@@ -1533,7 +1533,7 @@ public class DiskStorage extends AbstractStorage {
                     || fileName.startsWith("dirty.fl")
                     || fileName.startsWith("dirty.flb")
                     || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)
-                    || PageFileNames.parseLayout26DiskName(fileName).isPresent()) {
+                    || PageFileNames.parseLayout28DiskName(fileName).isPresent()) {
                   exists[0] = true;
                 }
               });
@@ -2246,10 +2246,12 @@ public class DiskStorage extends AbstractStorage {
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
         metadataLayoutVersion, metadataCreationEvidence);
     StorageFormat headerFormat;
+    String layoutRefusal = null;
     try {
       headerFormat = StorageFormat.resolve(metadataLayoutVersion);
     } catch (IllegalArgumentException unsupportedLayout) {
       headerFormat = null;
+      layoutRefusal = unsupportedLayout.getMessage();
     }
     // Malformed continuity is not recognized output and can never authorize removal.
     var marker = metadataVersion == 6
@@ -2352,9 +2354,7 @@ public class DiskStorage extends AbstractStorage {
           .warn(DiskStorage.class, storageName,
               "Storage layout version %d of the file %s is unsupported.",
               metadataLayoutVersion, ibuFileName);
-      return unclassifiableUnit("The header carries storage layout version "
-          + metadataLayoutVersion
-          + ", and this build supports storage layout versions 25 and 26 only.");
+      return unclassifiableUnit(layoutRefusal);
     }
     if (sourceFormat != null && sourceFormat != headerFormat) {
       return unclassifiableUnit(

@@ -56,7 +56,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
           Assert.assertEquals(id, result.metadata().databaseId());
           Assert.assertEquals(1, result.metadata().sequenceNumber());
           Assert.assertEquals(42, result.metadata().lastTxId());
-          Assert.assertEquals(DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25),
+          Assert.assertEquals(DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27),
               result.metadata().semanticIdentity());
         }
       }
@@ -120,7 +120,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -168,7 +168,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -606,7 +606,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -655,7 +655,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When startLsn is (-1, -1), the returned metadata should have null startLsn
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -704,7 +704,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -853,7 +853,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -948,7 +948,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only segment is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -998,7 +998,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only position is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1103,7 +1103,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -1192,7 +1192,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1285,7 +1285,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1339,7 +1339,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   private static void writeSupportedSemanticIdentity(DataOutputStream dataOutputStream)
       throws IOException {
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     dataOutputStream.writeInt(identity.featureFormatVersion());
     dataOutputStream.writeInt(identity.storageLayoutVersion());
     dataOutputStream.writeInt(identity.creationEvidence());
@@ -1409,14 +1409,14 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   @Test
   public void layoutAdmissionUsesExactSupportedSet() throws IOException {
     var uuid = UUID.randomUUID();
-    for (var layout : new int[] {10, 24, 25, 26, 27}) {
+    for (var layout : new int[] {10, 24, 25, 26, 27, 28, 29}) {
       for (var version : new int[] {3, 4, 5}) {
         for (var validHash : new boolean[] {true, false}) {
           var unit = backupUnitWithHeader(uuid, 1, version,
               BackupUnitFiles.supportedFeatureFormat(), layout,
               BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, validHash);
           var result = inspect(unit, unitFileName(uuid, 1), uuid);
-          var supported = layout == 25 || layout == 26;
+          var supported = layout == 27 || layout == 28;
           var expected = !supported ? DiskStorage.BackupUnitClassification.UNCLASSIFIABLE
               : validHash ? DiskStorage.BackupUnitClassification.SUPPORTED
                   : DiskStorage.BackupUnitClassification.RECOGNIZED_INCOMPLETE;
@@ -1428,7 +1428,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
             Assert.assertNull(result.metadata());
           }
           if (!supported && validHash) {
-            Assert.assertTrue(result.detail().contains("storage layout version " + layout));
+            Assert.assertTrue(result.detail().contains("storage layout version: " + layout));
           }
           var header = inspectHeader(unit, unitFileName(uuid, 1), uuid);
           Assert.assertEquals(supported ? DiskStorage.BackupUnitClassification.SUPPORTED
@@ -1470,7 +1470,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void featureFormatMismatchIsUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion() + 1, identity.storageLayoutVersion(),
@@ -1486,29 +1486,36 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   }
 
   /**
-   * A header of unsupported storage layout 27 is rejected.
+   * Old and future layouts retain actionable guidance in full and header-only admission.
    *
-   * <p>The scenario writes an otherwise valid header whose storage layout version is outside the
-   * supported set. The expected outcome has two parts. The validation rejects the
-   * unit. The classification refuses every automatic removal of the unit.
+   * <p>Integrity-valid units for layouts 25, 26 and 29 remain unclassifiable and cannot authorize
+   * automatic removal. Old layouts direct export/import. Future layouts direct a newer version.
    */
   @Test
   public void storageLayoutMismatchIsUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
-    final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
-    final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
-            identity.featureFormatVersion(), 27,
-            identity.creationEvidence(), true);
+    final var identity = DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27);
+    for (var layout : new int[] {25, 26, 29}) {
+      final var unit =
+          backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
+              identity.featureFormatVersion(), layout, identity.creationEvidence(), true);
 
-    final var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
-
-    Assert.assertNull("a foreign layout version must reject the unit", inspection.metadata());
-    Assert.assertEquals(
-        "a foreign layout version must stay unclassifiable",
-        DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
-        inspection.classification());
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, unitFileName(uuid, 1), uuid),
+          inspectHeader(unit, unitFileName(uuid, 1), uuid)}) {
+        Assert.assertNull("a foreign layout version must reject the unit", inspection.metadata());
+        Assert.assertEquals(
+            "a foreign layout version must stay unclassifiable",
+            DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            inspection.classification());
+        var guidance = layout == 29
+            ? "A newer YouTrackDB version created this database. Open it with that version."
+            : "Export the database with the older YouTrackDB version."
+                + " Import that export with the new YouTrackDB version.";
+        Assert.assertEquals("Unsupported storage layout version: " + layout + ". " + guidance,
+            inspection.detail());
+      }
+    }
   }
 
   /**
@@ -1525,7 +1532,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void absentCreationEvidenceIsUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1556,7 +1563,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void foreignCreationEvidenceIsRejected() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1582,7 +1589,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void brokenHashOfRecognizedHeaderIsRemovableOutput() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1608,7 +1615,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void brokenHashOfOldHeaderStaysUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, BackupUnitFiles.VERSION_2,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1631,7 +1638,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void brokenHashOfVersion3HeaderIsRecognizedIncomplete() throws IOException {
     var uuid = UUID.randomUUID();
     var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     var unit = backupUnitWithHeader(uuid, 1, BackupUnitFiles.PREVIOUS_BACKUP_FORMAT_VERSION,
         identity.featureFormatVersion(), identity.storageLayoutVersion(),
         identity.creationEvidence(), false);
@@ -1650,7 +1657,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void previousAndCurrentVersionHeadersAreSupported() throws IOException {
     var uuid = UUID.randomUUID();
     var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     for (var version : new int[] {BackupUnitFiles.VERSION_3, BackupUnitFiles.VERSION_4,
         BackupUnitFiles.VERSION_5}) {
       var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
@@ -1676,7 +1683,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
     var uuid = UUID.randomUUID();
     var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     for (var version : new int[] {BackupUnitFiles.OLD_BACKUP_FORMAT_VERSION,
         BackupUnitFiles.FUTURE_BACKUP_FORMAT_VERSION}) {
       var unit = backupUnitWithHeader(uuid, 1, version, identity.featureFormatVersion(),
@@ -1705,7 +1712,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void recognizedHeaderOfAnotherDatabaseStaysUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1730,7 +1737,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void supportedUnitCarriesTheAcceptedSemanticIdentity() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1757,7 +1764,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void namingDisagreementOfARecognizedHeaderStaysUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1783,7 +1790,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void unreadableSequenceNumberOfARecognizedHeaderStaysUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1857,7 +1864,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void headerOnlyAdmissionAcceptsASupportedUnit() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1883,7 +1890,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void headerOnlyAdmissionSkipsTheContentCheck() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1908,7 +1915,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void headerOnlyAdmissionRefusesAnOldHeader() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, BackupUnitFiles.VERSION_2,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),
@@ -1931,7 +1938,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   public void headerOnlyAdmissionRefusesAbsentCreationCompletionEvidence() throws IOException {
     final var uuid = UUID.randomUUID();
     final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_25);
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
     final var unit =
         backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
             identity.featureFormatVersion(), identity.storageLayoutVersion(),

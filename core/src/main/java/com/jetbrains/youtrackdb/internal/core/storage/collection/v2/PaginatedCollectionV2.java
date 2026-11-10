@@ -257,7 +257,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    */
   private volatile int id;
 
-  /** Stable layout 26 identity. Null for layout 25 and the configuration-owned collection. */
+  /** Stable layout 28 identity. Null for layout 27 and the configuration-owned collection. */
   private Integer componentId;
   private final @Nullable PageFileIdentity dataIdentity;
   private volatile long approximateRecordsCount;
@@ -294,7 +294,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       String name, String dataExtension, String cpmExtension, String fsmExtension,
       String dpbExtension, AbstractStorage storage, PageFileIdentity dataIdentity) {
     super(storage, name, dataExtension,
-        dataIdentity == null ? name + dataExtension : PageFileNames.layout26(dataIdentity), true);
+        dataIdentity == null ? name + dataExtension : PageFileNames.layout28(dataIdentity), true);
     validateIdentity(storage, dataExtension, dataIdentity,
         PageFileRole.RECORD_DATA, PageFileRole.CONFIG_DATA);
 

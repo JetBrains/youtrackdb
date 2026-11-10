@@ -1565,7 +1565,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
           || Files.isRegularFile(path.resolve(
               CollectionBasedStorageConfiguration.COMPONENT_NAME
                   + CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))
-          || Files.isRegularFile(path.resolve(PageFileNames.layout26DiskName(
+          || Files.isRegularFile(path.resolve(PageFileNames.layout28DiskName(
               new PageFileIdentity(PageFileRole.CONFIG_DATA,
                   PageFileIdentity.CONFIGURATION_COMPONENT_ID))))) {
         databases.add(child.getName());
@@ -1746,13 +1746,13 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
             for (var cf : db.listFiles()) {
               var fileName = cf.getName();
               // Match the disk storage existence probe for bootstrap artifacts and canonical
-              // layout 26 page files. Listing also finds an interrupted storage birth.
+              // layout 28 page files. Listing also finds an interrupted storage birth.
               if (fileName.equals("database.ocf")
                   || (fileName.startsWith(CollectionBasedStorageConfiguration.COMPONENT_NAME)
                       && fileName.endsWith(
                           CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION))
                   || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)
-                  || PageFileNames.parseLayout26DiskName(fileName).isPresent()) {
+                  || PageFileNames.parseLayout28DiskName(fileName).isPresent()) {
                 found.found(db.getName());
                 break;
               }

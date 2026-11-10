@@ -507,7 +507,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * Scenario: a database whose storage configuration carries unsupported layout 27 opens,
+   * Scenario: a database whose storage configuration carries unsupported layout 29 opens,
    * while the bootstrap authority record carries the supported version.
    *
    * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
@@ -517,7 +517,7 @@ public class IndexEngineFileBaseIdTest {
   @Test
   public void newerFormatIsRejectedAtOpenWithCeilingMessage() throws Exception {
     final var dbName = "fbiGateNew";
-    createDbWithTamperedVersion(dbName, 27);
+    createDbWithTamperedVersion(dbName, 29);
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
@@ -525,7 +525,7 @@ public class IndexEngineFileBaseIdTest {
     } catch (final Exception e) {
       assertLayoutVersionInconsistency(e);
       assertMessageChainContains(e, "The storage configuration reports storage layout version "
-          + 27);
+          + 29);
       assertMessageChainContains(e, "newer than the layout of this build");
     }
   }

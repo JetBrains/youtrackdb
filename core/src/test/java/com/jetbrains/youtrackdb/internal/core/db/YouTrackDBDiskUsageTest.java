@@ -117,13 +117,13 @@ public class YouTrackDBDiskUsageTest {
 
   /** A real selected-layout birth exposes the markers used by startup and public listing. */
   @Test
-  public void layout26BirthDiscoveryMarkers() throws Exception {
-    var root = temporaryFolder.newFolder("layout26-markers").toPath();
+  public void layout28BirthDiscoveryMarkers() throws Exception {
+    var root = temporaryFolder.newFolder("layout28-markers").toPath();
     try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
       try (var selection =
           StorageBirthTestSupport
               .selectBirthFormat(manager, "selected",
-                  StorageFormat.LAYOUT_26)) {
+                  StorageFormat.LAYOUT_28)) {
         manager.create("selected", DatabaseType.DISK, new String[0]);
       }
       var identity =
@@ -132,7 +132,7 @@ public class YouTrackDBDiskUsageTest {
               0);
       var marker =
           PageFileNames
-              .layout26DiskName(identity);
+              .layout28DiskName(identity);
       assertThat(Files.isRegularFile(root.resolve("selected/database.ocf"))).isFalse();
       assertThat(Files.isRegularFile(root.resolve("selected").resolve(marker))).isTrue();
       assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(root))
@@ -159,15 +159,15 @@ public class YouTrackDBDiskUsageTest {
     var canonical = Files.createDirectory(managerDirectory.resolve("canonical"));
     Files.write(canonical.resolve(
         PageFileNames
-            .layout26DiskName(identity)),
+            .layout28DiskName(identity)),
         new byte[1]);
     var rejected = Files.createDirectory(managerDirectory.resolve("not-a-database"));
     Files.write(rejected.resolve(
         PageFileNames
-            .layout26(identity)),
+            .layout28(identity)),
         new byte[1]);
-    Files.write(rejected.resolve("ytdb-p26-configuration-0-data_1.cd"), new byte[1]);
-    Files.write(rejected.resolve("ytdb-p26-collection-0-data_268435456.pcl"), new byte[1]);
+    Files.write(rejected.resolve("ytdb-p28-configuration-0-data_1.cd"), new byte[1]);
+    Files.write(rejected.resolve("ytdb-p28-collection-0-data_268435456.pcl"), new byte[1]);
 
     assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(managerDirectory))
         .containsExactlyInAnyOrder("database", "legacy", "canonical");

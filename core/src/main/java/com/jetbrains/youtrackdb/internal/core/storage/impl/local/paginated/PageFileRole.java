@@ -28,13 +28,13 @@ public enum PageFileRole {
   private final PageFileKind kind;
   private final int code;
   private final String label;
-  private final String layout25Extension;
+  private final String layout27Extension;
 
-  PageFileRole(PageFileKind kind, int code, String label, String layout25Extension) {
+  PageFileRole(PageFileKind kind, int code, String label, String layout27Extension) {
     this.kind = kind;
     this.code = code;
     this.label = label;
-    this.layout25Extension = layout25Extension;
+    this.layout27Extension = layout27Extension;
   }
 
   public PageFileKind kind() {
@@ -49,8 +49,8 @@ public enum PageFileRole {
     return label;
   }
 
-  public String layout25Extension() {
-    return layout25Extension;
+  public String layout27Extension() {
+    return layout27Extension;
   }
 
   public static PageFileRole fromCode(PageFileKind kind, int code) {

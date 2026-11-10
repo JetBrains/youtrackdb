@@ -52,7 +52,7 @@ public interface WriteCache {
    * The caller holds storage creation exclusion through insertion. Normal creation rejects
    * every existing pair, including negative bookings. Reconstruction permission is only for
    * a rebuildable auxiliary role of an explicitly established live owner, never a link-bag.
-   * The name must be a strict layout 26 logical name for a free-space map, dirty-page bit set
+   * The name must be a strict layout 28 logical name for a free-space map, dirty-page bit set
    * or histogram. It permits only a matching negative pair without a backing file.
    * Disk caches retain deletion entries, so strict creation rejects them. Memory caches remove
    * registrations on deletion, so strict creation may book the deleted name and id again.

@@ -311,10 +311,10 @@ public class BTreeVerifyAndTruncateOrphansTest {
   public void propertyBootstrapUsesBothRoleIdentitiesInCreateAndLoad() throws IOException {
     var data = new PageFileIdentity(PageFileRole.PROPERTY_DATA, 0);
     var nullBucket = new PageFileIdentity(PageFileRole.PROPERTY_NULL_BUCKET, 0);
-    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
     for (var identity : new PageFileIdentity[] {data, nullBucket}) {
-      var name = PageFileNames.layout26(identity);
+      var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
       when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
       when(atomicOperation.loadFile(name, id)).thenReturn(id);
@@ -326,7 +326,7 @@ public class BTreeVerifyAndTruncateOrphansTest {
     propertyTree.create(atomicOperation, UTF8Serializer.INSTANCE, null, 1);
     propertyTree.load("config", 1, null, UTF8Serializer.INSTANCE, atomicOperation);
     for (var identity : new PageFileIdentity[] {data, nullBucket}) {
-      var name = PageFileNames.layout26(identity);
+      var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
       verify(atomicOperation).addFile(name, id, false, false);
       verify(atomicOperation).loadFile(name, id);

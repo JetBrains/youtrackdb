@@ -87,7 +87,7 @@ public class CollectionBasedStorageConfigurationTest {
       new org.junit.rules.TemporaryFolder();
 
   /** Fixed configuration registrations survive a real disk restart and remain distinct from
-   * ordinary collections. Layout 25 retains its custom names and cache-assigned registrations. */
+   * ordinary collections. Layout 27 retains its custom names and cache-assigned registrations. */
   @Test
   public void configurationRegistrationsAcrossLayoutsAndStorageKinds() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -134,14 +134,14 @@ public class CollectionBasedStorageConfigurationTest {
       var root = configurationFolder.newFolder("delete-" + type).toPath();
       try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
         try (var selection = StorageBirthTestSupport.selectBirthFormat(
-            manager, "selected", StorageFormat.LAYOUT_26)) {
+            manager, "selected", StorageFormat.LAYOUT_28)) {
           manager.create("selected", type, "admin", DbTestBase.ADMIN_PASSWORD, "admin");
         }
         AbstractStorage selected;
         try (var opened = (DatabaseSessionEmbedded) manager.open(
             "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
           selected = opened.getStorage();
-          assertConfigurationRegistrations(selected, StorageFormat.LAYOUT_26);
+          assertConfigurationRegistrations(selected, StorageFormat.LAYOUT_28);
         }
         var field = AbstractStorage.class.getDeclaredField("configuration");
         field.setAccessible(true);
@@ -154,13 +154,13 @@ public class CollectionBasedStorageConfigurationTest {
               continue;
             }
             var identity = new PageFileIdentity(role, 0);
-            var name = PageFileNames.layout26(identity);
+            var name = PageFileNames.layout28(identity);
             assertEquals(name, -1L, cache.fileIdByName(name));
             assertFalse(name, cache.files().containsKey(name));
             assertFalse(name, cache.exists(name));
             if (type == DatabaseType.DISK) {
               assertFalse(name, java.nio.file.Files.exists(
-                  root.resolve("selected").resolve(PageFileNames.layout26DiskName(identity))));
+                  root.resolve("selected").resolve(PageFileNames.layout28DiskName(identity))));
             }
           }
         } finally {
@@ -194,20 +194,20 @@ public class CollectionBasedStorageConfigurationTest {
     var root = configurationFolder.newFolder(missingRole.name()).toPath();
     try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
       try (var selection = StorageBirthTestSupport.selectBirthFormat(
-          manager, "selected", StorageFormat.LAYOUT_26)) {
+          manager, "selected", StorageFormat.LAYOUT_28)) {
         manager.create("selected", DatabaseType.DISK,
             "admin", DbTestBase.ADMIN_PASSWORD, "admin");
       }
     }
     var directory = root.resolve("selected");
     var missingFile = directory.resolve(
-        PageFileNames.layout26DiskName(new PageFileIdentity(missingRole, 0)));
+        PageFileNames.layout28DiskName(new PageFileIdentity(missingRole, 0)));
     java.nio.file.Files.delete(missingFile);
     var survivingFiles = new java.util.HashMap<java.nio.file.Path, byte[]>();
     for (var role : PageFileRole.values()) {
       if (role.kind() == PageFileKind.CONFIGURATION && role != missingRole) {
         var file = directory.resolve(
-            PageFileNames.layout26DiskName(new PageFileIdentity(role, 0)));
+            PageFileNames.layout28DiskName(new PageFileIdentity(role, 0)));
         survivingFiles.put(file, java.nio.file.Files.readAllBytes(file));
       }
     }
@@ -227,7 +227,7 @@ public class CollectionBasedStorageConfigurationTest {
     }
     try (var files = java.nio.file.Files.list(directory)) {
       var newConfigurationFiles = files.map(file -> file.getFileName().toString())
-          .filter(name -> name.startsWith("config.") || name.startsWith("ytdb-p26-configuration-"))
+          .filter(name -> name.startsWith("config.") || name.startsWith("ytdb-p28-configuration-"))
           .filter(name -> !namesBefore.contains(name)).toList();
       assertTrue(newConfigurationFiles.toString(), newConfigurationFiles.isEmpty());
     }
@@ -242,14 +242,14 @@ public class CollectionBasedStorageConfigurationTest {
         continue;
       }
       var identity = new PageFileIdentity(role, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
-      var name = format == StorageFormat.LAYOUT_26
-          ? PageFileNames.layout26(identity) : "config" + role.layout25Extension();
+      var name = format == StorageFormat.LAYOUT_28
+          ? PageFileNames.layout28(identity) : "config" + role.layout27Extension();
       long id = cache.fileIdByName(name);
       assertTrue(name, id > 0);
       assertTrue(name, ids.add(id));
-      if (format == StorageFormat.LAYOUT_26) {
+      if (format == StorageFormat.LAYOUT_28) {
         assertEquals(name, identity.internalId(), cache.internalFileId(id));
-        assertFalse(cache.exists("config" + role.layout25Extension()));
+        assertFalse(cache.exists("config" + role.layout27Extension()));
       }
       assertTrue(cache.exists(name));
     }
@@ -268,14 +268,14 @@ public class CollectionBasedStorageConfigurationTest {
       try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
         try (var selection =
             StorageBirthTestSupport.selectBirthFormat(manager, "selected",
-                StorageFormat.LAYOUT_26)) {
+                StorageFormat.LAYOUT_28)) {
           manager.create("selected", DatabaseType.DISK,
               "admin", DbTestBase.ADMIN_PASSWORD, "admin");
         }
       }
       // Remove only the backing file from the closed image. The registry still records its identity.
       java.nio.file.Files.delete(root.resolve("selected")
-          .resolve(PageFileNames.layout26DiskName(identity)));
+          .resolve(PageFileNames.layout28DiskName(identity)));
       try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
         if (role == PageFileRole.CONFIG_POSITION_MAP) {
           assertThrows(RuntimeException.class,
@@ -283,7 +283,7 @@ public class CollectionBasedStorageConfigurationTest {
         } else {
           try (var opened = (DatabaseSessionEmbedded) manager.open(
               "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
-            assertConfigurationRegistrations(opened.getStorage(), StorageFormat.LAYOUT_26);
+            assertConfigurationRegistrations(opened.getStorage(), StorageFormat.LAYOUT_28);
           }
         }
       }
@@ -299,12 +299,12 @@ public class CollectionBasedStorageConfigurationTest {
     var operation = org.mockito.Mockito.mock(AtomicOperation.class);
     org.mockito.Mockito.when(selected.getAtomicOperationsManager())
         .thenReturn(org.mockito.Mockito.mock(AtomicOperationsManager.class));
-    org.mockito.Mockito.when(selected.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    org.mockito.Mockito.when(selected.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     org.mockito.Mockito.when(selected.getWriteCache()).thenReturn(cache);
     org.mockito.Mockito.when(cache.getId()).thenReturn(17);
     new CollectionBasedStorageConfiguration(selected);
     var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA, 0);
-    var name = PageFileNames.layout26(identity);
+    var name = PageFileNames.layout28(identity);
     var id = AbstractWriteCache.composeFileId(17, identity.internalId());
     assertFalse(CollectionBasedStorageConfiguration.exists(selected, operation));
     org.mockito.Mockito.when(operation.isFileExists(name, id)).thenReturn(true);
@@ -523,7 +523,7 @@ public class CollectionBasedStorageConfigurationTest {
     // Invalid evidence fails in both the writer and the tag-driven decoder without a default.
     for (var componentId : new int[] {-1, 33554432}) {
       var message = "Component id " + componentId
-          + " in collection 'x' is outside the layout 26 range 0..33554431";
+          + " in collection 'x' is outside the layout 28 range 0..33554431";
       atomicOps.executeInsideAtomicOperation(op -> {
         collectionTestOperation = op;
         var writerError = assertThrows(StorageException.class,

@@ -194,17 +194,17 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   /** Presence uses the admitted layout and validates the fixed data identity before opening. */
   public static boolean exists(AbstractStorage storage, AtomicOperation operation) {
-    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
       return exists(storage.getWriteCache());
     }
     var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA,
         PageFileIdentity.CONFIGURATION_COMPONENT_ID);
-    return operation.isFileExists(PageFileNames.layout26(identity),
+    return operation.isFileExists(PageFileNames.layout28(identity),
         AbstractWriteCache.composeFileId(storage.getWriteCache().getId(), identity.internalId()));
   }
 
   public CollectionBasedStorageConfiguration(final AbstractStorage storage) {
-    if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
       collection = new PaginatedCollectionV2(COMPONENT_NAME, DATA_FILE_EXTENSION,
           MAP_FILE_EXTENSION, FREE_MAP_FILE_EXTENSION, DIRTY_PAGE_FILE_EXTENSION, storage,
           new PageFileIdentity(PageFileRole.CONFIG_DATA,
@@ -338,7 +338,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       // error against a layout these binaries cannot know.
       checkStorageLayoutVersionConsistency();
 
-      if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
         for (var kind : PageFileKind.values()) {
           readComponentIdCounter(kind, atomicOperation);
         }
@@ -1585,8 +1585,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private String componentIdCounterKey(PageFileKind kind) {
-    if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
-      throw new StorageException(storage.getName(), "Component counters require storage layout 26");
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      throw new StorageException(storage.getName(), "Component counters require storage layout 28");
     }
     return switch (kind) {
       case COLLECTION -> "collectionComponentIdCounter";
@@ -2068,7 +2068,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     final var componentId = paginatedCollectionConfiguration.getComponentId();
     if (componentId != null) {
-      PageFileNames.validateLayout26ComponentIdEvidence(
+      PageFileNames.validateLayout28ComponentIdEvidence(
           componentId, "collection '" + collection.name() + "'");
       final var componentData = new byte[IntegerSerializer.INT_SIZE];
       IntegerSerializer.serializeNative(componentId, componentData, 0);
@@ -2117,7 +2117,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
             "Trailing bytes after component id for collection '" + name + "'");
       }
       componentId = IntegerSerializer.deserializeNative(property, pos);
-      PageFileNames.validateLayout26ComponentIdEvidence(componentId, "collection '" + name + "'");
+      PageFileNames.validateLayout28ComponentIdEvidence(componentId, "collection '" + name + "'");
     }
 
     return new StoragePaginatedCollectionConfiguration(
@@ -2355,7 +2355,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     // open, or a genesis-bootstrap allocation on this virgin configuration) finds a durable
     // value; a missing floor on a v24 database reads as corruption.
     updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, 0);
-    if (storage.getStorageFormat() == StorageFormat.LAYOUT_26) {
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
       updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.COLLECTION), 0);
       updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.CONFIGURATION),
           PageFileIdentity.CONFIGURATION_COMPONENT_ID);

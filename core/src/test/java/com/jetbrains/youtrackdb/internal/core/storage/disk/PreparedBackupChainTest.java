@@ -234,7 +234,7 @@ public class PreparedBackupChainTest {
   public void replayOfAClosedChainIsRefused() throws Exception {
     var temporaryDirectory = Files.createDirectories(root.resolve("request"));
     var chain = new PreparedBackupChain(DATABASE, temporaryDirectory);
-    chain.completePreparation(7, StorageFormat.LAYOUT_25);
+    chain.completePreparation(7, StorageFormat.LAYOUT_27);
     chain.close();
 
     var refusal = assertThrows(IllegalStateException.class, chain::requireComplete);
@@ -278,7 +278,7 @@ public class PreparedBackupChainTest {
 
     chain.addUnit(fullBackup, true);
     chain.addUnit(increment, false);
-    chain.completePreparation(11, StorageFormat.LAYOUT_26);
+    chain.completePreparation(11, StorageFormat.LAYOUT_28);
 
     assertEquals("the chain must keep two units", 2, chain.units().size());
     assertSame("the full backup must open the chain", fullBackup, chain.units().getFirst().left());
