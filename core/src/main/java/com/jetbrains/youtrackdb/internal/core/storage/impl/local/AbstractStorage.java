@@ -2426,6 +2426,11 @@ public abstract class AbstractStorage
         "Collection with id " + collectionId + " does not exist inside of storage " + name);
   }
 
+  /** Reports ownership without acquiring or extending storage creation exclusion. */
+  public final boolean isStateWriteLockedByCurrentThread() {
+    return stateLock.isWriteLockedByCurrentThread();
+  }
+
   @Override
   public final int getId() {
     return id;

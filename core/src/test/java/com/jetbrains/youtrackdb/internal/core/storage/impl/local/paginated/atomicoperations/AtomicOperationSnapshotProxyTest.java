@@ -1451,15 +1451,14 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
-  public void testAddFileNonDurableAfterDeleteReusesFileId() throws IOException {
-    // When a file is deleted then re-added with nonDurable=true, the code takes
-    // the deletedFileNameIdMap branch (isNew=false). Verify the nonDurable flag
-    // is stored correctly on this reuse path.
+  public void testAddFileAfterDeleteRejectsDurabilityChangeAndPreservesDeletion()
+      throws IOException {
+    // A committed durable file cannot become non-durable through delete and re-add.
+    // Rejection preserves deletion state and the legacy route does not mark rollback.
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 99;
-    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
     when(writeCache.fileNameById(composedFileId)).thenReturn("reused-file.dat");
 
     var op = new AtomicOperationBinaryTracking(
@@ -1468,14 +1467,18 @@ public class AtomicOperationSnapshotProxyTest {
         sharedSnapshotIndex, sharedVisibilityIndex, new AtomicLong(),
         sharedEdgeSnapshotIndex, sharedEdgeVisibilityIndex, edgeSnapshotIndexSize);
 
-    long fid1 = op.addFile("reused-file.dat", false);
-    assertThat(op.isFileNonDurable(fid1)).isFalse();
-
+    // Start with a committed file, not a pending creation in this operation.
+    long fid1 = composedFileId;
     op.deleteFile(fid1);
-    long fid2 = op.addFile("reused-file.dat", true);
-
+    assertThatThrownBy(() -> op.addFile("reused-file.dat", true))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("durability");
+    assertThat(op.isFileExists("reused-file.dat")).isFalse();
+    assertThat(op.isRollbackInProgress()).isFalse();
+    // A same-durability retry still reaches the committed-file reuse branch.
+    long fid2 = op.addFile("reused-file.dat", false);
     assertThat(fid2).isEqualTo(fid1);
-    assertThat(op.isFileNonDurable(fid2)).isTrue();
+    assertThat(op.isFileNonDurable(fid2)).isFalse();
   }
 
   @Test
