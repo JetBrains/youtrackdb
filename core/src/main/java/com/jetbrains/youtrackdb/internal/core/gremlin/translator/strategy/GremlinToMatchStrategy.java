@@ -559,7 +559,7 @@ public final class GremlinToMatchStrategy
    * about whether the translator is on when a thread flips the flag mid-compilation; see that
    * class's "Why the kill-switch is not consulted".
    */
-  @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
+  @Nullable static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
     if (session == null) {
