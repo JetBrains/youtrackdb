@@ -1,11 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * A two-level free-space map that tracks the maximum free space available on each data page of a
@@ -87,25 +90,36 @@ public final class FreeSpaceMap extends StorageComponent {
   /** Internal file ID assigned by the disk cache when the .fsm file is opened/created. */
   private volatile long fileId;
 
+  private final @Nullable PageFileIdentity identity;
+
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,
       @Nonnull String name,
       String extension,
       String lockName) {
-    super(storage, name, extension, lockName, true);
+    this(storage, name, extension, lockName, null);
+  }
+
+  public FreeSpaceMap(AbstractStorage storage, String name, String extension, String lockName,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, extension,
+        validateIdentity(storage, extension, lockName, identity, PageFileRole.FREE_SPACE_MAP,
+            PageFileRole.CONFIG_FREE_SPACE_MAP),
+        true);
+    this.identity = identity;
   }
 
   public boolean exists(final AtomicOperation atomicOperation) {
-    return isFileExists(atomicOperation, getFullName());
+    return isFileExists(atomicOperation, getFullName(), identity);
   }
 
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileId = addFile(atomicOperation, getFullName(), identity);
     init(atomicOperation);
   }
 
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
   private void init(final AtomicOperation atomicOperation) throws IOException {
@@ -264,7 +278,7 @@ public final class FreeSpaceMap extends StorageComponent {
   }
 
   public void delete(AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileId, identity);
   }
 
   void rename(final String newName) throws IOException {

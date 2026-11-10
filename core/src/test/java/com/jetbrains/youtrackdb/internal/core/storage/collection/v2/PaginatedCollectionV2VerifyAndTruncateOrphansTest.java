@@ -136,7 +136,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   }
 
   // Drive the real private auxiliaries through the parent. Every lifecycle handle must use
-  // its exact owner and role. Omitting any auxiliary binding must fail these verifications.
+  // its exact owner and role. Omitting any auxiliary identity must fail these verifications.
   @Test
   public void explicitFamiliesUseExactHandlesForCreateOpenPresenceAndDelete() throws IOException {
     when(mockStorage.getStorageFormat()).thenReturn(
@@ -194,12 +194,24 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     }
   }
 
-  // Direct inherited binding must not bypass position-map role validation.
+  // Position-map construction validates the role, extension and storage format.
   @Test
-  public void positionMapBindingRejectsADataRoleEvenWithAMatchingExtension() {
-    var map = new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cd");
+  public void positionMapConstructorValidatesExplicitIdentity() {
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
     org.junit.Assert.assertThrows(IllegalArgumentException.class,
-        () -> map.bindPageFileIdentities(new PageFileIdentity(PageFileRole.CONFIG_DATA, 0)));
+        () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cd",
+            new PageFileIdentity(PageFileRole.CONFIG_DATA, 0)));
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".wrong",
+            new PageFileIdentity(PageFileRole.POSITION_MAP, 0)));
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_25);
+    org.junit.Assert.assertThrows(
+        com.jetbrains.youtrackdb.internal.core.exception.StorageException.class,
+        () -> new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cpm",
+            new PageFileIdentity(PageFileRole.POSITION_MAP, 0)));
+    org.mockito.Mockito.clearInvocations(mockStorage);
+    new CollectionPositionMapV2(mockStorage, "legacy", "domain", ".cpm");
+    verify(mockStorage, never()).getStorageFormat();
   }
 
   // Sanity-check anchor: create() left fileSize == 0 (the legitimate post-create

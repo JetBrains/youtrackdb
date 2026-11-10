@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.Arrays;
@@ -112,37 +113,24 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   /** Internal file ID assigned by the disk cache when the .cpm file is opened/created. */
   private volatile long fileId;
 
-  /** Package-private constructor; instances are created by {@link PaginatedCollectionV2}. */
-  CollectionPositionMapV2(
-      final AbstractStorage storage,
-      final String name,
-      final String lockName,
-      final String extension) {
-    super(storage, name, extension, lockName, true);
+  private final @Nullable PageFileIdentity identity;
+
+  CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension) {
+    this(storage, name, lockName, extension, null);
   }
 
-  /** Constructs an explicitly owned position map in the collection lock domain. */
-  CollectionPositionMapV2(AbstractStorage storage, String name, String lockName,
-      String extension, PageFileIdentity identity) {
-    this(storage, name, lockName, extension);
-    if (identity != null) {
-      bindPageFileIdentities(identity);
-    }
-  }
-
-  @Override
-  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
-    super.validatePageFileIdentityFamily(identities);
-    switch (identities.getFirst().role()) {
-      case POSITION_MAP, CONFIG_POSITION_MAP -> {
-      }
-      default -> throw new IllegalArgumentException("Expected position-map role");
-    }
+  CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, extension,
+        validateIdentity(storage, extension, lockName, identity, PageFileRole.POSITION_MAP,
+            PageFileRole.CONFIG_POSITION_MAP),
+        true);
+    this.identity = identity;
   }
 
   /** Opens an existing position-map file by name through the disk cache. */
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
   /**
@@ -151,7 +139,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * creation), the existing page 0 is reused and reset.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileId = addFile(atomicOperation, getFullName(), identity);
 
     // Bootstrap emptiness check on the EntryPoint page (chicken-and-egg): the page
     // being inspected IS the EntryPoint itself, so logical bookkeeping (MapEntryPoint
@@ -188,7 +176,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   public void delete(final AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileId, identity);
   }
 
   @Override

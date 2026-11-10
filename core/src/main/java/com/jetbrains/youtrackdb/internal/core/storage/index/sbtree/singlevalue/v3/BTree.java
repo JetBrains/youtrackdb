@@ -140,6 +140,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final String nullFileExtension,
       final AbstractStorage storage) {
     super(storage, name, dataFileExtension, name + dataFileExtension, true);
+    this.dataIdentity = null;
+    this.nullIdentity = null;
     acquireExclusiveLock();
     try {
       this.nullFileExtension = nullFileExtension;
@@ -157,22 +159,21 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     this(name, dataFileExtension, nullFileExtension, storage, serializerFactory, null, null);
   }
 
+  // A tree has exactly two page files: data and the null bucket.
+  private final @Nullable PageFileIdentity dataIdentity;
+  private final @Nullable PageFileIdentity nullIdentity;
+
   /** Supports bootstrap before the storage component factory exists. */
   public BTree(String name, String dataFileExtension, String nullFileExtension,
       AbstractStorage storage, BinarySerializerFactory serializerFactory,
       PageFileIdentity dataIdentity, PageFileIdentity nullIdentity) {
     super(storage, name, dataFileExtension,
-        dataIdentity == null ? name + dataFileExtension : PageFileNames.layout26(dataIdentity),
+        validateTreeIdentities(storage, name, dataFileExtension, nullFileExtension,
+            dataIdentity, nullIdentity),
         true);
     this.nullFileExtension = nullFileExtension;
-    if (dataIdentity != null) {
-      if (nullIdentity == null) {
-        throw new IllegalArgumentException("Expected matching tree null-bucket role");
-      }
-      bindPageFileIdentities(dataIdentity, nullIdentity);
-    } else if (nullIdentity != null) {
-      throw new IllegalArgumentException("Tree data identity is required");
-    }
+    this.dataIdentity = dataIdentity;
+    this.nullIdentity = nullIdentity;
     acquireExclusiveLock();
     try {
       this.serializerFactory = serializerFactory;
@@ -181,23 +182,29 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     }
   }
 
-  @Override
-  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
-    if (identities.size() != 2) {
+  private static String validateTreeIdentities(AbstractStorage storage, String name,
+      String dataExtension, String nullExtension, PageFileIdentity data, PageFileIdentity bucket) {
+    var lockName = validateIdentity(storage, dataExtension,
+        data == null ? name + dataExtension : PageFileNames.layout26(data), data,
+        PageFileRole.PROPERTY_DATA, PageFileRole.INDEX_DATA, PageFileRole.NULL_KEY_DATA);
+    if (data == null && bucket == null) {
+      return lockName;
+    }
+    if (data == null || bucket == null) {
       throw new IllegalArgumentException("Expected tree data and null-bucket roles");
     }
-    var dataIdentity = identities.getFirst();
-    var nullIdentity = identities.get(1);
-    var expectedNullRole = switch (dataIdentity.role()) {
+    var expected = switch (data.role()) {
       case PROPERTY_DATA -> PageFileRole.PROPERTY_NULL_BUCKET;
       case INDEX_DATA -> PageFileRole.INDEX_NULL_BUCKET;
       case NULL_KEY_DATA -> PageFileRole.NULL_KEY_NULL_BUCKET;
       default -> throw new IllegalArgumentException("Expected tree data role");
     };
-    if (nullIdentity.role() != expectedNullRole
-        || !nullFileExtension.equals(nullIdentity.role().layout25Extension())) {
-      throw new IllegalArgumentException("Expected matching tree null-bucket role");
+    if (bucket.role() != expected || bucket.kind() != data.kind()
+        || bucket.componentId() != data.componentId()
+        || !nullExtension.equals(bucket.role().layout25Extension())) {
+      throw new IllegalArgumentException("Expected matching tree null-bucket owner and role");
     }
+    return lockName;
   }
 
   /**
@@ -239,8 +246,9 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             }
 
             this.keySerializer = keySerializer;
-            fileId = addFile(atomicOperation, getFullName());
-            nullBucketFileId = addFile(atomicOperation, getName() + nullFileExtension);
+            fileId = addFile(atomicOperation, getFullName(), dataIdentity);
+            nullBucketFileId =
+                addFile(atomicOperation, getName() + nullFileExtension, nullIdentity);
 
             // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
             try (final var entryPointCacheEntry =
@@ -913,8 +921,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
-            deleteFile(atomicOperation, nullBucketFileId);
+            deleteFile(atomicOperation, fileId, dataIdentity);
+            deleteFile(atomicOperation, nullBucketFileId, nullIdentity);
           } finally {
             releaseExclusiveLock();
           }
@@ -965,8 +973,8 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final BinarySerializer<K> keySerializer, @Nonnull AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      fileId = openFile(atomicOperation, getFullName());
-      nullBucketFileId = openFile(atomicOperation, name + nullFileExtension);
+      fileId = openFile(atomicOperation, getFullName(), dataIdentity);
+      nullBucketFileId = openFile(atomicOperation, name + nullFileExtension, nullIdentity);
 
       this.keySize = keySize;
       this.maxKeySize =

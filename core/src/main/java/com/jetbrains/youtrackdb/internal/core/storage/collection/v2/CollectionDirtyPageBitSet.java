@@ -2,10 +2,11 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * A durable bit set that tracks which data pages in a {@link PaginatedCollectionV2} contain at
@@ -37,45 +38,35 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   /** Internal file ID assigned by the disk cache when the .dpb file is opened/created. */
   private long fileId;
 
-  public CollectionDirtyPageBitSet(
-      @Nonnull AbstractStorage storage,
-      @Nonnull String name,
-      String extension,
-      String lockName) {
-    super(storage, name, extension, lockName, true);
-  }
+  private final @Nullable PageFileIdentity identity;
 
-  /** Constructs an explicitly owned bit set in the collection lock domain. */
   public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
-      String lockName, PageFileIdentity identity) {
-    this(storage, name, extension, lockName);
-    if (identity != null) {
-      bindPageFileIdentities(identity);
-    }
+      String lockName) {
+    this(storage, name, extension, lockName, null);
   }
 
-  @Override
-  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
-    super.validatePageFileIdentityFamily(identities);
-    switch (identities.getFirst().role()) {
-      case DIRTY_PAGE_BIT_SET, CONFIG_DIRTY_PAGE_BIT_SET -> {
-      }
-      default -> throw new IllegalArgumentException("Expected dirty-page bit-set role");
-    }
+  public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
+      String lockName,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, extension,
+        validateIdentity(storage, extension, lockName, identity, PageFileRole.DIRTY_PAGE_BIT_SET,
+            PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET),
+        true);
+    this.identity = identity;
   }
 
   /**
    * Returns {@code true} if the backing file already exists on disk.
    */
   public boolean exists(final AtomicOperation atomicOperation) {
-    return isFileExists(atomicOperation, getFullName());
+    return isFileExists(atomicOperation, getFullName(), identity);
   }
 
   /**
    * Creates a new dirty page bit set file and initializes the first page to all zeros.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileId = addFile(atomicOperation, getFullName(), identity);
 
     // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
     try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
@@ -88,7 +79,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Opens an existing dirty page bit set file.
    */
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
   /**
@@ -111,7 +102,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Deletes the dirty page bit set file.
    */
   public void delete(final AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileId, identity);
   }
 
   /**
