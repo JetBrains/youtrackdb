@@ -177,6 +177,124 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     assertThat(builds.get()).isZero();
   }
 
+  /** Native class resolution crosses both sorts and a scalar projection at the refused cuts. */
+  @Test
+  public void collationCutsCrossCheckNativeProducerResolution() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    ModernGraphFixture.seed(graph, session);
+    session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var queries = List.of(
+        graph.traversal().V().hasLabel("Person").order().by("age").order().by("name"),
+        graph.traversal().V().hasLabel("Person").values("name").order());
+    for (var query : queries) {
+      var traversal = query.asAdmin();
+      var rules = new PartialCutRules(traversal.getSteps());
+      var nativeClasses =
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy
+              .orderedClasses(schema, traversal.getEndStep());
+      assertThat(nativeClasses).extracting(c -> c.getName()).containsExactly("Person");
+      for (int cut = 1; cut < traversal.getSteps().size(); cut++) {
+        assertThat(rules.splitsOrder(cut)).isTrue();
+      }
+      var suffix = traversal.clone();
+      suffix.removeStep(0);
+      suffix.removeStep(0);
+      assertThat(
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy
+              .orderedClasses(schema, suffix.getEndStep()))
+          .isNotEqualTo(nativeClasses);
+    }
+  }
+
+  /** Endpoint inference reads the edge producer, but the walker never offers an interior edge cut. */
+  @Test
+  public void endpointCollationBackWalkStaysInsideCompletedEdgeUnit() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    ModernGraphFixture.seed(graph, session);
+    session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var person = session.getSchema().getClass("Person");
+    var edge = session.getSchema().getClass("knows");
+    edge.getProperty("in").setLinkedClass(person);
+    edge.getProperty("out").setLinkedClass(person);
+    graph.tx().commit();
+    session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    var queries = List.of(
+        graph.traversal().V().outE("knows").has("weight", 1.0d).inV().order().by("name"),
+        graph.traversal().V().outE("knows").has("weight", 1.0d).outV().order().by("name"),
+        graph.traversal().V().outE("knows").has("weight", 1.0d).otherV().order().by("name"));
+    for (var query : queries) {
+      var traversal = query.asAdmin();
+      var classes =
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy
+              .orderedClasses(schema, traversal.getEndStep());
+      assertThat(classes).extracting(c -> c.getName()).containsExactly("Person");
+      var completions = new ArrayList<Integer>();
+      GremlinStepWalker.production().walkObserved(traversal,
+          GremlinStepWalker.WalkInputs.capture(traversal), completions::add);
+      assertThat(completions).contains(4).doesNotContain(2, 3);
+      // The completed endpoint is before the sort, whose collation still needs that endpoint.
+      assertThat(new PartialCutRules(traversal.getSteps()).splitsOrder(4)).isTrue();
+      var suffix = traversal.clone();
+      for (int i = 0; i < 4; i++) {
+        suffix.removeStep(0);
+      }
+      assertThat(
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderCollationStrategy
+              .orderedClasses(schema, suffix.getEndStep()))
+          .isNotEqualTo(classes);
+    }
+  }
+
+  /** The registered strategy order fixes RID tie-breaks on the whole traversal before selection. */
+  @Test
+  public void ridTieBreakRunsBeforeTranslationSelection() {
+    var strategies = graph.traversal().V().asAdmin().getStrategies().toList();
+    var classes = strategies.stream().map(Object::getClass).toList();
+    assertThat(classes.indexOf(
+        com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy.class))
+        .isNotNegative().isLessThan(classes.indexOf(GremlinToMatchStrategy.class));
+  }
+
+  /** A production warm call performs exactly one extraction, lookup and shared safety check. */
+  @Test
+  public void productionWarmCallKeepsExactPreparationCounts() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    ModernGraphFixture.seed(graph, session);
+    session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var cache = GremlinPlanCache.instance(session);
+    cache.invalidate();
+    GremlinToMatchStrategy.instance().apply(graph.traversal().V().has("age", 29).asAdmin());
+    var warm = graph.traversal().V().has("age", 32).asAdmin();
+    var extractions = new AtomicInteger();
+    var lookups = new AtomicInteger();
+    var safetyChecks = new AtomicInteger();
+    long hits = cache.getTranslationHits();
+    try (var walker = org.mockito.Mockito.mockStatic(GremlinStepWalker.class, invocation -> {
+      if (invocation.getMethod().getName().equals("extractShape")) {
+        extractions.incrementAndGet();
+      }
+      return invocation.callRealMethod();
+    }); var plans = org.mockito.Mockito.mockStatic(GremlinPlanCache.class, invocation -> {
+      if (invocation.getMethod().getName().equals("getTranslation")) {
+        lookups.incrementAndGet();
+      }
+      return invocation.callRealMethod();
+    }); var safety = org.mockito.Mockito.mockStatic(QuerySafetyAdmission.class, invocation -> {
+      if (invocation.getMethod().getName().equals("prepare")) {
+        safetyChecks.incrementAndGet();
+      }
+      return invocation.callRealMethod();
+    })) {
+      GremlinToMatchStrategy.instance().apply(warm);
+    }
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertThat(extractions.get()).isEqualTo(1);
+    assertThat(lookups.get()).isEqualTo(1);
+    assertThat(safetyChecks.get()).isEqualTo(1);
+  }
+
   /** Root union candidates cost no fresh recognition or build when earlier cuts lack admission. */
   @Test
   public void rootUnionIsRefusedStructurally() {
@@ -193,11 +311,14 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
   @Test
   public void identifiersNeverReachPlanBuilding() {
     var traversal = graph.traversal().V("#12:0").out("knows").optional(__.out()).asAdmin();
-    try (var outcome = run(discovery(), traversal, cut -> true)) {
+    try (var outcome = run(discovery(2, false), traversal, cut -> true)) {
       assertThat(outcome.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.RECORD_IDENTIFIERS);
     }
-    assertThat(recognitions).containsExactly(2);
+    assertThat(recognitions).isEmpty();
     assertThat(builds.get()).isZero();
+    var unadmitted = graph.traversal().V("#12:0").out("knows").optional(__.out()).asAdmin();
+    assertThat(run(discovery(), unadmitted, null).reason())
+        .isEqualTo(PrivatePrefixDiscovery.Reason.CUT_ADMISSION);
   }
 
   /** A selected build failure is terminal rather than permission to build a shorter plan. */
@@ -221,14 +342,25 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
       return GremlinStepWalker.production().walkObserved(traversal, inputs, observer);
     }, (session, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(session, translation, scope);
+      plan = org.mockito.Mockito.spy(GremlinToMatchStrategy.buildPlan(session, translation, scope));
+      return plan;
     });
-    try (var outcome = run(discovery,
-        graph.traversal().V().optional(__.out()).asAdmin(), cut -> true)) {
+    var admissions = new ArrayList<Integer>();
+    var traversal = graph.traversal().V().limit(10).optional(__.out()).asAdmin();
+    var completions = new ArrayList<Integer>();
+    GremlinStepWalker.production().walkObserved(traversal,
+        GremlinStepWalker.WalkInputs.capture(traversal), completions::add);
+    assertThat(completions).contains(1, 2);
+    try (var outcome = run(discovery, traversal, cut -> {
+      admissions.add(cut);
+      return true;
+    })) {
       assertThat(outcome.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAIN);
     }
-    assertThat(recognitions).containsExactly(1);
+    assertThat(admissions).containsExactly(2);
+    assertThat(recognitions).containsExactly(2);
     assertThat(builds.get()).isEqualTo(1);
+    verify(plan).close();
   }
 
   /** Missing evidence, safety veto, full support and missing cut admission have distinct reasons. */
@@ -246,6 +378,51 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
         .isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
     assertThat(run(discovery, traversal, null).reason())
         .isEqualTo(PrivatePrefixDiscovery.Reason.CUT_ADMISSION);
+    assertThat(recognitions).isEmpty();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Evidence for another safe traversal cannot admit an unsafe traversal, even after its scan. */
+  @Test
+  public void foreignSafetyEvidenceIsMissing() {
+    var safe = graph.traversal().V().asAdmin();
+    var foreign = QuerySafetyAdmission.prepare(safe);
+    var unsafe = graph.traversal().V().filter(v -> true).optional(__.out()).asAdmin();
+    assertThat(discovery().discover(unsafe, foreign, cut -> true).reason())
+        .isEqualTo(PrivatePrefixDiscovery.Reason.MISSING_SAFETY);
+    QuerySafetyAdmission.prepare(unsafe);
+    assertThat(discovery().discover(unsafe, foreign, cut -> true).reason())
+        .isEqualTo(PrivatePrefixDiscovery.Reason.MISSING_SAFETY);
+    assertThat(recognitions).isEmpty();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Exhausting recognition without completions is capability decline and leaves the root intact. */
+  @Test
+  public void noCompletedCandidateIsCapabilityDecline() {
+    var traversal = graph.traversal().V().optional(__.out()).asAdmin();
+    var steps = List.copyOf(traversal.getSteps());
+    var discovery = new PrivatePrefixDiscovery((query, inputs, observer) -> null,
+        (session, translation, scope) -> {
+          builds.incrementAndGet();
+          throw new AssertionError("no candidate");
+        });
+    assertThat(run(discovery, traversal, cut -> true).reason())
+        .isEqualTo(PrivatePrefixDiscovery.Reason.CAPABILITY_DECLINE);
+    assertThat(builds.get()).isZero();
+    assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+  }
+
+  /** An unrolled, fully recognisable repeat retains the production repeat veto precedence. */
+  @Test
+  public void unrolledFullRepeatIsNotFullSupported() {
+    var traversal = graph.traversal().V().repeat(__.out("knows")).times(2).asAdmin();
+    QuerySafetyAdmission.prepare(traversal);
+    RepeatDeclineStrategy.instance().apply(traversal);
+    RepeatUnrollStrategy.instance().apply(traversal);
+    assertThat(GremlinStepWalker.production().walk(traversal)).isNotNull();
+    assertThat(run(discovery(), traversal, cut -> true).reason())
+        .isEqualTo(PrivatePrefixDiscovery.Reason.REPEAT);
     assertThat(recognitions).isEmpty();
     assertThat(builds.get()).isZero();
   }
@@ -395,6 +572,118 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     assertThat(run(discovery(), sack, cut -> true).reason())
         .isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
     assertThat(calls.get()).isZero();
+    assertThat(recognitions).isEmpty();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Bytecode-only declarations and isolated attached state each refuse without invoking callbacks. */
+  @Test
+  public void declarationOnlyAndAttachedStateHaveIndependentEvidence() {
+    var calls = new AtomicInteger();
+    for (String operator : List.of("withSideEffect", "withSack", "withBulk", "withPath")) {
+      var traversal = graph.traversal().V().optional(__.out()).asAdmin();
+      assertThat(PartialSourceState.configured(traversal)).isFalse();
+      traversal.getBytecode().addSource(operator);
+      assertThat(run(discovery(), traversal, cut -> true).reason())
+          .isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+    }
+    for (int kind = 0; kind < 5; kind++) {
+      var traversal = graph.traversal().V().optional(__.out()).asAdmin();
+      java.util.function.Supplier<Integer> supplier = calls::incrementAndGet;
+      java.util.function.UnaryOperator<Integer> splitter = value -> {
+        calls.incrementAndGet();
+        return value;
+      };
+      java.util.function.BinaryOperator<Integer> merger = (a, b) -> {
+        calls.incrementAndGet();
+        return a;
+      };
+      switch (kind) {
+        case 0 -> traversal.getSideEffects().setSack(supplier, null, null);
+        case 1 -> traversal.getSideEffects().setSack(null, splitter, null);
+        case 2 -> traversal.getSideEffects().setSack(null, null, merger);
+        case 3 -> traversal.getSideEffects().register("state", supplier, null);
+        case 4 -> traversal.addStep(
+            new org.apache.tinkerpop.gremlin.process.traversal.step.util.RequirementsStep<>(
+                traversal, java.util.Set.of(TraverserRequirement.PATH)));
+        default -> throw new AssertionError();
+      }
+      assertThat(run(discovery(), traversal, cut -> true).reason())
+          .isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+    }
+    assertThat(calls.get()).isZero();
+    assertThat(recognitions).isEmpty();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Every source-state family has equal native execution with translation on and off. */
+  @Test
+  public void sourceFamiliesKeepNativeResultsAndExecutionCallCounts() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    ModernGraphFixture.seed(graph, session);
+    session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var configuration = session.getConfiguration();
+    for (String family : List.of("effects", "supplier", "splitter", "merger", "bulk", "path")) {
+      List<String> expected = null;
+      List<Integer> expectedCalls = null;
+      List<Integer> expectedPreparationCalls = null;
+      for (boolean enabled : List.of(false, true)) {
+        var supplierCalls = new AtomicInteger();
+        var splitCalls = new AtomicInteger();
+        var mergeCalls = new AtomicInteger();
+        java.util.function.Supplier<Integer> supplier = () -> {
+          supplierCalls.incrementAndGet();
+          return 1;
+        };
+        java.util.function.UnaryOperator<Integer> splitter = value -> {
+          splitCalls.incrementAndGet();
+          return value;
+        };
+        java.util.function.BinaryOperator<Integer> merger = (a, b) -> {
+          mergeCalls.incrementAndGet();
+          return a + b;
+        };
+        var source = switch (family) {
+          case "effects" -> graph.traversal().withSideEffect("state", supplier);
+          case "supplier" -> graph.traversal().withSack(supplier);
+          case "splitter" -> graph.traversal().withSack(supplier, splitter);
+          case "merger" -> graph.traversal().withSack(supplier, merger);
+          case "bulk" -> graph.traversal().withBulk(false);
+          case "path" -> graph.traversal().withPath();
+          default -> throw new AssertionError();
+        };
+        configuration.setValue(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+        var traversal = source.V().hasLabel("Person").optional(__.out("knows"))
+            .values("name").asAdmin();
+        assertThat(run(discovery(), traversal, cut -> true).reason())
+            .isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+        assertThat(List.of(supplierCalls.get(), splitCalls.get(), mergeCalls.get()))
+            .containsOnly(0);
+        configuration.setValue(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+        traversal.applyStrategies();
+        // Native strategies may initialise declared state. Keep those calls separate from
+        // discovery, which must call nothing, and from subsequent traversal execution.
+        var preparationCalls = List.of(supplierCalls.getAndSet(0), splitCalls.getAndSet(0),
+            mergeCalls.getAndSet(0));
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(traversal)).isZero();
+        var results = traversal.toList().stream().map(Object::toString).sorted().toList();
+        var executionCalls = List.of(supplierCalls.get(), splitCalls.get(), mergeCalls.get());
+        assertThat(results).isNotEmpty();
+        if (expected == null) {
+          expected = results;
+          expectedCalls = executionCalls;
+          expectedPreparationCalls = preparationCalls;
+        } else {
+          assertThat(results).as(family).isEqualTo(expected);
+          assertThat(preparationCalls).as(family + " preparation")
+              .isEqualTo(expectedPreparationCalls);
+          assertThat(executionCalls).as(family + " execution").isEqualTo(expectedCalls);
+        }
+        source.close();
+      }
+    }
     assertThat(recognitions).isEmpty();
     assertThat(builds.get()).isZero();
   }

@@ -48,7 +48,7 @@ final class PrivatePrefixDiscovery {
 
   Outcome discover(Traversal.Admin<?, ?> traversal, @Nullable QuerySafetyAdmission.Result safety,
       @Nullable IntPredicate admittedCut) {
-    if (safety == null) {
+    if (safety == null || safety != QuerySafetyAdmission.stored(traversal)) {
       return refused(Reason.MISSING_SAFETY);
     }
     if (safety.reason() != QuerySafetyAdmission.Reason.SAFE) {
@@ -67,16 +67,21 @@ final class PrivatePrefixDiscovery {
     var completions = new TreeSet<Integer>();
     // Keep the refused step visible. Truncating here would incorrectly settle a deferred hop.
     var full = recognition.walk(traversal, inputs, completions::add);
-    if (full != null && traversal.getSteps().stream().allMatch(RootStepAdmission::admits)) {
-      return refused(Reason.FULL_SUPPORTED);
-    }
     if (PartialSourceState.repeat(traversal)) {
       return refused(Reason.REPEAT);
+    }
+    if (full != null && traversal.getSteps().stream().allMatch(RootStepAdmission::admits)) {
+      return refused(Reason.FULL_SUPPORTED);
     }
     if (safety.oneBulk() || PartialSourceState.configured(traversal)) {
       return refused(Reason.SOURCE_STATE);
     }
     var rules = new PartialCutRules(traversal.getSteps());
+    // Identifier evidence is cumulative. If even the earliest completion carries it, no
+    // shorter completed candidate can avoid the native-only refusal. Do not recognise any.
+    var earliest = completions.ceiling(1);
+    boolean identifiersAtEveryCompletion = earliest != null
+        && earliest < traversal.getSteps().size() && rules.hasIdentifiers(earliest);
     Reason reason = Reason.CAPABILITY_DECLINE;
     for (int cut : completions.descendingSet()) {
       if (cut <= 0 || cut >= traversal.getSteps().size()) {
@@ -97,6 +102,9 @@ final class PrivatePrefixDiscovery {
       if (admittedCut == null || !admittedCut.test(cut)) {
         reason = Reason.CUT_ADMISSION;
         continue;
+      }
+      if (identifiersAtEveryCompletion) {
+        return refused(Reason.RECORD_IDENTIFIERS);
       }
       var prefix = traversal.clone();
       while (prefix.getSteps().size() > cut) {
