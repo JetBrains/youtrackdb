@@ -102,10 +102,9 @@ public final class FreeSpaceMap extends StorageComponent {
 
   public FreeSpaceMap(AbstractStorage storage, String name, String extension, String lockName,
       @Nullable PageFileIdentity identity) {
-    super(storage, name, extension,
-        validateIdentity(storage, extension, lockName, identity, PageFileRole.FREE_SPACE_MAP,
-            PageFileRole.CONFIG_FREE_SPACE_MAP),
-        true);
+    super(storage, name, extension, lockName, true);
+    validateIdentity(storage, extension, identity, PageFileRole.FREE_SPACE_MAP,
+        PageFileRole.CONFIG_FREE_SPACE_MAP);
     this.identity = identity;
   }
 

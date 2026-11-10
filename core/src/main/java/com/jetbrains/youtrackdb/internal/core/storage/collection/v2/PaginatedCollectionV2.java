@@ -294,10 +294,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       String name, String dataExtension, String cpmExtension, String fsmExtension,
       String dpbExtension, AbstractStorage storage, PageFileIdentity dataIdentity) {
     super(storage, name, dataExtension,
-        validateIdentity(storage, dataExtension,
-            dataIdentity == null ? name + dataExtension : PageFileNames.layout26(dataIdentity),
-            dataIdentity, PageFileRole.RECORD_DATA, PageFileRole.CONFIG_DATA),
-        true);
+        dataIdentity == null ? name + dataExtension : PageFileNames.layout26(dataIdentity), true);
+    validateIdentity(storage, dataExtension, dataIdentity,
+        PageFileRole.RECORD_DATA, PageFileRole.CONFIG_DATA);
 
     this.dataIdentity = dataIdentity;
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);

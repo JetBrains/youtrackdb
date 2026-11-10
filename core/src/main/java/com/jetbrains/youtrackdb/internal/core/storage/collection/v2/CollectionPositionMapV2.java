@@ -121,10 +121,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension,
       @Nullable PageFileIdentity identity) {
-    super(storage, name, extension,
-        validateIdentity(storage, extension, lockName, identity, PageFileRole.POSITION_MAP,
-            PageFileRole.CONFIG_POSITION_MAP),
-        true);
+    super(storage, name, extension, lockName, true);
+    validateIdentity(storage, extension, identity, PageFileRole.POSITION_MAP,
+        PageFileRole.CONFIG_POSITION_MAP);
     this.identity = identity;
   }
 

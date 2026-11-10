@@ -168,9 +168,10 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       AbstractStorage storage, BinarySerializerFactory serializerFactory,
       PageFileIdentity dataIdentity, PageFileIdentity nullIdentity) {
     super(storage, name, dataFileExtension,
-        validateTreeIdentities(storage, name, dataFileExtension, nullFileExtension,
-            dataIdentity, nullIdentity),
+        dataIdentity == null ? name + dataFileExtension : PageFileNames.layout26(dataIdentity),
         true);
+    validateTreeIdentities(storage, dataFileExtension, nullFileExtension, dataIdentity,
+        nullIdentity);
     this.nullFileExtension = nullFileExtension;
     this.dataIdentity = dataIdentity;
     this.nullIdentity = nullIdentity;
@@ -182,13 +183,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     }
   }
 
-  private static String validateTreeIdentities(AbstractStorage storage, String name,
+  private static void validateTreeIdentities(AbstractStorage storage,
       String dataExtension, String nullExtension, PageFileIdentity data, PageFileIdentity bucket) {
-    var lockName = validateIdentity(storage, dataExtension,
-        data == null ? name + dataExtension : PageFileNames.layout26(data), data,
+    validateIdentity(storage, dataExtension, data,
         PageFileRole.PROPERTY_DATA, PageFileRole.INDEX_DATA, PageFileRole.NULL_KEY_DATA);
     if (data == null && bucket == null) {
-      return lockName;
+      return;
     }
     if (data == null || bucket == null) {
       throw new IllegalArgumentException("Expected tree data and null-bucket roles");
@@ -204,7 +204,6 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         || !nullExtension.equals(bucket.role().layout25Extension())) {
       throw new IllegalArgumentException("Expected matching tree null-bucket owner and role");
     }
-    return lockName;
   }
 
   /**

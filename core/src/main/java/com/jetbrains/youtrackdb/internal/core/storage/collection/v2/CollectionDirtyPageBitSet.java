@@ -48,10 +48,9 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
       String lockName,
       @Nullable PageFileIdentity identity) {
-    super(storage, name, extension,
-        validateIdentity(storage, extension, lockName, identity, PageFileRole.DIRTY_PAGE_BIT_SET,
-            PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET),
-        true);
+    super(storage, name, extension, lockName, true);
+    validateIdentity(storage, extension, identity, PageFileRole.DIRTY_PAGE_BIT_SET,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET);
     this.identity = identity;
   }
 

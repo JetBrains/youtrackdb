@@ -113,13 +113,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
           PageFileRole.HISTOGRAM);
 
   /**
-   * Validates explicit ownership before a subclass initializes its lock domain.
+   * Validates explicit ownership only and returns nothing. Subclasses call this directly after
+   * {@code super(...)} and before assigning fields or acquiring locks.
    * Legacy construction does not inspect the storage format.
    */
-  protected static String validateIdentity(AbstractStorage storage, String extension,
-      String lockName, @Nullable PageFileIdentity identity, PageFileRole... allowedRoles) {
+  protected static void validateIdentity(AbstractStorage storage, String extension,
+      @Nullable PageFileIdentity identity, PageFileRole... allowedRoles) {
     if (identity == null) {
-      return lockName;
+      return;
     }
     if (storage.getStorageFormat() != StorageFormat.LAYOUT_26) {
       throw new StorageException(storage.getName(), "Page-file identities require layout 26");
@@ -128,7 +129,6 @@ public abstract class StorageComponent extends SharedResourceAbstract {
         || !java.util.List.of(allowedRoles).contains(identity.role())) {
       throw new IllegalArgumentException("Page-file role does not match the component");
     }
-    return lockName;
   }
 
   private long expectedFileId(PageFileIdentity identity) {

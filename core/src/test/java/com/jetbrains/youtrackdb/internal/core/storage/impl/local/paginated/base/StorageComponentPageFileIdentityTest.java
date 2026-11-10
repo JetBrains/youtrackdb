@@ -176,6 +176,8 @@ public class StorageComponentPageFileIdentityTest {
     assertThrows(IllegalArgumentException.class, () -> new BTree<>(
         "config", ".cd", ".nd", storage, factory, identity(PageFileRole.CONFIG_DATA),
         identity(PageFileRole.PROPERTY_NULL_BUCKET)));
+    // Rejected constructors must not reach file operations.
+    verifyNoInteractions(operation);
   }
 
   // Mockito skips field initializers. All four helpers must still use the legacy overloads.
