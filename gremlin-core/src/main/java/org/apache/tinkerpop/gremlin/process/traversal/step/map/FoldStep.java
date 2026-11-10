@@ -76,6 +76,14 @@ public final class FoldStep<S, E> extends ReducingBarrierStep<S, E> {
         return listFold;
     }
 
+    /** Whether both executable components are the built-in list-fold components. */
+    public boolean isDefaultFold() {
+        return getSeedSupplier() == ArrayListSupplier.instance()
+                && getBiOperator().getClass() == FoldBiOperator.class
+                && getBiOperator() instanceof FoldBiOperator<?> operator
+                && operator.biFunction == Operator.addAll;
+    }
+
     public static class FoldBiOperator<E> implements BinaryOperator<E>, Serializable {
 
         private BiFunction biFunction;

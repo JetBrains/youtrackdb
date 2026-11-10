@@ -1002,7 +1002,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .has("name", TextP.startingWith(prefix))).values("name");
   }
 
-  /** An overridden regex operator keeps its native instance on both cold and warm walks. */
+  /** An overridden regex operator keeps its native instance on repeated native attempts. */
   @Test
   public void customRegexPredicate_doesNotRebuildOrCacheAnOverriddenTest() {
     var source = graph.addVertex(T.label, "UnsafeHopSource", "rank", 1);
@@ -1029,9 +1029,10 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
             org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape =
                 () -> unsafeHop("name", predicate, sourceSlice);
         assertThat(runNativeHop(shape)).containsExactly("hit");
-        assertThat(runCountedHop(shape, strategy)).containsExactly("hit");
+        assertThat(runVetoed(shape, strategy).stream().map(String::valueOf).toList())
+            .containsExactly("hit");
       }
-      assertThat(walks.get()).isEqualTo(4);
+      assertThat(walks.get()).isZero();
       assertThat(cache.getTranslationHits()).isEqualTo(hits);
     }
   }
@@ -1056,7 +1057,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
               }, sourceSlice);
           var nativeCustom = runNativeHop(custom);
           assertThat(nativeCustom).containsExactlyElementsOf(unsafe ? List.of("hit") : List.of());
-          assertThat(runCountedHop(custom, countingStrategy(new AtomicInteger())))
+          assertThat(runVetoed(custom, countingStrategy(new AtomicInteger())).stream()
+              .map(String::valueOf).toList())
               .isEqualTo(nativeCustom);
           var operand = unsafe ? new ArrayDeque<>(List.of("red", "blue"))
               : new ArrayList<>(List.of("red", "blue"));
@@ -1347,6 +1349,23 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       admin.applyStrategies();
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
       return admin.toList().stream().map(String::valueOf).toList();
+    } finally {
+      support.setTranslatorEnabled(previous);
+    }
+  }
+
+  private List<?> runVetoed(Supplier<
+      org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> shape,
+      GremlinToMatchStrategy strategy) {
+    var previous = support.translatorEnabled();
+    support.setTranslatorEnabled(true);
+    try {
+      var admin = shape.get().asAdmin();
+      strategy.apply(admin);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
+      assertThat(QuerySafetyAdmission.stored(admin).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+      return admin.toList();
     } finally {
       support.setTranslatorEnabled(previous);
     }
@@ -1782,7 +1801,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     }
   }
 
-  /** An op with an unbound custom predicate literal cannot use an earlier op's literal. */
+  /** Custom predicate literals stay native and never consult or populate either cache. */
   @Test
   public void orderedHopCustomPredicate_twoDifferentLiterals_areNotCached() {
     var hub = graph.addVertex(T.label, "Person", "name", "Hub");
@@ -1806,23 +1825,25 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         graphSession());
     assertThat(firstShape.key()).isEqualTo(secondShape.key());
     assertThat(cache.containsTranslation(firstShape.key())).isFalse();
-    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
-        .out("knows").has("name", new P<>(same, "Alice")).limit(1))))
+    assertThat(sortedNames(runVetoed(() -> graph.traversal().V().order().by("name")
+        .out("knows").has("name", new P<>(same, "Alice")).limit(1),
+        GremlinToMatchStrategy.instance())))
         .containsExactly("Alice");
-    assertThat(sortedNames(apply(() -> graph.traversal().V().order().by("name")
-        .out("knows").has("name", new P<>(same, "Bob")).limit(1))))
+    assertThat(sortedNames(runVetoed(() -> graph.traversal().V().order().by("name")
+        .out("knows").has("name", new P<>(same, "Bob")).limit(1),
+        GremlinToMatchStrategy.instance())))
         .containsExactly("Bob");
     assertThat(cache.getTranslationHits()).isEqualTo(hits);
     assertThat(cache.getTranslationMisses())
-        .isEqualTo(misses + (firstShape.complete() ? 2 : 0));
+        .isEqualTo(misses);
     assertThat(cache.containsTranslation(firstShape.key()))
         .as("the walk must not store a reusable op containing Alice's literal")
         .isFalse();
-    support.assertEquivalent("first custom literal", Recognition.RECOGNIZED,
+    support.assertEquivalent("first custom literal", Recognition.DECLINED,
         Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
         () -> graph.traversal().V().order().by("name").out("knows")
             .has("name", new P<>(same, "Alice")).limit(1));
-    support.assertEquivalent("second custom literal", Recognition.RECOGNIZED,
+    support.assertEquivalent("second custom literal", Recognition.DECLINED,
         Cardinality.NON_EMPTY, TranslatorEquivalenceSupport::sortedIds,
         () -> graph.traversal().V().order().by("name").out("knows")
             .has("name", new P<>(same, "Bob")).limit(1));

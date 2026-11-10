@@ -286,11 +286,11 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
   }
 
   /**
-   * A flatMap child inherits root ONE_BULK. Its translated, ungrouped boundary must emit both
-   * parallel-edge arrivals rather than asking a one-bulk generator to carry a grouped count.
+   * A flatMap child inherits root ONE_BULK. Native barriers merge equal arrivals with bulk one,
+   * so the child must stay native rather than emit both arrivals through MATCH.
    */
   @Test
-  public void nestedOneBulkKeepsUngroupedTranslationAndBothArrivals() {
+  public void nestedOneBulkRunsNativeAndMergesArrivals() {
     var source = graph.addVertex(T.label, "NestedBulkSource");
     var mid = graph.addVertex(T.label, "NestedBulkMid");
     var target = graph.addVertex(T.label, "NestedBulkTarget", "name", "a");
@@ -310,12 +310,64 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isZero();
       var parent = (TraversalParent) admin.getStartStep().getNextStep();
       var translatedChild = parent.getLocalChildren().getFirst();
-      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(translatedChild)).isEqualTo(1);
-      assertThat(translatedChild.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
-      var boundary = (YTDBMatchPlanStep<?, ?>) translatedChild.getStartStep();
-      assertThat(boundary.getPropertyMapBulkingCapacity()).isZero();
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(translatedChild)).isZero();
+      assertThat(QuerySafetyAdmission.stored(admin).forChild())
+          .isEqualTo(QuerySafetyAdmission.Reason.ONE_BULK_CHILD);
       assertThat(new ArrayList<Object>(admin.toList()))
-          .containsExactly(Map.of("name", List.of("a")), Map.of("name", List.of("a")));
+          .containsExactly(Map.of("name", List.of("a")));
+    });
+  }
+
+  /** Inherited one-bulk preserves native barrier positions for maps, counts and later hops. */
+  @Test
+  public void nestedOneBulkMatchesNativeAtEveryMergePosition() {
+    var source = graph.addVertex(T.label, "OneBulkSource");
+    var mid = graph.addVertex(T.label, "OneBulkMid");
+    var target = graph.addVertex(T.label, "OneBulkTarget", "name", "a");
+    var last = graph.addVertex(T.label, "OneBulkLast", "name", "b");
+    source.addEdge("first", mid);
+    source.addEdge("first", mid);
+    mid.addEdge("second", target);
+    target.addEdge("third", last);
+    target.addEdge("third", last);
+    graph.tx().commit();
+    for (int suffix = 0; suffix < 4; suffix++) {
+      var answers = new ArrayList<List<?>>();
+      for (boolean translated : List.of(false, true)) {
+        final int variant = suffix;
+        support.withTranslator(translated, () -> {
+          var child = __.V().hasLabel("OneBulkSource").out("first").out("second");
+          GraphTraversal<?, ?> shaped = switch (variant) {
+            case 0 -> child.barrier(2500).valueMap("name");
+            case 1 -> child.barrier(2500).count();
+            case 2 -> child.barrier(2500).out("third");
+            default -> child.barrier(1).valueMap("name");
+          };
+          var root = graph.traversal().withBulk(false).inject(1).flatMap(shaped).asAdmin();
+          root.applyStrategies();
+          var parent = (TraversalParent) root.getStartStep().getNextStep();
+          assertThat(TranslatorEquivalenceSupport.countBoundarySteps(
+              parent.getLocalChildren().getFirst())).isZero();
+          if (translated) {
+            assertThat(QuerySafetyAdmission.stored(root).forChild())
+                .isEqualTo(QuerySafetyAdmission.Reason.ONE_BULK_CHILD);
+          }
+          answers.add(root.toList());
+        });
+      }
+      assertThat(answers.get(1)).isEqualTo(answers.getFirst());
+      assertThat(answers.getFirst()).hasSize(suffix >= 2 ? 2 : 1);
+    }
+    support.withTranslator(true, () -> {
+      var ordinary = graph.traversal().inject(1).flatMap(
+          __.V().hasLabel("OneBulkSource").out("first").out("second")
+              .barrier(2500).valueMap("name"))
+          .asAdmin();
+      ordinary.applyStrategies();
+      var parent = (TraversalParent) ordinary.getStartStep().getNextStep();
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(
+          parent.getLocalChildren().getFirst())).isEqualTo(1);
+      assertThat(ordinary.toList()).hasSize(2);
     });
   }
 

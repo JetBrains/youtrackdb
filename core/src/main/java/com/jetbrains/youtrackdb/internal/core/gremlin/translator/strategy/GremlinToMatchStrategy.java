@@ -74,17 +74,17 @@ import org.slf4j.LoggerFactory;
  *       GlobalConfiguration#QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED} is {@code false} for the
  *       traversal's session. Reading the flag per-session gives operators a runtime kill-switch
  *       without a redeploy; an unresolvable configuration declines rather than throwing.</li>
- *   <li><b>Non-graph / non-vertex start.</b> The first step is not a start-emitting {@link
- *       GraphStep}, or it is an edge start ({@code g.E()}). The current translator only models
- *       vertex-rooted patterns; edge starts are a later milestone. This O(1) start-shape gate
- *       runs before the O(steps) idempotency scan below, so a non-vertex traversal declines
- *       without walking its whole step list. Gating on the plain TinkerPop
- *       {@link GraphStep} (not {@code
- *       YTDBGraphStep}) is deliberate: this strategy runs <em>before</em> {@code
- *       YTDBGraphStepStrategy} — the sole producer of {@code YTDBGraphStep} — so at translator
- *       time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
- *       would decline every recognized shape. The check is also ordering-robust, since a
- *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
+ *   <li><b>Safety admission.</b> After deliberate option checks, the root inspects the whole
+ *       query once and stores an immutable result. Writes, query side effects, user functions,
+ *       unknown behavior and name conflicts keep the query and its descendants native. Children
+ *       read the stored root result without rescanning. Missing evidence refuses child translation.
+ *       Inherited ONE_BULK also keeps children native.</li>
+ *   <li><b>Non-graph / non-vertex start.</b> The first step is not a vertex-emitting
+ *       {@link GraphStep}, or it is an edge start ({@code g.E()}). The start-shape gate is O(1),
+ *       but the root safety walk has already inspected the whole query. The check uses the plain
+ *       TinkerPop {@link GraphStep}, because {@code YTDBGraphStepStrategy} runs afterwards and
+ *       produces {@code YTDBGraphStep}. The translator therefore sees the plain step class.
+ *       Edge starts remain unsupported.</li>
  *   <li><b>Per-traversal veto.</b> {@link RepeatDeclineStrategy#isVetoed} answers true, because
  *       {@link RepeatDeclineStrategy} marked the traversal at decoration time — it marks every
  *       traversal whose subtree was written with {@code repeat(...)}. The marker is how a decision
@@ -177,10 +177,10 @@ import org.slf4j.LoggerFactory;
  *
  * Outcomes that reach a translation attempt feed {@link GremlinTranslationMetrics} on the
  * database {@code SharedContext}: successes, declines (unsupported shape, edge / non-vertex start,
- * repeat veto, or cached decline), rule-native choices, and throw-safety-net errors. Each recording
+ * repeat veto, safety refusal or cached decline), rule-native choices, and unexpected errors. Each recording
  * also updates the matching {@link com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics}
  * success / decline / error / rule-native {@code Ratio} metrics with the same attempts denominator. Declined shapes are retained (bounded) so operators can
- * ask which unsupported step lists dominate. Kill-switch / missing session and idempotent
+ * ask which step shapes or safety reasons dominate. Kill-switch / missing session and idempotent
  * re-applies (boundary already present) are not attempts — those are not coverage failures.
  *
  * <h2>Testability</h2>
@@ -358,6 +358,19 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
+    if (traversal.isRoot() && QuerySafetyAdmission.stored(traversal) == null) {
+      var options = traversal.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
+      YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, traversal);
+      YTDBStrategyUtil.explicitNullPlacements(options);
+      YTDBStrategyUtil.explicitPolymorphic(options);
+    }
+    var safety = QuerySafetyAdmission.prepare(traversal);
+    var refusal = safety == null ? QuerySafetyAdmission.Reason.MISSING_ROOT_RESULT
+        : traversal.isRoot() ? safety.reason() : safety.forChild();
+    if (refusal != QuerySafetyAdmission.Reason.SAFE) {
+      GremlinTranslationMetrics.of(session).recordDecline("safety:" + refusal.name());
+      return;
+    }
     // Start-shape gate is O(1). Already-translated traversals also fail hasVertexGraphStart
     // (start is a boundary, not a GraphStep), so check containsBoundaryStep before counting a
     // decline — re-applies must stay outside attempts. Fresh edge / non-vertex starts are product
@@ -383,13 +396,6 @@ public final class GremlinToMatchStrategy
       return;
     }
     if (containsBoundaryStep(traversal)) {
-      return;
-    }
-    // Check before a template lookup: aliases cannot represent repeated path bindings or a
-    // side-effect value that belongs to this invocation.
-    if (GremlinStepWalker.hasDuplicateStepLabels(traversal)
-        || GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
       return;
     }
     for (Step<?, ?> step : traversal.getSteps()) {

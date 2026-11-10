@@ -50,6 +50,21 @@ public abstract class ReducingBarrierStep<S, E> extends AbstractStep<S, E> imple
     protected BinaryOperator<E> reducingBiOperator;
     protected boolean hasProcessedOnce = false;
 
+    private Supplier<E> builtInSeedSupplier;
+    protected BinaryOperator<E> builtInReducingBiOperator;
+
+    /** Records constructor-owned components without evaluating either function. */
+    protected final void rememberBuiltInFunctions() {
+        this.builtInSeedSupplier = this.seedSupplier;
+        this.builtInReducingBiOperator = this.reducingBiOperator;
+    }
+
+    /** Identity proof only. Callers must also require an exact trusted step class. */
+    public final boolean hasBuiltInFunctions() {
+        return this.seedSupplier == this.builtInSeedSupplier
+                && this.reducingBiOperator == this.builtInReducingBiOperator;
+    }
+
     private E seed = (E) NON_EMITTING_SEED;
 
     public ReducingBarrierStep(final Traversal.Admin traversal) {
