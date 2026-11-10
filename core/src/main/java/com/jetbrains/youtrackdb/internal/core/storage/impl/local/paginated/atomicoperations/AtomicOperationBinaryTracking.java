@@ -100,7 +100,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
-  // Positive committed-file IDs deleted by this operation. Cache deletion is deferred to commit.
+  // Positive committed-file IDs deleted by this operation.
+  // Commit deletes the committed file from the cache.
   private final Object2LongOpenHashMap<String> deletedFileNameIdMap =
       new Object2LongOpenHashMap<>();
 
@@ -1030,7 +1031,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return false;
     }
     if (suppliedBookings.containsKey(name)) {
-      // The pending file was deleted. Its retained booking reserves only the name and ID.
+      // This operation deleted the pending file. Its retained booking reserves only the name and ID.
       return false;
     }
     return writeCache.registeredFileId(name) != null && writeCache.exists(name);
