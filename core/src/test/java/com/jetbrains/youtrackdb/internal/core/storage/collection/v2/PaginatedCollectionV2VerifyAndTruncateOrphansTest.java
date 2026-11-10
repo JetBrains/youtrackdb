@@ -175,6 +175,9 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
           PageFileRole.RECORD_DATA
               ? 7 : null);
       owned.create(atomicOperation);
+      owned.setCollectionName("renamed");
+      assertThat(owned.getName()).isEqualTo("renamed");
+      verify(mockWriteCache, never()).renameFile(anyLong(), anyString());
       assertThat(owned.exists(atomicOperation)).isTrue();
       owned.open(atomicOperation);
       owned.delete(atomicOperation);
@@ -189,6 +192,77 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
         verify(atomicOperation).deleteFile(id);
         if (identity.role().code() != 1) {
           verify(atomicOperation).isFileExists(name, id);
+        }
+      }
+    }
+  }
+
+  // Legacy rename must keep all four display-derived file names and update the component name.
+  @Test
+  public void legacyCollectionRenameMovesAllFourFiles() throws IOException {
+    collection.setCollectionName("renamed");
+
+    assertThat(collection.getName()).isEqualTo("renamed");
+    verify(mockWriteCache).renameFile(FILE_ID, "renamed.pcl");
+    verify(mockWriteCache).renameFile(CPM_FILE_ID, "renamed.cpm");
+    verify(mockWriteCache).renameFile(FSM_FILE_ID, "renamed.fsm");
+    verify(mockWriteCache).renameFile(DPB_FILE_ID, "renamed.dpb");
+  }
+
+  // Direct auxiliary calls must update names without moving explicitly owned files.
+  // Legacy auxiliaries must still rename the registered file to the new full name.
+  @Test
+  public void directAuxiliaryRenamePreservesExplicitFilesAndRenamesLegacyFiles()
+      throws IOException {
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_26);
+    when(mockWriteCache.getId()).thenReturn(17);
+    for (var role : new PageFileRole[] {
+        PageFileRole.POSITION_MAP, PageFileRole.FREE_SPACE_MAP, PageFileRole.DIRTY_PAGE_BIT_SET,
+        PageFileRole.CONFIG_POSITION_MAP, PageFileRole.CONFIG_FREE_SPACE_MAP,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET}) {
+      for (boolean explicit : new boolean[] {true, false}) {
+        var identity = explicit ? new PageFileIdentity(role, 8) : null;
+        var extension = role.layout25Extension();
+        var name = explicit ? PageFileNames.layout26(identity) : "aux" + extension;
+        var id = explicit ? AbstractWriteCache.composeFileId(17, identity.internalId()) : 91L;
+        if (explicit) {
+          when(atomicOperation.loadFile(name, id)).thenReturn(id);
+        } else {
+          when(atomicOperation.loadFile(name)).thenReturn(id);
+        }
+        StorageComponent auxiliary;
+        switch (role.code()) {
+          case 1 -> {
+            var map = new CollectionPositionMapV2(mockStorage, "aux", "domain", extension,
+                identity);
+            map.open(atomicOperation);
+            org.mockito.Mockito.clearInvocations(mockWriteCache);
+            map.rename("renamedAux");
+            auxiliary = map;
+          }
+          case 2 -> {
+            var map = new FreeSpaceMap(mockStorage, "aux", extension, "domain", identity);
+            map.open(atomicOperation);
+            org.mockito.Mockito.clearInvocations(mockWriteCache);
+            map.rename("renamedAux");
+            auxiliary = map;
+          }
+          case 3 -> {
+            var bits = new CollectionDirtyPageBitSet(mockStorage, "aux", extension, "domain",
+                identity);
+            bits.open(atomicOperation);
+            org.mockito.Mockito.clearInvocations(mockWriteCache);
+            bits.rename("renamedAux");
+            auxiliary = bits;
+          }
+          default -> throw new AssertionError(role);
+        }
+        assertThat(auxiliary.getName()).isEqualTo("renamedAux");
+        assertThat(auxiliary.getFullName()).isEqualTo("renamedAux" + extension);
+        if (explicit) {
+          org.mockito.Mockito.verifyNoInteractions(mockWriteCache);
+        } else {
+          verify(mockWriteCache).renameFile(id, "renamedAux" + extension);
         }
       }
     }

@@ -281,7 +281,10 @@ public final class FreeSpaceMap extends StorageComponent {
   }
 
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    // Explicit identities keep canonical file names independent of the collection name.
+    if (identity == null) {
+      writeCache.renameFile(fileId, newName + getExtension());
+    }
     setName(newName);
   }
 }

@@ -105,10 +105,13 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   }
 
   /**
-   * Renames the dirty page bit set file to match a new collection name.
+   * Updates the component name and renames the file only for a legacy identity.
    */
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    // Explicit identities keep canonical file names independent of the collection name.
+    if (identity == null) {
+      writeCache.renameFile(fileId, newName + getExtension());
+    }
     setName(newName);
   }
 

@@ -200,7 +200,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    // Explicit identities keep canonical file names independent of the collection name.
+    if (identity == null) {
+      writeCache.renameFile(fileId, newName + getExtension());
+    }
     setName(newName);
   }
 

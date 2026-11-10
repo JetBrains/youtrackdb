@@ -2224,7 +2224,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public void setCollectionName(final String newName) {
     acquireExclusiveLock();
     try {
-      writeCache.renameFile(fileId, newName + getExtension());
+      // Explicit identities keep canonical file names independent of the collection name.
+      if (dataIdentity == null) {
+        writeCache.renameFile(fileId, newName + getExtension());
+      }
       collectionPositionMap.rename(newName);
       freeSpaceMap.rename(newName);
       dirtyPageBitSet.rename(newName);
