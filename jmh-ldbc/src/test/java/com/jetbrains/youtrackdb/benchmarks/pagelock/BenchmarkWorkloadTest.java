@@ -60,7 +60,8 @@ public class BenchmarkWorkloadTest {
 
   // Open every goal 8 case and verify the benchmark boundary reads the intended file and
   // every page. Warm reads must stay optimistic and must not register any write outcome.
-  @Test(timeout = 60000)
+  // Six disk lifecycles need extra time on Windows, but a hang must still fail.
+  @Test(timeout = 300000)
   public void benchmarkReadsAllSixCasesWithoutRegisteringWrites() throws Exception {
     var benchmark = new ReaderWriterBenchmark();
     for (String pattern : new String[] {"SHARED", "DISJOINT", "DIFFERENT"}) {
@@ -138,7 +139,8 @@ public class BenchmarkWorkloadTest {
 
   // Two real components must have different file identities. A commit error must escape unchanged.
   // On the branch, pause both commits after locking and observe both live cache reservations.
-  @Test(timeout = 60000)
+  // Include slow Windows database setup and teardown in the bounded test budget.
+  @Test(timeout = 180000)
   public void independentWritersOverlapReservationsAndPropagateFailures() throws Exception {
     var state = state("DIFFERENT", 1);
     try {
@@ -214,7 +216,8 @@ public class BenchmarkWorkloadTest {
 
   // Shared reads observe exactly the coordinates the writer changes. Iteration hooks sample
   // outside operations and the same closed seed can serve another independent copy.
-  @Test(timeout = 60000)
+  // This includes two disk lifecycles, including copy cleanup on slow Windows file systems.
+  @Test(timeout = 180000)
   public void sharedPagesAndIterationLifecycleUseActualCoordinates() throws Exception {
     var state = state("SHARED", 32);
     try {

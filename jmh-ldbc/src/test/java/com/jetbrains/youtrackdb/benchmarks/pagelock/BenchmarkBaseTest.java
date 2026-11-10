@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -124,6 +125,100 @@ public class BenchmarkBaseTest {
     SeedDatabase.deleteTree(second);
     assertFalse(Files.exists(first));
     assertFalse(Files.exists(second));
+  }
+
+  // Force Java copying on every OS. Nested files must be separate files in both runs,
+  // and changing or deleting a run file must leave the closed seed and the other run intact.
+  @Test(timeout = 30000)
+  public void javaSeedCopiesHaveIndependentFilesWithoutHardLinks() throws Exception {
+    Path root = folder.getRoot().toPath();
+    Path seedPath = root.resolve("java-seed");
+    var seed = SeedDatabase.prepare(seedPath, path -> {
+      Files.createDirectories(path.resolve("nested/empty"));
+      Files.writeString(path.resolve("nested/data"), "closed");
+      Files.writeString(path.resolve("top"), "original");
+    });
+    Path first = seed.freshCopy(root, false);
+    Path second = seed.freshCopy(root, false);
+    assertTrue(Files.isDirectory(first.resolve("nested/empty")));
+    for (String name : new String[] {"nested/data", "top"}) {
+      assertFalse("run file must not be a seed hard link",
+          Files.isSameFile(seedPath.resolve(name), first.resolve(name)));
+      assertFalse("second run file must not be a seed hard link",
+          Files.isSameFile(seedPath.resolve(name), second.resolve(name)));
+      assertFalse("runs must not share hard links",
+          Files.isSameFile(first.resolve(name), second.resolve(name)));
+      assertEquals(Files.readString(seedPath.resolve(name)),
+          Files.readString(second.resolve(name)));
+    }
+    Files.writeString(first.resolve("nested/data"), "changed");
+    Files.delete(first.resolve("top"));
+    assertEquals("closed", Files.readString(seedPath.resolve("nested/data")));
+    assertEquals("closed", Files.readString(second.resolve("nested/data")));
+    assertEquals("original", Files.readString(seedPath.resolve("top")));
+    assertEquals("original", Files.readString(second.resolve("top")));
+    SeedDatabase.deleteTree(first);
+    SeedDatabase.deleteTree(second);
+  }
+
+  // A real child JVM exits with an error or waits beyond the injected deadline. Both paths
+  // must fail setup, reap the child, and remove its partial destination. Interruption does too.
+  @Test(timeout = 30000)
+  public void externalCopyFailuresStopChildrenAndRemovePartialCopies() throws Exception {
+    Path root = folder.getRoot().toPath();
+    var seed = SeedDatabase.prepare(root.resolve("seed"),
+        path -> Files.writeString(path.resolve("data"), "closed"));
+    var child = new Process[1];
+    for (String mode : new String[] {"error", "wait", "interrupt"}) {
+      Class<? extends Exception> expected = mode.equals("interrupt")
+          ? InterruptedException.class : IOException.class;
+      var failure = assertThrows(expected, () -> seed.freshCopy(root, copy -> {
+        Files.writeString(copy.resolve("partial"), "incomplete");
+        child[0] = child(mode.equals("error") ? "error" : "wait").start();
+        if (mode.equals("interrupt")) {
+          Thread.currentThread().interrupt();
+        }
+        return child[0];
+      }, mode.equals("wait") ? 0 : 10));
+      assertTrue(failure.getMessage(), mode.equals("interrupt")
+          || failure.getMessage().contains(mode.equals("wait") ? "timed out" : "failed"));
+      assertFalse("copier must be reaped before destination cleanup", child[0].isAlive());
+      assertFalse("interruption is delivered to the caller", Thread.interrupted());
+      try (var files = Files.list(root)) {
+        assertEquals("no partial run directory survives", 1, files.count());
+      }
+    }
+  }
+
+  // Detection must skip non-Linux hosts, reject missing/failed probes and preserve interruption.
+  @Test(timeout = 30000)
+  public void reflinkProbeFallsBackWhenUnavailableOrInterrupted() throws Exception {
+    var missing = new ProcessBuilder(folder.getRoot().toPath().resolve("no-cp").toString());
+    assertFalse(SeedDatabase.reflinkCopyAvailable("Windows", missing));
+    assertFalse(SeedDatabase.reflinkCopyAvailable("Linux", missing));
+    assertFalse(SeedDatabase.reflinkCopyAvailable("Linux", child("error")));
+    Thread.currentThread().interrupt();
+    try {
+      assertFalse(SeedDatabase.reflinkCopyAvailable("Linux", child("wait")));
+      assertTrue("probe preserves interruption", Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  private static ProcessBuilder child(String mode) {
+    return new ProcessBuilder(ProcessHandle.current().info().command().orElseThrow(),
+        "-cp", System.getProperty("java.class.path"), CopyProcess.class.getName(), mode);
+  }
+
+  public static class CopyProcess {
+
+    public static void main(String[] args) throws Exception {
+      if (args[0].equals("wait")) {
+        Thread.sleep(60000);
+      }
+      System.exit(7);
+    }
   }
 
   // A lifetime high-water mark must not be subtracted like a monotonic event counter.
