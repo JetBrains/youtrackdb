@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
@@ -42,6 +43,25 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
       String extension,
       String lockName) {
     super(storage, name, extension, lockName, true);
+  }
+
+  /** Constructs an explicitly owned bit set in the collection lock domain. */
+  public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
+      String lockName, PageFileIdentity identity) {
+    this(storage, name, extension, lockName);
+    if (identity != null) {
+      bindPageFileIdentities(identity);
+    }
+  }
+
+  @Override
+  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
+    super.validatePageFileIdentityFamily(identities);
+    switch (identities.getFirst().role()) {
+      case DIRTY_PAGE_BIT_SET, CONFIG_DIRTY_PAGE_BIT_SET -> {
+      }
+      default -> throw new IllegalArgumentException("Expected dirty-page bit-set role");
+    }
   }
 
   /**

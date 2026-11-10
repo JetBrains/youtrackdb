@@ -16,16 +16,22 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.After;
@@ -127,6 +133,73 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
       }
     }
     pagePointers.clear();
+  }
+
+  // Drive the real private auxiliaries through the parent. Every lifecycle handle must use
+  // its exact owner and role. Omitting any auxiliary binding must fail these verifications.
+  @Test
+  public void explicitFamiliesUseExactHandlesForCreateOpenPresenceAndDelete() throws IOException {
+    when(mockStorage.getStorageFormat()).thenReturn(
+        StorageFormat.LAYOUT_26);
+    when(mockWriteCache.getId()).thenReturn(17);
+    for (var dataRole : new PageFileRole[] {
+        PageFileRole.CONFIG_DATA,
+        PageFileRole.RECORD_DATA}) {
+      var owner =
+          new PageFileIdentity(
+              dataRole, 7);
+      var identities = new ArrayList<
+          PageFileIdentity>();
+      for (int role = 0; role < 4; role++) {
+        var identity =
+            new PageFileIdentity(
+                PageFileRole
+                    .fromCode(
+                        owner.kind(), role),
+                owner.componentId());
+        identities.add(identity);
+        var name = PageFileNames
+            .layout26(identity);
+        var id =
+            AbstractWriteCache.composeFileId(
+                17, identity.internalId());
+        when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
+        when(atomicOperation.loadFile(name, id)).thenReturn(id);
+        when(atomicOperation.isFileExists(name, id)).thenReturn(true);
+      }
+      var owned = new PaginatedCollectionV2("owned", dataRole.layout25Extension(),
+          identities.get(1).role().layout25Extension(),
+          identities.get(2).role().layout25Extension(),
+          identities.get(3).role().layout25Extension(), mockStorage, owner);
+      owned.configure(7, "owned", dataRole ==
+          PageFileRole.RECORD_DATA
+              ? 7 : null);
+      owned.create(atomicOperation);
+      assertThat(owned.exists(atomicOperation)).isTrue();
+      owned.open(atomicOperation);
+      owned.delete(atomicOperation);
+      for (var identity : identities) {
+        var name = PageFileNames
+            .layout26(identity);
+        var id =
+            AbstractWriteCache.composeFileId(
+                17, identity.internalId());
+        verify(atomicOperation).addFile(name, id, false, false);
+        verify(atomicOperation, org.mockito.Mockito.times(2)).loadFile(name, id);
+        verify(atomicOperation).deleteFile(id);
+        if (identity.role().code() != 1) {
+          verify(atomicOperation).isFileExists(name, id);
+        }
+      }
+    }
+  }
+
+  // Direct inherited binding must not bypass position-map role validation.
+  @Test
+  public void positionMapBindingRejectsADataRoleEvenWithAMatchingExtension() {
+    var map = new CollectionPositionMapV2(mockStorage, "wrong", "domain", ".cd");
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> map.bindPageFileIdentities(new PageFileIdentity(PageFileRole.CONFIG_DATA, 0)));
   }
 
   // Sanity-check anchor: create() left fileSize == 0 (the legitimate post-create

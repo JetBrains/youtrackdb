@@ -41,6 +41,9 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
@@ -151,13 +154,49 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       final String dataFileExtension,
       final String nullFileExtension,
       final AbstractStorage storage, BinarySerializerFactory serializerFactory) {
-    super(storage, name, dataFileExtension, name + dataFileExtension, true);
+    this(name, dataFileExtension, nullFileExtension, storage, serializerFactory, null, null);
+  }
+
+  /** Supports bootstrap before the storage component factory exists. */
+  public BTree(String name, String dataFileExtension, String nullFileExtension,
+      AbstractStorage storage, BinarySerializerFactory serializerFactory,
+      PageFileIdentity dataIdentity, PageFileIdentity nullIdentity) {
+    super(storage, name, dataFileExtension,
+        dataIdentity == null ? name + dataFileExtension : PageFileNames.layout26(dataIdentity),
+        true);
+    this.nullFileExtension = nullFileExtension;
+    if (dataIdentity != null) {
+      if (nullIdentity == null) {
+        throw new IllegalArgumentException("Expected matching tree null-bucket role");
+      }
+      bindPageFileIdentities(dataIdentity, nullIdentity);
+    } else if (nullIdentity != null) {
+      throw new IllegalArgumentException("Tree data identity is required");
+    }
     acquireExclusiveLock();
     try {
-      this.nullFileExtension = nullFileExtension;
       this.serializerFactory = serializerFactory;
     } finally {
       releaseExclusiveLock();
+    }
+  }
+
+  @Override
+  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
+    if (identities.size() != 2) {
+      throw new IllegalArgumentException("Expected tree data and null-bucket roles");
+    }
+    var dataIdentity = identities.getFirst();
+    var nullIdentity = identities.get(1);
+    var expectedNullRole = switch (dataIdentity.role()) {
+      case PROPERTY_DATA -> PageFileRole.PROPERTY_NULL_BUCKET;
+      case INDEX_DATA -> PageFileRole.INDEX_NULL_BUCKET;
+      case NULL_KEY_DATA -> PageFileRole.NULL_KEY_NULL_BUCKET;
+      default -> throw new IllegalArgumentException("Expected tree data role");
+    };
+    if (nullIdentity.role() != expectedNullRole
+        || !nullFileExtension.equals(nullIdentity.role().layout25Extension())) {
+      throw new IllegalArgumentException("Expected matching tree null-bucket role");
     }
   }
 

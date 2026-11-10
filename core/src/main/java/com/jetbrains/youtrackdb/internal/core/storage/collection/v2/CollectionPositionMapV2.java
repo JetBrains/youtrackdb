@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailed
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.IOException;
 import java.util.Arrays;
@@ -118,6 +119,25 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final String lockName,
       final String extension) {
     super(storage, name, extension, lockName, true);
+  }
+
+  /** Constructs an explicitly owned position map in the collection lock domain. */
+  CollectionPositionMapV2(AbstractStorage storage, String name, String lockName,
+      String extension, PageFileIdentity identity) {
+    this(storage, name, lockName, extension);
+    if (identity != null) {
+      bindPageFileIdentities(identity);
+    }
+  }
+
+  @Override
+  protected void validatePageFileIdentityFamily(java.util.List<PageFileIdentity> identities) {
+    super.validatePageFileIdentityFamily(identities);
+    switch (identities.getFirst().role()) {
+      case POSITION_MAP, CONFIG_POSITION_MAP -> {
+      }
+      default -> throw new IllegalArgumentException("Expected position-map role");
+    }
   }
 
   /** Opens an existing position-map file by name through the disk cache. */
