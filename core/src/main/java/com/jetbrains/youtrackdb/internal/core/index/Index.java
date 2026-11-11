@@ -192,7 +192,6 @@ public interface Index extends Comparable<Index> {
   String INDEX_VERSION = "indexVersion";
   String LIFECYCLE_RECORD = "lifecycleRecord";
   String METADATA = "metadata";
-  String MERGE_KEYS = "mergeKeys";
 
   Object getCollatingValue(final Object key);
 

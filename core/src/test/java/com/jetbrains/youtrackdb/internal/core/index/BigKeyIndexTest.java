@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.comparator.ByteArrayComparator;
 import com.jetbrains.youtrackdb.internal.common.comparator.ComparatorFactory;
 import com.jetbrains.youtrackdb.internal.common.comparator.UnsafeByteArrayComparator;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
@@ -21,7 +22,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStor
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -373,6 +377,234 @@ public class BigKeyIndexTest extends DbTestBase {
           });
       GlobalConfiguration.BTREE_MAX_KEY_SIZE.setValue(global);
     }
+  }
+
+  @Test
+  public void commitTimeBuildPreparesScalarAndCollectionKeysIncludingTheRidMargin() {
+    var cl = session.createClass("Build");
+    cl.createProperty("text", PropertyType.STRING).setCollate("ci");
+    cl.createProperty("binary", PropertyType.BINARY);
+    cl.createProperty("items", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    int p = prefix(false, PropertyTypeInternal.STRING);
+    String text = "X".repeat(p + 1);
+    byte[] binary = new byte[p + 1];
+    session.begin();
+    for (String field : List.of("text", "binary", "items")) {
+      cl.createIndex("build." + field, INDEX_TYPE.NOTUNIQUE, field);
+    }
+    var doc = session.newInstance("Build");
+    doc.setProperty("text", text);
+    doc.setProperty("binary", binary);
+    doc.newEmbeddedList("items", List.of(text));
+    var rid = doc.getIdentity();
+    session.commit();
+    session.begin();
+    for (String field : List.of("text", "binary", "items")) {
+      var index = session.getSharedContext().getIndexManager().getIndex("build." + field);
+      try (var rids = index.getRids(session, field.equals("binary") ? binary : text)) {
+        assertEquals(List.of(rid), rids.toList());
+      }
+    }
+    session.loadEntity(rid).delete();
+    session.commit();
+    session.begin();
+    for (String field : List.of("text", "binary", "items")) {
+      var index = session.getSharedContext().getIndexManager().getIndex("build." + field);
+      try (var rids = index.getRids(session, field.equals("binary") ? binary : text)) {
+        assertEquals(0, rids.count());
+      }
+    }
+    session.rollback();
+  }
+
+  @Test
+  public void commitTimeUniqueBuildRejectsSharedPrefixesEvenWithMergeKeysMetadata() {
+    var cl = session.createClass("Build");
+    cl.createProperty("text", PropertyType.STRING);
+    String common = "x".repeat(prefix(true, PropertyTypeInternal.STRING));
+    session.begin();
+    cl.createIndex("build.text", INDEX_TYPE.UNIQUE.name(), null,
+        Map.of("mergeKeys", true), new String[] {"text"});
+    session.newInstance("Build").setProperty("text", common + "a");
+    session.newInstance("Build").setProperty("text", common + "b");
+    assertThrows(RecordDuplicatedException.class, () -> session.commit());
+  }
+
+  @Test
+  public void collectionAssignmentsKeepSharedPreparedKeysUntilTheLastItemIsRemoved() {
+    verifyCollectionUpdates(false);
+  }
+
+  @Test
+  public void collectionEventsKeepSharedPreparedKeysUntilTheLastItemIsRemoved() {
+    verifyCollectionUpdates(true);
+  }
+
+  @Test
+  public void collectionReplacementAddsNewPreparedKeysAndRemovesOnlyMissingKeys() {
+    var cl = session.createClass("Replacement");
+    cl.createProperty("items", PropertyType.EMBEDDEDLIST, PropertyType.STRING).setCollate("ci");
+    cl.createIndex("replacement", INDEX_TYPE.NOTUNIQUE, "items");
+    String first = "A".repeat(10000);
+    String second = "B".repeat(10000);
+    session.begin();
+    var doc = session.newInstance("Replacement");
+    doc.newEmbeddedList("items", List.of(first, "X", "x"));
+    var rid = doc.getIdentity();
+    session.commit();
+    session.begin();
+    session.loadEntity(rid).newEmbeddedList("items", List.of(second, "x"));
+    session.commit();
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("replacement");
+    try (var old = index.getRids(session, first);
+        var added = index.getRids(session, second);
+        var retained = index.getRids(session, "X")) {
+      assertEquals(0, old.count());
+      assertEquals(List.of(rid), added.toList());
+      assertEquals(List.of(rid), retained.toList());
+    }
+    session.rollback();
+  }
+
+  @Test
+  public void compositeCollectionUpdatesKeepTheEntryForTheRemainingCollatedItem() {
+    for (boolean events : new boolean[] {false, true}) {
+      String name = "Composite" + events;
+      var cl = session.createClass(name);
+      cl.createProperty("items", PropertyType.EMBEDDEDLIST, PropertyType.STRING).setCollate("ci");
+      cl.createProperty("group", PropertyType.STRING);
+      cl.createIndex(name, INDEX_TYPE.NOTUNIQUE, "group", "items");
+      session.begin();
+      var doc = session.newInstance(name);
+      doc.setProperty("group", "group");
+      doc.newEmbeddedList("items", List.of("X", "x"));
+      var rid = doc.getIdentity();
+      session.commit();
+      var index = session.getSharedContext().getIndexManager().getIndex(name);
+      for (int remaining = 1; remaining >= 0; remaining--) {
+        session.begin();
+        var loaded = session.loadEntity(rid);
+        if (events) {
+          loaded.getEmbeddedList("items").remove(0);
+        } else {
+          loaded.newEmbeddedList("items", remaining == 1 ? List.of("x") : List.of());
+        }
+        session.commit();
+        session.begin();
+        try (var rids = index.getRids(session, new CompositeKey(List.of("group", "x")))) {
+          assertEquals(remaining, rids.count());
+        }
+        session.rollback();
+      }
+    }
+  }
+
+  private void verifyCollectionUpdates(boolean events) {
+    // Lists, sets, map keys and map values must all diff complete prepared key sets.
+    for (String kind : List.of("list", "set", "mapKeys", "mapValues", "binary")) {
+      for (boolean longKeys : new boolean[] {false, true}) {
+        String name = kind + longKeys;
+        var cl = session.createClass(name);
+        boolean binary = kind.equals("binary");
+        var type = kind.startsWith("map") ? PropertyType.EMBEDDEDMAP
+            : kind.equals("set") ? PropertyType.EMBEDDEDSET : PropertyType.EMBEDDEDLIST;
+        var property = cl.createProperty("items", type,
+            binary ? PropertyType.BINARY : PropertyType.STRING);
+        if (!binary) {
+          property.setCollate("ci");
+        }
+        cl.createIndex(name, INDEX_TYPE.NOTUNIQUE, kind.equals("mapKeys")
+            ? "items by key" : kind.equals("mapValues") ? "items by value" : "items");
+        Object first = binary ? new byte[longKeys ? 10000 : 2]
+            : longKeys ? "X".repeat(10000) + "a" : "X";
+        Object second = binary ? new byte[longKeys ? 10000 : 2]
+            : longKeys ? "x".repeat(10000) + "b" : "x";
+        session.begin();
+        Entity doc = session.newInstance(name);
+        if (type == PropertyType.EMBEDDEDMAP) {
+          var values = new HashMap<String, Object>();
+          values.put(kind.equals("mapKeys") ? (String) first : "a", first);
+          values.put(kind.equals("mapKeys") ? (String) second : "b", second);
+          doc.newEmbeddedMap("items", values);
+        } else {
+          if (kind.equals("set")) {
+            doc.newEmbeddedSet("items", new HashSet<>(List.of(first, second)));
+          } else {
+            doc.newEmbeddedList("items", List.of(first, second));
+          }
+        }
+        var rid = doc.getIdentity();
+        session.commit();
+        var index = session.getSharedContext().getIndexManager().getIndex(name);
+        for (int remaining = 1; remaining >= 0; remaining--) {
+          session.begin();
+          doc = session.loadEntity(rid);
+          if (events) {
+            if (type == PropertyType.EMBEDDEDMAP) {
+              var values = doc.getEmbeddedMap("items");
+              values.remove(kind.equals("mapKeys") ? (String) (remaining == 1 ? first : second)
+                  : remaining == 1 ? "a" : "b");
+            } else if (kind.equals("set")) {
+              doc.getEmbeddedSet("items").remove(remaining == 1 ? first : second);
+            } else {
+              doc.getEmbeddedList("items").remove(0);
+            }
+          } else if (type == PropertyType.EMBEDDEDMAP) {
+            doc.newEmbeddedMap("items", remaining == 1
+                ? Map.of(kind.equals("mapKeys") ? (String) second : "b", second) : Map.of());
+          } else if (kind.equals("set")) {
+            doc.newEmbeddedSet("items",
+                remaining == 1 ? new HashSet<>(List.of(second)) : new HashSet<>());
+          } else {
+            doc.newEmbeddedList("items", remaining == 1 ? List.of(second) : List.of());
+          }
+          session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+          try (var rids = index.getRids(session, second)) {
+            assertEquals(name + " transaction", remaining, rids.count());
+          }
+          session.commit();
+          session.begin();
+          try (var rids = index.getRids(session, second)) {
+            assertEquals(name + " committed", remaining, rids.count());
+          }
+          session.rollback();
+        }
+      }
+    }
+  }
+
+  /** ADD and UPDATE events retain a shared prefix and remove it only at zero occurrences. */
+  @Test
+  public void longCollectionAddsAndUpdatesCountSharedPrefixes() {
+    var cls = session.createClass("LongEvents");
+    cls.createProperty("items", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    cls.createIndex("longEvents", INDEX_TYPE.NOTUNIQUE, "items");
+    var index = session.getSharedContext().getIndexManager().getIndex("longEvents");
+    String common = "x".repeat(prefix(false, PropertyTypeInternal.STRING));
+    session.begin();
+    var doc = session.newEntity("LongEvents");
+    doc.newEmbeddedList("items", List.of(common + "a"));
+    var rid = doc.getIdentity();
+    session.commit();
+    session.begin();
+    var items = session.loadEntity(rid).<String>getEmbeddedList("items");
+    items.add(common + "b");
+    items.set(0, "other");
+    session.commit();
+    session.begin();
+    try (var rids = index.getRids(session, common + "b")) {
+      assertEquals(List.of(rid), rids.toList());
+    }
+    assertEquals(2, index.size(session));
+    session.loadEntity(rid).<String>getEmbeddedList("items").set(1, "other");
+    session.commit();
+    session.begin();
+    try (var rids = index.getRids(session, common + "a")) {
+      assertEquals(0, rids.count());
+    }
+    assertEquals(1, index.size(session));
+    session.rollback();
   }
 
   private static void refreshRecordedLimit(AbstractStorage storage,

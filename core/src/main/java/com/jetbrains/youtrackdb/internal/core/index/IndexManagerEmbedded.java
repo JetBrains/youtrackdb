@@ -1664,11 +1664,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (key instanceof Collection<?> keys) {
         for (final var keyItem : keys) {
           if (!definition.isNullValuesIgnored() || keyItem != null) {
-            handle.doPut(session, (AbstractStorage) storage, keyItem, rid);
+            handle.doPut(session, (AbstractStorage) storage, handle.getCollatingValue(keyItem),
+                rid);
           }
         }
       } else if (!definition.isNullValuesIgnored() || key != null) {
-        handle.doPut(session, (AbstractStorage) storage, key, rid);
+        handle.doPut(session, (AbstractStorage) storage, handle.getCollatingValue(key), rid);
       }
     }
   }
