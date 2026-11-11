@@ -64,7 +64,7 @@ public class LinkBag
   }
 
   /**
-   * THIS IS VERY EXPENSIVE METHOD AND CAN NOT BE CALLED IN REMOTE STORAGE.
+   * Uses pending-change lookups and at most one B-tree point lookup.
    *
    * @param rid RID to check.
    * @return true if ridbag contains at leas one instance with the same rid as passed in
@@ -72,6 +72,11 @@ public class LinkBag
    */
   public boolean contains(RID rid) {
     return delegate.contains(rid);
+  }
+
+  /** Returns the number of occurrences of a primary link, including transaction changes. */
+  public int getCount(RID rid) {
+    return delegate.getCount(rid);
   }
 
   public void addAll(Collection<RID> values) {

@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -275,6 +276,7 @@ public class ClassIndexManager {
     final Object raw;
     int delta;
     int current;
+    RID primaryRid;
 
     TouchedKey(Object raw) {
       this.raw = raw;
@@ -288,8 +290,12 @@ public class ClassIndexManager {
     var touched = new TreeMap<Object, TouchedKey>(DefaultComparator.INSTANCE);
     BiConsumer<Object, Integer> touch = (raw, delta) -> {
       Object key = wrap.apply(definition.createSingleValue(transaction, raw));
-      touched.computeIfAbsent(index.getCollatingValue(key), ignored -> new TouchedKey(key)).delta +=
-          delta;
+      var counts = touched.computeIfAbsent(index.getCollatingValue(key),
+          ignored -> new TouchedKey(key));
+      counts.delta += delta;
+      if (definition instanceof PropertyLinkBagIndexDefinition) {
+        counts.primaryRid = (RID) raw;
+      }
     };
     boolean byKey = (definition instanceof PropertyMapIndexDefinition map
         && map.getIndexBy() == PropertyMapIndexDefinition.INDEX_BY.KEY)
@@ -334,14 +340,21 @@ public class ClassIndexManager {
     Object preparedNull = index.getCollatingValue(nullKey);
     var nullCounts = touched.computeIfAbsent(preparedNull, ignored -> new TouchedKey(nullKey));
     int[] size = {0};
-    forEachIndexItem(current, definition, raw -> {
-      size[0]++;
-      Object key = wrap.apply(definition.createSingleValue(transaction, raw));
-      var counts = touched.get(index.getCollatingValue(key));
-      if (counts != null) {
-        counts.current++;
+    if (current instanceof LinkBag bag && directLinkCounts(index, definition)) {
+      size[0] = bag.size();
+      for (var counts : touched.values()) {
+        counts.current = bag.getCount(counts.primaryRid);
       }
-    });
+    } else {
+      forEachIndexItem(current, definition, raw -> {
+        size[0]++;
+        Object key = wrap.apply(definition.createSingleValue(transaction, raw));
+        var counts = touched.get(index.getCollatingValue(key));
+        if (counts != null) {
+          counts.current++;
+        }
+      });
+    }
     // Old counts come from deltas, never a copy or replay of the old collection.
     // YTDB-1558 tracks missing or incorrect events that this path cannot reconstruct.
     int oldSize = Math.max(0, size[0] - sizeDelta);
@@ -378,6 +391,25 @@ public class ClassIndexManager {
       return nullCount > 0 && !(collapsesSingleton && size == 1);
     }
     return nullCount > 0 || size == 0;
+  }
+
+  private static boolean directLinkCounts(Index index, IndexDefinitionMultiValue definition) {
+    // Secondary bag definitions index opposite vertices and still need the collection scan.
+    if (!(definition instanceof PropertyLinkBagIndexDefinition)) {
+      return false;
+    }
+    var collate = index.getDefinition().getCollate();
+    if (index.getDefinition() instanceof CompositeIndexDefinition composite) {
+      if (!(collate instanceof CompositeCollate components)) {
+        return false;
+      }
+      collate = components.getCollates().get(composite.getIndexDefinitions().indexOf(definition));
+    }
+    // Subclasses may transform links. Only these exact built-ins preserve primary identities.
+    return collate.getClass()
+        == com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate.class
+        || collate.getClass()
+            == com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate.class;
   }
 
   private static void forEachIndexItem(Object current, IndexDefinitionMultiValue definition,

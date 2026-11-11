@@ -1,25 +1,38 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
+import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.IsolatedLinkBagBTree.BTreeReadEntry;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.Spliterator;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -743,6 +756,277 @@ public class ClassIndexManagerTest extends DbTestBase {
         : number == 6 ? Set.of(new CompositeKey("t", null)) : Set.of();
     assertEquals(expected, keysFor(index, rid));
     session.rollback();
+  }
+
+  /** Both bag layouts and null modes must match creation through repeated callback rounds. */
+  @Test
+  public void linkBagUpdatesMatchFreshRecords() {
+    for (boolean tree : List.of(false, true)) {
+      for (boolean composite : List.of(false, true)) {
+        for (boolean ignored : List.of(false, true)) {
+          String name = "BagDiff" + tree + composite + ignored;
+          var cls = session.createClass(name);
+          cls.createProperty("items", PropertyType.LINKBAG).setCollate(tree ? "ci" : "default");
+          cls.createProperty("tag", PropertyType.STRING);
+          cls.createIndex(name, "NOTUNIQUE", null, Map.of("ignoreNullValues", ignored),
+              composite ? new String[] {"tag", "items"} : new String[] {"items"});
+          cls.createIndex(name + "Secondary", "NOTUNIQUE", null,
+              Map.of("ignoreNullValues", ignored), new String[] {"items by value"});
+          var primary = session.getSharedContext().getIndexManager().getIndex(name);
+          var secondary = session.getSharedContext().getIndexManager().getIndex(name + "Secondary");
+          for (int initial : new int[] {0, 1, 50}) {
+            session.begin();
+            var doc = (EntityImpl) session.newEntity(name);
+            doc.setProperty("tag", "t");
+            LinkBag bag = new LinkBag(session, tree
+                ? new BTreeBasedLinkBag(session, Integer.MAX_VALUE)
+                : new EmbeddedLinkBag(session, Integer.MAX_VALUE)) {
+              @Override
+              public void checkAndConvert() {
+                // Keep the requested delegate for the in-transaction differential rounds.
+              }
+            };
+            doc.setProperty("items", bag);
+            var target = session.newEntity().getIdentity();
+            for (int i = 0; i < initial; i++) {
+              bag.add(session.newEntity().getIdentity());
+            }
+            // Creation and update callbacks run before temporary identities become persistent.
+            session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+            for (int delta : new int[] {1, 1, -1, -1, 1, -1}) {
+              if (delta > 0) {
+                bag.add(target);
+              } else {
+                bag.remove(target);
+              }
+              session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+              assertEquals(!tree, bag.isEmbedded());
+              assertEquals(bag.stream().filter(p -> p.primaryRid().equals(target)).count(),
+                  bag.getCount(target));
+              assertBagMatchesCreation(name, primary, secondary, doc, bag);
+            }
+            var owner = doc.getIdentity();
+            session.commit();
+            // Exercise persisted B-tree counters and removal followed by addition.
+            session.begin();
+            doc = (EntityImpl) session.loadEntity(owner);
+            bag = doc.getProperty("items");
+            bag.add(target);
+            session.commit();
+            session.begin();
+            doc = (EntityImpl) session.loadEntity(owner);
+            bag = doc.getProperty("items");
+            assertEquals(1, bag.getCount(target));
+            bag.add(target);
+            assertEquals(2, bag.getCount(target));
+            bag.remove(target);
+            bag.remove(target);
+            assertEquals(0, bag.getCount(target));
+            bag.add(target);
+            session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+            assertBagMatchesCreation(name, primary, secondary, doc, bag);
+            session.commit();
+          }
+        }
+      }
+    }
+  }
+
+  /** An empty edge field contributes a null composite part before and after its only edge. */
+  @Test
+  public void compositeEdgeBagRestoresEmptyNullKey() {
+    var cls = session.createVertexClass("EdgeBagNull");
+    cls.createProperty("out_links", PropertyType.LINKBAG);
+    cls.createProperty("tag", PropertyType.STRING);
+    cls.createIndex("EdgeBagNull", "NOTUNIQUE", null, Map.of("ignoreNullValues", false),
+        new String[] {"tag", "out_links"});
+    var index = session.getSharedContext().getIndexManager().getIndex("EdgeBagNull");
+    session.begin();
+    var doc = (EntityImpl) session.newVertex("EdgeBagNull");
+    doc.setProperty("tag", "t");
+    var bag = new LinkBag(session);
+    doc.setPropertyInternal("out_links", bag);
+    var link = session.newEntity().getIdentity();
+    session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    assertEquals(Set.of(new CompositeKey("t", null)), keysFor(index, doc.getIdentity()));
+    bag.add(link);
+    session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    assertEquals(Set.of(new CompositeKey("t", link)), keysFor(index, doc.getIdentity()));
+    bag.remove(link);
+    session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    assertEquals(Set.of(new CompositeKey("t", null)), keysFor(index, doc.getIdentity()));
+    session.rollback();
+  }
+
+  /** A custom subclass may collapse distinct links and must keep the counting scan. */
+  @Test
+  public void customBagComponentCollationKeepsScan() {
+    for (boolean composite : List.of(false, true)) {
+      String name = "CustomBagCollate" + composite;
+      var cls = session.createClass(name);
+      cls.createProperty("items", PropertyType.LINKBAG);
+      cls.createProperty("tag", PropertyType.STRING);
+      cls.createIndex(name, "NOTUNIQUE", composite
+          ? new String[] {"tag", "items"} : new String[] {"items"});
+      var index = session.getSharedContext().getIndexManager().getIndex(name);
+      var custom = new com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate() {
+        @Override
+        public Object transform(Object value) {
+          return value instanceof RID
+              ? new com.jetbrains.youtrackdb.internal.core.id.RecordId(12, 1) : value;
+        }
+      };
+      if (composite) {
+        var collate = (CompositeCollate) index.getDefinition().getCollate();
+        collate.getCollates().set(1, custom);
+      } else {
+        index.getDefinition().setCollate(custom);
+      }
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      doc.setProperty("tag", "t");
+      var bag = new LinkBag(session);
+      doc.setProperty("items", bag);
+      var first = session.newEntity().getIdentity();
+      bag.add(first);
+      bag.add(session.newEntity().getIdentity());
+      session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+      bag.remove(first);
+      session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+      assertBagMatchesCreation(name, index, null, doc, bag);
+      session.rollback();
+    }
+  }
+
+  private void assertBagMatchesCreation(String name, Index primary, Index secondary,
+      EntityImpl doc, LinkBag bag) {
+    var fresh = (EntityImpl) session.newEntity(name);
+    fresh.setProperty("tag", "t");
+    fresh.setProperty("items", new LinkBag(session, bag));
+    session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    assertEquals(name, keysFor(primary, fresh.getIdentity()), keysFor(primary, doc.getIdentity()));
+    if (secondary != null) {
+      assertEquals(keysFor(secondary, fresh.getIdentity()), keysFor(secondary, doc.getIdentity()));
+    }
+    // Keep comparison records. Deleting a record with a changed indexed bag hits YTDB-1557.
+  }
+
+  /**
+   * Removing a stored link and adding persistent and temporary links must use point counts.
+   * Both index shapes must match a fresh record while every bag scan entry point rejects access.
+   */
+  @Test
+  public void primaryBagUpdateDoesNotScanAnyLayer() {
+    for (boolean composite : List.of(false, true)) {
+      String name = "NoBagScan" + composite;
+      var cls = session.createClass(name);
+      cls.createProperty("items", PropertyType.LINKBAG);
+      cls.createProperty("tag", PropertyType.STRING);
+      cls.createIndex(name, "NOTUNIQUE", null, Map.of("ignoreNullValues", false),
+          composite ? new String[] {"tag", "items"} : new String[] {"items"});
+      var index = session.getSharedContext().getIndexManager().getIndex(name);
+      session.begin();
+      var owner = session.newEntity(name);
+      owner.setProperty("tag", "t");
+      var initialBag = new LinkBag(session, new BTreeBasedLinkBag(session, Integer.MAX_VALUE));
+      owner.setProperty("items", initialBag);
+      var removedLink = session.newEntity().getIdentity();
+      initialBag.add(removedLink);
+      for (int i = 0; i < 49; i++) {
+        initialBag.add(session.newEntity().getIdentity());
+      }
+      var addedPersistentLink = session.newEntity().getIdentity();
+      var rid = owner.getIdentity();
+      session.commit();
+      session.begin();
+      var doc = (EntityImpl) session.loadEntity(rid);
+      LinkBag stored = doc.getProperty("items");
+      var delegate = new ScanGuardBag(session, stored.getPointer(), stored.size());
+      var guarded = new LinkBag(session, delegate) {
+        @Override
+        public Iterator<RidPair> iterator() {
+          delegate.checkScan();
+          return super.iterator();
+        }
+      };
+      doc.setProperty("items", guarded);
+      session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+      assertTrue(removedLink.isPersistent());
+      assertTrue(addedPersistentLink.isPersistent());
+      assertEquals(1, guarded.getCount(removedLink));
+      assertTrue(guarded.remove(removedLink));
+      guarded.add(addedPersistentLink);
+      var addedTemporaryLink = session.newEntity().getIdentity();
+      assertFalse(addedTemporaryLink.isPersistent());
+      guarded.add(addedTemporaryLink);
+      delegate.guard = true;
+      try {
+        ClassIndexManager.processIndexUpdate(session.getActiveTransaction(), doc,
+            Set.of("items"), index);
+      } finally {
+        delegate.guard = false;
+      }
+      assertEquals(Map.of(removedLink, 0, addedPersistentLink, 1, addedTemporaryLink, 1),
+          delegate.guardedCounts);
+      assertBagMatchesCreation(name, index, null, doc, guarded);
+      session.rollback();
+    }
+  }
+
+  private static final class ScanGuardBag extends BTreeBasedLinkBag {
+    boolean guard;
+    final Map<RID, Integer> guardedCounts = new java.util.HashMap<>();
+
+    ScanGuardBag(DatabaseSessionEmbedded session, LinkBagPointer pointer, int size) {
+      super(session, pointer, size, Integer.MAX_VALUE);
+    }
+
+    void checkScan() {
+      if (guard) {
+        throw new AssertionError("Index update scanned the link bag");
+      }
+    }
+
+    @Override
+    public int getCount(RID rid) {
+      if (guard && rid != null) {
+        // Persistent mutations leave absolute counts in localChanges before emitting events.
+        if (rid.isPersistent()) {
+          assertNotNull(localChanges.getChange(rid));
+        } else {
+          assertTrue(newEntries.containsKey(rid));
+        }
+      }
+      int count = super.getCount(rid);
+      if (guard && rid != null) {
+        guardedCounts.put(rid, count);
+      }
+      return count;
+    }
+
+    @Override
+    public Iterator<RidPair> iterator() {
+      checkScan();
+      return super.iterator();
+    }
+
+    @Override
+    public Spliterator<RidPair> spliterator() {
+      checkScan();
+      return super.spliterator();
+    }
+
+    @Override
+    public Stream<RidPair> stream() {
+      checkScan();
+      return super.stream();
+    }
+
+    @Override
+    protected Spliterator<BTreeReadEntry<RID>> btreeSpliterator(AtomicOperation operation) {
+      checkScan();
+      return super.btreeSpliterator(operation);
+    }
   }
 
   private Index differentialIndex(String name, String kind, boolean composite, boolean ignored) {
