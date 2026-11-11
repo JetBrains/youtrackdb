@@ -273,8 +273,9 @@ public class ComponentIdAllocationTest {
   private static PageFileRole[] indexTreeRoles(boolean multi) {
     return multi
         ? new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET,
-            PageFileRole.NULL_KEY_DATA, PageFileRole.NULL_KEY_NULL_BUCKET}
-        : new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET};
+            PageFileRole.NULL_KEY_DATA, PageFileRole.NULL_KEY_NULL_BUCKET, PageFileRole.HISTOGRAM}
+        : new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET,
+            PageFileRole.HISTOGRAM};
   }
 
   private static void assertIndexTreeRegistrations(AbstractStorage storage, int id,
@@ -289,6 +290,7 @@ public class ComponentIdAllocationTest {
         case INDEX_NULL_BUCKET -> "tree-null-bucket.nbt";
         case NULL_KEY_DATA -> "null-key-data.cbt";
         case NULL_KEY_NULL_BUCKET -> "null-key-null-bucket.nbt";
+        case HISTOGRAM -> "histogram.ixs";
         default -> throw new AssertionError(role);
       };
       int expectedId = (2 << 28) | (role.code() << 25) | id;

@@ -117,6 +117,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -134,6 +135,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -4607,8 +4609,10 @@ public abstract class AbstractStorage
             }
             // Ownership asymmetry drives the two deletes below — and this fresh cleanup
             // operation COMMITS, so a wrong delete here is durable. The engine FILES are
-            // fileBaseId-keyed and file base ids are never reused, so surviving ie_* files
-            // provably belong to the reverted engine: delete them unconditionally. The config
+            // fileBaseId-keyed and file base ids are never reused. Layout 27 matches legacy
+            // stems and engine extensions. Layout 28 checks every INDEX_ENGINE role by name
+            // and expected internal id, rejecting identity conflicts. Surviving family files
+            // therefore belong to the reverted engine: delete them unconditionally. The config
             // ENTRY is name-keyed, and after the failed commit's rollback the entry under this
             // engine's name may not be this engine's at all: it is either absent (pure failed
             // create — the entry write reverted with the rolled-back operation) or the restored
@@ -4642,27 +4646,53 @@ public abstract class AbstractStorage
    * cache — the in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the
    * engine analogue of the collection arm's
    * {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. Every file of an engine's
-   * family carries the {@code ie_<fileBaseId>} stem (the multi-value null tree appends
-   * {@link #NULL_TREE_SUFFIX}), so the check strips each file name's extension and matches the
-   * remaining stem exactly — keyed by the stable id, never by parsing an index name out of a
-   * file name. The write cache reflects the committed physical files: the eager cache install
-   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
-   * surviving stem match is exactly an orphan to clean up.
+   * family is keyed by its stable file base id, never the reusable engine slot or index name.
+   * Layout 28 probes every {@link PageFileKind#INDEX_ENGINE} role by its canonical name and
+   * expected internal id. It checks all roles even after finding a survivor, so a conflicting
+   * registration cannot be hidden by another surviving file. A family name registered under an
+   * unexpected internal id is an identity conflict, not an absent file.
    *
-   * <p>Matching is restricted to the engine file-extension family (see
+   * <p>Layout 27 matches the {@code ie_<fileBaseId>} stem and its {@link #NULL_TREE_SUFFIX}
+   * variant exactly. Matching is restricted to the engine file-extension family (see
    * {@link PageFileNames#isIndexEngineFileExtension}): a user artifact whose name happens to share
    * the stem shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions)
    * must never false-positive the cleanup arm into a spurious delete attempt.
    *
+   * <p>On both layouts the write cache reflects the physical files. The eager cache install
+   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
+   * surviving family file is an orphan to clean up.
+   *
    * <p>Package-private for tests.
    *
    * @param fileBaseId the dropped/created engine's stable file base id.
-   * @return {@code true} when at least one file of the engine's family survives.
+   * @return {@code true} when at least one file of the engine's family survives and, on layout 28,
+   *     no family name has a conflicting registered internal id.
+   * @throws StorageException on layout 28 if any family name is registered under an unexpected
+   *     internal id, even if another family file survives.
    */
   boolean engineFilesPresent(final int fileBaseId) {
     final var wc = writeCache;
     if (wc == null) {
       return false;
+    }
+    if (storageFormat == StorageFormat.LAYOUT_28) {
+      boolean present = false;
+      for (var role : PageFileRole.values()) {
+        if (role.kind() != PageFileKind.INDEX_ENGINE) {
+          continue;
+        }
+        var identity = new PageFileIdentity(role, fileBaseId);
+        var fileName = PageFileNames.layout28(identity);
+        var registered = wc.registeredFileId(fileName);
+        if (registered != null && Math.abs(registered) != identity.internalId()) {
+          throw new StorageException(name, "Page-file identity conflict: " + fileName);
+        }
+        if (registered != null && registered > 0 && wc.exists(fileName)
+            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
+          present = true;
+        }
+      }
+      return present;
     }
     final var stem = indexEngineFileStem(fileBaseId);
     final var nullTreeStem = stem + NULL_TREE_SUFFIX;
@@ -5655,7 +5685,9 @@ public abstract class AbstractStorage
         histogramSnapshotCache,
         histogramKeySerializer,
         componentsFactory.binarySerializerFactory,
-        histogramSerializerId);
+        histogramSerializerId,
+        storageFormat == StorageFormat.LAYOUT_28
+            ? new PageFileIdentity(PageFileRole.HISTOGRAM, engineData.getFileBaseId()) : null);
 
     // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
     mgr.setDisplayName(engineData.getName());

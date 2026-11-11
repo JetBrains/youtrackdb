@@ -32,6 +32,9 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -108,6 +111,7 @@ public class IndexHistogramManager extends StorageComponent {
   static final int FIXED_HEADER_SIZE = 53;
 
   // ---- Instance state ----
+  @Nullable private final PageFileIdentity identity;
   private final int engineId;
   private final boolean isSingleValue;
   private final ConcurrentHashMap<Integer, HistogramSnapshot> cache;
@@ -209,7 +213,7 @@ public class IndexHistogramManager extends StorageComponent {
    *
    * @param storage           parent storage
    * @param name              base file name (same as the index file, without extension)
-   * @param engineId          stable engine ID from DiskStorage
+   * @param engineId          reusable engine registry slot, not the file component id
    * @param isSingleValue     true for single-value indexes, false for multi-value
    * @param cache             storage-level shared snapshot cache
    * @param keySerializer     serializer for boundary keys (leading field for composite)
@@ -227,7 +231,22 @@ public class IndexHistogramManager extends StorageComponent {
       @Nonnull BinarySerializer<?> keySerializer,
       @Nonnull BinarySerializerFactory serializerFactory,
       byte serializerId) {
-    super(storage, name, IXS_EXTENSION, name + IXS_EXTENSION, true);
+    this(storage, name, engineId, isSingleValue, cache, keySerializer, serializerFactory,
+        serializerId, null);
+  }
+
+  /** Uses explicit file ownership on layout 28 while keeping the registry slot for snapshots. */
+  @SuppressWarnings("unchecked")
+  public IndexHistogramManager(
+      @Nonnull AbstractStorage storage, @Nonnull String name, int engineId,
+      boolean isSingleValue, @Nonnull ConcurrentHashMap<Integer, HistogramSnapshot> cache,
+      @Nonnull BinarySerializer<?> keySerializer,
+      @Nonnull BinarySerializerFactory serializerFactory, byte serializerId,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, IXS_EXTENSION,
+        identity == null ? name + IXS_EXTENSION : PageFileNames.layout28(identity), true);
+    validateIdentity(storage, IXS_EXTENSION, identity, PageFileRole.HISTOGRAM);
+    this.identity = identity;
     this.engineId = engineId;
     this.isSingleValue = isSingleValue;
     this.cache = cache;
@@ -323,7 +342,7 @@ public class IndexHistogramManager extends StorageComponent {
    * between the normal open path and the migration path.
    */
   public boolean statsFileExists(AtomicOperation op) {
-    return isFileExists(op, getFullName());
+    return isFileExists(op, getFullName(), identity);
   }
 
   /**
@@ -331,7 +350,7 @@ public class IndexHistogramManager extends StorageComponent {
    * Called by the engine during index creation.
    */
   public void createStatsFile(AtomicOperation op) throws IOException {
-    createEmptyStatsPage(op);
+    createEmptyStatsPage(op, false);
 
     // Install empty snapshot in cache
     var emptySnapshot = createEmptySnapshot();
@@ -357,7 +376,7 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public void createStatsFileWithCounters(AtomicOperation op,
       long totalCount, long distinctCount, long nullCount) throws IOException {
-    createEmptyStatsPage(op);
+    createEmptyStatsPage(op, true);
 
     // Install snapshot with initial counters (no histogram)
     var stats = new IndexStatistics(totalCount, distinctCount, nullCount);
@@ -374,7 +393,7 @@ public class IndexHistogramManager extends StorageComponent {
    * Called by the engine during index load.
    */
   public void openStatsFile(AtomicOperation op) throws IOException {
-    fileId = openFile(op, getFullName());
+    fileId = openFile(op, getFullName(), identity);
     var snapshot = readSnapshotFromPage(op);
     cache.put(engineId, snapshot);
 
@@ -441,8 +460,11 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public void deleteStatsFile(AtomicOperation op) throws IOException {
     waitForAndBlockRebalance();
+    if (identity != null) {
+      storage.getAtomicOperationsManager().acquireExclusiveLockTillOperationComplete(op, this);
+    }
     if (fileId != -1) {
-      deleteFile(op, fileId);
+      deleteFile(op, fileId, identity);
     }
     fileId = -1;
     detach();
@@ -1921,12 +1943,15 @@ public class IndexHistogramManager extends StorageComponent {
    * Creates the .ixs file with an initial empty page. Shared by
    * {@link #createStatsFile} and {@link #createStatsFileWithCounters}.
    */
-  private void createEmptyStatsPage(AtomicOperation op) throws IOException {
-    fileId = addFile(op, getFullName());
-    // Fresh file -- append the initial empty stats page (statically known-new at
-    // pageIndex 0). createStatsFile / createStatsFileWithCounters are invoked
-    // from AbstractStorage's index-creation path immediately after addFile, so
-    // the file has no other writers when this allocation runs.
+  private void createEmptyStatsPage(AtomicOperation op, boolean reconstruct) throws IOException {
+    if (identity != null) {
+      storage.getAtomicOperationsManager().acquireExclusiveLockTillOperationComplete(op, this);
+    }
+    // Load-time reconstruction belongs to an established live engine. Only that path may
+    // reuse a matching deletion entry. Both paths hold the storage state write lock.
+    fileId = reconstruct && identity != null
+        ? reconstructAuxiliary(op, identity) : addFile(op, getFullName(), identity);
+    // The new file has no other writers. Append its initial statistics page at page zero.
     var cacheEntry = allocatePageForWrite(op, fileId, 0);
     try {
       var page = new HistogramStatsPage(cacheEntry);
