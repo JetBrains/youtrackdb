@@ -5,8 +5,8 @@
 When planning, verifying, naming branches, committing, or publishing pull requests, read
 `docs-internal/dev-workflow/track-development.md` for YTDB rules.
 
-The orchestrator does not wait for continuous integration (CI) builds or check their status under
-`docs-internal/dev-workflow/track-development.md` § CI build handling.
+The orchestrator does not wait for continuous integration (CI) builds and does not check their
+status. See `docs-internal/dev-workflow/track-development.md` § CI build handling.
 
 For test authorship, read `docs-internal/agents/thread-guidelines.md` § Test Authorship.
 Before measuring coverage, read `docs-internal/dev-workflow/coverage-verification.md`.
