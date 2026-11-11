@@ -23,6 +23,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -49,7 +52,8 @@ public final class BTreeSingleValueIndexEngine
 
   /**
    * The engine's stable, never-reused file base id. All storage-component names derive from it
-   * ({@code ie_<fileBaseId>}), so the logical index name ({@link #name}) never touches a file:
+   * through role identities on layout 28 and {@code ie_<fileBaseId>} on layout 27.
+   * The logical index name ({@link #name}) never touches a file:
    * a drop-and-recreate of a same-named index gets fresh files, and a rename never moves any.
    */
   private final int fileBaseId;
@@ -87,12 +91,13 @@ public final class BTreeSingleValueIndexEngine
     this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
 
     if (version == 3 || version == 4) {
-      // The component (and therefore its files) is keyed by the stable file base id, not the
-      // index name — the single name domain for engine storage components.
-      this.sbTree =
-          new BTree<>(
-              AbstractStorage.indexEngineFileStem(fileBaseId),
-              DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);
+      this.sbTree = storage.getStorageFormat() == StorageFormat.LAYOUT_28
+          ? new BTree<>(stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage,
+              storage.getComponentsFactory().binarySerializerFactory,
+              new PageFileIdentity(PageFileRole.INDEX_DATA, fileBaseId),
+              new PageFileIdentity(PageFileRole.INDEX_NULL_BUCKET, fileBaseId))
+          : new BTree<>(stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       this.sbTree.setHistoryFileBaseId(this.fileBaseId);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
       this.sbTree.setDisplayName(name);

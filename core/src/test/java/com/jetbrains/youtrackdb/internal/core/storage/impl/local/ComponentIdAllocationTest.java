@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -23,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
@@ -175,6 +177,7 @@ public class ComponentIdAllocationTest {
       var first = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> config(storage).getIndexEngine("CounterIndex.first", -1, op));
       assertEquals(101, first.getFileBaseId());
+      assertIndexTreeRegistrations(storage, first.getFileBaseId(), false);
       assertEquals(101, (int) storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> config(storage).getIndexEngineFileBaseIdFloor(op)));
       assertEquals(101, counter(storage, PageFileKind.INDEX_ENGINE));
@@ -183,10 +186,134 @@ public class ComponentIdAllocationTest {
       var second = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> config(storage).getIndexEngine("CounterIndex.second", -1, op));
       assertEquals(102, second.getFileBaseId());
+      assertIndexTreeRegistrations(storage, second.getFileBaseId(), false);
       assertEquals(102, (int) storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> config(storage).getIndexEngineFileBaseIdFloor(op)));
       assertEquals(102, counter(storage, PageFileKind.INDEX_ENGINE));
     }
+  }
+
+  // Both engine types must register canonical roles and computed ids on disk and survive cold load.
+  @Test
+  public void layout28IndexTreesSurviveDiskReopenAndDrop() throws Exception {
+    indexTreeLifecycle(DatabaseType.DISK);
+  }
+
+  // Sequential memory ids must coexist with supplied ids for both engines and all four roles.
+  @Test
+  public void layout28IndexTreesRegisterAndDropInMemory() throws Exception {
+    indexTreeLifecycle(DatabaseType.MEMORY);
+  }
+
+  private void indexTreeLifecycle(DatabaseType type) throws Exception {
+    create(StorageFormat.LAYOUT_28, type);
+    int singleId;
+    int multiId;
+    try (var session = open()) {
+      var cls = session.getMetadata().getSchema().createClass("RoleIndex");
+      cls.createProperty("single", PropertyType.STRING);
+      cls.createProperty("multi", PropertyType.STRING);
+      cls.createIndex("RoleIndex.single", SchemaClass.INDEX_TYPE.UNIQUE, "single");
+      cls.createIndex("RoleIndex.multi", SchemaClass.INDEX_TYPE.NOTUNIQUE, "multi");
+      var storage = session.getStorage();
+      singleId = indexFileBaseId(storage, "RoleIndex.single");
+      multiId = indexFileBaseId(storage, "RoleIndex.multi");
+      assertTrue(multiId > singleId);
+      assertIndexTreeRegistrations(storage, singleId, false);
+      assertIndexTreeRegistrations(storage, multiId, true);
+      session.executeInTx(tx -> {
+        tx.newEntity("RoleIndex").setProperty("single", "unique");
+        var entity = tx.newEntity("RoleIndex");
+        entity.setProperty("single", "other");
+        entity.setProperty("multi", "shared");
+        var duplicate = tx.newEntity("RoleIndex");
+        duplicate.setProperty("single", "third");
+        duplicate.setProperty("multi", "shared");
+      });
+    }
+    if (type == DatabaseType.DISK) {
+      ytdb.close();
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    }
+    try (var session = open()) {
+      var storage = session.getStorage();
+      assertEquals(singleId, indexFileBaseId(storage, "RoleIndex.single"));
+      assertEquals(multiId, indexFileBaseId(storage, "RoleIndex.multi"));
+      assertIndexTreeRegistrations(storage, singleId, false);
+      assertIndexTreeRegistrations(storage, multiId, true);
+      try (var rows = session.query("select from RoleIndex where single = 'unique'")) {
+        assertEquals(1, rows.stream().count());
+      }
+      try (var rows = session.query("select from RoleIndex where multi = 'shared'")) {
+        assertEquals(2, rows.stream().count());
+      }
+      try (var rows = session.query("select from RoleIndex where multi is null")) {
+        assertEquals(1, rows.stream().count());
+      }
+      // Query opens a read-only transaction. End it before the top-level schema changes.
+      session.commit();
+      session.execute("drop index RoleIndex.single").close();
+      session.execute("drop index RoleIndex.multi").close();
+      for (int id : new int[] {singleId, multiId}) {
+        for (var role : indexTreeRoles(id == multiId)) {
+          var name = PageFileNames.layout28(new PageFileIdentity(role, id));
+          assertFalse("Dropped tree remains registered: " + name,
+              storage.getWriteCache().files().containsKey(name));
+          assertFalse(storage.getWriteCache().exists(name));
+        }
+      }
+    }
+  }
+
+  private static int indexFileBaseId(AbstractStorage storage, String name) throws Exception {
+    return storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+        op -> config(storage).getIndexEngine(name, -1, op)).getFileBaseId();
+  }
+
+  private static PageFileRole[] indexTreeRoles(boolean multi) {
+    return multi
+        ? new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET,
+            PageFileRole.NULL_KEY_DATA, PageFileRole.NULL_KEY_NULL_BUCKET}
+        : new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET};
+  }
+
+  private static void assertIndexTreeRegistrations(AbstractStorage storage, int id,
+      boolean multi) throws Exception {
+    var cache = storage.getWriteCache();
+    var names = new HashSet<String>();
+    for (var role : indexTreeRoles(multi)) {
+      var identity = new PageFileIdentity(role, id);
+      // Literal names and bit fields keep this check independent of the production name codec.
+      var suffix = switch (role) {
+        case INDEX_DATA -> "tree-data.cbt";
+        case INDEX_NULL_BUCKET -> "tree-null-bucket.nbt";
+        case NULL_KEY_DATA -> "null-key-data.cbt";
+        case NULL_KEY_NULL_BUCKET -> "null-key-null-bucket.nbt";
+        default -> throw new AssertionError(role);
+      };
+      int expectedId = (2 << 28) | (role.code() << 25) | id;
+      var name = "ytdb-p28-index-" + id + "-" + suffix;
+      assertEquals(name, PageFileNames.layout28(identity));
+      assertTrue(cache.files().containsKey(name));
+      long registered = cache.files().get(name);
+      assertEquals(expectedId, cache.internalFileId(registered));
+      assertEquals(expectedId, AbstractWriteCache.extractFileId(registered));
+      assertEquals(Integer.valueOf(expectedId), cache.registeredFileId(name));
+      assertTrue(cache.exists(name));
+      if (cache instanceof WOWCache diskCache) {
+        assertTrue(Files.exists(diskCache.getRootDirectory().resolve(
+            PageFileNames.layout28DiskName(identity))));
+      }
+      names.add(name);
+    }
+    var prefix = "ytdb-p28-index-" + id + "-";
+    assertEquals(names, cache.files().keySet().stream()
+        .filter(name -> name.startsWith(prefix)).collect(java.util.stream.Collectors.toSet()));
+    var legacyStem = AbstractStorage.indexEngineFileStem(id);
+    assertFalse(cache.files().containsKey(legacyStem + ".cbt"));
+    assertFalse(cache.files().containsKey(legacyStem + ".nbt"));
+    assertFalse(cache.files().containsKey(legacyStem + AbstractStorage.NULL_TREE_SUFFIX + ".cbt"));
+    assertFalse(cache.files().containsKey(legacyStem + AbstractStorage.NULL_TREE_SUFFIX + ".nbt"));
   }
 
   // Another thread's write lock must not admit allocation. Abortable acquisition must admit its owner.

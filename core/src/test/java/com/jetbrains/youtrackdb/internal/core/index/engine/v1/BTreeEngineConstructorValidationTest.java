@@ -2,9 +2,13 @@ package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.V1IndexEngine;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import org.junit.Test;
 
 /**
@@ -24,6 +28,47 @@ import org.junit.Test;
  * </ul>
  */
 public class BTreeEngineConstructorValidationTest {
+
+  // Explicit layout 28 gives each tree its data-role lock, for both accepted single versions.
+  @Test
+  public void layout28EnginesUseSeparateRoleLockDomains() throws Exception {
+    var storage = BTreeEngineTestFixtures.createMockStorage();
+    when(storage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
+    for (int version : new int[] {3, 4}) {
+      var single = new BTreeSingleValueIndexEngine(1, 123, "logical", storage, version);
+      assertEquals("ytdb-p28-index-123-tree-data.cbt", tree(single, "sbTree").getLockName());
+    }
+    var multi = new BTreeMultiValueIndexEngine(2, 123, "logical", storage, 4);
+    var regular = tree(multi, "svTree");
+    var nullKeys = tree(multi, "nullTree");
+    assertEquals("ytdb-p28-index-123-tree-data.cbt", regular.getLockName());
+    assertEquals("ytdb-p28-index-123-null-key-data.cbt", nullKeys.getLockName());
+    assertNotEquals(regular.getLockName(), nullKeys.getLockName());
+  }
+
+  // Layout 27 and an unstubbed layout both retain the legacy constructor and lock spelling.
+  @Test
+  public void legacyAndUnstubbedLayoutsKeepLegacyTreeDomains() throws Exception {
+    for (var format : new StorageFormat[] {null, StorageFormat.LAYOUT_27}) {
+      var storage = BTreeEngineTestFixtures.createMockStorage();
+      if (format != null) {
+        when(storage.getStorageFormat()).thenReturn(format);
+      }
+      for (int version : new int[] {3, 4}) {
+        var single = new BTreeSingleValueIndexEngine(1, 123, "logical", storage, version);
+        assertEquals("ie_123.cbt", tree(single, "sbTree").getLockName());
+      }
+      var multi = new BTreeMultiValueIndexEngine(2, 123, "logical", storage, 4);
+      assertEquals("ie_123.cbt", tree(multi, "svTree").getLockName());
+      assertEquals("ie_123$null.cbt", tree(multi, "nullTree").getLockName());
+    }
+  }
+
+  private static StorageComponent tree(Object engine, String fieldName) throws Exception {
+    var field = engine.getClass().getDeclaredField(fieldName);
+    field.setAccessible(true);
+    return (StorageComponent) field.get(engine);
+  }
 
   // ═══════════════════════════════════════════════════════════════════════
   // BTreeSingleValueIndexEngine — constructor version guard
