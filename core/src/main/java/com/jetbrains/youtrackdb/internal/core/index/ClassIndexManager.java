@@ -21,12 +21,16 @@
 package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeTimeLine;
 import com.jetbrains.youtrackdb.internal.core.db.record.TrackedMultiValue;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
@@ -37,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -276,7 +280,7 @@ public class ClassIndexManager {
     final Object raw;
     int delta;
     int current;
-    RID primaryRid;
+    Object lookup;
 
     TouchedKey(Object raw) {
       this.raw = raw;
@@ -288,15 +292,22 @@ public class ClassIndexManager {
       MultiValueChangeTimeLine<?, ?> timeline, Function<Object, Object> wrap,
       boolean composite) {
     var touched = new TreeMap<Object, TouchedKey>(DefaultComparator.INSTANCE);
-    BiConsumer<Object, Integer> touch = (raw, delta) -> {
-      Object key = wrap.apply(definition.createSingleValue(transaction, raw));
+    BiFunction<Object, Integer, TouchedKey> touch = (raw, delta) -> {
+      Object lookup = definition.createSingleValue(transaction, raw);
+      Object key = wrap.apply(lookup);
       var counts = touched.computeIfAbsent(index.getCollatingValue(key),
           ignored -> new TouchedKey(key));
       counts.delta += delta;
-      if (definition instanceof PropertyLinkBagIndexDefinition) {
-        counts.primaryRid = (RID) raw;
-      }
+      counts.lookup = lookup;
+      return counts;
     };
+    boolean directMap = (current instanceof EntityEmbeddedMapImpl<?>
+        || current.getClass() == EntityLinkMapIml.class)
+        && definition instanceof PropertyMapIndexDefinition mapDefinition
+        && mapDefinition.getIndexBy() == PropertyMapIndexDefinition.INDEX_BY.KEY
+        && componentCollateClass(index, definition)
+            == com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate.class;
+    int prefixLength = directMap ? index.keyPrefixLength() : -1;
     boolean byKey = (definition instanceof PropertyMapIndexDefinition map
         && map.getIndexBy() == PropertyMapIndexDefinition.INDEX_BY.KEY)
         || definition instanceof PropertyLinkBagIndexDefinition;
@@ -307,16 +318,24 @@ public class ClassIndexManager {
       var firstEvents = new java.util.HashMap<Object, MultiValueChangeEvent<?, ?>>();
       for (var event : timeline.getMultiValueChangeEvents()) {
         firstEvents.putIfAbsent(event.getKey(), event);
+        // UTF-16 units bound UTF-8 bytes conservatively, including surrogate pairs.
+        // Leave room for a stored prefix that stops before a four-byte code point.
+        if (directMap && prefixLength >= 0 && event.getKey() instanceof String key
+            && 3L * key.length() >= (long) prefixLength - 3) {
+          directMap = false;
+        }
       }
       for (var entry : firstEvents.entrySet()) {
         var event = entry.getValue();
         boolean wasPresent = event.getChangeType() != MultiValueChangeEvent.ChangeType.ADD;
         boolean isPresent = map.containsKey(entry.getKey());
         if (wasPresent) {
-          touch.accept(byKey ? entry.getKey() : event.getOldValue(), -1);
+          touch.apply(byKey ? entry.getKey() : event.getOldValue(), -1).current =
+              byKey && isPresent ? 1 : 0;
         }
         if (isPresent) {
-          touch.accept(byKey ? entry.getKey() : map.get(entry.getKey()), 1);
+          touch.apply(byKey ? entry.getKey() : map.get(entry.getKey()), 1).current =
+              byKey ? 1 : 0;
         }
         sizeDelta += (isPresent ? 1 : 0) - (wasPresent ? 1 : 0);
       }
@@ -324,10 +343,10 @@ public class ClassIndexManager {
       // Lists, sets and bags emit one delta per tracked item change.
       for (var event : timeline.getMultiValueChangeEvents()) {
         if (event.getChangeType() != MultiValueChangeEvent.ChangeType.ADD) {
-          touch.accept(byKey ? event.getKey() : event.getOldValue(), -1);
+          var unused = touch.apply(byKey ? event.getKey() : event.getOldValue(), -1);
         }
         if (event.getChangeType() != MultiValueChangeEvent.ChangeType.REMOVE) {
-          touch.accept(byKey ? event.getKey() : event.getValue(), 1);
+          var unused = touch.apply(byKey ? event.getKey() : event.getValue(), 1);
         }
         sizeDelta += switch (event.getChangeType()) {
           case ADD -> 1;
@@ -340,12 +359,23 @@ public class ClassIndexManager {
     Object preparedNull = index.getCollatingValue(nullKey);
     var nullCounts = touched.computeIfAbsent(preparedNull, ignored -> new TouchedKey(nullKey));
     int[] size = {0};
-    if (current instanceof LinkBag bag && directLinkCounts(index, definition)) {
-      size[0] = bag.size();
+    if (directMap) {
+      size[0] = ((Map<?, ?>) current).size();
+    } else if (directLinkCounts(index, definition)
+        && ((definition instanceof PropertyLinkBagIndexDefinition && current instanceof LinkBag)
+            || (definition instanceof PropertyListIndexDefinition
+                && current.getClass() == EntityLinkSetImpl.class))) {
+      size[0] = current instanceof LinkBag bag ? bag.size() : ((EntityLinkSetImpl) current).size();
       for (var counts : touched.values()) {
-        counts.current = bag.getCount(counts.primaryRid);
+        RID rid = counts == nullCounts ? null
+            : ((Identifiable) java.util.Objects.requireNonNull(counts.lookup)).getIdentity();
+        counts.current = current instanceof LinkBag bag ? bag.getCount(rid)
+            : ((EntityLinkSetImpl) current).getDelegate().getCount(rid);
       }
     } else {
+      // BY KEY normalization sets current counts even for ineligible maps. Clear them
+      // before the fallback scan accumulates the actual counts.
+      touched.values().forEach(counts -> counts.current = 0);
       forEachIndexItem(current, definition, raw -> {
         size[0]++;
         Object key = wrap.apply(definition.createSingleValue(transaction, raw));
@@ -395,21 +425,34 @@ public class ClassIndexManager {
 
   private static boolean directLinkCounts(Index index, IndexDefinitionMultiValue definition) {
     // Secondary bag definitions index opposite vertices and still need the collection scan.
-    if (!(definition instanceof PropertyLinkBagIndexDefinition)) {
+    if (!(definition instanceof PropertyLinkBagIndexDefinition)
+        && !(definition instanceof PropertyListIndexDefinition
+            && definition.getTypes()[0] == PropertyTypeInternal.LINK)) {
       return false;
     }
+    var collate = componentCollateClass(index, definition);
+    // Subclasses may transform links. Only these exact built-ins preserve primary identities.
+    return collate == com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate.class
+        || collate == com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate.class;
+  }
+
+  private static Class<?> componentCollateClass(
+      Index index, IndexDefinitionMultiValue definition) {
     var collate = index.getDefinition().getCollate();
     if (index.getDefinition() instanceof CompositeIndexDefinition composite) {
       if (!(collate instanceof CompositeCollate components)) {
-        return false;
+        return null;
       }
-      collate = components.getCollates().get(composite.getIndexDefinitions().indexOf(definition));
+      // Use identity, not equals: equal definitions can have distinct component collations.
+      var definitions = composite.getIndexDefinitions();
+      for (int i = 0; i < definitions.size(); i++) {
+        if (definitions.get(i) == definition) {
+          return components.getCollates().get(i).getClass();
+        }
+      }
+      throw new IllegalStateException("Missing collection index component");
     }
-    // Subclasses may transform links. Only these exact built-ins preserve primary identities.
-    return collate.getClass()
-        == com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate.class
-        || collate.getClass()
-            == com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate.class;
+    return collate.getClass();
   }
 
   private static void forEachIndexItem(Object current, IndexDefinitionMultiValue definition,

@@ -1714,7 +1714,8 @@ public abstract class IndexAbstract implements Index {
     return key;
   }
 
-  private int keyPrefixLength() {
+  @Override
+  public int keyPrefixLength() {
     var definition = im.getIndexDefinition();
     return IndexKeyShortener.prefixLength(
         definition == null ? null : definition.getTypes(), isUnique(),

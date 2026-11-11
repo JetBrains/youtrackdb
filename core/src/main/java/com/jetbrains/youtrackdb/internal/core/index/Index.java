@@ -195,6 +195,9 @@ public interface Index extends Comparable<Index> {
 
   Object getCollatingValue(final Object key);
 
+  /** Prefix byte budget, or a negative value when this index does not shorten keys. */
+  int keyPrefixLength();
+
   /**
    * Add given collection to the list of collections that should be automatically indexed.
    *
