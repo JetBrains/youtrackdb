@@ -201,6 +201,18 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     fileIdBTreeMap.put(AbstractWriteCache.extractFileId(fileId), bTree);
   }
 
+  /** Restores the captured owner. A missing identity-layout tree is corruption. */
+  public void restoreComponent(AtomicOperation operation, CollectionOwner owner) {
+    final var fileId = operation.fileIdByName(generateLockName(owner.collectionId()));
+    if (fileId < 0 || owner.fileId() < 0
+        || AbstractWriteCache.extractFileId(fileId)
+            != AbstractWriteCache.extractFileId(owner.fileId())) {
+      throw new StorageException(storage.getName(),
+          "Missing or replaced link-bag tree for collection " + owner.collectionId());
+    }
+    restoreComponentByCollectionId(operation, owner.collectionId());
+  }
+
   private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation,
       int collectionId) {
     final var owner = storage.getStorageFormat() == StorageFormat.LAYOUT_28

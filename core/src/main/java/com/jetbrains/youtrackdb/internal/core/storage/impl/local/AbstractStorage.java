@@ -3361,7 +3361,9 @@ public abstract class AbstractStorage
       // removes the collection from the in-memory registries eagerly inside reconcileCollections, so
       // a failed commit must re-register them (rollback reverts only the on-disk files). Stays empty
       // on a pure-data commit and on a schema-carry commit that drops nothing.
-      List<DroppedCollection> droppedCollections = List.of();
+      final List<DroppedCollection> droppedCollections = new ArrayList<>();
+      // Layout 28 creation identities survive failures before and after runtime publication.
+      final List<CreatedCollection> createdCollections = new ArrayList<>();
       // The transaction's index deltas (created / dropped / membership), reconciled at commit across
       // three phases: enroll the changed per-index records before the working set, build/drop and
       // populate the engines after the record apply, publish into the shared index maps after
@@ -3379,9 +3381,9 @@ public abstract class AbstractStorage
           // Reconcile structure inside the atomic-operation window, before any record serializes:
           // create the tx-local-only collections and drop the committed-only ones, recording each
           // provisional->real id. The structural file writes are WAL-reverted on a rollback.
-          droppedCollections =
-              reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
-                  schemaContext.txSchemaState(), atomicOperation);
+          reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
+              schemaContext.txSchemaState(), atomicOperation, droppedCollections,
+              createdCollections);
 
           // Test-only seam: fire any installed in-window hook now that structure is published but
           // before the record apply. Tests use it to inject a fault (verifying the failure-path undo
@@ -3669,7 +3671,8 @@ public abstract class AbstractStorage
         if (error != null) {
           rollback(error, atomicOperation);
           if (schemaContext != null && structurePublished) {
-            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections,
+                createdCollections);
           }
         } else {
           // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
@@ -3724,7 +3727,8 @@ public abstract class AbstractStorage
           } catch (final IOException | RuntimeException | AssertionError e) {
             if (atomicOperation.isRollbackInProgress()) {
               if (schemaContext != null && structurePublished) {
-                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections,
+                    createdCollections);
               }
             } else {
               setInError(e instanceof AssertionError
@@ -3894,11 +3898,12 @@ public abstract class AbstractStorage
    * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
    * structurally inert.
    */
-  private List<DroppedCollection> reconcileCollections(
+  private void reconcileCollections(
       final SchemaShared committedSchema,
       final SchemaShared txLocalSchema,
       final TxSchemaState txSchemaState,
-      final AtomicOperation atomicOperation) {
+      final AtomicOperation atomicOperation, final List<DroppedCollection> dropped,
+      final List<CreatedCollection> created) {
     try {
       final var committedIds = committedSchema.getRealCollectionIds();
       final var txProvisionalNames = txSchemaState.getProvisionalCollectionNames();
@@ -3907,7 +3912,6 @@ public abstract class AbstractStorage
       // tx-local schema's real-id set is the committed reals minus any dropped class's ids; a
       // provisional id (<= -2) is excluded from getRealCollectionIds, so it never reads as a drop.
       final var txRealIds = txLocalSchema.getRealCollectionIds();
-      final List<DroppedCollection> dropped = new ArrayList<>();
       for (final var committedId : committedIds) {
         if (!txRealIds.contains(committedId)) {
           // Capture the collection before it is nulled, so the failure path can re-register it.
@@ -3959,18 +3963,17 @@ public abstract class AbstractStorage
         }
         final String collectionName = entry.getValue();
         final int realId = nextFreeCollectionId(atomicOperation);
-        // The allocator must hand back a genuinely free slot (an append at the list end or a null
-        // slot). undoReconciledCollections relies on this: a resolved id that collided with a
-        // committed live slot would make the undo skip a real cleanup and doCreateCollection would
-        // overwrite a live collection. Zero production cost; catches a slot-bookkeeping regression at
-        // create time during testing.
+        // The allocator must hand back a genuinely free slot (a null slot or an id at or beyond
+        // the list end, since layout 28 also skips configured owners). The undo relies on this:
+        // A resolved id colliding with a committed live slot would skip cleanup and overwrite a
+        // live collection. Zero production cost, catches a slot-bookkeeping regression at create
+        // time during testing.
         assert realId >= collections.size() || collections.get(realId) == null
             : "commit-local allocator returned an occupied collection slot " + realId;
-        final var collection = doCreateCollection(atomicOperation, collectionName, realId);
+        final var collection = doCreateCollection(atomicOperation, collectionName, realId, created);
         registerCollection(collection);
         txSchemaState.recordResolvedCollectionId(provisionalId, realId);
       }
-      return dropped;
     } catch (final IOException e) {
       // Wrap as an unchecked StorageException so the schema-carry commit's RuntimeException/Error
       // catch reaches the registry-undo path, mirroring how the public structural methods wrap
@@ -4017,6 +4020,11 @@ public abstract class AbstractStorage
             != null;
   }
 
+  /** A layout 28 create captured before publication, including its loaded-tree identity. */
+  private record CreatedCollection(StorageCollection collection,
+      LinkCollectionsBTreeManagerShared.CollectionOwner owner) {
+  }
+
   /**
    * A collection {@link #reconcileCollections} dropped, captured so a failed schema-carry commit can
    * restore its in-memory registration. The id is the dropped collection's slot; the collection is
@@ -4055,9 +4063,10 @@ public abstract class AbstractStorage
   private void undoSchemaCarryRegistryPublication(
       final SchemaCommitContext schemaContext,
       @Nullable final IndexManagerEmbedded.ReconciledIndexPlan indexPlan,
-      final List<DroppedCollection> droppedCollections) {
+      final List<DroppedCollection> droppedCollections,
+      final List<CreatedCollection> createdCollections) {
     undoReconciledCollections(schemaContext.committedSchema(),
-        schemaContext.txSchemaState(), droppedCollections);
+        schemaContext.txSchemaState(), droppedCollections, createdCollections);
     if (indexPlan != null) {
       undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
       restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
@@ -4088,10 +4097,11 @@ public abstract class AbstractStorage
    * normally, so the orphan removal is itself durable.
    *
    * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
+   * @param created captured layout 28 creates, including failures before runtime publication.
    */
   private void undoReconciledCollections(
       final SchemaShared committedSchema, final TxSchemaState txSchemaState,
-      final List<DroppedCollection> dropped) {
+      final List<DroppedCollection> dropped, final List<CreatedCollection> created) {
     final var committedIds = committedSchema.getRealCollectionIds();
     // The slots this same reconciliation dropped. A commit that drops a committed collection frees
     // its slot for the commit-local allocator, so a created collection's resolved real id CAN
@@ -4102,7 +4112,21 @@ public abstract class AbstractStorage
     for (final var entry : dropped) {
       droppedIds.add(entry.id());
     }
+    // Layout 28 uses captured identities for all creates, published or not. Remove B before A.
+    // Layout 27 retains its resolved-id cleanup loop and tolerant restoration below.
+    for (final var entry : created) {
+      final var collection = entry.collection();
+      final var id = collection.getId();
+      if (id < collections.size() && collections.get(id) == collection) {
+        collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
+        collections.set(id, null);
+      }
+      revertCreatedCollectionStructure(id, collection, droppedIds.contains(id), entry.owner());
+    }
     for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
+      if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+        continue;
+      }
       // Only drop ids the commit created (resolved from a provisional), never a pre-existing
       // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
       // this same reconciliation freed: it is commit-created and must be undone here, so the
@@ -4135,30 +4159,54 @@ public abstract class AbstractStorage
         continue;
       }
       if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
-        registerCollection(collection);
+        if (getStorageFormat() != StorageFormat.LAYOUT_28) {
+          registerCollection(collection);
+        }
         // The drop also removed the collection's SharedLinkBagBTree from the link-bag manager's
         // in-memory map eagerly. Neither layout's tree deletion rolls back the map removal. Only
         // the file delete was buffered and reverted, and every link-bag access resolves through that
         // map with no reload branch — without this restore the re-registered collection's first
         // link-bag operation fails until a reopen rebuilds the map. Best-effort like the
         // surrounding cleanup: a failure here is logged, never thrown over the propagating commit
-        // failure. The read-only operation is the lightweight snapshot-only kind (started and
+        // failure. Layout 28 also moves the storage to error state if required restoration fails.
+        // The read-only operation is the lightweight snapshot-only kind (started and
         // deactivated, never applied), so it works even when the storage is already in error
         // state (the error gate covers component-write operations only).
         try {
           final var restoreReadOperation = atomicOperationsManager.startAtomicOperation();
           try {
-            linkCollectionsBTreeManager.restoreComponentByCollectionId(
-                restoreReadOperation, entry.id());
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              final var configured = ((CollectionBasedStorageConfiguration) configuration)
+                  .readCollection(entry.id(), restoreReadOperation);
+              if (configured == null
+                  || !Objects.equals(configured.getComponentId(), entry.owner().componentId())) {
+                throw new StorageException(name,
+                    "Restored collection ownership mismatch: " + entry.id());
+              }
+              linkCollectionsBTreeManager.restoreComponent(restoreReadOperation, entry.owner());
+              // Publish only after all required identity-owned state has been restored.
+              registerCollection(collection);
+            } else {
+              linkCollectionsBTreeManager.restoreComponentByCollectionId(
+                  restoreReadOperation, entry.id());
+            }
           } finally {
             restoreReadOperation.deactivate();
           }
         } catch (final RuntimeException | AssertionError linkBagRestoreFailure) {
+          if (getStorageFormat() == StorageFormat.LAYOUT_28 && !isInError()) {
+            // Neither undo entry point guarantees error state, for example AssertionError rollback.
+            // Contain incomplete restoration without replacing an already stored commit failure.
+            setInError(linkBagRestoreFailure instanceof AssertionError
+                ? BaseException.wrapException(
+                    new StorageException(name, "Required collection restoration failed"),
+                    linkBagRestoreFailure, name)
+                : linkBagRestoreFailure);
+          }
           LogManager.instance()
               .error(this,
                   "Failed to restore the link-bag component registration of collection '%s'"
-                      + " (slot %d) during failed-commit undo; link-bag operations on the restored"
-                      + " collection will fail until the storage reopens",
+                      + " (slot %d) during failed-commit undo; reopen the storage",
                   linkBagRestoreFailure, collection.getName(), entry.id());
         }
       } else {
@@ -4183,14 +4231,13 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Drops the surviving structure of a collection that a failed schema-carry commit created: the
-   * link-bag B-tree component, the storage-config entry, and the collection's own data file. The
-   * mirror of {@link #doCreateCollection}, which writes exactly those three structures. Runs in a
-   * fresh atomic operation because the failed commit's operation is already closed by {@code
-   * rollback}. Layout 27 uses the surviving tree as its cleanup discriminator. Layout 28 removes
-   * loaded-tree state independently of file presence and deletes configuration only for the failed
-   * component identity. See {@link
-   * #undoReconciledCollections} for why only the in-memory engine leaves an orphan.
+   * Drops the surviving structure of a collection that a failed schema-carry commit created on
+   * layout 27: the link-bag B-tree component, the storage-config entry, and the collection's own
+   * data file. This overload is layout 27 only. It mirrors {@link #doCreateCollection}, which
+   * writes exactly those three structures. Runs in a fresh atomic operation because the failed
+   * commit's operation is already closed by {@code rollback}. The surviving tree is the cleanup
+   * discriminator. See {@link #undoReconciledCollections} for why only the in-memory engine leaves
+   * an orphan.
    *
    * <p>Best-effort and self-contained: this runs from the failure-path {@code finally} while the
    * original commit exception is propagating, so any failure here is logged and swallowed rather than
@@ -4216,17 +4263,35 @@ public abstract class AbstractStorage
    *                   data file.
    * @param slotReused whether {@code realId} is a slot this same reconciliation dropped (the
    *                   created collection reused the freed slot).
+   * @throws IllegalStateException if called on layout 28, which requires the captured-owner
+   *                               overload.
    */
   private void revertCreatedCollectionStructure(final int realId,
       final StorageCollection collection, final boolean slotReused) {
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      throw new IllegalStateException("Layout 28 cleanup requires a captured creation owner");
+    }
+    revertCreatedCollectionStructure(realId, collection, slotReused, null);
+  }
+
+  /**
+   * Reverts a failed create using its retained identity, never an owner recaptured from its slot.
+   *
+   * @param failedOwner layout 28 creation owner captured before rollback, null on layout 27.
+   */
+  private void revertCreatedCollectionStructure(final int realId,
+      final StorageCollection collection, final boolean slotReused,
+      final LinkCollectionsBTreeManagerShared.CollectionOwner failedOwner) {
     // Enters the freezer UNARMED (the internal atomic-operation wrapper below) while holding the
     // metadata-write mutex, the schema and index-manager write locks, and stateLock.writeLock.
     // Never parks under an operator freeze: an operator freeze can only arm under
     // stateLock.readLock (see freeze()), which the held write lock excludes for this whole
     // window. If that premise ever changes, this undo could park unbounded here with no gate.
-    final var failedOwner = getStorageFormat() == StorageFormat.LAYOUT_28
-        ? linkCollectionsBTreeManager.captureOwner(collection, null)
-        : null;
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      // Loaded state is eager and needs no write operation. Remove it even if file cleanup cannot
+      // start because the failed commit put the storage in error state.
+      linkCollectionsBTreeManager.removeLoadedComponent(failedOwner);
+    }
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
@@ -4234,7 +4299,6 @@ public abstract class AbstractStorage
               if (collection.exists(atomicOperation)) {
                 collection.delete(atomicOperation);
               }
-              linkCollectionsBTreeManager.removeLoadedComponent(failedOwner);
               if (!slotReused) {
                 linkCollectionsBTreeManager.deleteComponent(atomicOperation, failedOwner);
               }
@@ -8886,6 +8950,12 @@ public abstract class AbstractStorage
   private StorageCollection doCreateCollection(
       final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
       throws IOException {
+    return doCreateCollection(atomicOperation, collectionName, collectionPos, null);
+  }
+
+  private StorageCollection doCreateCollection(final AtomicOperation atomicOperation,
+      String collectionName, final int collectionPos, final List<CreatedCollection> created)
+      throws IOException {
     if (collectionName == null) {
       return null;
     }
@@ -8914,6 +8984,12 @@ public abstract class AbstractStorage
     final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_28
         ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
     collection.configure(collectionPos, collectionName, componentId);
+    if (created != null && componentId != null) {
+      // Identity must survive exceptions before publication. No tree belongs to B yet.
+      created.add(new CreatedCollection(collection,
+          new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionPos, componentId, -1,
+              null)));
+    }
 
     collection.create(atomicOperation);
 
@@ -8924,6 +9000,10 @@ public abstract class AbstractStorage
 
     if (getStorageFormat() == StorageFormat.LAYOUT_28) {
       linkCollectionsBTreeManager.createComponent(atomicOperation, collection);
+      if (created != null) {
+        created.set(created.size() - 1, new CreatedCollection(collection,
+            linkCollectionsBTreeManager.captureOwner(collection, atomicOperation)));
+      }
     } else {
       linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
     }
