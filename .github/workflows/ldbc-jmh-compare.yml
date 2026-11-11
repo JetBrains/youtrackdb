@@ -66,7 +66,7 @@ permissions:
 
 env:
   LDBC_SCALE_FACTOR: '1'
-  FIXED_EXCLUSION: LdbcSingleThreadBothEBenchmark
+  FIXED_EXCLUSION: LdbcSingleThreadBothEBenchmark,^com[.]jetbrains[.]youtrackdb[.]benchmarks[.]pagelock[.]
 
 jobs:
   resolve:
@@ -361,10 +361,10 @@ jobs:
             tar xf /tmp/ldbc.tar --strip-components=1 -C "$csv"
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -f 0 -wi 0 -i 1 -r 1s" >/tmp/mandatory-output/$side-warm.log
+              -Djmh.args="${SELECTION} -e '$FIXED_EXCLUSION' ${PARAM} -f 0 -wi 0 -i 1 -r 1s" >/tmp/mandatory-output/$side-warm.log
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -l" \
+              -Djmh.args="${SELECTION} -e '$FIXED_EXCLUSION' ${PARAM} -l" \
               | grep '^com\.jetbrains\..*Benchmark\.' | sort -u \
               > "/tmp/mandatory-output/$side-inventory.txt"
             python3 - "/tmp/mandatory-output/$side-inventory.txt" \
@@ -377,7 +377,7 @@ jobs:
           PY
             ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
               -Dspotless.check.skip=true -Dcentral.skip=true \
-              -Djmh.args="${SELECTION} -e $FIXED_EXCLUSION ${PARAM} -rf json -rff /tmp/mandatory-output/$side-results.json" \
+              -Djmh.args="${SELECTION} -e '$FIXED_EXCLUSION' ${PARAM} -rf json -rff /tmp/mandatory-output/$side-results.json" \
               2>&1 | tee "/tmp/mandatory-output/$side.log"
             test -s "/tmp/mandatory-output/$side-results.json"
           }

@@ -92,7 +92,7 @@ Empty tokens, unknown identifiers, internal whitespace, and metacharacters are r
 
 Each query identifier selects its SQL methods and linked Gremlin methods.
 The `gremlin` token also selects translator-only methods.
-An empty filter runs the full suite.
+An empty filter runs the LDBC suite with the fixed exclusions.
 Both `on` and `both` Gremlin arm values remain available.
 
 A trusted job retrieves canonical data without running target code.
@@ -114,6 +114,18 @@ Future reusable callers must grant `contents: read`, `actions: read`, `id-token:
 `attestations: write`, `artifact-metadata: write`, and `pull-requests: write` to the called
 workflow.
 Automatic core Java enforcement and `[no-benchmarks]` support require a later change.
+
+## Manual page-lock runs
+
+Page-lock benchmarks measure storage locking in `com.jetbrains.youtrackdb.benchmarks.pagelock` and its subpackages.
+Run them only by hand. The nightly and pull request comparison workflows exclude this package.
+The project measures these benchmarks by hand in a forked Java virtual machine (JVM), a separate process.
+The nightly cache-warming step uses no forked JVM, which these benchmarks reject.
+
+Set `LDBC_JAVA_OPTS` as shown under [Two steps](#two-steps-package--dskiptests-then-java--jar), then build the executable benchmark jar with `./mvnw -pl jmh-ldbc -am package -DskipTests`.
+Run the reader and writer group with `java "${LDBC_JAVA_OPTS[@]}" -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar ReaderWriterBenchmark -f 1 -tg 1,3`.
+For writers, first prepare seeds with `java "${LDBC_JAVA_OPTS[@]}" -cp jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar com.jetbrains.youtrackdb.benchmarks.pagelock.RecordWorkload /tmp/page-lock-seeds 1 17`.
+Then run `java "${LDBC_JAVA_OPTS[@]}" -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar 'WriterBenchmark[.]singleRecords1' -f 1 -p seedRoot=/tmp/page-lock-seeds -p commitLimit=17`.
 
 ## Prerequisites
 
