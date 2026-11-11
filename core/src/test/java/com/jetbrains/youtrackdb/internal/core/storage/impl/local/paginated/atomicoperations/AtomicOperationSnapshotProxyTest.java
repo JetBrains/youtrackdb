@@ -250,7 +250,7 @@ public class AtomicOperationSnapshotProxyTest {
 
   @Test
   public void testSubMapDescendingDoesNotIncludeOutOfRangeLocal() {
-    // Local entry for a different component
+    // Local entry for a different collection
     operation.putSnapshotEntry(
         new SnapshotKey(2, 50L, 3L), new PositionEntry(2L, 1, 3L));
     // Shared entry in range
@@ -675,9 +675,9 @@ public class AtomicOperationSnapshotProxyTest {
   }
 
   @Test
-  public void testSubMapDescendingMultipleComponentsFiltering() {
-    // Entries for components 1 and 2 in both shared and local.
-    // Range scan for component 1 must not include component 2 entries.
+  public void testSubMapDescendingMultipleCollectionsFiltering() {
+    // Entries for collections 1 and 2 in both shared and local.
+    // Range scan for collection 1 must not include collection 2 entries.
     sharedSnapshotIndex.put(
         new SnapshotKey(1, 50L, 5L), new PositionEntry(1L, 0, 5L));
     sharedSnapshotIndex.put(

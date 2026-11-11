@@ -413,14 +413,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final long currentOperationTs,
       final AtomicOperationsSnapshot snapshot,
       final AtomicOperation atomicOp) {
-    final int componentId = AbstractWriteCache.extractFileId(getFileId());
-    assert componentId > 0 : "componentId must be positive, got " + componentId;
+    final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
+    assert linkBagFileId > 0 : "linkBagFileId must be positive, got " + linkBagFileId;
 
     // Range: all versions of this logical edge (from MIN to MAX)
     final var lowerKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
     final var upperKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
 
     for (Map.Entry<EdgeSnapshotKey, LinkBagValue> entry : atomicOp
         .edgeSnapshotSubMapDescending(lowerKey, upperKey)) {
@@ -715,14 +715,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final AtomicOperation atomicOperation,
       final EdgeKey oldKey,
       final LinkBagValue oldValue) {
-    final int componentId = AbstractWriteCache.extractFileId(getFileId());
+    final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
     final var snapshotKey = new EdgeSnapshotKey(
-        componentId, oldKey.ridBagId, oldKey.targetCollection,
+        linkBagFileId, oldKey.ridBagId, oldKey.targetCollection,
         oldKey.targetPosition, oldKey.ts);
 
     atomicOperation.putEdgeSnapshotEntry(snapshotKey, oldValue);
     atomicOperation.putEdgeVisibilityEntry(
-        new EdgeVisibilityKey(oldKey.ts, componentId, oldKey.ridBagId,
+        new EdgeVisibilityKey(oldKey.ts, linkBagFileId, oldKey.ridBagId,
             oldKey.targetCollection, oldKey.targetPosition),
         snapshotKey);
   }
@@ -1269,9 +1269,9 @@ public final class SharedLinkBagBTree extends StorageComponent {
         gcAttempted = true;
         final long lwm = storage.computeGlobalLowWaterMark();
         assert lwm > 0 : "Global LWM must be positive, got " + lwm;
-        final int componentId = AbstractWriteCache.extractFileId(getFileId());
+        final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
         final int removedCount =
-            filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
+            filterAndRebuildBucket(keyBucket, lwm, linkBagFileId, atomicOperation);
         if (removedCount > 0) {
           // Tree size accounting: updateSize(-removedCount) is correct for
           // all callers — see put() and remove() for the full case analysis.
@@ -1332,15 +1332,15 @@ public final class SharedLinkBagBTree extends StorageComponent {
    * covers both — no separate local/shared queries are needed.
    */
   private boolean hasEdgeSnapshotEntries(
-      final int componentId,
+      final int linkBagFileId,
       final long ridBagId,
       final int targetCollection,
       final long targetPosition,
       final AtomicOperation atomicOp) {
     final var lowerKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
     final var upperKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
     return atomicOp.edgeSnapshotSubMapDescending(lowerKey, upperKey)
         .iterator().hasNext();
   }
@@ -1365,7 +1365,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final EdgeKey key,
       final LinkBagValue value,
       final long lwm,
-      final int componentId,
+      final int linkBagFileId,
       final AtomicOperation atomicOp) {
     if (!value.tombstone()) {
       return false;
@@ -1374,7 +1374,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       return false;
     }
     return !hasEdgeSnapshotEntries(
-        componentId, key.ridBagId, key.targetCollection, key.targetPosition, atomicOp);
+        linkBagFileId, key.ridBagId, key.targetCollection, key.targetPosition, atomicOp);
   }
 
   /**
@@ -1389,7 +1389,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   private int filterAndRebuildBucket(
       final Bucket keyBucket,
       final long lwm,
-      final int componentId,
+      final int linkBagFileId,
       final AtomicOperation atomicOp) {
     assert AbstractWriteCache.extractFileId(fileId) != 0
         : "fileId must be assigned before GC (fileId=" + fileId + ")";
@@ -1404,7 +1404,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final var key = keyBucket.getKey(i, serializerFactory);
       final var value = keyBucket.getValue(i, serializerFactory);
 
-      if (isRemovableTombstone(key, value, lwm, componentId, atomicOp)) {
+      if (isRemovableTombstone(key, value, lwm, linkBagFileId, atomicOp)) {
         removedCount++;
       } else {
         survivors.add(keyBucket.getRawEntry(i, serializerFactory));

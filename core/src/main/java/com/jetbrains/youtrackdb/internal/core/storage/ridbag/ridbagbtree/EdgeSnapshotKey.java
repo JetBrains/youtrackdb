@@ -5,16 +5,14 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
  * snapshot store. The snapshot index preserves old versions of link bag entries so that older
  * transactions can read them under snapshot isolation.
  *
- * <p>Natural ordering: {@code componentId} → {@code ridBagId} → {@code targetCollection} → {@code
+ * <p>Natural ordering: {@code linkBagFileId} → {@code ridBagId} → {@code targetCollection} → {@code
  * targetPosition} → {@code version} (all ascending). This groups all versions of the same logical
  * edge together, enabling efficient descending subMap scans to find the newest visible version.
  *
- * <p>{@code componentId} is the {@code collectionId} that identifies the {@link
- * SharedLinkBagBTree} instance (analogous to {@code componentId} in {@link
- * com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey}).
+ * <p>{@code linkBagFileId} is the internal file id of the {@link SharedLinkBagBTree} instance.
  */
 public record EdgeSnapshotKey(
-    int componentId,
+    int linkBagFileId,
     long ridBagId,
     int targetCollection,
     long targetPosition,
@@ -23,7 +21,7 @@ public record EdgeSnapshotKey(
 
   @Override
   public int compareTo(EdgeSnapshotKey other) {
-    int cmp = Integer.compare(componentId, other.componentId);
+    int cmp = Integer.compare(linkBagFileId, other.linkBagFileId);
     if (cmp != 0) {
       return cmp;
     }

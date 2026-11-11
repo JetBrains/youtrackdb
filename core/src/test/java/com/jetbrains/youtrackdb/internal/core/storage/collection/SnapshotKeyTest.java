@@ -8,7 +8,7 @@ import org.junit.Test;
 public class SnapshotKeyTest {
 
   @Test
-  public void testNaturalOrderingByComponentId() {
+  public void testNaturalOrderingByCollectionId() {
     var k1 = new SnapshotKey(1, 100L, 10L);
     var k2 = new SnapshotKey(2, 100L, 10L);
 
@@ -57,14 +57,14 @@ public class SnapshotKeyTest {
   public void testSubMapRangeScan() {
     var map = new ConcurrentSkipListMap<SnapshotKey, String>();
 
-    // Two components, each with entries at different positions/versions
+    // Two collections, each with entries at different positions/versions
     map.put(new SnapshotKey(1, 50L, 1L), "c1-p50-v1");
     map.put(new SnapshotKey(1, 50L, 5L), "c1-p50-v5");
     map.put(new SnapshotKey(1, 50L, 10L), "c1-p50-v10");
     map.put(new SnapshotKey(1, 100L, 3L), "c1-p100-v3");
     map.put(new SnapshotKey(2, 50L, 1L), "c2-p50-v1");
 
-    // Range scan for component 1, position 50, versions [MIN, 10)
+    // Range scan for collection 1, position 50, versions [MIN, 10)
     var from = new SnapshotKey(1, 50L, Long.MIN_VALUE);
     var to = new SnapshotKey(1, 50L, 10L);
     var subMap = map.subMap(from, true, to, false);
@@ -81,7 +81,7 @@ public class SnapshotKeyTest {
     map.put(new SnapshotKey(1, 50L, 5L), "v5");
     map.put(new SnapshotKey(1, 51L, 1L), "other-position");
 
-    // Scan all versions for component 1, position 50
+    // Scan all versions for collection 1, position 50
     var from = new SnapshotKey(1, 50L, Long.MIN_VALUE);
     var to = new SnapshotKey(1, 50L, Long.MAX_VALUE);
     var subMap = map.subMap(from, true, to, true);
@@ -91,13 +91,13 @@ public class SnapshotKeyTest {
   }
 
   @Test
-  public void testComponentIdIsolation() {
+  public void testCollectionIdIsolation() {
     var map = new ConcurrentSkipListMap<SnapshotKey, String>();
 
     map.put(new SnapshotKey(1, 50L, 1L), "c1");
     map.put(new SnapshotKey(2, 50L, 1L), "c2");
 
-    // Scanning component 1 should not include component 2
+    // Scanning collection 1 should not include collection 2
     var from = new SnapshotKey(1, Long.MIN_VALUE, Long.MIN_VALUE);
     var to = new SnapshotKey(1, Long.MAX_VALUE, Long.MAX_VALUE);
     var subMap = map.subMap(from, true, to, true);

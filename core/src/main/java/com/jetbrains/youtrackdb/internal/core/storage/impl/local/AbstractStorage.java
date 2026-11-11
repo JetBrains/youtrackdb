@@ -537,13 +537,13 @@ public abstract class AbstractStorage
     return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
   }
 
-  // Shared snapshot index: maps (componentId, collectionPosition, recordVersion) → PositionEntry.
+  // Shared snapshot index: maps (collectionId, collectionPosition, recordVersion) → PositionEntry.
   // Replaces per-collection snapshotIndex fields in PaginatedCollectionV2, enabling centralized
   // low-water-mark GC across all collections.
   protected final ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex =
       new ConcurrentSkipListMap<>();
 
-  // Visibility index: maps (recordTs, componentId, collectionPosition) → SnapshotKey.
+  // Visibility index: maps (recordTs, collectionId, collectionPosition) → SnapshotKey.
   // Ordering by recordTs first enables efficient range-scan eviction via headMap(lowWaterMark).
   protected final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIndex =
       new ConcurrentSkipListMap<>();
@@ -574,14 +574,14 @@ public abstract class AbstractStorage
   // evictStaleIndexesSnapshotEntries().
   protected final AtomicLong indexesSnapshotEntriesCount = new AtomicLong();
 
-  // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
+  // Edge snapshot index: maps (linkBagFileId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
   // Parallel to sharedSnapshotIndex but with edge-specific key types and full value storage
   // (B-tree entries don't have stable page positions across splits/merges).
   protected final ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex =
       new ConcurrentSkipListMap<>();
 
-  // Edge visibility index: maps (recordTs, componentId, ridBagId, targetCollection,
+  // Edge visibility index: maps (recordTs, linkBagFileId, ridBagId, targetCollection,
   // targetPosition) → EdgeSnapshotKey. Ordering by recordTs first enables efficient
   // range-scan eviction via headMap(lowWaterMark), same pattern as visibilityIndex.
   protected final ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibilityIndex =
@@ -10855,7 +10855,7 @@ public abstract class AbstractStorage
    *
    * <p>When {@code collections} is non-null, each evicted snapshot entry increments the
    * {@link PaginatedCollectionV2#deadRecordCount} of the corresponding collection (looked up
-   * by {@link SnapshotKey#componentId()}). This feeds the records GC trigger condition.
+   * by {@link SnapshotKey#collectionId()}). This feeds the records GC trigger condition.
    *
    * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
    * @param snapshotIndex the shared snapshot index to remove stale entries from
@@ -10883,7 +10883,7 @@ public abstract class AbstractStorage
         // Increment the per-collection dead record counter so the records GC
         // trigger condition can detect when enough dead records have accumulated.
         if (collections != null) {
-          int id = snapshotKey.componentId();
+          int id = snapshotKey.collectionId();
           if (id >= 0 && id < collections.size()) {
             var coll = collections.get(id);
             if (coll instanceof PaginatedCollectionV2 pc) {

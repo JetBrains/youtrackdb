@@ -17,19 +17,19 @@ public class SnapshotKeyVisibilityKeyTest {
   // ---- SnapshotKey compareTo ----
 
   /**
-   * componentId has highest precedence: keys with different componentId values must be
-   * ordered by componentId regardless of the other fields.
+   * collectionId has highest precedence: keys with different collectionId values must be
+   * ordered by collectionId regardless of the other fields.
    */
   @Test
-  public void testSnapshotKeyComponentIdPrecedence() {
+  public void testSnapshotKeyCollectionIdPrecedence() {
     var k1 = new SnapshotKey(1, Long.MAX_VALUE, Long.MAX_VALUE);
     var k2 = new SnapshotKey(2, 0L, 0L);
-    Assert.assertTrue("componentId 1 < componentId 2", k1.compareTo(k2) < 0);
-    Assert.assertTrue("componentId 2 > componentId 1", k2.compareTo(k1) > 0);
+    Assert.assertTrue("collectionId 1 < collectionId 2", k1.compareTo(k2) < 0);
+    Assert.assertTrue("collectionId 2 > collectionId 1", k2.compareTo(k1) > 0);
   }
 
   /**
-   * collectionPosition has second precedence: same componentId but different
+   * collectionPosition has second precedence: same collectionId but different
    * collectionPosition must be ordered by collectionPosition.
    */
   @Test
@@ -41,7 +41,7 @@ public class SnapshotKeyVisibilityKeyTest {
   }
 
   /**
-   * recordVersion has lowest precedence: same componentId and collectionPosition but
+   * recordVersion has lowest precedence: same collectionId and collectionPosition but
    * different recordVersion must be ordered by recordVersion.
    */
   @Test
@@ -65,7 +65,7 @@ public class SnapshotKeyVisibilityKeyTest {
 
   /**
    * SnapshotKey must work as a map key inside a TreeMap, preserving the 3-component
-   * ordering.  Keys for the same (componentId, collectionPosition) prefix must be
+   * ordering.  Keys for the same (collectionId, collectionPosition) prefix must be
    * adjacent and ordered by recordVersion.
    */
   @Test
@@ -117,19 +117,19 @@ public class SnapshotKeyVisibilityKeyTest {
   }
 
   /**
-   * componentId has second precedence: same recordTs but different componentId must
-   * be ordered by componentId.
+   * collectionId has second precedence: same recordTs but different collectionId must
+   * be ordered by collectionId.
    */
   @Test
-  public void testVisibilityKeyComponentIdPrecedence() {
+  public void testVisibilityKeyCollectionIdPrecedence() {
     var k1 = new VisibilityKey(50L, 1, Long.MAX_VALUE);
     var k2 = new VisibilityKey(50L, 2, 0L);
-    Assert.assertTrue("smaller componentId should be less", k1.compareTo(k2) < 0);
-    Assert.assertTrue("larger componentId should be greater", k2.compareTo(k1) > 0);
+    Assert.assertTrue("smaller collectionId should be less", k1.compareTo(k2) < 0);
+    Assert.assertTrue("larger collectionId should be greater", k2.compareTo(k1) > 0);
   }
 
   /**
-   * collectionPosition has lowest precedence: same recordTs and componentId but
+   * collectionPosition has lowest precedence: same recordTs and collectionId but
    * different collectionPosition must be ordered by collectionPosition.
    */
   @Test
@@ -153,7 +153,7 @@ public class SnapshotKeyVisibilityKeyTest {
 
   /**
    * VisibilityKey must work as a map key inside a TreeMap.  Keys for the same ts prefix
-   * must be adjacent and ordered by (componentId, collectionPosition).
+   * must be adjacent and ordered by (collectionId, collectionPosition).
    */
   @Test
   public void testVisibilityKeyTreeMapOrdering() {

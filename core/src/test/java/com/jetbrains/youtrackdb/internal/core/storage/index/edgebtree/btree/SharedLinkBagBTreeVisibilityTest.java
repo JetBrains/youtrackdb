@@ -175,10 +175,10 @@ public class SharedLinkBagBTreeVisibilityTest {
 
       // Also insert the "old version" into the snapshot index, as if a
       // prior committed tx created it and the update moved it there.
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 400L, 10, 100L, olderTs),
+          new EdgeSnapshotKey(linkBagFileId, 400L, 10, 100L, olderTs),
           new LinkBagValue(42, 0, 0, false));
     });
 
@@ -209,11 +209,11 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(500L, 10, 100L, futureTs),
           new LinkBagValue(0, 0, 0, true));
 
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       // Snapshot: visible live version at ts=2
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 500L, 10, 100L, 2L),
+          new EdgeSnapshotKey(linkBagFileId, 500L, 10, 100L, 2L),
           new LinkBagValue(33, 0, 0, false));
     });
 
@@ -236,10 +236,10 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(600L, 10, 100L, futureTs),
           new LinkBagValue(99, 0, 0, false));
 
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 600L, 10, 100L, 2L),
+          new EdgeSnapshotKey(linkBagFileId, 600L, 10, 100L, 2L),
           new LinkBagValue(0, 0, 0, true));
     });
 
@@ -278,16 +278,16 @@ public class SharedLinkBagBTreeVisibilityTest {
           new EdgeKey(800L, 10, 100L, futureTs),
           new LinkBagValue(99, 0, 0, false));
 
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 800L, 10, 100L, 2L),
+          new EdgeSnapshotKey(linkBagFileId, 800L, 10, 100L, 2L),
           new LinkBagValue(20, 0, 0, false));
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 800L, 10, 100L, 4L),
+          new EdgeSnapshotKey(linkBagFileId, 800L, 10, 100L, 4L),
           new LinkBagValue(40, 0, 0, false));
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 800L, 10, 100L, 6L),
+          new EdgeSnapshotKey(linkBagFileId, 800L, 10, 100L, 6L),
           new LinkBagValue(60, 0, 0, false));
     });
 
@@ -349,10 +349,10 @@ public class SharedLinkBagBTreeVisibilityTest {
     // has a visible version. This exercises the current==null branch in
     // findVisibleEntry that falls back directly to the snapshot index.
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 1100L, 10, 100L, 3L),
+          new EdgeSnapshotKey(linkBagFileId, 1100L, 10, 100L, 3L),
           new LinkBagValue(55, 0, 0, false));
     });
 
@@ -448,10 +448,10 @@ public class SharedLinkBagBTreeVisibilityTest {
       bTree.put(atomicOperation,
           new EdgeKey(1400L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
 
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 1400L, 20, 200L, 3L),
+          new EdgeSnapshotKey(linkBagFileId, 1400L, 20, 200L, 3L),
           new LinkBagValue(2, 0, 0, false));
     });
 
@@ -483,10 +483,10 @@ public class SharedLinkBagBTreeVisibilityTest {
       bTree.put(atomicOperation,
           new EdgeKey(1450L, 20, 200L, futureTs), new LinkBagValue(99, 0, 0, false));
 
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, 1450L, 20, 200L, 3L),
+          new EdgeSnapshotKey(linkBagFileId, 1450L, 20, 200L, 3L),
           new LinkBagValue(2, 0, 0, false));
     });
 
@@ -715,10 +715,10 @@ public class SharedLinkBagBTreeVisibilityTest {
       bTree.put(atomicOperation,
           new EdgeKey(linkBagId, 10, 100L, futureTs),
           new LinkBagValue(99, 0, 0, false));
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       atomicOperation.putEdgeSnapshotEntry(
-          new EdgeSnapshotKey(componentId, linkBagId, 10, 100L, 3L),
+          new EdgeSnapshotKey(linkBagFileId, linkBagId, 10, 100L, 3L),
           new LinkBagValue(42, 0, 0, false));
     });
 
@@ -759,7 +759,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     final long linkBagId = 2800L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       // Insert 15 entries: 12 visible live, 3 invisible with snapshot fallback
       for (int i = 1; i <= 15; i++) {
@@ -772,7 +772,7 @@ public class SharedLinkBagBTreeVisibilityTest {
               new LinkBagValue(i * 100, 0, 0, false));
           atomicOperation.putEdgeSnapshotEntry(
               new EdgeSnapshotKey(
-                  componentId, linkBagId, collection, position, 3L),
+                  linkBagFileId, linkBagId, collection, position, 3L),
               new LinkBagValue(i, 0, 0, false));
         } else {
           bTree.put(atomicOperation,
@@ -809,7 +809,7 @@ public class SharedLinkBagBTreeVisibilityTest {
     final long linkBagId = 2900L;
 
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId =
+      final int linkBagFileId =
           AbstractWriteCache.extractFileId(bTree.getFileId());
       for (int i = 1; i <= 15; i++) {
         int collection = i * 10;
@@ -820,7 +820,7 @@ public class SharedLinkBagBTreeVisibilityTest {
               new LinkBagValue(i * 100, 0, 0, false));
           atomicOperation.putEdgeSnapshotEntry(
               new EdgeSnapshotKey(
-                  componentId, linkBagId, collection, position, 3L),
+                  linkBagFileId, linkBagId, collection, position, 3L),
               new LinkBagValue(i, 0, 0, false));
         } else {
           bTree.put(atomicOperation,

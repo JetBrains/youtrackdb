@@ -137,8 +137,8 @@ public class SharedLinkBagBTreeRemoveSITest {
       bTree.remove(atomicOperation, new EdgeKey(300L, 10, 100L, 10L));
 
       // Verify old value is preserved in snapshot index
-      final int componentId = (int) bTree.getFileId();
-      var snapshotKey = new EdgeSnapshotKey(componentId, 300L, 10, 100L, 5L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 300L, 10, 100L, 5L);
       var snapshotValue = atomicOperation.getEdgeSnapshotEntry(snapshotKey);
       assertThat(snapshotValue).isNotNull();
       assertThat(snapshotValue.counter()).isEqualTo(42);
@@ -147,7 +147,7 @@ public class SharedLinkBagBTreeRemoveSITest {
       assertThat(snapshotValue.tombstone()).isFalse();
 
       // Verify visibility index entry was created
-      var visKey = new EdgeVisibilityKey(5L, componentId, 300L, 10, 100L);
+      var visKey = new EdgeVisibilityKey(5L, linkBagFileId, 300L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isTrue();
     });
   }
@@ -202,8 +202,8 @@ public class SharedLinkBagBTreeRemoveSITest {
       assertThat(current).isNull();
 
       // No snapshot entry was created
-      final int componentId = (int) bTree.getFileId();
-      var visKey = new EdgeVisibilityKey(5L, componentId, 500L, 10, 100L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var visKey = new EdgeVisibilityKey(5L, linkBagFileId, 500L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isFalse();
     });
   }
@@ -245,8 +245,8 @@ public class SharedLinkBagBTreeRemoveSITest {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.remove(atomicOperation, new EdgeKey(700L, 10, 100L, 5L));
 
-      final int componentId = (int) bTree.getFileId();
-      var snap1 = new EdgeSnapshotKey(componentId, 700L, 10, 100L, 1L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snap1 = new EdgeSnapshotKey(linkBagFileId, 700L, 10, 100L, 1L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1).counter()).isEqualTo(10);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1).tombstone()).isFalse();
@@ -258,8 +258,8 @@ public class SharedLinkBagBTreeRemoveSITest {
           new LinkBagValue(20, 0, 0, false));
 
       // The tombstone (ts=5) should now be in snapshot index
-      final int componentId = (int) bTree.getFileId();
-      var snap5 = new EdgeSnapshotKey(componentId, 700L, 10, 100L, 5L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snap5 = new EdgeSnapshotKey(linkBagFileId, 700L, 10, 100L, 5L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap5)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap5).tombstone()).isTrue();
 
@@ -272,8 +272,8 @@ public class SharedLinkBagBTreeRemoveSITest {
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
       bTree.remove(atomicOperation, new EdgeKey(700L, 10, 100L, 15L));
 
-      final int componentId = (int) bTree.getFileId();
-      var snap10 = new EdgeSnapshotKey(componentId, 700L, 10, 100L, 10L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snap10 = new EdgeSnapshotKey(linkBagFileId, 700L, 10, 100L, 10L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap10)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap10).counter()).isEqualTo(20);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap10).tombstone()).isFalse();
@@ -328,7 +328,7 @@ public class SharedLinkBagBTreeRemoveSITest {
 
     // Remove every 10th entry with new ts
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId = (int) bTree.getFileId();
+      final int linkBagFileId = (int) bTree.getFileId();
       for (int i = 0; i < entryCount; i += 10) {
         var oldValue = bTree.remove(
             atomicOperation, new EdgeKey(800L, i, i, 5L));
@@ -339,7 +339,7 @@ public class SharedLinkBagBTreeRemoveSITest {
         assertThat(oldValue.counter()).isEqualTo(i);
 
         // Verify snapshot preserved
-        var snapshotKey = new EdgeSnapshotKey(componentId, 800L, i, i, 1L);
+        var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 800L, i, i, 1L);
         assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey))
             .as("Snapshot for entry %d", i)
             .isNotNull();

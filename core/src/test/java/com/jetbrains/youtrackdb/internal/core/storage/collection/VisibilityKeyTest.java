@@ -17,7 +17,7 @@ public class VisibilityKeyTest {
   }
 
   @Test
-  public void testNaturalOrderingByComponentId() {
+  public void testNaturalOrderingByCollectionId() {
     var k1 = new VisibilityKey(100L, 1, 50L);
     var k2 = new VisibilityKey(100L, 2, 50L);
 
@@ -72,7 +72,7 @@ public class VisibilityKeyTest {
   }
 
   @Test
-  public void testHeadMapIncludesAllComponentsBelow() {
+  public void testHeadMapIncludesAllCollectionsBelow() {
     var map = new ConcurrentSkipListMap<VisibilityKey, String>();
 
     map.put(new VisibilityKey(10L, 1, 50L), "c1-ts10");
@@ -80,7 +80,7 @@ public class VisibilityKeyTest {
     map.put(new VisibilityKey(10L, 3, 50L), "c3-ts10");
     map.put(new VisibilityKey(20L, 1, 50L), "c1-ts20");
 
-    // All entries at ts=10 (all components) should be below ts=20
+    // All entries at ts=10 (all collections) should be below ts=20
     var bound = new VisibilityKey(20L, Integer.MIN_VALUE, Long.MIN_VALUE);
     var head = map.headMap(bound, false);
 
