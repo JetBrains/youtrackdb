@@ -1716,6 +1716,48 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  /** Reads the operation-visible entry. The collection cache is not rollback-aware. */
+  @Nullable public StoragePaginatedCollectionConfiguration readCollection(
+      int id, AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try {
+      final var property = readProperty(COLLECTIONS_PREFIX_PROPERTY + id, atomicOperation);
+      return property == null ? null
+          : (StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+              id, property.first, property.second);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  /** Finds an operation-visible owner of a normalized display name, without using the cache. */
+  @Nullable public StoragePaginatedCollectionConfiguration readCollectionByName(
+      String normalizedName, AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try (var stream =
+        btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true, atomicOperation)) {
+      final var entries = stream.iterator();
+      while (entries.hasNext()) {
+        final var entry = entries.next();
+        if (!entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY)) {
+          break;
+        }
+        final var id = Integer.parseInt(
+            entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
+        final var property = readProperty(entry.first(), atomicOperation);
+        final var owner =
+            (StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+                id, property.first, property.second);
+        if (owner.name().toLowerCase(java.util.Locale.ROOT).equals(normalizedName)) {
+          return owner;
+        }
+      }
+      return null;
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
   private void preloadCollections(AtomicOperation atomicOperation) {
     final List<StorageCollectionConfiguration> collections = new ArrayList<>(1024);
     try (var stream =

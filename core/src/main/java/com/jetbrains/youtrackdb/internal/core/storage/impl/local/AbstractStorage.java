@@ -2299,14 +2299,23 @@ public abstract class AbstractStorage
 
         return atomicOperationsManager.calculateInsideAtomicOperation(
             atomicOperation -> {
+              final var owner = getStorageFormat() == StorageFormat.LAYOUT_28
+                  && collections.get(collectionId) != null
+                      ? linkCollectionsBTreeManager.captureOwner(collections.get(collectionId),
+                          atomicOperation)
+                      : null;
               if (dropCollectionInternal(atomicOperation, collectionId)) {
                 return false;
               }
 
               ((CollectionBasedStorageConfiguration) configuration)
                   .dropCollection(atomicOperation, collectionId);
-              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
-                  collectionId);
+              if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+                linkCollectionsBTreeManager.deleteComponent(atomicOperation, owner);
+              } else {
+                linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                    collectionId);
+              }
 
               return true;
             });
@@ -3878,8 +3887,9 @@ public abstract class AbstractStorage
    * Reconciles collections as the set difference over committed versus tx-local real collection
    * ids, inside the held {@code stateLock.writeLock()} with the commit window open. A collection id
    * present in the tx-local schema but absent from the committed schema is a create; the reverse is
-   * a drop. Creates use the lock-free {@link #doCreateCollection} at a commit-local first-null-slot
-   * id (so a failed commit's ids free for reuse), publish into the registries, and record the
+   * a drop. Creates use the lock-free {@link #doCreateCollection} at the first free runtime slot.
+   * Layout 28 also skips operation-visible configured owners. Creates publish into the registries
+   * and record the
    * provisional&rarr;real resolution on {@code txSchemaState}. Drops use {@link
    * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
    * structurally inert.
@@ -3903,14 +3913,16 @@ public abstract class AbstractStorage
           // Capture the collection before it is nulled, so the failure path can re-register it.
           final var collection =
               committedId < collections.size() ? collections.get(committedId) : null;
+          final var owner = getStorageFormat() == StorageFormat.LAYOUT_28 && collection != null
+              ? linkCollectionsBTreeManager.captureOwner(collection, atomicOperation) : null;
           if (!dropCollectionInternal(atomicOperation, committedId)) {
             // A real drop happened (the collection existed). Record the dropped collection for the
             // failure-path undo BEFORE the two structural drops below: dropCollectionInternal has
             // already nulled the registry slot and deleted the data file, so if dropCollection or
-            // deleteComponentByCollectionId throws, the failure-path undo still needs the captured
+            // tree deletion throws, the failure-path undo still needs the captured
             // collection to re-register it. The captured `collection` is the pre-null live object, so
             // the record is complete even when a later structural drop throws.
-            dropped.add(new DroppedCollection(committedId, collection));
+            dropped.add(new DroppedCollection(committedId, collection, owner));
             // Mirror the public dropCollection(int): dropCollectionInternal deletes only the data
             // files and the in-memory entry, so also drop the storage-configuration entry and the
             // link-bag B-tree component on the same atomic operation. All three structural deletions
@@ -3919,15 +3931,20 @@ public abstract class AbstractStorage
             // and the component together).
             ((CollectionBasedStorageConfiguration) configuration)
                 .dropCollection(atomicOperation, committedId);
-            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, committedId);
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              linkCollectionsBTreeManager.deleteComponent(atomicOperation, owner);
+            } else {
+              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                  committedId);
+            }
           }
         }
       }
 
       // Creates: each provisional id the transaction allocated becomes a real collection created
-      // under the carried counter-only (c_<counter>) name at a commit-local first-null-slot id.
-      // Record the
-      // resolution so the patch list can rewrite every provisional reference before serialization.
+      // under the carried counter-only (c_<counter>) name at the first free runtime slot. Layout 28
+      // also skips configured owners. Record the resolution so the patch list can rewrite every
+      // provisional reference before serialization.
       final var ownedProvisionalIds = txLocalSchema.getOwnedProvisionalCollectionIds();
       for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
         final int provisionalId = entry.getIntKey();
@@ -3941,7 +3958,7 @@ public abstract class AbstractStorage
           continue;
         }
         final String collectionName = entry.getValue();
-        final int realId = nextFreeCollectionId();
+        final int realId = nextFreeCollectionId(atomicOperation);
         // The allocator must hand back a genuinely free slot (an append at the list end or a null
         // slot). undoReconciledCollections relies on this: a resolved id that collided with a
         // committed live slot would make the undo skip a real cleanup and doCreateCollection would
@@ -3965,21 +3982,39 @@ public abstract class AbstractStorage
   }
 
   /**
-   * The first null slot in {@code collections}, or the list size when none is free — the
-   * commit-local collection-id allocator's next id. Seeded by a direct read of the shared
+   * Returns the first free runtime slot, or appends when none is free. Layout 27 checks only the
+   * runtime list. Layout 28 also skips operation-visible configuration owners, including beyond
+   * the list end. The commit-local collection-id allocator reads the shared
    * {@code collections} list, which is safe because the caller holds {@code stateLock.writeLock()}
    * (the seed read sits inside the write-lock window so it excludes the non-commit
    * engine registrars that run under {@code stateLock.write} alone). Reused between successive
    * creates within one reconciliation because each create publishes its collection into the slot
    * before the next call scans.
    */
-  private int nextFreeCollectionId() {
-    for (var i = 0; i < collections.size(); i++) {
-      if (collections.get(i) == null) {
-        return i;
-      }
+  private int nextFreeCollectionId(AtomicOperation operation) {
+    var id = 0;
+    while ((id < collections.size() && collections.get(id) != null)
+        || isCollectionSlotOwned(id, operation)) {
+      id++;
     }
-    return collections.size();
+    return id;
+  }
+
+  /** Resolves once through operation-visible configuration without reentering the state lock. */
+  public LinkCollectionsBTreeManagerShared.CollectionOwner captureCollectionOwner(
+      int id, AtomicOperation operation) {
+    final var entry = ((CollectionBasedStorageConfiguration) configuration)
+        .readCollection(id, operation);
+    if (entry == null) {
+      throw new StorageException(name, "No configured collection owner for " + id);
+    }
+    return linkCollectionsBTreeManager.captureOwner(id, entry.getComponentId(), operation);
+  }
+
+  private boolean isCollectionSlotOwned(int id, AtomicOperation operation) {
+    return getStorageFormat() == StorageFormat.LAYOUT_28
+        && ((CollectionBasedStorageConfiguration) configuration).readCollection(id, operation)
+            != null;
   }
 
   /**
@@ -3989,7 +4024,8 @@ public abstract class AbstractStorage
    * by the rolled-back atomic operation, so re-registering the same object restores a consistent
    * view).
    */
-  private record DroppedCollection(int id, StorageCollection collection) {
+  private record DroppedCollection(int id, StorageCollection collection,
+      LinkCollectionsBTreeManagerShared.CollectionOwner owner) {
 
   }
 
@@ -4046,9 +4082,9 @@ public abstract class AbstractStorage
    * created collection's data file and its id-named {@code global_collection_<id>.grb} component
    * survive the rollback as orphans; the surviving component then blocks the next id-reusing create
    * with a "file already exists" error. This arm drops that orphaned structure in a fresh atomic
-   * operation (the failed commit's operation is already closed by {@code rollback}), guarded on the
-   * orphaned component still being present so it is a no-op on the disk engine (where rollback already
-   * removed it) and the real cleanup on the in-memory engine. The fresh atomic operation commits
+   * operation (the failed commit's operation is already closed by {@code rollback}). Layout 27
+   * uses tree presence as its orphan discriminator. Layout 28 separately checks ordinary files,
+   * removes loaded-tree state and checks configuration ownership. The fresh atomic operation commits
    * normally, so the orphan removal is itself durable.
    *
    * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
@@ -4101,8 +4137,8 @@ public abstract class AbstractStorage
       if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
         registerCollection(collection);
         // The drop also removed the collection's SharedLinkBagBTree from the link-bag manager's
-        // in-memory map EAGERLY (deleteComponentByCollectionId is not rollback-aware; only the
-        // file delete was buffered and reverted), and every link-bag access resolves through that
+        // in-memory map eagerly. Neither layout's tree deletion rolls back the map removal. Only
+        // the file delete was buffered and reverted, and every link-bag access resolves through that
         // map with no reload branch — without this restore the re-registered collection's first
         // link-bag operation fails until a reopen rebuilds the map. Best-effort like the
         // surrounding cleanup: a failure here is logged, never thrown over the propagating commit
@@ -4151,9 +4187,9 @@ public abstract class AbstractStorage
    * link-bag B-tree component, the storage-config entry, and the collection's own data file. The
    * mirror of {@link #doCreateCollection}, which writes exactly those three structures. Runs in a
    * fresh atomic operation because the failed commit's operation is already closed by {@code
-   * rollback}. Guarded on the orphaned component still being present so it is a no-op on the disk
-   * engine (where rollback reverted every structure already) and the real cleanup on the in-memory
-   * engine (where the eager cache install survived the rollback). See {@link
+   * rollback}. Layout 27 uses the surviving tree as its cleanup discriminator. Layout 28 removes
+   * loaded-tree state independently of file presence and deletes configuration only for the failed
+   * component identity. See {@link
    * #undoReconciledCollections} for why only the in-memory engine leaves an orphan.
    *
    * <p>Best-effort and self-contained: this runs from the failure-path {@code finally} while the
@@ -4188,9 +4224,28 @@ public abstract class AbstractStorage
     // Never parks under an operator freeze: an operator freeze can only arm under
     // stateLock.readLock (see freeze()), which the held write lock excludes for this whole
     // window. If that premise ever changes, this undo could park unbounded here with no gate.
+    final var failedOwner = getStorageFormat() == StorageFormat.LAYOUT_28
+        ? linkCollectionsBTreeManager.captureOwner(collection, null)
+        : null;
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              if (collection.exists(atomicOperation)) {
+                collection.delete(atomicOperation);
+              }
+              linkCollectionsBTreeManager.removeLoadedComponent(failedOwner);
+              if (!slotReused) {
+                linkCollectionsBTreeManager.deleteComponent(atomicOperation, failedOwner);
+              }
+              final var config = (CollectionBasedStorageConfiguration) configuration;
+              final var current = config.readCollection(realId, atomicOperation);
+              if (current != null
+                  && Objects.equals(current.getComponentId(), failedOwner.componentId())) {
+                config.dropCollection(atomicOperation, realId);
+              }
+              return;
+            }
             if (slotReused) {
               // Slot-reuse: every id-keyed structure at this slot now belongs to the restored
               // dropped collection (see Javadoc). Only the created collection's own name-keyed
@@ -4237,7 +4292,7 @@ public abstract class AbstractStorage
   /**
    * The first null slot in {@code indexEngines}, or the list size when none is free — the
    * commit-local index-engine-id allocator's next id. The index analogue of {@link
-   * #nextFreeCollectionId()}: it lets a failed engine-creating commit free its id for reuse on the
+   * #nextFreeCollectionId(AtomicOperation)}: it lets a failed engine-creating commit free its id for reuse on the
    * next commit, so the failed-commit registry-cleanliness guarantee extends from collections to
    * engines. Seeded by a direct read of the shared {@code indexEngines} list, which is safe because
    * the caller holds {@code stateLock.writeLock()} inside the commit window. Reused between successive
@@ -8787,16 +8842,7 @@ public abstract class AbstractStorage
 
   private int doAddCollection(final AtomicOperation atomicOperation, final String collectionName)
       throws IOException {
-    // FIND THE FIRST AVAILABLE COLLECTION ID
-    var collectionPos = collections.size();
-    for (var i = 0; i < collections.size(); ++i) {
-      if (collections.get(i) == null) {
-        collectionPos = i;
-        break;
-      }
-    }
-
-    return doAddCollection(atomicOperation, collectionName, collectionPos);
+    return doAddCollection(atomicOperation, collectionName, nextFreeCollectionId(atomicOperation));
   }
 
   private int doAddCollection(
@@ -8827,8 +8873,8 @@ public abstract class AbstractStorage
    * {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
    *
    * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
-   * String)} scans for the first null slot; the commit window uses a commit-local
-   * allocator seeded inside the write lock. Returns {@code null} for a null
+   * String)} and the commit window select the first free runtime slot under the write lock.
+   * Layout 28 also skips operation-visible configured owners. Returns {@code null} for a null
    * {@code collectionName} (the no-op case the legacy path returned id {@code -1} for).
    *
    * @param atomicOperation the in-flight atomic operation that buffers the file creates.
@@ -8845,6 +8891,15 @@ public abstract class AbstractStorage
     }
 
     collectionName = collectionName.toLowerCase(Locale.ROOT);
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      final var config = (CollectionBasedStorageConfiguration) configuration;
+      if (isCollectionSlotOwned(collectionPos, atomicOperation)
+          || config.readCollectionByName(collectionName, atomicOperation) != null) {
+        throw new ConfigurationException(name,
+            "Collection slot or display name is still configured: " + collectionPos
+                + " / " + collectionName);
+      }
+    }
 
     final var collection =
         StorageCollectionFactory.createCollection(
@@ -8867,7 +8922,11 @@ public abstract class AbstractStorage
     ((CollectionBasedStorageConfiguration) configuration)
         .updateCollection(atomicOperation, collectionConfig);
 
-    linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      linkCollectionsBTreeManager.createComponent(atomicOperation, collection);
+    } else {
+      linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+    }
 
     return collection;
   }
@@ -10102,9 +10161,12 @@ public abstract class AbstractStorage
   private void lockLinkBags(
       final TreeMap<Integer, StorageCollection> collections,
       @Nonnull AtomicOperation atomicOperation) {
-    for (final var collectionId : collections.keySet()) {
-      var bTree = linkCollectionsBTreeManager.getComponentByCollectionId(
-          collectionId, atomicOperation);
+    for (final var collection : collections.values()) {
+      final var collectionId = collection.getId();
+      var bTree = getStorageFormat() == StorageFormat.LAYOUT_28
+          ? linkCollectionsBTreeManager.getComponent(
+              linkCollectionsBTreeManager.captureOwner(collection, atomicOperation))
+          : linkCollectionsBTreeManager.getComponentByCollectionId(collectionId, atomicOperation);
       // The B-tree should always exist: it is created with the collection
       // (doAddCollection) and repaired during storage open
       // (checkRidBagsPresence). lockCollections() already serializes

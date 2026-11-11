@@ -1102,6 +1102,424 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // A failed public drop leaves an empty runtime slot but restores the stored owner. Both
+  // allocation routes must respect it, including the display name, before any creation effects.
+  @Test
+  public void failedPublicDropProtectsSlotNameAndRecordsOnDiskAndMemory() throws Exception {
+    for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+      create(StorageFormat.LAYOUT_28, type);
+      int id;
+      Integer owner;
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid;
+      try (var session = open()) {
+        var cls = session.getMetadata().getSchema().createClass("KeptOwner", 1);
+        id = cls.getCollectionIds()[0];
+        rid = session.computeInTx(tx -> {
+          var row = tx.newEntity("KeptOwner");
+          row.setProperty("value", "survives");
+          return row.getIdentity();
+        });
+        var storage = session.getStorage();
+        var capturedCollection = storage.getCollectionInstances().stream()
+            .filter(c -> c.getId() == id).findFirst().orElseThrow();
+        owner = operationEntry(storage, id).getComponentId();
+        var once = new java.util.concurrent.atomic.AtomicBoolean();
+        config(storage).setConfigurationUpdateListener(update -> {
+          if (once.compareAndSet(false, true)) {
+            throw new ConfigurationException("injected public drop failure");
+          }
+        });
+        try {
+          assertThrows(ConfigurationException.class, () -> storage.dropCollection(session, id));
+        } finally {
+          config(storage).setConfigurationUpdateListener(null);
+        }
+        assertEquals(owner, operationEntry(storage, id).getComponentId());
+        var files = new HashMap<>(storage.getWriteCache().files());
+        int before = counter(storage, PageFileKind.COLLECTION);
+        long liveBefore = hwm(storage, PageFileKind.COLLECTION);
+        assertThrows(ConfigurationException.class,
+            () -> session
+                .addCollection(capturedCollection.getName().toUpperCase(java.util.Locale.ROOT)));
+        assertEquals(liveBefore, hwm(storage, PageFileKind.COLLECTION));
+        assertThrows(ConfigurationException.class,
+            () -> storage.addCollection(session, "requestedreplacement", id));
+        assertEquals(liveBefore, hwm(storage, PageFileKind.COLLECTION));
+        assertEquals(before, counter(storage, PageFileKind.COLLECTION));
+        assertEquals(files, storage.getWriteCache().files());
+        assertTrue(storage.getCollectionInstances().stream().noneMatch(c -> c.getId() == id));
+        assertTrue(session.addCollection("automaticreplacement") != id);
+        session.executeInTx(tx -> session.getMetadata().getSchema().createClass("SchemaSkip", 1));
+        assertTrue(session.getMetadata().getSchema().getClass("SchemaSkip")
+            .getCollectionIds()[0] != id);
+        // Runtime rollback of public drop is outside this track. Read the captured collection
+        // directly in memory. A cold disk reopen below also proves normal record access.
+        var op = storage.getAtomicOperationsManager().startAtomicOperation();
+        try {
+          assertTrue(capturedCollection.readRecord(rid.getCollectionPosition(), op)
+              .toRawBuffer().buffer().length > 0);
+        } finally {
+          op.deactivate();
+        }
+      }
+      if (type == DatabaseType.DISK) {
+        ytdb.close();
+        ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+        try (var session = open()) {
+          assertEquals(owner, operationEntry(session.getStorage(), id).getComponentId());
+          session.executeInTx(tx -> {
+            var row =
+                (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session.load(rid);
+            assertEquals("survives", row.getProperty("value"));
+          });
+        }
+      }
+      ytdb.drop("counters");
+    }
+  }
+
+  // Both production drops must retain the loaded tree before removing the slot and config.
+  // Reopen first so the capture cannot rely on the manager's newly-created-owner cache.
+  @Test
+  public void publicAndSchemaDropsDeleteCapturedTreesAfterRegistryRemoval() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    int publicId;
+    int schemaId;
+    try (var session = open()) {
+      publicId = session.addCollection("publiccapture");
+      schemaId = session.getMetadata().getSchema().createClass("SchemaCapture", 1)
+          .getCollectionIds()[0];
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var manager =
+          (com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager();
+      var owners = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> java.util.List.of(storage.captureCollectionOwner(publicId, op),
+              storage.captureCollectionOwner(schemaId, op)));
+      assertTrue(storage.dropCollection(session, publicId));
+      session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("SchemaCapture"));
+      var field = manager.getClass().getDeclaredField("fileIdBTreeMap");
+      field.setAccessible(true);
+      var loaded = (java.util.Map<?, ?>) field.get(manager);
+      for (var owner : owners) {
+        assertTrue(owner.tree() != null);
+        assertNull(operationEntry(storage, owner.collectionId()));
+        assertFalse(loaded.containsKey(AbstractWriteCache.extractFileId(owner.fileId())));
+        assertFalse(storage.getWriteCache().files()
+            .containsKey(manager.generateLockName(owner.collectionId())));
+      }
+    }
+  }
+
+  // Cleanup of a non-published failed collection must not use a surviving tree as authority.
+  // Cover a disappeared file with stale loaded state, a missing loaded tree, and another owner
+  // restored into the configuration slot. Ordinary files always belong to the failed capture.
+  @Test
+  public void failedCreationCleanupSeparatesFilesLoadedStateAndConfiguredOwner() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var manager =
+          (com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager();
+      var create = AbstractStorage.class.getDeclaredMethod("doCreateCollection",
+          AtomicOperation.class, String.class, int.class);
+      create.setAccessible(true);
+      var cleanup = AbstractStorage.class.getDeclaredMethod("revertCreatedCollectionStructure",
+          int.class, StorageCollection.class, boolean.class);
+      cleanup.setAccessible(true);
+      var loadedField = manager.getClass().getDeclaredField("fileIdBTreeMap");
+      loadedField.setAccessible(true);
+      for (int scenario = 0; scenario < 3; scenario++) {
+        int id = storage.getCollections();
+        var variant = scenario;
+        storage.stateLock.writeLock().lock();
+        try {
+          var collection = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> (StorageCollection) invoke(create, storage, op, "cleanup" + variant, id));
+          var captured = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> manager.captureOwner(collection, op));
+          var loaded = (java.util.Map<?, ?>) loadedField.get(manager);
+          var key = AbstractWriteCache.extractFileId(captured.fileId());
+          if (scenario != 1) {
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+                op -> op.deleteFile(captured.fileId()));
+            assertTrue(loaded.containsKey(key));
+          } else {
+            // Evict the loaded handle but keep the file and configuration entry.
+            manager.removeLoadedComponent(captured);
+          }
+          Integer keptOwner = null;
+          if (scenario == 2) {
+            keptOwner = captured.componentId() + 100;
+            replaceCollectionIdentity(storage, id, keptOwner);
+          }
+          invoke(cleanup, storage, id, collection, false);
+          assertFalse(loaded.containsKey(key));
+          assertFalse(storage.getWriteCache().files()
+              .containsKey(manager.generateLockName(id)));
+          var read = storage.getAtomicOperationsManager().startAtomicOperation();
+          try {
+            assertFalse(collection.exists(read));
+            var entry = config(storage).readCollection(id, read);
+            if (keptOwner == null) {
+              assertNull(entry);
+            } else {
+              assertEquals(keptOwner, entry.getComponentId());
+            }
+          } finally {
+            read.deactivate();
+          }
+          if (keptOwner != null) {
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+                op -> config(storage).dropCollection(op, id));
+          }
+        } finally {
+          storage.stateLock.writeLock().unlock();
+        }
+      }
+    }
+  }
+
+  // Operation-visible readers must see deletion before commit and restoration after rollback,
+  // while the cache still reports the failed drop. A same-operation replacement is legal.
+  @Test
+  public void operationVisibleOwnershipAllowsSameOperationReuse() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int id = session.addCollection("sameoperation");
+      var previous = operationEntry(storage, id).getComponentId();
+      var create = AbstractStorage.class.getDeclaredMethod("doCreateCollection",
+          AtomicOperation.class, String.class, int.class);
+      create.setAccessible(true);
+      var drop = AbstractStorage.class.getDeclaredMethod("dropCollectionInternal",
+          AtomicOperation.class, int.class);
+      drop.setAccessible(true);
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          var captured = storage.captureCollectionOwner(id, op);
+          assertEquals(previous, captured.componentId());
+          invoke(drop, storage, op, id);
+          config(storage).dropCollection(op, id);
+          ((com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager()).deleteComponent(op, captured);
+          assertNull(config(storage).readCollection(id, op));
+          assertNull(config(storage).readCollectionByName("sameoperation", op));
+          var replacement = (StorageCollection) invoke(create, storage, op, "sameoperation", id);
+          assertEquals(id, replacement.getId());
+          assertTrue(!previous.equals(runtimeConfig(replacement).getComponentId()));
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+    }
+  }
+
+  // Production reconciliation must reuse the dropped slot and publish a new component owner.
+  // Check disk durability after a cold reopen and memory usability in the same instance.
+  @Test
+  public void schemaDropAndCreatePublishesReusedSlotOnDiskAndMemory() throws Exception {
+    schemaDropAndCreateReusesSlot(false);
+  }
+
+  // Failed reconciliation must preserve the restored owner's tree, configuration and records.
+  // The commit hook proves that cleanup receives a replacement in the dropped slot.
+  @Test
+  public void failedSchemaSlotReusePreservesRestoredOwnerOnDiskAndMemory() throws Exception {
+    schemaDropAndCreateReusesSlot(true);
+  }
+
+  private void schemaDropAndCreateReusesSlot(boolean failCommit) throws Exception {
+    for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+      create(StorageFormat.LAYOUT_28, type);
+      int id;
+      Integer expectedOwner;
+      String expectedClass = failCommit ? "OriginalOwner" : "ReplacementOwner";
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID expectedRid;
+      try (var session = open()) {
+        session
+            .executeInTx(tx -> session.getMetadata().getSchema().createClass("OriginalOwner", 1));
+        id = session.getMetadata().getSchema().getClass("OriginalOwner").getCollectionIds()[0];
+        var originalRid = session.computeInTx(tx -> {
+          var row = tx.newEntity("OriginalOwner");
+          row.setProperty("value", "survives");
+          return row.getIdentity();
+        });
+        var storage = session.getStorage();
+        var originalOwner = operationEntry(storage, id).getComponentId();
+        var field = AbstractStorage.class.getDeclaredField("collections");
+        field.setAccessible(true);
+        var collections = (java.util.List<?>) field.get(storage);
+        var replacementOwner = new java.util.concurrent.atomic.AtomicReference<Integer>();
+        storage.setCommitWindowTestHook(() -> {
+          // The hook holds the non-reentrant state write lock. Inspect the captured list directly.
+          var replacement = (StorageCollection) collections.get(id);
+          assertEquals(id, replacement.getId());
+          var componentId = runtimeConfig(replacement).getComponentId();
+          assertFalse(originalOwner.equals(componentId));
+          replacementOwner.set(componentId);
+          if (failCommit) {
+            throw new CommandInterruptedException(storage.getName(), "injected slot reuse fault");
+          }
+        });
+        try {
+          session.begin();
+          var schema = session.getMetadata().getSchema();
+          schema.dropClass("OriginalOwner");
+          schema.createClass("ReplacementOwner", 1);
+          if (failCommit) {
+            assertThrows(CommandInterruptedException.class, session::commit);
+          } else {
+            session.commit();
+          }
+        } finally {
+          storage.setCommitWindowTestHook(null);
+        }
+        assertTrue("the hook must observe a replacement owner", replacementOwner.get() != null);
+        expectedOwner = failCommit ? originalOwner : replacementOwner.get();
+        assertEquals(id,
+            session.getMetadata().getSchema().getClass(expectedClass).getCollectionIds()[0]);
+        assertFalse(session.getMetadata().getSchema()
+            .existsClass(failCommit ? "ReplacementOwner" : "OriginalOwner"));
+        assertReconciledOwner(session, id, expectedOwner);
+        if (failCommit) {
+          expectedRid = originalRid;
+        } else {
+          expectedRid = session.computeInTx(tx -> {
+            var row = tx.newEntity(expectedClass);
+            row.setProperty("value", "survives");
+            return row.getIdentity();
+          });
+        }
+        assertSurvivingRecord(session, expectedRid);
+        session.executeInTx(tx -> tx.newEntity(expectedClass).setProperty("value", "writable"));
+      }
+      if (type == DatabaseType.DISK) {
+        ytdb.close();
+        ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+        try (var session = open()) {
+          assertReconciledOwner(session, id, expectedOwner);
+          assertSurvivingRecord(session, expectedRid);
+          session.executeInTx(tx -> tx.newEntity(expectedClass).setProperty("value", "reopened"));
+        }
+      }
+      ytdb.drop("counters");
+    }
+  }
+
+  private static void assertReconciledOwner(DatabaseSessionEmbedded session, int id,
+      Integer expectedOwner) throws Exception {
+    var storage = session.getStorage();
+    assertEquals(expectedOwner, operationEntry(storage, id).getComponentId());
+    var collection = storage.getCollectionInstances().stream()
+        .filter(c -> c.getId() == id).findFirst().orElseThrow();
+    assertEquals(expectedOwner, runtimeConfig(collection).getComponentId());
+    var manager = storage.getLinkCollectionsBtreeCollectionManager();
+    assertTrue(storage.getWriteCache().files().containsKey(
+        com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared
+            .generateLockName(id)));
+    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+      var owner = storage.captureCollectionOwner(id, op);
+      assertEquals(expectedOwner, owner.componentId());
+      assertTrue(owner.tree() != null);
+      // Allocate through the restored/published handle, not merely through a cached registry name.
+      assertTrue(manager.createBTree(id, op, session).linkBagId() < 0);
+    });
+  }
+
+  private static void assertSurvivingRecord(DatabaseSessionEmbedded session,
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid) {
+    session.executeInTx(tx -> {
+      var row = (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session.load(rid);
+      assertEquals("survives", row.getProperty("value"));
+    });
+  }
+
+  // Restoration must invalidate the creation-owner cache so captures and writers share one tree.
+  @Test
+  public void restoredTreeReplacesCachedCreationOwner() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      int id = session.addCollection("restoredtree");
+      var storage = session.getStorage();
+      var collection = storage.getCollectionInstances().stream()
+          .filter(c -> c.getId() == id).findFirst().orElseThrow();
+      var manager =
+          (com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager();
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          var before = manager.captureOwner(collection, op);
+          manager.restoreComponentByCollectionId(op, id);
+          var after = manager.captureOwner(collection, op);
+          var mapped = storage.captureCollectionOwner(id, op);
+          assertTrue(before.tree() != mapped.tree());
+          assertSame(mapped.tree(), after.tree());
+          manager.deleteComponent(op, after);
+          assertNull(manager.captureOwner(id, after.componentId(), op).tree());
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+    }
+  }
+
+  // Owner-aware lazy tree allocation must complete while the caller owns the state write lock.
+  // A state read-lock re-entry cannot succeed, so the timeout makes that regression fail.
+  @Test(timeout = 30000)
+  public void ownerAwareBagAllocationDoesNotReenterStateLock() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      int id = session.addCollection("lockedallocation");
+      var storage = session.getStorage();
+      var manager =
+          (com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager();
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          manager.deleteComponent(op, storage.captureCollectionOwner(id, op));
+          var pointer = manager.createBTree(id, op, session);
+          assertTrue(pointer.linkBagId() < 0);
+          assertTrue(storage.captureCollectionOwner(id, op).tree() != null);
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+    }
+  }
+
+  // Layout 27 retains its first-null allocator even when a stored configuration owns that slot.
+  @Test
+  public void layout27StillSelectsConfigurationOwnedNullSlot() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int id = session.addCollection("legacyslot");
+      var field = AbstractStorage.class.getDeclaredField("collections");
+      field.setAccessible(true);
+      ((java.util.List<?>) field.get(storage)).set(id, null);
+      var next = AbstractStorage.class.getDeclaredMethod("nextFreeCollectionId",
+          AtomicOperation.class);
+      next.setAccessible(true);
+      storage.getAtomicOperationsManager()
+          .executeInsideAtomicOperation(op -> assertEquals(id, invoke(next, storage, op)));
+    }
+  }
+
+  private static StoragePaginatedCollectionConfiguration operationEntry(AbstractStorage storage,
+      int id) throws Exception {
+    return storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+        op -> config(storage).readCollection(id, op));
+  }
+
   private static void replaceCollectionIdentity(AbstractStorage storage, int id,
       Integer componentId)
       throws Exception {
