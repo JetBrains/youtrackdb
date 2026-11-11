@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -27,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
@@ -34,6 +37,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -850,6 +856,216 @@ public class ComponentIdAllocationTest {
         assertEquals(33554431, hwm(storage, kind));
       }
       assertCounters(storage, counters);
+    }
+  }
+
+  // Both construction routes enforce ownership before init can change ids, metrics or strategy.
+  @Test
+  public void layout28ConfigureRejectsOwnerReplacementBeforeAnyMutation() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      for (boolean explicit : new boolean[] {true, false}) {
+        var collection =
+            explicit ? StorageCollectionFactory.createCollection("prepared", storage, 0)
+                : new PaginatedCollectionV2("prepared", storage);
+        assertEquals(explicit ? Integer.valueOf(0) : null,
+            collection.generateCollectionConfig().getComponentId());
+        collection.configure(120, "prepared", 0);
+        var config = collection.generateCollectionConfig();
+        collection.configure(storage, config);
+        collection.configure(120, "prepared", 0);
+        for (Integer invalid : new Integer[] {1, null}) {
+          var bad = new StoragePaginatedCollectionConfiguration(999, "retargeted", null, true,
+              1, 1, null, null, null, "version", 3, invalid);
+          var meters = collectionField(collection, "meters");
+          var strategy = collectionField(collection, "recordConflictStrategy");
+          assertThrows(StorageException.class,
+              () -> collection.configure(999, "retargeted", invalid));
+          assertThrows(StorageException.class, () -> collection.configure(storage, bad));
+          assertEquals(120, collection.getId());
+          assertEquals("prepared", collection.getName());
+          assertEquals(Integer.valueOf(0), collection.generateCollectionConfig().getComponentId());
+          assertSame(meters, collectionField(collection, "meters"));
+          assertSame(strategy, collectionField(collection, "recordConflictStrategy"));
+        }
+        assertThrows(StorageException.class, () -> collection.configure(999, "retargeted"));
+        assertEquals(120, collection.getId());
+      }
+      var configuration = new PaginatedCollectionV2("configuration", ".cd", ".ccm", ".fcm",
+          ".dcm", storage, new PageFileIdentity(PageFileRole.CONFIG_DATA, 0));
+      configuration.configure(0, "configuration");
+      configuration.configure(storage, configuration.generateCollectionConfig());
+      assertNull(configuration.generateCollectionConfig().getComponentId());
+    }
+  }
+
+  // Layout 27 retains reconfiguration, including clearing a previously supplied owner.
+  @Test
+  public void layout27ConfigureKeepsLegacyReassignment() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var collection = new PaginatedCollectionV2("legacy", storage);
+      collection.configure(120, "legacy", 0);
+      collection.configure(121, "legacy", 1);
+      assertEquals(Integer.valueOf(1), collection.generateCollectionConfig().getComponentId());
+      collection.configure(122, "legacy");
+      collection.configure(storage, collection.generateCollectionConfig());
+      assertEquals(122, collection.getId());
+      assertNull(collection.generateCollectionConfig().getComponentId());
+    }
+  }
+
+  // The actual reuse caller accepts the stored layout 28 owner and rejects retargeting.
+  @Test
+  public void createCollectionFromConfigReuseKeepsThePublishedOwner() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int id = session.addCollection("reusedconfiguration");
+      var collection = (PaginatedCollectionV2) storage.getCollectionInstances().stream()
+          .filter(c -> c.getId() == id).findFirst().orElseThrow();
+      var config = collection.generateCollectionConfig();
+      var method = AbstractStorage.class.getDeclaredMethod("createCollectionFromConfig",
+          com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration.class,
+          AtomicOperation.class);
+      method.setAccessible(true);
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          assertEquals(-1, invoke(method, storage, config, op));
+          var meters = collectionField(collection, "meters");
+          var bad = new StoragePaginatedCollectionConfiguration(id, config.name(), null, true,
+              1, 1, null, null, null, "version", 3, config.getComponentId() + 1);
+          var failure = assertThrows(InvocationTargetException.class,
+              () -> method.invoke(storage, bad, op));
+          assertTrue(failure.getCause() instanceof StorageException);
+          assertSame(meters, collectionField(collection, "meters"));
+          assertEquals(config.getComponentId(),
+              collection.generateCollectionConfig().getComponentId());
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+    }
+  }
+
+  // Creation touches all four real roles under the collection's operation-lifetime lock.
+  // Refresh, rename and a happens-before handoff must retain the shared epoch and owner.
+  @Test
+  public void preparedFamilyKeepsOneAcquiredLockAndEpochAndSeparateTrees() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      int owner = allocate(storage, PageFileKind.COLLECTION);
+      var collection = StorageCollectionFactory.createCollection("prepared", storage, owner);
+      collection.configure(120, "prepared", owner);
+      var manager = storage.getAtomicOperationsManager();
+      var lockName = collection.getLockName();
+      var epoch = collection.getApplyPhaseEpoch();
+      assertNotNull(epoch);
+      assertSame(manager.getApplyPhaseEpoch(lockName), epoch);
+      for (String field : new String[] {"collectionPositionMap", "freeSpaceMap",
+          "dirtyPageBitSet"}) {
+        var auxiliary = (StorageComponent) collectionField(collection, field);
+        assertEquals(lockName, auxiliary.getLockName());
+        assertSame(epoch, auxiliary.getApplyPhaseEpoch());
+      }
+      storage.stateLock.writeLock().lock();
+      try {
+        manager.executeInsideAtomicOperation(op -> {
+          collection.create(op);
+          var locked = new java.util.ArrayList<StorageComponent>();
+          op.lockedComponents().forEach(locked::add);
+          assertEquals(java.util.List.of(collection), locked);
+          assertTrue(collection.isExclusiveOwner());
+          assertEquals(AtomicOperation.ComponentLockMode.EXCLUSIVE, op.lockedObjectMode(lockName));
+        });
+        var tree = new SharedLinkBagBTree(storage, "prepared", ".grb",
+            new PageFileIdentity(PageFileRole.LINK_BAG_TREE, owner));
+        var other = new SharedLinkBagBTree(storage, "other", ".grb",
+            new PageFileIdentity(PageFileRole.LINK_BAG_TREE, owner + 1));
+        assertFalse(lockName.equals(tree.getLockName()));
+        assertFalse(tree.getLockName().equals(other.getLockName()));
+        assertNotNull(tree.getApplyPhaseEpoch());
+        assertNotNull(other.getApplyPhaseEpoch());
+        assertNotSame(epoch, tree.getApplyPhaseEpoch());
+        assertNotSame(tree.getApplyPhaseEpoch(), other.getApplyPhaseEpoch());
+        manager.executeInsideAtomicOperation(tree::create);
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+      var loaded = new SharedLinkBagBTree(storage, "differentdisplay", ".grb",
+          new PageFileIdentity(PageFileRole.LINK_BAG_TREE, owner));
+      var tree = new SharedLinkBagBTree(storage, "prepared", ".grb",
+          new PageFileIdentity(PageFileRole.LINK_BAG_TREE, owner));
+      manager.executeInsideAtomicOperation(tree::load);
+      manager.executeInsideAtomicOperation(loaded::load);
+      assertEquals(tree.getFileId(), loaded.getFileId());
+      manager.executeInsideAtomicOperation(loaded::delete);
+      assertFalse(storage.getWriteCache().files().containsKey(tree.getLockName()));
+      collection.setCollectionName("renamedprepared");
+      collection.configure(storage, collection.generateCollectionConfig());
+      assertEquals(lockName, collection.getLockName());
+      assertSame(epoch, collection.getApplyPhaseEpoch());
+      for (String field : new String[] {"collectionPositionMap", "freeSpaceMap",
+          "dirtyPageBitSet"}) {
+        var auxiliary = (StorageComponent) collectionField(collection, field);
+        assertEquals(lockName, auxiliary.getLockName());
+        assertSame(epoch, auxiliary.getApplyPhaseEpoch());
+      }
+      var executor = Executors.newSingleThreadExecutor();
+      try {
+        executor.submit(() -> {
+          assertEquals(Integer.valueOf(owner),
+              collection.generateCollectionConfig().getComponentId());
+          assertEquals(lockName, collection.getLockName());
+          assertSame(epoch, collection.getApplyPhaseEpoch());
+        }).get(30, TimeUnit.SECONDS);
+      } finally {
+        executor.shutdownNow();
+      }
+      collection.close();
+    }
+  }
+
+  private static Object collectionField(PaginatedCollectionV2 collection, String name)
+      throws Exception {
+    var field = PaginatedCollectionV2.class.getDeclaredField(name);
+    field.setAccessible(true);
+    return field.get(collection);
+  }
+
+  // Production layout 28 keeps the full display-name family and slot-named tree on cold open.
+  @Test
+  public void productionCollectionNamesRemainUnchangedAcrossColdReopen() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    final int id;
+    final java.util.Map<String, Long> registered = new HashMap<>();
+    try (var session = open()) {
+      var storage = session.getStorage();
+      id = session.addCollection("displayfamily");
+      for (String ext : new String[] {".pcl", ".cpm", ".fsm", ".dpb"}) {
+        String name = "displayfamily" + ext;
+        assertTrue(storage.getWriteCache().files().containsKey(name));
+        registered.put(name, storage.getWriteCache().files().get(name));
+      }
+      String tree = "global_collection_" + id + ".grb";
+      assertTrue(storage.getWriteCache().files().containsKey(tree));
+      registered.put(tree, storage.getWriteCache().files().get(tree));
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      registered.forEach((name, fileId) -> {
+        assertTrue(storage.getWriteCache().files().containsKey(name));
+        // Cache ids change on cold open. The internal file id remains stable.
+        assertEquals(AbstractWriteCache.extractFileId(fileId),
+            AbstractWriteCache.extractFileId(storage.getWriteCache().files().get(name)));
+      });
+      assertEquals(id, session.getCollectionIdByName("displayfamily"));
     }
   }
 

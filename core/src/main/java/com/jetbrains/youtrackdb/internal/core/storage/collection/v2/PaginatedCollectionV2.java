@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionSizeLimitException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
@@ -54,6 +55,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrows
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
@@ -301,6 +303,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         PageFileRole.RECORD_DATA, PageFileRole.CONFIG_DATA);
 
     this.dataIdentity = dataIdentity;
+    componentId = dataIdentity != null && dataIdentity.role() == PageFileRole.RECORD_DATA
+        ? dataIdentity.componentId() : null;
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getLockName(),
         cpmExtension, dataIdentity == null ? null : new PageFileIdentity(
@@ -338,9 +342,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       Integer expected = dataIdentity.role() == PageFileRole.RECORD_DATA
           ? dataIdentity.componentId() : null;
       if (!java.util.Objects.equals(expected, componentId)) {
-        throw new com.jetbrains.youtrackdb.internal.core.exception.StorageException(
+        throw new StorageException(
             storage.getName(), "Cannot replace collection page-file owner");
       }
+    } else if (storage.getStorageFormat()
+        == StorageFormat.LAYOUT_28
+        && this.componentId != null && !this.componentId.equals(componentId)) {
+      // Legacy construction receives its owner at registration. Never retarget that live object.
+      throw new StorageException(
+          storage.getName(), "Cannot replace collection page-file owner");
     }
   }
 

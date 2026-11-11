@@ -22,7 +22,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.SharedLinkBagBTree;
 import java.io.IOException;
 import org.junit.Before;
 import org.junit.Test;
@@ -254,6 +256,28 @@ public class StorageComponentPageFileIdentityTest {
       assertThrows(IllegalArgumentException.class, () -> new BTree<>(
           "index", ".cbt", ".nbt", storage, factory, identity(role), identity(wrong)));
     }
+  }
+
+  // Explicit collection and bag routes reject wrong layout, role and extension before file IO.
+  // The legacy bag route accepts custom extensions, as existing .sbc consumers require.
+  @Test
+  public void preparedRoutesValidateIdentityWithoutRestrictingLegacyTrees() {
+    when(storage.getComponentsFactory()).thenReturn(
+        new com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory(
+            BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION));
+    assertThrows(IllegalArgumentException.class, () -> new SharedLinkBagBTree(
+        storage, "bag", ".grb", identity(PageFileRole.RECORD_DATA)));
+    assertThrows(IllegalArgumentException.class, () -> new SharedLinkBagBTree(
+        storage, "bag", ".sbc", identity(PageFileRole.LINK_BAG_TREE)));
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, null}) {
+      when(storage.getStorageFormat()).thenReturn(format);
+      assertThrows(StorageException.class,
+          () -> StorageCollectionFactory.createCollection("records", storage, 0));
+      assertThrows(StorageException.class, () -> new SharedLinkBagBTree(
+          storage, "bag", ".grb", identity(PageFileRole.LINK_BAG_TREE)));
+      new SharedLinkBagBTree(storage, "legacy", ".sbc");
+    }
+    verifyNoInteractions(operation);
   }
 
   private static PageFileIdentity identity(PageFileRole role) {

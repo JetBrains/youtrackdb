@@ -9,6 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -37,11 +40,20 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
+  private final @Nullable PageFileIdentity identity;
 
   public SharedLinkBagBTree(final AbstractStorage storage, final String name,
       final String fileExtension) {
-    super(storage, name, fileExtension, name + fileExtension, true);
+    this(storage, name, fileExtension, null);
+  }
 
+  /** Prepares an explicitly owned tree without changing name-based callers. */
+  public SharedLinkBagBTree(AbstractStorage storage, String name, String fileExtension,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, fileExtension,
+        identity == null ? name + fileExtension : PageFileNames.layout28(identity), true);
+    validateIdentity(storage, fileExtension, identity, PageFileRole.LINK_BAG_TREE);
+    this.identity = identity;
     this.serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
   }
 
@@ -56,7 +68,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         (operation) -> {
           acquireExclusiveLock();
           try {
-            fileId = addFile(atomicOperation, getFullName());
+            fileId = addFile(atomicOperation, getFullName(), identity);
 
             // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
             try (final var entryPointCacheEntry =
@@ -81,7 +93,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   public void load(AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      fileId = openFile(atomicOperation, getFullName());
+      fileId = openFile(atomicOperation, getFullName(), identity);
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -98,7 +110,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
+            deleteFile(atomicOperation, fileId, identity);
           } finally {
             releaseExclusiveLock();
           }

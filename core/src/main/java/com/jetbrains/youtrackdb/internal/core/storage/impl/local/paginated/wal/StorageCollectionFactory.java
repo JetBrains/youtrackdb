@@ -24,6 +24,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 
 /**
  * Factory for creating paginated storage collection instances.
@@ -31,6 +33,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
  * @since 10/8/13
  */
 public final class StorageCollectionFactory {
+
+  /** Builds an ordinary layout 28 family with its owner and lock domain fixed before publication. */
+  public static PaginatedCollectionV2 createCollection(
+      String name, AbstractStorage storage, int componentId) {
+    return new PaginatedCollectionV2(name, PageFileRole.RECORD_DATA.layout27Extension(),
+        PageFileRole.POSITION_MAP.layout27Extension(),
+        PageFileRole.FREE_SPACE_MAP.layout27Extension(),
+        PageFileRole.DIRTY_PAGE_BIT_SET.layout27Extension(), storage,
+        new PageFileIdentity(PageFileRole.RECORD_DATA, componentId));
+  }
 
   public static PaginatedCollection createCollection(
       final String name,
