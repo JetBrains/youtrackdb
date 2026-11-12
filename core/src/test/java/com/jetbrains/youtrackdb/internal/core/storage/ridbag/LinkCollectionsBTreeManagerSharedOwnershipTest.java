@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -104,6 +105,9 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
           var owner = manager.captureOwner(collection, op);
           var handle = manager.requireComponent(owner, op);
           assertEquals(expected.internalId(), AbstractWriteCache.extractFileId(handle.getFileId()));
+          assertEquals(AbstractWriteCache.extractFileId(
+              storage.getWriteCache().fileIdByName(PageFileNames.layout28(expected))),
+              AbstractWriteCache.extractFileId(handle.getFileId()));
           assertEquals(PageFileNames.layout28(expected), handle.getLockName());
           assertNotEquals(((PaginatedCollection) collection).getLockName(), handle.getLockName());
           assertNotSame(((PaginatedCollection) collection).getApplyPhaseEpoch(),
@@ -168,6 +172,82 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
     });
   }
 
+  // Reload discards partial loaded maps, creation captures and an earlier image's high counter.
+  // Both layouts restore only the counters persisted in trees found by their discovery rules.
+  @Test
+  public void reloadDiscardsLeftoverStateAndRestoresPersistedCounter() throws Exception {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28}) {
+      withStorage(format, session -> {
+        var storage = session.getStorage();
+        int collectionId = session.addCollection("reloadowner");
+        var fresh = new LinkCollectionsBTreeManagerShared(storage);
+        int removedCollectionId = session.addCollection("removedowner");
+        var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+            op -> storage.captureCollectionOwner(collectionId, op));
+        var removedOwner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+            op -> storage.captureCollectionOwner(removedCollectionId, op));
+        var counterField = fresh.getClass().getDeclaredField("ridBagIdCounter");
+        counterField.setAccessible(true);
+        var counter = (java.util.concurrent.atomic.AtomicLong) counterField.get(fresh);
+        underWriteLock(storage, () -> {
+          try {
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+              removedOwner.tree().updateRidBagIdCounter(op, 700);
+              owner.tree().updateRidBagIdCounter(op, 71);
+            });
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(fresh::load);
+            assertEquals(700, counter.get());
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+        });
+        session.dropCollection(removedCollectionId);
+        underWriteLock(storage, () -> {
+          try {
+            loaded(fresh).put(Integer.MAX_VALUE, owner.tree());
+            var ownersField = fresh.getClass().getDeclaredField("createdOwners");
+            ownersField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var owners = (Map<Integer,
+                LinkCollectionsBTreeManagerShared.CollectionOwner>) ownersField.get(fresh);
+            owners.put(100001,
+                new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionId, 100001,
+                    owner.tree()));
+            assertFalse(owners.isEmpty());
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+              fresh.load(op);
+              assertFalse(loaded(fresh).containsKey(Integer.MAX_VALUE));
+              assertTrue(owners.isEmpty());
+              assertEquals(71, counter.get());
+              assertEquals(-72, fresh.createBTree(collectionId, op, session).linkBagId());
+            });
+          } catch (Exception failure) {
+            throw new AssertionError(failure);
+          }
+        });
+      });
+    }
+  }
+
+  // Both owner-capture entry points reject absent operation-visible configuration without repair.
+  @Test
+  public void missingConfiguredOwnerFailsStorageCaptureAndBagAllocation() throws Exception {
+    withStorage(StorageFormat.LAYOUT_28, session -> {
+      var storage = session.getStorage();
+      var manager =
+          (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+        int collectionId = 100001;
+        assertNull(storage.readCollectionOwner(collectionId, op));
+        String message = "No configured collection owner for " + collectionId;
+        assertTrue(assertThrows(StorageException.class,
+            () -> storage.captureCollectionOwner(collectionId, op)).getMessage().contains(message));
+        assertTrue(assertThrows(StorageException.class,
+            () -> manager.createBTree(collectionId, op, session)).getMessage().contains(message));
+      });
+    });
+  }
+
   // A cached owner never authorizes allocation after its registration is removed.
   // Neither required access nor serialization may replace a missing tree with an empty one.
   @Test
@@ -181,7 +261,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
       var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> storage.captureCollectionOwner(id, op));
       storage.getAtomicOperationsManager()
-          .executeInsideAtomicOperation(op -> op.deleteFile(owner.fileId()));
+          .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
       storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
         assertThrows(StorageException.class, () -> manager.requireComponent(owner, op));
         assertThrows(StorageException.class, () -> manager.createBTree(id, op, session));
@@ -231,7 +311,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
             failed.create(op);
             loaded(manager).put(identity(100001).internalId(), failed);
             manager.deleteComponent(op,
-                new LinkCollectionsBTreeManagerShared.CollectionOwner(id, 100001, -1, null));
+                new LinkCollectionsBTreeManagerShared.CollectionOwner(id, 100001, null));
             assertFalse(op.isFileExists(PageFileNames.layout28(identity(100001))));
             assertFalse(loaded(manager).containsKey(identity(100001).internalId()));
             assertSame(kept.tree(), manager.requireComponent(kept, op));
@@ -254,7 +334,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
       var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> storage.captureCollectionOwner(id, op));
       storage.getAtomicOperationsManager()
-          .executeInsideAtomicOperation(op -> op.deleteFile(owner.fileId()));
+          .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
       var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> op.addFile("unconfigured.grb"));
       storage.getWriteCache().renameFile(other,
@@ -398,18 +478,18 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
         var other = storage.captureCollectionOwner(b, op);
         assertThrows(StorageException.class, () -> manager.restoreComponent(op,
             new LinkCollectionsBTreeManagerShared.CollectionOwner(a, owner.componentId(),
-                owner.fileId(), other.tree())));
+                other.tree())));
         var renamed = org.mockito.Mockito.spy(owner.tree());
         org.mockito.Mockito.doReturn("wrong-name.grb").when(renamed).getFullName();
         assertThrows(StorageException.class, () -> manager.restoreComponent(op,
             new LinkCollectionsBTreeManagerShared.CollectionOwner(a, owner.componentId(),
-                owner.fileId(), renamed)));
+                renamed)));
         manager.restoreComponent(op, new LinkCollectionsBTreeManagerShared.CollectionOwner(
-            a, owner.componentId(), -1, null));
+            a, owner.componentId(), null));
         assertNotNull(manager.captureOwner(a, owner.componentId(), op).tree());
         manager.restoreComponent(op, owner);
         assertSame(owner.tree(), manager.requireComponent(owner, op));
-        op.deleteFile(owner.fileId());
+        op.deleteFile(owner.tree().getFileId());
         assertThrows(StorageException.class, () -> manager.restoreComponent(op, owner));
       });
     });
@@ -497,7 +577,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
           cache = unreadable;
         } else {
           storage.getAtomicOperationsManager()
-              .executeInsideAtomicOperation(op -> op.deleteFile(owner.fileId()));
+              .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
           if (fault.equals("wrong")) {
             var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
                 op -> op.addFile("wrong.grb"));
@@ -543,7 +623,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
       var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> storage.captureCollectionOwner(id, op));
       storage.getAtomicOperationsManager()
-          .executeInsideAtomicOperation(op -> op.deleteFile(owner.fileId()));
+          .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
       var files = new java.util.HashMap<>(storage.getWriteCache().files());
       session.getConfiguration().setValue(
           com.jetbrains.youtrackdb.api.config.GlobalConfiguration.LINK_COLLECTION_EMBEDDED_TO_BTREE_THRESHOLD,

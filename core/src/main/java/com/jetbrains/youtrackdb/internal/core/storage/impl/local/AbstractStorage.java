@@ -361,7 +361,7 @@ public abstract class AbstractStorage
         return Integer.compare(aSize, bSize);
       };
 
-  protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
+  protected final LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
@@ -1712,7 +1712,6 @@ public abstract class AbstractStorage
               configuration::getBinaryFormatVersion);
           componentsFactory = new CurrentStorageComponentsFactory(binaryFormatVersion);
 
-          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
           linkCollectionsBTreeManager.load(atomicOperation);
 
           status = STATUS.OPEN;
@@ -4014,21 +4013,28 @@ public abstract class AbstractStorage
     return ((CollectionBasedStorageConfiguration) configuration).readCollections(operation);
   }
 
-  /** Resolves once through operation-visible configuration without reentering the state lock. */
-  public LinkCollectionsBTreeManagerShared.CollectionOwner captureCollectionOwner(
-      int id, AtomicOperation operation) {
-    final var entry = ((CollectionBasedStorageConfiguration) configuration)
-        .readCollection(id, operation);
-    if (entry == null) {
-      throw new StorageException(name, "No configured collection owner for " + id);
-    }
-    return linkCollectionsBTreeManager.captureOwner(id, entry.getComponentId(), operation);
+  /** Reads the current configuration entry in either startup order and after restore. */
+  public @Nullable StoragePaginatedCollectionConfiguration readCollectionOwner(
+      int collectionId, AtomicOperation operation) {
+    return ((CollectionBasedStorageConfiguration) configuration)
+        .readCollection(collectionId, operation);
   }
 
-  private boolean isCollectionSlotOwned(int id, AtomicOperation operation) {
+  /** Resolves once through operation-visible configuration without reentering the state lock. */
+  public LinkCollectionsBTreeManagerShared.CollectionOwner captureCollectionOwner(
+      int collectionId, AtomicOperation operation) {
+    final var entry = readCollectionOwner(collectionId, operation);
+    if (entry == null) {
+      throw new StorageException(name, "No configured collection owner for " + collectionId);
+    }
+    return linkCollectionsBTreeManager.captureOwner(collectionId, entry.getComponentId(),
+        operation);
+  }
+
+  private boolean isCollectionSlotOwned(int collectionId, AtomicOperation operation) {
     return getStorageFormat() == StorageFormat.LAYOUT_28
-        && ((CollectionBasedStorageConfiguration) configuration).readCollection(id, operation)
-            != null;
+        && ((CollectionBasedStorageConfiguration) configuration)
+            .readCollection(collectionId, operation) != null;
   }
 
   /** A layout 28 create captured before publication, including its loaded-tree identity. */
@@ -9008,8 +9014,7 @@ public abstract class AbstractStorage
       // After tree creation, replace the immutable record with the full owner capture.
       // Undo needs that handle even when rollback has removed the tree file.
       created.add(new CreatedCollection(collection,
-          new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionPos, componentId, -1,
-              null)));
+          new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionPos, componentId, null)));
     }
 
     collection.create(atomicOperation);

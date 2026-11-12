@@ -1442,7 +1442,7 @@ public class ComponentIdAllocationTest {
       for (var owner : owners) {
         assertTrue(owner.tree() != null);
         assertNull(operationEntry(storage, owner.collectionId()));
-        assertFalse(loaded.containsKey(AbstractWriteCache.extractFileId(owner.fileId())));
+        assertFalse(loaded.containsKey(AbstractWriteCache.extractFileId(owner.tree().getFileId())));
         assertFalse(storage.getWriteCache().files()
             .containsKey(treeName(owner.componentId())));
       }
@@ -1479,10 +1479,10 @@ public class ComponentIdAllocationTest {
           var captured = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
               op -> manager.captureOwner(collection, op));
           var loaded = (java.util.Map<?, ?>) loadedField.get(manager);
-          var key = AbstractWriteCache.extractFileId(captured.fileId());
+          var key = AbstractWriteCache.extractFileId(captured.tree().getFileId());
           if (scenario != 1) {
             storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-                op -> op.deleteFile(captured.fileId()));
+                op -> op.deleteFile(captured.tree().getFileId()));
             assertTrue(loaded.containsKey(key));
           } else {
             // Evict the loaded handle but keep the file and configuration entry.
@@ -1914,7 +1914,7 @@ public class ComponentIdAllocationTest {
           owners.setAccessible(true);
           var loaded = manager.getClass().getDeclaredField("fileIdBTreeMap");
           loaded.setAccessible(true);
-          int key = AbstractWriteCache.extractFileId(owner.fileId());
+          int key = AbstractWriteCache.extractFileId(owner.tree().getFileId());
           assertTrue(((java.util.Map<?, ?>) owners.get(manager)).containsKey(owner.componentId()));
           assertSame(owner.tree(), ((java.util.Map<?, ?>) loaded.get(manager)).get(key));
           var legacyCleanup = AbstractStorage.class.getDeclaredMethod(
@@ -1987,7 +1987,7 @@ public class ComponentIdAllocationTest {
           : new AssertionError("primary missing-tree commit failure");
       storage.setCommitWindowTestHook(() -> {
         try {
-          storage.getReadCache().deleteFile(original.fileId(), storage.getWriteCache());
+          storage.getReadCache().deleteFile(original.tree().getFileId(), storage.getWriteCache());
         } catch (java.io.IOException e) {
           throw new AssertionError(e);
         }

@@ -70,14 +70,17 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
   }
 
   public void load(AtomicOperation atomicOperation) {
+    fileIdBTreeMap.clear();
+    createdOwners.clear();
+    ridBagIdCounter.set(0);
     if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
       for (final var entry : storage.readCollectionOwners(atomicOperation)) {
         if (entry.getComponentId() == null) {
           throw new StorageException(storage.getName(),
               "Missing collection component identity for '" + entry.name() + "'");
         }
-        final var identity = treeIdentity(entry.getComponentId());
-        final var tree = identityTree(identity);
+        final var identity = treeFileIdentity(entry.getComponentId());
+        final var tree = newIdentityTreeHandle(identity);
         try {
           tree.load(atomicOperation);
           rememberTree(atomicOperation, tree);
@@ -112,7 +115,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
   }
 
-  private PageFileIdentity treeIdentity(Integer componentId) {
+  /** Validates the collection component id and derives its link-bag tree file identity. */
+  private PageFileIdentity treeFileIdentity(Integer componentId) {
     if (componentId == null) {
       throw new StorageException(storage.getName(), "Missing collection component identity");
     }
@@ -120,7 +124,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     return new PageFileIdentity(PageFileRole.LINK_BAG_TREE, componentId);
   }
 
-  private SharedLinkBagBTree identityTree(PageFileIdentity identity) {
+  /** Constructs a new tree handle without creating or loading its file. */
+  private SharedLinkBagBTree newIdentityTreeHandle(PageFileIdentity identity) {
     final var fullName = PageFileNames.layout28(identity);
     return new SharedLinkBagBTree(storage,
         fullName.substring(0, fullName.length() - FILE_EXTENSION.length()), FILE_EXTENSION,
@@ -138,7 +143,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   /** Required access checks registration independently of cached creation handles. */
   public SharedLinkBagBTree requireComponent(CollectionOwner owner, AtomicOperation operation) {
-    final var identity = treeIdentity(owner.componentId());
+    final var identity = treeFileIdentity(owner.componentId());
     final var fileId = operation.fileIdByName(PageFileNames.layout28(identity));
     if (fileId < 0 || AbstractWriteCache.extractFileId(fileId) != identity.internalId()) {
       throw new StorageException(storage.getName(), "Missing or wrong required link-bag tree");
@@ -157,7 +162,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
   }
 
   /** Ownership captured while the caller still holds the live collection and storage lock. */
-  public record CollectionOwner(int collectionId, Integer componentId, long fileId,
+  public record CollectionOwner(int collectionId, Integer componentId,
       SharedLinkBagBTree tree) {
   }
 
@@ -168,27 +173,32 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     return created != null ? created : captureOwner(collection.getId(), componentId, operation);
   }
 
-  public CollectionOwner captureOwner(int id, Integer componentId, AtomicOperation operation) {
+  public CollectionOwner captureOwner(int collectionId, Integer componentId,
+      AtomicOperation operation) {
     final var name = storage.getStorageFormat() == StorageFormat.LAYOUT_28
-        ? PageFileNames.layout28(treeIdentity(componentId)) : generateLockName(id);
+        ? PageFileNames.layout28(treeFileIdentity(componentId)) : generateLockName(collectionId);
     final var fileId = operation == null
         ? storage.getWriteCache().fileIdByName(name) : operation.fileIdByName(name);
     final var tree = fileId < 0 ? null
         : fileIdBTreeMap.get(AbstractWriteCache.extractFileId(fileId));
-    return new CollectionOwner(id, componentId, fileId, tree);
+    return new CollectionOwner(collectionId, componentId, tree);
   }
 
-  private CollectionOwner resolveOwner(int id, AtomicOperation operation) {
+  private CollectionOwner resolveOwner(int collectionId, AtomicOperation operation) {
     // Serialization already runs under the storage state lock, which is not reentrant.
     // Read operation-visible configuration instead of acquiring that lock again.
-    final var owner = storage.captureCollectionOwner(id, operation);
-    return captureOwner(id, owner.componentId(), operation);
+    final var entry = storage.readCollectionOwner(collectionId, operation);
+    if (entry == null) {
+      throw new StorageException(storage.getName(),
+          "No configured collection owner for " + collectionId);
+    }
+    return captureOwner(collectionId, entry.getComponentId(), operation);
   }
 
   public void createComponent(AtomicOperation operation, StorageCollection collection) {
-    final var identity = treeIdentity(
+    final var identity = treeFileIdentity(
         ((PaginatedCollection) collection).generateCollectionConfig().getComponentId());
-    final var tree = identityTree(identity);
+    final var tree = newIdentityTreeHandle(identity);
     tree.create(operation);
     fileIdBTreeMap.put(identity.internalId(), tree);
     final var owner = captureOwner(collection.getId(),
@@ -202,13 +212,14 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   /** Removes eager loaded state even when rollback has already removed the file registration. */
   public void removeLoadedComponent(CollectionOwner owner) {
+    // Component identity is stable across early and full captures.
+    // The early capture need not equal the full owner stored in createdOwners.
     createdOwners.remove(owner.componentId());
-    // An early capture can precede tree creation and have no handle or file id.
-    fileIdBTreeMap.remove(treeIdentity(owner.componentId()).internalId());
+    fileIdBTreeMap.remove(treeFileIdentity(owner.componentId()).internalId());
   }
 
   public void deleteComponent(AtomicOperation operation, CollectionOwner owner) throws IOException {
-    final var identity = treeIdentity(owner.componentId());
+    final var identity = treeFileIdentity(owner.componentId());
     final var tree = owner.tree() != null ? owner.tree()
         : fileIdBTreeMap.get(identity.internalId());
     removeLoadedComponent(owner);
@@ -274,7 +285,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   /** Restores the captured owner. A missing identity-layout tree is corruption. */
   public void restoreComponent(AtomicOperation operation, CollectionOwner owner) {
-    final var identity = treeIdentity(owner.componentId());
+    final var identity = treeFileIdentity(owner.componentId());
     final var name = PageFileNames.layout28(identity);
     final var fileId = operation.fileIdByName(name);
     if (fileId < 0 || AbstractWriteCache.extractFileId(fileId) != identity.internalId()) {
@@ -282,7 +293,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     }
     var tree = owner.tree();
     if (tree == null) {
-      tree = identityTree(identity);
+      tree = newIdentityTreeHandle(identity);
       tree.load(operation);
     } else if (AbstractWriteCache.extractFileId(tree.getFileId()) != identity.internalId()
         || !name.equals(tree.getFullName())) {
@@ -296,6 +307,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   private IsolatedLinkBagBTreeImpl doCreateRidBag(AtomicOperation atomicOperation,
       int collectionId) {
+    // Layout 28 requires its configured tree and never lazily creates a replacement.
+    // Layout 27 retains collection-id lookup and lazy creation below.
     final var owner = storage.getStorageFormat() == StorageFormat.LAYOUT_28
         ? resolveOwner(collectionId, atomicOperation) : null;
     if (owner != null) {
