@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -375,51 +376,70 @@ public class T5BaselineRunnerTest {
     }
   }
 
-  /** A one-shot predicate read failure hits the production translator safety net during priming.
-   * Native predicate evaluation still works, so only the pre-prime error baseline catches it. */
+  /**
+   * A translator failure during warm priming falls back to native execution. The runner must
+   * reject that observation even when priming completes and the recorded execution succeeds.
+   */
   @Test
   public void warmPrimingTranslationFallbackIsAVisibleFailure() throws Exception {
     var setting =
         com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
     boolean previous = setting.getValueAsBoolean();
     setting.setValue(true);
-    try (var workload = new Fixtures() {
-      boolean first = true;
+    try {
+      var translatorCalls = new java.util.concurrent.atomic.AtomicInteger();
+      // Access the package-private test seam without changing production visibility or state.
+      var translatorType = Class.forName(GremlinToMatchStrategy.class.getName()
+          + "$TraversalTranslator");
+      var constructor = GremlinToMatchStrategy.class.getDeclaredConstructor(translatorType);
+      constructor.setAccessible(true);
+      var translator = java.lang.reflect.Proxy.newProxyInstance(translatorType.getClassLoader(),
+          new Class<?>[] {translatorType}, (proxy, method, args) -> {
+            translatorCalls.incrementAndGet();
+            throw new IllegalStateException("Injected priming translator failure");
+          });
+      var failingStrategy = (GremlinToMatchStrategy) constructor.newInstance(translator);
+      try (var workload = new Fixtures() {
+        int traversalCalls;
+        long primingErrors;
 
-      @Override
-      public Traversal<?, ?> traversal(T5BaselineRunner.Case query) {
-        if (first) {
-          first = false;
-          var predicate = new org.apache.tinkerpop.gremlin.process.traversal.P<Long>(
-              org.apache.tinkerpop.gremlin.process.traversal.P.<Long>gte(0L).getBiPredicate(), 0L) {
-            boolean fail = true;
-
-            @Override
-            public Long getValue() {
-              if (fail) {
-                fail = false;
-                throw new IllegalStateException("Injected priming translation failure");
-              }
-              return super.getValue();
-            }
-          };
-          return g.V().hasLabel("Person").has("id", predicate).count();
+        @Override
+        public Traversal<?, ?> traversal(T5BaselineRunner.Case query) {
+          var traversal = super.traversal(query);
+          traversalCalls++;
+          if (traversalCalls == 1) {
+            var strategies = traversal.asAdmin().getStrategies().clone();
+            strategies.addStrategies(failingStrategy);
+            traversal.asAdmin().setStrategies(strategies);
+          } else if (traversalCalls == 2) {
+            // The runner requests this traversal only after priming toList completes natively.
+            var graph =
+                (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) g.getGraph();
+            primingErrors =
+                com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
+                    .of(graph.tx().getDatabaseSession()).getErrors();
+          }
+          return traversal;
         }
-        return super.traversal(query);
+      }) {
+        var graph =
+            (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) workload.g
+                .getGraph();
+        graph.tx().readWrite();
+        var metrics =
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
+                .of(graph.tx().getDatabaseSession());
+        long before = metrics.getErrors();
+        var error =
+            assertThrows(IllegalStateException.class, () -> T5BaselineRunner.observe(workload,
+                workload.resolve().getFirst(), "baseline", REVISION, T5FreezeCapture.Regime.WARM));
+        assertTrue(error.getMessage().contains("Translation error"));
+        assertEquals(1, translatorCalls.get());
+        assertEquals(2, workload.traversalCalls);
+        assertEquals(before + 1, workload.primingErrors);
+        assertEquals(before + 1, metrics.getErrors());
+        graph.tx().rollback();
       }
-    }) {
-      var graph =
-          (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) workload.g.getGraph();
-      graph.tx().readWrite();
-      var metrics =
-          com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
-              .of(graph.tx().getDatabaseSession());
-      long before = metrics.getErrors();
-      var error = assertThrows(IllegalStateException.class, () -> T5BaselineRunner.observe(workload,
-          workload.resolve().getFirst(), "baseline", REVISION, T5FreezeCapture.Regime.WARM));
-      assertTrue(error.getMessage().contains("Translation error"));
-      assertEquals(before + 1, metrics.getErrors());
-      graph.tx().rollback();
     } finally {
       setting.setValue(previous);
     }
