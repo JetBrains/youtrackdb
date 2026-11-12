@@ -295,6 +295,69 @@ public class DiskStorageStaticHelpersTest {
     }
   }
 
+  // A directory with only a layout 28 disk name is visible and the fallback sweep removes it.
+  // Legacy omissions and foreign files remain untouched.
+  @Test
+  public void computedDiskNamesAreStorageEvidenceAndFallbackDeletionTargets() throws IOException {
+    for (var role : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole
+        .values()) {
+      var identity =
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+              role, 7);
+      var diskName =
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+              .layout28DiskName(identity);
+      var page = Files.createFile(testDir.resolve(diskName));
+      assertTrue(DiskStorage.exists(testDir));
+      DiskStorage.deleteFilesFromDisc("computed", 1, 0, testDir.toString());
+      assertFalse(Files.exists(page));
+      assertFalse(Files.exists(testDir));
+      Files.createDirectories(testDir);
+    }
+    for (String retained : new String[] {"orders.dpb", "config.fcm", "config.dcm",
+        "foreign.txt", "foreign.p26", "ytdb-p28-collection-7-dirty-page-bit-set_1.dpb",
+        "ytdb-p28-collection-7-dirty-page-bit-set.dpb"}) {
+      Files.createFile(testDir.resolve(retained));
+    }
+    assertFalse(DiskStorage.exists(testDir));
+    DiskStorage.deleteFilesFromDisc("retained", 1, 0, testDir.toString());
+    try (var files = Files.list(testDir)) {
+      assertEquals(7, files.count());
+    }
+  }
+
+  // A missing database directory must not make the parent sweep delete layout 28 files.
+  // The legacy .cm deletion and foreign-file retention still apply in that parent.
+  @Test
+  public void missingDatabaseDirectoryRetainsParentLayout28Files() throws IOException {
+    assertParentSweepRetainsLayout28Files(testDir.resolve("missing-database"));
+  }
+
+  // A plain file used as the database path has the same parent-sweep boundary.
+  // Layout 28 files and unrelated files survive, while the legacy .cm file is deleted.
+  @Test
+  public void plainFileDatabasePathRetainsParentLayout28Files() throws IOException {
+    var databasePath = Files.createFile(testDir.resolve("database-path"));
+    assertParentSweepRetainsLayout28Files(databasePath);
+    assertTrue(Files.exists(databasePath));
+  }
+
+  private void assertParentSweepRetainsLayout28Files(Path databasePath) throws IOException {
+    var firstPage = Files.createFile(
+        testDir.resolve("ytdb-p28-collection-0-record-data_268435456.pcl"));
+    var secondPage = Files.createFile(
+        testDir.resolve("ytdb-p28-index-7-null-key-data_603979783.cbt"));
+    var legacy = Files.createFile(testDir.resolve("legacy.cm"));
+    var foreign = Files.createFile(testDir.resolve("foreign.txt"));
+
+    DiskStorage.deleteFilesFromDisc("parentSweep", 1, 0, databasePath.toString());
+
+    assertTrue(Files.exists(firstPage));
+    assertTrue(Files.exists(secondPage));
+    assertTrue(Files.exists(foreign));
+    assertFalse(Files.exists(legacy));
+  }
+
   private static void setField(DiskStorage storage, String name, Object value) throws Exception {
     var field = DiskStorage.class.getDeclaredField(name);
     field.setAccessible(true);
@@ -536,7 +599,7 @@ public class DiskStorageStaticHelpersTest {
     for (var format : com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
         .values()) {
       DiskStorage.validateRestoredStorageLayoutVersion("matrix", format.layoutVersion(), format);
-      for (var conflicting : new int[] {24, 25, 26, 27, 28}) {
+      for (var conflicting : new int[] {24, 25, 26, 27, 28, 29}) {
         if (conflicting != format.layoutVersion()) {
           var failure = assertThrows(StorageException.class,
               () -> DiskStorage.validateRestoredStorageLayoutVersion("matrix", conflicting,

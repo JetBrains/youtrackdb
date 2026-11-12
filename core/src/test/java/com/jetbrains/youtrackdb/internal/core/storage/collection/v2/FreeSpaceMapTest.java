@@ -13,6 +13,11 @@ import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionExcep
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
 import org.junit.After;
@@ -20,9 +25,36 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 @Category(SequentialTest.class)
+@RunWith(Parameterized.class)
 public class FreeSpaceMapTest {
+
+  @Parameterized.Parameters(name = "layout={0}")
+  public static Object[] layouts() {
+    return new Object[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28};
+  }
+
+  @Parameterized.Parameter
+  public StorageFormat format;
+
+  private PageFileIdentity identity(PageFileRole role, int componentId) {
+    return format == StorageFormat.LAYOUT_28 ? new PageFileIdentity(role, componentId) : null;
+  }
+
+  private String mapFileName() {
+    return format == StorageFormat.LAYOUT_28
+        ? PageFileNames.layout28(identity(PageFileRole.FREE_SPACE_MAP, 9000)) : "map.fsm";
+  }
+
+  private PaginatedCollectionV2 collection(String name) throws IOException {
+    var result = new PaginatedCollectionV2(name, ".pcl", ".cpm", ".fsm", ".dpb", storage,
+        identity(PageFileRole.RECORD_DATA, 9001));
+    result.configure(55, name, format == StorageFormat.LAYOUT_28 ? 9001 : null);
+    return result;
+  }
 
   private static final int N = FreeSpaceMapPage.CELLS_PER_PAGE;
   private static final String DIRECTORY =
@@ -33,12 +65,34 @@ public class FreeSpaceMapTest {
   private FreeSpaceMap map;
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws Exception {
     db = (YouTrackDBImpl) YourTracks.instance(DIRECTORY);
-    db.create("fsm", DatabaseType.DISK,
-        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(db, "fsm", format)) {
+      db.create("fsm", DatabaseType.DISK,
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    }
     openMap(false);
-    manager.executeInsideAtomicOperation(op -> map.create(op));
+    withCreationLock(op -> map.create(op));
+  }
+
+  // Identity-owned creation and auxiliary reconstruction hold the state lock through commit.
+  private void withCreationLock(
+      com.jetbrains.youtrackdb.internal.common.function.TxConsumer action)
+      throws IOException {
+    final java.util.concurrent.locks.ReadWriteLock stateLock;
+    try {
+      var field = AbstractStorage.class.getDeclaredField("stateLock");
+      field.setAccessible(true);
+      stateLock = (java.util.concurrent.locks.ReadWriteLock) field.get(storage);
+    } catch (ReflectiveOperationException failure) {
+      throw new AssertionError(failure);
+    }
+    stateLock.writeLock().lock();
+    try {
+      manager.executeInsideAtomicOperation(action);
+    } finally {
+      stateLock.writeLock().unlock();
+    }
   }
 
   private void openMap(boolean reopen) throws IOException {
@@ -46,7 +100,9 @@ public class FreeSpaceMapTest {
       storage = session.getStorage();
     }
     manager = storage.getAtomicOperationsManager();
-    map = new FreeSpaceMap(storage, "map", ".fsm", "map");
+    Assert.assertEquals(format, storage.getStorageFormat());
+    map = new FreeSpaceMap(storage, "map", ".fsm", "map",
+        identity(PageFileRole.FREE_SPACE_MAP, 9000));
     if (reopen) {
       manager.executeInsideAtomicOperation(op -> map.open(op));
     }
@@ -69,13 +125,13 @@ public class FreeSpaceMapTest {
   public void boundariesGrowthAndLowestMatch() throws IOException {
     final int[] indexes = {N - 1, N, N * N - 1, N * N, N * N + 1};
     manager.executeInsideAtomicOperation(
-        op -> Assert.assertEquals(1, op.filledUpTo(op.fileIdByName("map.fsm"))));
+        op -> Assert.assertEquals(1, op.filledUpTo(op.fileIdByName(mapFileName()))));
     for (int index : indexes) {
       manager.executeInsideAtomicOperation(op -> {
         map.updatePageFreeSpace(op, index, 512);
         long d = index + 1L;
         Assert.assertEquals(1 + (d + N * N - 1) / (N * N) + (d + N - 1) / N,
-            op.filledUpTo(op.fileIdByName("map.fsm")));
+            op.filledUpTo(op.fileIdByName(mapFileName())));
       });
     }
     for (int index : indexes) {
@@ -114,14 +170,14 @@ public class FreeSpaceMapTest {
     manager.executeInsideAtomicOperation(op -> map.updatePageFreeSpace(op, 0, 1024));
     manager.executeInsideAtomicOperation(op -> {
       map.updatePageFreeSpace(op, 1, 512);
-      long id = op.fileIdByName("map.fsm");
+      long id = op.fileIdByName(mapFileName());
       Assert.assertFalse(op.hasChangesForPage(id, 1));
       Assert.assertFalse(op.hasChangesForPage(id, 0));
       Assert.assertTrue(op.hasChangesForPage(id, 2));
     });
     manager.executeInsideAtomicOperation(op -> {
       map.updatePageFreeSpace(op, N, 512);
-      long id = op.fileIdByName("map.fsm");
+      long id = op.fileIdByName(mapFileName());
       Assert.assertTrue(op.hasChangesForPage(id, 1));
       Assert.assertFalse(op.hasChangesForPage(id, 0));
     });
@@ -134,7 +190,7 @@ public class FreeSpaceMapTest {
     manager.executeInsideAtomicOperation(op -> map.updatePageFreeSpace(op, 0, 512));
     for (long filePage : new long[] {1, 2}) {
       manager.executeInsideAtomicOperation(op -> {
-        try (var entry = op.loadPageForWrite(op.fileIdByName("map.fsm"), filePage, 1, true)) {
+        try (var entry = op.loadPageForWrite(op.fileIdByName(mapFileName()), filePage, 1, true)) {
           new FreeSpaceMapPage(entry).updatePageMaxFreeSpace(0, 0);
         }
         Assert.assertThrows(IllegalStateException.class, () -> map.findFreePage(259, op));
@@ -253,9 +309,8 @@ public class FreeSpaceMapTest {
   }
 
   private void assertInvalidDataPageCount(int invalid) throws IOException {
-    var collection = new PaginatedCollectionV2("invalidlimit", storage);
-    collection.configure(55, "invalidlimit");
-    manager.executeInsideAtomicOperation(collection::create);
+    var collection = collection("invalidlimit");
+    withCreationLock(collection::create);
     manager.executeInsideAtomicOperation(op -> {
       try (var entry = op.loadPageForWrite(collection.getFileId(), 0, 1, true)) {
         new PaginatedCollectionStateV2(entry).setFileSize(invalid);
@@ -276,12 +331,14 @@ public class FreeSpaceMapTest {
   // An empty collection rebuild has no qualifying page.
   @Test
   public void rebuildRecoversEmptyAndNonemptyCollections() throws IOException {
-    var collection = new PaginatedCollectionV2("rebuildlimit", storage);
-    collection.configure(55, "rebuildlimit");
-    manager.executeInsideAtomicOperation(collection::create);
-    var rebuiltMap = new FreeSpaceMap(storage, "rebuildlimit", ".fsm", "rebuildlimit");
-    manager.executeInsideAtomicOperation(op -> {
-      op.deleteFile(op.fileIdByName("rebuildlimit.fsm"));
+    var collection = collection("rebuildlimit");
+    withCreationLock(collection::create);
+    var rebuiltMap = new FreeSpaceMap(storage, "rebuildlimit", ".fsm", "rebuildlimit",
+        identity(PageFileRole.FREE_SPACE_MAP, 9001));
+    var rebuiltName = format == StorageFormat.LAYOUT_28
+        ? PageFileNames.layout28(identity(PageFileRole.FREE_SPACE_MAP, 9001)) : "rebuildlimit.fsm";
+    withCreationLock(op -> {
+      op.deleteFile(op.fileIdByName(rebuiltName));
       collection.open(op);
       rebuiltMap.open(op);
       Assert.assertEquals(-1, rebuiltMap.findFreePage(1, op));
@@ -291,8 +348,8 @@ public class FreeSpaceMapTest {
       position[0] =
           collection.createRecord(new byte[] {1, 2, 3}, (byte) 'b', null, op).collectionPosition;
     });
-    manager.executeInsideAtomicOperation(op -> {
-      op.deleteFile(op.fileIdByName("rebuildlimit.fsm"));
+    withCreationLock(op -> {
+      op.deleteFile(op.fileIdByName(rebuiltName));
       collection.open(op);
       Assert.assertArrayEquals(new byte[] {1, 2, 3},
           collection.readRecord(position[0], op).toRawBuffer().buffer());

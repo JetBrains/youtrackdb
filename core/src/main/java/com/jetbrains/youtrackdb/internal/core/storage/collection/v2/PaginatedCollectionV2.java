@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionSizeLimitException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
@@ -51,6 +52,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowsePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
@@ -255,6 +260,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
    * "collection ID" part of a Record ID ({@code #id:collectionPosition}).
    */
   private volatile int id;
+
+  /** Stable layout 28 identity. Null for layout 27 and the configuration-owned collection. */
+  private Integer componentId;
+  private final @Nullable PageFileIdentity dataIdentity;
   private volatile long approximateRecordsCount;
 
   /** Internal file ID assigned by the disk cache when the data file (.pcl) is opened/created. */
@@ -281,30 +290,73 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       final String fsmExtension,
       final String dpbExtension,
       final AbstractStorage storage) {
-    super(storage, name, dataExtension, name + dataExtension, true);
+    this(name, dataExtension, cpmExtension, fsmExtension, dpbExtension, storage, null);
+  }
 
+  /** Prepares an explicitly owned family without changing legacy construction. */
+  public PaginatedCollectionV2(
+      String name, String dataExtension, String cpmExtension, String fsmExtension,
+      String dpbExtension, AbstractStorage storage, PageFileIdentity dataIdentity) {
+    super(storage, name, dataExtension,
+        dataIdentity == null ? name + dataExtension : PageFileNames.layout28(dataIdentity), true);
+    validateIdentity(storage, dataExtension, dataIdentity,
+        PageFileRole.RECORD_DATA, PageFileRole.CONFIG_DATA);
+
+    this.dataIdentity = dataIdentity;
+    componentId = dataIdentity != null && dataIdentity.role() == PageFileRole.RECORD_DATA
+        ? dataIdentity.componentId() : null;
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
-    collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
-        cpmExtension);
-    freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
+    collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getLockName(),
+        cpmExtension, dataIdentity == null ? null : new PageFileIdentity(
+            PageFileRole.fromCode(dataIdentity.kind(), 1), dataIdentity.componentId()));
+    freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getLockName(),
+        dataIdentity == null ? null : new PageFileIdentity(
+            PageFileRole.fromCode(dataIdentity.kind(), 2), dataIdentity.componentId()));
     dirtyPageBitSet = new CollectionDirtyPageBitSet(
-        storage, name, dpbExtension, getFullName());
+        storage, name, dpbExtension, getLockName(),
+        dataIdentity == null ? null : new PageFileIdentity(
+            PageFileRole.fromCode(dataIdentity.kind(), 3), dataIdentity.componentId()));
     storageName = storage.getName();
   }
 
   @Override
   public void configure(final int id, final String collectionName) throws IOException {
+    configure(id, collectionName, null);
+  }
+
+  @Override
+  public void configure(final int id, final String collectionName, final Integer componentId)
+      throws IOException {
     acquireExclusiveLock();
     try {
+      validateConfiguredIdentity(componentId);
       init(id, collectionName, null);
+      this.componentId = componentId;
     } finally {
       releaseExclusiveLock();
     }
   }
 
+  private void validateConfiguredIdentity(Integer componentId) {
+    if (dataIdentity != null) {
+      Integer expected = dataIdentity.role() == PageFileRole.RECORD_DATA
+          ? dataIdentity.componentId() : null;
+      if (!java.util.Objects.equals(expected, componentId)) {
+        throw new StorageException(
+            storage.getName(), "Cannot replace collection page-file owner");
+      }
+    } else if (storage.getStorageFormat()
+        == StorageFormat.LAYOUT_28
+        && this.componentId != null && !this.componentId.equals(componentId)) {
+      // Legacy construction receives its owner at registration. Never retarget that live object.
+      throw new StorageException(
+          storage.getName(), "Cannot replace collection page-file owner");
+    }
+  }
+
   @Override
   public boolean exists(@Nonnull AtomicOperation atomicOperation) {
-    return isFileExists(atomicOperation, getFullName());
+    return isFileExists(atomicOperation, getFullName(), dataIdentity);
   }
 
   @Override
@@ -322,7 +374,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         Optional.ofNullable(recordConflictStrategy)
             .map(RecordConflictStrategy::getName)
             .orElse(null),
-        BINARY_VERSION);
+        BINARY_VERSION,
+        componentId);
   }
 
   @Override
@@ -330,10 +383,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
       throws IOException {
     acquireExclusiveLock();
     try {
+      validateConfiguredIdentity(
+          ((StoragePaginatedCollectionConfiguration) config).getComponentId());
       init(
           config.id(),
           config.name(),
           ((StoragePaginatedCollectionConfiguration) config).conflictStrategy);
+      componentId = ((StoragePaginatedCollectionConfiguration) config).getComponentId();
     } finally {
       releaseExclusiveLock();
     }
@@ -346,7 +402,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            fileId = addFile(atomicOperation, getFullName());
+            fileId = addFile(atomicOperation, getFullName(), dataIdentity);
             initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
@@ -364,7 +420,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            fileId = openFile(atomicOperation, getFullName());
+            fileId = openFile(atomicOperation, getFullName(), dataIdentity);
             collectionPositionMap.open(atomicOperation);
 
             // Load the persistent approximate records count AND the logical data-page
@@ -406,7 +462,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       "Scanning of free space for collection %s in storage %s started ...",
                       additionalArgs1);
 
-              freeSpaceMap.create(atomicOperation);
+              freeSpaceMap.reconstruct(atomicOperation);
               // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
               // Data pages live at indices 1..dataPageCount (page 0 is the state page).
               // Bounding by logical fileSize avoids reading partial-flush orphans past
@@ -444,7 +500,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             if (dirtyPageBitSet.exists(atomicOperation)) {
               dirtyPageBitSet.open(atomicOperation);
             } else {
-              dirtyPageBitSet.create(atomicOperation);
+              dirtyPageBitSet.reconstruct(atomicOperation);
             }
           } finally {
             releaseExclusiveLock();
@@ -479,7 +535,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
+            deleteFile(atomicOperation, fileId, dataIdentity);
             collectionPositionMap.delete(atomicOperation);
             freeSpaceMap.delete(atomicOperation);
             dirtyPageBitSet.delete(atomicOperation);
@@ -2187,7 +2243,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public void setCollectionName(final String newName) {
     acquireExclusiveLock();
     try {
-      writeCache.renameFile(fileId, newName + getExtension());
+      // Explicit identities keep canonical file names independent of the collection name.
+      if (dataIdentity == null) {
+        writeCache.renameFile(fileId, newName + getExtension());
+      }
       collectionPositionMap.rename(newName);
       freeSpaceMap.rename(newName);
       dirtyPageBitSet.rename(newName);

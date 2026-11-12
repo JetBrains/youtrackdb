@@ -7,6 +7,16 @@ place — opening it with newer binaries is rejected with a redirect to this pro
 ("Database schema is different. Please export your old database with the previous version
 of YouTrackDB and reimport it using the current one.").
 
+## Storage layout admission
+
+This build creates storage layout 27 by default and accepts exactly layouts 27 and 28.
+Layout 28 is selected only by tests. Stored layouts 25 and 26 are rejected without
+in-place migration. Export with the release that created the database and import into a
+fresh database with the new release.
+
+Both layouts use a three-level free-space map. Layout 27 is the production default.
+Layout 28 uses identity-owned page-file names and remains test-selected only.
+
 ## How the tools are invoked
 
 Export and import are **programmatic tools**, run from a small JVM program (or script

@@ -79,7 +79,7 @@ public class EdgeSnapshotLifecycleTest {
   }
 
   @Test
-  public void testMultipleComponentsEvictedIndependently() {
+  public void testMultipleLinkBagFilesEvictedIndependently() {
     var esk1 = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
     sharedEdgeSnapshotIndex.put(esk1, new LinkBagValue(1, 10, 200L, false));
     sharedEdgeVisibilityIndex.put(new EdgeVisibilityKey(100L, 1, 50L, 10, 200L), esk1);

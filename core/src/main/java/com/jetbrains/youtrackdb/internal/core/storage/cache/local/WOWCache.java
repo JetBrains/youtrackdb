@@ -857,6 +857,67 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  @Override
+  public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      final var registered = nameIdMap.get(fileName);
+      final var liveName = idNameMap.get(intId);
+      final var bookedOrDeletedName = idNameMap.get(-intId);
+      final boolean nameRegisteredWithOtherState =
+          registered != null && (!reconstructAuxiliary || registered != -intId);
+      final boolean liveRegistrationExists = liveName != null;
+      final boolean idBookedOrDeletedUnderOtherName =
+          bookedOrDeletedName != null && !bookedOrDeletedName.equals(fileName);
+      // Keep scans and disk path construction after the cheap conflict checks.
+      if (nameRegisteredWithOtherState || liveRegistrationExists || idBookedOrDeletedUnderOtherName
+          || hasOtherAliasForId(fileName, intId) || files.get(composeFileId(id, intId)) != null
+          || backingFileMayExist(fileName, intId)) {
+        throw new StorageException(storageName,
+            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+      }
+      nameIdMap.put(fileName, -intId);
+      idNameMap.put(-intId, fileName);
+      return composeFileId(id, intId);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  private boolean hasOtherAliasForId(String fileName, int intId) {
+    // Older registries can contain several negative aliases for one id.
+    for (final var entry : nameIdMap.entrySet()) {
+      if (Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private boolean backingFileMayExist(String fileName, int intId) {
+    // An indeterminate disk probe must also prevent booking.
+    return !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
+  }
+
+  @Override
+  public Integer registeredFileId(String fileName) {
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+      return nameIdMap.get(fileName);
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
   /**
    * @inheritDoc
    */
@@ -876,7 +937,7 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       var fileId = nameIdMap.get(fileName);
       if (fileId != null && fileId >= 0) {
-        return registeredFileId(fileName, fileId);
+        return requireOpenRegisteredFile(fileName, fileId);
       }
       // Detection is state-free. Choose the ID and remove any tombstone only after fallback.
     } finally {
@@ -894,7 +955,7 @@ public final class WOWCache extends AbstractWriteCache
 
       // check that file is already registered
       if (!(fileId == null || fileId < 0)) {
-        return registeredFileId(fileName, fileId);
+        return requireOpenRegisteredFile(fileName, fileId);
       }
 
       if (fileId == null) {
@@ -946,7 +1007,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private long registeredFileId(String fileName, int fileId) {
+  private long requireOpenRegisteredFile(String fileName, int fileId) {
     final var externalId = composeFileId(id, fileId);
     if (files.get(externalId) == null) {
       throw new StorageException(storageName,
@@ -1463,6 +1524,23 @@ public final class WOWCache extends AbstractWriteCache
 
     dataPointer.setWritersListener(this);
     dataPointer.incrementWritersReferrer();
+  }
+
+  @Override
+  public List<String> deletedFiles() {
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+      final var result = new ArrayList<String>();
+      for (final var entry : nameIdMap.entrySet()) {
+        if (entry.getValue() < 0) {
+          result.add(entry.getKey());
+        }
+      }
+      return result;
+    } finally {
+      filesLock.releaseReadLock();
+    }
   }
 
   @Override
@@ -2200,7 +2278,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        writeNameIdEntry(new NameFileIdEntry(file.first(), -intId, file.second()), true);
+        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -3252,6 +3330,14 @@ public final class WOWCache extends AbstractWriteCache
     final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
 
     while ((nameFileIdEntry = readNextNameIdEntryV3(nameIdMapHolder)) != null) {
+      // A deletion supersedes only the same logical name and positive id.
+      // Historical swapped records keep their distinct physical-name aliases.
+      final int recordedId = nameFileIdEntry.getFileId();
+      if (recordedId < 0
+          && nameFileIdEntry.getName().equals(idNameMap.get(-recordedId))) {
+        idNameMap.remove(-recordedId);
+        idFileNameMap.remove(-recordedId);
+      }
       final long absFileId = Math.abs(nameFileIdEntry.getFileId());
 
       if (localFileCounter < absFileId) {

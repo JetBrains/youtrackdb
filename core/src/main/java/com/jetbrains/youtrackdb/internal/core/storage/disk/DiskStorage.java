@@ -48,8 +48,6 @@ import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupExcepti
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
-import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
-import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
@@ -60,14 +58,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
-import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
@@ -81,7 +78,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.AbsoluteChange;
-import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
@@ -320,39 +316,8 @@ public class DiskStorage extends AbstractStorage {
   private static final String IV_EXT = ".iv";
   protected static final String IV_NAME = "data" + IV_EXT;
 
-  private static final String[] ALL_FILE_EXTENSIONS = {
-      ".cm",
-      ".ocf",
-      ".pls",
-      ".pcl",
-      ".oda",
-      ".odh",
-      ".otx",
-      ".ocs",
-      ".oef",
-      ".oem",
-      ".oet",
-      ".fl",
-      ".flb",
-      IV_EXT,
-      CASDiskWriteAheadLog.WAL_SEGMENT_EXTENSION,
-      CASDiskWriteAheadLog.MASTER_RECORD_EXTENSION,
-      CollectionPositionMap.DEF_EXTENSION,
-      LinkCollectionsBTreeManagerShared.FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.MAP_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.DATA_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
-      CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION,
-      BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
-      IndexHistogramManager.IXS_EXTENSION,
-      DoubleWriteLogGL.EXTENSION,
-      FreeSpaceMap.DEF_EXTENSION,
-      ".bsm",
-      ".bsm.tmp",
-      ".bsml"
-  };
+  private static final String[] ALL_FILE_EXTENSIONS =
+      PageFileNames.LAYOUT_27_FALLBACK_EXTENSIONS.toArray(String[]::new);
 
   private static final int ONE_KB = 1024;
 
@@ -1067,8 +1032,10 @@ public class DiskStorage extends AbstractStorage {
   public static void deleteFilesFromDisc(
       final String name, final int maxRetries, final int waitTime, final String databaseDirectory) {
     var dbDir = new java.io.File(databaseDirectory);
+    var usingParentDirectory = false;
     if (!dbDir.exists() || !dbDir.isDirectory()) {
       dbDir = dbDir.getParentFile();
+      usingParentDirectory = true;
     }
 
     // RETRIES
@@ -1089,6 +1056,17 @@ public class DiskStorage extends AbstractStorage {
               notDeletedFiles++;
               LogManager.instance().warn(DiskStorage.class,
                   "Cannot delete changed-page tracker file " + f.getAbsolutePath());
+            }
+            continue;
+          }
+          // Canonical layout 28 files in the parent are not ours. Skip them before the
+          // layout 27 extension rule, since both layouts use the same extensions.
+          if (PageFileNames.parseLayout28DiskName(f.getName()).isPresent()) {
+            if (usingParentDirectory) {
+              continue;
+            }
+            if (!f.delete()) {
+              notDeletedFiles++;
             }
             continue;
           }
@@ -1557,7 +1535,8 @@ public class DiskStorage extends AbstractStorage {
                     || (fileName.startsWith("config") && fileName.endsWith(".bd"))
                     || fileName.startsWith("dirty.fl")
                     || fileName.startsWith("dirty.flb")
-                    || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)) {
+                    || StorageBootstrapMetadata.isBootstrapArtifactName(fileName)
+                    || PageFileNames.parseLayout28DiskName(fileName).isPresent()) {
                   exists[0] = true;
                 }
               });
@@ -3299,6 +3278,7 @@ public class DiskStorage extends AbstractStorage {
               .load(contextConfiguration, atomicOperation));
     }
 
+    atomicOperationsManager.executeInsideAtomicOperation(this::seedComponentIds);
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
 

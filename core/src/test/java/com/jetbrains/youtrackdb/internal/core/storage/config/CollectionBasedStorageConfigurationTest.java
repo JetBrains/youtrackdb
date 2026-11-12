@@ -19,10 +19,12 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.config;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -31,13 +33,30 @@ import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.common.util.RawPairObjectInteger;
+import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
+import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.TimeZone;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
@@ -63,6 +82,240 @@ import org.junit.Test;
  */
 public class CollectionBasedStorageConfigurationTest {
 
+  @org.junit.Rule
+  public final org.junit.rules.TemporaryFolder configurationFolder =
+      new org.junit.rules.TemporaryFolder();
+
+  /** Fixed configuration registrations survive a real disk restart and remain distinct from
+   * ordinary collections. Layout 27 retains its custom names and cache-assigned registrations. */
+  @Test
+  public void configurationRegistrationsAcrossLayoutsAndStorageKinds() throws Exception {
+    for (var format : StorageFormat.values()) {
+      for (var type : DatabaseType.values()) {
+        var root = configurationFolder.newFolder(format.name() + type).toPath();
+        try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+          try (
+              var selection =
+                  StorageBirthTestSupport.selectBirthFormat(manager, "selected", format)) {
+            manager.create("selected", type, "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+          }
+          try (var opened = (DatabaseSessionEmbedded) manager.open(
+              "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            var selected = opened.getStorage();
+            assertConfigurationRegistrations(selected, format);
+            var field = AbstractStorage.class.getDeclaredField("configuration");
+            field.setAccessible(true);
+            var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+            selected.getAtomicOperationsManager().executeInsideAtomicOperation(
+                op -> configuration.setProperty(op, "activation", "persisted"));
+          }
+        }
+        if (type == DatabaseType.DISK) {
+          try (var manager = (YouTrackDBImpl) YourTracks.instance(root);
+              var opened = (DatabaseSessionEmbedded) manager.open(
+                  "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            var selected = opened.getStorage();
+            assertConfigurationRegistrations(selected, format);
+            var field = AbstractStorage.class.getDeclaredField("configuration");
+            field.setAccessible(true);
+            var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+            assertEquals("persisted", selected.getAtomicOperationsManager()
+                .calculateInsideAtomicOperation(op -> configuration.getProperty("activation")));
+          }
+        }
+      }
+    }
+  }
+
+  /** Deleting a real configuration removes all six live registrations and disk backing files. */
+  @Test
+  public void configurationDeleteRemovesAllSixFixedIdentities() throws Exception {
+    for (var type : DatabaseType.values()) {
+      var root = configurationFolder.newFolder("delete-" + type).toPath();
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        try (var selection = StorageBirthTestSupport.selectBirthFormat(
+            manager, "selected", StorageFormat.LAYOUT_28)) {
+          manager.create("selected", type, "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+        }
+        AbstractStorage selected;
+        try (var opened = (DatabaseSessionEmbedded) manager.open(
+            "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+          selected = opened.getStorage();
+          assertConfigurationRegistrations(selected, StorageFormat.LAYOUT_28);
+        }
+        var field = AbstractStorage.class.getDeclaredField("configuration");
+        field.setAccessible(true);
+        var configuration = (CollectionBasedStorageConfiguration) field.get(selected);
+        try {
+          selected.getAtomicOperationsManager().executeInsideAtomicOperation(configuration::delete);
+          var cache = selected.getWriteCache();
+          for (var role : PageFileRole.values()) {
+            if (role.kind() != PageFileKind.CONFIGURATION) {
+              continue;
+            }
+            var identity = new PageFileIdentity(role, 0);
+            var name = PageFileNames.layout28(identity);
+            assertEquals(name, -1L, cache.fileIdByName(name));
+            assertFalse(name, cache.files().containsKey(name));
+            assertFalse(name, cache.exists(name));
+            if (type == DatabaseType.DISK) {
+              assertFalse(name, java.nio.file.Files.exists(
+                  root.resolve("selected").resolve(PageFileNames.layout28DiskName(identity))));
+            }
+          }
+        } finally {
+          // The configuration is intentionally gone. Discard the storage instead of closing it,
+          // since normal shutdown persists configuration properties.
+          selected.delete();
+        }
+      }
+    }
+  }
+
+  /** A missing configuration data owner must fail open without creating a replacement. */
+  @Test
+  public void missingConfigurationDataIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.CONFIG_DATA);
+  }
+
+  /** A missing property tree owner must fail open without creating a replacement. */
+  @Test
+  public void missingPropertyDataIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.PROPERTY_DATA);
+  }
+
+  /** A missing property null bucket must fail open without creating a replacement. */
+  @Test
+  public void missingPropertyNullBucketIsNotRecreated() throws Exception {
+    assertMissingPrimaryIsNotRecreated(PageFileRole.PROPERTY_NULL_BUCKET);
+  }
+
+  private void assertMissingPrimaryIsNotRecreated(PageFileRole missingRole) throws Exception {
+    var root = configurationFolder.newFolder(missingRole.name()).toPath();
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      try (var selection = StorageBirthTestSupport.selectBirthFormat(
+          manager, "selected", StorageFormat.LAYOUT_28)) {
+        manager.create("selected", DatabaseType.DISK,
+            "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+      }
+    }
+    var directory = root.resolve("selected");
+    var missingFile = directory.resolve(
+        PageFileNames.layout28DiskName(new PageFileIdentity(missingRole, 0)));
+    java.nio.file.Files.delete(missingFile);
+    var survivingFiles = new java.util.HashMap<java.nio.file.Path, byte[]>();
+    for (var role : PageFileRole.values()) {
+      if (role.kind() == PageFileKind.CONFIGURATION && role != missingRole) {
+        var file = directory.resolve(
+            PageFileNames.layout28DiskName(new PageFileIdentity(role, 0)));
+        survivingFiles.put(file, java.nio.file.Files.readAllBytes(file));
+      }
+    }
+    java.util.Set<String> namesBefore;
+    try (var files = java.nio.file.Files.list(directory)) {
+      namesBefore = files.map(file -> file.getFileName().toString())
+          .collect(java.util.stream.Collectors.toSet());
+    }
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      assertThrows(RuntimeException.class,
+          () -> manager.open("selected", "admin", DbTestBase.ADMIN_PASSWORD));
+    }
+    assertFalse(missingRole.name(), java.nio.file.Files.exists(missingFile));
+    for (var entry : survivingFiles.entrySet()) {
+      assertArrayEquals(entry.getKey().toString(), entry.getValue(),
+          java.nio.file.Files.readAllBytes(entry.getKey()));
+    }
+    try (var files = java.nio.file.Files.list(directory)) {
+      var newConfigurationFiles = files.map(file -> file.getFileName().toString())
+          .filter(name -> name.startsWith("config.") || name.startsWith("ytdb-p28-configuration-"))
+          .filter(name -> !namesBefore.contains(name)).toList();
+      assertTrue(newConfigurationFiles.toString(), newConfigurationFiles.isEmpty());
+    }
+  }
+
+  private static void assertConfigurationRegistrations(AbstractStorage selected,
+      StorageFormat format) throws Exception {
+    var cache = selected.getWriteCache();
+    var ids = new java.util.HashSet<Long>();
+    for (var role : PageFileRole.values()) {
+      if (role.kind() != PageFileKind.CONFIGURATION) {
+        continue;
+      }
+      var identity = new PageFileIdentity(role, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+      var name = format == StorageFormat.LAYOUT_28
+          ? PageFileNames.layout28(identity) : "config" + role.layout27Extension();
+      long id = cache.fileIdByName(name);
+      assertTrue(name, id > 0);
+      assertTrue(name, ids.add(id));
+      if (format == StorageFormat.LAYOUT_28) {
+        assertEquals(name, identity.internalId(), cache.internalFileId(id));
+        assertFalse(cache.exists("config" + role.layout27Extension()));
+      }
+      assertTrue(cache.exists(name));
+    }
+    assertTrue(selected.getAtomicOperationsManager().calculateInsideAtomicOperation(
+        op -> CollectionBasedStorageConfiguration.exists(selected, op)));
+  }
+
+  /** Missing rebuildable auxiliaries are recreated on real disk reopen. A missing primary
+   * position map is rejected rather than recreated. */
+  @Test
+  public void missingConfigurationAuxiliariesRebuildButPrimaryDoesNot() throws Exception {
+    for (var role : new PageFileRole[] {PageFileRole.CONFIG_FREE_SPACE_MAP,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET, PageFileRole.CONFIG_POSITION_MAP}) {
+      var root = configurationFolder.newFolder(role.name()).toPath();
+      var identity = new PageFileIdentity(role, 0);
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        try (var selection =
+            StorageBirthTestSupport.selectBirthFormat(manager, "selected",
+                StorageFormat.LAYOUT_28)) {
+          manager.create("selected", DatabaseType.DISK,
+              "admin", DbTestBase.ADMIN_PASSWORD, "admin");
+        }
+      }
+      // Remove only the backing file from the closed image. The registry still records its identity.
+      java.nio.file.Files.delete(root.resolve("selected")
+          .resolve(PageFileNames.layout28DiskName(identity)));
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        if (role == PageFileRole.CONFIG_POSITION_MAP) {
+          assertThrows(RuntimeException.class,
+              () -> manager.open("selected", "admin", DbTestBase.ADMIN_PASSWORD));
+        } else {
+          try (var opened = (DatabaseSessionEmbedded) manager.open(
+              "selected", "admin", DbTestBase.ADMIN_PASSWORD)) {
+            assertConfigurationRegistrations(opened.getStorage(), StorageFormat.LAYOUT_28);
+          }
+        }
+      }
+    }
+  }
+
+  /** Construction and presence work with no component factory or counter service available. */
+  @Test
+  public void fixedIdentityBootstrapNeedsOnlyLayoutAndCaches() {
+    var selected = org.mockito.Mockito.mock(AbstractStorage.class);
+    var cache = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class);
+    var operation = org.mockito.Mockito.mock(AtomicOperation.class);
+    org.mockito.Mockito.when(selected.getAtomicOperationsManager())
+        .thenReturn(org.mockito.Mockito.mock(AtomicOperationsManager.class));
+    org.mockito.Mockito.when(selected.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
+    org.mockito.Mockito.when(selected.getWriteCache()).thenReturn(cache);
+    org.mockito.Mockito.when(cache.getId()).thenReturn(17);
+    new CollectionBasedStorageConfiguration(selected);
+    var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA, 0);
+    var name = PageFileNames.layout28(identity);
+    var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+    assertFalse(CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.when(operation.isFileExists(name, id)).thenReturn(true);
+    assertTrue(CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.when(operation.isFileExists(name, id))
+        .thenThrow(new StorageException("test", "wrong registration"));
+    assertThrows(StorageException.class,
+        () -> CollectionBasedStorageConfiguration.exists(selected, operation));
+    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).getComponentsFactory();
+  }
+
   private static final String DB_NAME = "configTest";
 
   private YouTrackDBImpl youTrackDB;
@@ -70,6 +323,7 @@ public class CollectionBasedStorageConfigurationTest {
   private AbstractStorage storage;
   private AtomicOperationsManager atomicOps;
   private CollectionBasedStorageConfiguration config;
+  private AtomicOperation collectionTestOperation;
 
   @Before
   public void setUp() throws Exception {
@@ -126,6 +380,221 @@ public class CollectionBasedStorageConfigurationTest {
       } finally {
         youTrackDB.close();
       }
+    }
+  }
+
+  // Version 0 fixture: name=x, WAL=false, binaryVersion=7, encryption=e,
+  // conflictStrategy=s, compression=c. String bytes are UTF-16 with a BOM.
+  // Only the five native-endian integer fields differ between architectures.
+  private static byte[] legacyCollectionBytes() {
+    var bytes = HexFormat.of().parseHex(
+        "0104000000feff007800070000000104000000feff00650104000000feff0073"
+            + "0104000000feff0063");
+    if (ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN) {
+      for (var offset : new int[] {1, 10, 15, 24, 33}) {
+        for (var i = 0; i < 2; i++) {
+          var value = bytes[offset + i];
+          bytes[offset + i] = bytes[offset + 3 - i];
+          bytes[offset + 3 - i] = value;
+        }
+      }
+    }
+    return bytes;
+  }
+
+  private static StoragePaginatedCollectionConfiguration collectionEntry(
+      int id, Integer componentId) {
+    return new StoragePaginatedCollectionConfiguration(
+        id, "x", null, false, 0, 0, "c", "e", null, "s", 7, componentId);
+  }
+
+  private Object invokeConfig(String method, Class<?>[] types, Object... args) throws Exception {
+    var target = CollectionBasedStorageConfiguration.class.getDeclaredMethod(method, types);
+    target.setAccessible(true);
+    try {
+      return target.invoke(config, args);
+    } catch (InvocationTargetException e) {
+      if (e.getCause() instanceof Exception cause) {
+        throw cause;
+      }
+      throw e;
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private RawPairObjectInteger<byte[]> storedCollection(int id) throws Exception {
+    return (RawPairObjectInteger<byte[]>) invokeConfig("readProperty",
+        new Class<?>[] {String.class, AtomicOperation.class},
+        "collection_" + id, collectionTestOperation);
+  }
+
+  private void preloadCollections() throws Exception {
+    invokeConfig("preloadCollections", new Class<?>[] {AtomicOperation.class},
+        collectionTestOperation);
+  }
+
+  private void storeCollectionBytes(byte[] bytes, int version) throws Exception {
+    invokeConfig("storeProperty",
+        new Class<?>[] {AtomicOperation.class, String.class, byte[].class, int.class},
+        collectionTestOperation, "collection_80", bytes, version);
+  }
+
+  private static void assertCollectionFields(StorageCollectionConfiguration entry,
+      Integer componentId) {
+    var paginated = (StoragePaginatedCollectionConfiguration) entry;
+    assertEquals(80, paginated.id());
+    assertEquals("x", paginated.name());
+    assertFalse(paginated.useWal);
+    assertEquals(7, paginated.getBinaryVersion());
+    assertEquals("e", paginated.encryption);
+    assertEquals("s", paginated.conflictStrategy);
+    assertEquals("c", paginated.compression);
+    assertEquals(componentId, paginated.getComponentId());
+  }
+
+  @Test
+  public void testLegacyCollectionEntryKeepsLiteralBytesAndVersionZero() throws Exception {
+    // Existing callers without a component id keep version 0, even on repeated updates.
+    atomicOps.executeInsideAtomicOperation(op -> {
+      collectionTestOperation = op;
+      config.updateCollection(op, collectionEntry(80, null));
+      config.updateCollection(op, collectionEntry(80, null));
+      var stored = storedCollection(80);
+      assertEquals(0, stored.second);
+      assertArrayEquals(legacyCollectionBytes(), stored.first);
+      preloadCollections();
+      assertCollectionFields(config.getCollections().get(80), null);
+    });
+  }
+
+  @Test
+  public void testComponentEntryRoundTripsLiteralIdsAndVersionOne() throws Exception {
+    // Boundary and middle ids survive encoding, same-version updates and tag-driven reload.
+    // The same scan also contains a legacy entry. It must not infer the format from the image.
+    for (var componentId : new int[] {1, 1234567, 33554431, 0}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        config.dropCollection(op, 80);
+        config.updateCollection(op, collectionEntry(79, null));
+        config.updateCollection(op, collectionEntry(80, componentId));
+        config.updateCollection(op, collectionEntry(80, componentId));
+        var stored = storedCollection(80);
+        assertEquals(1, stored.second);
+        var expected = ByteBuffer.allocate(legacyCollectionBytes().length + 4)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(componentId)
+            .array();
+        assertArrayEquals(expected, stored.first);
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), componentId);
+        assertNull(((StoragePaginatedCollectionConfiguration) config.getCollections().get(79))
+            .getComponentId());
+      });
+    }
+  }
+
+  @Test
+  public void testCollectionVersionChangesFailBeforeChangingBytesTagOrCache() throws Exception {
+    // Both upgrade and downgrade must fail explicitly, not depend on storeProperty's assert.
+    for (var componentId : new Integer[] {null, 1234567}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        config.dropCollection(op, 80);
+        var original = collectionEntry(80, componentId);
+        config.updateCollection(op, original);
+        var before = storedCollection(80);
+        var replacement = collectionEntry(80, componentId == null ? 1 : null);
+        var error = assertThrows(StorageException.class, () -> config.updateCollection(op,
+            replacement));
+        assertEquals("Cannot change entry version for collection 'x' from "
+            + (componentId == null ? "0 to 1" : "1 to 0")
+            + "\r\n\tDB Name=\"configTest\"", error.getMessage());
+        var after = storedCollection(80);
+        assertEquals(before.second, after.second);
+        assertArrayEquals(before.first, after.first);
+        assertEquals(original, config.getCollections().get(80));
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), componentId);
+      });
+    }
+  }
+
+  @Test
+  public void testInvalidComponentEvidenceFailsWithExactCollectionMessage() throws Exception {
+    // Invalid evidence fails in both the writer and the tag-driven decoder without a default.
+    for (var componentId : new int[] {-1, 33554432}) {
+      var message = "Component id " + componentId
+          + " in collection 'x' is outside the layout 28 range 0..33554431";
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var writerError = assertThrows(StorageException.class,
+            () -> config.updateCollection(op, collectionEntry(80, componentId)));
+        assertEquals(message, writerError.getMessage());
+        var bytes = ByteBuffer.allocate(legacyCollectionBytes().length + 4)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(componentId)
+            .array();
+        storeCollectionBytes(bytes, 1);
+        assertEquals(message, assertThrows(StorageException.class,
+            this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+  }
+
+  @Test
+  public void testMissingComponentIdAndUnknownEntryVersionFailWithExactMessages() throws Exception {
+    // A version 1 payload needs all four id bytes. Unknown tags must not use a known decoder.
+    for (var missingBytes : new int[] {4, 3, 2, 1}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        storeCollectionBytes(Arrays.copyOf(legacyCollectionBytes(),
+            legacyCollectionBytes().length + 4 - missingBytes), 1);
+        assertEquals("Missing component id for collection 'x'\r\n\tDB Name=\"configTest\"",
+            assertThrows(StorageException.class, this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+    atomicOps.executeInsideAtomicOperation(op -> {
+      collectionTestOperation = op;
+      storeCollectionBytes(legacyCollectionBytes(), 99);
+      assertEquals("Unknown entry version 99 for collection 'x'\r\n\tDB Name=\"configTest\"",
+          assertThrows(StorageException.class, this::preloadCollections).getMessage());
+      config.dropCollection(op, 80);
+    });
+  }
+
+  @Test
+  public void testComponentEntryRejectsOneAndFourTrailingBytesWithExactMessage() throws Exception {
+    // Version 1 must end after its valid component id, even with just one trailing byte.
+    for (var trailingBytes : new int[] {1, 4}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var bytes = ByteBuffer.allocate(legacyCollectionBytes().length + 4 + trailingBytes)
+            .order(ByteOrder.nativeOrder()).put(legacyCollectionBytes()).putInt(1234567)
+            .array();
+        Arrays.fill(bytes, bytes.length - trailingBytes, bytes.length, (byte) 0x5a);
+        storeCollectionBytes(bytes, 1);
+        assertEquals(
+            "Trailing bytes after component id for collection 'x'\r\n\tDB Name=\"configTest\"",
+            assertThrows(StorageException.class, this::preloadCollections).getMessage());
+        config.dropCollection(op, 80);
+      });
+    }
+  }
+
+  @Test
+  public void testLegacyCollectionEntryStillAcceptsOneAndFourTrailingBytes() throws Exception {
+    // Version 0 ignores trailing bytes and must retain every decoded legacy field.
+    for (var trailingBytes : new int[] {1, 4}) {
+      atomicOps.executeInsideAtomicOperation(op -> {
+        collectionTestOperation = op;
+        var bytes = Arrays.copyOf(legacyCollectionBytes(),
+            legacyCollectionBytes().length + trailingBytes);
+        Arrays.fill(bytes, bytes.length - trailingBytes, bytes.length, (byte) 0x5a);
+        storeCollectionBytes(bytes, 0);
+        preloadCollections();
+        assertCollectionFields(config.getCollections().get(80), null);
+        config.dropCollection(op, 80);
+      });
     }
   }
 

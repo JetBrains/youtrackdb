@@ -4635,7 +4635,7 @@ public class IncrementalBackupExtensionTest {
     return content;
   }
 
-  /** Layout 27 persists its identity and emits it in every independently read backup tail. */
+  /** Both layouts persist their identity and emit it in every independently read backup tail. */
   @Test
   public void backupEmitsPersistedSourceLayout() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -4648,7 +4648,9 @@ public class IncrementalBackupExtensionTest {
             new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity(
                 1))
             .readActiveRequired().storageFormat().layoutVersion();
-        assertEquals(27, persisted);
+        if (format == StorageFormat.LAYOUT_28) {
+          assertTrue("the source must really persist a non-default layout", persisted != 27);
+        }
         assertEquals(format.layoutVersion(), persisted);
         storage.fullBackup(backupPath);
         for (var i = 0; i < 2; i++) {
@@ -4673,7 +4675,7 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Other-layout units never permit extension or deletion. Exercise tail admission, full
-   * fallback, and stream header admission below a valid head for an obsolete layout.
+   * fallback, and stream header admission below a valid head for every differing layout.
    */
   @Test
   public void otherSourceLayoutKeepsEveryUnitAcrossReadModes() throws Exception {
@@ -4683,7 +4685,10 @@ public class IncrementalBackupExtensionTest {
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
           storage = createSourceDatabase(manager);
         }
-        for (var otherLayout : new int[] {24, 25, 26, 28}) {
+        for (var otherLayout : new int[] {24, 25, 26, 27, 28, 29}) {
+          if (otherLayout == format.layoutVersion()) {
+            continue;
+          }
           for (var plain : new boolean[] {false, true}) {
             for (var belowHead : new boolean[] {false, true}) {
               for (var validHash : new boolean[] {false, true}) {
@@ -4713,7 +4718,8 @@ public class IncrementalBackupExtensionTest {
                   if (validHash) {
                     assertTrue(refusal.getMessage().contains(
                         "The backup unit reports storage layout version " + otherLayout
-                            + ". The open database reports storage layout version 27."
+                            + ". The open database reports storage layout version "
+                            + format.layoutVersion() + "."
                             + " The stored storage layout versions disagree."));
                   }
                   assertFalse(refusal.getMessage().contains("Export"));
@@ -4736,13 +4742,13 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Checksum-valid v4/v5 metadata must not make damaged output of the other layout removable.
-   * Both obsolete layouts refuse with byte-identical units, through either reader and with
+   * Opposing supported and obsolete layouts refuse byte-identically, through either reader and with
    * the damaged unit at the head or below a valid head.
    */
   @Test
   public void checksumValidOtherLayoutDamagedOutputKeepsEveryUnit() throws Exception {
-    for (var layouts : new int[][] {{27, 25}, {27, 26}}) {
-      var format = StorageFormat.LAYOUT_27;
+    for (var layouts : new int[][] {{27, 28}, {28, 27}, {27, 25}, {27, 26}, {28, 25}, {28, 26}}) {
+      var format = layouts[0] == 27 ? StorageFormat.LAYOUT_27 : StorageFormat.LAYOUT_28;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4778,13 +4784,13 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * The same checksum-valid, broken-full-hash fixtures are removable head candidates when their
-   * layout matches the source. Cover v4/v5, layout 27 and both readers so refusal in the
+   * layout matches the source. Cover v4/v5, both layouts and both readers so refusal in the
    * other-layout cases cannot be explained by an unreachable damaged-output fixture.
    */
   @Test
   public void checksumValidSameLayoutDamagedOutputIsRemoved() throws Exception {
-    for (var layout : new int[] {27}) {
-      var format = StorageFormat.LAYOUT_27;
+    for (var layout : new int[] {27, 28}) {
+      var format = layout == 27 ? StorageFormat.LAYOUT_27 : StorageFormat.LAYOUT_28;
       try (var manager = openManager()) {
         AbstractStorage storage;
         try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
@@ -4822,8 +4828,9 @@ public class IncrementalBackupExtensionTest {
 
   /**
    * Version 6 damaged heads belong only to their source layout, with or without continuity.
-   * A valid metadata checksum must not authorize deletion of foreign-layout bytes. The same
-   * fixture in the source layout must remain removable through both stream and tail readers.
+   * A valid metadata checksum must not authorize deletion of obsolete or opposing supported
+   * layout bytes. The same fixture in the source layout must remain removable through both
+   * stream and tail readers.
    */
   @Test
   public void version6DamagedHeadRecognitionRequiresSourceLayout() throws Exception {
@@ -4835,9 +4842,9 @@ public class IncrementalBackupExtensionTest {
         }
         for (var continuityPresent : new boolean[] {false, true}) {
           for (var plain : new boolean[] {false, true}) {
-            for (var sameLayout : new boolean[] {false, true}) {
-              var layout = sameLayout ? format.layoutVersion()
-                  : 26;
+            for (var layout : new int[] {26, format == StorageFormat.LAYOUT_27 ? 28 : 27,
+                format.layoutVersion()}) {
+              var sameLayout = layout == format.layoutVersion();
               var damaged = BackupUnitFiles.writeUnit(backupPath, storage.getUuid(), SOURCE,
                   0, true, 6, 1, layout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, false);
               var path = backupPath.resolve(damaged);

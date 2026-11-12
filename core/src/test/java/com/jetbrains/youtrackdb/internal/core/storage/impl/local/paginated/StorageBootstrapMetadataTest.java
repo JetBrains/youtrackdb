@@ -1709,6 +1709,12 @@ public class StorageBootstrapMetadataTest {
     assertPublicationLayout(StorageFormat.LAYOUT_27, 27);
   }
 
+  /** Literal 28 checks prevent the production birth default from masking a relabelled image. */
+  @Test
+  public void publicationsAndRepairKeepLayout28() throws IOException {
+    assertPublicationLayout(StorageFormat.LAYOUT_28, 28);
+  }
+
   private void assertPublicationLayout(final StorageFormat format, final int literal)
       throws IOException {
     final var creator = metadata();
@@ -1749,12 +1755,12 @@ public class StorageBootstrapMetadataTest {
     assertPersistedLayout(recovered, literal);
   }
 
-  /** Fresh restore birth and its repeat-safe transition preserve layout 27. */
+  /** Fresh restore birth and its repeat-safe transition preserve both selected layouts. */
   @Test
-  public void freshRestorePublicationsKeepLayout27() throws IOException {
+  public void freshRestorePublicationsKeepBothLayouts() throws IOException {
     final var root = directory;
     try {
-      for (var literal : List.of(27)) {
+      for (var literal : List.of(27, 28)) {
         directory = Files.createDirectory(root.resolve("restore-" + literal));
         final var creator = metadata();
         final var birth = creator.createBirth(STORAGE, LINEAGE_ONE, StorageFormat.resolve(literal));
@@ -1778,10 +1784,10 @@ public class StorageBootstrapMetadataTest {
    * selected literal layout, and recovery selects the old or new lifecycle state without conversion.
    */
   @Test
-  public void interruptedPublicationsKeepLayout27() throws IOException {
+  public void interruptedPublicationsKeepBothLayouts() throws IOException {
     final var root = directory;
     try {
-      for (var literal : List.of(27)) {
+      for (var literal : List.of(27, 28)) {
         for (var failAt = 1; failAt <= 4; failAt++) {
           for (var afterMove : List.of(false, true)) {
             directory = Files.createDirectory(root.resolve(
@@ -1832,6 +1838,60 @@ public class StorageBootstrapMetadataTest {
   }
 
   /**
+   * Supported layouts conflict at equal, adjacent, and gapped generations in either order.
+   * Active admission must reject without touching authority bytes or candidate residue.
+   */
+  @Test
+  public void supportedLayoutConflictsRejectEveryGenerationRelationship() throws IOException {
+    final var root = directory;
+    try {
+      for (var distance : List.of(0, 1, 3)) {
+        for (var firstLayout : List.of(27, 28)) {
+          directory =
+              Files.createDirectory(root.resolve("conflict-" + distance + "-" + firstLayout));
+          final var creator = metadata();
+          creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE));
+          final var active = Files.readAllBytes(authorityPath(1));
+          writeLayoutFixture(0, active, firstLayout, 2);
+          writeLayoutFixture(1, active, firstLayout == 27 ? 28 : 27, 2 + distance);
+          Files.write(temporaryPath(2), new byte[] {7, 8});
+          final var before = authorityBytes();
+
+          final var rejection = admissionRejection(metadata()::readActiveRequired);
+
+          assertThat(rejection.reason()).isEqualTo(Reason.AUTHORITY_STORAGE_LAYOUT_CONFLICT);
+          assertThat(rejection).hasMessageContaining("AUTHORITY_STORAGE_LAYOUT_CONFLICT")
+              .hasMessageContaining(directory.toRealPath().toString());
+          assertThat(rejection.reason().description()).isEqualTo(
+              "Two bootstrap authority records name different on-disk storage layouts.");
+          assertAuthorityBytesUnchanged(before);
+          assertThat(Files.readAllBytes(temporaryPath(2))).containsExactly(7, 8);
+        }
+      }
+    } finally {
+      directory = root;
+    }
+  }
+
+  /** Foreign identity retains precedence even if an earlier copy also conflicts on layout. */
+  @Test
+  public void foreignIdentityPrecedesSupportedLayoutConflict() throws IOException {
+    final var creator = metadata();
+    creator.activate(creator.createBirth(STORAGE, LINEAGE_ONE));
+    final var active = Files.readAllBytes(authorityPath(1));
+    writeLayoutFixture(0, active, 27, 2);
+    writeLayoutFixture(1, active, 28, 3);
+    final var foreign = active.clone();
+    ByteBuffer.wrap(foreign).putLong(32, 123);
+    writeLayoutFixture(2, foreign, 27, 5);
+    final var before = authorityBytes();
+
+    assertThat(admissionRejection(metadata()::readActiveRequired).reason())
+        .isEqualTo(Reason.FOREIGN_AUTHORITY_COPY);
+    assertAuthorityBytesUnchanged(before);
+  }
+
+  /**
    * An integrity-valid unsupported predecessor is fatal even beside a newer supported active copy.
    * Rejection leaves authority and candidate bytes intact for every unsupported boundary value.
    */
@@ -1839,8 +1899,8 @@ public class StorageBootstrapMetadataTest {
   public void unsupportedOlderLayoutsRejectWithoutRepair() throws IOException {
     final var root = directory;
     try {
-      for (var supported : List.of(27)) {
-        for (var unsupported : List.of(Integer.MIN_VALUE, -1, 0, 24, 25, 26, 28, 99,
+      for (var supported : List.of(27, 28)) {
+        for (var unsupported : List.of(Integer.MIN_VALUE, -1, 0, 24, 25, 26, 29, 99,
             Integer.MAX_VALUE)) {
           directory =
               Files.createDirectory(root.resolve("unsupported-" + supported + "-" + unsupported));
@@ -1870,12 +1930,12 @@ public class StorageBootstrapMetadataTest {
   @Test
   public void explicitBirthLayoutCannotOverrideExistingAuthority() throws IOException {
     final var creator = metadata();
-    final var birth = creator.createBirth(STORAGE, LINEAGE_ONE, StorageFormat.LAYOUT_27);
+    final var birth = creator.createBirth(STORAGE, LINEAGE_ONE, StorageFormat.LAYOUT_28);
     final var before = authorityBytes();
     assertThatThrownBy(() -> metadata().createBirth(STORAGE, LINEAGE_ONE, StorageFormat.LAYOUT_27))
         .isInstanceOf(IOException.class).hasMessageContaining("already exists");
     assertAuthorityBytesUnchanged(before);
-    assertPersistedLayout(birth, 27);
+    assertPersistedLayout(birth, 28);
 
     final var ordinary = Files.createDirectory(directory.resolve("ordinary"));
     final var defaultBirth = new StorageBootstrapMetadata(ordinary, FORMAT)

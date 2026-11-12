@@ -17,7 +17,7 @@ public class EdgeVisibilityKeyTest {
   }
 
   @Test
-  public void testNaturalOrderingByComponentId() {
+  public void testNaturalOrderingByLinkBagFileId() {
     var k1 = new EdgeVisibilityKey(100L, 1, 50L, 10, 200L);
     var k2 = new EdgeVisibilityKey(100L, 2, 50L, 10, 200L);
 
@@ -92,8 +92,8 @@ public class EdgeVisibilityKeyTest {
   }
 
   @Test
-  public void testHeadMapIncludesAllComponentsBelow() {
-    // All entries at a given timestamp (across different components) should be included
+  public void testHeadMapIncludesAllLinkBagFilesBelow() {
+    // All entries at a given timestamp (across different link-bag files) should be included
     var map = new ConcurrentSkipListMap<EdgeVisibilityKey, String>();
 
     map.put(new EdgeVisibilityKey(10L, 1, 50L, 10, 200L), "c1-ts10");

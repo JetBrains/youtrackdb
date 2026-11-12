@@ -38,7 +38,7 @@ import org.junit.Test;
  *
  * <p>Uses DISK databases with a full {@code YourTracks}-instance close between phases, because
  * the seeding and the format gate both run only on a real storage open
- * ({@code CollectionBasedStorageConfiguration.load} / {@code AbstractStorage.openIndexes}) —
+ * ({@code CollectionBasedStorageConfiguration.load} / {@code AbstractStorage.seedComponentIds}) —
  * closing a session alone leaves the storage open and would exercise nothing.
  */
 public class IndexEngineFileBaseIdTest {
@@ -123,7 +123,7 @@ public class IndexEngineFileBaseIdTest {
     }
 
     // Full instance close: the storage really closes, so the next open re-runs load() (the
-    // format gate) and openIndexes (the seeding).
+    // format gate) and seedComponentIds before loading components.
     ytdb.close();
     ytdb = (YouTrackDBImpl) YourTracks.instance(testDir);
 
@@ -510,7 +510,7 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * Scenario: a database whose storage configuration carries unsupported layout 28 opens,
+   * Scenario: a database whose storage configuration carries unsupported layout 29 opens,
    * while the bootstrap authority record carries the supported version.
    *
    * <p>Expected outcome: the later layout check reports the named inconsistent-metadata result
@@ -520,7 +520,7 @@ public class IndexEngineFileBaseIdTest {
   @Test
   public void newerConfigurationLayoutIsRejectedAsDisagreement() throws Exception {
     final var dbName = "fbiGateNew";
-    createDbWithTamperedVersion(dbName, 28);
+    createDbWithTamperedVersion(dbName, 29);
 
     try {
       ytdb.open(dbName, ADMIN, PWD);
@@ -528,7 +528,7 @@ public class IndexEngineFileBaseIdTest {
     } catch (final Exception e) {
       assertLayoutVersionInconsistency(e);
       assertMessageChainContains(e, "The storage configuration reports storage layout version "
-          + 28);
+          + 29);
       assertMessageChainContains(e,
           "The bootstrap authority record reports storage layout version 27");
       assertMessageChainContains(e, "The stored storage layout versions disagree.");

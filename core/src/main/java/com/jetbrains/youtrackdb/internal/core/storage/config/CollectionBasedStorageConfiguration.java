@@ -27,10 +27,16 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
@@ -92,6 +98,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private static final String COLLECTIONS_PREFIX_PROPERTY = "collection_";
   private static final int COLLECTIONS_PROPERTY_VERSION = 0;
+  // Version 1 appends a component id to the unchanged version 0 fields.
+  private static final int COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION = 1;
   private static final String PROPERTY_PREFIX_PROPERTY = "property_";
 
   private static final String ENGINE_PREFIX_PROPERTY = "engine_";
@@ -183,19 +191,43 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     return writeCache.exists(COMPONENT_NAME + DATA_FILE_EXTENSION);
   }
 
+  /** Presence uses the admitted layout and validates the fixed data identity before opening. */
+  public static boolean exists(AbstractStorage storage, AtomicOperation operation) {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      return exists(storage.getWriteCache());
+    }
+    var identity = new PageFileIdentity(PageFileRole.CONFIG_DATA,
+        PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    return operation.isFileExists(PageFileNames.layout28(identity),
+        AbstractWriteCache.composeFileId(storage.getWriteCache().getId(), identity.internalId()));
+  }
+
   public CollectionBasedStorageConfiguration(final AbstractStorage storage) {
-    collection =
-        StorageCollectionFactory.createCollection(
-            COMPONENT_NAME,
-            PaginatedCollection.getLatestBinaryVersion(),
-            storage,
-            DATA_FILE_EXTENSION,
-            MAP_FILE_EXTENSION,
-            FREE_MAP_FILE_EXTENSION,
-            DIRTY_PAGE_FILE_EXTENSION);
-    btree =
-        new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
-            null);
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
+      collection = new PaginatedCollectionV2(COMPONENT_NAME, DATA_FILE_EXTENSION,
+          MAP_FILE_EXTENSION, FREE_MAP_FILE_EXTENSION, DIRTY_PAGE_FILE_EXTENSION, storage,
+          new PageFileIdentity(PageFileRole.CONFIG_DATA,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID));
+      btree = new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION,
+          storage, null,
+          new PageFileIdentity(PageFileRole.PROPERTY_DATA,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID),
+          new PageFileIdentity(PageFileRole.PROPERTY_NULL_BUCKET,
+              PageFileIdentity.CONFIGURATION_COMPONENT_ID));
+    } else {
+      collection =
+          StorageCollectionFactory.createCollection(
+              COMPONENT_NAME,
+              PaginatedCollection.getLatestBinaryVersion(),
+              storage,
+              DATA_FILE_EXTENSION,
+              MAP_FILE_EXTENSION,
+              FREE_MAP_FILE_EXTENSION,
+              DIRTY_PAGE_FILE_EXTENSION);
+      btree =
+          new BTree<>(COMPONENT_NAME, TREE_DATA_FILE_EXTENSION, TREE_NULL_FILE_EXTENSION, storage,
+              null);
+    }
     this.storage = storage;
   }
 
@@ -305,6 +337,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       // error against a layout these binaries cannot know.
       checkStorageLayoutVersionConsistency();
 
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
+        for (var kind : PageFileKind.values()) {
+          readComponentIdCounter(kind, atomicOperation);
+        }
+      }
       readConfiguration(atomicOperation);
 
       preloadStringProperties(atomicOperation);
@@ -1491,6 +1528,52 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  /** Reads the highest issued component id from transactional bytes, never from the cache. */
+  public int getComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try {
+      return readComponentIdCounter(kind, atomicOperation);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  private int readComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation) {
+    final var key = componentIdCounterKey(kind);
+    final var pair = readProperty(key, atomicOperation);
+    if (pair == null || pair.first.length != Integer.BYTES) {
+      throw new StorageException(storage.getName(),
+          "Missing or malformed component counter: " + key);
+    }
+    final var value = IntegerSerializer.deserializeNative(pair.first, 0);
+    if (value < 0 || value > PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(storage.getName(), "Component counter out of range: " + key
+          + " = " + value);
+    }
+    return value;
+  }
+
+  /** Writes the highest issued id in the caller's component creation operation. */
+  public void setComponentIdCounter(PageFileKind kind, AtomicOperation atomicOperation, int value) {
+    lock.writeLock().lock();
+    try {
+      updateIntProperty(atomicOperation, componentIdCounterKey(kind), value);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  private String componentIdCounterKey(PageFileKind kind) {
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      throw new StorageException(storage.getName(), "Component counters require storage layout 28");
+    }
+    return switch (kind) {
+      case COLLECTION -> "collectionComponentIdCounter";
+      case CONFIGURATION -> "configurationComponentIdCounter";
+      case INDEX_ENGINE -> INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY;
+    };
+  }
+
   /**
    * Stores an index-engine entry under an explicit property version tag — FOR TESTS ONLY.
    * Production engine entries are always written at {@link #INDEX_ENGINE_PROPERTY_VERSION}; this
@@ -1579,6 +1662,23 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       AtomicOperation atomicOperation, final StorageCollectionConfiguration config) {
     lock.writeLock().lock();
     try {
+      final var paginated = (StoragePaginatedCollectionConfiguration) config;
+      final var entryVersion = paginated.getComponentId() == null
+          ? COLLECTIONS_PROPERTY_VERSION : COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION;
+      final var storedCollectionConfig = updateCollectionConfig(config);
+      final var identity = btree.get(COLLECTIONS_PREFIX_PROPERTY + config.id(), atomicOperation);
+      // storeProperty preserves an existing tag. Reject format changes before touching either
+      // the cache or the payload, including when JVM assertions are disabled.
+      if (identity != null) {
+        // A configuration B-tree value's RecordId collection-id field holds the entry version tag.
+        // It is not a collection id.
+        final var storedEntryVersion = identity.getCollectionId();
+        if (storedEntryVersion != entryVersion) {
+          throw new StorageException(storage.getName(),
+              "Cannot change entry version for collection '" + config.name() + "' from "
+                  + storedEntryVersion + " to " + entryVersion);
+        }
+      }
       @SuppressWarnings("unchecked")
       final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
@@ -1597,8 +1697,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       storeProperty(
           atomicOperation,
           COLLECTIONS_PREFIX_PROPERTY + config.id(),
-          updateCollectionConfig(config),
-          COLLECTIONS_PROPERTY_VERSION);
+          storedCollectionConfig,
+          entryVersion);
     } finally {
       lock.writeLock().unlock();
     }
@@ -1614,6 +1714,53 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     } finally {
       lock.readLock().unlock();
     }
+  }
+
+  /** Reads the operation-visible entry. The collection cache is not rollback-aware. */
+  @Nullable public StoragePaginatedCollectionConfiguration readCollection(
+      int id, AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try {
+      final var property = readProperty(COLLECTIONS_PREFIX_PROPERTY + id, atomicOperation);
+      return property == null ? null
+          : (StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+              id, property.first, property.second);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  /** Enumerates current collection owners without consulting the rollback-unaware cache. */
+  public List<StoragePaginatedCollectionConfiguration> readCollections(
+      AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try (var stream =
+        btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true, atomicOperation)) {
+      final List<StoragePaginatedCollectionConfiguration> result = new ArrayList<>();
+      final var entries = stream.iterator();
+      while (entries.hasNext()) {
+        final var entry = entries.next();
+        if (!entry.first().startsWith(COLLECTIONS_PREFIX_PROPERTY)) {
+          break;
+        }
+        final var id = Integer.parseInt(
+            entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
+        final var property = readProperty(entry.first(), atomicOperation);
+        result.add((StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+            id, property.first, property.second));
+      }
+      return result;
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  /** Finds an operation-visible owner of a normalized display name, without using the cache. */
+  @Nullable public StoragePaginatedCollectionConfiguration readCollectionByName(
+      String normalizedName, AtomicOperation atomicOperation) {
+    return readCollections(atomicOperation).stream()
+        .filter(owner -> owner.name().toLowerCase(java.util.Locale.ROOT).equals(normalizedName))
+        .findFirst().orElse(null);
   }
 
   private void preloadCollections(AtomicOperation atomicOperation) {
@@ -1633,6 +1780,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       entry.second().getCollectionPosition(), atomicOperation)
                       .toRawBuffer();
 
+                  // A configuration B-tree value's RecordId collection-id field holds the entry
+                  // version tag. It is not a collection id.
+                  final var storedEntryVersion = entry.second().getCollectionId();
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();
 
@@ -1640,10 +1790,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       collections.add(null);
                     }
 
-                    collections.add(deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.add(deserializeStorageCollectionConfig(
+                        id, buffer.buffer(), storedEntryVersion));
                     assert id == collections.size() - 1;
                   } else {
-                    collections.set(id, deserializeStorageCollectionConfig(id, buffer.buffer()));
+                    collections.set(id, deserializeStorageCollectionConfig(
+                        id, buffer.buffer(), storedEntryVersion));
                   }
                 } catch (final IOException e) {
                   throw BaseException.wrapException(
@@ -1940,15 +2092,31 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     entries.add(compression);
     totalSize += compression.length;
 
+    final var componentId = paginatedCollectionConfiguration.getComponentId();
+    if (componentId != null) {
+      PageFileNames.validateLayout28ComponentIdEvidence(
+          componentId, "collection '" + collection.name() + "'");
+      final var componentData = new byte[IntegerSerializer.INT_SIZE];
+      IntegerSerializer.serializeNative(componentId, componentData, 0);
+      entries.add(componentData);
+      totalSize += componentData.length;
+    }
+
     return mergeBinaryEntries(totalSize, entries);
   }
 
   private StorageCollectionConfiguration deserializeStorageCollectionConfig(
-      final int id, final byte[] property) {
+      final int id, final byte[] property, final int entryVersion) {
     var pos = 0;
 
     final var name = deserializeStringValue(property, pos);
     pos += getSerializedStringSize(property, pos);
+
+    if (entryVersion != COLLECTIONS_PROPERTY_VERSION
+        && entryVersion != COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION) {
+      throw new StorageException(storage.getName(),
+          "Unknown entry version " + entryVersion + " for collection '" + name + "'");
+    }
 
     final var useWal = (property[pos] == 1);
     pos++;
@@ -1963,6 +2131,20 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     pos += getSerializedStringSize(property, pos);
 
     final var compression = deserializeStringValue(property, pos);
+    Integer componentId = null;
+    if (entryVersion == COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION) {
+      pos += getSerializedStringSize(property, pos);
+      if (property.length - pos < IntegerSerializer.INT_SIZE) {
+        throw new StorageException(storage.getName(),
+            "Missing component id for collection '" + name + "'");
+      }
+      if (property.length - pos > IntegerSerializer.INT_SIZE) {
+        throw new StorageException(storage.getName(),
+            "Trailing bytes after component id for collection '" + name + "'");
+      }
+      componentId = IntegerSerializer.deserializeNative(property, pos);
+      PageFileNames.validateLayout28ComponentIdEvidence(componentId, "collection '" + name + "'");
+    }
 
     return new StoragePaginatedCollectionConfiguration(
         id,
@@ -1975,7 +2157,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         encryption,
         configuration.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY),
         conflictStrategy,
-        binaryVersion);
+        binaryVersion,
+        componentId);
   }
 
   private void dropProperty(final AtomicOperation atomicOperation, final String name) {
@@ -2198,6 +2381,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     // open, or a genesis-bootstrap allocation on this virgin configuration) finds a durable
     // value; a missing floor on a v24 database reads as corruption.
     updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, 0);
+    if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
+      updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.COLLECTION), 0);
+      updateIntProperty(atomicOperation, componentIdCounterKey(PageFileKind.CONFIGURATION),
+          PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    }
   }
 
   private void autoInitCollections() {

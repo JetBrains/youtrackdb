@@ -46,6 +46,7 @@ import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.StorageConfigurationUpdateListener;
+import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -116,6 +117,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection.ATTRIBUTES;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -130,6 +132,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -297,7 +303,7 @@ public abstract class AbstractStorage
           o -> o.record.getIdentity());
 
   /** Suffix appended to index engine names for null-key trees. */
-  public static final String NULL_TREE_SUFFIX = "$null";
+  public static final String NULL_TREE_SUFFIX = PageFileNames.NULL_TREE_SUFFIX;
 
   /**
    * The stem prefix of file-base-id-keyed index-engine files ({@code ie_<fileBaseId>} plus the
@@ -306,7 +312,8 @@ public abstract class AbstractStorage
    * rolled-back create on the in-memory profile (whose eager cache install does not revert) can
    * never have its file base id handed out again.
    */
-  public static final String INDEX_ENGINE_FILE_STEM_PREFIX = "ie_";
+  public static final String INDEX_ENGINE_FILE_STEM_PREFIX =
+      PageFileNames.INDEX_ENGINE_FILE_STEM_PREFIX;
 
   /**
    * The storage-component name stem of the engine with the given stable file base id — the
@@ -354,7 +361,7 @@ public abstract class AbstractStorage
         return Integer.compare(aSize, bSize);
       };
 
-  protected volatile LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
+  protected final LinkCollectionsBTreeManagerShared linkCollectionsBTreeManager;
 
   private final Map<String, StorageCollection> collectionMap = new HashMap<>();
   private final List<StorageCollection> collections = new CopyOnWriteArrayList<>();
@@ -414,11 +421,15 @@ public abstract class AbstractStorage
    * operation) reverts with the files, but on the in-memory profile a rolled-back create's eager
    * file install survives, so a reverting allocator would re-issue the burned id and wedge every
    * subsequent create against the surviving orphan. Burning the value instead keeps allocation
-   * collision-free on both profiles. Seeded at {@link #openIndexes} from
-   * max(persisted floor, max persisted engine {@code fileBaseId}, max swept
-   * {@code ie_<n>} file stem) — see {@link #seedIndexEngineFileBaseIdHwm}.
+   * collision-free on both profiles. Seeded before component load by {@link #seedComponentIds}
+   * from the persisted floor, persisted engine entries and registered file names. Layout 28
+   * also includes its persisted per-kind counter.
+   * Layout 27 allocations stop at {@link Integer#MAX_VALUE}. Layout 28 uses the 25-bit
+   * component-id ceiling through the per-kind allocator.
    */
   private final AtomicLong indexEngineFileBaseIdHwm = new AtomicLong();
+  private final AtomicLong collectionComponentIdHwm = new AtomicLong();
+  private final AtomicLong configurationComponentIdHwm = new AtomicLong();
 
   /**
    * Storage-level shared cache for histogram snapshots, keyed by engine ID.
@@ -526,13 +537,13 @@ public abstract class AbstractStorage
     return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
   }
 
-  // Shared snapshot index: maps (componentId, collectionPosition, recordVersion) → PositionEntry.
+  // Shared snapshot index: maps (collectionId, collectionPosition, recordVersion) → PositionEntry.
   // Replaces per-collection snapshotIndex fields in PaginatedCollectionV2, enabling centralized
   // low-water-mark GC across all collections.
   protected final ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex =
       new ConcurrentSkipListMap<>();
 
-  // Visibility index: maps (recordTs, componentId, collectionPosition) → SnapshotKey.
+  // Visibility index: maps (recordTs, collectionId, collectionPosition) → SnapshotKey.
   // Ordering by recordTs first enables efficient range-scan eviction via headMap(lowWaterMark).
   protected final ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibilityIndex =
       new ConcurrentSkipListMap<>();
@@ -563,14 +574,14 @@ public abstract class AbstractStorage
   // evictStaleIndexesSnapshotEntries().
   protected final AtomicLong indexesSnapshotEntriesCount = new AtomicLong();
 
-  // Edge snapshot index: maps (componentId, ridBagId, targetCollection, targetPosition, version)
+  // Edge snapshot index: maps (linkBagFileId, ridBagId, targetCollection, targetPosition, version)
   // → LinkBagValue. Stores old versions of link bag entries for snapshot isolation on edges.
   // Parallel to sharedSnapshotIndex but with edge-specific key types and full value storage
   // (B-tree entries don't have stable page positions across splits/merges).
   protected final ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex =
       new ConcurrentSkipListMap<>();
 
-  // Edge visibility index: maps (recordTs, componentId, ridBagId, targetCollection,
+  // Edge visibility index: maps (recordTs, linkBagFileId, ridBagId, targetCollection,
   // targetPosition) → EdgeSnapshotKey. Ordering by recordTs first enables efficient
   // range-scan eviction via headMap(lowWaterMark), same pattern as visibilityIndex.
   protected final ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibilityIndex =
@@ -950,7 +961,7 @@ public abstract class AbstractStorage
 
           atomicOperationsManager.executeInsideAtomicOperation(
               atomicOperation -> {
-                if (CollectionBasedStorageConfiguration.exists(writeCache)) {
+                if (CollectionBasedStorageConfiguration.exists(this, atomicOperation)) {
                   configuration = new CollectionBasedStorageConfiguration(this);
                   ((CollectionBasedStorageConfiguration) configuration)
                       .load(contextConfiguration, atomicOperation);
@@ -959,6 +970,7 @@ public abstract class AbstractStorage
                 }
 
                 initConfiguration(contextConfiguration, atomicOperation);
+                seedComponentIds(atomicOperation);
               });
 
           atomicOperationsManager.executeInsideAtomicOperation(
@@ -1192,12 +1204,6 @@ public abstract class AbstractStorage
       throw new StorageException(name, "Storage '" + name + "' is not properly initialized");
     }
 
-    // Seed the file-base-id allocator before any engine loads: openIndexes is on every path that
-    // brings persisted engines back to life (normal open and the incremental-restore reopen), so
-    // seeding here guarantees no later allocation can collide with a persisted or orphaned file
-    // base id.
-    seedIndexEngineFileBaseIdHwm(atomicOperation);
-
     final var indexNames = configuration.indexEngines(atomicOperation);
     var counter = 0;
 
@@ -1231,38 +1237,76 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Seeds the in-process file-base-id high-water mark from every durable trace an allocation can
-   * leave, taking the max of three inputs:
+   * Seeds live allocation marks after configuration load and before any component load.
+   * The caller owns the storage write lock. Configuration load must have released its own lock.
+   * This hook writes no counters and never lowers a live mark. Index evidence includes:
    *
    * <ol>
-   *   <li>the persisted floor — the last successfully committed allocation;
+   *   <li>the persisted floor — the last successfully committed allocation.
    *   <li>the max {@code fileBaseId} across the persisted engine entries — defends against a
-   *       floor that lags the entries (e.g. a partially restored configuration);
+   *       floor that lags the entries (e.g. a partially restored configuration).
    *   <li>the max {@code ie_<n>} stem among the write cache's files — defends against an orphaned
    *       engine file that survived a rolled-back create on the in-memory profile (the eager
    *       cache install does not revert) and would otherwise collide with a re-issued id.
    * </ol>
    *
+   * <p>Layout 28 also seeds per-kind marks from strict logical names in live files and the
+   * deletion inventory. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
+   * open. Deletion names that fail strict parsing are ignored.
+   *
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
    * incremental restore into an already-open storage) keeps the monotonicity guarantee.
    */
-  private void seedIndexEngineFileBaseIdHwm(final AtomicOperation atomicOperation) {
-    long seed = ((CollectionBasedStorageConfiguration) configuration)
-        .getIndexEngineFileBaseIdFloor(atomicOperation);
+  protected final void seedComponentIds(final AtomicOperation atomicOperation) {
+    assert stateLock.isWriteLockedByCurrentThread();
+    final var layout28 = storageFormat == StorageFormat.LAYOUT_28;
+    final var config = (CollectionBasedStorageConfiguration) configuration;
+    if (layout28) {
+      for (var kind : PageFileKind.values()) {
+        componentIdHwm(kind).accumulateAndGet(
+            config.getComponentIdCounter(kind, atomicOperation), Math::max);
+      }
+    }
+    long seed = config.getIndexEngineFileBaseIdFloor(atomicOperation);
 
     for (final var engineName : configuration.indexEngines(atomicOperation)) {
       final var engineData = configuration.getIndexEngine(engineName, -1, atomicOperation);
-      if (engineData != null && engineData.getFileBaseId() > seed) {
-        seed = engineData.getFileBaseId();
+      if (engineData != null) {
+        validateComponentIdEvidence(engineData.getFileBaseId(), "index entry '" + engineName + "'");
+        seed = Math.max(seed, engineData.getFileBaseId());
       }
     }
 
     final var wc = writeCache;
     if (wc != null) {
       for (final var fileName : wc.files().keySet()) {
-        final var swept = parseIndexEngineFileBaseId(fileName);
-        if (swept > seed) {
-          seed = swept;
+        if (layout28) {
+          final var identity = PageFileNames.parseLayout28(fileName);
+          if (identity.isPresent()) {
+            final var file = identity.get();
+            componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
+            continue;
+          }
+          if (fileName.startsWith("ytdb-p28-")) {
+            throw new StorageException(name,
+                "Invalid layout 28 registered page-file name '" + fileName + "'");
+          }
+        }
+        // Keep the staging-era legacy accepted set, including leading zeros and $null.ixs.
+        final var swept =
+            PageFileNames.parseLegacyIndexEngineFileBaseIdEvidence(fileName, layout28);
+        seed = Math.max(seed, swept);
+      }
+    }
+
+    if (layout28 && wc != null) {
+      // Negative registrations mix deletions and bookings. Both conservatively reserve ids.
+      // Only logical names qualify. Old disk-name aliases and user tombstones are not evidence.
+      for (final var fileName : wc.deletedFiles()) {
+        final var identity = PageFileNames.parseLayout28(fileName);
+        if (identity.isPresent()) {
+          final var file = identity.get();
+          componentIdHwm(file.kind()).accumulateAndGet(file.componentId(), Math::max);
         }
       }
     }
@@ -1272,83 +1316,28 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Extracts the file base id from an engine file name of the shape
-   * {@code ie_<n>[$null].<engine extension>}, or {@code -1} when the name cannot be an engine
-   * file. Three rejection filters keep foreign artifacts from polluting the HWM seed:
-   *
-   * <ul>
-   *   <li>the extension must belong to the engine family ({@code .cbt}/{@code .nbt}/{@code .ixs})
-   *       — a user collection legally named {@code ie_123} produces files with collection
-   *       extensions and is ignored;
-   *   <li>the id must be pure digits — names with signs or other characters are not ours;
-   *   <li>the id must fit the allocator's {@code (0, Integer.MAX_VALUE]} range — an
-   *       out-of-range value cannot have been allocated, and accepting it would push the
-   *       high-water mark past the persistable ceiling and permanently brick index creation.
-   * </ul>
-   *
-   * <p>Accepted matches can still include a crash-window orphan: a kill between the physical
-   * file creation inside {@code commitChanges} and the WAL end-record becoming durable leaves a
-   * registered empty {@code ie_*} file whose atomic unit is discarded on replay. That file leaks
-   * (bounded, one family per crashed create, never collected) and its id is burned by this sweep
-   * — accepted behavior: burning the id is exactly what keeps the leaked file from ever
-   * colliding with a future engine's family.
-   */
-  private static long parseIndexEngineFileBaseId(final String fileName) {
-    final var extensionStart = fileName.lastIndexOf('.');
-    if (extensionStart <= 0) {
-      return -1;
-    }
-    if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
-      return -1;
-    }
-    var stem = fileName.substring(0, extensionStart);
-    if (stem.endsWith(NULL_TREE_SUFFIX)) {
-      stem = stem.substring(0, stem.length() - NULL_TREE_SUFFIX.length());
-    }
-    if (!stem.startsWith(INDEX_ENGINE_FILE_STEM_PREFIX)) {
-      return -1;
-    }
-    final var digits = stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length());
-    if (digits.isEmpty()) {
-      return -1;
-    }
-    for (var i = 0; i < digits.length(); i++) {
-      final var c = digits.charAt(i);
-      if (c < '0' || c > '9') {
-        return -1;
-      }
-    }
-    final long parsed;
-    try {
-      parsed = Long.parseLong(digits);
-    } catch (final NumberFormatException ignore) {
-      // More digits than a long can carry — certainly not an allocated id.
-      return -1;
-    }
-    if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
-      return -1;
-    }
-    return parsed;
-  }
-
-  /**
    * Allocates the next index-engine file base id and persists the new floor inside
    * {@code atomicOperation}. The returned value is unique for the storage's whole lifetime: the
    * in-process high-water mark only ever grows (a rolled-back allocation burns its value — see
    * {@link #indexEngineFileBaseIdHwm}), and the floor write makes the allocation durable together
    * with the engine files it is for.
    *
-   * <p>Must be called with {@code stateLock.writeLock()} held (both engine-create paths — the
-   * public {@link #addIndexEngine(IndexMetadata, Map)} and the commit-window
-   * {@link #createIndexEngineInCommitWindow}) — hold it): the exclusive lock serializes the
-   * increment-then-persist pair against concurrent creates. The lock carries no owner, so the
-   * assert can only check that the exclusive window is held by somebody; a caller that must
-   * itself hold the lock cannot race another holder anyway.
+   * <p>The calling thread must own the storage write lock. Both the public
+   * {@link #addIndexEngine(IndexMetadata, Map)} path and the commit-window
+   * {@link #createIndexEngineInCommitWindow} path hold it. The exclusive lock serializes the
+   * mark update and floor write against concurrent creates. Commit-window acquisition through
+   * {@code exclusiveLockWithAbort} also records the current thread as the write owner.
+   *
+   * <p>Layout 27 allocations stop at {@link Integer#MAX_VALUE}. Layout 28 delegates to the
+   * per-kind allocator with the 25-bit component-id ceiling.
    *
    * <p>Package-private for tests.
    */
   int allocateIndexEngineFileBaseId(final AtomicOperation atomicOperation) {
-    assert stateLock.isWriteLocked()
+    if (storageFormat == StorageFormat.LAYOUT_28) {
+      return allocateComponentId(PageFileKind.INDEX_ENGINE, atomicOperation);
+    }
+    assert stateLock.isWriteLockedByCurrentThread()
         : "index-engine file-base-id allocation requires stateLock.writeLock(): the high-water"
             + " mark increment and the floor write must be serialized against concurrent engine"
             + " creates";
@@ -1361,6 +1350,41 @@ public abstract class AbstractStorage
     ((CollectionBasedStorageConfiguration) configuration)
         .setIndexEngineFileBaseIdFloor(atomicOperation, (int) allocated);
     return (int) allocated;
+  }
+
+  private void validateComponentIdEvidence(long componentId, String entry) {
+    if (storageFormat == StorageFormat.LAYOUT_28) {
+      PageFileNames.validateLayout28ComponentIdEvidence(componentId, entry);
+    }
+  }
+
+  private AtomicLong componentIdHwm(PageFileKind kind) {
+    return switch (kind) {
+      case COLLECTION -> collectionComponentIdHwm;
+      case INDEX_ENGINE -> indexEngineFileBaseIdHwm;
+      case CONFIGURATION -> configurationComponentIdHwm;
+    };
+  }
+
+  /**
+   * Allocates within the caller's exclusive storage window and atomic operation.
+   * Rollback restores the counter bytes but leaves the live mark advanced.
+   * Configuration bootstrap uses the fixed identity instead of this allocator.
+   */
+  int allocateComponentId(PageFileKind kind, AtomicOperation atomicOperation) {
+    assert stateLock.isWriteLockedByCurrentThread()
+        : "Component allocation requires the current thread to own the storage write lock";
+    final var config = (CollectionBasedStorageConfiguration) configuration;
+    final var counter = config.getComponentIdCounter(kind, atomicOperation);
+    final var hwm = componentIdHwm(kind);
+    final var floor = Math.max(hwm.get(), counter);
+    if (floor >= PageFileIdentity.MAX_COMPONENT_ID) {
+      throw new StorageException(name, "The " + kind + " component-id space is exhausted");
+    }
+    final var allocated = (int) (floor + 1);
+    hwm.set(allocated);
+    config.setComponentIdCounter(kind, atomicOperation, allocated);
+    return allocated;
   }
 
   /**
@@ -1416,7 +1440,10 @@ public abstract class AbstractStorage
       if (collection != null) {
         final var collectionId = collection.getId();
 
-        if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
+        if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+          linkCollectionsBTreeManager.requireComponent(
+              linkCollectionsBTreeManager.captureOwner(collection, operation), operation);
+        } else if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
           LogManager.instance()
               .info(
                   this,
@@ -1679,6 +1706,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .create(atomicOperation, contextConfiguration);
           configuration.setUuid(atomicOperation, uuid.toString());
+          seedComponentIds(atomicOperation);
 
           var binaryFormatVersion = atomicOperationsManager.calculateInsideAtomicOperation(
               configuration::getBinaryFormatVersion);
@@ -1688,8 +1716,6 @@ public abstract class AbstractStorage
 
           status = STATUS.OPEN;
           startStaleTransactionMonitor();
-
-          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
 
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
@@ -2274,14 +2300,23 @@ public abstract class AbstractStorage
 
         return atomicOperationsManager.calculateInsideAtomicOperation(
             atomicOperation -> {
+              final var owner = getStorageFormat() == StorageFormat.LAYOUT_28
+                  && collections.get(collectionId) != null
+                      ? linkCollectionsBTreeManager.captureOwner(collections.get(collectionId),
+                          atomicOperation)
+                      : null;
               if (dropCollectionInternal(atomicOperation, collectionId)) {
                 return false;
               }
 
               ((CollectionBasedStorageConfiguration) configuration)
                   .dropCollection(atomicOperation, collectionId);
-              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
-                  collectionId);
+              if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+                linkCollectionsBTreeManager.deleteComponent(atomicOperation, owner);
+              } else {
+                linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                    collectionId);
+              }
 
               return true;
             });
@@ -2401,6 +2436,11 @@ public abstract class AbstractStorage
   private void throwCollectionDoesNotExist(int collectionId) {
     throw new CollectionDoesNotExistException(name,
         "Collection with id " + collectionId + " does not exist inside of storage " + name);
+  }
+
+  /** Reports ownership without acquiring or extending storage creation exclusion. */
+  public final boolean isStateWriteLockedByCurrentThread() {
+    return stateLock.isWriteLockedByCurrentThread();
   }
 
   @Override
@@ -3318,11 +3358,15 @@ public abstract class AbstractStorage
 
       Throwable error = null;
       boolean structurePublished = false;
+      // Reconciliation appends to these caller-owned lists as it proceeds, so undo retains
+      // completed drops and partial layout 28 creates even when reconciliation throws.
       // Collections dropped by reconciliation, captured for the failure-path restore arm. A drop
       // removes the collection from the in-memory registries eagerly inside reconcileCollections, so
       // a failed commit must re-register them (rollback reverts only the on-disk files). Stays empty
       // on a pure-data commit and on a schema-carry commit that drops nothing.
-      List<DroppedCollection> droppedCollections = List.of();
+      final List<DroppedCollection> droppedCollections = new ArrayList<>();
+      // Layout 28 creation identities survive failures before and after runtime publication.
+      final List<CreatedCollection> createdCollections = new ArrayList<>();
       // The transaction's index deltas (created / dropped / membership), reconciled at commit across
       // three phases: enroll the changed per-index records before the working set, build/drop and
       // populate the engines after the record apply, publish into the shared index maps after
@@ -3340,9 +3384,9 @@ public abstract class AbstractStorage
           // Reconcile structure inside the atomic-operation window, before any record serializes:
           // create the tx-local-only collections and drop the committed-only ones, recording each
           // provisional->real id. The structural file writes are WAL-reverted on a rollback.
-          droppedCollections =
-              reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
-                  schemaContext.txSchemaState(), atomicOperation);
+          reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
+              schemaContext.txSchemaState(), droppedCollections, createdCollections,
+              atomicOperation);
 
           // Test-only seam: fire any installed in-window hook now that structure is published but
           // before the record apply. Tests use it to inject a fault (verifying the failure-path undo
@@ -3630,7 +3674,8 @@ public abstract class AbstractStorage
         if (error != null) {
           rollback(error, atomicOperation);
           if (schemaContext != null && structurePublished) {
-            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections,
+                createdCollections);
           }
         } else {
           // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
@@ -3685,7 +3730,8 @@ public abstract class AbstractStorage
           } catch (final IOException | RuntimeException | AssertionError e) {
             if (atomicOperation.isRollbackInProgress()) {
               if (schemaContext != null && structurePublished) {
-                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
+                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections,
+                    createdCollections);
               }
             } else {
               setInError(e instanceof AssertionError
@@ -3848,16 +3894,19 @@ public abstract class AbstractStorage
    * Reconciles collections as the set difference over committed versus tx-local real collection
    * ids, inside the held {@code stateLock.writeLock()} with the commit window open. A collection id
    * present in the tx-local schema but absent from the committed schema is a create; the reverse is
-   * a drop. Creates use the lock-free {@link #doCreateCollection} at a commit-local first-null-slot
-   * id (so a failed commit's ids free for reuse), publish into the registries, and record the
+   * a drop. Creates use the lock-free {@link #doCreateCollection} at the first free runtime slot.
+   * Layout 28 also skips operation-visible configured owners. Creates publish into the registries
+   * and record the
    * provisional&rarr;real resolution on {@code txSchemaState}. Drops use {@link
    * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
    * structurally inert.
    */
-  private List<DroppedCollection> reconcileCollections(
+  private void reconcileCollections(
       final SchemaShared committedSchema,
       final SchemaShared txLocalSchema,
       final TxSchemaState txSchemaState,
+      final List<DroppedCollection> dropped,
+      final List<CreatedCollection> created,
       final AtomicOperation atomicOperation) {
     try {
       final var committedIds = committedSchema.getRealCollectionIds();
@@ -3867,20 +3916,21 @@ public abstract class AbstractStorage
       // tx-local schema's real-id set is the committed reals minus any dropped class's ids; a
       // provisional id (<= -2) is excluded from getRealCollectionIds, so it never reads as a drop.
       final var txRealIds = txLocalSchema.getRealCollectionIds();
-      final List<DroppedCollection> dropped = new ArrayList<>();
       for (final var committedId : committedIds) {
         if (!txRealIds.contains(committedId)) {
           // Capture the collection before it is nulled, so the failure path can re-register it.
           final var collection =
               committedId < collections.size() ? collections.get(committedId) : null;
+          final var owner = getStorageFormat() == StorageFormat.LAYOUT_28 && collection != null
+              ? linkCollectionsBTreeManager.captureOwner(collection, atomicOperation) : null;
           if (!dropCollectionInternal(atomicOperation, committedId)) {
             // A real drop happened (the collection existed). Record the dropped collection for the
             // failure-path undo BEFORE the two structural drops below: dropCollectionInternal has
             // already nulled the registry slot and deleted the data file, so if dropCollection or
-            // deleteComponentByCollectionId throws, the failure-path undo still needs the captured
+            // tree deletion throws, the failure-path undo still needs the captured
             // collection to re-register it. The captured `collection` is the pre-null live object, so
             // the record is complete even when a later structural drop throws.
-            dropped.add(new DroppedCollection(committedId, collection));
+            dropped.add(new DroppedCollection(committedId, collection, owner));
             // Mirror the public dropCollection(int): dropCollectionInternal deletes only the data
             // files and the in-memory entry, so also drop the storage-configuration entry and the
             // link-bag B-tree component on the same atomic operation. All three structural deletions
@@ -3889,15 +3939,20 @@ public abstract class AbstractStorage
             // and the component together).
             ((CollectionBasedStorageConfiguration) configuration)
                 .dropCollection(atomicOperation, committedId);
-            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, committedId);
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              linkCollectionsBTreeManager.deleteComponent(atomicOperation, owner);
+            } else {
+              linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                  committedId);
+            }
           }
         }
       }
 
       // Creates: each provisional id the transaction allocated becomes a real collection created
-      // under the carried counter-only (c_<counter>) name at a commit-local first-null-slot id.
-      // Record the
-      // resolution so the patch list can rewrite every provisional reference before serialization.
+      // under the carried counter-only (c_<counter>) name at the first free runtime slot. Layout 28
+      // also skips configured owners. Record the resolution so the patch list can rewrite every
+      // provisional reference before serialization.
       final var ownedProvisionalIds = txLocalSchema.getOwnedProvisionalCollectionIds();
       for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
         final int provisionalId = entry.getIntKey();
@@ -3911,19 +3966,18 @@ public abstract class AbstractStorage
           continue;
         }
         final String collectionName = entry.getValue();
-        final int realId = nextFreeCollectionId();
-        // The allocator must hand back a genuinely free slot (an append at the list end or a null
-        // slot). undoReconciledCollections relies on this: a resolved id that collided with a
-        // committed live slot would make the undo skip a real cleanup and doCreateCollection would
-        // overwrite a live collection. Zero production cost; catches a slot-bookkeeping regression at
-        // create time during testing.
+        final int realId = nextFreeCollectionId(atomicOperation);
+        // The allocator must hand back a genuinely free slot (a null slot or an id at or beyond
+        // the list end, since layout 28 also skips configured owners). The undo relies on this:
+        // A resolved id colliding with a committed live slot would skip cleanup and overwrite a
+        // live collection. Zero production cost, catches a slot-bookkeeping regression at create
+        // time during testing.
         assert realId >= collections.size() || collections.get(realId) == null
             : "commit-local allocator returned an occupied collection slot " + realId;
-        final var collection = doCreateCollection(atomicOperation, collectionName, realId);
+        final var collection = doCreateCollection(atomicOperation, collectionName, realId, created);
         registerCollection(collection);
         txSchemaState.recordResolvedCollectionId(provisionalId, realId);
       }
-      return dropped;
     } catch (final IOException e) {
       // Wrap as an unchecked StorageException so the schema-carry commit's RuntimeException/Error
       // catch reaches the registry-undo path, mirroring how the public structural methods wrap
@@ -3935,21 +3989,57 @@ public abstract class AbstractStorage
   }
 
   /**
-   * The first null slot in {@code collections}, or the list size when none is free — the
-   * commit-local collection-id allocator's next id. Seeded by a direct read of the shared
+   * Returns the first free runtime slot, or appends when none is free. Layout 27 checks only the
+   * runtime list. Layout 28 also skips operation-visible configuration owners, including beyond
+   * the list end. The commit-local collection-id allocator reads the shared
    * {@code collections} list, which is safe because the caller holds {@code stateLock.writeLock()}
    * (the seed read sits inside the write-lock window so it excludes the non-commit
    * engine registrars that run under {@code stateLock.write} alone). Reused between successive
    * creates within one reconciliation because each create publishes its collection into the slot
    * before the next call scans.
    */
-  private int nextFreeCollectionId() {
-    for (var i = 0; i < collections.size(); i++) {
-      if (collections.get(i) == null) {
-        return i;
-      }
+  private int nextFreeCollectionId(AtomicOperation operation) {
+    var id = 0;
+    while ((id < collections.size() && collections.get(id) != null)
+        || isCollectionSlotOwned(id, operation)) {
+      id++;
     }
-    return collections.size();
+    return id;
+  }
+
+  /** Reads the current configuration instance in either startup order and after restore. */
+  public List<StoragePaginatedCollectionConfiguration> readCollectionOwners(
+      AtomicOperation operation) {
+    return ((CollectionBasedStorageConfiguration) configuration).readCollections(operation);
+  }
+
+  /** Reads the current configuration entry in either startup order and after restore. */
+  public @Nullable StoragePaginatedCollectionConfiguration readCollectionOwner(
+      int collectionId, AtomicOperation operation) {
+    return ((CollectionBasedStorageConfiguration) configuration)
+        .readCollection(collectionId, operation);
+  }
+
+  /** Resolves once through operation-visible configuration without reentering the state lock. */
+  public LinkCollectionsBTreeManagerShared.CollectionOwner captureCollectionOwner(
+      int collectionId, AtomicOperation operation) {
+    final var entry = readCollectionOwner(collectionId, operation);
+    if (entry == null) {
+      throw new StorageException(name, "No configured collection owner for " + collectionId);
+    }
+    return linkCollectionsBTreeManager.captureOwner(collectionId, entry.getComponentId(),
+        operation);
+  }
+
+  private boolean isCollectionSlotOwned(int collectionId, AtomicOperation operation) {
+    return getStorageFormat() == StorageFormat.LAYOUT_28
+        && ((CollectionBasedStorageConfiguration) configuration)
+            .readCollection(collectionId, operation) != null;
+  }
+
+  /** A layout 28 create captured before publication, including its loaded-tree identity. */
+  private record CreatedCollection(StorageCollection collection,
+      LinkCollectionsBTreeManagerShared.CollectionOwner owner) {
   }
 
   /**
@@ -3959,7 +4049,8 @@ public abstract class AbstractStorage
    * by the rolled-back atomic operation, so re-registering the same object restores a consistent
    * view).
    */
-  private record DroppedCollection(int id, StorageCollection collection) {
+  private record DroppedCollection(int id, StorageCollection collection,
+      LinkCollectionsBTreeManagerShared.CollectionOwner owner) {
 
   }
 
@@ -3989,9 +4080,10 @@ public abstract class AbstractStorage
   private void undoSchemaCarryRegistryPublication(
       final SchemaCommitContext schemaContext,
       @Nullable final IndexManagerEmbedded.ReconciledIndexPlan indexPlan,
-      final List<DroppedCollection> droppedCollections) {
+      final List<DroppedCollection> droppedCollections,
+      final List<CreatedCollection> createdCollections) {
     undoReconciledCollections(schemaContext.committedSchema(),
-        schemaContext.txSchemaState(), droppedCollections);
+        schemaContext.txSchemaState(), droppedCollections, createdCollections);
     if (indexPlan != null) {
       undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
       restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
@@ -4013,19 +4105,20 @@ public abstract class AbstractStorage
    * link-bag B-tree component vanish with the atomic operation and only the in-memory registry needs
    * undoing. The in-memory engine eagerly installs every new file into its cache and does <em>not</em>
    * revert that install on rollback (see {@code AtomicOperationBinaryTracking.addFile}), so the
-   * created collection's data file and its id-named {@code global_collection_<id>.grb} component
-   * survive the rollback as orphans; the surviving component then blocks the next id-reusing create
-   * with a "file already exists" error. This arm drops that orphaned structure in a fresh atomic
-   * operation (the failed commit's operation is already closed by {@code rollback}), guarded on the
-   * orphaned component still being present so it is a no-op on the disk engine (where rollback already
-   * removed it) and the real cleanup on the in-memory engine. The fresh atomic operation commits
+   * created collection's data file and tree can survive rollback as orphans. Layout 28 cleanup
+   * derives the tree from the captured component identity, independently of slot reuse.
+   * This arm drops that orphaned structure in a fresh atomic
+   * operation (the failed commit's operation is already closed by {@code rollback}). Layout 27
+   * uses tree presence as its orphan discriminator. Layout 28 separately checks ordinary files,
+   * removes loaded-tree state and checks configuration ownership. The fresh atomic operation commits
    * normally, so the orphan removal is itself durable.
    *
    * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
+   * @param created captured layout 28 creates, including failures before runtime publication.
    */
   private void undoReconciledCollections(
       final SchemaShared committedSchema, final TxSchemaState txSchemaState,
-      final List<DroppedCollection> dropped) {
+      final List<DroppedCollection> dropped, final List<CreatedCollection> created) {
     final var committedIds = committedSchema.getRealCollectionIds();
     // The slots this same reconciliation dropped. A commit that drops a committed collection frees
     // its slot for the commit-local allocator, so a created collection's resolved real id CAN
@@ -4036,26 +4129,42 @@ public abstract class AbstractStorage
     for (final var entry : dropped) {
       droppedIds.add(entry.id());
     }
-    for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
-      // Only drop ids the commit created (resolved from a provisional), never a pre-existing
-      // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
-      // this same reconciliation freed: it is commit-created and must be undone here, so the
-      // drop-restore loop below finds the slot null again for the original occupant.
-      if (committedIds.contains(realId) && !droppedIds.contains((int) realId)) {
-        continue;
-      }
-      final var collection = realId < collections.size() ? collections.get(realId) : null;
-      if (collection != null) {
+    // Layout 28 uses captured identities for all creates, published or not. Remove B before A.
+    // Layout 27 retains its resolved-id cleanup loop and tolerant restoration below.
+    for (final var entry : created) {
+      final var collection = entry.collection();
+      final var id = collection.getId();
+      if (id < collections.size() && collections.get(id) == collection) {
         collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
-        collections.set(realId, null);
-        // Drop the created collection's surviving structure (in-memory engine only — see the method
-        // Javadoc). The collection was just removed from the registry above, so pass the captured
-        // object to the structural cleanup rather than re-reading the now-null slot. The cleanup
-        // must know whether this create reused a slot this same reconciliation dropped: on that
-        // path the slot-keyed structures (config entry, link-bag component) present after the
-        // rollback belong to the restored dropped collection, and deleting them would durably
-        // destroy the survivor's registration — see the slot-reuse branch inside.
-        revertCreatedCollectionStructure(realId, collection, droppedIds.contains((int) realId));
+        collections.set(id, null);
+      }
+      revertCreatedCollectionStructure(id, collection, droppedIds.contains(id), entry.owner());
+    }
+    // Layout 27 resolves published creates through their provisional-to-real ids.
+    // Layout 28 already cleaned creation-time captures above, including unresolved partial creates.
+    // Re-reading a reused slot cannot reliably identify the failed layout 28 owner.
+    if (getStorageFormat() != StorageFormat.LAYOUT_28) {
+      for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
+        // Only drop ids the commit created (resolved from a provisional), never a pre-existing
+        // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
+        // this same reconciliation freed: it is commit-created and must be undone here, so the
+        // drop-restore loop below finds the slot null again for the original occupant.
+        if (committedIds.contains(realId) && !droppedIds.contains((int) realId)) {
+          continue;
+        }
+        final var collection = realId < collections.size() ? collections.get(realId) : null;
+        if (collection != null) {
+          collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
+          collections.set(realId, null);
+          // Drop the created collection's surviving structure (in-memory engine only — see the method
+          // Javadoc). The collection was just removed from the registry above, so pass the captured
+          // object to the structural cleanup rather than re-reading the now-null slot. The cleanup
+          // must know whether this create reused a slot this same reconciliation dropped: on that
+          // path the slot-keyed structures (config entry, link-bag component) present after the
+          // rollback belong to the restored dropped collection, and deleting them would durably
+          // destroy the survivor's registration — see the slot-reuse branch inside.
+          revertCreatedCollectionStructure(realId, collection, droppedIds.contains((int) realId));
+        }
       }
     }
     // Re-register each dropped collection: rollback restored its files, so the captured object is
@@ -4069,30 +4178,54 @@ public abstract class AbstractStorage
         continue;
       }
       if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
-        registerCollection(collection);
+        if (getStorageFormat() != StorageFormat.LAYOUT_28) {
+          registerCollection(collection);
+        }
         // The drop also removed the collection's SharedLinkBagBTree from the link-bag manager's
-        // in-memory map EAGERLY (deleteComponentByCollectionId is not rollback-aware; only the
-        // file delete was buffered and reverted), and every link-bag access resolves through that
+        // in-memory map eagerly. Neither layout's tree deletion rolls back the map removal. Only
+        // the file delete was buffered and reverted, and every link-bag access resolves through that
         // map with no reload branch — without this restore the re-registered collection's first
         // link-bag operation fails until a reopen rebuilds the map. Best-effort like the
         // surrounding cleanup: a failure here is logged, never thrown over the propagating commit
-        // failure. The read-only operation is the lightweight snapshot-only kind (started and
+        // failure. Layout 28 also moves the storage to error state if required restoration fails.
+        // The read-only operation is the lightweight snapshot-only kind (started and
         // deactivated, never applied), so it works even when the storage is already in error
         // state (the error gate covers component-write operations only).
         try {
           final var restoreReadOperation = atomicOperationsManager.startAtomicOperation();
           try {
-            linkCollectionsBTreeManager.restoreComponentByCollectionId(
-                restoreReadOperation, entry.id());
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              final var configured = ((CollectionBasedStorageConfiguration) configuration)
+                  .readCollection(entry.id(), restoreReadOperation);
+              if (configured == null
+                  || !Objects.equals(configured.getComponentId(), entry.owner().componentId())) {
+                throw new StorageException(name,
+                    "Restored collection ownership mismatch: " + entry.id());
+              }
+              linkCollectionsBTreeManager.restoreComponent(restoreReadOperation, entry.owner());
+              // Publish only after all required identity-owned state has been restored.
+              registerCollection(collection);
+            } else {
+              linkCollectionsBTreeManager.restoreComponentByCollectionId(
+                  restoreReadOperation, entry.id());
+            }
           } finally {
             restoreReadOperation.deactivate();
           }
         } catch (final RuntimeException | AssertionError linkBagRestoreFailure) {
+          if (getStorageFormat() == StorageFormat.LAYOUT_28 && !isInError()) {
+            // Neither undo entry point guarantees error state, for example AssertionError rollback.
+            // Contain incomplete restoration without replacing an already stored commit failure.
+            setInError(linkBagRestoreFailure instanceof AssertionError
+                ? BaseException.wrapException(
+                    new StorageException(name, "Required collection restoration failed"),
+                    linkBagRestoreFailure, name)
+                : linkBagRestoreFailure);
+          }
           LogManager.instance()
               .error(this,
                   "Failed to restore the link-bag component registration of collection '%s'"
-                      + " (slot %d) during failed-commit undo; link-bag operations on the restored"
-                      + " collection will fail until the storage reopens",
+                      + " (slot %d) during failed-commit undo; reopen the storage",
                   linkBagRestoreFailure, collection.getName(), entry.id());
         }
       } else {
@@ -4117,14 +4250,13 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Drops the surviving structure of a collection that a failed schema-carry commit created: the
-   * link-bag B-tree component, the storage-config entry, and the collection's own data file. The
-   * mirror of {@link #doCreateCollection}, which writes exactly those three structures. Runs in a
-   * fresh atomic operation because the failed commit's operation is already closed by {@code
-   * rollback}. Guarded on the orphaned component still being present so it is a no-op on the disk
-   * engine (where rollback reverted every structure already) and the real cleanup on the in-memory
-   * engine (where the eager cache install survived the rollback). See {@link
-   * #undoReconciledCollections} for why only the in-memory engine leaves an orphan.
+   * Drops the surviving structure of a collection that a failed schema-carry commit created on
+   * layout 27: the link-bag B-tree component, the storage-config entry, and the collection's own
+   * data file. This overload is layout 27 only. It mirrors {@link #doCreateCollection}, which
+   * writes exactly those three structures. Runs in a fresh atomic operation because the failed
+   * commit's operation is already closed by {@code rollback}. The surviving tree is the cleanup
+   * discriminator. See {@link #undoReconciledCollections} for why only the in-memory engine leaves
+   * an orphan.
    *
    * <p>Best-effort and self-contained: this runs from the failure-path {@code finally} while the
    * original commit exception is propagating, so any failure here is logged and swallowed rather than
@@ -4150,17 +4282,51 @@ public abstract class AbstractStorage
    *                   data file.
    * @param slotReused whether {@code realId} is a slot this same reconciliation dropped (the
    *                   created collection reused the freed slot).
+   * @throws IllegalStateException if called on layout 28, which requires the captured-owner
+   *                               overload.
    */
   private void revertCreatedCollectionStructure(final int realId,
       final StorageCollection collection, final boolean slotReused) {
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      throw new IllegalStateException("Layout 28 cleanup requires a captured creation owner");
+    }
+    revertCreatedCollectionStructure(realId, collection, slotReused, null);
+  }
+
+  /**
+   * Reverts a failed create using its retained identity, never an owner recaptured from its slot.
+   *
+   * @param failedOwner layout 28 creation owner captured before rollback, null on layout 27.
+   */
+  private void revertCreatedCollectionStructure(final int realId,
+      final StorageCollection collection, final boolean slotReused,
+      final LinkCollectionsBTreeManagerShared.CollectionOwner failedOwner) {
     // Enters the freezer UNARMED (the internal atomic-operation wrapper below) while holding the
     // metadata-write mutex, the schema and index-manager write locks, and stateLock.writeLock.
     // Never parks under an operator freeze: an operator freeze can only arm under
     // stateLock.readLock (see freeze()), which the held write lock excludes for this whole
     // window. If that premise ever changes, this undo could park unbounded here with no gate.
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      // Loaded state is eager and needs no write operation. Remove it even if file cleanup cannot
+      // start because the failed commit put the storage in error state.
+      linkCollectionsBTreeManager.removeLoadedComponent(failedOwner);
+    }
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
+            if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+              if (collection.exists(atomicOperation)) {
+                collection.delete(atomicOperation);
+              }
+              linkCollectionsBTreeManager.deleteComponent(atomicOperation, failedOwner);
+              final var config = (CollectionBasedStorageConfiguration) configuration;
+              final var current = config.readCollection(realId, atomicOperation);
+              if (current != null
+                  && Objects.equals(current.getComponentId(), failedOwner.componentId())) {
+                config.dropCollection(atomicOperation, realId);
+              }
+              return;
+            }
             if (slotReused) {
               // Slot-reuse: every id-keyed structure at this slot now belongs to the restored
               // dropped collection (see Javadoc). Only the created collection's own name-keyed
@@ -4207,7 +4373,7 @@ public abstract class AbstractStorage
   /**
    * The first null slot in {@code indexEngines}, or the list size when none is free — the
    * commit-local index-engine-id allocator's next id. The index analogue of {@link
-   * #nextFreeCollectionId()}: it lets a failed engine-creating commit free its id for reuse on the
+   * #nextFreeCollectionId(AtomicOperation)}: it lets a failed engine-creating commit free its id for reuse on the
    * next commit, so the failed-commit registry-cleanliness guarantee extends from collections to
    * engines. Seeded by a direct read of the shared {@code indexEngines} list, which is safe because
    * the caller holds {@code stateLock.writeLock()} inside the commit window. Reused between successive
@@ -4579,8 +4745,10 @@ public abstract class AbstractStorage
             }
             // Ownership asymmetry drives the two deletes below — and this fresh cleanup
             // operation COMMITS, so a wrong delete here is durable. The engine FILES are
-            // fileBaseId-keyed and file base ids are never reused, so surviving ie_* files
-            // provably belong to the reverted engine: delete them unconditionally. The config
+            // fileBaseId-keyed and file base ids are never reused. Layout 27 matches legacy
+            // stems and engine extensions. Layout 28 checks every INDEX_ENGINE role by name
+            // and expected internal id, rejecting identity conflicts. Surviving family files
+            // therefore belong to the reverted engine: delete them unconditionally. The config
             // ENTRY is name-keyed, and after the failed commit's rollback the entry under this
             // engine's name may not be this engine's at all: it is either absent (pure failed
             // create — the entry write reverted with the rolled-back operation) or the restored
@@ -4614,27 +4782,53 @@ public abstract class AbstractStorage
    * cache — the in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the
    * engine analogue of the collection arm's
    * {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. Every file of an engine's
-   * family carries the {@code ie_<fileBaseId>} stem (the multi-value null tree appends
-   * {@link #NULL_TREE_SUFFIX}), so the check strips each file name's extension and matches the
-   * remaining stem exactly — keyed by the stable id, never by parsing an index name out of a
-   * file name. The write cache reflects the committed physical files: the eager cache install
-   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
-   * surviving stem match is exactly an orphan to clean up.
+   * family is keyed by its stable file base id, never the reusable engine slot or index name.
+   * Layout 28 probes every {@link PageFileKind#INDEX_ENGINE} role by its canonical name and
+   * expected internal id. It checks all roles even after finding a survivor, so a conflicting
+   * registration cannot be hidden by another surviving file. A family name registered under an
+   * unexpected internal id is an identity conflict, not an absent file.
    *
-   * <p>Matching is restricted to the engine file-extension family (see
-   * {@link #isIndexEngineFileExtension}): a user artifact whose name happens to share the stem
-   * shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions) must
-   * never false-positive the cleanup arm into a spurious delete attempt.
+   * <p>Layout 27 matches the {@code ie_<fileBaseId>} stem and its {@link #NULL_TREE_SUFFIX}
+   * variant exactly. Matching is restricted to the engine file-extension family (see
+   * {@link PageFileNames#isIndexEngineFileExtension}): a user artifact whose name happens to share
+   * the stem shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions)
+   * must never false-positive the cleanup arm into a spurious delete attempt.
+   *
+   * <p>On both layouts the write cache reflects the physical files. The eager cache install
+   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
+   * surviving family file is an orphan to clean up.
    *
    * <p>Package-private for tests.
    *
    * @param fileBaseId the dropped/created engine's stable file base id.
-   * @return {@code true} when at least one file of the engine's family survives.
+   * @return {@code true} when at least one file of the engine's family survives and, on layout 28,
+   *     no family name has a conflicting registered internal id.
+   * @throws StorageException on layout 28 if any family name is registered under an unexpected
+   *     internal id, even if another family file survives.
    */
   boolean engineFilesPresent(final int fileBaseId) {
     final var wc = writeCache;
     if (wc == null) {
       return false;
+    }
+    if (storageFormat == StorageFormat.LAYOUT_28) {
+      boolean present = false;
+      for (var role : PageFileRole.values()) {
+        if (role.kind() != PageFileKind.INDEX_ENGINE) {
+          continue;
+        }
+        var identity = new PageFileIdentity(role, fileBaseId);
+        var fileName = PageFileNames.layout28(identity);
+        var registered = wc.registeredFileId(fileName);
+        if (registered != null && Math.abs(registered) != identity.internalId()) {
+          throw new StorageException(name, "Page-file identity conflict: " + fileName);
+        }
+        if (registered != null && registered > 0 && wc.exists(fileName)
+            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
+          present = true;
+        }
+      }
+      return present;
     }
     final var stem = indexEngineFileStem(fileBaseId);
     final var nullTreeStem = stem + NULL_TREE_SUFFIX;
@@ -4643,7 +4837,7 @@ public abstract class AbstractStorage
       if (extensionStart <= 0) {
         continue;
       }
-      if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
+      if (!PageFileNames.isIndexEngineFileExtension(fileName.substring(extensionStart))) {
         continue;
       }
       final var fileStem = fileName.substring(0, extensionStart);
@@ -4652,19 +4846,6 @@ public abstract class AbstractStorage
       }
     }
     return false;
-  }
-
-  /**
-   * Whether {@code extension} (with the leading dot) is one an {@code ie_<fileBaseId>}-stemmed
-   * engine file can carry: the B-tree data file, its null bucket, or the histogram stats file.
-   * Both the open-time HWM sweep and the failed-commit file-presence check are restricted to
-   * this family so files of other components (or user artifacts) that merely share the stem
-   * shape are never mistaken for engine files.
-   */
-  private static boolean isIndexEngineFileExtension(final String extension) {
-    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
-        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
-        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
   }
 
   /**
@@ -4677,6 +4858,13 @@ public abstract class AbstractStorage
    * because the installing thread and the committing thread may differ in a concurrent test.
    */
   private volatile Runnable commitWindowTestHook;
+
+  private volatile Runnable linkBagCreationTestHook;
+
+  /** Observes tree creation before the early undo capture is replaced. Runs under the state lock. */
+  public void setLinkBagCreationTestHook(Runnable hook) {
+    linkBagCreationTestHook = hook;
+  }
 
   /**
    * Installs (or clears, with {@code null}) the test-only in-window commit hook. Test-only seam — no
@@ -5640,7 +5828,9 @@ public abstract class AbstractStorage
         histogramSnapshotCache,
         histogramKeySerializer,
         componentsFactory.binarySerializerFactory,
-        histogramSerializerId);
+        histogramSerializerId,
+        storageFormat == StorageFormat.LAYOUT_28
+            ? new PageFileIdentity(PageFileRole.HISTOGRAM, engineData.getFileBaseId()) : null);
 
     // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
     mgr.setDisplayName(engineData.getName());
@@ -8666,6 +8856,7 @@ public abstract class AbstractStorage
   private int createCollectionFromConfig(final StorageCollectionConfiguration config,
       AtomicOperation atomicOperation)
       throws IOException {
+    checkCollectionIdentity(config);
     var collection = collectionMap.get(config.name().toLowerCase(Locale.ROOT));
 
     if (collection != null) {
@@ -8681,6 +8872,16 @@ public abstract class AbstractStorage
     collection.configure(this, config);
 
     return registerCollection(collection);
+  }
+
+  private void checkCollectionIdentity(final StorageCollectionConfiguration config) {
+    // Null, not zero, distinguishes a legacy entry from a component-aware entry.
+    final var componentId = ((StoragePaginatedCollectionConfiguration) config).getComponentId();
+    if ((getStorageFormat() == StorageFormat.LAYOUT_28) != (componentId != null)) {
+      throw new StorageException(name,
+          "Collection '" + config.name() + "' has an identity incompatible with storage layout "
+              + getStorageFormat().layoutVersion());
+    }
   }
 
   private void setCollection(final int id, final StorageCollection collection) {
@@ -8729,16 +8930,7 @@ public abstract class AbstractStorage
 
   private int doAddCollection(final AtomicOperation atomicOperation, final String collectionName)
       throws IOException {
-    // FIND THE FIRST AVAILABLE COLLECTION ID
-    var collectionPos = collections.size();
-    for (var i = 0; i < collections.size(); ++i) {
-      if (collections.get(i) == null) {
-        collectionPos = i;
-        break;
-      }
-    }
-
-    return doAddCollection(atomicOperation, collectionName, collectionPos);
+    return doAddCollection(atomicOperation, collectionName, nextFreeCollectionId(atomicOperation));
   }
 
   private int doAddCollection(
@@ -8769,8 +8961,8 @@ public abstract class AbstractStorage
    * {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
    *
    * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
-   * String)} scans for the first null slot; the commit window uses a commit-local
-   * allocator seeded inside the write lock. Returns {@code null} for a null
+   * String)} and the commit window select the first free runtime slot under the write lock.
+   * Layout 28 also skips operation-visible configured owners. Returns {@code null} for a null
    * {@code collectionName} (the no-op case the legacy path returned id {@code -1} for).
    *
    * @param atomicOperation the in-flight atomic operation that buffers the file creates.
@@ -8782,11 +8974,26 @@ public abstract class AbstractStorage
   private StorageCollection doCreateCollection(
       final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
       throws IOException {
+    return doCreateCollection(atomicOperation, collectionName, collectionPos, null);
+  }
+
+  private StorageCollection doCreateCollection(final AtomicOperation atomicOperation,
+      String collectionName, final int collectionPos, final List<CreatedCollection> created)
+      throws IOException {
     if (collectionName == null) {
       return null;
     }
 
     collectionName = collectionName.toLowerCase(Locale.ROOT);
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      final var config = (CollectionBasedStorageConfiguration) configuration;
+      if (isCollectionSlotOwned(collectionPos, atomicOperation)
+          || config.readCollectionByName(collectionName, atomicOperation) != null) {
+        throw new ConfigurationException(name,
+            "Collection slot or display name is still configured: " + collectionPos
+                + " / " + collectionName);
+      }
+    }
 
     final var collection =
         StorageCollectionFactory.createCollection(
@@ -8796,14 +9003,40 @@ public abstract class AbstractStorage
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
             this);
-    collection.configure(collectionPos, collectionName);
+    // All creation paths hold the state write lock and carry the creation atomic operation.
+    // Keep allocation here so the durable counter and collection entry commit or revert together.
+    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_28
+        ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
+    collection.configure(collectionPos, collectionName, componentId);
+    if (created != null && componentId != null) {
+      // Retain this entry before collection.create or configuration update can fail.
+      // The component identity is known now, but its tree handle is not.
+      // After tree creation, replace the immutable record with the full owner capture.
+      // Undo needs that handle even when rollback has removed the tree file.
+      created.add(new CreatedCollection(collection,
+          new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionPos, componentId, null)));
+    }
 
     collection.create(atomicOperation);
 
+    final var collectionConfig = collection.generateCollectionConfig();
+    checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+        .updateCollection(atomicOperation, collectionConfig);
 
-    linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+    if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+      linkCollectionsBTreeManager.createComponent(atomicOperation, collection);
+      final var creationHook = linkBagCreationTestHook;
+      if (creationHook != null) {
+        creationHook.run();
+      }
+      if (created != null) {
+        created.set(created.size() - 1, new CreatedCollection(collection,
+            linkCollectionsBTreeManager.captureOwner(collection, atomicOperation)));
+      }
+    } else {
+      linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+    }
 
     return collection;
   }
@@ -8860,9 +9093,10 @@ public abstract class AbstractStorage
           "Runtime change of attribute '" + attribute + "' is not supported");
     }
 
+    final var collectionConfig = ((PaginatedCollection) collection).generateCollectionConfig();
+    checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation,
-            ((PaginatedCollection) collection).generateCollectionConfig());
+        .updateCollection(atomicOperation, collectionConfig);
   }
 
   private boolean dropCollectionInternal(final AtomicOperation atomicOperation,
@@ -10037,14 +10271,15 @@ public abstract class AbstractStorage
   private void lockLinkBags(
       final TreeMap<Integer, StorageCollection> collections,
       @Nonnull AtomicOperation atomicOperation) {
-    for (final var collectionId : collections.keySet()) {
-      var bTree = linkCollectionsBTreeManager.getComponentByCollectionId(
-          collectionId, atomicOperation);
-      // The B-tree should always exist: it is created with the collection
-      // (doAddCollection) and repaired during storage open
-      // (checkRidBagsPresence). lockCollections() already serializes
-      // concurrent commits to the same collection, so a null here would
-      // not cause a race — but it would indicate a bug elsewhere.
+    for (final var collection : collections.values()) {
+      final var collectionId = collection.getId();
+      var bTree = getStorageFormat() == StorageFormat.LAYOUT_28
+          ? linkCollectionsBTreeManager.requireComponent(
+              linkCollectionsBTreeManager.captureOwner(collection, atomicOperation),
+              atomicOperation)
+          : linkCollectionsBTreeManager.getComponentByCollectionId(collectionId, atomicOperation);
+      // Layout 28 required access has already validated registration and loaded state.
+      // Layout 27 retains its open-time repair and assertion-only diagnostic.
       assert bTree != null
           : "Link bag B-tree missing for collection " + collectionId;
       if (bTree != null) {
@@ -10790,7 +11025,7 @@ public abstract class AbstractStorage
    *
    * <p>When {@code collections} is non-null, each evicted snapshot entry increments the
    * {@link PaginatedCollectionV2#deadRecordCount} of the corresponding collection (looked up
-   * by {@link SnapshotKey#componentId()}). This feeds the records GC trigger condition.
+   * by {@link SnapshotKey#collectionId()}). This feeds the records GC trigger condition.
    *
    * @param lwm the global low-water-mark; entries with {@code recordTs < lwm} are evicted
    * @param snapshotIndex the shared snapshot index to remove stale entries from
@@ -10818,7 +11053,7 @@ public abstract class AbstractStorage
         // Increment the per-collection dead record counter so the records GC
         // trigger condition can detect when enough dead records have accumulated.
         if (collections != null) {
-          int id = snapshotKey.componentId();
+          int id = snapshotKey.collectionId();
           if (id >= 0 && id < collections.size()) {
             var coll = collections.get(id);
             if (coll instanceof PaginatedCollectionV2 pc) {

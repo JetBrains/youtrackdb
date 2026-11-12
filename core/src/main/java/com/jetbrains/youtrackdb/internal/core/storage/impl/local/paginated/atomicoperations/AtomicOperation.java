@@ -28,6 +28,12 @@ public interface AtomicOperation {
 
   void deactivate();
 
+  /**
+   * Validates commit prerequisites before persist hooks or commit WAL can run.
+   * A validation failure may set the operation's rollback flag.
+   */
+  void validateCommit();
+
   long getCommitTs();
 
   long getCommitTsUnsafe();
@@ -163,6 +169,20 @@ public interface AtomicOperation {
   default long addFile(String fileName) throws IOException {
     return addFile(fileName, false);
   }
+
+  /**
+   * Creates a file with a supplied identity. The caller must hold the storage state write
+   * lock through booking and commit. Reconstruction permission requires a rebuildable
+   * auxiliary role of an established live owner. Any rejection makes the operation rollback-only.
+   */
+  long addFile(String fileName, long expectedId, boolean nonDurable,
+      boolean reconstructAuxiliary) throws IOException;
+
+  /** Opens only a matching registered identity, including this operation's pending state. */
+  long loadFile(String fileName, long expectedId) throws IOException;
+
+  /** Checks actual presence after validating the registered and operation-local identity. */
+  boolean isFileExists(String fileName, long expectedId);
 
   long loadFile(String fileName) throws IOException;
 

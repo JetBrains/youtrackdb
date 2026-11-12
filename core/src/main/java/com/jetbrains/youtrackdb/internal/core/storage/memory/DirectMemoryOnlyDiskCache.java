@@ -42,7 +42,6 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.annotation.Nullable;
 
@@ -54,7 +53,7 @@ import javax.annotation.Nullable;
 public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     implements ReadCache, WriteCache {
 
-  private final Lock metadataLock = new ReentrantLock();
+  private final ReentrantLock metadataLock = new ReentrantLock();
 
   private final Object2IntOpenHashMap<String> fileNameIdMap = new Object2IntOpenHashMap<>();
   private final Int2ObjectOpenHashMap<String> fileIdNameMap = new Int2ObjectOpenHashMap<>();
@@ -93,9 +92,8 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     try {
       var fileId = fileNameIdMap.getInt(fileName);
 
-      if (fileId == -1) {
-        counter++;
-        final var id = counter;
+      if (!fileNameIdMap.containsKey(fileName)) {
+        final var id = nextAvailableFileId();
 
         files.put(id, new MemoryFile(this.id, id));
         fileNameIdMap.put(fileName, id);
@@ -142,8 +140,63 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   public long bookFileId(final String fileName) {
     metadataLock.lock();
     try {
+      return composeFileId(id, nextAvailableFileId());
+    } finally {
+      metadataLock.unlock();
+    }
+  }
+
+  // The caller holds metadataLock for the whole loop.
+  // The loop skips ids already held by supplied bookings or supplied files.
+  private int nextAvailableFileId() {
+    assert metadataLock.isHeldByCurrentThread();
+    do {
+      if (counter == Integer.MAX_VALUE) {
+        throw new StorageException(storageName, "No positive file identifiers remain");
+      }
       counter++;
-      return composeFileId(id, counter);
+    } while (files.containsKey(counter) || fileIdNameMap.containsKey(counter)
+        || fileIdNameMap.containsKey(-counter));
+    return counter;
+  }
+
+  @Override
+  public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
+    final int intId = extractFileId(fileId);
+    if (intId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    if (reconstructAuxiliary) {
+      validateAuxiliaryReconstruction(fileName, storageName);
+    }
+    metadataLock.lock();
+    try {
+      final boolean present = fileNameIdMap.containsKey(fileName);
+      final int registered = fileNameIdMap.getInt(fileName);
+      final var bookedOrDeletedName = fileIdNameMap.get(-intId);
+      final boolean nameRegisteredWithOtherState =
+          present && (!reconstructAuxiliary || registered != -intId);
+      final boolean liveRegistrationExists = fileIdNameMap.containsKey(intId);
+      final boolean idBookedOrDeletedUnderOtherName =
+          bookedOrDeletedName != null && !bookedOrDeletedName.equals(fileName);
+      if (nameRegisteredWithOtherState || liveRegistrationExists || idBookedOrDeletedUnderOtherName
+          || files.containsKey(intId)) {
+        throw new StorageException(storageName,
+            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+      }
+      fileNameIdMap.put(fileName, -intId);
+      fileIdNameMap.put(-intId, fileName);
+      return composeFileId(id, intId);
+    } finally {
+      metadataLock.unlock();
+    }
+  }
+
+  @Override
+  public Integer registeredFileId(String fileName) {
+    metadataLock.lock();
+    try {
+      return fileNameIdMap.containsKey(fileName) ? fileNameIdMap.getInt(fileName) : null;
     } finally {
       metadataLock.unlock();
     }
@@ -171,10 +224,17 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
         throw new StorageException(storageName, "File with id " + intId + " already exists.");
       }
 
-      if (fileNameIdMap.containsKey(fileName)) {
+      if (fileNameIdMap.containsKey(fileName)
+          && fileNameIdMap.getInt(fileName) != -intId) {
         throw new StorageException(storageName, fileName + " already exists.");
       }
 
+      final var bookedName = fileIdNameMap.get(-intId);
+      if (bookedName != null && !bookedName.equals(fileName)) {
+        throw new StorageException(storageName,
+            "File id " + intId + " is booked for " + bookedName);
+      }
+      fileIdNameMap.remove(-intId);
       files.put(intId, new MemoryFile(id, intId));
       fileNameIdMap.put(fileName, intId);
       fileIdNameMap.put(intId, fileName);
@@ -610,7 +670,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
     try {
       final var fileId = fileNameIdMap.getInt(fileName);
 
-      if (fileId == -1) {
+      if (!fileNameIdMap.containsKey(fileName) || fileId < 0) {
         throw new StorageException(storageName, "File " + fileName + " does not exist.");
       }
 
