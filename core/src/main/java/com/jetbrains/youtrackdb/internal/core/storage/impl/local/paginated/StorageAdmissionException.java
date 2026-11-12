@@ -18,6 +18,7 @@ import java.util.Objects;
 public class StorageAdmissionException extends IOException {
 
   private final Reason reason;
+  private final String detail;
 
   public StorageAdmissionException(
       final Reason reason, final Path storageDirectory, final String message) {
@@ -31,11 +32,17 @@ public class StorageAdmissionException extends IOException {
       final Throwable cause) {
     super(composeMessage(reason, storageDirectory, message), cause);
     this.reason = reason;
+    this.detail = message;
   }
 
   /** Returns the single named cause of this rejection. */
   public Reason reason() {
     return reason;
+  }
+
+  /** Returns the operator guidance without diagnostic context. */
+  public String detail() {
+    return detail;
   }
 
   /**

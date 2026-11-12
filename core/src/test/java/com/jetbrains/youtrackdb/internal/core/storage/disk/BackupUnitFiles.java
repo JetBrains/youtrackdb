@@ -59,13 +59,13 @@ public final class BackupUnitFiles {
 
   /** Returns the database feature format that this build accepts. */
   public static int supportedFeatureFormat() {
-    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25)
+    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27)
         .featureFormatVersion();
   }
 
-  /** Returns layout 25, the default for synthetic fixtures, not the supported set. */
+  /** Returns layout 27, the default for synthetic fixtures, not the supported set. */
   public static int supportedLayoutVersion() {
-    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_25)
+    return DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27)
         .storageLayoutVersion();
   }
 

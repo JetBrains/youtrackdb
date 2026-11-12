@@ -3,53 +3,64 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import org.junit.Test;
 
 public class StorageFormatTest {
 
-  /** Each supported persisted integer resolves to its own immutable, matching descriptor. */
+  /** Only layout 27 can describe a newly created or admitted image. */
   @Test
-  public void supportedStoredLayoutsResolveExactly() {
-    assertThat(StorageFormat.resolve(25)).isSameAs(StorageFormat.LAYOUT_25);
-    assertThat(StorageFormat.resolve(25).layoutVersion()).isEqualTo(25);
-    assertThat(StorageFormat.resolve(26)).isSameAs(StorageFormat.LAYOUT_26);
-    assertThat(StorageFormat.resolve(26).layoutVersion()).isEqualTo(26);
-    assertThat(StorageFormat.resolve(25)).isNotSameAs(StorageFormat.resolve(26));
+  public void onlyLayout27IsSupportedAndIsTheDefault() {
+    assertThat(StorageFormat.values()).containsExactly(StorageFormat.LAYOUT_27);
+    assertThat(StorageFormat.resolve(27)).isSameAs(StorageFormat.productionDefault());
+    assertThat(StorageFormat.productionDefault().layoutVersion()).isEqualTo(27);
+    assertThat(StorageConfiguration.CURRENT_VERSION).isEqualTo(27);
   }
 
-  /** The supported set contains exactly the two literal identities, not a version range. */
+  /** Old layouts require export with the older build and import with the new one. */
   @Test
-  public void supportedSetContainsOnlyLayouts25And26() {
-    assertThat(StorageFormat.values())
-        .containsExactlyInAnyOrder(StorageFormat.LAYOUT_25, StorageFormat.LAYOUT_26);
-    assertThat(StorageFormat.values()).extracting(StorageFormat::layoutVersion)
-        .containsExactlyInAnyOrder(25, 26);
-  }
-
-  /** Ordinary creation remains on literal layout 25 even though layout 26 is supported. */
-  @Test
-  public void productionDefaultRemainsLayout25() {
-    assertThat(StorageFormat.productionDefault()).isSameAs(StorageFormat.resolve(25));
-    assertThat(StorageFormat.productionDefault().layoutVersion()).isEqualTo(25);
-    assertThat(StorageFormat.productionDefault()).isNotSameAs(StorageFormat.resolve(26));
-  }
-
-  /** Historical layouts, unknown future values, and integer extremes reject without fallback. */
-  @Test
-  public void unsupportedStoredLayoutsAreExplicitlyRejected() {
-    for (int version = -25; version < 25; version++) {
-      assertUnsupported(version);
+  public void obsoleteLayoutsRequireExportAndImport() {
+    for (var version : new int[] {25, 26}) {
+      assertThatThrownBy(() -> StorageFormat.resolve(version))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("Unsupported storage layout version: " + version
+              + ". Export the database with the older YouTrackDB version."
+              + " Import that export with the new YouTrackDB version.");
     }
-    assertUnsupported(Integer.MIN_VALUE);
-    assertUnsupported(27);
-    assertUnsupported(28);
-    assertUnsupported(Integer.MAX_VALUE);
   }
 
-  private static void assertUnsupported(final int version) {
-    assertThatThrownBy(() -> StorageFormat.resolve(version))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Unsupported storage layout version: " + version
-            + ". Supported versions: 25, 26");
+  /** Newer layouts explain their origin, including the largest stored integer. */
+  @Test
+  public void newerLayoutsNameTheCreatingVersion() {
+    for (var version : new int[] {28, 99, Integer.MAX_VALUE}) {
+      assertThatThrownBy(() -> StorageFormat.resolve(version))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("Unsupported storage layout version: " + version
+              + ". A newer YouTrackDB version created this database. Open it with that version.");
+    }
+  }
+
+  /** Stored disagreements name both authorities, including a missing configuration value. */
+  @Test
+  public void disagreementsDoNotGiveImageAdmissionAdvice() {
+    for (var version : new Integer[] {24, 25, 26, 28, null}) {
+      assertThat(StorageFormat.layoutVersionDisagreement("stored value", version, "image", 27))
+          .isEqualTo("The stored value reports storage layout version "
+              + (version == null ? "<missing>" : version)
+              + ". The image reports storage layout version 27."
+              + " The stored storage layout versions disagree.")
+          .doesNotContain("Export", "Import", "A newer YouTrackDB version");
+    }
+  }
+
+  /** Other values, including zero and the smallest integer, receive a generic refusal. */
+  @Test
+  public void unknownLayoutsDoNotSuggestMigration() {
+    for (var version : new int[] {Integer.MIN_VALUE, -1, 0, 24}) {
+      assertThatThrownBy(() -> StorageFormat.resolve(version))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("Unsupported storage layout version: " + version
+              + ". This build supports storage layout version 27 only.");
+    }
   }
 }

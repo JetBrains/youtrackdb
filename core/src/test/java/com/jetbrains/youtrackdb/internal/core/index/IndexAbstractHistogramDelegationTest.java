@@ -3,6 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.IndexEngineCallback;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import org.junit.Before;
@@ -42,8 +45,15 @@ public class IndexAbstractHistogramDelegationTest {
   private IndexNotUnique index;
 
   @Before
-  public void setUp() {
+  public void setUp() throws InvalidIndexEngineIdException {
     storage = mock(AbstractStorage.class);
+    // Execute the protected callback against the same engine stubs used by getter tests.
+    // Matching true also pins the dirty-marking contract of the rebuild tail.
+    doAnswer(call -> {
+      IndexEngineCallback<?> callback = call.getArgument(2);
+      callback.callEngine(storage.getIndexEngine(call.getArgument(1)));
+      return null;
+    }).when(storage).callIndexEngine(eq(true), anyInt(), any(IndexEngineCallback.class));
     session = mock(DatabaseSessionEmbedded.class);
     index = new IndexNotUnique(storage);
     setDescriptorIdentity(DESCRIPTOR_IDENTITY);
@@ -451,7 +461,7 @@ public class IndexAbstractHistogramDelegationTest {
     var engine = mock(BaseIndexEngine.class);
     when(storage.getIndexEngine(7)).thenReturn(engine);
 
-    // When: no exception, no interaction beyond getIndexEngine
+    // When: the protected callback resolves the engine and skips atomic work.
     invokeBuildHistogramAfterFill();
 
     verify(storage).getIndexEngine(7);

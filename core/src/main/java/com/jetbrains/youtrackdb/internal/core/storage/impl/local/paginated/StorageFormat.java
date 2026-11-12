@@ -1,13 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 /**
- * Immutable storage-layout identities understood by this build.
+ * The on-disk storage layout understood by this build.
  *
- * <p>The production creation default is independent of the supported set. This type describes
- * identity only and exposes no user-selectable storage option.
+ * <p>A storage layout version identifies the organization of database files. This type owns
+ * layout admission and its operator guidance. It exposes no user-selectable storage option.
  */
 public enum StorageFormat {
-  LAYOUT_25(25), LAYOUT_26(26);
+  LAYOUT_27(27);
 
   private final int layoutVersion;
 
@@ -22,7 +22,19 @@ public enum StorageFormat {
 
   /** Returns the layout for ordinary new databases. */
   public static StorageFormat productionDefault() {
-    return LAYOUT_25;
+    return LAYOUT_27;
+  }
+
+  /**
+   * Reports conflicting stored values after image admission, without image migration advice.
+   * A null stored version identifies a missing configuration value.
+   */
+  public static String layoutVersionDisagreement(String storedSource, Integer storedVersion,
+      String admittedSource, int admittedVersion) {
+    return "The " + storedSource + " reports storage layout version "
+        + (storedVersion == null ? "<missing>" : storedVersion)
+        + ". The " + admittedSource + " reports storage layout version " + admittedVersion
+        + ". The stored storage layout versions disagree.";
   }
 
   /**
@@ -32,10 +44,17 @@ public enum StorageFormat {
    */
   public static StorageFormat resolve(final int layoutVersion) {
     return switch (layoutVersion) {
-      case 25 -> LAYOUT_25;
-      case 26 -> LAYOUT_26;
+      case 27 -> LAYOUT_27;
+      case 25, 26 -> throw new IllegalArgumentException(
+          "Unsupported storage layout version: " + layoutVersion
+              + ". Export the database with the older YouTrackDB version."
+              + " Import that export with the new YouTrackDB version.");
       default -> throw new IllegalArgumentException(
-          "Unsupported storage layout version: " + layoutVersion + ". Supported versions: 25, 26");
+          "Unsupported storage layout version: " + layoutVersion
+              + (layoutVersion > 27
+                  ? ". A newer YouTrackDB version created this database."
+                      + " Open it with that version."
+                  : ". This build supports storage layout version 27 only."));
     };
   }
 }

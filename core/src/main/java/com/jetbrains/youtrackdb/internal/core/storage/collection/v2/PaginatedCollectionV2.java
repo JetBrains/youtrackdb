@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StorageCollectionConfigurat
 import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionConfiguration;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.CollectionSizeLimitException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataInternal;
@@ -95,9 +96,10 @@ import javax.annotation.Nullable;
  *  |       Each bucket holds up to MAX_ENTRIES position entries:
  *  |         [status: 1B][pageIndex: 8B][recordPosition: 4B][recordVersion: 8B]
  *  |
- *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (two-level segment tree)
- *        page 0: first-level summary (max free space per second-level page)
- *        page 1..K: second-level leaves (max free space per data page)
+ *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (three-level segment tree)
+ *        page 0: root summary (max free space per middle page)
+ *        middle pages: max free space per leaf page
+ *        leaf pages: max free space per data page, in depth-first file order
  * }</pre>
  *
  * <h2>Record Storage Layout</h2>
@@ -217,8 +219,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private final CollectionPositionMapV2 collectionPositionMap;
 
   /**
-   * Two-level segment tree that tracks the maximum free space available on each data page,
-   * enabling O(log N) lookup for a page with enough room for a new record chunk.
+   * Three-level free-space map with root, middle, and leaf pages. It tracks the maximum free
+   * space on each data page for O(log N) lookup of room for a new record chunk.
    */
   private final FreeSpaceMap freeSpaceMap;
 
@@ -380,6 +382,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               dataPageCount = state.getFileSize();
             }
 
+            if (dataPageCount < 0 || dataPageCount > FreeSpaceMap.MAX_DATA_PAGE_INDEX) {
+              throw new PaginatedCollectionException(storageName,
+                  "Invalid data page count " + dataPageCount + ". Maximum data page index is "
+                      + FreeSpaceMap.MAX_DATA_PAGE_INDEX + ".",
+                  this);
+            }
+
             if (freeSpaceMap.exists(atomicOperation)) {
               freeSpaceMap.open(atomicOperation);
             } else {
@@ -405,13 +414,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               // recovery-time orphan-truncation orchestrator
               // (AbstractStorage.truncateOrphansAfterRecovery), which runs after open()
               // and trims the file back to (fileSize + 1) * pageSize.
-              for (var pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
+              for (long pageIndex = 1; pageIndex <= dataPageCount; pageIndex++) {
 
                 try (final var cacheEntry =
                     loadPageForRead(atomicOperation, fileId, pageIndex)) {
                   final var collectionPage = new CollectionPage(cacheEntry);
                   freeSpaceMap.updatePageFreeSpace(
-                      atomicOperation, pageIndex, collectionPage.getMaxRecordSize());
+                      atomicOperation, (int) pageIndex, collectionPage.getMaxRecordSize());
                 }
 
                 if (pageIndex > 0 && pageIndex % 1_000 == 0) {
@@ -2290,6 +2299,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, true)) {
       final var collectionState = new PaginatedCollectionStateV2(stateCacheEntry);
       final var fileSize = collectionState.getFileSize();
+      // Refuse before allocation or logical growth. The enclosing atomic operation rolls back
+      // any earlier record chunks and position bookings.
+      if (fileSize >= FreeSpaceMap.MAX_DATA_PAGE_INDEX) {
+        throw new CollectionSizeLimitException(storageName, this, FreeSpaceMap.MAX_DATA_PAGE_INDEX);
+      }
 
       // Per-component lock + state-page write lock + monotonic logical fileSize
       // bookkeeping keep fileSize + 1 at or above the in-progress allocation
