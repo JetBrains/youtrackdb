@@ -903,6 +903,42 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
+  /** An interrupted deferral wait fails close before its initial flush and keeps files open. */
+  @Test
+  public void interruptedCleanupDeferralSkipsInitialFlush() throws Exception {
+    long file = cache.addFile("close-deferral-interrupted.tst");
+    var log = installCloseLog();
+    var before = dwlBytes();
+    var handle = observeDataFile(file);
+    var started = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var background = flushExecutor().submit(() -> {
+      started.countDown();
+      assertTrue(release.await(10, TimeUnit.SECONDS));
+      return null;
+    });
+    assertTrue(started.await(10, TimeUnit.SECONDS));
+    var original = cache;
+    cache = spy(cache);
+    try {
+      Thread.currentThread().interrupt();
+      var thrown = assertThrows(WriteCacheException.class, cache::close);
+      assertTrue(thrown.getCause() instanceof InterruptedException);
+      assertTrue(Thread.currentThread().isInterrupted());
+      org.mockito.Mockito.verify(cache, org.mockito.Mockito.never()).flush();
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).close();
+      assertTrue(handle.isOpen());
+      assertDwlBytes(before);
+    } finally {
+      Thread.interrupted();
+      release.countDown();
+      background.get(10, TimeUnit.SECONDS);
+      flushExecutor().submit(() -> {
+      }).get(10, TimeUnit.SECONDS);
+      cache = original;
+    }
+  }
+
   /** Interrupting the barrier wait restores the flag and leaves data and DWL files open. */
   @Test
   public void interruptedCloseBarrierPreservesOpenFilesAndInterruptFlag() throws Exception {
@@ -1010,7 +1046,10 @@ public class WOWCacheChangedPageTrackingTest {
     setField(cache, "doubleWriteLog", log);
     cache.loadRegisteredFiles();
     // Reusing the fixture starts a new close attempt with ordinary cleanup enabled.
-    setField(cache, "deferDwlCleanup", false);
+    flushExecutor().submit(() -> {
+      setField(cache, "deferDwlCleanup", false);
+      return null;
+    }).get(10, TimeUnit.SECONDS);
     setField(cache, "stopFlush", false);
     for (int page = 0; page < 3; page++) {
       log.write(new ArrayList<>(List.of(java.nio.ByteBuffer.allocate(pageSize))),

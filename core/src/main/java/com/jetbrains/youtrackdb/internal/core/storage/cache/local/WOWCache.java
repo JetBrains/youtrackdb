@@ -541,8 +541,7 @@ public final class WOWCache extends AbstractWriteCache
       () -> ((ScheduledThreadPoolExecutorWithLogging) commitExecutor())
           .isExecutingOnCurrentThread());
 
-  // Serialize close entry with cleanup so no in-flight truncate can delete close-time copies.
-  private final Object dwlCleanupLock = new Object();
+  // Confined to the single-thread flush executor, including close entry and cleanup decisions.
   private boolean deferDwlCleanup;
 
   /**
@@ -2472,9 +2471,20 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long[] close() throws IOException {
-    synchronized (dwlCleanupLock) {
-      if (!closed) {
-        deferDwlCleanup = true;
+    if (!closed) {
+      // Await any in-flight cleanup and defer further cleanup before the initial flush writes.
+      final var deferCleanup = commitExecutor().submit(() -> deferDwlCleanup = true);
+      try {
+        deferCleanup.get();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName, "Write-cache close was interrupted"), e,
+            storageName);
+      } catch (final ExecutionException e) {
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName, "Cannot defer double write log cleanup for close"),
+            e.getCause(), storageName);
       }
     }
     flush();
@@ -4044,12 +4054,10 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void fsyncFiles(long syncToken) throws java.lang.InterruptedException, IOException {
-    synchronized (dwlCleanupLock) {
-      if (deferDwlCleanup) {
-        // Final close synchronization covers these writes. Do not force or acknowledge a rotation
-        // when its cleanup is deferred, or every close-time chunk would force the same rotation.
-        return;
-      }
+    if (deferDwlCleanup) {
+      // Final close synchronization covers these writes. Do not force or acknowledge a rotation
+      // when its cleanup is deferred, or every close-time chunk would force the same rotation.
+      return;
     }
     if (callFsync) {
       for (int intFileId : idNameMap.keySet()) {
@@ -4073,11 +4081,7 @@ public final class WOWCache extends AbstractWriteCache
 
     // Truncate even without fsync so that the double-write log does not grow without bound.
     doubleWriteLog.acknowledgeSync(syncToken);
-    synchronized (dwlCleanupLock) {
-      if (!deferDwlCleanup) {
-        doubleWriteLog.truncate(Set.of());
-      }
-    }
+    doubleWriteLog.truncate(Set.of());
   }
 
   /**
