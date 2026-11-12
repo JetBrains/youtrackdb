@@ -124,20 +124,20 @@ public interface ReadCache {
   }
 
   /**
-   * Thread-confined resources for page-set application. The caller chooses and orders pages.
-   * Load every pin before locking any page. Call markChanged before touching page content.
+   * Thread-confined resources for page-set application. Slots are consecutive from zero,
+   * in strictly increasing canonical file/page order. Pin returns the entry for that slot.
+   * Load every pin before locking any page. Prepare successfully before touching page content.
    * Close unlocks every page before releasing pins. A failed publish keeps its pin and budget.
    */
   interface WriteReservation extends AutoCloseable {
-    CacheEntry pin(long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums);
+    CacheEntry pin(int slot, long fileId, long pageIndex, WriteCache writeCache,
+        boolean verifyChecksums);
 
-    void lock(CacheEntry entry);
+    void lock(int slot);
 
-    void prepare(CacheEntry entry, LogSequenceNumber startLSN, LogSequenceNumber endLSN);
+    void prepare(int slot, LogSequenceNumber startLSN, LogSequenceNumber endLSN);
 
-    void markChanged(CacheEntry entry);
-
-    void publishAndUnlock(CacheEntry entry);
+    void publishAndUnlock(int slot);
 
     @Override
     void close();

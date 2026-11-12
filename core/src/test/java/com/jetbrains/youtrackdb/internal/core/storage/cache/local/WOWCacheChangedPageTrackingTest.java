@@ -124,14 +124,13 @@ public class WOWCacheChangedPageTrackingTest {
     write(file, 0);
     var boundary = spy(cache);
     try (var pins = readCache.tryReserveWritePins(1)) {
-      var entry = pins.pin(file, 0, boundary, false);
+      var entry = pins.pin(0, file, 0, boundary, false);
       cache.flush(file);
       assertNull(cache.getMinimalNotFlushedSegment());
       var seal = tracker.beginBackup();
-      pins.lock(entry);
-      pins.prepare(entry, new LogSequenceNumber(7, 1), null);
+      pins.lock(0);
+      pins.prepare(0, new LogSequenceNumber(7, 1), null);
       assertPages(file, 0L);
-      pins.markChanged(entry);
       entry.getCachePointer().getBuffer().putInt(100, 123456);
       long skips = cache.pageCacheCounters().flushSkips();
       // Keep the existing page flush-eligible before the reservation publishes it again.
@@ -150,7 +149,7 @@ public class WOWCacheChangedPageTrackingTest {
       }).when(boundary).store(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
       cache.flush(file);
       assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
-      pins.publishAndUnlock(entry);
+      pins.publishAndUnlock(0);
       // A second acquisition locks a page that is already in the write cache.
       // Flush must use try-lock, report the skip, and leave the dirty record intact.
       entry.acquireExclusiveLock();
@@ -767,10 +766,10 @@ public class WOWCacheChangedPageTrackingTest {
     assertFalse(tracker.isTrusted());
     assertNull(cache.getMinimalNotFlushedSegment());
     try (var pins = readCache.tryReserveWritePins(1)) {
-      var entry = pins.pin(file, 0, cache, false);
-      pins.lock(entry);
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
       assertSame(failure, assertThrows(OutOfMemoryError.class,
-          () -> pins.prepare(entry, new LogSequenceNumber(7, 1), null)));
+          () -> pins.prepare(0, new LogSequenceNumber(7, 1), null)));
     }
     assertNull(cache.getMinimalNotFlushedSegment());
     armed.set(false);
@@ -976,12 +975,11 @@ public class WOWCacheChangedPageTrackingTest {
     }).when(observed).write(org.mockito.ArgumentMatchers.anyList());
     handles.add(file, observed);
     try (var pins = readCache.tryReserveWritePins(1)) {
-      var entry = pins.pin(file, 0, cache, false);
-      pins.lock(entry);
-      pins.prepare(entry, end, end);
-      pins.markChanged(entry);
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
+      pins.prepare(0, end, end);
       entry.getCachePointer().getBuffer().putInt(100, 654321);
-      pins.publishAndUnlock(entry);
+      pins.publishAndUnlock(0);
     }
     var flush = WOWCache.class.getDeclaredMethod(
         "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
@@ -1005,9 +1003,9 @@ public class WOWCacheChangedPageTrackingTest {
     write(file, 0);
     cache.flush(file);
     try (var pins = readCache.tryReserveWritePins(1)) {
-      var entry = pins.pin(file, 0, cache, false);
-      pins.lock(entry);
-      pins.prepare(entry, new LogSequenceNumber(7, 1), null);
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
+      pins.prepare(0, new LogSequenceNumber(7, 1), null);
     }
     assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
     cache.flush(file);

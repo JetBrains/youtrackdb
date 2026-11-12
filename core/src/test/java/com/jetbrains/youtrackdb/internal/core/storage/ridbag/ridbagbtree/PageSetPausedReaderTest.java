@@ -8,7 +8,6 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
@@ -374,7 +373,7 @@ public class PageSetPausedReaderTest {
           assertEquals(-1, new Bucket(root).getRightSibling());
         }
         return lock.callRealMethod();
-      }).when(reservation).lock(any());
+      }).when(reservation).lock(anyInt());
       return reservation;
     }).when(cache).tryReserveWritePins(anyInt());
     paused(false, false, true, 1, (reader, pages) -> {

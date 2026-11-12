@@ -36,7 +36,7 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
     try (var pins = read.tryReserveWritePins(3)) {
       var pinned = worker.submit(() -> {
         org.junit.Assert.assertNull(read.tryReserveWritePins(1));
-        return pins.pin(1, 0, write, false);
+        return pins.pin(0, 1, 0, write, false);
       }).get(10, TimeUnit.SECONDS);
       assertSame(entry, pinned);
       verify(write, never()).updateDirtyPagesTable(any(), any());
@@ -63,7 +63,7 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
         var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
         var write = loadingCache(pool);
         var pins = read.tryReserveWritePins(3);
-        var first = pins.pin(1, 0, write, false);
+        var first = pins.pin(0, 1, 0, write, false);
         if (stage == 0) {
           doAnswer(call -> {
             throw failure;
@@ -74,7 +74,7 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
             throw failure;
           }).when(write).checkCacheOverflow();
         } else {
-          pins.lock(first);
+          pins.lock(0);
           doAnswer(call -> {
             throw failure;
           }).when(write).updateDirtyPagesTable(any(), any());
@@ -82,9 +82,9 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
         try {
           assertSame(failure, assertThrows(failure.getClass(), () -> {
             if (first.getCachePointer().getPageFrame().tryOptimisticRead() == 0) {
-              pins.prepare(first, null, null);
+              pins.prepare(0, null, null);
             } else {
-              pins.pin(1, 1, write, false);
+              pins.pin(1, 1, 1, write, false);
             }
           }));
         } finally {
@@ -108,14 +108,12 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
       var write = loadingCache(pool);
       var pins = read.tryReserveWritePins(3);
-      var first = pins.pin(1, 0, write, false);
-      var second = pins.pin(1, 1, write, false);
-      pins.lock(first);
-      pins.lock(second);
-      pins.prepare(first, null, null);
-      pins.prepare(second, null, null);
-      pins.markChanged(first);
-      pins.markChanged(second);
+      var first = pins.pin(0, 1, 0, write, false);
+      var second = pins.pin(1, 1, 1, write, false);
+      pins.lock(0);
+      pins.lock(1);
+      pins.prepare(0, null, null);
+      pins.prepare(1, null, null);
       var failure = new IllegalStateException("first");
       var other = same ? failure : new IllegalStateException("other");
       var calls = new java.util.concurrent.atomic.AtomicInteger();
@@ -152,24 +150,56 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
     assertThrows(IllegalArgumentException.class, () -> read.tryReserveWritePins(0));
     org.junit.Assert.assertNull(read.tryReserveWritePins(4));
     var pins = read.tryReserveWritePins(1);
-    var entry = pins.pin(1, 0, write, false);
-    assertThrows(IllegalStateException.class, () -> pins.pin(1, 1, write, false));
-    assertThrows(IllegalStateException.class, () -> pins.prepare(entry, null, null));
-    assertThrows(IllegalStateException.class, () -> pins.markChanged(entry));
-    assertThrows(IllegalStateException.class, () -> pins.publishAndUnlock(entry));
-    pins.lock(entry);
-    assertThrows(IllegalStateException.class, () -> pins.lock(entry));
-    pins.prepare(entry, null, null);
-    assertThrows(IllegalStateException.class, () -> pins.prepare(entry, null, null));
+    var entry = pins.pin(0, 1, 0, write, false);
+    assertThrows(IllegalStateException.class, () -> pins.pin(1, 1, 1, write, false));
+    assertThrows(IllegalStateException.class, () -> pins.prepare(0, null, null));
+
+    assertThrows(IllegalStateException.class, () -> pins.publishAndUnlock(0));
+    pins.lock(0);
+    assertThrows(IllegalStateException.class, () -> pins.lock(0));
+    pins.prepare(0, null, null);
+    assertThrows(IllegalStateException.class, () -> pins.prepare(0, null, null));
     doAnswer(call -> {
       assertEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
       return null;
     }).when(write).store(anyLong(), anyLong(), any());
-    pins.publishAndUnlock(entry);
+    pins.publishAndUnlock(0);
     assertTrue(!entry.isNewlyAllocatedPage());
     pins.close();
     pins.close();
-    assertThrows(IllegalStateException.class, () -> pins.lock(entry));
+    assertThrows(IllegalStateException.class, () -> pins.lock(0));
+    assertEquals(0, read.reservedWritePins());
+    read.clear();
+    pool.clear();
+  }
+
+  // Reject duplicates, descending coordinates and skipped slots before acquiring another pin.
+  // Invalid operations leave the earlier pin intact and close returns all reserved units.
+  @Test
+  public void orderedRegistrationRejectsDuplicateAndDescendingPagesWithoutAcquisition()
+      throws Exception {
+    var pool = new ByteBufferPool(4096);
+    var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
+    var write = loadingCache(pool);
+    try (var pins = read.tryReserveWritePins(3)) {
+      var first = pins.pin(0, 1, 2, write, false);
+      assertThrows(IllegalArgumentException.class, () -> pins.pin(1, 1, 2, write, false));
+      assertThrows(IllegalArgumentException.class, () -> pins.pin(1, 1, 1, write, false));
+      assertThrows(IllegalStateException.class, () -> pins.pin(2, 1, 3, write, false));
+      assertThrows(IllegalStateException.class, () -> pins.lock(-1));
+      assertThrows(IllegalStateException.class, () -> pins.lock(1));
+      var second = pins.pin(1, 1, 3, write, false);
+      verify(write, org.mockito.Mockito.times(2)).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+      assertEquals(3, read.reservedWritePins());
+      pins.lock(0);
+      pins.lock(1);
+      pins.prepare(0, null, null);
+      pins.prepare(1, null, null);
+      pins.publishAndUnlock(0);
+      pins.publishAndUnlock(1);
+      assertTrue(first.getCachePointer().getPageFrame().tryOptimisticRead() != 0);
+      assertTrue(second.getCachePointer().getPageFrame().tryOptimisticRead() != 0);
+    }
     assertEquals(0, read.reservedWritePins());
     read.clear();
     pool.clear();
@@ -207,7 +237,7 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       });
       try (var pins = read.tryReserveWritePins(1)) {
         assertSame(failure, assertThrows(OutOfMemoryError.class,
-            () -> pins.pin(1, 0, write, false)));
+            () -> pins.pin(0, 1, 0, write, false)));
       } finally {
         batchField.set(read, originalBatch);
       }
@@ -228,20 +258,19 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
       var write = loadingCache(pool);
       var pins = read.tryReserveWritePins(2);
-      var first = pins.pin(1, 0, write, false);
-      var second = pins.pin(1, 1, write, false);
+      var first = pins.pin(0, 1, 0, write, false);
+      var second = pins.pin(1, 1, 1, write, false);
       doAnswer(call -> {
         throw failure;
       }).when(write).store(anyLong(), anyLong(), any());
       assertSame(failure, assertThrows(failure.getClass(), () -> {
         try (pins) {
-          pins.lock(first);
-          pins.lock(second);
-          pins.prepare(first, null, null);
-          pins.prepare(second, null, null);
-          pins.markChanged(first);
-          pins.markChanged(second);
-          pins.publishAndUnlock(first);
+          pins.lock(0);
+          pins.lock(1);
+          pins.prepare(0, null, null);
+          pins.prepare(1, null, null);
+
+          pins.publishAndUnlock(0);
         }
       }));
       assertEquals(2, read.reservedWritePins());
@@ -278,9 +307,9 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 3);
       var write = loadingCache(pool);
       var pins = read.tryReserveWritePins(3);
-      var first = pins.pin(1, 0, write, false);
-      var second = pins.pin(1, 1, write, false);
-      var unprepared = pins.pin(1, 2, write, false);
+      var first = pins.pin(0, 1, 0, write, false);
+      var second = pins.pin(1, 1, 1, write, false);
+      var unprepared = pins.pin(2, 1, 2, write, false);
       var calls = new java.util.concurrent.atomic.AtomicInteger();
       doAnswer(call -> {
         calls.incrementAndGet();
@@ -291,14 +320,14 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       var thrown = assertThrows(expected,
           () -> {
             try (pins) {
-              pins.lock(first);
-              pins.lock(second);
-              pins.lock(unprepared);
-              pins.prepare(first, null, null);
-              pins.prepare(second, null, null);
+              pins.lock(0);
+              pins.lock(1);
+              pins.lock(2);
+              pins.prepare(0, null, null);
+              pins.prepare(1, null, null);
               if (handledPublish) {
                 assertSame(failure, assertThrows(failure.getClass(),
-                    () -> pins.publishAndUnlock(first)));
+                    () -> pins.publishAndUnlock(0)));
               } else if (failure instanceof Error error) {
                 throw error;
               } else {
@@ -345,11 +374,11 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
     var pins = read.tryReserveWritePins(3);
     var entries = new com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry[3];
     for (int i = 0; i < entries.length; i++) {
-      entries[i] = pins.pin(1, i, write, false);
+      entries[i] = pins.pin(i, 1, i, write, false);
     }
-    for (var entry : entries) {
-      pins.lock(entry);
-      pins.prepare(entry, null, null);
+    for (int slot = 0; slot < entries.length; slot++) {
+      pins.lock(slot);
+      pins.prepare(slot, null, null);
     }
     var first = new IllegalStateException("first");
     var second = new IllegalStateException("second");
@@ -406,27 +435,27 @@ public class LockFreeReadCacheDirtyNotificationFailureTest {
       var reservation = read.tryReserveWritePins(3);
       org.junit.Assert.assertNotNull(reservation);
       org.junit.Assert.assertNull(read.tryReserveWritePins(1));
-      var first = reservation.pin(1, 0, write, false);
-      var second = reservation.pin(1, 1, write, false);
+      var first = reservation.pin(0, 1, 0, write, false);
+      var second = reservation.pin(1, 1, 1, write, false);
       var firstFrame = first.getCachePointer().getPageFrame();
       var secondFrame = second.getCachePointer().getPageFrame();
       assertTrue(firstFrame.tryOptimisticRead() != 0);
       verify(write, never()).updateDirtyPagesTable(any(), any());
       verify(write, never()).store(anyLong(), anyLong(), any());
-      reservation.lock(first);
-      reservation.lock(second);
+      reservation.lock(0);
+      reservation.lock(1);
       var failure = new IllegalStateException("injected");
       if (stage == 1) {
         doAnswer(call -> {
           throw failure;
         }).when(write).updateDirtyPagesTable(any(), any());
         assertSame(failure, assertThrows(IllegalStateException.class,
-            () -> reservation.prepare(first, null, null)));
+            () -> reservation.prepare(0, null, null)));
       } else {
-        reservation.prepare(first, null, null);
-        reservation.prepare(second, null, null);
+        reservation.prepare(0, null, null);
+        reservation.prepare(1, null, null);
         if (stage >= 2) {
-          reservation.markChanged(first);
+
           first.getCachePointer().getBuffer().putInt(100, 42);
           if (stage == 3) {
             doAnswer(call -> {

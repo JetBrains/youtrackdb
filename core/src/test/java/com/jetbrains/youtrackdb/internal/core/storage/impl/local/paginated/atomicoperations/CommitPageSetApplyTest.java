@@ -160,36 +160,30 @@ public class CommitPageSetApplyTest {
           pinned.add(entry);
           events.add("pin " + key(entry));
           return entry;
-        }).when(reservation).pin(anyLong(), anyLong(), any(), anyBoolean());
+        }).when(reservation).pin(anyInt(), anyLong(), anyLong(), any(), anyBoolean());
         doAnswer(c -> {
           assertEquals(4, pinned.size());
           assertTrue(events.stream().noneMatch(e -> e.startsWith("prepare")));
-          var entry = c.getArgument(0, CacheEntry.class);
+          var entry = pinned.get(c.getArgument(0, Integer.class));
           assertEquals(0, entry.getCachePointer().getBuffer().get(100));
           events.add("lock " + key(entry));
           return c.callRealMethod();
-        }).when(reservation).lock(any());
+        }).when(reservation).lock(anyInt());
         doAnswer(c -> {
           assertEquals(4, events.stream().filter(e -> e.startsWith("lock")).count());
-          var entry = c.getArgument(0, CacheEntry.class);
+          var entry = pinned.get(c.getArgument(0, Integer.class));
           assertEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
           assertEquals(0, epoch.enterSeq());
           assertEquals(0, epoch.exitSeq());
           assertEquals(write.isNonDurable(entry.getFileId()) ? null
               : new LogSequenceNumber(7, 1), c.getArgument(1));
+          assertEquals(0, entry.getCachePointer().getBuffer().get(100));
           events.add("prepare " + key(entry));
           return c.callRealMethod();
-        }).when(reservation).prepare(any(), any(), any());
+        }).when(reservation).prepare(anyInt(), any(), any());
         doAnswer(c -> {
-          var entry = c.getArgument(0, CacheEntry.class);
+          var entry = pinned.get(c.getArgument(0, Integer.class));
           assertEquals("prepare " + key(entry), events.getLast());
-          assertEquals(0, entry.getCachePointer().getBuffer().get(100));
-          events.add("mark " + key(entry));
-          return c.callRealMethod();
-        }).when(reservation).markChanged(any());
-        doAnswer(c -> {
-          var entry = c.getArgument(0, CacheEntry.class);
-          assertEquals("mark " + key(entry), events.getLast());
           assertEquals(entry.getPageIndex() + 21, entry.getCachePointer().getBuffer().get(100));
           events.add("publish " + key(entry));
           var result = c.callRealMethod();
@@ -197,7 +191,7 @@ public class CommitPageSetApplyTest {
           assertEquals(4, read.reservedWritePins());
           events.add("unlock " + key(entry));
           return result;
-        }).when(reservation).publishAndUnlock(any());
+        }).when(reservation).publishAndUnlock(anyInt());
         doAnswer(c -> {
           assertEquals(4, events.stream().filter(e -> e.startsWith("unlock")).count());
           events.add("close");
@@ -319,6 +313,94 @@ public class CommitPageSetApplyTest {
           });
           assertEquals(expected.stream().map(k -> "lock " + k).toList(), locks);
           assertEquals("close", f.events.getLast());
+        }
+      }
+    }
+  }
+
+  // Compare independently committed epoch output with page-set output at sort boundaries.
+  // Permutations, gaps and file changes must preserve bytes, both LSNs and dirty dependencies.
+  @Test
+  public void pageSetShapesMatchForcedEpochAtArrayAndSortBoundaries() throws Exception {
+    for (int count : new int[] {1, 4, 15, 16, 1023, 1024}) {
+      for (int shape = 0; shape < 4; shape++) {
+        List<byte[]> legacyBytes = null;
+        List<LogSequenceNumber> legacyEnds = null;
+        List<Map<Long, LogSequenceNumber>> legacyDirty = null;
+        for (boolean enabled : new boolean[] {false, true}) {
+          try (var f = new Fixture(count)) {
+            long first = f.write.addFile("shape-first");
+            long second = f.write.addFile("shape-second");
+            // Materialize the extent independently before adding private changes out of order.
+            for (long file : new long[] {first, second}) {
+              var last = f.read.loadOrAddForWrite(file,
+                  shape == 2 ? 3L * (count - 1) : count - 1, f.write, false, null);
+              f.read.releaseFromWrite(last, f.write, false);
+            }
+            for (int i = 0; i < count; i++) {
+              long file = shape == 3 && i % 2 != 0 ? second : first;
+              var entry = f.read.loadOrAddForWrite(file, shape == 2 ? 3L * i : i,
+                  f.write, false, null);
+              // Initialize content independently. Disk gap reads may contain IO-only headers.
+              entry.getCachePointer().getBuffer().duplicate()
+                  .put(new byte[DurablePage.MAX_PAGE_SIZE_BYTES]);
+              f.read.releaseFromWrite(entry, f.write, false);
+            }
+            var order = new ArrayList<Integer>();
+            for (int i = 0; i < count; i++) {
+              order.add(i);
+            }
+            if (shape == 0) {
+              java.util.Collections.shuffle(order, new java.util.Random(9127 + count));
+            } else {
+              java.util.Collections.reverse(order);
+            }
+            var op = f.operation(enabled);
+            for (int i : order) {
+              long file = shape == 3 && i % 2 != 0 ? second : first;
+              long page = shape == 2 ? 3L * i : i;
+              f.change(op, file, page, false);
+            }
+            var end = op.commitChanges(42, f.wal);
+            assertNotNull(end);
+            assertEquals(0, f.read.reservedWritePins());
+            assertEquals(enabled ? 0 : 1, f.epoch.enterSeq());
+            assertEquals(enabled ? 0 : 1, f.epoch.exitSeq());
+            var bytes = new ArrayList<byte[]>();
+            var ends = new ArrayList<LogSequenceNumber>();
+            for (int i = 0; i < count; i++) {
+              long file = shape == 3 && i % 2 != 0 ? second : first;
+              long page = shape == 2 ? 3L * i : i;
+              var entry = f.read.loadForRead(file, page, f.write, false);
+              try {
+                var data = new byte[DurablePage.MAX_PAGE_SIZE_BYTES];
+                entry.getCachePointer().getBuffer().duplicate().get(data);
+                bytes.add(data);
+                ends.add(entry.getEndLSN());
+                assertEquals(end, entry.getEndLSN());
+                assertNotEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+              } finally {
+                f.read.releaseFromRead(entry);
+              }
+            }
+            var dirty = List.of(
+                PageSetTrackingAssertions.dirtyPages(f.write, f.write.internalFileId(first)),
+                PageSetTrackingAssertions.dirtyPages(f.write, f.write.internalFileId(second)));
+            // The extent preload contributes one additional page in the other file.
+            assertEquals(count + 1, dirty.stream().mapToInt(Map::size).sum());
+            if (!enabled) {
+              legacyBytes = bytes;
+              legacyEnds = ends;
+              legacyDirty = dirty;
+            } else {
+              for (int i = 0; i < count; i++) {
+                assertArrayEquals("count=" + count + ", shape=" + shape + ", page=" + i,
+                    legacyBytes.get(i), bytes.get(i));
+              }
+              assertEquals(legacyEnds, ends);
+              assertEquals(legacyDirty, dirty);
+            }
+          }
         }
       }
     }
@@ -914,7 +996,7 @@ public class CommitPageSetApplyTest {
           if (step == FailureStep.CLOSE_UNLOCK || step == FailureStep.CLOSE_PUBLISH
               || step == FailureStep.CLOSE_PUBLISH_UNLOCK) {
             // Leave all prepared pages to the real close implementation.
-            org.mockito.Mockito.doNothing().when(reservation).publishAndUnlock(any());
+            org.mockito.Mockito.doNothing().when(reservation).publishAndUnlock(anyInt());
           }
           var pinIndex = new AtomicInteger();
           doAnswer(c -> {
@@ -931,10 +1013,10 @@ public class CommitPageSetApplyTest {
             }
             if (step == FailureStep.DUPLICATE && index == 1) {
               injected.incrementAndGet();
-              return reservation.pin(first, 0, f.write, false);
+              return reservation.pin(index, first, 0, f.write, false);
             }
             return c.callRealMethod();
-          }).when(reservation).pin(anyLong(), anyLong(), any(), anyBoolean());
+          }).when(reservation).pin(anyInt(), anyLong(), anyLong(), any(), anyBoolean());
           return reservation;
         }).when(f.read).tryReserveWritePins(4);
         if (step == FailureStep.LOCK) {
@@ -994,7 +1076,7 @@ public class CommitPageSetApplyTest {
             injected.get());
         if (step == FailureStep.DUPLICATE) {
           assertEquals(IllegalArgumentException.class, thrown.getClass());
-          assertEquals("Page is already pinned by this reservation", thrown.getMessage());
+          assertEquals("Pin pages in strictly increasing coordinate order", thrown.getMessage());
           assertEquals(0, thrown.getSuppressed().length);
         } else if ((step == FailureStep.RELEASE || step == FailureStep.CLOSE_UNLOCK
             || step == FailureStep.CLOSE_PUBLISH

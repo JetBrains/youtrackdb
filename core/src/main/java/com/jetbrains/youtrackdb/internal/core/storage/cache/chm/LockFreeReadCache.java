@@ -609,99 +609,106 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final class Reservation implements WriteReservation {
     private final int pages;
-    private final java.util.IdentityHashMap<CacheEntry, PinnedPage> pins;
+    private final CacheEntry[] entries;
+    private final WriteCache[] writeCaches;
+    private final boolean[] locked;
+    private final boolean[] prepared;
+    private final boolean[] retained;
+    private final boolean[] finished;
+    private int size;
     private boolean locking;
     private boolean closed;
 
     Reservation(int pages) {
       this.pages = pages;
-      pins = new java.util.IdentityHashMap<>(pages);
+      entries = new CacheEntry[pages];
+      writeCaches = new WriteCache[pages];
+      locked = new boolean[pages];
+      prepared = new boolean[pages];
+      retained = new boolean[pages];
+      finished = new boolean[pages];
     }
 
-    private PinnedPage page(CacheEntry entry) {
-      if (closed || !pins.containsKey(entry)) {
-        throw new IllegalStateException("Page does not belong to an open reservation");
+    private CacheEntry page(int slot) {
+      if (closed || slot < 0 || slot >= size) {
+        throw new IllegalStateException("Slot does not belong to an open reservation");
       }
-      return pins.get(entry);
+      return entries[slot];
     }
 
     @Override
-    public CacheEntry pin(long fileId, long pageIndex, WriteCache writeCache,
+    public CacheEntry pin(int slot, long fileId, long pageIndex, WriteCache writeCache,
         boolean verifyChecksums) {
-      if (closed || locking || pins.size() == pages) {
-        throw new IllegalStateException("Pin before locking and within the reservation");
+      if (closed || locking || size == pages || slot != size) {
+        throw new IllegalStateException("Pin consecutive slots before locking");
       }
-      var entry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, true);
-      if (pins.containsKey(entry)) {
-        entry.releaseEntry();
-        throw new IllegalArgumentException("Page is already pinned by this reservation");
+      // Compare canonical cache coordinates, including the int page coordinate used by doLoad.
+      // Strict ordering rejects duplicates without an identity lookup or another acquisition.
+      fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+      int page = (int) pageIndex;
+      if (size > 0) {
+        var previous = entries[size - 1];
+        int order = Long.compare(previous.getFileId(), fileId);
+        if (order > 0 || (order == 0 && previous.getPageIndex() >= page)) {
+          throw new IllegalArgumentException("Pin pages in strictly increasing coordinate order");
+        }
       }
-      try {
-        pins.put(entry, new PinnedPage(entry, writeCache));
-      } catch (RuntimeException | Error failure) {
-        entry.releaseEntry();
-        throw failure;
-      }
+      var entry = doLoad(fileId, page, writeCache, verifyChecksums, true);
+      entries[size] = entry;
+      writeCaches[size] = writeCache;
+      size++;
       return entry;
     }
 
     @Override
-    public void lock(CacheEntry entry) {
-      var pin = page(entry);
-      if (pin.locked || pin.finished) {
+    public void lock(int slot) {
+      var entry = page(slot);
+      if (locked[slot] || finished[slot]) {
         throw new IllegalStateException("Page is already locked or released");
       }
       locking = true;
       entry.acquireExclusiveLock();
-      pin.locked = true;
+      locked[slot] = true;
     }
 
     @Override
-    public void prepare(CacheEntry entry, LogSequenceNumber startLSN, LogSequenceNumber endLSN) {
-      var pin = page(entry);
-      if (!pin.locked || pin.prepared) {
+    public void prepare(int slot, LogSequenceNumber startLSN, LogSequenceNumber endLSN) {
+      var entry = page(slot);
+      if (!locked[slot] || prepared[slot]) {
         throw new IllegalStateException("Prepare once under the frame lock");
       }
       entry.setEndLSN(endLSN);
       // Like loadOrAddForWrite, a failed notification must not publish unchanged content.
       // The reservation owns all acquisitions and closes them together on the caller's exit.
-      pin.writeCache.updateDirtyPagesTable(entry.getCachePointer(), startLSN);
-      pin.prepared = true;
+      writeCaches[slot].updateDirtyPagesTable(entry.getCachePointer(), startLSN);
+      prepared[slot] = true;
     }
 
     @Override
-    public void markChanged(CacheEntry entry) {
-      var pin = page(entry);
-      if (!pin.locked || !pin.prepared) {
-        throw new IllegalStateException("Prepare before changing content");
-      }
-    }
-
-    @Override
-    public void publishAndUnlock(CacheEntry entry) {
-      var pin = page(entry);
-      if (!pin.locked) {
+    public void publishAndUnlock(int slot) {
+      page(slot);
+      if (!locked[slot]) {
         throw new IllegalStateException("Publish under the frame lock");
       }
-      finish(pin);
+      finish(slot);
     }
 
-    private void finish(PinnedPage pin) {
+    private void finish(int slot) {
       Throwable publishFailure = null;
       try {
-        if (pin.prepared) {
+        if (prepared[slot]) {
           // Set retention first because store can fail after partially installing its reference.
-          pin.retained = true;
-          publish(pin.entry, pin.writeCache);
-          pin.entry.clearAllocationFlag();
-          pin.retained = false;
+          retained[slot] = true;
+          publish(entries[slot], writeCaches[slot]);
+          entries[slot].clearAllocationFlag();
+          retained[slot] = false;
         }
       } catch (RuntimeException | Error failure) {
         publishFailure = failure;
         throw failure;
       } finally {
         try {
-          pin.entry.releaseExclusiveLock();
+          entries[slot].releaseExclusiveLock();
         } catch (RuntimeException | Error unlockFailure) {
           // Publication owns propagation, including its Error route, across unlock cleanup.
           if (publishFailure == null) {
@@ -712,8 +719,8 @@ public final class LockFreeReadCache implements ReadCache {
           }
         } finally {
           // Do not retry publication or unlock if release reports a cleanup failure.
-          pin.locked = false;
-          pin.finished = true;
+          locked[slot] = false;
+          finished[slot] = true;
         }
       }
     }
@@ -725,30 +732,30 @@ public final class LockFreeReadCache implements ReadCache {
       }
       closed = true;
       Throwable failure = null;
-      int retained = 0;
+      int kept = 0;
       // Unlock all frames before releasing any pin. Pool return takes the frame lock.
-      for (var pin : pins.values()) {
-        if (pin.locked) {
+      for (int slot = 0; slot < size; slot++) {
+        if (locked[slot]) {
           try {
-            finish(pin);
+            finish(slot);
           } catch (RuntimeException | Error error) {
             failure = collectCleanupFailure(failure, error);
           }
         }
       }
-      for (var pin : pins.values()) {
-        if (pin.retained) {
-          retained++;
+      for (int slot = 0; slot < size; slot++) {
+        if (retained[slot]) {
+          kept++;
         } else {
           try {
-            pin.entry.releaseEntry();
+            entries[slot].releaseEntry();
           } catch (RuntimeException | Error error) {
-            retained++;
+            kept++;
             failure = collectCleanupFailure(failure, error);
           }
         }
       }
-      reservedPins.addAndGet(-(pages - retained));
+      reservedPins.addAndGet(-(pages - kept));
       if (failure instanceof RuntimeException error) {
         throw error;
       }
@@ -776,20 +783,6 @@ public final class LockFreeReadCache implements ReadCache {
     }
     aggregate.addSuppressed(failure);
     return aggregate;
-  }
-
-  private static final class PinnedPage {
-    final CacheEntry entry;
-    final WriteCache writeCache;
-    boolean locked;
-    boolean prepared;
-    boolean retained;
-    boolean finished;
-
-    PinnedPage(CacheEntry entry, WriteCache writeCache) {
-      this.entry = entry;
-      this.writeCache = writeCache;
-    }
   }
 
   private void notifyAcquiredRead(CacheEntry entry) {

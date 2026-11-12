@@ -1360,12 +1360,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           final var changes = filePageChanges.get(pageIndex);
           changesByPage[index] = changes;
           nonDurableByPage[index] = nonDurable;
-          pinned[index++] = reservation.pin(fileId, pageIndex, writeCache,
+          pinned[index] = reservation.pin(index, fileId, pageIndex, writeCache,
               changes.verifyCheckSum);
+          index++;
         }
       }
-      for (final var entry : pinned) {
-        reservation.lock(entry);
+      for (int slot = 0; slot < pinned.length; slot++) {
+        reservation.lock(slot);
       }
       // Callbacks stay inside reservation cleanup, including failures before any change.
       if (pauseHook != null) {
@@ -1377,11 +1378,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         final boolean nonDurable = nonDurableByPage[i];
         // Operation-level durability can differ from the physical file after same-name
         // recreation. Preserve the old WAL flush dependency in that case, as legacy does.
-        reservation.prepare(entry, nonDurable ? null : startLSN,
+        reservation.prepare(i, nonDurable ? null : startLSN,
             nonDurable ? entry.getEndLSN() : txEndLsn);
-        reservation.markChanged(entry);
-        restorePageContent(entry, changesByPage[i], nonDurable, txEndLsn);
-        reservation.publishAndUnlock(entry);
+        restorePageContent(entry, changesByPage[i], nonDurable, txEndLsn, true);
+        reservation.publishAndUnlock(i);
         if (i == 0 && pauseHook != null) {
           pauseHook.pause(pinned, true);
         }
@@ -1391,14 +1391,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   private static void restorePageContent(CacheEntry entry, CacheEntryChanges changes,
-      boolean nonDurable, @Nullable LogSequenceNumber txEndLsn) {
+      boolean nonDurable, @Nullable LogSequenceNumber txEndLsn, boolean endLsnPrepared) {
     final var page = new DurablePage(entry);
     page.restoreChanges(changes.changes);
     if (!nonDurable) {
       assert changes.getChangeLSN() != null : "Durable page must have changeLSN";
-      // Preserve the iterator protocol's restore/end-LSN/page-LSN order. Reservations
-      // have already prepared this same end LSN before any content mutation.
-      entry.setEndLSN(txEndLsn);
+      // The iterator sets the dependency after restoration. Reservations prepare it
+      // under the same lock before any content mutation, including failed restoration.
+      if (!endLsnPrepared) {
+        entry.setEndLSN(txEndLsn);
+      }
       page.setLsn(changes.getChangeLSN());
     }
   }
@@ -1442,7 +1444,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
 
     try {
-      restorePageContent(cacheEntry, filePageChanges, nonDurable, txEndLsn);
+      restorePageContent(cacheEntry, filePageChanges, nonDurable, txEndLsn, false);
     } finally {
       readCache.releaseFromWrite(cacheEntry, writeCache, true);
     }
