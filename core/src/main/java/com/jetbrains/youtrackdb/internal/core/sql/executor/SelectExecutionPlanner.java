@@ -217,8 +217,9 @@ public class SelectExecutionPlanner {
     if (info.timeout == null) {
       // Gremlin preparation pins this internal setting before metadata reads. Child SELECT
       // contexts inherit it, so a runtime flip cannot enter a retained MATCH template.
-      var capturedTimeout = ctx.getVariable("$g2m_commandTimeout");
-      long timeout = capturedTimeout instanceof Long value ? value
+      var capturedTimeout = ctx instanceof BasicCommandContext context
+          ? context.getGremlinCommandTimeout() : null;
+      long timeout = capturedTimeout != null ? capturedTimeout
           : ctx.getDatabaseSession().getConfiguration()
               .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
       if (timeout > 0) {
@@ -292,8 +293,9 @@ public class SelectExecutionPlanner {
     // of synthetic SELECTs, whose positional parameters are not distinguished by toString().
     var cacheKey = statement.getOriginalStatement();
     if (cacheKey != null) {
-      var capturedTimeout = ctx.getVariable("$g2m_commandTimeout");
-      if (capturedTimeout instanceof Long) {
+      var capturedTimeout = ctx instanceof BasicCommandContext context
+          ? context.getGremlinCommandTimeout() : null;
+      if (capturedTimeout != null) {
         cacheKey += "\0gremlinTimeout" + capturedTimeout;
       }
       if (orderRequestMode) {

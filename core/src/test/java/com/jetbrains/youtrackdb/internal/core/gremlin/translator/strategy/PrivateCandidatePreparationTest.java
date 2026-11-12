@@ -209,7 +209,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           .asAdmin();
       try (var candidate = prepare.prepare(traversal, policy)) {
         assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
-        assertThat(candidate.extent()).isEqualTo(traversal.getSteps().size());
+        assertThat(candidate.extent()).isEqualTo(5);
         assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
         assertThat(candidate.bindings()).containsEntry(0, 30 + invocation).hasSize(1);
         assertThat(candidate.plan()).isNotNull();
@@ -217,6 +217,72 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     }
     assertThat(walks.get()).isEqualTo(1);
     assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Source slicing before expansion retains a full candidate and actually reuses its template. */
+  @Test
+  public void sourceSliceBeforeHopHasWarmCandidate() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+          .order().by("age").limit(2).out("candidateKnows").asAdmin();
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        assertThat(candidate.extent()).isEqualTo(5);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+        assertThat(candidate.plan()).isNotNull();
+      }
+    }
+    assertThat(walks.get()).isEqualTo(1);
+    assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Full-path apply captures its timeout before the real builder sees a changed live setting. */
+  @Test
+  public void fullStrategyUsesCapturedTimeoutWhenConfigurationFlipsBeforePlanning() {
+    var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+        .out("candidateKnows").asAdmin();
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    var configuration = session.getConfiguration();
+    long previous = configuration.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+    var planned = new AtomicInteger();
+    var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
+        (db, translation, scope) -> {
+          planned.incrementAndGet();
+          configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
+          return GremlinToMatchStrategy.buildPlan(db, translation, scope);
+        });
+    GremlinToMatchStrategy.FORCE_MATCH_FOR_TESTS.set(true);
+    try {
+      strategy.apply(traversal);
+      assertThat(planned.get()).isEqualTo(1);
+      assertThat(traversal.getStartStep())
+          .isInstanceOf(
+              com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep.class);
+      var boundary =
+          (com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep<?,
+              ?>) traversal.getStartStep();
+      assertThat(boundary.getPlan().prettyPrint(0, 2).toString())
+          .contains("17001ms").doesNotContain("29001ms");
+      boundary.getPlan().close();
+    } finally {
+      GremlinToMatchStrategy.FORCE_MATCH_FOR_TESTS.remove();
+      configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
+    }
+  }
+
+  /** Full-only extraction does not allocate private root checkpoints. */
+  @Test
+  public void checkpointsBelongOnlyToPartialExtraction() {
+    var traversal = query(30, 40);
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    assertThat(GremlinStepWalker.extractShape(traversal, session).rootEnds()).isEmpty();
+    var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+    var partial = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
+        inputs.nulls(), inputs.polymorphic(), inputs);
+    assertThat(partial.rootEnds()).hasSize(4);
   }
 
   /** Unsafe queries and disabled translation refuse before any recognition or planning. */

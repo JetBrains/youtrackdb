@@ -143,8 +143,31 @@ final class GremlinShapeExtractor {
   }
 
   private void recordRootEnd() {
-    rootEnds.add(new BindingEnd(encoder.bindingCount(), encoder.contributionCount(),
-        nativeOperands.size()));
+    if (strictNativeInputs) {
+      rootEnds.add(new BindingEnd(encoder.bindingCount(), encoder.contributionCount(),
+          nativeOperands.size()));
+    }
+  }
+
+  /** Conservative scope-local evidence accepts a slice on either side of the vertex hop. */
+  static final class OrderedExpandEvidence {
+    private boolean order;
+    private boolean hop;
+    private boolean slice;
+
+    void accept(Step<?, ?> step) {
+      if (step instanceof OrderGlobalStep) {
+        order = true;
+      } else if (order && step instanceof VertexStepContract<?> vertex && !vertex.returnsEdge()) {
+        hop = true;
+      } else if (order && step instanceof RangeGlobalStepContract<?>) {
+        slice = true;
+      }
+    }
+
+    boolean present() {
+      return hop && slice;
+    }
   }
 
   private boolean possibleOrderedExpand;
@@ -192,10 +215,7 @@ final class GremlinShapeExtractor {
       return;
     }
     int counted = 0;
-    boolean sawOrder = false;
-    boolean sawHop = false;
-    boolean sawSlice = false;
-    boolean scopeOrderedExpand = false;
+    var orderedExpand = new OrderedExpandEvidence();
     // Reuse the existing count pass. This conservative check needs only three local bits and
     // covers both slice placements, including projections and transparent barriers between them.
     for (Step<?, ?> step : traversal.getSteps()) {
@@ -204,14 +224,10 @@ final class GremlinShapeExtractor {
       }
       if (step instanceof OrderGlobalStep) {
         globalOrder = true;
-        sawOrder = true;
-      } else if (sawOrder && step instanceof VertexStepContract<?> hop && !hop.returnsEdge()) {
-        sawHop = true;
-      } else if (sawOrder && step instanceof RangeGlobalStepContract<?>) {
-        sawSlice = true;
       }
-      scopeOrderedExpand |= sawHop && sawSlice;
+      orderedExpand.accept(step);
     }
+    boolean scopeOrderedExpand = orderedExpand.present();
     possibleOrderedExpand |= scopeOrderedExpand;
     encoder.appendToken("T", Integer.toString(counted));
     // Track only the facts needed to bind HasSteps. This does not dispatch or build a second

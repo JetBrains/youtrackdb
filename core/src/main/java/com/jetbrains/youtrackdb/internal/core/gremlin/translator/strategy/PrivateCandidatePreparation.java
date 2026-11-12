@@ -156,30 +156,14 @@ final class PrivateCandidatePreparation {
   private static GremlinShapeExtractor.Extraction prefix(Traversal.Admin<?, ?> traversal,
       GremlinShapeExtractor.Extraction extraction, int extent,
       GremlinStepWalker.WalkInputs inputs) {
-    var prefix = traversal.clone();
-    while (prefix.getSteps().size() > extent) {
-      prefix.removeStep(prefix.getSteps().size() - 1);
+    var steps = traversal.getSteps().subList(0, extent);
+    // These checks only read root status and step structure. No suffix clone is needed.
+    var orderedExpand = new GremlinShapeExtractor.OrderedExpandEvidence();
+    for (var step : steps) {
+      orderedExpand.accept(step);
     }
-    // These are extent-local structural agreements, not a second extraction or recognition.
-    boolean order = false;
-    boolean hop = false;
-    boolean orderedExpand = false;
-    for (var step : prefix.getSteps()) {
-      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep) {
-        order = true;
-      } else if (order
-          && step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract<
-              ?> vertex
-          && !vertex.returnsEdge()) {
-        hop = true;
-      } else if (order
-          && step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract<
-              ?>) {
-        orderedExpand |= hop;
-      }
-    }
-    return extraction.prefix(extent, !orderedExpand,
-        PropertyMapBulkingAdmission.capacity(prefix, inputs.permitsGrouping()));
+    return extraction.prefix(extent, !orderedExpand.present(),
+        PropertyMapBulkingAdmission.capacity(steps, traversal.isRoot(), inputs.permitsGrouping()));
   }
 
   private static Prepared refusal(PrivatePrefixDiscovery.Reason reason, boolean cacheHit) {

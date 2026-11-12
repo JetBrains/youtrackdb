@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import java.util.List;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
@@ -34,12 +37,15 @@ final class PropertyMapBulkingAdmission {
   }
 
   static int capacity(Traversal.Admin<?, ?> traversal, boolean permitsGrouping) {
+    return capacity(traversal.getSteps(), traversal.isRoot(), permitsGrouping);
+  }
+
+  static int capacity(List<Step> steps, boolean root, boolean permitsGrouping) {
     // Child traversals inherit the root's traverser generator and requirements. Local steps
     // cannot prove that inherited path, sack or ONE_BULK state permits grouping.
-    if (!traversal.isRoot()) {
+    if (!root) {
       return 0;
     }
-    var steps = traversal.getSteps();
     if (steps.size() < 3
         || !(steps.getFirst() instanceof GraphStep<?, ?> start) || !start.returnsVertex()) {
       return 0;

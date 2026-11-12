@@ -891,7 +891,7 @@ public final class GremlinToMatchStrategy
       Map<Object, Object> inputParameters, Long commandTimeout) {
     var ctx = new BasicCommandContext(session);
     if (commandTimeout != null) {
-      ctx.setVariable("$g2m_commandTimeout", commandTimeout);
+      ctx.setGremlinCommandTimeout(commandTimeout);
     }
     if (!inputParameters.isEmpty()) {
       ctx.setInputParameters(inputParameters);

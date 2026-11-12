@@ -64,6 +64,25 @@ import org.junit.Test;
  */
 public class BasicCommandContextStandaloneTest {
 
+  /** Captured defaults inherit through nested contexts, allow zero, and ignore named variables. */
+  @Test
+  public void gremlinTimeoutUsesOnlyTypedContextState() {
+    var root = new BasicCommandContext();
+    var child = new BasicCommandContext();
+    assertNull(root.getGremlinCommandTimeout());
+    child.setParentWithoutOverridingChild(root);
+    root.setGremlinCommandTimeout(17001L);
+    root.setVariable("$g2m_commandTimeout", 29001L);
+    child.setVariable("$g2m_commandTimeout", 41001L);
+    assertEquals(Long.valueOf(17001), child.getGremlinCommandTimeout());
+    child.setGremlinCommandTimeout(0L);
+    assertEquals(Long.valueOf(0), child.getGremlinCommandTimeout());
+    child.setGremlinCommandTimeout(null);
+    assertEquals(Long.valueOf(17001), child.getGremlinCommandTimeout());
+    child.setParentWithoutOverridingChild(mock(CommandContext.class));
+    assertNull(child.getGremlinCommandTimeout());
+  }
+
   /** Preprocessed reads preserve scope, repeated dollar stripping, nulls, and dynamic resolution. */
   @Test
   public void preprocessedReferencesMatchNamedScopeSemantics() {
