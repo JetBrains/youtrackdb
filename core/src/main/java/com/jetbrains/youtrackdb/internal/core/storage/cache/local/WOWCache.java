@@ -541,8 +541,9 @@ public final class WOWCache extends AbstractWriteCache
       () -> ((ScheduledThreadPoolExecutorWithLogging) commitExecutor())
           .isExecutingOnCurrentThread());
 
-  // Confined to the single-thread flush executor, including close entry and cleanup decisions.
-  private boolean deferDwlCleanup;
+  // Close writes this flag once, and flush work reads it. Only a truncate that passed its final
+  // check before close set the flag can complete. No truncate starts after that check sees it set.
+  private volatile boolean deferDwlCleanup;
 
   /**
    * IV is used for AES encryption
@@ -2472,20 +2473,7 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public long[] close() throws IOException {
     if (!closed) {
-      // Await any in-flight cleanup and defer further cleanup before the initial flush writes.
-      final var deferCleanup = commitExecutor().submit(() -> deferDwlCleanup = true);
-      try {
-        deferCleanup.get();
-      } catch (final InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw BaseException.wrapException(
-            new WriteCacheException(storageName, "Write-cache close was interrupted"), e,
-            storageName);
-      } catch (final ExecutionException e) {
-        throw BaseException.wrapException(
-            new WriteCacheException(storageName, "Cannot defer double write log cleanup for close"),
-            e.getCause(), storageName);
-      }
+      deferDwlCleanup = true;
     }
     flush();
     stopFlush();
@@ -4079,6 +4067,11 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
+    // Close can start while a data-file force is in progress. Keep the token unacknowledged
+    // when cleanup is deferred so the DWL files remain available after a rejected close.
+    if (deferDwlCleanup) {
+      return;
+    }
     // Truncate even without fsync so that the double-write log does not grow without bound.
     doubleWriteLog.acknowledgeSync(syncToken);
     doubleWriteLog.truncate(Set.of());

@@ -903,39 +903,52 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
-  /** An interrupted deferral wait fails close before its initial flush and keeps files open. */
+  /** Close during a rotation force preserves inherited and current DWL files and the sync token. */
   @Test
-  public void interruptedCleanupDeferralSkipsInitialFlush() throws Exception {
-    long file = cache.addFile("close-deferral-interrupted.tst");
+  public void closeDuringRotationForceDefersCleanupAndAcknowledgement() throws Exception {
+    long file = cache.addFile("close-inflight-rotation.tst");
     var log = installCloseLog();
+    var request = log.write(new ArrayList<>(List.of(java.nio.ByteBuffer.allocate(pageSize))),
+        it.unimi.dsi.fastutil.ints.IntArrayList.of(1),
+        it.unimi.dsi.fastutil.ints.IntArrayList.of(3));
+    assertTrue("rotation must require synchronization", request.syncRequired());
+    var pendingToken = field(log, "pendingSyncToken");
     var before = dwlBytes();
+    var inherited = cache.getRootDirectory()
+        .resolve(ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0.dwl");
+    assertTrue(before.containsKey(inherited));
+    assertTrue("rotation must have old files to remove", before.size() > 1);
+    setField(cache, "callFsync", true);
     var handle = observeDataFile(file);
     var started = new CountDownLatch(1);
     var release = new CountDownLatch(1);
-    var background = flushExecutor().submit(() -> {
+    doAnswer(call -> {
       started.countDown();
       assertTrue(release.await(10, TimeUnit.SECONDS));
+      return call.callRealMethod();
+    }).when(handle).synch();
+    var sync = WOWCache.class.getDeclaredMethod("fsyncFiles", long.class);
+    sync.setAccessible(true);
+    var background = flushExecutor().submit(() -> {
+      sync.invoke(cache, request.syncToken());
       return null;
     });
-    assertTrue(started.await(10, TimeUnit.SECONDS));
-    var original = cache;
-    cache = spy(cache);
     try {
-      Thread.currentThread().interrupt();
-      var thrown = assertThrows(WriteCacheException.class, cache::close);
-      assertTrue(thrown.getCause() instanceof InterruptedException);
-      assertTrue(Thread.currentThread().isInterrupted());
-      org.mockito.Mockito.verify(cache, org.mockito.Mockito.never()).flush();
-      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).close();
-      assertTrue(handle.isOpen());
-      assertDwlBytes(before);
-    } finally {
-      Thread.interrupted();
+      assertTrue(started.await(10, TimeUnit.SECONDS));
+      // Publish close entry exactly as close does, while the flush worker is inside synch.
+      setField(cache, "deferDwlCleanup", true);
       release.countDown();
       background.get(10, TimeUnit.SECONDS);
-      flushExecutor().submit(() -> {
-      }).get(10, TimeUnit.SECONDS);
-      cache = original;
+      org.mockito.Mockito.verify(handle).synch();
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).acknowledgeSync(anyLong());
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).truncate(
+          org.mockito.ArgumentMatchers.anySet());
+      assertEquals(pendingToken, field(log, "pendingSyncToken"));
+      assertDwlBytes(before);
+      assertTrue(handle.isOpen());
+    } finally {
+      release.countDown();
+      background.get(10, TimeUnit.SECONDS);
     }
   }
 
@@ -1046,10 +1059,7 @@ public class WOWCacheChangedPageTrackingTest {
     setField(cache, "doubleWriteLog", log);
     cache.loadRegisteredFiles();
     // Reusing the fixture starts a new close attempt with ordinary cleanup enabled.
-    flushExecutor().submit(() -> {
-      setField(cache, "deferDwlCleanup", false);
-      return null;
-    }).get(10, TimeUnit.SECONDS);
+    setField(cache, "deferDwlCleanup", false);
     setField(cache, "stopFlush", false);
     for (int page = 0; page < 3; page++) {
       log.write(new ArrayList<>(List.of(java.nio.ByteBuffer.allocate(pageSize))),
