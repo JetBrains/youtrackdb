@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
@@ -602,14 +603,438 @@ public class WOWCacheChangedPageTrackingTest {
     assertThrows(java.io.IOException.class, cache::loadRegisteredFiles);
     var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
     assertTrue(handles.get(file).isOpen());
+    var handle = observeDataFile(file);
+    setField(cache, "callFsync", true);
+    var syncs = new java.util.concurrent.atomic.AtomicInteger();
+    doAnswer(call -> {
+      if (syncs.incrementAndGet() > 1) {
+        throw new StorageException("marks", "must not run final sync after failed open");
+      }
+      return call.callRealMethod();
+    }).when(handle).synch();
     try {
       cache.close();
+      // The initial flush forces once. Failed-open cleanup adds no final force.
+      org.mockito.Mockito.verify(handle).synch();
+      assertFalse(handle.isOpen());
       assertNull(handles.get(file));
       org.mockito.Mockito.verify(log).close();
     } finally {
       // Reopen only for the fixture's normal destructive teardown.
       setField(cache, "doubleWriteLog", new DoubleWriteLogNoOP());
       cache.loadRegisteredFiles();
+    }
+  }
+
+  /** Failed retention survives a normal flush that skips a locked page and keeps inherited DWL. */
+  @Test
+  public void rejectedCloseKeepsEverySegmentAndOpenDataFileDespiteNormalLockedPageFlush()
+      throws Exception {
+    long file = cache.addFile("close-locked.tst");
+    var log = installCloseLog();
+    var before = dwlBytes();
+    var state = retention();
+    seedRetention(file, 0, true, false);
+    write(file, 0);
+    var entry = readCache.loadForRead(file, 0, cache, true);
+    var pointer = entry.getCachePointer();
+    long stamp = pointer.acquireExclusiveLock();
+    setField(cache, "callFsync", true);
+    var handle = observeDataFile(file);
+    var flushed = new java.util.concurrent.atomic.AtomicBoolean();
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      assertFalse(((Map<?, ?>) field(cache, "writeCachePages")).isEmpty());
+      rotationSync();
+      flushed.set(true);
+      return null;
+    }).when(cache).flush();
+    try {
+      var failure = assertThrows(WriteCacheException.class, cache::close);
+      assertTrue("the locked page must be skipped by a normally returning flush", flushed.get());
+      assertTrue(failure.getCause().getMessage().contains("retained pages"));
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.times(2)).synch();
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).acknowledgeSync(anyLong());
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).truncate(
+          org.mockito.ArgumentMatchers.anySet());
+      assertDwlBytes(before);
+      var handles = (ClosableLinkedContainer<Long, File>) field(original, "files");
+      assertTrue(handles.get(file).isOpen());
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).close();
+      assertTrue(flushExecutor().submit(state::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+      readCache.releaseFromRead(entry);
+      cache = original;
+    }
+  }
+
+  /** Final synchronization releases successful writes, on the owner worker, before DWL close. */
+  @Test
+  public void finalSynchronizationReleasesPendingWriteBeforeDestructiveClose() throws Exception {
+    long file = cache.addFile("close-success.tst");
+    var log = installCloseLog();
+    setField(cache, "callFsync", true);
+    seedRetention(file, 0, false, true);
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    var handle = spy(handles.get(file));
+    handles.remove(file);
+    handles.add(file, handle);
+    var events = new ArrayList<String>();
+    doAnswer(call -> {
+      assertTrue(retention().hasPendingSynchronization());
+      events.add((boolean) field(cache, "stopFlush") ? "sync" : "initial-sync");
+      return call.callRealMethod();
+    }).when(handle).synch();
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      events.add("flush");
+      return null;
+    }).when(cache).flush();
+    doAnswer(call -> {
+      assertFalse(flushExecutor().submit(retention()::hasPendingSynchronization)
+          .get(10, TimeUnit.SECONDS));
+      assertFalse(handle.isOpen());
+      events.add("log-close");
+      return call.callRealMethod();
+    }).when(log).close();
+    try {
+      cache.close();
+      assertEquals(List.of("initial-sync", "flush", "sync", "log-close"), events);
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).acknowledgeSync(anyLong());
+      assertTrue(dwlBytes().isEmpty());
+    } finally {
+      cache = original;
+    }
+  }
+
+  /** Failed final synchronization converts a successful write to unresolved and keeps all DWL. */
+  @Test
+  public void finalSynchronizationFailureKeepsCopiesAndCannotBeRepairedByAnotherSync()
+      throws Exception {
+    long file = cache.addFile("close-sync-failure.tst");
+    installCloseLog();
+    var before = dwlBytes();
+    setField(cache, "callFsync", true);
+    seedRetention(file, 0, false, true);
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    var handle = spy(handles.get(file));
+    handles.remove(file);
+    handles.add(file, handle);
+    var original = cache;
+    cache = spy(cache);
+    org.mockito.Mockito.doNothing().when(cache).flush();
+    org.mockito.Mockito.doThrow(new StorageException("marks", "final force failed")).when(handle)
+        .synch();
+    try {
+      assertThrows(com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException.class,
+          cache::close);
+      assertDwlBytes(before);
+      assertTrue(handle.isOpen());
+      var state = retention();
+      flushExecutor().submit(() -> {
+        assertTrue(state.hasUnresolvedPages());
+        state.synchronizeOnFlushExecutor(() -> {
+        });
+        assertTrue(state.hasUnresolvedPages());
+        return null;
+      }).get(10, TimeUnit.SECONDS);
+    } finally {
+      org.mockito.Mockito.doCallRealMethod().when(handle).synch();
+      cache = original;
+    }
+  }
+
+  /** An append whose data write has not completed cannot pass the close guard. */
+  @Test
+  public void unfinishedWriteRejectsClose() throws Exception {
+    long file = cache.addFile("close-pending.tst");
+    seedRetention(file, 0, false, false);
+    assertThrows(com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException.class,
+        cache::close);
+  }
+
+  /** Unawaited work queued after the initial flush finishes before final sync and guard. */
+  @Test
+  public void closeBarrierObservesBackgroundWriteAfterInitialFlush() throws Exception {
+    long file = cache.addFile("close-background.tst");
+    var started = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var original = cache;
+    var state = retention();
+    var pointer = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+    org.mockito.Mockito.when(pointer.getFileId()).thenReturn(file);
+    var background = new AtomicReference<java.util.concurrent.Future<?>>();
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      background.set(flushExecutor().submit(() -> {
+        started.countDown();
+        assertTrue(release.await(10, TimeUnit.SECONDS));
+        var attempt = state.appendSucceeded(pointer, 1L, true);
+        state.writesFailed(List.of(attempt));
+        return null;
+      }));
+      return null;
+    }).when(cache).flush();
+    var stopFuture = org.mockito.Mockito.mock(java.util.concurrent.Future.class);
+    org.mockito.Mockito.when(stopFuture.get(anyLong(), org.mockito.ArgumentMatchers.any()))
+        .thenAnswer(call -> {
+          assertTrue(started.await(10, TimeUnit.SECONDS));
+          release.countDown();
+          return null;
+        });
+    setField(cache, "flushFuture", stopFuture);
+    try {
+      assertThrows(com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException.class,
+          cache::close);
+      background.get().get(10, TimeUnit.SECONDS);
+      assertTrue(flushExecutor().submit(state::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    } finally {
+      release.countDown();
+      cache = original;
+    }
+  }
+
+  /** A locked dirty page without a retention record does not make close unsafe. */
+  @Test
+  public void lockedDirtyPageWithoutRetentionDoesNotRejectClose() throws Exception {
+    long file = cache.addFile("close-locked-unretained.tst");
+    var log = installCloseLog();
+    setField(cache, "callFsync", true);
+    var handle = observeDataFile(file);
+    write(file, 0);
+    var entry = readCache.loadForRead(file, 0, cache, true);
+    var pointer = entry.getCachePointer();
+    long stamp = pointer.acquireExclusiveLock();
+    var flushed = new java.util.concurrent.atomic.AtomicBoolean();
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      assertFalse(((Map<?, ?>) field(cache, "writeCachePages")).isEmpty());
+      flushed.set(true);
+      return null;
+    }).when(cache).flush();
+    try {
+      cache.close();
+      assertTrue(flushed.get());
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.times(2)).synch();
+      org.mockito.Mockito.verify(log).close();
+      assertFalse(handle.isOpen());
+      assertTrue(dwlBytes().isEmpty());
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+      readCache.releaseFromRead(entry);
+      cache = original;
+    }
+  }
+
+  /** Rotation requests during close neither force nor acknowledge. The final barrier forces once. */
+  @Test
+  public void closeDefersRotationForcesUntilFinalSynchronization() throws Exception {
+    long file = cache.addFile("close-rotation.tst");
+    var log = installCloseLog();
+    write(file, 0);
+    setField(cache, "callFsync", true);
+    seedRetention(file, 0, false, true);
+    var handle = observeDataFile(file);
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      // FileFlushTask itself still forces once. Rotation requests must add no further forces.
+      org.mockito.Mockito.verify(handle).synch();
+      rotationSync();
+      rotationSync();
+      org.mockito.Mockito.verify(handle).synch();
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).acknowledgeSync(anyLong());
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).truncate(
+          org.mockito.ArgumentMatchers.anySet());
+      assertTrue(flushExecutor().submit(retention()::hasPendingSynchronization)
+          .get(10, TimeUnit.SECONDS));
+      return null;
+    }).when(cache).flush();
+    try {
+      cache.close();
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.times(2)).synch();
+      org.mockito.Mockito.verify(log).close();
+      assertFalse(flushExecutor().submit(retention()::hasPendingSynchronization)
+          .get(10, TimeUnit.SECONDS));
+    } finally {
+      cache = original;
+    }
+  }
+
+  /** A background error stored after a successful initial flush reaches the close caller. */
+  @Test
+  public void closeBarrierReportsFlushErrorStoredAfterInitialFlush() throws Exception {
+    long file = cache.addFile("close-background-error.tst");
+    var log = installCloseLog();
+    var before = dwlBytes();
+    var failure = new IOException("late background write failure");
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      flushExecutor().submit(() -> {
+        setField(original, "flushError", failure);
+        setField(cache, "flushError", failure);
+        return null;
+      });
+      return null;
+    }).when(cache).flush();
+    try {
+      var thrown = assertThrows(WriteCacheException.class, cache::close);
+      assertTrue(thrown.getCause().getMessage().contains("Background flush failed before close"));
+      assertSame(failure, thrown.getCause().getCause());
+      assertDwlBytes(before);
+      var handles = (ClosableLinkedContainer<Long, File>) field(original, "files");
+      assertTrue(handles.get(file).isOpen());
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).close();
+    } finally {
+      setField(original, "flushError", null);
+      cache = original;
+    }
+  }
+
+  /** Interrupting the barrier wait restores the flag and leaves data and DWL files open. */
+  @Test
+  public void interruptedCloseBarrierPreservesOpenFilesAndInterruptFlag() throws Exception {
+    long file = cache.addFile("close-interrupted.tst");
+    var log = installCloseLog();
+    var before = dwlBytes();
+    var handle = observeDataFile(file);
+    var started = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var background = new AtomicReference<java.util.concurrent.Future<?>>();
+    var original = cache;
+    cache = spy(cache);
+    doAnswer(call -> {
+      call.callRealMethod();
+      background.set(flushExecutor().submit(() -> {
+        started.countDown();
+        assertTrue(release.await(10, TimeUnit.SECONDS));
+        return null;
+      }));
+      assertTrue(started.await(10, TimeUnit.SECONDS));
+      Thread.currentThread().interrupt();
+      return null;
+    }).when(cache).flush();
+    try {
+      var thrown = assertThrows(WriteCacheException.class, cache::close);
+      assertTrue(thrown.getMessage().contains("close was interrupted"));
+      assertTrue(thrown.getCause() instanceof InterruptedException);
+      assertTrue(Thread.currentThread().isInterrupted());
+      assertTrue(handle.isOpen());
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).close();
+      org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).close();
+      assertDwlBytes(before);
+    } finally {
+      Thread.interrupted();
+      release.countDown();
+      if (background.get() != null) {
+        background.get().get(10, TimeUnit.SECONDS);
+      }
+      flushExecutor().submit(() -> {
+      }).get(10, TimeUnit.SECONDS);
+      cache = original;
+    }
+    assertTrue(handle.isOpen());
+    assertDwlBytes(before);
+  }
+
+  private File observeDataFile(long file) throws Exception {
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    var handle = spy(handles.get(file));
+    handles.remove(file);
+    handles.add(file, handle);
+    return handle;
+  }
+
+  private void rotationSync() throws Exception {
+    flushExecutor().submit(() -> {
+      var sync = WOWCache.class.getDeclaredMethod("fsyncFiles", long.class);
+      sync.setAccessible(true);
+      sync.invoke(cache, Long.MAX_VALUE);
+      return null;
+    }).get(10, TimeUnit.SECONDS);
+  }
+
+  /** The real retention owner rejects callers and unrelated executors. */
+  @Test
+  public void retentionOwnerIsOnlyTheGlobalFlushWorker() throws Exception {
+    var state = retention();
+    assertThrows(IllegalStateException.class, state::hasUnresolvedPages);
+    assertFalse(flushExecutor().submit(state::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    io.submit(() -> assertThrows(IllegalStateException.class, state::hasUnresolvedPages))
+        .get(10, TimeUnit.SECONDS);
+  }
+
+  private java.util.concurrent.ScheduledExecutorService flushExecutor() {
+    return YouTrackDBEnginesManager.instance().getWowCacheFlushExecutor();
+  }
+
+  private PageRetentionState retention() throws Exception {
+    return (PageRetentionState) field(cache, "pageRetentionState");
+  }
+
+  private void seedRetention(long file, int page, boolean failed, boolean successful)
+      throws Exception {
+    var pointer = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer.class);
+    org.mockito.Mockito.when(pointer.getFileId()).thenReturn(file);
+    org.mockito.Mockito.when(pointer.getPageIndex()).thenReturn(page);
+    var state = retention();
+    flushExecutor().submit(() -> {
+      var attempt = state.appendSucceeded(pointer, 0L, true);
+      if (failed) {
+        state.writesFailed(List.of(attempt));
+      } else if (successful) {
+        state.writeSucceeded(attempt, true);
+      }
+    }).get(10, TimeUnit.SECONDS);
+  }
+
+  private DoubleWriteLogGL installCloseLog() throws Exception {
+    cache.close();
+    var path = cache.getRootDirectory();
+    Files.write(path.resolve(ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME + "_0.dwl"),
+        new byte[] {3, 1, 4});
+    var log = spy(new DoubleWriteLogGL(512, 512, false));
+    setField(cache, "doubleWriteLog", log);
+    cache.loadRegisteredFiles();
+    // Reusing the fixture starts a new close attempt with ordinary cleanup enabled.
+    setField(cache, "deferDwlCleanup", false);
+    setField(cache, "stopFlush", false);
+    for (int page = 0; page < 3; page++) {
+      log.write(new ArrayList<>(List.of(java.nio.ByteBuffer.allocate(pageSize))),
+          it.unimi.dsi.fastutil.ints.IntArrayList.of(1),
+          it.unimi.dsi.fastutil.ints.IntArrayList.of(page));
+    }
+    return log;
+  }
+
+  private Map<Path, byte[]> dwlBytes() throws IOException {
+    var result = new java.util.HashMap<Path, byte[]>();
+    try (var paths = Files.list(cache.getRootDirectory())) {
+      for (var path : paths.filter(p -> p.toString().endsWith(".dwl")).toList()) {
+        result.put(path, Files.readAllBytes(path));
+      }
+    }
+    return result;
+  }
+
+  private void assertDwlBytes(Map<Path, byte[]> expected) throws IOException {
+    var actual = dwlBytes();
+    assertEquals(expected.keySet(), actual.keySet());
+    for (var path : expected.keySet()) {
+      assertArrayEquals(expected.get(path), actual.get(path));
     }
   }
 
