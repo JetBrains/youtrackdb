@@ -414,6 +414,8 @@ public final class GremlinToMatchStrategy
     // Capture before any setting or metadata read can shape this call's keys or plans.
     var cache = GremlinPlanCache.instance(session);
     var generation = cache.getGeneration();
+    long commandTimeout =
+        session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
     var eligible = session.getTxSchemaState() == null && cache.isEnabled();
     // Resolve all order settings once for this compilation. The shape key below and the walk
     // further down both read these values. Two independent reads could straddle a runtime flip
@@ -471,7 +473,7 @@ public final class GremlinToMatchStrategy
       metrics.recordDecline(stepShape(traversal));
       return;
     }
-    var cacheScope = new CacheScope(generation, eligible);
+    var cacheScope = new CacheScope(generation, eligible, commandTimeout);
     if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
         rejected)) {
       metrics.recordSuccess();
@@ -753,11 +755,17 @@ public final class GremlinToMatchStrategy
   static final class CacheScope {
     final long generation;
     final boolean eligible;
+    final Long commandTimeout;
     @Nullable private Set<InternalExecutionPlan> sharedPlans;
 
     CacheScope(long generation, boolean eligible) {
+      this(generation, eligible, null);
+    }
+
+    CacheScope(long generation, boolean eligible, Long commandTimeout) {
       this.generation = generation;
       this.eligible = eligible;
+      this.commandTimeout = commandTimeout;
     }
 
     InternalExecutionPlan shared(InternalExecutionPlan plan) {
@@ -799,7 +807,8 @@ public final class GremlinToMatchStrategy
     // The same call permission gates every physical-cache operation, including publication.
     if (!cacheScope.eligible || !translation.cacheEligible()) {
       return buildPlanUncached(
-          session, requireInputs(translation), translation.inputParameters());
+          session, requireInputs(translation), translation.inputParameters(),
+          cacheScope.commandTimeout);
     }
     var inputs = requireInputs(translation);
     var fingerprint = GremlinPlanFingerprint.fingerprint(inputs, translation.shaping());
@@ -807,7 +816,8 @@ public final class GremlinToMatchStrategy
     if (cached != null) {
       return cacheScope.shared(cached);
     }
-    var plan = buildPlanUncached(session, inputs, translation.inputParameters());
+    var plan = buildPlanUncached(session, inputs, translation.inputParameters(),
+        cacheScope.commandTimeout);
     var stored = GremlinPlanCache.put(fingerprint, plan, session, cacheScope.generation);
     if (stored != null) {
       // The cache owns the closed template; drop the live build so the boundary step copies on open
@@ -878,8 +888,11 @@ public final class GremlinToMatchStrategy
   private static InternalExecutionPlan buildPlanUncached(
       DatabaseSessionEmbedded session,
       MatchPlanInputs inputs,
-      Map<Object, Object> inputParameters) {
+      Map<Object, Object> inputParameters, Long commandTimeout) {
     var ctx = new BasicCommandContext(session);
+    if (commandTimeout != null) {
+      ctx.setGremlinCommandTimeout(commandTimeout);
+    }
     if (!inputParameters.isEmpty()) {
       ctx.setInputParameters(inputParameters);
     }
