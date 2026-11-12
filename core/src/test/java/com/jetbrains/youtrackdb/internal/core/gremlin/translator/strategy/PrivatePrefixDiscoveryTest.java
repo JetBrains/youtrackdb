@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -268,7 +269,7 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     GremlinToMatchStrategy.instance().apply(graph.traversal().V().has("age", 29).asAdmin());
     var warm = graph.traversal().V().has("age", 32).asAdmin();
     var extractions = new AtomicInteger();
-    var lookups = new AtomicInteger();
+    var cacheSpy = spy(cache);
     var safetyChecks = new AtomicInteger();
     long hits = cache.getTranslationHits();
     try (var walker = org.mockito.Mockito.mockStatic(GremlinStepWalker.class, invocation -> {
@@ -277,8 +278,8 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
       }
       return invocation.callRealMethod();
     }); var plans = org.mockito.Mockito.mockStatic(GremlinPlanCache.class, invocation -> {
-      if (invocation.getMethod().getName().equals("getTranslation")) {
-        lookups.incrementAndGet();
+      if (invocation.getMethod().getName().equals("instance")) {
+        return cacheSpy;
       }
       return invocation.callRealMethod();
     }); var safety = org.mockito.Mockito.mockStatic(QuerySafetyAdmission.class, invocation -> {
@@ -289,9 +290,10 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     })) {
       GremlinToMatchStrategy.instance().apply(warm);
     }
-    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertThat(cacheSpy.getTranslationHits()).isEqualTo(hits + 1);
     assertThat(extractions.get()).isEqualTo(1);
-    assertThat(lookups.get()).isEqualTo(1);
+    verify(cacheSpy).getTranslationEntry(
+        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     assertThat(safetyChecks.get()).isEqualTo(1);
   }
 

@@ -375,8 +375,8 @@ public class T5BaselineRunnerTest {
     }
   }
 
-  /** A one-shot predicate read failure hits the production translator safety net during priming.
-   * Native predicate evaluation still works, so only the pre-prime error baseline catches it. */
+  /** An injected translation error on the first priming request must fail the warm observation.
+   * The ordinary traversal still works, so only the pre-prime error baseline catches it. */
   @Test
   public void warmPrimingTranslationFallbackIsAVisibleFailure() throws Exception {
     var setting =
@@ -390,20 +390,11 @@ public class T5BaselineRunnerTest {
       public Traversal<?, ?> traversal(T5BaselineRunner.Case query) {
         if (first) {
           first = false;
-          var predicate = new org.apache.tinkerpop.gremlin.process.traversal.P<Long>(
-              org.apache.tinkerpop.gremlin.process.traversal.P.<Long>gte(0L).getBiPredicate(), 0L) {
-            boolean fail = true;
-
-            @Override
-            public Long getValue() {
-              if (fail) {
-                fail = false;
-                throw new IllegalStateException("Injected priming translation failure");
-              }
-              return super.getValue();
-            }
-          };
-          return g.V().hasLabel("Person").has("id", predicate).count();
+          var graph =
+              (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal) g.getGraph();
+          com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics
+              .of(graph.tx().getDatabaseSession())
+              .recordError("Injected priming translation failure");
         }
         return super.traversal(query);
       }

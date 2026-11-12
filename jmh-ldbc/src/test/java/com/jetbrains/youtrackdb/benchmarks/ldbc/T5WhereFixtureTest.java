@@ -256,13 +256,21 @@ public class T5WhereFixtureTest {
             assertFalse(fold.isListFold());
             assertEquals(Integer.valueOf(0), fold.getSeedSupplier().get());
             assertEquals(Integer.valueOf(8), fold.getBiOperator().apply(7, 42));
-            // Derive admission evidence from this very traversal by removing only its fold.
-            try (var prefix = q.asAdmin().clone()) {
-              prefix.removeStep(prefix.getSteps().size() - 1);
-              assertEquals(26, prefix.getSteps().size());
-              prefix.applyStrategies();
-              assertEquals(1, GremlinTraversalShapes.countBoundarySteps(prefix));
-              assertEquals(1, prefix.toList().size());
+            // Removing only the fold exposes a proven plain index start, which routes natively.
+            // Cold and warm calls keep that route and reuse the retained decision on the warm call.
+            long prefixHits = cache.getTranslationHits();
+            for (int call = 0; call < 2; call++) {
+              long nativeCalls = metrics.getRuleNative();
+              try (var prefix = q.asAdmin().clone()) {
+                prefix.removeStep(prefix.getSteps().size() - 1);
+                assertEquals(26, prefix.getSteps().size());
+                prefix.applyStrategies();
+                assertEquals(0, GremlinTraversalShapes.countBoundarySteps(prefix));
+                assertEquals(nativeCalls + 1, metrics.getRuleNative());
+                assertEquals(prefixHits + call, cache.getTranslationHits());
+                assertEquals(declines, metrics.getDeclines());
+                assertEquals(1, prefix.toList().size());
+              }
             }
             q.asAdmin().applyStrategies();
             assertEquals(0, GremlinTraversalShapes.countBoundarySteps(q.asAdmin()));
