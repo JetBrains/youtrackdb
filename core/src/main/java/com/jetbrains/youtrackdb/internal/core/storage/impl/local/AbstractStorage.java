@@ -3357,6 +3357,8 @@ public abstract class AbstractStorage
 
       Throwable error = null;
       boolean structurePublished = false;
+      // Reconciliation appends to these caller-owned lists as it proceeds, so undo retains
+      // completed drops and partial layout 28 creates even when reconciliation throws.
       // Collections dropped by reconciliation, captured for the failure-path restore arm. A drop
       // removes the collection from the in-memory registries eagerly inside reconcileCollections, so
       // a failed commit must re-register them (rollback reverts only the on-disk files). Stays empty
@@ -3382,8 +3384,8 @@ public abstract class AbstractStorage
           // create the tx-local-only collections and drop the committed-only ones, recording each
           // provisional->real id. The structural file writes are WAL-reverted on a rollback.
           reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
-              schemaContext.txSchemaState(), atomicOperation, droppedCollections,
-              createdCollections);
+              schemaContext.txSchemaState(), droppedCollections, createdCollections,
+              atomicOperation);
 
           // Test-only seam: fire any installed in-window hook now that structure is published but
           // before the record apply. Tests use it to inject a fault (verifying the failure-path undo
@@ -3902,8 +3904,9 @@ public abstract class AbstractStorage
       final SchemaShared committedSchema,
       final SchemaShared txLocalSchema,
       final TxSchemaState txSchemaState,
-      final AtomicOperation atomicOperation, final List<DroppedCollection> dropped,
-      final List<CreatedCollection> created) {
+      final List<DroppedCollection> dropped,
+      final List<CreatedCollection> created,
+      final AtomicOperation atomicOperation) {
     try {
       final var committedIds = committedSchema.getRealCollectionIds();
       final var txProvisionalNames = txSchemaState.getProvisionalCollectionNames();
@@ -4123,29 +4126,31 @@ public abstract class AbstractStorage
       }
       revertCreatedCollectionStructure(id, collection, droppedIds.contains(id), entry.owner());
     }
-    for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
-      if (getStorageFormat() == StorageFormat.LAYOUT_28) {
-        continue;
-      }
-      // Only drop ids the commit created (resolved from a provisional), never a pre-existing
-      // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
-      // this same reconciliation freed: it is commit-created and must be undone here, so the
-      // drop-restore loop below finds the slot null again for the original occupant.
-      if (committedIds.contains(realId) && !droppedIds.contains((int) realId)) {
-        continue;
-      }
-      final var collection = realId < collections.size() ? collections.get(realId) : null;
-      if (collection != null) {
-        collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
-        collections.set(realId, null);
-        // Drop the created collection's surviving structure (in-memory engine only — see the method
-        // Javadoc). The collection was just removed from the registry above, so pass the captured
-        // object to the structural cleanup rather than re-reading the now-null slot. The cleanup
-        // must know whether this create reused a slot this same reconciliation dropped: on that
-        // path the slot-keyed structures (config entry, link-bag component) present after the
-        // rollback belong to the restored dropped collection, and deleting them would durably
-        // destroy the survivor's registration — see the slot-reuse branch inside.
-        revertCreatedCollectionStructure(realId, collection, droppedIds.contains((int) realId));
+    // Layout 27 resolves published creates through their provisional-to-real ids.
+    // Layout 28 already cleaned creation-time captures above, including unresolved partial creates.
+    // Re-reading a reused slot cannot reliably identify the failed layout 28 owner.
+    if (getStorageFormat() != StorageFormat.LAYOUT_28) {
+      for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
+        // Only drop ids the commit created (resolved from a provisional), never a pre-existing
+        // committed id. A resolved id that reads as committed but sits in droppedIds reused a slot
+        // this same reconciliation freed: it is commit-created and must be undone here, so the
+        // drop-restore loop below finds the slot null again for the original occupant.
+        if (committedIds.contains(realId) && !droppedIds.contains((int) realId)) {
+          continue;
+        }
+        final var collection = realId < collections.size() ? collections.get(realId) : null;
+        if (collection != null) {
+          collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
+          collections.set(realId, null);
+          // Drop the created collection's surviving structure (in-memory engine only — see the method
+          // Javadoc). The collection was just removed from the registry above, so pass the captured
+          // object to the structural cleanup rather than re-reading the now-null slot. The cleanup
+          // must know whether this create reused a slot this same reconciliation dropped: on that
+          // path the slot-keyed structures (config entry, link-bag component) present after the
+          // rollback belong to the restored dropped collection, and deleting them would durably
+          // destroy the survivor's registration — see the slot-reuse branch inside.
+          revertCreatedCollectionStructure(realId, collection, droppedIds.contains((int) realId));
+        }
       }
     }
     // Re-register each dropped collection: rollback restored its files, so the captured object is
@@ -8985,7 +8990,10 @@ public abstract class AbstractStorage
         ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
     collection.configure(collectionPos, collectionName, componentId);
     if (created != null && componentId != null) {
-      // Identity must survive exceptions before publication. No tree belongs to B yet.
+      // Retain this entry before collection.create or configuration update can fail.
+      // The component identity is known now, but its tree handle is not.
+      // After tree creation, replace the immutable record with the full owner capture.
+      // Undo needs that handle even when rollback has removed the tree file.
       created.add(new CreatedCollection(collection,
           new LinkCollectionsBTreeManagerShared.CollectionOwner(collectionPos, componentId, -1,
               null)));
