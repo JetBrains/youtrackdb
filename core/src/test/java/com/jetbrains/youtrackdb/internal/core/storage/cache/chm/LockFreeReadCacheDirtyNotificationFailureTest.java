@@ -24,6 +24,65 @@ import org.junit.Test;
 
 public class LockFreeReadCacheDirtyNotificationFailureTest {
 
+  // Reject another write cache before loading or registering its slot, even with the same ID.
+  // The rejected slot remains available to the first cache and both pins close without leaks.
+  @Test
+  public void reservationRejectsAnotherWriteCacheBeforeAcquisition() throws Exception {
+    var pool = new ByteBufferPool(4096);
+    var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 2);
+    var write = loadingCache(pool);
+    var other = loadingCache(pool);
+    try (var pins = read.tryReserveWritePins(2)) {
+      var first = pins.pin(0, 1, 0, write, false);
+      assertSame(first, pins.entry(0));
+      assertThrows(IllegalArgumentException.class, () -> pins.pin(1, 1, 1, other, false));
+      verify(other, never()).loadOrAdd(anyLong(), anyLong(), anyBoolean());
+      assertTrue(!first.isReleased());
+      assertEquals(2, read.reservedWritePins());
+      var second = pins.pin(1, 1, 1, write, false);
+      assertSame(second, pins.entry(1));
+    }
+    assertEquals(0, read.reservedWritePins());
+    read.clear();
+    pool.clear();
+  }
+
+  // Complete success, a held frame, a pinned unfinished slot and an unpinned slot all close
+  // with no frame lock, acquisition or budget left. Repeated close never releases twice.
+  @Test
+  public void closeBalancesSuccessfulAndUnfinishedReservations() throws Exception {
+    for (int mode = 0; mode < 4; mode++) {
+      var pool = new ByteBufferPool(4096);
+      var read = new LockFreeReadCache(pool, 128L * 4096, 4096, 2);
+      var write = loadingCache(pool);
+      var pins = read.tryReserveWritePins(2);
+      var first = pins.pin(0, 1, 0, write, false);
+      var second = mode == 3 ? null : pins.pin(1, 1, 1, write, false);
+      pins.lock(0);
+      pins.prepare(0, null, null);
+      pins.publishAndUnlock(0);
+      if (mode <= 1) {
+        pins.lock(1);
+        assertEquals(0, second.getCachePointer().getPageFrame().tryOptimisticRead());
+        if (mode == 0) {
+          pins.prepare(1, null, null);
+          pins.publishAndUnlock(1);
+        }
+      }
+      pins.close();
+      pins.close();
+      assertTrue(first.isReleased());
+      assertTrue(first.getCachePointer().getPageFrame().tryOptimisticRead() != 0);
+      if (second != null) {
+        assertTrue(second.isReleased());
+        assertTrue(second.getCachePointer().getPageFrame().tryOptimisticRead() != 0);
+      }
+      assertEquals(0, read.reservedWritePins());
+      read.clear();
+      pool.clear();
+    }
+  }
+
   // A held frame does not delay pinning. Reservation contention is cache-wide, not per caller.
   @Test
   public void pinDoesNotWaitForFrameAndBudgetIsShared() throws Exception {

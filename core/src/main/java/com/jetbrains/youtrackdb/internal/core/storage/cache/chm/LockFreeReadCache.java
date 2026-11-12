@@ -610,19 +610,19 @@ public final class LockFreeReadCache implements ReadCache {
   private final class Reservation implements WriteReservation {
     private final int pages;
     private final CacheEntry[] entries;
-    private final WriteCache[] writeCaches;
+    private WriteCache writeCache;
     private final boolean[] locked;
     private final boolean[] prepared;
     private final boolean[] retained;
     private final boolean[] finished;
     private int size;
+    private int completed;
     private boolean locking;
     private boolean closed;
 
     Reservation(int pages) {
       this.pages = pages;
       entries = new CacheEntry[pages];
-      writeCaches = new WriteCache[pages];
       locked = new boolean[pages];
       prepared = new boolean[pages];
       retained = new boolean[pages];
@@ -642,6 +642,9 @@ public final class LockFreeReadCache implements ReadCache {
       if (closed || locking || size == pages || slot != size) {
         throw new IllegalStateException("Pin consecutive slots before locking");
       }
+      if (size > 0 && this.writeCache != writeCache) {
+        throw new IllegalArgumentException("Use one write cache per reservation");
+      }
       // Compare canonical cache coordinates, including the int page coordinate used by doLoad.
       // Strict ordering rejects duplicates without an identity lookup or another acquisition.
       fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
@@ -655,9 +658,15 @@ public final class LockFreeReadCache implements ReadCache {
       }
       var entry = doLoad(fileId, page, writeCache, verifyChecksums, true);
       entries[size] = entry;
-      writeCaches[size] = writeCache;
+      this.writeCache = writeCache;
       size++;
       return entry;
+    }
+
+    @Override
+    public CacheEntry entry(int slot) {
+      // The caller supplies an already pinned slot. Keep this as one array read.
+      return entries[slot];
     }
 
     @Override
@@ -680,7 +689,7 @@ public final class LockFreeReadCache implements ReadCache {
       entry.setEndLSN(endLSN);
       // Like loadOrAddForWrite, a failed notification must not publish unchanged content.
       // The reservation owns all acquisitions and closes them together on the caller's exit.
-      writeCaches[slot].updateDirtyPagesTable(entry.getCachePointer(), startLSN);
+      writeCache.updateDirtyPagesTable(entry.getCachePointer(), startLSN);
       prepared[slot] = true;
     }
 
@@ -691,6 +700,8 @@ public final class LockFreeReadCache implements ReadCache {
         throw new IllegalStateException("Publish under the frame lock");
       }
       finish(slot);
+      // Count only a successful publish and unlock. Failed cleanup uses the full close scan.
+      completed++;
     }
 
     private void finish(int slot) {
@@ -699,7 +710,7 @@ public final class LockFreeReadCache implements ReadCache {
         if (prepared[slot]) {
           // Set retention first because store can fail after partially installing its reference.
           retained[slot] = true;
-          publish(entries[slot], writeCaches[slot]);
+          publish(entries[slot], writeCache);
           entries[slot].clearAllocationFlag();
           retained[slot] = false;
         }
@@ -733,13 +744,17 @@ public final class LockFreeReadCache implements ReadCache {
       closed = true;
       Throwable failure = null;
       int kept = 0;
-      // Unlock all frames before releasing any pin. Pool return takes the frame lock.
-      for (int slot = 0; slot < size; slot++) {
-        if (locked[slot]) {
-          try {
-            finish(slot);
-          } catch (RuntimeException | Error error) {
-            failure = collectCleanupFailure(failure, error);
+      // Every reserved slot must finish successfully to skip the unlock scan.
+      // Unpinned, unfinished or failed slots keep the all-unlocks-before-any-release path.
+      if (completed != pages) {
+        // Unlock all frames before releasing any pin. Pool return takes the frame lock.
+        for (int slot = 0; slot < size; slot++) {
+          if (locked[slot]) {
+            try {
+              finish(slot);
+            } catch (RuntimeException | Error error) {
+              failure = collectCleanupFailure(failure, error);
+            }
           }
         }
       }

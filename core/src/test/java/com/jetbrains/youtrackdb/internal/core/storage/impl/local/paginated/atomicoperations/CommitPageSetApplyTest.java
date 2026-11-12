@@ -318,6 +318,32 @@ public class CommitPageSetApplyTest {
     }
   }
 
+  // Four positive pages leave spare zero-filled backing capacity. Sorting that tail inserts
+  // page zero, while omitting the last used element leaves the hash iteration order unsorted.
+  // Both mistakes must fail this valid commit or its explicit lock-order and content checks.
+  @Test
+  public void pageSortUsesExactlyThePopulatedRange() throws Exception {
+    try (var f = new Fixture()) {
+      long file = f.write.addFile("sort-range");
+      var op = f.operation(true);
+      for (long page = 1; page <= 4; page++) {
+        f.change(op, file, page, false);
+      }
+      f.observe();
+      op.commitChanges(42, f.wal);
+      assertEquals(List.of("lock " + file + ":1", "lock " + file + ":2",
+          "lock " + file + ":3", "lock " + file + ":4"),
+          f.events.stream().filter(e -> e.startsWith("lock")).toList());
+      for (long page = 1; page <= 4; page++) {
+        var entry = f.read.getCacheEntryOptimistic(file, page);
+        assertEquals(page + 21, entry.getCachePointer().getBuffer().get(100));
+        assertTrue(entry.isReleased());
+        assertNotEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+      }
+      assertEquals(0, f.read.reservedWritePins());
+    }
+  }
+
   // Compare independently committed epoch output with page-set output at sort boundaries.
   // Permutations, gaps and file changes must preserve bytes, both LSNs and dirty dependencies.
   @Test

@@ -1343,16 +1343,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         return CommitProtocolCounters.Outcome.RESERVATION_DENIED;
       }
       // Sort primitive identities only. All loads and possible eviction finish before
-      // the first frame lock. The entry array reuses the loaded entries during apply.
+      // the first frame lock. The reservation reuses its loaded entries during apply.
       final var files = pages.pagesByFile.keySet().toLongArray();
       java.util.Arrays.sort(files);
-      final var pinned = new CacheEntry[(int) pages.pageCount];
-      final var changesByPage = new CacheEntryChanges[pinned.length];
-      final var nonDurableByPage = new boolean[pinned.length];
+      final int pageCount = (int) pages.pageCount;
+      final var changesByPage = new CacheEntryChanges[pageCount];
+      final var nonDurableByPage = new boolean[pageCount];
       int index = 0;
       for (final long fileId : files) {
         final var indexes = pages.pagesByFile.get(fileId);
-        indexes.sort(null);
+        java.util.Arrays.sort(indexes.elements(), 0, indexes.size());
         final var filePageChanges = fileChanges.get(fileId).pageChangesMap;
         final boolean nonDurable = nonDurableFlags.get(fileId);
         for (int i = 0; i < indexes.size(); i++) {
@@ -1360,21 +1360,29 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           final var changes = filePageChanges.get(pageIndex);
           changesByPage[index] = changes;
           nonDurableByPage[index] = nonDurable;
-          pinned[index] = reservation.pin(index, fileId, pageIndex, writeCache,
+          reservation.pin(index, fileId, pageIndex, writeCache,
               changes.verifyCheckSum);
           index++;
         }
       }
-      for (int slot = 0; slot < pinned.length; slot++) {
+      for (int slot = 0; slot < pageCount; slot++) {
         reservation.lock(slot);
       }
-      // Callbacks stay inside reservation cleanup, including failures before any change.
+      // Only test callbacks need a snapshot. Normal commits use the reservation array directly.
+      final CacheEntry[] pausedPages;
       if (pauseHook != null) {
-        pauseHook.pause(pinned, false);
+        pausedPages = new CacheEntry[pageCount];
+        for (int slot = 0; slot < pageCount; slot++) {
+          pausedPages[slot] = reservation.entry(slot);
+        }
+        // Callbacks stay inside cleanup, including failures before any change.
+        pauseHook.pause(pausedPages, false);
+      } else {
+        pausedPages = null;
       }
       // No page load, eviction or freezer admission is allowed in this lock window.
-      for (int i = 0; i < pinned.length; i++) {
-        final var entry = pinned[i];
+      for (int i = 0; i < pageCount; i++) {
+        final var entry = reservation.entry(i);
         final boolean nonDurable = nonDurableByPage[i];
         // Operation-level durability can differ from the physical file after same-name
         // recreation. Preserve the old WAL flush dependency in that case, as legacy does.
@@ -1383,7 +1391,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         restorePageContent(entry, changesByPage[i], nonDurable, txEndLsn, true);
         reservation.publishAndUnlock(i);
         if (i == 0 && pauseHook != null) {
-          pauseHook.pause(pinned, true);
+          pauseHook.pause(pausedPages, true);
         }
       }
     }

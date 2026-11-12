@@ -126,12 +126,17 @@ public interface ReadCache {
   /**
    * Thread-confined resources for page-set application. Slots are consecutive from zero,
    * in strictly increasing canonical file/page order. Pin returns the entry for that slot.
+   * All pins in one reservation must use the same {@link WriteCache}.
+   * Pin rejects a different write cache with {@link IllegalArgumentException} before changing the slot.
    * Load every pin before locking any page. Prepare successfully before touching page content.
    * Close unlocks every page before releasing pins. A failed publish keeps its pin and budget.
    */
   interface WriteReservation extends AutoCloseable {
     CacheEntry pin(int slot, long fileId, long pageIndex, WriteCache writeCache,
         boolean verifyChecksums);
+
+    /** Returns the entry of an already pinned slot while this reservation is open. */
+    CacheEntry entry(int slot);
 
     void lock(int slot);
 
