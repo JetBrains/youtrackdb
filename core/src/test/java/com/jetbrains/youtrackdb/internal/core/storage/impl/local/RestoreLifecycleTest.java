@@ -1225,6 +1225,81 @@ public class RestoreLifecycleTest {
         StorageFormat.LAYOUT_28.layoutVersion());
   }
 
+  // The actual disk restore must rebuild the identity-keyed loaded map and resolve stored bags.
+  @Test
+  public void identityTreeAndPopulatedBagSurviveActualRestoreAndColdOpen() throws Exception {
+    com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid;
+    com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer pointer;
+    int collectionId;
+    try (var manager = openManager()) {
+      try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+          StorageFormat.LAYOUT_28)) {
+        createSourceDatabase(manager);
+      }
+      try (var session = (DatabaseSessionEmbedded) manager.open(SOURCE, ADMIN, PASSWORD)) {
+        var cls = session.getMetadata().getSchema().createClass("RestoreBag", 1);
+        collectionId = cls.getCollectionIds()[0];
+        rid = session.computeInTx(tx -> tx.newEntity("RestoreBag").getIdentity());
+        var linked = rid;
+        var storage = session.getStorage();
+        pointer = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(op -> {
+          var p = session.getBTreeCollectionManager().createBTree(collectionId, op, session);
+          session.getBTreeCollectionManager().loadIsolatedBTree(p).put(op, linked,
+              new com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue(
+                  1, linked.getCollectionId(), linked.getCollectionPosition(), false));
+          return p;
+        });
+        var kept = pointer;
+        session.getConfiguration().setValue(
+            com.jetbrains.youtrackdb.api.config.GlobalConfiguration.LINK_COLLECTION_BTREE_TO_EMBEDDED_THRESHOLD,
+            -1);
+        session.executeInTx(tx -> tx.loadEntity(linked).setProperty("bag",
+            new com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag(session,
+                new com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag(
+                    session, kept, 1, Integer.MAX_VALUE)),
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.LINKBAG));
+      }
+      storageOf(manager, SOURCE).fullBackup(backupPath);
+      internalOf(manager).restore(target, backupPath.toString(), null, null);
+      assertRestoredBag(manager, collectionId, rid, pointer);
+    }
+    try (var manager = openManager()) {
+      assertRestoredBag(manager, collectionId, rid, pointer);
+    }
+  }
+
+  private void assertRestoredBag(YouTrackDBImpl manager, int id,
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid,
+      com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer pointer)
+      throws Exception {
+    try (var session = (DatabaseSessionEmbedded) manager.open(target, ADMIN, PASSWORD)) {
+      var storage = session.getStorage();
+      var trees =
+          (com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared) storage
+              .getLinkCollectionsBtreeCollectionManager();
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+        var owner = storage.captureCollectionOwner(id, op);
+        var identity =
+            new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.LINK_BAG_TREE,
+                owner.componentId());
+        var name = com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+            .layout28(identity);
+        assertEquals(identity.internalId(),
+            com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache.extractFileId(
+                op.fileIdByName(name)));
+        assertNotNull(trees.requireComponent(owner, op));
+        assertEquals(1, trees.loadIsolatedBTree(pointer).get(rid, op).counter());
+      });
+      session.executeInTx(tx -> {
+        com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag bag =
+            tx.loadEntity(rid).getProperty("bag");
+        assertEquals(pointer, bag.getPointer());
+        assertEquals(rid, bag.iterator().next().primaryRid());
+      });
+    }
+  }
+
   /**
    * A crash at activation leaves an interrupted image. Retry admits the opposite source layout
    * and replaces the interrupted target. Its data and layout survive a cold reopen.

@@ -1440,7 +1440,10 @@ public abstract class AbstractStorage
       if (collection != null) {
         final var collectionId = collection.getId();
 
-        if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
+        if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+          linkCollectionsBTreeManager.requireComponent(
+              linkCollectionsBTreeManager.captureOwner(collection, operation), operation);
+        } else if (!LinkCollectionsBTreeManagerShared.isComponentPresent(operation, collectionId)) {
           LogManager.instance()
               .info(
                   this,
@@ -1709,12 +1712,11 @@ public abstract class AbstractStorage
               configuration::getBinaryFormatVersion);
           componentsFactory = new CurrentStorageComponentsFactory(binaryFormatVersion);
 
+          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
           linkCollectionsBTreeManager.load(atomicOperation);
 
           status = STATUS.OPEN;
           startStaleTransactionMonitor();
-
-          linkCollectionsBTreeManager = new LinkCollectionsBTreeManagerShared(this);
 
           // ADD THE METADATA COLLECTION TO STORE INTERNAL STUFF
           doAddCollection(atomicOperation, MetadataDefault.COLLECTION_INTERNAL_NAME);
@@ -4006,6 +4008,12 @@ public abstract class AbstractStorage
     return id;
   }
 
+  /** Reads the current configuration instance in either startup order and after restore. */
+  public List<StoragePaginatedCollectionConfiguration> readCollectionOwners(
+      AtomicOperation operation) {
+    return ((CollectionBasedStorageConfiguration) configuration).readCollections(operation);
+  }
+
   /** Resolves once through operation-visible configuration without reentering the state lock. */
   public LinkCollectionsBTreeManagerShared.CollectionOwner captureCollectionOwner(
       int id, AtomicOperation operation) {
@@ -4091,9 +4099,9 @@ public abstract class AbstractStorage
    * link-bag B-tree component vanish with the atomic operation and only the in-memory registry needs
    * undoing. The in-memory engine eagerly installs every new file into its cache and does <em>not</em>
    * revert that install on rollback (see {@code AtomicOperationBinaryTracking.addFile}), so the
-   * created collection's data file and its id-named {@code global_collection_<id>.grb} component
-   * survive the rollback as orphans; the surviving component then blocks the next id-reusing create
-   * with a "file already exists" error. This arm drops that orphaned structure in a fresh atomic
+   * created collection's data file and tree can survive rollback as orphans. Layout 28 cleanup
+   * derives the tree from the captured component identity, independently of slot reuse.
+   * This arm drops that orphaned structure in a fresh atomic
    * operation (the failed commit's operation is already closed by {@code rollback}). Layout 27
    * uses tree presence as its orphan discriminator. Layout 28 separately checks ordinary files,
    * removes loaded-tree state and checks configuration ownership. The fresh atomic operation commits
@@ -4304,9 +4312,7 @@ public abstract class AbstractStorage
               if (collection.exists(atomicOperation)) {
                 collection.delete(atomicOperation);
               }
-              if (!slotReused) {
-                linkCollectionsBTreeManager.deleteComponent(atomicOperation, failedOwner);
-              }
+              linkCollectionsBTreeManager.deleteComponent(atomicOperation, failedOwner);
               final var config = (CollectionBasedStorageConfiguration) configuration;
               final var current = config.readCollection(realId, atomicOperation);
               if (current != null
@@ -4846,6 +4852,13 @@ public abstract class AbstractStorage
    * because the installing thread and the committing thread may differ in a concurrent test.
    */
   private volatile Runnable commitWindowTestHook;
+
+  private volatile Runnable linkBagCreationTestHook;
+
+  /** Observes tree creation before the early undo capture is replaced. Runs under the state lock. */
+  public void setLinkBagCreationTestHook(Runnable hook) {
+    linkBagCreationTestHook = hook;
+  }
 
   /**
    * Installs (or clears, with {@code null}) the test-only in-window commit hook. Test-only seam — no
@@ -9008,6 +9021,10 @@ public abstract class AbstractStorage
 
     if (getStorageFormat() == StorageFormat.LAYOUT_28) {
       linkCollectionsBTreeManager.createComponent(atomicOperation, collection);
+      final var creationHook = linkBagCreationTestHook;
+      if (creationHook != null) {
+        creationHook.run();
+      }
       if (created != null) {
         created.set(created.size() - 1, new CreatedCollection(collection,
             linkCollectionsBTreeManager.captureOwner(collection, atomicOperation)));
@@ -10252,14 +10269,12 @@ public abstract class AbstractStorage
     for (final var collection : collections.values()) {
       final var collectionId = collection.getId();
       var bTree = getStorageFormat() == StorageFormat.LAYOUT_28
-          ? linkCollectionsBTreeManager.getComponent(
-              linkCollectionsBTreeManager.captureOwner(collection, atomicOperation))
+          ? linkCollectionsBTreeManager.requireComponent(
+              linkCollectionsBTreeManager.captureOwner(collection, atomicOperation),
+              atomicOperation)
           : linkCollectionsBTreeManager.getComponentByCollectionId(collectionId, atomicOperation);
-      // The B-tree should always exist: it is created with the collection
-      // (doAddCollection) and repaired during storage open
-      // (checkRidBagsPresence). lockCollections() already serializes
-      // concurrent commits to the same collection, so a null here would
-      // not cause a race — but it would indicate a bug elsewhere.
+      // Layout 28 required access has already validated registration and loaded state.
+      // Layout 27 retains its open-time repair and assertion-only diagnostic.
       assert bTree != null
           : "Link bag B-tree missing for collection " + collectionId;
       if (bTree != null) {

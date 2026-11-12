@@ -85,6 +85,10 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  private static String treeName(int componentId) {
+    return PageFileNames.layout28(new PageFileIdentity(PageFileRole.LINK_BAG_TREE, componentId));
+  }
+
   private DatabaseSessionEmbedded open() {
     return (DatabaseSessionEmbedded) ytdb.open("counters", "admin", "adminpwd");
   }
@@ -1038,7 +1042,7 @@ public class ComponentIdAllocationTest {
     return field.get(collection);
   }
 
-  // Production layout 28 keeps the full display-name family and slot-named tree on cold open.
+  // Layout 28 keeps display-named ordinary files and an identity-owned tree on cold open.
   @Test
   public void productionCollectionNamesRemainUnchangedAcrossColdReopen() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
@@ -1052,7 +1056,7 @@ public class ComponentIdAllocationTest {
         assertTrue(storage.getWriteCache().files().containsKey(name));
         registered.put(name, storage.getWriteCache().files().get(name));
       }
-      String tree = "global_collection_" + id + ".grb";
+      String tree = treeName(operationEntry(storage, id).getComponentId());
       assertTrue(storage.getWriteCache().files().containsKey(tree));
       registered.put(tree, storage.getWriteCache().files().get(tree));
     }
@@ -1307,7 +1311,20 @@ public class ComponentIdAllocationTest {
     final int id;
     try (var session = open()) {
       id = session.addCollection("zeroidentity");
-      replaceCollectionIdentity(session.getStorage(), id, 0);
+      var storage = session.getStorage();
+      var manager =
+          (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          manager.deleteComponent(op, storage.captureCollectionOwner(id, op));
+          new SharedLinkBagBTree(storage, "zero", ".grb",
+              new PageFileIdentity(PageFileRole.LINK_BAG_TREE, 0)).create(op);
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+      replaceCollectionIdentity(storage, id, 0);
     }
     ytdb.close();
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
@@ -1427,7 +1444,7 @@ public class ComponentIdAllocationTest {
         assertNull(operationEntry(storage, owner.collectionId()));
         assertFalse(loaded.containsKey(AbstractWriteCache.extractFileId(owner.fileId())));
         assertFalse(storage.getWriteCache().files()
-            .containsKey(manager.generateLockName(owner.collectionId())));
+            .containsKey(treeName(owner.componentId())));
       }
     }
   }
@@ -1479,7 +1496,7 @@ public class ComponentIdAllocationTest {
           invoke(cleanup, storage, id, collection, false, captured);
           assertFalse(loaded.containsKey(key));
           assertFalse(storage.getWriteCache().files()
-              .containsKey(manager.generateLockName(id)));
+              .containsKey(treeName(captured.componentId())));
           var read = storage.getAtomicOperationsManager().startAtomicOperation();
           try {
             assertFalse(collection.exists(read));
@@ -1640,8 +1657,7 @@ public class ComponentIdAllocationTest {
     assertEquals(expectedOwner, runtimeConfig(collection).getComponentId());
     var manager = storage.getLinkCollectionsBtreeCollectionManager();
     assertTrue(storage.getWriteCache().files().containsKey(
-        com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared
-            .generateLockName(id)));
+        treeName(expectedOwner)));
     storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
       var owner = storage.captureCollectionOwner(id, op);
       assertEquals(expectedOwner, owner.componentId());
@@ -1693,8 +1709,19 @@ public class ComponentIdAllocationTest {
     reconcileFailureRestoresOwner(format, later, false);
   }
 
+  // Fail after B has a real tree but before its early undo capture receives the handle.
+  @Test
+  public void identityReplacementTreeCreationFailureRestoresPopulatedBag() throws Exception {
+    reconcileFailureRestoresOwner(StorageFormat.LAYOUT_28, false, false, true);
+  }
+
   private void reconcileFailureRestoresOwner(StorageFormat format, boolean later, boolean poison)
       throws Exception {
+    reconcileFailureRestoresOwner(format, later, poison, false);
+  }
+
+  private void reconcileFailureRestoresOwner(StorageFormat format, boolean later, boolean poison,
+      boolean afterTree) throws Exception {
     var types = poison ? new DatabaseType[] {DatabaseType.MEMORY}
         : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY};
     for (var type : types) {
@@ -1734,8 +1761,24 @@ public class ComponentIdAllocationTest {
         var replacementId = new java.util.concurrent.atomic.AtomicReference<Integer>();
         // Capture the list view before the listener holds the non-reentrant configuration lock.
         var notifications = config(storage).getCollections();
+        if (afterTree) {
+          storage.setLinkBagCreationTestHook(() -> {
+            var op = session.getActiveTransaction().getAtomicOperation();
+            var entry = config(storage).readCollection(id, op);
+            assertNotNull(entry);
+            assertFalse(originalId.equals(entry.getComponentId()));
+            replacementId.set(entry.getComponentId());
+            failedNames.add(entry.name);
+            assertNull(slots.get(id));
+            var owner = storage.captureCollectionOwner(id, op);
+            assertNotNull(owner.tree());
+            assertTrue(op.isFileExists(owner.tree().getFullName()));
+            injected.set(true);
+            throw new AssertionError("injected after tree creation before full capture");
+          });
+        }
         config(storage).setConfigurationUpdateListener(update -> {
-          if (injected.get()) {
+          if (afterTree || injected.get()) {
             return;
           }
           // Observe the notification payload only to choose the injection point. All restoration
@@ -1779,6 +1822,7 @@ public class ComponentIdAllocationTest {
           assertThrows(StorageException.class, session::commit);
         } finally {
           config(storage).setConfigurationUpdateListener(null);
+          storage.setLinkBagCreationTestHook(null);
         }
         assertTrue("failure must occur inside reconciliation", injected.get());
         if (poison) {
@@ -1790,6 +1834,16 @@ public class ComponentIdAllocationTest {
           ownersField.setAccessible(true);
           assertFalse(((java.util.Map<?, ?>) ownersField.get(manager))
               .containsKey(replacementId.get()));
+          var failedIdentity =
+              new PageFileIdentity(PageFileRole.LINK_BAG_TREE, replacementId.get());
+          if (!poison) {
+            assertFalse(storage.getWriteCache().files()
+                .containsKey(PageFileNames.layout28(failedIdentity)));
+          }
+          var loadedField = manager.getClass().getDeclaredField("fileIdBTreeMap");
+          loadedField.setAccessible(true);
+          assertFalse(((java.util.Map<?, ?>) loadedField.get(manager))
+              .containsKey(failedIdentity.internalId()));
         }
         assertRestoredContents(session, id, originalId, originalName, rid, pointer, failedNames);
       }
@@ -1883,7 +1937,8 @@ public class ComponentIdAllocationTest {
             assertFalse(((java.util.Map<?, ?>) owners.get(manager))
                 .containsKey(owner.componentId()));
             assertFalse(((java.util.Map<?, ?>) loaded.get(manager)).containsKey(key));
-            assertTrue(storage.getWriteCache().files().containsKey(manager.generateLockName(id)));
+            assertEquals(poison,
+                storage.getWriteCache().files().containsKey(treeName(owner.componentId())));
             if (poison) {
               assertTrue(storage.isInError());
               var read = storage.getAtomicOperationsManager().startAtomicOperation();
@@ -1992,7 +2047,7 @@ public class ComponentIdAllocationTest {
 
   // Restoration must invalidate the creation-owner cache so captures and writers share one tree.
   @Test
-  public void restoredTreeReplacesCachedCreationOwner() throws Exception {
+  public void restoredTreeRetainsCapturedLockAndInvalidatesCachedCreationOwner() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
     try (var session = open()) {
       int id = session.addCollection("restoredtree");
@@ -2006,10 +2061,10 @@ public class ComponentIdAllocationTest {
       try {
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
           var before = manager.captureOwner(collection, op);
-          manager.restoreComponentByCollectionId(op, id);
+          manager.restoreComponent(op, before);
           var after = manager.captureOwner(collection, op);
           var mapped = storage.captureCollectionOwner(id, op);
-          assertTrue(before.tree() != mapped.tree());
+          assertSame(before.tree(), mapped.tree());
           assertSame(mapped.tree(), after.tree());
           manager.deleteComponent(op, after);
           assertNull(manager.captureOwner(id, after.componentId(), op).tree());
@@ -2020,7 +2075,7 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Owner-aware lazy tree allocation must complete while the caller owns the state write lock.
+  // Owner-aware allocation must complete while the caller owns the state write lock.
   // A state read-lock re-entry cannot succeed, so the timeout makes that regression fail.
   @Test(timeout = 30000)
   public void ownerAwareBagAllocationDoesNotReenterStateLock() throws Exception {
@@ -2034,10 +2089,11 @@ public class ComponentIdAllocationTest {
       storage.stateLock.writeLock().lock();
       try {
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
-          manager.deleteComponent(op, storage.captureCollectionOwner(id, op));
           var pointer = manager.createBTree(id, op, session);
           assertTrue(pointer.linkBagId() < 0);
           assertTrue(storage.captureCollectionOwner(id, op).tree() != null);
+          manager.deleteComponent(op, storage.captureCollectionOwner(id, op));
+          assertThrows(StorageException.class, () -> manager.createBTree(id, op, session));
         });
       } finally {
         storage.stateLock.writeLock().unlock();

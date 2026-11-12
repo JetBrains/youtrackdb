@@ -1730,12 +1730,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  /** Finds an operation-visible owner of a normalized display name, without using the cache. */
-  @Nullable public StoragePaginatedCollectionConfiguration readCollectionByName(
-      String normalizedName, AtomicOperation atomicOperation) {
+  /** Enumerates current collection owners without consulting the rollback-unaware cache. */
+  public List<StoragePaginatedCollectionConfiguration> readCollections(
+      AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try (var stream =
         btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true, atomicOperation)) {
+      final List<StoragePaginatedCollectionConfiguration> result = new ArrayList<>();
       final var entries = stream.iterator();
       while (entries.hasNext()) {
         final var entry = entries.next();
@@ -1745,17 +1746,21 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         final var id = Integer.parseInt(
             entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
         final var property = readProperty(entry.first(), atomicOperation);
-        final var owner =
-            (StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
-                id, property.first, property.second);
-        if (owner.name().toLowerCase(java.util.Locale.ROOT).equals(normalizedName)) {
-          return owner;
-        }
+        result.add((StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+            id, property.first, property.second));
       }
-      return null;
+      return result;
     } finally {
       lock.readLock().unlock();
     }
+  }
+
+  /** Finds an operation-visible owner of a normalized display name, without using the cache. */
+  @Nullable public StoragePaginatedCollectionConfiguration readCollectionByName(
+      String normalizedName, AtomicOperation atomicOperation) {
+    return readCollections(atomicOperation).stream()
+        .filter(owner -> owner.name().toLowerCase(java.util.Locale.ROOT).equals(normalizedName))
+        .findFirst().orElse(null);
   }
 
   private void preloadCollections(AtomicOperation atomicOperation) {
