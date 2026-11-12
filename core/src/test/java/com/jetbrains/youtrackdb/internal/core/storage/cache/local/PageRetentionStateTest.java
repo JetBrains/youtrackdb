@@ -170,6 +170,69 @@ public class PageRetentionStateTest {
     assertState(Set.of(), false, false);
   }
 
+  /** Successful sync keeps a replacement pending until its own data write and sync complete. */
+  @Test
+  public void successfulSynchronizationKeepsReplacementAppendedDuringAction()
+      throws IOException, InterruptedException {
+    final var first = append(1, 0, 10);
+    state.writeSucceeded(first, true);
+    final var replacement = new AtomicReference<PageRetentionState.WriteAttempt>();
+    state.synchronizeOnFlushExecutor(Set.of(1L),
+        () -> replacement.set(append(1, 0, 20)));
+    assertState(Set.of(20L), false, false);
+    state.synchronizeOnFlushExecutor(() -> {
+    });
+    assertState(Set.of(20L), false, false);
+    state.writeSucceeded(replacement.get(), true);
+    assertState(Set.of(20L), false, true);
+    state.synchronizeOnFlushExecutor(() -> {
+    });
+    assertState(Set.of(), false, false);
+  }
+
+  /** Failed sync cannot mark a replacement unresolved, even if its data write already succeeded. */
+  @Test
+  public void failedSynchronizationKeepsReplacementAppendedDuringAction()
+      throws IOException, InterruptedException {
+    final var first = append(1, 0, 10);
+    state.writeSucceeded(first, true);
+    final var failure = new IOException("Injected fsync failure after replacement");
+    assertSame(failure, assertThrows(IOException.class,
+        () -> state.synchronizeOnFlushExecutor(Set.of(1L), () -> {
+          state.writeSucceeded(append(1, 0, 20), true);
+          throw failure;
+        })));
+    assertState(Set.of(20L), false, true);
+    state.synchronizeOnFlushExecutor(() -> {
+    });
+    assertState(Set.of(), false, false);
+  }
+
+  /** Neither successful nor failed sync restores a record discarded by the synchronization action. */
+  @Test
+  public void synchronizationDoesNotRestoreRecordDiscardedDuringAction()
+      throws IOException, InterruptedException {
+    for (final boolean failSync : new boolean[] {false, true}) {
+      final var first = append(1, 0, 10);
+      state.writeSucceeded(first, true);
+      final PageRetentionState.Synchronization action = () -> {
+        state.discardAfterRemoval(1, 0);
+        if (failSync) {
+          throw new IOException("Injected fsync failure after removal");
+        }
+      };
+      if (failSync) {
+        assertThrows(IOException.class, () -> state.synchronizeOnFlushExecutor(Set.of(1L), action));
+      } else {
+        state.synchronizeOnFlushExecutor(Set.of(1L), action);
+      }
+      assertState(Set.of(), false, false);
+      state.synchronizeOnFlushExecutor(() -> {
+      });
+      assertState(Set.of(), false, false);
+    }
+  }
+
   /** Failure discovered during synchronization prevents release of the snapshotted attempt. */
   @Test
   public void synchronizationNeverReleasesAnAttemptThatBecameUnresolved()

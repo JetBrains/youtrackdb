@@ -103,22 +103,21 @@ final class PageRetentionState {
         .filter(retention -> retention.state == State.SYNC_PENDING)
         .filter(retention -> fileIds == null
             || fileIds.contains(retention.attempt.page().fileId()))
-        .map(retention -> retention.attempt).toList();
+        .toList();
     try {
       synchronization.run();
     } catch (IOException | InterruptedException | RuntimeException | Error failure) {
-      for (final var attempt : covered) {
-        final var retention = matching(attempt);
-        if (retention != null && retention.state == State.SYNC_PENDING) {
+      for (final var retention : covered) {
+        if (retention.state == State.SYNC_PENDING) {
           retention.state = State.UNRESOLVED;
         }
       }
       throw failure;
     }
-    for (final var attempt : covered) {
-      final var retention = matching(attempt);
-      if (retention != null && retention.state == State.SYNC_PENDING) {
-        pages.remove(attempt.page());
+    for (final var retention : covered) {
+      if (retention.state == State.SYNC_PENDING) {
+        // The action may replace or discard a covered record before it returns.
+        pages.remove(retention.attempt.page(), retention);
       }
     }
   }
