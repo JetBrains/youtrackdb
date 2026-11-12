@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedMapImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.MultiValueChangeEvent;
@@ -291,9 +292,16 @@ public class ClassIndexManager {
       EntityImpl record, IndexDefinitionMultiValue definition, Object current,
       MultiValueChangeTimeLine<?, ?> timeline, Function<Object, Object> wrap,
       boolean composite) {
+    boolean[] directSet = {directEmbeddedSetCounts(index, definition, current)};
+    int setPrefixLength = directSet[0] ? index.keyPrefixLength() : -1;
     var touched = new TreeMap<Object, TouchedKey>(DefaultComparator.INSTANCE);
     BiFunction<Object, Integer, TouchedKey> touch = (raw, delta) -> {
       Object lookup = definition.createSingleValue(transaction, raw);
+      // Check converted event keys only. Keep the same conservative UTF-8 margin as maps.
+      if (directSet[0] && setPrefixLength >= 0 && lookup instanceof String string
+          && 3L * string.length() >= (long) setPrefixLength - 3) {
+        directSet[0] = false;
+      }
       Object key = wrap.apply(lookup);
       var counts = touched.computeIfAbsent(index.getCollatingValue(key),
           ignored -> new TouchedKey(key));
@@ -359,7 +367,15 @@ public class ClassIndexManager {
     Object preparedNull = index.getCollatingValue(nullKey);
     var nullCounts = touched.computeIfAbsent(preparedNull, ignored -> new TouchedKey(nullKey));
     int[] size = {0};
-    if (directMap) {
+    if (directSet[0]) {
+      var set = (EntityEmbeddedSetImpl<?>) current;
+      size[0] = set.size();
+      for (var counts : touched.values()) {
+        // Several raw events can normalize to one key. Only the converted value has
+        // the membership relation proved by the final set's exact type record.
+        counts.current = set.contains(counts == nullCounts ? null : counts.lookup) ? 1 : 0;
+      }
+    } else if (directMap) {
       size[0] = ((Map<?, ?>) current).size();
     } else if (directLinkCounts(index, definition)
         && ((definition instanceof PropertyLinkBagIndexDefinition && current instanceof LinkBag)
@@ -421,6 +437,34 @@ public class ClassIndexManager {
       return nullCount > 0 && !(collapsesSingleton && size == 1);
     }
     return nullCount > 0 || size == 0;
+  }
+
+  private static boolean directEmbeddedSetCounts(Index index,
+      IndexDefinitionMultiValue definition, Object current) {
+    // Lists share the definition but not set membership semantics. Subclasses can override it.
+    if (current.getClass() != EntityEmbeddedSetImpl.class
+        || !(definition instanceof PropertyListIndexDefinition)) {
+      return false;
+    }
+    Class<?> keyClass = switch (definition.getTypes()[0]) {
+      case BOOLEAN -> Boolean.class;
+      case BYTE -> Byte.class;
+      case SHORT -> Short.class;
+      case INTEGER -> Integer.class;
+      case LONG -> Long.class;
+      case FLOAT -> Float.class;
+      case DOUBLE -> Double.class;
+      case STRING -> String.class;
+      default -> null;
+    };
+    if (keyClass == null || !((EntityEmbeddedSetImpl<?>) current).hasExactItemClass(keyClass)) {
+      return false;
+    }
+    var collate = componentCollateClass(index, definition);
+    return collate == com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate.class
+        || (keyClass != String.class
+            && collate
+                == com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate.class);
   }
 
   private static boolean directLinkCounts(Index index, IndexDefinitionMultiValue definition) {

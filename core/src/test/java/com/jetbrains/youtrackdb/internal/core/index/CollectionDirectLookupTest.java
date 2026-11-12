@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkSetImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -41,18 +42,23 @@ public class CollectionDirectLookupTest extends DbTestBase {
 
   private Index createIndex(String name, PropertyType type, boolean composite, boolean ignored,
       String mode) {
+    return createIndex(name, type, composite, ignored, mode, PropertyType.STRING);
+  }
+
+  private Index createIndex(String name, PropertyType type, boolean composite, boolean ignored,
+      String mode, PropertyType keyType) {
     var cls = session.createClass(name);
-    if (type == PropertyType.EMBEDDEDMAP) {
-      cls.createProperty("items", type, PropertyType.STRING);
+    if (type == PropertyType.EMBEDDEDMAP || type == PropertyType.EMBEDDEDSET
+        || type == PropertyType.EMBEDDEDLIST) {
+      cls.createProperty("items", type, keyType);
     } else {
       cls.createProperty("items", type);
     }
     cls.createProperty("tag", PropertyType.STRING);
+    String field = type == PropertyType.LINKMAP || type == PropertyType.EMBEDDEDMAP
+        ? "items by key" : "items";
     cls.createIndex(name, mode, null, Map.of("ignoreNullValues", ignored),
-        composite ? new String[] {"tag", type == PropertyType.LINKSET
-            || type == PropertyType.LINKLIST ? "items" : "items by key"}
-            : new String[] {type == PropertyType.LINKSET
-                || type == PropertyType.LINKLIST ? "items" : "items by key"});
+        composite ? new String[] {"tag", field} : new String[] {field});
     return session.getSharedContext().getIndexManager().getIndex(name);
   }
 
@@ -61,7 +67,8 @@ public class CollectionDirectLookupTest extends DbTestBase {
   }
 
   private Set<Object> keys(Index index, RID rid) {
-    var result = new HashSet<Object>();
+    var result = new java.util.TreeSet<Object>(
+        com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator.INSTANCE);
     try (var entries = index.stream(session)) {
       entries.filter(e -> e.second().equals(rid)).forEach(e -> result.add(e.first()));
     }
@@ -86,7 +93,7 @@ public class CollectionDirectLookupTest extends DbTestBase {
       reference.getDefinition().setCollate(index.getDefinition().getCollate());
     }
     var fresh = (EntityImpl) session.newEntity(name + "Reference");
-    fresh.setProperty("tag", "t");
+    fresh.setProperty("tag", doc.getPropertyInternal("tag"));
     Object value = doc.getPropertyInternal("items");
     if (value instanceof EntityLinkSetImpl set) {
       fresh.newLinkSet("items", new HashSet<>(set));
@@ -100,6 +107,10 @@ public class CollectionDirectLookupTest extends DbTestBase {
       }
     } else if (value instanceof com.jetbrains.youtrackdb.internal.core.db.record.EntityLinkMapIml) {
       fresh.newLinkMap("items", new HashMap<>(doc.getLinkMap("items")));
+    } else if (value instanceof EntityEmbeddedSetImpl<?> set) {
+      fresh.newEmbeddedSet("items", new HashSet<>(set));
+    } else if (value instanceof com.jetbrains.youtrackdb.internal.core.db.record.EntityEmbeddedListImpl) {
+      fresh.newEmbeddedList("items", new java.util.ArrayList<>((Collection<?>) value));
     } else if (value instanceof List) {
       fresh.newLinkList("items", new java.util.ArrayList<>(doc.getLinkList("items")));
     } else {
@@ -679,6 +690,479 @@ public class CollectionDirectLookupTest extends DbTestBase {
     session.rollback();
   }
 
+  private Index embeddedIndex(String name, PropertyType keyType, boolean composite,
+      boolean ignored, String mode) {
+    references.put(name, createIndex(name + "Reference", PropertyType.EMBEDDEDSET,
+        composite, ignored, "NOTUNIQUE", keyType));
+    return createIndex(name, PropertyType.EMBEDDEDSET, composite, ignored, mode, keyType);
+  }
+
+  private GuardSet guard(EntityEmbeddedSetImpl<?> set) throws Exception {
+    var backing = new GuardSet();
+    backing.addAll(set);
+    var field = EntityEmbeddedSetImpl.class.getDeclaredField("set");
+    field.setAccessible(true);
+    field.set(set, backing);
+    return backing;
+  }
+
+  private void compareEmbedded(String name, Index index, EntityImpl doc, GuardSet backing,
+      boolean direct) {
+    backing.scans = 0;
+    backing.lookups = 0;
+    backing.sizes = 0;
+    backing.guard = direct;
+    try {
+      compare(name, index, doc);
+    } finally {
+      backing.guard = false;
+    }
+    if (direct) {
+      assertEquals(0, backing.scans);
+      assertTrue("membership lookup required", backing.lookups > 0);
+      assertTrue("size lookup required", backing.sizes > 0);
+    } else {
+      assertTrue("fallback must scan", backing.scans > 0);
+    }
+  }
+
+  /** Exact built-in types use only membership and size across the complete index matrix. */
+  @Test
+  public void embeddedEligibleUpdatesNeverScan() throws Exception {
+    var types = List.of(PropertyType.BOOLEAN, PropertyType.BYTE, PropertyType.SHORT,
+        PropertyType.INTEGER, PropertyType.LONG, PropertyType.FLOAT, PropertyType.DOUBLE,
+        PropertyType.STRING);
+    var values = List.of(List.of(false, true), List.of((byte) 1, (byte) 2),
+        List.of((short) 1, (short) 2), List.of(1, 2), List.of(1L, 2L),
+        List.of(0.0f, -0.0f, Float.NaN, 2.0f), List.of(0.0d, -0.0d, Double.NaN, 2.0d),
+        List.of("a", "b", "c", "d"));
+    int sequence = 0;
+    for (int t = 0; t < types.size(); t++) {
+      for (boolean composite : List.of(false, true)) {
+        for (boolean ignored : List.of(false, true)) {
+          for (String mode : List.of("UNIQUE", "NOTUNIQUE")) {
+            for (int initial : new int[] {0, 1, 40}) {
+              String name = "EmbeddedExact" + sequence++;
+              var index = embeddedIndex(name, types.get(t), composite, ignored, mode);
+              session.begin();
+              var doc = (EntityImpl) session.newEntity(name);
+              doc.setProperty("tag", "t");
+              var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+              for (int i = 0; i < initial; i++) {
+                Object item = switch (types.get(t)) {
+                  case BYTE -> (byte) i;
+                  case SHORT -> (short) i;
+                  case INTEGER -> i;
+                  case LONG -> (long) i;
+                  case FLOAT -> (float) i;
+                  case DOUBLE -> (double) i;
+                  case STRING -> "initial" + i;
+                  default -> i % 2 == 0;
+                };
+                set.add(item);
+              }
+              callbacks();
+              var backing = guard(set);
+              for (var value : values.get(t)) {
+                if (set.contains(value)) {
+                  set.remove(value);
+                } else {
+                  set.add(value);
+                }
+                compareEmbedded(name, index, doc, backing, true);
+              }
+              set.add(null);
+              compareEmbedded(name, index, doc, backing, true);
+              set.remove(null);
+              compareEmbedded(name, index, doc, backing, true);
+              // Boolean populations can be empty after toggling both values.
+              if (set.add(values.get(t).getFirst())) {
+                compareEmbedded(name, index, doc, backing, true);
+              }
+              set.clear();
+              compareEmbedded(name, index, doc, backing, true);
+              session.rollback();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** Mixed raw values, conversion and sticky mixed history must retain the scan. */
+  @Test
+  public void embeddedConversionsAndMixedHistoryMatchCreation() throws Exception {
+    int sequence = 0;
+    for (var type : List.of(PropertyType.INTEGER, PropertyType.LONG, PropertyType.STRING,
+        PropertyType.DOUBLE)) {
+      String name = "EmbeddedMixed" + sequence++;
+      var index = embeddedIndex(name, type, false, false, "NOTUNIQUE");
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+      Object first = type == PropertyType.DOUBLE ? (Object) Float.valueOf(1)
+          : type == PropertyType.STRING ? (Object) Integer.valueOf(1) : Long.valueOf(1);
+      set.add(first);
+      callbacks();
+      var backing = guard(set);
+      set.add(type == PropertyType.STRING ? "1" : Integer.valueOf(1));
+      compareEmbedded(name, index, doc, backing, false);
+      set.remove(first);
+      compareEmbedded(name, index, doc, backing, false);
+      set.clear();
+      // A new homogeneous population restores direct eligibility.
+      Object exact = switch (type) {
+        case LONG -> Long.valueOf(2);
+        case DOUBLE -> Double.valueOf(2);
+        case STRING -> "2";
+        default -> Integer.valueOf(2);
+      };
+      set.add(exact);
+      compareEmbedded(name, index, doc, backing, true);
+      session.rollback();
+    }
+    for (boolean clear : List.of(false, true)) {
+      String name = "EmbeddedConvertedLookup" + sequence++;
+      var index = embeddedIndex(name, PropertyType.INTEGER, false, false, "NOTUNIQUE");
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+      callbacks();
+      var backing = guard(set);
+      set.add(1L);
+      if (clear) {
+        set.clear();
+      } else {
+        set.remove(1L);
+      }
+      set.add(1);
+      compareEmbedded(name, index, doc, backing, true);
+      session.rollback();
+    }
+    for (var type : List.of(PropertyType.LONG, PropertyType.DOUBLE)) {
+      String name = "EmbeddedUniformConversion" + sequence++;
+      var index = embeddedIndex(name, type, false, false, "NOTUNIQUE");
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+      set.add(type == PropertyType.LONG ? (Object) Integer.valueOf(1) : Float.valueOf(1));
+      callbacks();
+      var backing = guard(set);
+      set.add(type == PropertyType.LONG ? (Object) Integer.valueOf(2) : Float.valueOf(2));
+      compareEmbedded(name, index, doc, backing, false);
+      session.rollback();
+    }
+  }
+
+  /** Reload rebuilds exact type evidence, while a later different numeric class poisons it. */
+  @Test
+  public void embeddedReloadAndFurtherUpdates() throws Exception {
+    String name = "EmbeddedReload";
+    var index = embeddedIndex(name, PropertyType.LONG, true, false, "NOTUNIQUE");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(name);
+    doc.setProperty("tag", "t");
+    doc.newEmbeddedSet("items", Set.of(1L, 2L));
+    var rid = doc.getIdentity();
+    session.commit();
+    session.begin();
+    doc = session.getActiveTransaction().load(rid);
+    var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>getEmbeddedSet("items");
+    assertTrue(set.hasExactItemClass(Long.class));
+    var backing = guard(set);
+    set.add(3L);
+    compareEmbedded(name, index, doc, backing, true);
+    set.add(1);
+    compareEmbedded(name, index, doc, backing, false);
+    session.commit();
+  }
+
+  /** Collation and unsupported key types route to the scan, not raw membership. */
+  @Test
+  public void embeddedIneligibleTypesAndCollationsScan() throws Exception {
+    int sequence = 0;
+    for (var type : List.of(PropertyType.DECIMAL, PropertyType.BINARY, PropertyType.DATETIME,
+        PropertyType.STRING, PropertyType.STRING, PropertyType.INTEGER)) {
+      String name = "EmbeddedFallback" + sequence++;
+      var index = embeddedIndex(name, type, false, false, "NOTUNIQUE");
+      Object a = switch (type) {
+        case DECIMAL -> new java.math.BigDecimal("1");
+        case BINARY -> new byte[] {1};
+        case DATETIME -> new java.util.Date(1000);
+        case INTEGER -> 1;
+        default -> "a";
+      };
+      Object b = switch (type) {
+        case DECIMAL -> new java.math.BigDecimal("2");
+        case BINARY -> new byte[] {2};
+        case DATETIME -> new java.util.Date(2000);
+        case INTEGER -> 2;
+        default -> "A";
+      };
+      if (sequence == 4 || sequence == 6) {
+        index.getDefinition().setCollate(
+            new com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate());
+      } else if (sequence == 5) {
+        index.getDefinition().setCollate(
+            new com.jetbrains.youtrackdb.internal.core.collate.DefaultCollate() {
+            });
+      }
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+      set.add(a);
+      callbacks();
+      var backing = guard(set);
+      set.add(b);
+      compareEmbedded(name, index, doc, backing, sequence == 6);
+      session.rollback();
+    }
+  }
+
+  /** The conservative length threshold and its three-byte margin govern both event orders. */
+  @Test
+  public void embeddedStringBoundariesAndCollisions() throws Exception {
+    var field = AbstractStorage.class.getDeclaredField("recordedMaxIndexKeySize");
+    field.setAccessible(true);
+    int original = field.getInt(session.getStorage());
+    int sequence = 0;
+    try {
+      for (int p : new int[] {100, -23}) {
+        for (boolean reverse : List.of(false, true)) {
+          String name = "EmbeddedBoundary" + sequence++;
+          var index = embeddedIndex(name, PropertyType.STRING, false, false, "NOTUNIQUE");
+          field.setInt(session.getStorage(), p + 24);
+          assertEquals(p, index.keyPrefixLength());
+          session.begin();
+          var doc = (EntityImpl) session.newEntity(name);
+          var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+          callbacks();
+          var backing = guard(set);
+          int budget = Math.max(100, p);
+          var changes = new java.util.ArrayList<String>();
+          for (int length : new int[] {31, 32, 33, budget - 3, budget - 2, budget - 1,
+              budget, budget + 1}) {
+            changes.add("x".repeat(length));
+            changes.add("😀".repeat(length / 4) + "b".repeat(length % 4));
+          }
+          String shortKey = "\u0800".repeat(33);
+          String longKey = shortKey + "😀";
+          if (p >= 0) {
+            assertEquals(index.getCollatingValue(shortKey), index.getCollatingValue(longKey));
+          }
+          changes.add(shortKey);
+          changes.add(longKey);
+          if (reverse) {
+            java.util.Collections.reverse(changes);
+          }
+          for (String value : changes) {
+            set.add(value);
+            compareEmbedded(name, index, doc, backing,
+                p < 0 || 3L * value.length() < p - 3);
+          }
+          for (String value : changes) {
+            set.remove(value);
+            compareEmbedded(name, index, doc, backing,
+                p < 0 || 3L * value.length() < p - 3);
+          }
+          session.rollback();
+          field.setInt(session.getStorage(), original);
+        }
+      }
+    } finally {
+      field.setInt(session.getStorage(), original);
+    }
+  }
+
+  /** Shared list definitions do not admit embedded lists to the membership branch. */
+  @Test
+  public void embeddedListRetainsScan() throws Exception {
+    String name = "EmbeddedListFallback";
+    references.put(name, createIndex(name + "Reference", PropertyType.EMBEDDEDLIST,
+        false, false, "NOTUNIQUE", PropertyType.INTEGER));
+    var index = createIndex(name, PropertyType.EMBEDDEDLIST, false, false, "NOTUNIQUE",
+        PropertyType.INTEGER);
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(name);
+    var list = doc.<Object>newEmbeddedList("items");
+    list.add(1);
+    callbacks();
+    var backing = new java.util.ArrayList<Object>(list) {
+      int scans;
+
+      @Override
+      public void forEach(java.util.function.Consumer<? super Object> consumer) {
+        if (inIndexUpdate()) {
+          scans++;
+        }
+        super.forEach(consumer);
+      }
+    };
+    var field = list.getClass().getDeclaredField("list");
+    field.setAccessible(true);
+    field.set(list, backing);
+    list.add(1);
+    compare(name, index, doc);
+    assertTrue(backing.scans > 0);
+    backing.scans = 0;
+    list.remove(0);
+    compare(name, index, doc);
+    assertTrue(backing.scans > 0);
+    // Duplicate preservation distinguishes the scan from a 0/1 membership result.
+    assertEquals(Set.of(1), keys(index, doc.getIdentity()));
+    session.rollback();
+  }
+
+  /** Independent indexes on one set choose their own collation-dependent route. */
+  @Test
+  public void embeddedTwoIndexesAndUnknownState() throws Exception {
+    String name = "EmbeddedTwo";
+    var index = embeddedIndex(name, PropertyType.STRING, false, false, "NOTUNIQUE");
+    session.getMetadata().getSchema().getClass(name)
+        .createIndex(name + "Second", "UNIQUE", "items");
+    var second = session.getSharedContext().getIndexManager().getIndex(name + "Second");
+    second.getDefinition().setCollate(
+        new com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate());
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(name);
+    var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+    set.add("a");
+    callbacks();
+    var backing = guard(set);
+    set.add("b");
+    compare(name, index, doc);
+    assertTrue(backing.lookups > 0);
+    assertTrue(backing.scans > 0);
+    assertEquals(Set.of("a", "b"), keys(second, doc.getIdentity()));
+    var state = EntityEmbeddedSetImpl.class.getDeclaredField("itemClass");
+    state.setAccessible(true);
+    state.set(set, null);
+    set.add("c");
+    compareEmbedded(name, index, doc, backing, false);
+    assertEquals(Set.of("a", "b", "c"), keys(second, doc.getIdentity()));
+    session.rollback();
+  }
+
+  /** Changing a second composite component retains field-assignment comparison. */
+  @Test
+  public void embeddedCompositeSecondComponentChangeScans() throws Exception {
+    String name = "EmbeddedCompositeAssignment";
+    var index = embeddedIndex(name, PropertyType.INTEGER, true, false, "NOTUNIQUE");
+    session.begin();
+    var doc = (EntityImpl) session.newEntity(name);
+    doc.setProperty("tag", "t");
+    var set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+    set.add(1);
+    callbacks();
+    var backing = guard(set);
+    set.add(2);
+    doc.setProperty("tag", "u");
+    compareEmbedded(name, index, doc, backing, false);
+    session.rollback();
+  }
+
+  /** Embedded records and subclass membership implementations cannot use exact lookup. */
+  @Test
+  public void embeddedRecordsAndSubclassScan() throws Exception {
+    for (boolean subclass : List.of(false, true)) {
+      String name = subclass ? "EmbeddedSubclass" : "EmbeddedRecords";
+      var index = embeddedIndex(name, PropertyType.STRING, false, false, "NOTUNIQUE");
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(name);
+      EntityEmbeddedSetImpl<Object> set;
+      if (subclass) {
+        set = new EntityEmbeddedSetImpl<>(doc) {
+        };
+        doc.setProperty("items", set);
+        set.add("a");
+      } else {
+        set = (EntityEmbeddedSetImpl<Object>) doc.<Object>newEmbeddedSet("items");
+        var item = session.newEmbeddedEntity();
+        item.setProperty("value", "a");
+        set.add(item);
+      }
+      callbacks();
+      var backing = guard(set);
+      if (subclass) {
+        set.add("b");
+      } else {
+        var item = session.newEmbeddedEntity();
+        item.setProperty("value", "b");
+        set.add(item);
+      }
+      compareEmbedded(name, index, doc, backing, false);
+      session.rollback();
+    }
+  }
+
+  private static final class GuardSet extends HashSet<Object> {
+    boolean guard;
+    int scans;
+    int lookups;
+    int sizes;
+
+    private void scan() {
+      if (inIndexUpdate()) {
+        scans++;
+        if (guard) {
+          throw new AssertionError("Index update scanned embedded set");
+        }
+      }
+    }
+
+    @Override
+    public boolean contains(Object value) {
+      if (inIndexUpdate()) {
+        lookups++;
+      }
+      return super.contains(value);
+    }
+
+    @Override
+    public int size() {
+      if (inIndexUpdate()) {
+        sizes++;
+      }
+      return super.size();
+    }
+
+    @Override
+    public Iterator<Object> iterator() {
+      scan();
+      return super.iterator();
+    }
+
+    @Override
+    public Spliterator<Object> spliterator() {
+      scan();
+      return super.spliterator();
+    }
+
+    @Override
+    public Stream<Object> stream() {
+      scan();
+      return super.stream();
+    }
+
+    @Override
+    public void forEach(java.util.function.Consumer<? super Object> action) {
+      scan();
+      super.forEach(action);
+    }
+
+    @Override
+    public Object[] toArray() {
+      scan();
+      return super.toArray();
+    }
+
+    @Override
+    public <T> T[] toArray(T[] array) {
+      scan();
+      return super.toArray(array);
+    }
+  }
+
   private final class GuardBag extends BTreeBasedLinkBag {
     boolean guard;
     boolean observe;
@@ -742,7 +1226,8 @@ public class CollectionDirectLookupTest extends DbTestBase {
 
   private static boolean inIndexUpdate() {
     return java.util.Arrays.stream(Thread.currentThread().getStackTrace())
-        .anyMatch(frame -> frame.getMethodName().equals("processIndexUpdateEvents"));
+        .anyMatch(frame -> frame.getMethodName().equals("processIndexUpdateEvents")
+            || frame.getMethodName().equals("processIndexUpdate"));
   }
 
   private static final class GuardMap extends HashMap {
