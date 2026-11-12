@@ -51,6 +51,14 @@ final class GremlinShapeEncoder {
     return hasBindingContext;
   }
 
+  int bindingCount() {
+    return bindings.size();
+  }
+
+  int contributionCount() {
+    return hasContributions.size();
+  }
+
   int hasSlotCount() {
     return hasSlots.size();
   }

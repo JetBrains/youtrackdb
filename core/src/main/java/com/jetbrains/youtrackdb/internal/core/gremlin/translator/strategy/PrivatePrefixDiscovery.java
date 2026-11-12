@@ -59,7 +59,12 @@ final class PrivatePrefixDiscovery {
       return refused(Reason.DISABLED);
     }
     // Resolve deliberate option errors and all strategy-derived walk inputs once, on the root.
-    var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+    return discover(traversal, admittedCut, session,
+        GremlinStepWalker.WalkInputs.capture(traversal), false);
+  }
+
+  Outcome discover(Traversal.Admin<?, ?> traversal, @Nullable IntPredicate admittedCut,
+      DatabaseSessionEmbedded session, GremlinStepWalker.WalkInputs inputs, boolean prepareFull) {
     GremlinStepWalker.rejectReservedPrefixLabels(traversal.getSteps());
     if (inputs.polymorphic() == null || inputs.nulls() == null || !traversal.isRoot()) {
       return refused(Reason.COMPLETE_NATIVE);
@@ -71,9 +76,19 @@ final class PrivatePrefixDiscovery {
       return refused(Reason.REPEAT);
     }
     if (full != null && traversal.getSteps().stream().allMatch(RootStepAdmission::admits)) {
-      return refused(Reason.FULL_SUPPORTED);
+      if (!prepareFull) {
+        return refused(Reason.FULL_SUPPORTED);
+      }
+      if (full.isMultiPlan()) {
+        return refused(Reason.MULTI_PLAN);
+      }
+      if (new PartialCutRules(traversal.getSteps()).hasIdentifiers(traversal.getSteps().size())) {
+        return refused(Reason.RECORD_IDENTIFIERS);
+      }
+      return build(session, full, traversal.getSteps().size(), Reason.FULL_SUPPORTED, inputs);
     }
-    if (safety.oneBulk() || PartialSourceState.configured(traversal)) {
+    if (QuerySafetyAdmission.stored(traversal).oneBulk()
+        || PartialSourceState.configured(traversal)) {
       return refused(Reason.SOURCE_STATE);
     }
     var rules = new PartialCutRules(traversal.getSteps());
@@ -122,31 +137,37 @@ final class PrivatePrefixDiscovery {
       if (candidate.isMultiPlan()) {
         return refused(Reason.MULTI_PLAN);
       }
-      InternalExecutionPlan plan;
-      try {
-        plan = builder.buildPlan(session, candidate,
-            new GremlinToMatchStrategy.CacheScope(0, false));
-      } catch (RuntimeException failure) {
-        return refused(Reason.PLAN_BUILD_FAILURE);
-      }
-      boolean plain;
-      try {
-        plain = PlainBoundaryClassifier.classify(plan, candidate).plain();
-      } catch (RuntimeException | Error failure) {
-        try {
-          plan.close();
-        } catch (RuntimeException | Error closeFailure) {
-          failure.addSuppressed(closeFailure);
-        }
-        throw failure;
-      }
-      if (plain) {
-        plan.close();
-        return refused(Reason.PLAIN);
-      }
-      return new Outcome(Reason.SELECTED, cut, candidate, plan);
+      return build(session, candidate, cut, Reason.SELECTED, inputs);
     }
     return refused(reason);
+  }
+
+  private Outcome build(DatabaseSessionEmbedded session,
+      GremlinToMatchTranslator.TranslationResult candidate, int cut, Reason selected,
+      GremlinStepWalker.WalkInputs inputs) {
+    InternalExecutionPlan plan;
+    try {
+      plan = builder.buildPlan(session, candidate,
+          new GremlinToMatchStrategy.CacheScope(0, false, inputs.commandTimeout()));
+    } catch (RuntimeException failure) {
+      return refused(Reason.PLAN_BUILD_FAILURE);
+    }
+    boolean plain;
+    try {
+      plain = PlainBoundaryClassifier.classify(plan, candidate).plain();
+    } catch (RuntimeException | Error failure) {
+      try {
+        plan.close();
+      } catch (RuntimeException | Error closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+      throw failure;
+    }
+    if (plain) {
+      plan.close();
+      return refused(Reason.PLAIN);
+    }
+    return new Outcome(selected, cut, candidate, plan);
   }
 
   private static Outcome refused(Reason reason) {

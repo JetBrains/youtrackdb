@@ -24,6 +24,16 @@ final class PropertyMapBulkingAdmission {
 
   /** Zero preserves the ungrouped boundary. A final vertex map needs an empty labelled path. */
   static int capacity(Traversal.Admin<?, ?> traversal) {
+    return capacity(traversal, permitsGrouping(traversal));
+  }
+
+  static boolean permitsGrouping(Traversal.Admin<?, ?> traversal) {
+    return traversal.getStrategies().getStrategy(RequirementsStrategy.class).isEmpty()
+        && traversal.getStrategies().getStrategy(SackStrategy.class).isEmpty()
+        && traversal.getSideEffects().getSackInitialValue() == null;
+  }
+
+  static int capacity(Traversal.Admin<?, ?> traversal, boolean permitsGrouping) {
     // Child traversals inherit the root's traverser generator and requirements. Local steps
     // cannot prove that inherited path, sack or ONE_BULK state permits grouping.
     if (!traversal.isRoot()) {
@@ -50,9 +60,7 @@ final class PropertyMapBulkingAdmission {
     }
     // Direct callers may precede decoration. Refuse explicit requirements and sack strategies
     // without applying them, invoking suppliers or changing the original traversal.
-    if (traversal.getStrategies().getStrategy(RequirementsStrategy.class).isPresent()
-        || traversal.getStrategies().getStrategy(SackStrategy.class).isPresent()
-        || traversal.getSideEffects().getSackInitialValue() != null) {
+    if (!permitsGrouping) {
       return 0;
     }
     boolean returnsVertex = true;

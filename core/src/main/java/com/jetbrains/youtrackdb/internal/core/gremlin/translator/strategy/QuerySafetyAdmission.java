@@ -146,6 +146,32 @@ final class QuerySafetyAdmission {
       org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalMapStep.class,
       org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalFlatMapStep.class,
       org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep.EndStep.class);
+  /**
+   * Native-only steps whose own inputs are fully described by class, labels and children.
+   * Keep this separate from safety admission. A safe step can still have unclassified inputs.
+   */
+  static final Set<Class<?>> STRUCTURAL_NATIVE = Set.of(IdentityStep.class,
+      LocalStep.class, OptionalStep.class, CoalesceStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalMapStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.map.TraversalFlatMapStep.class,
+      org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep.EndStep.class);
+
+  static boolean nativeShapeComplete(Step<?, ?> step, GremlinShapeEncoder encoder) {
+    if (!PURE_EXTRA.contains(step.getClass())) {
+      return false;
+    }
+    if (STRUCTURAL_NATIVE.contains(step.getClass())) {
+      return true;
+    }
+    if (step.getClass() == IsStep.class) {
+      encoder.appendPredicate(((IsStep<?>) step).getPredicate(), false);
+      return true;
+    }
+    // Repeat, choose, inject, path, tree and explicit requirements have additional inputs.
+    // Safety admission alone does not classify them for cache identity.
+    return false;
+  }
+
   private static final Set<Class<?>> PURE_LAMBDA = Set.of(ValueTraversal.class,
       TokenTraversal.class,
       IdentityTraversal.class, ColumnTraversal.class, ConstantTraversal.class, TrueTraversal.class,

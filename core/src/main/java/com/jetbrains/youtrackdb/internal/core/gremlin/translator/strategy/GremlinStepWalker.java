@@ -515,16 +515,23 @@ final class GremlinStepWalker {
   /** Inputs captured once for a private full attempt and its fresh prefix walks. */
   record WalkInputs(Boolean polymorphic, boolean edgeVerification, Schema schema,
       Set<String> productiveKeys, Boolean includesMissing,
-      ResolvedOrderByNullsPlacement nulls) {
+      ResolvedOrderByNullsPlacement nulls, boolean permitsGrouping, long commandTimeout) {
+    WalkInputs {
+      productiveKeys = productiveKeys == null ? null : Set.copyOf(productiveKeys);
+    }
+
     static WalkInputs capture(Traversal.Admin<?, ?> traversal) {
       var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
       return new WalkInputs(YTDBStrategyUtil.isPolymorphic(traversal),
           traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent(),
-          session == null ? null : session.getSchema(),
+          session == null ? null : session.getMetadata().getImmutableSchemaSnapshot(),
           traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
               .map(ProductiveByStrategy::getProductiveKeys).orElse(null),
           YTDBStrategyUtil.orderIncludesMissingKey(traversal),
-          YTDBStrategyUtil.orderByNullsPlacements(traversal));
+          YTDBStrategyUtil.orderByNullsPlacements(traversal),
+          PropertyMapBulkingAdmission.permitsGrouping(traversal),
+          session == null ? 0 : session.getConfiguration().getValueAsLong(
+              com.jetbrains.youtrackdb.api.config.GlobalConfiguration.COMMAND_TIMEOUT));
     }
   }
 
@@ -662,7 +669,8 @@ final class GremlinStepWalker {
     }
     if (childScopeBoundary == NO_CHILD_SCOPE) {
       ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
-          PropertyMapBulkingAdmission.capacity(traversal));
+          inputs == null ? PropertyMapBulkingAdmission.capacity(traversal)
+              : PropertyMapBulkingAdmission.capacity(traversal, inputs.permitsGrouping()));
     }
     return buildResult(ctx);
   }

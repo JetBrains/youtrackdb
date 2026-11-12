@@ -214,16 +214,17 @@ public class SelectExecutionPlanner {
     info.skip = this.statement.getSkip();
     info.limit = this.statement.getLimit();
     info.timeout = this.statement.getTimeout() == null ? null : this.statement.getTimeout().copy();
-    if (info.timeout == null
-        &&
-        ctx.getDatabaseSession().getConfiguration()
-            .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT)
-            > 0) {
-      info.timeout = new SQLTimeout(-1);
-      info.timeout.setVal(
-          ctx.getDatabaseSession()
-              .getConfiguration()
-              .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT));
+    if (info.timeout == null) {
+      // Gremlin preparation pins this internal setting before metadata reads. Child SELECT
+      // contexts inherit it, so a runtime flip cannot enter a retained MATCH template.
+      var capturedTimeout = ctx.getVariable("$g2m_commandTimeout");
+      long timeout = capturedTimeout instanceof Long value ? value
+          : ctx.getDatabaseSession().getConfiguration()
+              .getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+      if (timeout > 0) {
+        info.timeout = new SQLTimeout(-1);
+        info.timeout.setVal(timeout);
+      }
     }
   }
 
@@ -291,6 +292,10 @@ public class SelectExecutionPlanner {
     // of synthetic SELECTs, whose positional parameters are not distinguished by toString().
     var cacheKey = statement.getOriginalStatement();
     if (cacheKey != null) {
+      var capturedTimeout = ctx.getVariable("$g2m_commandTimeout");
+      if (capturedTimeout instanceof Long) {
+        cacheKey += "\0gremlinTimeout" + capturedTimeout;
+      }
       if (orderRequestMode) {
         cacheKey += requestRidTieBreak ? "\0orderRequestWithRid" : "\0orderRequest";
       }
