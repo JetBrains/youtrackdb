@@ -663,12 +663,6 @@ final class HasStepRecogniser implements StepRecogniser {
     }
     var containers = hasStep.getHasContainers();
     encoder.appendToken("H", Integer.toString(containers.size()));
-    var context = encoder.hasBindingContext();
-    if (context == null) {
-      context = HasBindingContext.forVertex(labelNames(containers), null, false,
-          HasBindingContext.Destination.MATCH_VERTEX);
-    }
-    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
     for (int index = 0; index < containers.size(); index++) {
       HasContainer container = containers.get(index);
       var key = container.getKey();
@@ -684,6 +678,20 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       encoder.appendToken(key == null ? "" : key);
       encoder.appendPredicate(container.getPredicate(), false);
+    }
+    return true;
+  }
+
+  /** Replay the exact HasStep order recorded by extraction without visiting traversal steps. */
+  static void harvest(List<HasContainer> containers, HasBindingContext context,
+      GremlinShapeEncoder encoder) {
+    int fromSlot = encoder.hasSlotCount();
+    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
+    for (int index = 0; index < containers.size(); index++) {
+      var container = containers.get(index);
+      if (LABEL_KEY.equals(container.getKey()) || ID_KEY.equals(container.getKey())) {
+        continue;
+      }
       int containerIndex = index;
       // Ordered-filter slots describe the native predicate's layout, but never enter MATCH's
       // positional map. Otherwise a later MATCH HasStep would be bound at the wrong SQL slot.
@@ -698,7 +706,7 @@ final class HasStepRecogniser implements StepRecogniser {
               role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
           !context.folded());
     }
-    return true;
+    encoder.recordHasContribution(context, fromSlot);
   }
 
   /**

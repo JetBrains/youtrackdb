@@ -52,6 +52,27 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     GremlinPlanCache.instance(graphSession()).invalidate();
   }
 
+  /** Capacity-one translation eviction must lose the old shape and admit its fresh replacement. */
+  @Test
+  public void translationEntriesEvictAndCanBeRebuilt() {
+    var cache = new GremlinPlanCache(1);
+    var firstKey = new GremlinShapeKey(new Object[] {"first"});
+    var secondKey = new GremlinShapeKey(new Object[] {"second"});
+    var first = new GremlinTranslationTemplate.Decline();
+    var second = new GremlinTranslationTemplate.Decline();
+    var generation = cache.getGeneration();
+    cache.putTranslationInternal(firstKey, first, graphSession(), generation);
+    cache.putTranslationInternal(secondKey, second, graphSession(), generation);
+    assertThat(cache.containsTranslation(firstKey)).isFalse();
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isNull();
+    assertThat(cache.getTranslationInternal(secondKey, graphSession())).isSameAs(second);
+    var rebuilt = new GremlinTranslationTemplate.Decline();
+    assertThat(cache.putTranslationInternal(firstKey, rebuilt, graphSession(), generation))
+        .isSameAs(rebuilt);
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isSameAs(rebuilt);
+    assertThat(cache.containsTranslation(secondKey)).isFalse();
+  }
+
   /** Same-generation cold publication keeps the first resident, but its explicit repair can win. */
   @Test
   public void rejectedPublicationIsReplacedWithoutChangingColdFirstWins() {

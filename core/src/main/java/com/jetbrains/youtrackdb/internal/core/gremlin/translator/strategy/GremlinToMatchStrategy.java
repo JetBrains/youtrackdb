@@ -331,6 +331,9 @@ public final class GremlinToMatchStrategy
     return INSTANCE;
   }
 
+  // Package-private seam observes extraction through the whole strategy application.
+  java.util.function.Consumer<GremlinShapeExtractor.Extraction> extractionObserver;
+
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
     // Throw-safety net: the whole body runs on every Gremlin compilation and the strategy is
@@ -435,6 +438,9 @@ public final class GremlinToMatchStrategy
             traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
             environment);
     var metrics = GremlinTranslationMetrics.of(session);
+    if (extractionObserver != null) {
+      extractionObserver.accept(extraction);
+    }
     GremlinPlanCache.StampedTranslation rejected = null;
     if (populateTranslationCache && eligible && extraction.complete()) {
       var resident = cache.getTranslationEntry(extraction.key(), session);
@@ -447,16 +453,18 @@ public final class GremlinToMatchStrategy
         return;
       }
       if (cached instanceof GremlinTranslationTemplate.Translate translate) {
+        // Complete structural identity needs no MATCH bindings for a resident native decision.
+        if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())
+            && cache.getGeneration() == generation) {
+          metrics.recordRuleNative();
+          return;
+        }
         var boundShaping = extraction.bindings().size() == translate.bindingCount()
             && matchingLayout(extraction.hasContributions(), translate.hasContributions())
             && extraction.propertyMapBulkingCapacity()
                 == translate.shaping().propertyMapBulkingCapacity()
                     ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
         if (boundShaping != null && cache.getGeneration() == generation) {
-          if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())) {
-            metrics.recordRuleNative();
-            return;
-          }
           spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
           metrics.recordSuccess();
           return;

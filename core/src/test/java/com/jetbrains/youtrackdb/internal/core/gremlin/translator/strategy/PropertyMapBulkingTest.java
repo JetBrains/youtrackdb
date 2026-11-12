@@ -327,8 +327,8 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       for (boolean refusedFirst : List.of(false, true)) {
         var cache = GremlinPlanCache.instance(graphSession());
         cache.invalidate();
-        String admittedKey = null;
-        String refusedKey = null;
+        GremlinShapeKey admittedKey = null;
+        GremlinShapeKey refusedKey = null;
         Object admittedPlan = null;
         Object refusedPlan = null;
         for (boolean refused : List.of(refusedFirst, !refusedFirst, refusedFirst, !refusedFirst)) {
@@ -456,7 +456,7 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
     support.withTranslator(true, () -> {
       for (boolean refusedFirst : List.of(false, true)) {
         GremlinPlanCache.instance(graphSession()).invalidate();
-        var keys = new LinkedHashMap<Boolean, String>();
+        var keys = new LinkedHashMap<Boolean, GremlinShapeKey>();
         var plans = new LinkedHashMap<Boolean, Object>();
         var fingerprints = new LinkedHashMap<Boolean, String>();
         for (boolean refused : List.of(refusedFirst, !refusedFirst, refusedFirst, !refusedFirst)) {
@@ -677,7 +677,7 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
           assertThat(extraction.complete()).isTrue();
           assertThat(extraction.propertyMapBulkingCapacity()).isZero();
           assertThat(translation.shaping().propertyMapBulkingCapacity()).isZero();
-          assertThat(extraction.key()).doesNotContain("3:pmb");
+          assertThat(extraction.key().toString()).doesNotContain("3:pmb");
           var fingerprint = GremlinPlanFingerprint.fingerprint(translation.inputs(),
               translation.shaping());
           assertThat(fingerprint).doesNotContain(";PMB:");

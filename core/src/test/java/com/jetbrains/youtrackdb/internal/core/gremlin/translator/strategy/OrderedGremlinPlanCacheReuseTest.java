@@ -171,7 +171,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchStrategy.buildPlan(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
-    var keys = new ArrayList<String>();
+    var keys = new ArrayList<GremlinShapeKey>();
     var templates = new ArrayList<InternalExecutionPlan>();
     for (var minimum : List.of(0, "0", 4, "1")) {
       var traversal = guardedOrdered(minimum);

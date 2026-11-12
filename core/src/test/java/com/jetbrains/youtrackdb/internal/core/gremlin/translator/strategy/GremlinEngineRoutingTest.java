@@ -614,6 +614,31 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     assertThat(first.key()).isNotEqualTo(number.key()).isNotEqualTo(nil.key());
   }
 
+  /** A warm native decision builds neither bindings nor MATCH-only HasStep contexts. */
+  @Test
+  public void warmNativeHitLeavesHarvestAndMatchContextUntouched() {
+    createRoutingIndex();
+    var strategy = countingStrategy(new AtomicInteger(), new AtomicInteger());
+    strategy.apply(indexedRoute());
+    var observed = new java.util.ArrayList<GremlinShapeExtractor.Extraction>();
+    strategy.extractionObserver = observed::add;
+    try (var contexts = org.mockito.Mockito.mockStatic(HasBindingContext.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      var warm = indexedRoute();
+      strategy.apply(warm);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isZero();
+      assertThat(observed).hasSize(1);
+      assertThat(observed.getFirst().encoder().harvested()).isFalse();
+      contexts.verify(() -> HasBindingContext.forVertex(org.mockito.ArgumentMatchers.anyList(),
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+          org.mockito.ArgumentMatchers.any()), org.mockito.Mockito.never());
+      contexts.verify(() -> HasBindingContext.forEdge(org.mockito.ArgumentMatchers.any()),
+          org.mockito.Mockito.never());
+      contexts.verify(() -> HasBindingContext.schemaFacts(org.mockito.ArgumentMatchers.any()),
+          org.mockito.Mockito.never());
+    }
+  }
+
   /** A failed proof signals once, keeps MATCH, and never catches fatal or input errors. */
   @Test
   public void optionalProofFailureIsObservableAndErrorsPropagate() {
