@@ -199,6 +199,69 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     }
   }
 
+  /** Full supported outcomes retain the whole root extent, including ordered expansion steps. */
+  @Test
+  public void fullOrderedCandidateRetainsWholeRootExtent() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+          .has("age", 30 + invocation).order().by("age").out("candidateKnows").limit(2)
+          .asAdmin();
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        assertThat(candidate.extent()).isEqualTo(traversal.getSteps().size());
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+        assertThat(candidate.bindings()).containsEntry(0, 30 + invocation).hasSize(1);
+        assertThat(candidate.plan()).isNotNull();
+      }
+    }
+    assertThat(walks.get()).isEqualTo(1);
+    assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Unsafe queries and disabled translation refuse before any recognition or planning. */
+  @Test
+  public void admissionAndEnablementRefuseBeforeWalking() {
+    var prepare = preparation(false);
+    try (var candidate = prepare.prepare(graph.traversal().V().drop().asAdmin(), policy)) {
+      assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SAFETY_VETO);
+      assertThat(candidate.plan()).isNull();
+    }
+    var session = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    session.getConfiguration().setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+    try {
+      try (var candidate = prepare.prepare(query(30, 40), policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DISABLED);
+        assertThat(candidate.plan()).isNull();
+      }
+    } finally {
+      session.getConfiguration().setValue(
+          GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+    }
+    assertThat(walks.get()).isZero();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Native predicate inputs use the encoder, while steps outside the safe list stay incomplete. */
+  @Test
+  public void nativePredicateClassificationEncodesOperatorInputs() {
+    var keys = new java.util.ArrayList<String>();
+    for (var predicate : List.of(org.apache.tinkerpop.gremlin.process.traversal.P.eq(30),
+        org.apache.tinkerpop.gremlin.process.traversal.P.gt(30))) {
+      var traversal = graph.traversal().V().is(predicate).asAdmin();
+      var encoder = new GremlinShapeEncoder(null);
+      assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      assertThat(QuerySafetyAdmission.nativeShapeComplete(traversal.getEndStep(), encoder))
+          .isTrue();
+      keys.add(encoder.key());
+      assertThat(QuerySafetyAdmission.nativeShapeComplete(traversal.getStartStep(), encoder))
+          .isFalse();
+    }
+    assertThat(keys.get(0)).isNotEqualTo(keys.get(1));
+  }
+
   /** Captured productive keys cannot change when their source collection changes later. */
   @Test
   public void walkInputsCopyMutableSettings() {
