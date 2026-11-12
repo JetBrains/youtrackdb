@@ -230,6 +230,15 @@ public final class GremlinToMatchStrategy
    */
   private static final TraversalTranslator PRODUCTION_TRANSLATOR = new TraversalTranslator() {
     @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement nulls, @Nullable Boolean polymorphic,
+        TranslationEnvironment environment) {
+      return GremlinStepWalker.production().walk(traversal, GremlinStepWalker.NO_CHILD_SCOPE,
+          orderIncludesMissingKey, nulls, polymorphic, environment);
+    }
+
+    @Nullable @Override
     public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal) {
       return GremlinToMatchTranslator.translate(traversal);
     }
@@ -366,7 +375,7 @@ public final class GremlinToMatchStrategy
       if (containsBoundaryStep(traversal)) {
         return;
       }
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
       return;
     }
     // Honour a per-traversal veto. RepeatDeclineStrategy marks a repeat-bearing traversal at
@@ -379,7 +388,7 @@ public final class GremlinToMatchStrategy
     // lives on the strategies reference's type rather than in the list itself. Variable-depth
     // repeat is out of scope — count as a decline like any other unsupported shape.
     if (RepeatDeclineStrategy.isVetoed(traversal)) {
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
       return;
     }
     if (containsBoundaryStep(traversal)) {
@@ -389,7 +398,7 @@ public final class GremlinToMatchStrategy
     // side-effect value that belongs to this invocation.
     if (GremlinStepWalker.hasDuplicateStepLabels(traversal)
         || GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
       return;
     }
     for (Step<?, ?> step : traversal.getSteps()) {
@@ -401,7 +410,7 @@ public final class GremlinToMatchStrategy
         YTDBStrategyUtil.explicitNullPlacements(options);
         YTDBStrategyUtil.explicitPolymorphic(options);
         GremlinStepWalker.rejectReservedPrefixLabels(traversal.getSteps());
-        GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+        GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
         return;
       }
     }
@@ -413,15 +422,18 @@ public final class GremlinToMatchStrategy
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is
     // storage-wide and outlives the session.
-    var orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
-    var orderByNullsPlacements = YTDBStrategyUtil.orderByNullsPlacements(traversal);
-    var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
-    if (orderByNullsPlacements == null || polymorphic == null) {
+    var settings = YTDBStrategyUtil.translationSettings(traversal, session);
+    if (settings == null) {
       return;
     }
+    var orderIncludesMissingKey = settings.orderIncludesMissingKey();
+    var orderByNullsPlacements = settings.nullPlacements();
+    var polymorphic = settings.polymorphic();
+    var environment = TranslationEnvironment.resolve(traversal, session);
     var extraction =
         GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
+            environment);
     var metrics = GremlinTranslationMetrics.of(session);
     GremlinPlanCache.StampedTranslation rejected = null;
     if (populateTranslationCache && eligible && extraction.complete()) {
@@ -431,7 +443,7 @@ public final class GremlinToMatchStrategy
         cached = null;
       }
       if (cached instanceof GremlinTranslationTemplate.Decline) {
-        metrics.recordDecline(stepShape(traversal));
+        metrics.recordDeclineTraversal(traversal);
         return;
       }
       if (cached instanceof GremlinTranslationTemplate.Translate translate) {
@@ -455,14 +467,14 @@ public final class GremlinToMatchStrategy
     }
     var translation =
         translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
-            polymorphic);
+            polymorphic, environment);
     if (translation == null) {
       if (populateTranslationCache && eligible && extraction.complete()) {
         GremlinPlanCache.putTranslation(
             extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
             rejected);
       }
-      metrics.recordDecline(stepShape(traversal));
+      metrics.recordDeclineTraversal(traversal);
       return;
     }
     var cacheScope = new CacheScope(generation, eligible);
@@ -1023,6 +1035,14 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean orderIncludesMissingKey,
         ResolvedOrderByNullsPlacement orderByNullsPlacements) {
       return translate(traversal, orderIncludesMissingKey);
+    }
+
+    /** Carries application-local session and flags. Fixture translators keep their existing seam. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement nulls, @Nullable Boolean polymorphic,
+        TranslationEnvironment environment) {
+      return translate(traversal, orderIncludesMissingKey, nulls, polymorphic);
     }
 
     /** Translates with the strategy's resolved polymorphic setting. */

@@ -134,6 +134,50 @@ public class GremlinTranslationMetricsTest {
     assertThat(metrics.errorShare()).isEqualTo(0.25);
   }
 
+  /** Published names, percentage units, one-second flush and sixty-second expiry stay exact. */
+  @Test
+  public void metricDefinitionsKeepNamesFlushAndWindow() {
+    var definitions = java.util.List.of(CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO,
+        CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO, CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO,
+        CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
+    assertThat(definitions).extracting(d -> d.name()).containsExactly(
+        "GremlinTranslationSuccessRatio", "GremlinTranslationDeclineRatio",
+        "GremlinTranslationErrorRatio", "GremlinTranslationRuleNativeRatio");
+    assertThat(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE.name()).isEqualTo("GremlinPlanCacheHitRate");
+    assertThat(CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE.name())
+        .isEqualTo("GremlinPlanCacheMissRate");
+    for (var definition : definitions) {
+      assertThat(definition.type()).extracting("collectPeriod").isEqualTo(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeInterval.of(
+              60, java.util.concurrent.TimeUnit.SECONDS));
+      assertThat(definition.type()).extracting("flushRate").isEqualTo(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeInterval.of(
+              1, java.util.concurrent.TimeUnit.SECONDS));
+      var ticker = new StubTicker(0, 1);
+      var ratio = definition.type().create(ticker);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      ticker.advanceTime(999, java.util.concurrent.TimeUnit.MILLISECONDS);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      assertThat(ratio.getRatio()).isZero();
+      ticker.advanceTime(1, java.util.concurrent.TimeUnit.MILLISECONDS);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      ticker.advanceTime(58, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      // Reads rotate the two overlapping sixty-second buckets without recording new attempts.
+      ticker.advanceTime(1, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      ticker.advanceTime(60, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isZero();
+    }
+  }
+
   /** A fresh holder has no native share and a native choice never enters decline frequencies. */
   @Test
   public void ruleNativeHasIndependentCounterAndNoDeclineShape() {

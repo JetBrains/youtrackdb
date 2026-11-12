@@ -239,6 +239,7 @@ final class GremlinShapeEncoder {
   private SQLPositionalParameter bindParam(Object value) {
     var slot = bindings.size();
     bindings.put(slot, value);
-    return SQLPositionalParameter.forSlot(slot);
+    // Harvest consumes only values and slot order, never the parameter AST.
+    return null;
   }
 }

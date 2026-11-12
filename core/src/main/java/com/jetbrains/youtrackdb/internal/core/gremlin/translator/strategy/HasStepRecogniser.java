@@ -692,7 +692,7 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       // Harvest ignores the returned parameter. The native layout uses roles, not SQL indexes.
       ParamSink sink = context.destination() == HasBindingContext.Destination.ORDERED_FILTER
-          ? value -> SQLPositionalParameter.forSlot(0) : encoder.paramSink();
+          ? value -> null : encoder.paramSink();
       GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
           GremlinPredicateAdapter.withRoles(sink,
               role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),

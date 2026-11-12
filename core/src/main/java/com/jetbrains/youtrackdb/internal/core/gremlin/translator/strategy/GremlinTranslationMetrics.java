@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.Nullable;
@@ -38,7 +37,8 @@ public final class GremlinTranslationMetrics {
   private final LongAdder ruleNative = new LongAdder();
   private final LongAdder nativeProofErrors = new LongAdder();
 
-  private final ConcurrentHashMap<String, LongAdder> declineShapes = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<DeclineSignature, LongAdder> declineShapes =
+      new ConcurrentHashMap<>();
 
   private final Ratio successRatio;
   private final Ratio declineRatio;
@@ -79,6 +79,16 @@ public final class GremlinTranslationMetrics {
    * tracked in the frequency map.
    */
   public void recordDecline(@Nullable String shape) {
+    recordDeclineSignature(shape == null || shape.isBlank() ? null : DeclineSignature.text(shape));
+  }
+
+  /** Records the same diagnostic signature without joining text on every compilation. */
+  void recordDeclineTraversal(
+      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> traversal) {
+    recordDeclineSignature(DeclineSignature.traversal(traversal));
+  }
+
+  private void recordDeclineSignature(@Nullable DeclineSignature shape) {
     declines.increment();
     successRatio.record(0, 1);
     declineRatio.record(1, 1);
@@ -181,8 +191,9 @@ public final class GremlinTranslationMetrics {
     return attempts == 0 ? 0.0 : (double) numerator / (double) attempts;
   }
 
-  private static void trackShape(ConcurrentHashMap<String, LongAdder> map, @Nullable String shape) {
-    if (shape == null || shape.isBlank()) {
+  private static void trackShape(ConcurrentHashMap<DeclineSignature, LongAdder> map,
+      @Nullable DeclineSignature shape) {
+    if (shape == null) {
       return;
     }
     var existing = map.get(shape);
@@ -197,21 +208,22 @@ public final class GremlinTranslationMetrics {
     map.computeIfAbsent(shape, ignored -> new LongAdder()).increment();
   }
 
-  private static List<ShapeCount> topShapes(ConcurrentHashMap<String, LongAdder> map, int limit) {
+  private static List<ShapeCount> topShapes(
+      ConcurrentHashMap<DeclineSignature, LongAdder> map, int limit) {
     if (limit <= 0 || map.isEmpty()) {
       return List.of();
     }
-    var entries = new ArrayList<Map.Entry<String, LongAdder>>(map.size());
-    entries.addAll(map.entrySet());
-    entries.sort(
-        Comparator.<Map.Entry<String, LongAdder>>comparingLong(e -> e.getValue().sum())
-            .reversed()
-            .thenComparing(Map.Entry::getKey));
+    var entries = new ArrayList<ShapeCount>(map.size());
+    for (var entry : map.entrySet()) {
+      entries.add(new ShapeCount(entry.getKey().toString(), entry.getValue().sum()));
+    }
+    entries.sort(Comparator.comparingLong(ShapeCount::count).reversed()
+        .thenComparing(ShapeCount::shape));
     var n = Math.min(limit, entries.size());
     var out = new ArrayList<ShapeCount>(n);
     for (int i = 0; i < n; i++) {
       var e = entries.get(i);
-      out.add(new ShapeCount(e.getKey(), e.getValue().sum()));
+      out.add(e);
     }
     return List.copyOf(out);
   }

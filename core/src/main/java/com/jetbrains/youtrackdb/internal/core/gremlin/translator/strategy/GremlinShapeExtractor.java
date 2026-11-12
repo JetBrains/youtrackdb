@@ -22,8 +22,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 
 /**
  * Cheap pre-walk extraction of the translation-cache key and this invocation's {@code ?} bindings.
@@ -75,12 +73,12 @@ final class GremlinShapeExtractor {
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
       @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
-      @Nullable Boolean polymorphic) {
+      @Nullable Boolean polymorphic, TranslationEnvironment environment) {
     var extractor =
         new GremlinShapeExtractor(
             recognisers, transparentSteps, new GremlinShapeEncoder(session.getSchema()));
     extractor.appendStrategyFlags(
-        traversal, orderIncludesMissingKey, polymorphic);
+        environment, orderIncludesMissingKey, polymorphic);
     extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS);
     int bulkingCapacity = PropertyMapBulkingAdmission.capacity(traversal);
     if (bulkingCapacity > 0) {
@@ -114,21 +112,14 @@ final class GremlinShapeExtractor {
   private final java.util.List<NativeHasOperands> nativeOperands = new java.util.ArrayList<>();
 
   private void appendStrategyFlags(
-      Traversal.Admin<?, ?> traversal,
+      TranslationEnvironment environment,
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
     encoder.appendToken(
         "elv",
-        traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()
-            ? "1"
-            : "0");
-    var productiveKeys =
-        traversal
-            .getStrategies()
-            .getStrategy(ProductiveByStrategy.class)
-            .map(ProductiveByStrategy::getProductiveKeys)
-            .orElse(null);
+        environment.edgeLabelVerification() ? "1" : "0");
+    var productiveKeys = environment.productiveKeys();
     // The resolved productive-order setting changes the emitted pattern: under the shipped default
     // the order-key IS DEFINED conjunct is omitted, under the opt-out it is emitted. The cache is
     // storage-wide, so without this token a plan built under one setting would be spliced verbatim
