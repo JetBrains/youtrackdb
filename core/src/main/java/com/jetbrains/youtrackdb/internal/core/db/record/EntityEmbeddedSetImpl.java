@@ -22,6 +22,29 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
     implements RecordElement, EmbeddedTrackedMultiValue<T, T>, Serializable, EmbeddedSet<T>,
     TrackedCollection<T, T> {
 
+  // Preserve the existing Java serialization identity. The type record is not serialized.
+  private static final long serialVersionUID = -2165381831007960531L;
+
+  // Void means no non-null item yet. Object means mixed. Null means unknown after
+  // Java deserialization, which skips field initializers. Mixed/unknown stay conservative
+  // until the set is empty. Removing one item cannot establish uniformity.
+  private transient Class<?> itemClass = Void.class;
+
+  /** Whether membership is exact for this key class, including empty and null-only sets. */
+  public boolean hasExactItemClass(Class<?> keyClass) {
+    return itemClass == Void.class || itemClass == keyClass;
+  }
+
+  private void recordItemClass(T item) {
+    if (item != null) {
+      var addedClass = item.getClass();
+      // Same-class additions need one comparison. Mixed history needs no further writes.
+      if (itemClass != addedClass && itemClass != Object.class) {
+        itemClass = itemClass == Void.class ? addedClass : Object.class;
+      }
+    }
+  }
+
   protected RecordElement sourceRecord;
 
   private boolean dirty = false;
@@ -111,6 +134,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
   public boolean add(@Nullable final T e) {
     checkValue(e);
     if (set.add(e)) {
+      recordItemClass(e);
       addEvent(e);
       return true;
     }
@@ -121,6 +145,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
   public void addInternal(final T e) {
     checkValue(e);
     if (set.add(e)) {
+      recordItemClass(e);
       addOwner(e);
     }
   }
@@ -141,6 +166,7 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
       removeEvent(item);
     }
     set.clear();
+    itemClass = Void.class;
   }
 
   protected void addEvent(T added) {
@@ -154,6 +180,9 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
   }
 
   private void removeEvent(T removed) {
+    if (set.isEmpty()) {
+      itemClass = Void.class;
+    }
     removeOwner(removed);
 
     if (tracker.isEnabled()) {
@@ -289,7 +318,6 @@ public class EntityEmbeddedSetImpl<T> extends AbstractSet<T>
   public <T1> T1[] toArray(@Nonnull IntFunction<T1[]> generator) {
     return set.toArray(generator);
   }
-
 
   @Nonnull
   @Override

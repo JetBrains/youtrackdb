@@ -45,6 +45,9 @@ public interface LinkBagDelegate
    */
   boolean contains(RID identifiable);
 
+  /** Returns the number of occurrences of a primary link, including transaction changes. */
+  int getCount(RID rid);
+
   @Override
   void setOwner(RecordElement owner);
 
