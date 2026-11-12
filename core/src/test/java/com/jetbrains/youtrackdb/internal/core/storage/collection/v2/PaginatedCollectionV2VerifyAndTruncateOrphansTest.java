@@ -244,12 +244,28 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     assertConfigurationRegistrationError(PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET);
   }
 
+  // Ordinary auxiliary identity conflicts must propagate without attempting reconstruction.
+  @Test
+  public void ordinaryReopenPropagatesFreeSpaceMapRegistrationError() throws IOException {
+    assertRegistrationError(PageFileRole.FREE_SPACE_MAP);
+  }
+
+  // A wrong dirty-page registration also fails before any empty replacement can be created.
+  @Test
+  public void ordinaryReopenPropagatesDirtyPageBitSetRegistrationError() throws IOException {
+    assertRegistrationError(PageFileRole.DIRTY_PAGE_BIT_SET);
+  }
+
   private void assertConfigurationRegistrationError(PageFileRole failingRole) throws IOException {
+    assertRegistrationError(failingRole);
+  }
+
+  private void assertRegistrationError(PageFileRole failingRole) throws IOException {
     when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
     when(mockWriteCache.getId()).thenReturn(17);
-    for (var role : new PageFileRole[] {PageFileRole.CONFIG_DATA,
-        PageFileRole.CONFIG_POSITION_MAP, PageFileRole.CONFIG_FREE_SPACE_MAP,
-        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET}) {
+    var dataRole = PageFileRole.fromCode(failingRole.kind(), 0);
+    for (int code = 0; code < 4; code++) {
+      var role = PageFileRole.fromCode(failingRole.kind(), code);
       var identity = new PageFileIdentity(role, 0);
       var name = PageFileNames.layout28(identity);
       var id = AbstractWriteCache.composeFileId(17, identity.internalId());
@@ -257,8 +273,12 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
       when(atomicOperation.loadFile(name, id)).thenReturn(id);
       when(atomicOperation.isFileExists(name, id)).thenReturn(true);
     }
-    var owned = new PaginatedCollectionV2("config", ".cd", ".ccm", ".fcm", ".dcm",
-        mockStorage, new PageFileIdentity(PageFileRole.CONFIG_DATA, 0));
+    var owned = new PaginatedCollectionV2("config", dataRole.layout27Extension(),
+        PageFileRole.fromCode(failingRole.kind(), 1).layout27Extension(),
+        PageFileRole.fromCode(failingRole.kind(), 2).layout27Extension(),
+        PageFileRole.fromCode(failingRole.kind(), 3).layout27Extension(),
+        mockStorage, new PageFileIdentity(dataRole, 0));
+    owned.configure(7, "config", dataRole == PageFileRole.RECORD_DATA ? 0 : null);
     owned.create(atomicOperation);
     var identity = new PageFileIdentity(failingRole, 0);
     var name = PageFileNames.layout28(identity);
@@ -272,8 +292,8 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     verify(atomicOperation).isFileExists(name, id);
     verify(atomicOperation, never()).addFile(
         anyString(), anyLong(), anyBoolean(), anyBoolean());
-    if (failingRole == PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET) {
-      var freeSpace = new PageFileIdentity(PageFileRole.CONFIG_FREE_SPACE_MAP, 0);
+    if (failingRole.code() == 3) {
+      var freeSpace = new PageFileIdentity(PageFileRole.fromCode(failingRole.kind(), 2), 0);
       verify(atomicOperation).loadFile(PageFileNames.layout28(freeSpace),
           AbstractWriteCache.composeFileId(17, freeSpace.internalId()));
     }

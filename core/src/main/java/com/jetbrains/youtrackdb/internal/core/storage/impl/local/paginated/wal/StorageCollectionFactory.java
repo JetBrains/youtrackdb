@@ -49,6 +49,16 @@ public final class StorageCollectionFactory {
       final int configurationVersion,
       final int binaryVersion,
       final AbstractStorage storage) {
+    return createCollection(name, configurationVersion, binaryVersion, storage, null);
+  }
+
+  /** Preserves version dispatch while selecting construction-time ownership when present. */
+  public static PaginatedCollection createCollection(
+      final String name,
+      final int configurationVersion,
+      final int binaryVersion,
+      final AbstractStorage storage,
+      final Integer componentId) {
     if (configurationVersion >= 0 && configurationVersion < 6) {
       throw new StorageException(storage.getName(),
           "You use deprecated version of storage collection, this version is not supported in current"
@@ -62,7 +72,8 @@ public final class StorageCollectionFactory {
           "Version 1 of collection is not supported with given configuration");
       case 2 -> throw new IllegalStateException(
           "Version 2 of collection is not supported with given configuration");
-      case 3 -> new PaginatedCollectionV2(name, storage);
+      case 3 -> componentId == null ? new PaginatedCollectionV2(name, storage)
+          : createCollection(name, storage, componentId);
       default ->
           throw new IllegalStateException("Invalid binary version of collection " + binaryVersion);
     };

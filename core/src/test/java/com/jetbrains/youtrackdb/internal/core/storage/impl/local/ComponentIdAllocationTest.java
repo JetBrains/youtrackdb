@@ -28,7 +28,11 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.CollectionDirtyPageBitSet;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.FreeSpaceMap;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
@@ -696,10 +700,13 @@ public class ComponentIdAllocationTest {
     try (var session = open()) {
       var storage = session.getStorage();
       registerEvidence(storage, 9000);
+      int ordinaryId = session.addCollection("restoredordinary");
+      var family = assertOrdinaryFamily(storage, ordinaryId);
       final var fullCounters = counters(storage);
       storage.backup(backup);
       storage.restoreFromBackup(backup, null);
       assertEquals(28, storage.getStorageFormat().layoutVersion());
+      assertEquals(family.keySet(), assertOrdinaryFamily(storage, ordinaryId).keySet());
       assertEvidenceAndAllocate(storage, 9000, fullCounters);
       for (var kind : PageFileKind.values()) {
         setHwm(storage, hwmField(kind), 20000);
@@ -716,6 +723,7 @@ public class ComponentIdAllocationTest {
       storage.backup(backup);
       storage.restoreFromBackup(backup, null);
       assertEvidenceAndAllocate(storage, 30000, incrementalCounters);
+      assertEquals(family.keySet(), assertOrdinaryFamily(storage, ordinaryId).keySet());
       for (var kind : PageFileKind.values()) {
         setHwm(storage, hwmField(kind), 40000);
       }
@@ -1035,6 +1043,282 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  private static final PageFileRole[] ORDINARY_ROLES = {
+      PageFileRole.RECORD_DATA, PageFileRole.POSITION_MAP,
+      PageFileRole.FREE_SPACE_MAP, PageFileRole.DIRTY_PAGE_BIT_SET};
+
+  private static PaginatedCollectionV2 ordinary(AbstractStorage storage, int id) {
+    return (PaginatedCollectionV2) storage.getCollectionInstances().stream()
+        .filter(c -> c.getId() == id).findFirst().orElseThrow();
+  }
+
+  private static java.util.Map<String, Long> assertOrdinaryFamily(AbstractStorage storage, int id)
+      throws Exception {
+    int owner = operationEntry(storage, id).getComponentId();
+    var collection = ordinary(storage, id);
+    var registrations = new HashMap<String, Long>();
+    for (var role : ORDINARY_ROLES) {
+      var identity = new PageFileIdentity(role, owner);
+      String name = PageFileNames.layout28(identity);
+      var fileId = storage.getWriteCache().files().get(name);
+      assertNotNull(name, fileId);
+      assertEquals(identity.internalId(), AbstractWriteCache.extractFileId(fileId));
+      registrations.put(name, fileId);
+    }
+    assertEquals(PageFileNames.layout28(new PageFileIdentity(PageFileRole.RECORD_DATA, owner)),
+        collection.getLockName());
+    assertSame(storage.getAtomicOperationsManager().getApplyPhaseEpoch(collection.getLockName()),
+        collection.getApplyPhaseEpoch());
+    for (String field : new String[] {"collectionPositionMap", "freeSpaceMap",
+        "dirtyPageBitSet"}) {
+      var auxiliary = (StorageComponent) collectionField(collection, field);
+      assertEquals(collection.getLockName(), auxiliary.getLockName());
+      assertSame(collection.getApplyPhaseEpoch(), auxiliary.getApplyPhaseEpoch());
+    }
+    return registrations;
+  }
+
+  // Birth, public create and schema commit all bind ownership before the family is published.
+  // Memory checks live state. Disk also checks configured construction on a fresh instance.
+  @Test
+  public void productionOrdinaryFamiliesUseComputedIdsOnDiskAndMemory() throws Exception {
+    for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+      create(StorageFormat.LAYOUT_28, type);
+      try (var session = open()) {
+        var storage = session.getStorage();
+        for (var collection : storage.getCollectionInstances()) {
+          assertOrdinaryFamily(storage, collection.getId());
+        }
+        assertOrdinaryFamily(storage, session.addCollection("ytdb-p28-display-prefix"));
+        session.executeInTx(tx -> session.getMetadata().getSchema().createClass("Owned", 1));
+        assertOrdinaryFamily(storage,
+            session.getMetadata().getSchema().getClass("Owned").getCollectionIds()[0]);
+      }
+      if (type == DatabaseType.DISK) {
+        ytdb.close();
+        ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+        try (var session = open()) {
+          assertOrdinaryFamily(session.getStorage(),
+              session.getCollectionIdByName("ytdb-p28-display-prefix"));
+          for (var collection : session.getStorage().getCollectionInstances()) {
+            assertOrdinaryFamily(session.getStorage(), collection.getId());
+          }
+        }
+      }
+      ytdb.drop("counters");
+    }
+  }
+
+  // Actual display rename keeps files, lock and epoch. Reusing the old name must bind a new
+  // owner, even when another display name equals the original owner's canonical file stem.
+  // A record and a populated bag prove that the retained files are the original files.
+  @Test
+  public void productionRenameRetainsFilesAndSeparatesReusedDisplayNames() throws Exception {
+    for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+      create(StorageFormat.LAYOUT_28, type);
+      int id;
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid;
+      com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer pointer;
+      java.util.Map<String, Long> files;
+      try (var session = open()) {
+        session.executeInTx(tx -> session.getMetadata().getSchema().createClass("Kept", 1));
+        id = session.getMetadata().getSchema().getClass("Kept").getCollectionIds()[0];
+        rid = session.computeInTx(tx -> {
+          var row = tx.newEntity("Kept");
+          row.setProperty("value", "survives");
+          return row.getIdentity();
+        });
+        var storage = session.getStorage();
+        var collection = ordinary(storage, id);
+        String oldName = collection.getName();
+        int owner = operationEntry(storage, id).getComponentId();
+        String lock = collection.getLockName();
+        var epoch = collection.getApplyPhaseEpoch();
+        files = assertOrdinaryFamily(storage, id);
+        var manager = storage.getLinkCollectionsBtreeCollectionManager();
+        pointer = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(op -> {
+          var p = manager.createBTree(id, op, session);
+          manager.loadIsolatedBTree(p).put(op, rid,
+              new com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.LinkBagValue(
+                  1, rid.getCollectionId(), rid.getCollectionPosition(), false));
+          return p;
+        });
+        files.put(treeName(owner), storage.getWriteCache().files().get(treeName(owner)));
+        storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.NAME, "renamedordinary");
+        assertEquals(-1, storage.getCollectionIdByName(oldName));
+        assertEquals(id, storage.getCollectionIdByName("renamedordinary"));
+        assertEquals("renamedordinary", operationEntry(storage, id).name());
+        assertEquals(lock, collection.getLockName());
+        assertSame(epoch, collection.getApplyPhaseEpoch());
+        int replacement = session.addCollection(oldName);
+        assertOrdinaryFamily(storage, replacement);
+        assertFalse(owner == operationEntry(storage, replacement).getComponentId());
+        assertFalse(lock.equals(ordinary(storage, replacement).getLockName()));
+        assertNotSame(epoch, ordinary(storage, replacement).getApplyPhaseEpoch());
+        String stem = lock.substring(0, lock.length() - ".pcl".length());
+        int collision = session.addCollection(stem);
+        assertOrdinaryFamily(storage, collision);
+        assertFalse(lock.equals(ordinary(storage, collision).getLockName()));
+        assertNotSame(epoch, ordinary(storage, collision).getApplyPhaseEpoch());
+        for (var entry : files.entrySet()) {
+          assertEquals(entry.getValue(), storage.getWriteCache().files().get(entry.getKey()));
+        }
+        assertRenamedContents(session, id, rid, pointer);
+      }
+      if (type == DatabaseType.DISK) {
+        ytdb.close();
+        ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+        try (var session = open()) {
+          var storage = session.getStorage();
+          for (var entry : files.entrySet()) {
+            assertEquals(AbstractWriteCache.extractFileId(entry.getValue()),
+                AbstractWriteCache
+                    .extractFileId(storage.getWriteCache().files().get(entry.getKey())));
+          }
+          assertRenamedContents(session, id, rid, pointer);
+        }
+      }
+      ytdb.drop("counters");
+    }
+  }
+
+  private static void assertRenamedContents(DatabaseSessionEmbedded session, int id,
+      com.jetbrains.youtrackdb.internal.core.db.record.record.RID rid,
+      com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkBagPointer pointer)
+      throws Exception {
+    var storage = session.getStorage();
+    assertEquals(id, storage.getCollectionIdByName("renamedordinary"));
+    assertOrdinaryFamily(storage, id);
+    storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+      assertTrue(ordinary(storage, id).readRecord(rid.getCollectionPosition(), op)
+          .toRawBuffer().buffer().length > 0);
+      assertEquals(1, storage.getLinkCollectionsBtreeCollectionManager()
+          .loadIsolatedBTree(pointer).get(rid, op).counter());
+    });
+    assertSurvivingRecord(session, rid);
+  }
+
+  // Cold rebuild must retain computed ids, find the first reusable data page in the rebuilt FSM,
+  // preserve updated record contents, and allow further writes and reads.
+  @Test
+  public void ordinaryColdReopenRebuildsMissingAuxiliariesAtComputedIds() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    int id;
+    java.util.Map<String, Long> files;
+    var expected =
+        new HashMap<com.jetbrains.youtrackdb.internal.core.db.record.record.RID, String>();
+    try (var session = open()) {
+      session
+          .executeInTx(tx -> session.getMetadata().getSchema().createClass("RebuildOrdinary", 1));
+      var storage = session.getStorage();
+      id = session.getMetadata().getSchema().getClass("RebuildOrdinary").getCollectionIds()[0];
+      // Half-page values force multiple data pages without depending on serialization overhead.
+      for (int i = 0; i < 16; i++) {
+        String value = "original-" + i + "-" + "x".repeat(CollectionPage.PAGE_SIZE / 2);
+        var rid = session.computeInTx(tx -> {
+          var row = tx.newEntity("RebuildOrdinary");
+          row.setProperty("value", value);
+          return row.getIdentity();
+        });
+        expected.put(rid, value);
+      }
+      // Separate transactions preserve old versions and mark their start pages dirty.
+      for (var rid : new java.util.ArrayList<>(expected.keySet()).subList(0, 4)) {
+        String value = "updated-" + rid.getCollectionPosition();
+        session.executeInTx(tx -> session.load(rid).asEntity().setProperty("value", value));
+        expected.put(rid, value);
+      }
+      var collection = ordinary(storage, id);
+      var dirty = (CollectionDirtyPageBitSet) collectionField(collection, "dirtyPageBitSet");
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+        try (var entry = op.loadPageForRead(collection.getFileId(), 0)) {
+          assertTrue("Fixture must span multiple data pages",
+              new PaginatedCollectionStateV2(entry).getFileSize() > 1);
+        }
+        assertTrue("Updates must leave stale start chunks", dirty.nextSetBit(0, op) >= 0);
+      });
+      files = assertOrdinaryFamily(storage, id);
+      int owner = operationEntry(storage, id).getComponentId();
+      storage.stateLock.writeLock().lock();
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          for (var role : new PageFileRole[] {PageFileRole.FREE_SPACE_MAP,
+              PageFileRole.DIRTY_PAGE_BIT_SET}) {
+            op.deleteFile(files.get(PageFileNames.layout28(new PageFileIdentity(role, owner))));
+          }
+        });
+      } finally {
+        storage.stateLock.writeLock().unlock();
+      }
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var rebuilt = assertOrdinaryFamily(storage, id);
+      for (var name : files.keySet()) {
+        assertEquals(AbstractWriteCache.extractFileId(files.get(name)),
+            AbstractWriteCache.extractFileId(rebuilt.get(name)));
+      }
+      for (var entry : expected.entrySet()) {
+        session.executeInTx(
+            tx -> assertEquals(entry.getValue(), session.load(entry.getKey()).asEntity()
+                .getProperty("value")));
+      }
+      var collection = ordinary(storage, id);
+      var freeSpace = (FreeSpaceMap) collectionField(collection, "freeSpaceMap");
+      // Rebuilt dirty-page bits are not checked: YTDB-1578 tracks the empty rebuild.
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+        final int pageCount;
+        try (var entry = op.loadPageForRead(collection.getFileId(), 0)) {
+          pageCount = new PaginatedCollectionStateV2(entry).getFileSize();
+        }
+        // Public page access supplies an oracle independent of the rebuilt FSM.
+        int firstFreePage = -1;
+        for (int page = 1; page <= pageCount; page++) {
+          try (var entry = op.loadPageForRead(collection.getFileId(), page)) {
+            if (new CollectionPage(entry).getMaxRecordSize() >= CollectionPage.PAGE_SIZE / 256) {
+              firstFreePage = page;
+              break;
+            }
+          }
+        }
+        assertTrue("Fixture must have reusable free space", firstFreePage > 0);
+        assertEquals("Rebuilt FSM must find the first reusable data page",
+            firstFreePage, freeSpace.findFreePage(1, op));
+      });
+      for (int i = 0; i < 4; i++) {
+        String value = "inserted-after-rebuild-" + i;
+        var rid = session.computeInTx(tx -> {
+          var row = tx.newEntity("RebuildOrdinary");
+          row.setProperty("value", value);
+          return row.getIdentity();
+        });
+        session.executeInTx(
+            tx -> assertEquals(value, session.load(rid).asEntity().getProperty("value")));
+      }
+    }
+  }
+
+  // Owner-aware dispatch must reject the same unsupported versions as the legacy route.
+  @Test
+  public void ownerAwareFactoryPreservesVersionChecks() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var legacy = StorageCollectionFactory.createCollection("legacyfactory", 6, 3, storage);
+      assertEquals("legacyfactory.pcl", ((PaginatedCollectionV2) legacy).getLockName());
+      assertThrows(StorageException.class,
+          () -> StorageCollectionFactory.createCollection("bad", 5, 3, storage));
+      assertThrows(StorageException.class,
+          () -> StorageCollectionFactory.createCollection("bad", 5, 3, storage, 123));
+      for (int version : new int[] {0, 1, 2, 4}) {
+        assertThrows(IllegalStateException.class,
+            () -> StorageCollectionFactory.createCollection("bad", 6, version, storage, 123));
+      }
+    }
+  }
+
   private static Object collectionField(PaginatedCollectionV2 collection, String name)
       throws Exception {
     var field = PaginatedCollectionV2.class.getDeclaredField(name);
@@ -1042,7 +1326,7 @@ public class ComponentIdAllocationTest {
     return field.get(collection);
   }
 
-  // Layout 28 keeps display-named ordinary files and an identity-owned tree on cold open.
+  // Production creation and cold open use computed registrations for every ordinary role.
   @Test
   public void productionCollectionNamesRemainUnchangedAcrossColdReopen() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
@@ -1051,10 +1335,9 @@ public class ComponentIdAllocationTest {
     try (var session = open()) {
       var storage = session.getStorage();
       id = session.addCollection("displayfamily");
+      registered.putAll(assertOrdinaryFamily(storage, id));
       for (String ext : new String[] {".pcl", ".cpm", ".fsm", ".dpb"}) {
-        String name = "displayfamily" + ext;
-        assertTrue(storage.getWriteCache().files().containsKey(name));
-        registered.put(name, storage.getWriteCache().files().get(name));
+        assertFalse(storage.getWriteCache().files().containsKey("displayfamily" + ext));
       }
       String tree = treeName(operationEntry(storage, id).getComponentId());
       assertTrue(storage.getWriteCache().files().containsKey(tree));
@@ -1071,6 +1354,7 @@ public class ComponentIdAllocationTest {
             AbstractWriteCache.extractFileId(storage.getWriteCache().files().get(name)));
       });
       assertEquals(id, session.getCollectionIdByName("displayfamily"));
+      assertOrdinaryFamily(storage, id);
     }
   }
 
@@ -1122,6 +1406,7 @@ public class ComponentIdAllocationTest {
       assertEquals(1, cls.getCollectionIds().length);
       int id = cls.getCollectionIds()[0];
       assertCollectionIdentity(storage, id, before + 1, 1);
+      assertOrdinaryFamily(storage, id);
       assertEquals(before + 1, counter(storage, PageFileKind.COLLECTION));
       var names = new HashSet<>(session.getCollectionNames());
       var burned = new HashSet<Integer>();
@@ -1314,10 +1599,15 @@ public class ComponentIdAllocationTest {
       var storage = session.getStorage();
       var manager =
           (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+      var old = ordinary(storage, id);
       storage.stateLock.writeLock().lock();
       try {
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
           manager.deleteComponent(op, storage.captureCollectionOwner(id, op));
+          old.delete(op);
+          var zero = StorageCollectionFactory.createCollection("zeroidentity", storage, 0);
+          zero.configure(id, "zeroidentity", 0);
+          zero.create(op);
           new SharedLinkBagBTree(storage, "zero", ".grb",
               new PageFileIdentity(PageFileRole.LINK_BAG_TREE, 0)).create(op);
         });
@@ -1330,6 +1620,10 @@ public class ComponentIdAllocationTest {
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       assertCollectionIdentity(session.getStorage(), id, 0, 1);
+      assertOrdinaryFamily(session.getStorage(), id);
+      var zeroTree = new PageFileIdentity(PageFileRole.LINK_BAG_TREE, 0);
+      assertEquals(zeroTree.internalId(), AbstractWriteCache.extractFileId(
+          session.getStorage().getWriteCache().files().get(PageFileNames.layout28(zeroTree))));
       session.getStorage().setCollectionAttribute(id,
           StorageCollection.ATTRIBUTES.CONFLICTSTRATEGY, "version");
       assertCollectionIdentity(session.getStorage(), id, 0, 1);
@@ -1874,6 +2168,9 @@ public class ComponentIdAllocationTest {
         .filter(c -> c.getId() == id).findFirst().orElseThrow();
     assertEquals(originalName, collection.getName());
     assertEquals(owner, runtimeConfig(collection).getComponentId());
+    if (owner != null) {
+      assertOrdinaryFamily(storage, id);
+    }
     for (var failed : failedNames) {
       assertEquals(-1, storage.getCollectionIdByName(failed));
     }

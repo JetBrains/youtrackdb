@@ -8867,7 +8867,7 @@ public abstract class AbstractStorage
     collection =
         StorageCollectionFactory.createCollection(
             config.name(), configuration.getVersion(atomicOperation), config.getBinaryVersion(),
-            this);
+            this, ((StoragePaginatedCollectionConfiguration) config).getComponentId());
 
     collection.configure(this, config);
 
@@ -8995,6 +8995,10 @@ public abstract class AbstractStorage
       }
     }
 
+    // All creation paths hold the state write lock and carry the creation atomic operation.
+    // Allocate after the ownership guard, before construction binds the lock and epoch.
+    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_28
+        ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
     final var collection =
         StorageCollectionFactory.createCollection(
             collectionName,
@@ -9002,11 +9006,7 @@ public abstract class AbstractStorage
             configuration
                 .getContextConfiguration()
                 .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
-            this);
-    // All creation paths hold the state write lock and carry the creation atomic operation.
-    // Keep allocation here so the durable counter and collection entry commit or revert together.
-    final Integer componentId = getStorageFormat() == StorageFormat.LAYOUT_28
-        ? allocateComponentId(PageFileKind.COLLECTION, atomicOperation) : null;
+            this, componentId);
     collection.configure(collectionPos, collectionName, componentId);
     if (created != null && componentId != null) {
       // Retain this entry before collection.create or configuration update can fail.
