@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.management.ManagementFactory;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -30,6 +32,87 @@ import org.junit.experimental.categories.Category;
  */
 @Category(SequentialTest.class)
 public class MetricsRegistryTest {
+
+  /** External readers see cumulative boxed longs under stable object and attribute names. */
+  @Test
+  public void cumulativeMetricsAreReadableThroughPlatformJmx() throws Exception {
+    try (var jmx = jmxRegistry()) {
+      var engineRegistry = jmx.metrics();
+      var databaseName = "walMetrics" + UUID.randomUUID();
+      var server = ManagementFactory.getPlatformMBeanServer();
+      var database = new ObjectName(
+          "com.jetbrains.youtrackdb.metrics:scope=Database,databaseName=" + databaseName);
+      var definitions = java.util.List.of(
+          CoreMetrics.WAL_QUEUE_WAIT_COUNT, CoreMetrics.WAL_QUEUE_WAIT_TIME_NANOS,
+          CoreMetrics.WAL_VACUUM_RUN_COUNT, CoreMetrics.WAL_VACUUM_TIME_NANOS,
+          CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT);
+      var names = java.util.List.of("WalQueueWaitCount", "WalQueueWaitTimeNanos",
+          "WalVacuumRunCount", "WalVacuumTimeNanos", "WalVacuumRemovalRunCount");
+      for (int i = 0; i < definitions.size(); i++) {
+        var counter = engineRegistry.databaseMetric(definitions.get(i), databaseName);
+        assertThat(server.getAttribute(database, names.get(i))).isEqualTo(0L);
+        counter.add(7);
+        assertThat(server.getAttribute(database, names.get(i))).isEqualTo(7L);
+        assertThat(engineRegistry.databaseMetric(definitions.get(i), databaseName))
+            .isSameAs(counter);
+      }
+      var global = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+      long before = (Long) server.getAttribute(global, "DataFileFsyncCount");
+      engineRegistry.globalMetric(CoreMetrics.DATA_FILE_FSYNC_COUNT).add(3);
+      assertThat(server.getAttribute(global, "DataFileFsyncCount")).isEqualTo(before + 3);
+    }
+  }
+
+  /** The current direct-memory gauge follows allocation and release without a refresh task. */
+  @Test
+  public void directMemoryJmxReadsLiveAllocatorTotal() throws Exception {
+    try (var jmx = jmxRegistry()) {
+      var server = ManagementFactory.getPlatformMBeanServer();
+      var name = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+      var allocator =
+          com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.instance();
+      long before = (Long) server.getAttribute(name, "DirectMemoryBytes");
+      var pointer = allocator.allocate(1234, false,
+          com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.TEST);
+      try {
+        assertThat(server.getAttribute(name, "DirectMemoryBytes")).isEqualTo(before + 1234);
+      } finally {
+        allocator.deallocate(pointer);
+      }
+      assertThat(server.getAttribute(name, "DirectMemoryBytes")).isEqualTo(before);
+    }
+  }
+
+  private JmxRegistry jmxRegistry() throws Exception {
+    var engine = YouTrackDBEnginesManager.startUp(false);
+    assertThat(engine.isActive()).isTrue();
+    var engineMetrics = engine.getMetricsRegistry();
+    var global = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+    // Use a private registry only when the platform has no global MBean. The engine and its
+    // registry stay untouched, and the temporary registry owns every MBean it must remove.
+    boolean temporary = !ManagementFactory.getPlatformMBeanServer().isRegistered(global);
+    return new JmxRegistry(temporary ? new MetricsRegistry(ticker) : engineMetrics,
+        engine, engineMetrics, temporary);
+  }
+
+  private record JmxRegistry(MetricsRegistry metrics, YouTrackDBEnginesManager engine,
+      MetricsRegistry engineMetrics, boolean temporary) implements AutoCloseable {
+
+    @Override
+    public void close() throws Exception {
+      try {
+        if (temporary) {
+          metrics.shutdown();
+        }
+      } finally {
+        assertThat(engine.isActive()).isTrue();
+        assertThat(engine.getMetricsRegistry()).isSameAs(engineMetrics);
+        var global = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+        assertThat(ManagementFactory.getPlatformMBeanServer().isRegistered(global))
+            .isEqualTo(!temporary);
+      }
+    }
+  }
 
   private final StubTicker ticker = new StubTicker(1_000_000);
   private MetricsRegistry registry;

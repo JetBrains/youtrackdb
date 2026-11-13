@@ -140,6 +140,14 @@ public interface WriteAheadLog extends AutoCloseable {
   boolean cutAllSegmentsSmallerThan(long segmentId) throws IOException;
 
   /**
+   * Observes successful segment deletions by segment cutting on the current thread.
+   * Pass null to stop observing. Whole-log deletion does not notify the listener.
+   * Storage without segment files has nothing to report.
+   */
+  default void setSegmentRemovalListener(Runnable listener) {
+  }
+
+  /**
    * Predicts segment removal without changing WAL state. Reads the current segment, registered
    * retention limits, written-up-to position and retained segments under the cut's locks. Releases
    * those locks before returning. The removal decision uses the cut's same clamps and no-op test.
