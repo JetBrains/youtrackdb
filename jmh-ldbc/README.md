@@ -51,6 +51,65 @@ Each tier has single-threaded and multi-threaded concrete classes:
 
 Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available processor).
 
+## Persistent-start Gremlin workloads
+
+The `gremlin_rid*` methods start from a stored record identifier (RID).
+Each method rotates Person starts in a fixed order.
+Some methods use `g.V(rid)`.
+Others use `g.V().hasId(rid)`.
+Unit tests check both spellings against native Gremlin.
+
+Labeled KNOWS walks measure count, values and unlimited property order.
+They also measure selective firstName and lastName filters.
+A labeled WORK_AT walk filters the integer workFrom property.
+
+Membership counts use string lists of sizes 1, 8 and 32.
+A separate size-8 list alternates strings and integers.
+Its integer members do not match the stored string property.
+
+Range walks rotate the bounds (0, 20), (20, 40) and (40, 60).
+They do not sort before pagination.
+
+Unlabeled outgoing walks measure vertex count, edge count, values and unlimited order.
+One vertex count also applies a selective Person filter.
+The values and order methods use the id property.
+Both native and translated execution omit missing id values.
+Both retain vertices without id in property order.
+Setup compares their full ordered sequences.
+
+A translation entry stores a reusable plan template.
+Its cache key identifies the traversal structure and the runtime types of its values.
+A runtime RID plan reads the current RID from a parameter instead of storing a fixed RID.
+Template reuse means that calls with different RIDs use the same plan object.
+
+Each fixed membership size and member-type layout has its own cache key.
+Each range bound pair also has its own cache key.
+Other methods reuse one translation entry as starts and same-type values rotate.
+
+Setup checks native results, runtime RID plans and template reuse.
+It also checks the traversals selected by the benchmark methods.
+Setup rejects unsuitable feeds before measurement.
+Only the range feed requires at least 60 KNOWS neighbors, so every window returns 20 rows.
+It keeps suitable curated starts and fills remaining slots from candidates ranked by degree.
+
+An arm is one value of the `translatorEnabled` parameter.
+The `translatorEnabled=false` arm runs native Gremlin without translation.
+The `true` arm runs the translator.
+
+New methods have no base score in the comparison job.
+A row marked new is not a speedup over the base revision.
+The two arms compare cached translation with native execution at the head revision.
+They do not compare cached and uncached translation.
+The job report is informational.
+It does not replace the required user decisions before merge.
+
+WORK_AT has low outgoing degree in the inspected data.
+The data has no naturally mixed-type Person property.
+Setup checks the loaded data rather than assuming fixed population counts.
+Dispatch `LDBC JMH Benchmark Compare` from `develop`.
+Set `queries=gremlin` and `gremlin_arms=both`.
+Enter the pull request number of the change under test.
+
 ## Execution Time
 
 Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget. Parameter curation significantly reduces total runtime compared to the random-sampling approach.

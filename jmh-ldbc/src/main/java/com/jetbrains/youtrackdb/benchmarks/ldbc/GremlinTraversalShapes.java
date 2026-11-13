@@ -90,11 +90,36 @@ public final class GremlinTraversalShapes {
 
   /** Persistent-start workloads. Each constant has one fixed spelling in JMH. */
   enum RidShape {
-    COUNT, VALUES, ORDER, FIRST_NAME, LAST_NAME, WORK_FROM;
+    COUNT, VALUES, ORDER, FIRST_NAME, LAST_NAME, WORK_FROM,
+    // Membership sizes and class layouts deliberately have separate translation keys.
+    WITHIN_1, WITHIN_8, WITHIN_32, WITHIN_MIXED_8,
+    // Range rotates three literal bound pairs without an order step.
+    RANGE, OUT_COUNT, OUT_PERSON_COUNT, OUT_EDGE_COUNT, OUT_VALUES, OUT_ORDER;
 
     YTDBGraphTraversal<?, ?> traversal(
         YTDBGraphTraversalSource g, RidInput input, boolean hasId) {
+      return traversal(g, input, hasId, 0);
+    }
+
+    YTDBGraphTraversal<?, ?> traversal(
+        YTDBGraphTraversalSource g, RidInput input, boolean hasId, int variant) {
       var start = hasId ? g.V().hasId(input.rid()) : g.V(input.rid());
+      // Native values skips absent properties. Native property order retains vertices without
+      // the sort key. Translated output must match native placement and duplicate occurrences.
+      switch (this) {
+        case OUT_COUNT :
+          return start.out().count();
+        case OUT_PERSON_COUNT :
+          return start.out().hasLabel(PERSON_LABEL).has("firstName", input.firstName()).count();
+        case OUT_EDGE_COUNT :
+          return start.outE().count();
+        case OUT_VALUES :
+          return start.out().values("id");
+        case OUT_ORDER :
+          return start.out().order().by("id");
+        default :
+          break;
+      }
       if (this == WORK_FROM) {
         return start.outE("WORK_AT").has("workFrom", input.year())
             .inV().hasLabel("Organisation").count();
@@ -106,8 +131,20 @@ public final class GremlinTraversalShapes {
         case ORDER -> friends.order().by("id");
         case FIRST_NAME -> friends.has("firstName", input.firstName()).count();
         case LAST_NAME -> friends.has("lastName", input.lastName()).count();
+        case WITHIN_1, WITHIN_8, WITHIN_32, WITHIN_MIXED_8 ->
+            friends.has("firstName", P.within(input.members().get(ordinal() - WITHIN_1.ordinal())))
+                .count();
+        case RANGE -> friends.range(variant * 20L, variant * 20L + 20);
         default -> throw new IllegalStateException(name());
       };
+    }
+
+    boolean ordered() {
+      return this == ORDER || this == OUT_ORDER || this == RANGE;
+    }
+
+    int variants() {
+      return this == RANGE ? 3 : 1;
     }
 
     boolean hasId() {
@@ -115,7 +152,26 @@ public final class GremlinTraversalShapes {
     }
   }
 
-  record RidInput(Object rid, String firstName, String lastName, Integer year) {
+  record RidInput(Object rid, String firstName, String lastName, Integer year,
+      List<List<Object>> members) {
+
+    RidInput(Object rid, String firstName, String lastName, Integer year) {
+      this(rid, firstName, lastName, year, membershipLists(firstName));
+    }
+
+    private static List<List<Object>> membershipLists(String name) {
+      var lists = new java.util.ArrayList<List<Object>>();
+      for (int size : new int[] {1, 8, 32, 8}) {
+        boolean mixed = lists.size() == 3;
+        var values = new java.util.ArrayList<Object>();
+        values.add(name);
+        for (int i = 1; i < size; i++) {
+          values.add(mixed && i % 2 != 0 ? i : name + "-membership-" + i);
+        }
+        lists.add(java.util.Collections.unmodifiableList(values));
+      }
+      return List.copyOf(lists);
+    }
   }
 
   /** Check before consumption: lazy boundaries expose their shared closed template here. */
@@ -172,7 +228,13 @@ public final class GremlinTraversalShapes {
     }
   }
 
-  /** Trial-only proof of native agreement, translation-entry reuse and template identity. */
+  static void requireTranslationMiss(GremlinPlanCache cache, long hits, long misses) {
+    if (cache.getTranslationHits() != hits || cache.getTranslationMisses() != misses + 1) {
+      throw new IllegalStateException("Expected exactly one distinct translation key");
+    }
+  }
+
+  /** Trial-only proof of native agreement, exact key counts and template identity. */
   static void checkRidShapes(YTDBGraphTraversalSource g, List<RidInput> feed, boolean work,
       boolean bothSpellings) {
     requireRidFeed(feed, work);
@@ -180,47 +242,155 @@ public final class GremlinTraversalShapes {
         GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
     boolean before = flag.getValueAsBoolean();
     try {
-      for (var shape : RidShape.values()) {
-        if ((shape == RidShape.WORK_FROM) != work) {
-          continue;
-        }
-        for (boolean hasId : bothSpellings ? new boolean[] {false, true}
-            : new boolean[] {shape.hasId()}) {
-          Object template = null;
-          for (var input : feed) {
-            flag.setValue(false);
-            var expected = g.computeInTx(t -> {
-              var traversal = shape.traversal(t, input, hasId).asAdmin();
-              traversal.applyStrategies();
-              requireNotTranslated(shape.name(), traversal);
-              return ridResult(traversal.toList(), shape == RidShape.ORDER);
-            });
-            flag.setValue(true);
-            final Object previous = template;
-            template = g.computeInTx(t -> {
-              var traversal = shape.traversal(t, input, hasId).asAdmin();
-              var cache = GremlinPlanCache.instance(YTDBStrategyUtil.resolveYtdbSession(traversal));
-              if (previous == null) {
-                // Start this validity probe with no prewarmed RID/value-specific entries.
-                // This is setup only, not a cold-cache timing measurement.
-                cache.invalidate();
+      var templates = new LinkedHashMap<String, InternalExecutionPlan>();
+      boolean[] cold = {true};
+      // A second pass proves every deliberate key is warm, including all three range pairs.
+      for (int pass = 0; pass < 2; pass++) {
+        for (var shape : RidShape.values()) {
+          if ((shape == RidShape.WORK_FROM) != work) {
+            continue;
+          }
+          for (boolean hasId : bothSpellings ? new boolean[] {false, true}
+              : new boolean[] {shape.hasId()}) {
+            for (int variant = 0; variant < shape.variants(); variant++) {
+              final int bound = variant;
+              // The translator canonicalizes written outE().count() to out().count().
+              var keyShape = shape == RidShape.OUT_EDGE_COUNT ? RidShape.OUT_COUNT : shape;
+              String key = keyShape + ":" + hasId + ":" + bound;
+              for (var input : feed) {
+                flag.setValue(false);
+                var expected = g.computeInTx(t -> {
+                  var traversal = shape.traversal(t, input, hasId, bound).asAdmin();
+                  traversal.applyStrategies();
+                  requireNotTranslated(shape.name(), traversal);
+                  return ridResult(traversal.toList(), shape.ordered());
+                });
+                flag.setValue(true);
+                final Object previous = templates.get(key);
+                var template = g.computeInTx(t -> {
+                  var traversal = shape.traversal(t, input, hasId, bound).asAdmin();
+                  var cache =
+                      GremlinPlanCache.instance(YTDBStrategyUtil.resolveYtdbSession(traversal));
+                  if (cold[0]) {
+                    // Discard prewarmed entries once, then check distinctions across all shapes.
+                    cache.invalidate();
+                    cold[0] = false;
+                  }
+                  long hits = cache.getTranslationHits();
+                  long misses = cache.getTranslationMisses();
+                  var plan = requireRuntimeRid(traversal);
+                  if (previous != null) {
+                    requireTranslationHit(cache, hits, misses);
+                  } else {
+                    requireTranslationMiss(cache, hits, misses);
+                  }
+                  if (previous != null && previous != plan) {
+                    throw new IllegalStateException(
+                        "Runtime RID template was not reused: " + shape);
+                  }
+                  requireRidResult(expected, ridResult(traversal.toList(), shape.ordered()));
+                  return plan;
+                });
+                templates.put(key, template);
               }
-              long hits = cache.getTranslationHits();
-              long misses = cache.getTranslationMisses();
-              var plan = requireRuntimeRid(traversal);
-              if (previous != null) {
-                requireTranslationHit(cache, hits, misses);
-              }
-              if (previous != null && previous != plan) {
-                throw new IllegalStateException("Runtime RID template was not reused: " + shape);
-              }
-              requireRidResult(expected, ridResult(traversal.toList(), shape == RidShape.ORDER));
-              return plan;
-            });
+            }
           }
         }
       }
     } finally {
+      flag.setValue(before);
+    }
+  }
+
+  /** The selected builder and its actual traversal, observed before consumption. */
+  record RidInvocation(RidShape shape, RidInput input, boolean hasId, int variant,
+      Traversal.Admin<?, ?> traversal) {
+  }
+
+  /** Check real JMH entry points against independently selected workloads and warm templates. */
+  static void checkRidBenchmarks(YTDBGraphTraversalSource g,
+      LdbcGremlinTranslatorBenchmark.TranslatorArm arm,
+      LdbcGremlinTranslatorBenchmark benchmark) {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    var observerBefore = arm.ridObserver;
+    try {
+      for (var shape : RidShape.values()) {
+        String suffix = switch (shape) {
+          case COUNT -> "Count";
+          case VALUES -> "Values";
+          case ORDER -> "Order";
+          case FIRST_NAME -> "FirstNameCount";
+          case LAST_NAME -> "LastNameCount";
+          case WORK_FROM -> "WorkFromCount";
+          case WITHIN_1 -> "Within1Count";
+          case WITHIN_8 -> "Within8Count";
+          case WITHIN_32 -> "Within32Count";
+          case WITHIN_MIXED_8 -> "WithinMixed8Count";
+          case RANGE -> "Range";
+          case OUT_COUNT -> "OutCount";
+          case OUT_PERSON_COUNT -> "OutPersonCount";
+          case OUT_EDGE_COUNT -> "OutEdgeCount";
+          case OUT_VALUES -> "OutValues";
+          case OUT_ORDER -> "OutOrder";
+        };
+        var method = LdbcGremlinTranslatorBenchmark.class.getMethod("gremlin_rid" + suffix,
+            LdbcBenchmarkState.class, LdbcGremlinTranslatorBenchmark.TranslatorArm.class);
+        var feed = shape == RidShape.RANGE ? arm.ridRange
+            : shape == RidShape.WORK_FROM ? arm.ridWork : arm.ridKnows;
+        for (boolean enabled : new boolean[] {false, true}) {
+          // A separate counter makes expected inputs independent of the benchmark body.
+          var state = new LdbcBenchmarkState();
+          state.traversal = g;
+          for (int i = 0; i < Math.max(feed.size() * 2, shape.variants() * 2); i++) {
+            var input = feed.get(i % feed.size());
+            int variant = i % shape.variants();
+            flag.setValue(false);
+            var expected = g.computeInTx(t -> ridResult(
+                shape.traversal(t, input, shape.hasId(), variant).toList(), shape.ordered()));
+            flag.setValue(true);
+            var template = g.computeInTx(t -> {
+              var traversal = shape.traversal(t, input, shape.hasId(), variant).asAdmin();
+              var plan = requireRuntimeRid(traversal);
+              traversal.toList();
+              return plan;
+            });
+            flag.setValue(enabled);
+            int[] observations = {0};
+            arm.ridObserver = selected -> {
+              observations[0]++;
+              if (selected.shape() != shape || !selected.input().equals(input)
+                  || selected.hasId() != shape.hasId() || selected.variant() != variant) {
+                throw new IllegalStateException("Wrong RID benchmark workload: " + suffix);
+              }
+              var traversal = selected.traversal();
+              if (enabled) {
+                var cache = GremlinPlanCache.instance(
+                    YTDBStrategyUtil.resolveYtdbSession(traversal));
+                long hits = cache.getTranslationHits();
+                long misses = cache.getTranslationMisses();
+                var actualTemplate = requireRuntimeRid(traversal);
+                requireTranslationHit(cache, hits, misses);
+                if (actualTemplate != template) {
+                  throw new IllegalStateException("Wrong RID benchmark template: " + suffix);
+                }
+              } else {
+                traversal.applyStrategies();
+                requireNotTranslated(suffix, traversal);
+              }
+            };
+            var actual = (List<?>) method.invoke(benchmark, state, arm);
+            if (observations[0] != 1) {
+              throw new IllegalStateException("Missing RID benchmark observation: " + suffix);
+            }
+            requireRidResult(expected, ridResult(actual, shape.ordered()));
+          }
+        }
+      }
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("RID benchmark invocation failed", e);
+    } finally {
+      arm.ridObserver = observerBefore;
       flag.setValue(before);
     }
   }
