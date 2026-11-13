@@ -463,13 +463,16 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
   private AbstractStorage getAndOpenStorage(String name, YouTrackDBConfigImpl config) {
     var registeredStorage = storages.get(name);
     var storage = getOrInitStorage(name);
-    // THIS OPEN THE STORAGE ONLY THE FIRST TIME
+    final boolean wasClosed = storage.isClosed(null);
     try {
       // THIS OPEN THE STORAGE ONLY THE FIRST TIME
       storage.open(config.getConfiguration());
     } catch (RuntimeException e) {
-      storages.remove(storage.getName());
-      if (registeredStorage != storage) {
+      // A rejected reuse open must keep the live storage available to its sessions.
+      if (wasClosed) {
+        storages.remove(storage.getName());
+      }
+      if (wasClosed && registeredStorage != storage) {
         // This call created the storage, and the failed open leaves no usable storage behind.
         // The storage identifier therefore returns to the pool of free identifiers. A retained
         // identifier would leak one entry of the static identifier set on every failed open.
@@ -858,7 +861,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     try (var prepared =
         DiskStorage.prepareBackupChain(name, ibuFilesSupplier, ibuInputStreamSupplier,
             expectedUUID, preparedCopyOutputDecoratorForTesting)) {
-      restoreStorage(name, (YouTrackDBConfigImpl) config, prepared.sourceFormat(),
+      var solvedConfig = solveConfig((YouTrackDBConfigImpl) config);
+      prepared.checkPageSize(solvedConfig.getConfiguration());
+      restoreStorage(name, solvedConfig, prepared.sourceFormat(),
           storage -> storage.restoreFromPreparedBackupChain(prepared));
     }
   }
@@ -950,6 +955,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         // The repeated check runs immediately before the first destructive step. A target that
         // became a healthy database during the preparation therefore survives the restart.
         requireInterruptedRestoreTarget(name, targetPath);
+        prepared.checkPageSize(solvedConfig.getConfiguration());
         // The registration of an earlier failed restore attempt of this process leaves now. The
         // registration would otherwise pin an open storage over the deleted files.
         discardRestoreTargetRegistration(name, targetPath);

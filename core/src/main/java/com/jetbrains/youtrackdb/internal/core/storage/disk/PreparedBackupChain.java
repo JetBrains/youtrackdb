@@ -78,6 +78,14 @@ public final class PreparedBackupChain implements AutoCloseable {
     this.complete = true;
   }
 
+  /** Checks the fixed process size again before a caller changes its target. */
+  public void checkPageSize(
+      com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration configuration) {
+    requireComplete();
+    com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .checkConfiguration(configuration);
+  }
+
   /** Returns the admitted source layout only while this fully prepared request is open. */
   public StorageFormat sourceFormat() {
     requireComplete();
