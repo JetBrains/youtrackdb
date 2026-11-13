@@ -324,6 +324,9 @@ public class WOWCacheFlushErrorTest {
     final var pool = Mockito.spy(new ByteBufferPool(PAGE_SIZE));
     setField(cache, "bufferPool", pool);
     final var doubleWriteLog = mock(DoubleWriteLog.class);
+    when(doubleWriteLog.write(Mockito.any(), Mockito.any(), Mockito.any()))
+        .thenReturn(new DoubleWriteLog.AppendResult(null, false, 0));
+    setField(cache, "pageRetentionState", new PageRetentionState(() -> true));
     setField(cache, "doubleWriteLog", doubleWriteLog);
     final var file = mock(File.class);
     final var entry = new ClosableEntry<Long, File>(file);

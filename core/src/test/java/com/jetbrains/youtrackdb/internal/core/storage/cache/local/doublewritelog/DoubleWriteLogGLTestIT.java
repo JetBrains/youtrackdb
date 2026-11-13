@@ -776,7 +776,7 @@ public class DoubleWriteLogGLTestIT {
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
-                  IntArrayList.of(45));
+                  IntArrayList.of(45)).syncRequired();
           Assert.assertTrue(overflow && i > 0 || i == 0 && !overflow);
         }
 
@@ -986,7 +986,7 @@ public class DoubleWriteLogGLTestIT {
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
-                  IntArrayList.of(45));
+                  IntArrayList.of(45)).syncRequired();
           Assert.assertFalse(overflow);
         }
 
@@ -1011,7 +1011,7 @@ public class DoubleWriteLogGLTestIT {
               doubleWriteLog.write(
                   new ArrayList<>(Collections.singleton(ByteBuffer.allocate(pageSize))),
                   IntArrayList.of(12),
-                  IntArrayList.of(45));
+                  IntArrayList.of(45)).syncRequired();
           Assert.assertTrue(overflow);
         }
 

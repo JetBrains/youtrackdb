@@ -14,6 +14,20 @@ import java.util.concurrent.ThreadFactory;
  */
 public class ScheduledThreadPoolExecutorWithLogging extends ScheduledThreadPoolExecutor {
 
+  private static final ThreadLocal<ScheduledThreadPoolExecutorWithLogging> CURRENT =
+      new ThreadLocal<>();
+
+  /** Returns true only while this executor is running a task on its worker. */
+  public boolean isExecutingOnCurrentThread() {
+    return CURRENT.get() == this;
+  }
+
+  @Override
+  protected void beforeExecute(Thread thread, Runnable task) {
+    super.beforeExecute(thread, task);
+    CURRENT.set(this);
+  }
+
   public ScheduledThreadPoolExecutorWithLogging(int corePoolSize, ThreadFactory threadFactory) {
     super(corePoolSize, threadFactory);
     // Remove cancelled tasks from the queue immediately to prevent accumulation
@@ -30,6 +44,7 @@ public class ScheduledThreadPoolExecutorWithLogging extends ScheduledThreadPoolE
 
   @Override
   protected void afterExecute(Runnable r, Throwable t) {
+    CURRENT.remove();
     super.afterExecute(r, t);
 
     if ((t == null) && r instanceof Future<?> future) {
