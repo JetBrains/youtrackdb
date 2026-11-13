@@ -7,6 +7,8 @@ import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -196,6 +198,164 @@ public class LdbcGremlinShapeTranslationTest {
 
     aliceRid = g.computeInTx(
         t -> t.V().hasLabel(GremlinTraversalShapes.PERSON_LABEL).has("id", ALICE).next().id());
+  }
+
+  /** Both spellings use real runtime plans and reuse templates after RID and value rebinding. */
+  @Test
+  public void persistentRidShapesReuseRuntimeTemplatesAndAgreeWithNative() throws Exception {
+    var bobRid = g.computeInTx(t -> t.V().hasLabel("Person").has("id", BOB).next().id());
+    var knows = List.of(
+        new GremlinTraversalShapes.RidInput(aliceRid, "Bob", "Bobson", null),
+        new GremlinTraversalShapes.RidInput(bobRid, "Dave", "Daveson", null));
+    var work = List.of(
+        new GremlinTraversalShapes.RidInput(bobRid, null, null, 2008),
+        new GremlinTraversalShapes.RidInput(aliceRid, null, null, 2009));
+    GremlinTraversalShapes.checkRidShapes(g, knows, false, true);
+    GremlinTraversalShapes.checkRidShapes(g, work, true, true);
+
+    // Drive the actual JMH entry points. Two values and two vertices catch first-row consumption.
+    var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+    arm.ridKnows = knows;
+    arm.ridWork = work;
+    var state = new LdbcBenchmarkState();
+    state.traversal = g;
+    var benchmark = new LdbcGremlinTranslatorBenchmark();
+    assertEquals(List.of(2L), benchmark.gremlin_ridCount(state, arm));
+    assertEquals(Map.of("Alice", 1L, "Dave", 1L),
+        GremlinTraversalShapes.ridResult(benchmark.gremlin_ridValues(state, arm), false));
+    assertEquals(2, benchmark.gremlin_ridOrder(state, arm).size());
+    assertEquals(List.of(1L), benchmark.gremlin_ridFirstNameCount(state, arm));
+    assertEquals(List.of(1L), benchmark.gremlin_ridLastNameCount(state, arm));
+    assertEquals(List.of(0L), benchmark.gremlin_ridWorkFromCount(state, arm));
+    for (var name : List.of("Count", "Values", "Order", "FirstNameCount", "LastNameCount",
+        "WorkFromCount")) {
+      org.junit.Assert.assertNotNull(LdbcGremlinTranslatorBenchmark.class
+          .getMethod("gremlin_rid" + name, LdbcBenchmarkState.class, arm.getClass())
+          .getAnnotation(org.openjdk.jmh.annotations.Benchmark.class));
+    }
+  }
+
+  /** Bob's one 2008 job matches 2008 but not 2009, through the real JMH body on both arms. */
+  @Test
+  public void persistentRidWorkFromBenchmarkRebindsMatchingAndNonmatchingYears() {
+    var bobRid = g.computeInTx(t -> t.V().hasLabel("Person").has("id", BOB).next().id());
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+      var state = new LdbcBenchmarkState();
+      state.traversal = g;
+      var benchmark = new LdbcGremlinTranslatorBenchmark();
+      for (boolean enabled : new boolean[] {false, true}) {
+        flag.setValue(enabled);
+        for (int year : new int[] {2008, 2009, 2008}) {
+          arm.ridWork = List.of(new GremlinTraversalShapes.RidInput(bobRid, null, null, year));
+          assertEquals(List.of(year == 2008 ? 1L : 0L),
+              benchmark.gremlin_ridWorkFromCount(state, arm));
+        }
+      }
+    } finally {
+      flag.setValue(before);
+    }
+  }
+
+  /** Equal text must not hide Long/Integer/String mismatches in either result representation. */
+  @Test
+  public void persistentRidResultComparisonPreservesScalarTypes() {
+    for (boolean ordered : new boolean[] {false, true}) {
+      var expected = GremlinTraversalShapes.ridResult(List.of(1L), ordered);
+      for (var wrong : List.of(List.of(1), List.of("1"))) {
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.requireRidResult(expected,
+                GremlinTraversalShapes.ridResult(wrong, ordered)));
+      }
+    }
+  }
+
+  /** A real cold translation miss fails the hit check, and the next identical query passes. */
+  @Test
+  public void persistentRidTranslationReuseCheckRejectsMiss() {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      flag.setValue(true);
+      g.executeInTx(t -> {
+        var input = new GremlinTraversalShapes.RidInput(aliceRid, null, null, null);
+        var shape = GremlinTraversalShapes.RidShape.COUNT;
+        var cold = shape.traversal(t, input, false).asAdmin();
+        var cache = GremlinPlanCache.instance(YTDBStrategyUtil.resolveYtdbSession(cold));
+        cache.invalidate();
+        long coldHits = cache.getTranslationHits();
+        long coldMisses = cache.getTranslationMisses();
+        GremlinTraversalShapes.requireRuntimeRid(cold);
+        cold.toList();
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.requireTranslationHit(cache, coldHits, coldMisses));
+        long hits = cache.getTranslationHits();
+        long misses = cache.getTranslationMisses();
+        var warm = shape.traversal(t, input, false).asAdmin();
+        GremlinTraversalShapes.requireRuntimeRid(warm);
+        warm.toList();
+        GremlinTraversalShapes.requireTranslationHit(cache, hits, misses);
+      });
+    } finally {
+      flag.setValue(before);
+    }
+  }
+
+  /** Trial preparation selects useful feeds and restores the caller's native arm after all probes. */
+  @Test
+  public void persistentRidTrialPreparationBuildsDiscriminatingFeedsAndRestoresFlag() {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      g.executeInTx(t -> t.yql(
+          "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = 1)"
+              + " TO (SELECT FROM Organisation WHERE id = 50) SET workFrom = 2009")
+          .iterate());
+      flag.setValue(false);
+      var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+      arm.personRids = new Object[] {aliceRid};
+      var state = new LdbcBenchmarkState();
+      state.traversal = g;
+      arm.buildRidFeeds(state);
+      org.junit.Assert.assertFalse(flag.getValueAsBoolean());
+      org.junit.Assert.assertTrue(arm.ridKnows.size() >= 2);
+      assertEquals(2, arm.ridWork.size());
+    } finally {
+      g.executeInTx(t -> t.yql("DELETE EDGE WORK_AT WHERE workFrom = 2009").iterate());
+      flag.setValue(before);
+    }
+  }
+
+  /** Wrong native and literal routes, wrong counts, lost duplicates and wrong order must fail. */
+  @Test
+  public void persistentRidValidityChecksRejectWrongRoutesResultsAndFeeds() {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      for (boolean enabled : new boolean[] {false, true}) {
+        flag.setValue(enabled);
+        g.executeInTx(t -> org.junit.Assert.assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.requireRuntimeRid(t.V(aliceRid).asAdmin())));
+      }
+      org.junit.Assert.assertThrows(IllegalStateException.class,
+          () -> GremlinTraversalShapes.requireRidResult(List.of("2"), List.of("1")));
+      org.junit.Assert.assertThrows(IllegalStateException.class,
+          () -> GremlinTraversalShapes.requireRidResult(List.of("Bob", "Bob"), List.of("Bob")));
+      org.junit.Assert.assertThrows(IllegalStateException.class,
+          () -> GremlinTraversalShapes.requireRidResult(List.of("Alice", "Bob"),
+              List.of("Bob", "Alice")));
+      for (boolean work : new boolean[] {false, true}) {
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.requireRidFeed(List.of(), work));
+        var input = new GremlinTraversalShapes.RidInput(aliceRid, "Bob", "Bobson", 2008);
+        org.junit.Assert.assertThrows(IllegalStateException.class,
+            () -> GremlinTraversalShapes.requireRidFeed(List.of(input, input), work));
+      }
+    } finally {
+      flag.setValue(before);
+    }
   }
 
   @AfterClass

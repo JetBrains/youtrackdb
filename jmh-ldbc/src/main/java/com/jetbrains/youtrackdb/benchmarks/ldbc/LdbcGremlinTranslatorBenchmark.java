@@ -122,7 +122,7 @@ public class LdbcGremlinTranslatorBenchmark {
     private static final int POOL_SIZE = 64;
 
     private long[] personIds;
-    private Object[] personRids;
+    Object[] personRids;
     private long[] messageIds;
     private String[] placeNames;
     /**
@@ -135,6 +135,61 @@ public class LdbcGremlinTranslatorBenchmark {
     private long[] ic2PersonIds;
     private Date[] ic2MaxDates;
     private boolean flagBeforeTrial;
+
+    List<GremlinTraversalShapes.RidInput> ridKnows;
+    List<GremlinTraversalShapes.RidInput> ridWork;
+
+    /** Bounded candidate probes, global rarity counts and native comparisons are trial-only. */
+    void buildRidFeeds(LdbcBenchmarkState state) {
+      var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+      boolean before = flag.getValueAsBoolean();
+      ridKnows = new ArrayList<>();
+      ridWork = new ArrayList<>();
+      try {
+        flag.setValue(false);
+        state.traversal.executeInTx(t -> {
+          var first = t.V().hasLabel("Person").values("firstName").groupCount().next();
+          var last = t.V().hasLabel("Person").values("lastName").groupCount().next();
+          var candidates = new java.util.LinkedHashSet<Object>(List.of(personRids));
+          candidates.addAll(t.V().hasLabel("Person").order()
+              .by(com.jetbrains.youtrackdb.api.gremlin.__.out("KNOWS").count(),
+                  org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+              .by("id").limit(256).id().toList());
+          for (var rid : candidates) {
+            var friends = t.V(rid).out("KNOWS").hasLabel("Person").toList();
+            var names =
+                friends.stream().filter(v -> first.getOrDefault(v.value("firstName"), 0L) <= 10
+                    && last.getOrDefault(v.value("lastName"), 0L) <= 10).toList();
+            if (ridKnows.size() < POOL_SIZE && friends.size() > 1 && !names.isEmpty()) {
+              var friend = names.getFirst();
+              String f = friend.value("firstName");
+              String l = friend.value("lastName");
+              long fm = friends.stream().filter(v -> f.equals(v.value("firstName"))).count();
+              long lm = friends.stream().filter(v -> l.equals(v.value("lastName"))).count();
+              if (fm < friends.size() && lm < friends.size()) {
+                ridKnows.add(new GremlinTraversalShapes.RidInput(rid, f, l, null));
+                System.out.printf("RID KNOWS degree=%d firstNameMatches=%d lastNameMatches=%d%n",
+                    friends.size(), fm, lm);
+              }
+            }
+            if (ridWork.size() < POOL_SIZE) {
+              var years = t.V(rid).outE("WORK_AT").<Integer>values("workFrom").toList();
+              if (!years.isEmpty()) {
+                Integer year = years.getFirst();
+                ridWork.add(new GremlinTraversalShapes.RidInput(rid, null, null, year));
+                System.out.printf("RID WORK_AT degree=%d matches=%d (low-degree case)%n",
+                    years.size(), years.stream().filter(year::equals).count());
+              }
+            }
+          }
+        });
+        System.out.printf("RID feed sizes: KNOWS=%d WORK_AT=%d%n", ridKnows.size(), ridWork.size());
+        GremlinTraversalShapes.checkRidShapes(state.traversal, ridKnows, false, false);
+        GremlinTraversalShapes.checkRidShapes(state.traversal, ridWork, true, false);
+      } finally {
+        flag.setValue(before);
+      }
+    }
 
     /**
      * Resolves the id and RID pools and proves the arm is really installed.
@@ -216,6 +271,7 @@ public class LdbcGremlinTranslatorBenchmark {
       buildIc2DatePool(state);
 
       checkArmInstalled(state);
+      buildRidFeeds(state);
     }
 
     /**
@@ -371,6 +427,60 @@ public class LdbcGremlinTranslatorBenchmark {
     Date ic9MaxDate(long idx) {
       return ic2MaxDate(idx);
     }
+  }
+
+  /** LDBC: none. Rotating persistent RID count workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.COUNT;
+    var feed = arm.ridKnows;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
+  }
+
+  /** LDBC: none. Rotating persistent RID values workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridValues(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.VALUES;
+    var feed = arm.ridKnows;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
+  }
+
+  /** LDBC: none. Rotating persistent RID order workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridOrder(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.ORDER;
+    var feed = arm.ridKnows;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
+  }
+
+  /** LDBC: none. Rotating persistent RID first_name workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridFirstNameCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.FIRST_NAME;
+    var feed = arm.ridKnows;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
+  }
+
+  /** LDBC: none. Rotating persistent RID last_name workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridLastNameCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.LAST_NAME;
+    var feed = arm.ridKnows;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
+  }
+
+  /** LDBC: none. Rotating persistent RID work_from workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridWorkFromCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    var shape = GremlinTraversalShapes.RidShape.WORK_FROM;
+    var feed = arm.ridWork;
+    var input = feed.get((int) (state.nextIndex() % feed.size()));
+    return state.traversal.computeInTx(t -> shape.traversal(t, input, shape.hasId()).toList());
   }
 
   // ---------------------------------------------------------------------------------------------
