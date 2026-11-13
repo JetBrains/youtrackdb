@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -493,6 +494,9 @@ public abstract class AbstractStorage
   private final Stopwatch dropDuration;
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
+  private final Counter walVacuumRunCount;
+  private final Counter walVacuumTimeNanos;
+  private final Counter walVacuumRemovalRunCount;
 
   // Per-thread holder for the minimum active operation timestamp (tsMin).
   // Used by the low-water-mark GC to determine which snapshot index entries are safe to evict.
@@ -633,6 +637,11 @@ public abstract class AbstractStorage
     shutdownDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
         .databaseMetric(CoreMetrics.DATABASE_SHUTDOWN_DURATION, this.name);
+    var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    walVacuumRunCount = metrics.databaseMetric(CoreMetrics.WAL_VACUUM_RUN_COUNT, this.name);
+    walVacuumTimeNanos = metrics.databaseMetric(CoreMetrics.WAL_VACUUM_TIME_NANOS, this.name);
+    walVacuumRemovalRunCount =
+        metrics.databaseMetric(CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT, this.name);
   }
 
   protected static String normalizeName(String name) {
@@ -10498,6 +10507,10 @@ public abstract class AbstractStorage
   }
 
   void runWALVacuum() {
+    final var start = System.nanoTime();
+    walVacuumRunCount.add(1);
+    final var removed = new boolean[1];
+    WriteAheadLog observedWal = null;
     var coordinatorStarted = false;
     stateLock.readLock().lock();
     try {
@@ -10506,6 +10519,9 @@ public abstract class AbstractStorage
         return;
       }
 
+      // Bind observation to the WAL protected by this lock, including after a reopen.
+      observedWal = writeAheadLog;
+      observedWal.setSegmentRemovalListener(() -> removed[0] = true);
       final var nonActiveSegments = writeAheadLog.nonActiveSegments();
       if (nonActiveSegments.length == 0) {
         return;
@@ -10579,8 +10595,18 @@ public abstract class AbstractStorage
             e, name);
       }
     } finally {
-      stateLock.readLock().unlock();
-      walVacuumInProgress.set(false);
+      try {
+        if (observedWal != null) {
+          observedWal.setSegmentRemovalListener(null);
+        }
+        if (removed[0]) {
+          walVacuumRemovalRunCount.add(1);
+        }
+        walVacuumTimeNanos.add(System.nanoTime() - start);
+      } finally {
+        stateLock.readLock().unlock();
+        walVacuumInProgress.set(false);
+      }
     }
   }
 

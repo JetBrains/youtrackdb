@@ -15,6 +15,28 @@ public interface MetricType<M extends Metric<?>> {
 
   Class<?> valueType();
 
+  class CounterType implements MetricType<Counter> {
+
+    @Override
+    public Counter create(Ticker ticker) {
+      return Counter.create();
+    }
+
+    @Override
+    public Counter noop() {
+      return Counter.NOOP;
+    }
+
+    @Override
+    public Class<?> valueType() {
+      return Long.class;
+    }
+  }
+
+  static CounterType counter() {
+    return new CounterType();
+  }
+
   class GaugeType<T> implements MetricType<Gauge<T>> {
 
     private final Class<T> valueType;
